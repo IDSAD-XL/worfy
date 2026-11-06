@@ -304,12 +304,17 @@
 //                                    07), the refusal in words, its first 1000 characters. A run
 //                                    that waited for its Orchestrator and was cancelled says
 //                                    `start-cancelled`, without a message
-//   orchestrator-returned            after a run-stopped with live tasks: they have ended and the
+//   orchestrator-returned [tasks]    after a run-stopped with live tasks: they have ended and the
 //                                    Orchestrator runs as a person's Session again; after
-//                                    `user-force-stop`: it was given back at once (ADR-0050)
+//                                    `user-force-stop`: it was given back at once (ADR-0050); after
+//                                    any other stop but `user-stop`: it was given back at once as it
+//                                    runs, and `tasks` names the tasks that live on in the person's
+//                                    Session (worfy-autopilot-queue ticket 08; none: only a turn ran)
 //   tasks-killed   reason, tasks     the background tasks a stopped run still waited for were
 //                                    killed; reason: `app-quit`, tasks: none when the run waited
-//                                    only for a turn of the Orchestrator still running; or
+//                                    only for a turn of the Orchestrator still running (also the
+//                                    tasks of a Session given back as it runs that still lived at
+//                                    the quit, worfy-autopilot-queue ticket 08); or
 //                                    `user-force-stop`: the tasks alive at the Force stop, or
 //                                    started by the turn it interrupted, ended with the
 //                                    Orchestrator's process (ADR-0050), written only when there
@@ -544,7 +549,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('gate-queue', { text }),
   event('gate-queue-finished', {}),
   event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional(), actual, message: z.string().max(LAST_TEXT_MAX).optional() }),
-  event('orchestrator-returned', {}),
+  event('orchestrator-returned', { tasks: tasks.optional() }),
   event('tasks-killed', { reason: text, tasks }),
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>

@@ -36,7 +36,8 @@ export const autopilotStateSchema = z.object({
   wave: z.number().int().nonnegative(),
   /**
    * The live background tasks of the run's Orchestrator Session (ADR-0029), ambient ones left out;
-   * 0 when the run is stopped.
+   * for a stopped run, those still alive in the Session it gave back to a person as it runs
+   * (worfy-autopilot-queue ticket 08), else 0.
    */
   backgroundTasks: z.number().int().nonnegative(),
   /** While `waiting`: when the run sends the Orchestrator on, in milliseconds since the epoch; else null. */
@@ -261,7 +262,8 @@ export interface StatusLineOptions {
  * worfy-resource-planner ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
  * temporary API error, worfy-retry ticket 04), `waiting for the Orchestrator · 4 min` (a run accepted
  * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
- * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`.
+ * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: turn error · 3 background
+ * tasks still run` (the tasks that live on in the Session a stopped run gave back to a person, worfy-autopilot-queue ticket 08).
  */
 export function autopilotStatusLine(
   state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
@@ -302,7 +304,10 @@ export function autopilotStatusLine(
     return `${what} · resumes ${at(state.resumesAt)}`
   }
   if (state.reason === null) return null
-  return `stopped: ${state.reason.replaceAll('-', ' ')}`
+  const stopped = `stopped: ${state.reason.replaceAll('-', ' ')}`
+  // Tasks that live on in the Session the run gave back to a person as it runs (worfy-autopilot-queue ticket 08).
+  const tasks = state.backgroundTasks ?? 0
+  return tasks > 0 ? `${stopped} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'} still run${tasks === 1 ? 's' : ''}` : stopped
 }
 
 /** The chip of the Autopilot action while the Harness in main is newer than this build's (worfy-harness ticket 21). */

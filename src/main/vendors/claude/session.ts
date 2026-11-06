@@ -15,7 +15,9 @@
 // (unattendedCanUseTool, worfy-auto-approve ticket 04): at Off it refuses every call at once, and each
 // refusal reaches its subscribers as a `refused_dialog` event; at Shadow and On it asks the approval
 // policy, whose every decision is an `auto_approval` event; a request it parks in On waits for the owner
-// on the Session's gate (worfy-auto-approve ticket 07, src/main/agent/auto-approve/park.ts).
+// on the Session's gate (worfy-auto-approve ticket 07, src/main/agent/auto-approve/park.ts). Which of the two
+// answers is chosen at each call (SessionStart.unattended): a stopped run gives its Session back to a person
+// without a new process (worfy-autopilot-queue ticket 08), and from then on the person is asked.
 //
 // `null` — "Default" in the pickers — is the user's own model and effort from ~/.claude/settings.json
 // (worfy-daily ticket 23; user-model.ts): setModel(null) on a live query calls setModel with that
@@ -233,6 +235,17 @@ export function unattendedCanUseTool(
     const hint = decision.outcome === 'park' ? HINTS.parkPending : decision.hint
     return { behavior: 'deny', message: hint === null ? message : approvalDeniedMessage(reason, hint) }
   }
+}
+
+/**
+ * canUseTool of one process: the unattended answer while `opts.unattended` holds, the person's once it no longer
+ * does — read at each call, since a stopped run gives the Session back to a person as it runs (Session.becomeAttended,
+ * worfy-autopilot-queue ticket 08).
+ */
+function liveCanUseTool(opts: SessionStart, folders: ToolUseFolders | undefined): CanUseToolHandler {
+  const unattended = unattendedCanUseTool(opts.refused, opts.approval, folders, createParker(opts.permissions))
+  const attended = claudeCanUseTool(opts.permissions)
+  return (toolName, input, options) => (opts.unattended ? unattended : attended)(toolName, input, options)
 }
 
 /** The user's own model and effort (user-model.ts); tests give fixed answers. */
@@ -485,7 +498,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       sessionId: resume === undefined ? sessionId : undefined,
       stderr: opts.stderr,
       settings: handle.startSettings(opts.settings),
-      canUseTool: opts.unattended ? unattendedCanUseTool(opts.refused, opts.approval, folders, createParker(opts.permissions)) : claudeCanUseTool(opts.permissions),
+      canUseTool: liveCanUseTool(opts, folders),
       unattended: opts.unattended,
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,

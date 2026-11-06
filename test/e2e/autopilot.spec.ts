@@ -1166,9 +1166,10 @@ async function evidence50(window: Page, target: Locator, name: string): Promise<
   await window.emulateMedia({ colorScheme: null })
 }
 
-test('the Autopilot button after a turn-error stop while the Orchestrator\'s background tasks live: a new run takes the Orchestrator as it runs, and no task is killed (worfy-polish ticket 50)', async () => {
+test('the Autopilot button after a turn-error stop while the Orchestrator\'s background tasks live: the Orchestrator goes back to a person as it runs, a new run waits for it, and no task is killed (worfy-polish ticket 50, worfy-autopilot-queue ticket 08)', async () => {
   // The Wave's turn starts both tasks and ends with a server error (API 500): the run stops with
-  // turn-error, and the Orchestrator stays unattended while the tasks live (ADR-0029).
+  // turn-error and gives the Orchestrator back to a person at once, without a restart; the tasks go
+  // on there (ADR-0029, amendment of worfy-autopilot-queue ticket 08).
   const { dataDir, log } = prepare()
   const scripts = join(scratch, 'scripts')
   mkdirSync(scripts, { recursive: true })
@@ -1187,17 +1188,18 @@ test('the Autopilot button after a turn-error stop while the Orchestrator\'s bac
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
     await startAutopilot(frame.getByTestId('action-autopilot'))
-    await expect(status).toHaveText('stopped: turn error')
-    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks', 'session-error', 'run-stopped turn-error'])
+    await expect(status).toHaveText('stopped: turn error · 2 background tasks still run')
+    await expect.poll(() => journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'background-tasks', 'background-tasks', 'session-error', 'run-stopped turn-error', 'orchestrator-returned'])
 
-    // Pressed again: the run starts, with the same Session and process; nothing was closed.
+    // Pressed again: the run is accepted and waits for the busy Orchestrator, with the same Session
+    // and process; nothing was closed, and no second Wave went out while the tasks live.
     await startAutopilot(frame.getByTestId('action-autopilot'))
-    await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
-    await expect(status).not.toHaveText(/^stopped/)
+    await expect(status).toHaveText('waiting for the Orchestrator')
+    await expect(status).toHaveAttribute('data-status', 'waiting')
     await expect(window.getByTestId('autopilot-start-refused')).toHaveCount(0)
     await expect.poll(() => readdirSync(join(dataDir, 'autopilot')).length).toBe(2)
     expect(closes(log)).toEqual([])
-    await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, `/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
   } finally {
     await launched.close()
   }

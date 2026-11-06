@@ -3,19 +3,29 @@
 // a real child process behind each query (claude-process-stub.ts), started by watchedSpawn — the
 // spawnClaudeCodeProcess worfy hands the SDK. The order of the processes' starts and exits is what
 // is checked, not how long anything took; the limits are small (exitWaitMs) so nothing waits 7.5 s.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
+import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { sessionOptions, watchedSpawn } from '../../src/main/vendors/claude/options'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { hasExited } from '../../src/main/agent/session/process'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import type { ClaudeCodeProcess } from '../../src/main/agent/session/types'
 import { LayoutStore } from '../../src/main/layout/store'
+import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
+import { codexCapabilities } from '../../src/main/vendors/codex/capabilities'
+import { codexCommands } from '../../src/main/vendors/codex/commands'
+import { codexSessions } from '../../src/main/vendors/codex/session'
+import type { AgentEvent } from '../../src/shared/agent/events'
+import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
+import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
 
 vi.mock('electron', () => ({
@@ -59,16 +69,26 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-/** One run of the app with stub processes of `kind` behind every query. */
-function harness(kind: StubKind | ((n: number, request: QueryRequest) => StubKind), exitWaitMs: number) {
+/**
+ * One run of the app with stub processes of `kind` behind every query. `script`: what every query plays (default `turn`);
+ * `releases`: what lets its wait_release lines through; `modeChange`: stands in for each unattended query's setPermissionMode.
+ */
+function harness(
+  kind: StubKind | ((n: number, request: QueryRequest) => StubKind),
+  exitWaitMs: number,
+  options: { script?: string; releases?: FakeReleases; modeChange?: (mode: string) => Promise<void> } = {},
+) {
   const calls: FakeCall[] = []
   const requests: QueryRequest[] = []
   const stub = new StubProcesses(typeof kind === 'string' ? () => kind : kind)
   stubs.push(stub)
-  const factory = stub.wrap(fakeQueryFactory({ scriptsDir: join(scratch, 'scripts'), script: 'turn', record: (call) => calls.push(call) }))
+  const factory = stub.wrap(fakeQueryFactory({ scriptsDir: join(scratch, 'scripts'), script: options.script ?? 'turn', releases: options.releases, record: (call) => calls.push(call) }))
   const registry = new SessionRegistry((request) => {
     requests.push(request)
-    return factory(request)
+    const query = factory(request)
+    const modeChange = options.modeChange
+    if (modeChange === undefined || request.unattended !== true) return query
+    return query.then((handle) => Object.assign(handle, { setPermissionMode: modeChange }))
   })
   registries.push(registry)
   const views: OrchestratorView[] = []
@@ -208,6 +228,257 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     await new Promise((done) => setTimeout(done, 100))
     expect(h.stub.order()).toEqual(['spawn 1', KILLED(1)])
     expect(h.requests).toHaveLength(1)
+  })
+})
+
+describe('going attended while a turn runs gives the Session back as it runs, without a relaunch (worfy-autopilot-queue ticket 08)', () => {
+  /** A turn held until the test releases `turn`, then a turn with a permission request outside bypassPermissions; then the process exits. */
+  const held = (): string => {
+    const lines = readFileSync(join(scratch, 'scripts', 'turn.jsonl'), 'utf8').trim().split('\n')
+    const ask = JSON.stringify({ fake: 'permission', toolName: 'Bash', toolUseId: 'toolu_after_ls', input: { command: 'ls build', description: 'List the build folder' } })
+    writeFileSync(join(scratch, 'scripts', 'held.jsonl'), [lines[0], lines[1], JSON.stringify({ fake: 'wait_release', name: 'turn' }), lines[2], lines[0], lines[1], ask, lines[2], JSON.stringify({ fake: 'exit' })].join('\n'))
+    return 'held'
+  }
+
+  /** The Node's pick is `default`; the run's unattended Session is in the turn of its Wave, held. */
+  async function inTurn(options: { modeChange?: (mode: string) => Promise<void> } = {}) {
+    const releases = new FakeReleases()
+    const h = harness('exit-at-once', 5000, { script: held(), releases, ...options })
+    await h.opened()
+    await h.registry.get(h.view().sessionId ?? '').configure({ permissionMode: 'default' })
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    const session = h.registry.get(h.view().sessionId ?? '')
+    session.send('the Wave')
+    await vi.waitFor(() => expect(session.state).toBe('busy'))
+    const events: AgentEvent[] = []
+    h.registry.observe((sessionId, event) => {
+      if (sessionId === session.id) events.push(event)
+    })
+    /** The mode changes the unattended process got. */
+    const modeChanges = (): string[] => {
+      const second = h.calls.findIndex((call, index) => call.kind === 'start' && index > 0)
+      return h.calls.slice(second).flatMap((call) => (call.kind === 'setPermissionMode' ? [call.mode] : []))
+    }
+    return { h, releases, session, events, modeChanges, order: h.stub.order() }
+  }
+
+  it("the same Session and process go on attended in the Node's mode: the turn ends there, nothing starts again, and the next request asks the person", async () => {
+    const { h, releases, session, events, modeChanges, order } = await inTurn()
+    await h.orchestrators.setUnattended(PROJECT, false)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(false)
+    expect(h.registry.get(h.view().sessionId ?? '')).toBe(session)
+    expect(session.unattended).toBe(false)
+    expect(session.settings.permissionMode).toBe('default')
+    expect(modeChanges()).toEqual(['default'])
+    expect(session.state).toBe('busy')
+
+    releases.release('turn')
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    await new Promise((done) => setTimeout(done, 50))
+    // No relaunch after the turn: the process of the run goes on.
+    expect(h.stub.order()).toEqual(order)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+
+    session.send('list the build folder')
+    await vi.waitFor(() => expect(session.state).toBe('needs_permission'))
+    const asked = events.flatMap((event) => (event.type === 'permission_request' ? [event] : []))
+    expect(asked).toMatchObject([{ toolName: 'Bash', input: { command: 'ls build' } }])
+    expect(events.filter((event) => event.type === 'refused_dialog')).toEqual([])
+    expect(session.answerPermission(asked[0]!.requestId, 'allow')).toBe(true)
+    await vi.waitFor(() => expect(h.calls.filter((call) => call.kind === 'permission')).toMatchObject([{ result: { behavior: 'allow' } }]))
+    // The Node keeps the person's pick; the run's bypassPermissions was never saved for it. The script is over, and the process with it.
+    await vi.waitFor(() => expect(session.state).toBe('error'))
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+
+    // The Session's next process is the person's Orchestrator, in the Node's mode.
+    session.send('one more')
+    await vi.waitFor(() => expect(h.requests).toHaveLength(3))
+    expect(h.requests[2]).toMatchObject({ unattended: false, orchestrator: true, settings: { permissionMode: 'default' } })
+  })
+
+  it('waitForWork (a graceful Stop): the Session stays unattended until the turn has ended, then starts again attended', async () => {
+    const { h, releases, session, modeChanges } = await inTurn()
+    await h.orchestrators.setUnattended(PROJECT, false, undefined, { waitForWork: true })
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(true)
+    expect(session.unattended).toBe(true)
+    expect(modeChanges()).toEqual([])
+    releases.release('turn')
+    await vi.waitFor(() => expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false]))
+    await vi.waitFor(() => expect(h.orchestrators.isUnattended(PROJECT)).toBe(false))
+    expect(h.registry.get(h.view().sessionId ?? '')).not.toBe(session)
+  })
+
+  it('the agent refuses the change of mode: the Session stays unattended and in bypassPermissions until the turn has ended, then starts again attended', async () => {
+    const { h, releases, session } = await inTurn({ modeChange: () => Promise.reject(new Error('the mode cannot change now')) })
+    await h.orchestrators.setUnattended(PROJECT, false)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(true)
+    expect(session.unattended).toBe(true)
+    expect(session.settings.permissionMode).toBe('bypassPermissions')
+    releases.release('turn')
+    await vi.waitFor(() => expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false]))
+    await vi.waitFor(() => expect(h.orchestrators.isUnattended(PROJECT)).toBe(false))
+  })
+
+  it('a refusal that comes after the turn ended still gives the Orchestrator back: the wait for the turn has nothing left to wait for', async () => {
+    let refuse: (error: Error) => void = () => undefined
+    const asked: string[] = []
+    const { h, releases, session } = await inTurn({
+      modeChange: (mode) => {
+        asked.push(mode)
+        return new Promise<void>((_resolve, reject) => {
+          refuse = reject
+        })
+      },
+    })
+    const back = h.orchestrators.setUnattended(PROJECT, false)
+    await vi.waitFor(() => expect(asked).toEqual(['default']))
+    releases.release('turn')
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    // While the change is tried, no give-back waits: a new run would find the Orchestrator busy, not left to it.
+    expect(h.orchestrators.awaitsGiveBack(session.id)).toBe(false)
+    refuse(new Error('the mode cannot change now'))
+    await back
+    await vi.waitFor(() => expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false]))
+    await vi.waitFor(() => expect(h.orchestrators.isUnattended(PROJECT)).toBe(false))
+  })
+
+  it('becomeAttended of a Session that is attended already, or closed, changes nothing', async () => {
+    const h = harness('exit-at-once', 5000)
+    await h.opened()
+    const session = h.registry.get(h.view().sessionId ?? '')
+    await expect(session.becomeAttended({ model: null, effort: null, permissionMode: 'default' })).resolves.toMatchObject({ permissionMode: 'bypassPermissions' })
+    expect(h.calls.filter((call) => call.kind === 'setPermissionMode')).toEqual([])
+    session.close()
+    await expect(session.becomeAttended({ model: null, effort: null, permissionMode: 'default' })).rejects.toThrow(/is closed/)
+  })
+})
+
+describe('a Codex Orchestrator given back as its turn runs (worfy-autopilot-queue ticket 08)', () => {
+  const RUNTIME: CodexRuntime = { packaged: false, resourcesPath: '/Resources', platform: process.platform, arch: process.arch }
+  const REPO = join(import.meta.dirname, '..', '..')
+  const CODEX_SCRIPTS = join(REPO, 'test', 'fixtures', 'codex-scripts')
+  /** How long the fake app-server may take to answer, as the other Codex contract tests wait for it. */
+  const CODEX_WAIT = { timeout: ms(10_000) }
+  const children: ChildProcess[] = []
+
+  afterEach(async () => {
+    for (const child of children.splice(0)) {
+      if (child.pid === undefined || hasExited(child)) continue
+      const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
+      child.kill('SIGKILL')
+      await exited
+    }
+  })
+
+  const scriptOf = (name: string): Record<string, unknown>[] =>
+    readFileSync(join(CODEX_SCRIPTS, `${name}.jsonl`), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
+
+  /**
+   * The run's Codex process: its Wave turn asks a command's approval (declined while unattended) and runs until it is
+   * interrupted; the next turn asks a file change's approval. Lines of approval.jsonl and interrupt.jsonl.
+   */
+  function backInPlaceScript(dir: string): string {
+    const approval = scriptOf('approval')
+    const interrupted = scriptOf('interrupt').at(-1)!
+    const second = (line: Record<string, unknown>): Record<string, unknown> => JSON.parse(JSON.stringify(line).replaceAll('turn_1', 'turn_2')) as Record<string, unknown>
+    const [init, initialized, threadStart, threadStarted, turnStart, turnStarted, commandStarted, commandAsk, commandDone, patchStarted, patchAsk, patchDone] = approval
+    const lines = [init, initialized, threadStart, threadStarted, turnStart, turnStarted, commandStarted, commandAsk, commandDone, { expect: 'turn/interrupt', result: {} }, interrupted]
+    const next = [turnStart, turnStarted, patchStarted, patchAsk, patchDone, approval.at(-1)].map((line) => second(line!))
+    writeFileSync(join(dir, 'back-in-place.jsonl'), `${[...lines, ...next].map((line) => JSON.stringify(line)).join('\n')}\n`)
+    return 'back-in-place'
+  }
+
+  it("the next turn/start carries the Node's mode, the process and its thread go on, and the next approval asks the person", async () => {
+    const dir = join(scratch, 'codex-scripts')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'turn.jsonl'), readFileSync(join(CODEX_SCRIPTS, 'turn.jsonl')))
+    const scripts = ['turn', backInPlaceScript(dir)]
+    const codexHome = join(scratch, 'codex-home')
+    mkdirSync(codexHome)
+    const logs: string[] = []
+    const codex = codexSessions(() => {
+      const index = logs.length
+      const log = join(scratch, `codex-${index + 1}.log`)
+      logs.push(log)
+      return Promise.resolve({
+        runtime: RUNTIME,
+        appPath: REPO,
+        clientVersion: '9.9.9',
+        env: { ...process.env, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPTS: dir, WORFY_CODEX_SCRIPT: scripts[Math.min(index, scripts.length - 1)]!, WORFY_CODEX_LOG: log },
+        spawnProcess: (_file: string, args: readonly string[], spawnOptions: SpawnOptions): ChildProcess => {
+          const child = spawn(scriptNode(), [...args], spawnOptions)
+          children.push(child)
+          return child
+        },
+        log: () => undefined,
+      })
+    })
+    const registry = new SessionRegistry({ sessionsOf: () => codex, partsOf: () => ({ capabilities: codexCapabilities, commands: codexCommands }) })
+    registries.push(registry)
+    const views: OrchestratorView[] = []
+    const orchestrators = new Orchestrators({
+      layout: new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 }),
+      projectPath: () => repo,
+      registry,
+      vendor: () => 'codex',
+      // The person's pick: Auto on Codex (on-request, workspace-write).
+      settings: { read: () => ({ ...DEFAULT_SETTINGS, permissionMode: 'acceptEdits' }), write: () => undefined },
+      transcript: () => Promise.resolve({ model: null, statusBlock: null }),
+      broadcast: () => undefined,
+      publish: (view) => views.push(view),
+    })
+    const logged = (n: number): { id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown }[] => {
+      try {
+        return readFileSync(logs[n - 1]!, 'utf8').trim().split('\n').filter((line) => line !== '').map((line) => JSON.parse(line) as { method?: string })
+      } catch {
+        return []
+      }
+    }
+    const answers = (n: number) => logged(n).filter((each) => each.method === undefined && each.result !== undefined)
+    const current = () => registry.get(views.at(-1)?.sessionId ?? '')
+
+    await orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(views.at(-1)?.state).toBe('idle'), CODEX_WAIT)
+    await orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(views.at(-1)?.state).toBe('idle'), CODEX_WAIT)
+    const session = current()
+    const events: AgentEvent[] = []
+    registry.observe((sessionId, event) => {
+      if (sessionId === session.id) events.push(event)
+    })
+    session.send('the Wave')
+    // Unattended: the command's approval is declined at once, and the turn goes on.
+    await vi.waitFor(() => expect(answers(2)).toEqual([{ id: 1, result: { decision: 'decline' } }]), CODEX_WAIT)
+    expect(session.state).toBe('busy')
+
+    await orchestrators.setUnattended(PROJECT, false)
+    expect(orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(current()).toBe(session)
+    expect(session.unattended).toBe(false)
+    expect(session.settings.permissionMode).toBe('auto')
+
+    await session.interrupt()
+    await vi.waitFor(() => expect(session.state).toBe('idle'), CODEX_WAIT)
+    session.send('go on')
+    await vi.waitFor(() => expect(session.state).toBe('needs_permission'), CODEX_WAIT)
+    // The same process and thread: no second thread/start, no thread/resume, no third process.
+    expect(logs).toHaveLength(2)
+    expect(logged(2).filter((each) => each.method === 'thread/start' || each.method === 'thread/resume')).toHaveLength(1)
+    const turns = logged(2).filter((each) => each.method === 'turn/start')
+    expect(turns).toHaveLength(2)
+    expect(turns[0]?.params).not.toHaveProperty('approvalPolicy')
+    expect(turns[1]?.params).toMatchObject({ approvalPolicy: 'on-request', sandboxPolicy: { type: 'workspaceWrite' } })
+    // The file change's approval waits for the person, and the person's answer goes back.
+    const asked = events.flatMap((event) => (event.type === 'permission_request' ? [event] : []))
+    expect(asked).toMatchObject([{ toolName: 'fileChange' }])
+    expect(events.filter((event) => event.type === 'refused_dialog')).toHaveLength(1)
+    expect(session.answerPermission(asked[0]!.requestId, 'accept')).toBe(true)
+    await vi.waitFor(() => expect(answers(2)).toEqual([{ id: 1, result: { decision: 'decline' } }, { id: 2, result: { decision: 'accept' } }]), CODEX_WAIT)
+    await vi.waitFor(() => expect(session.state).toBe('idle'), CODEX_WAIT)
   })
 })
 

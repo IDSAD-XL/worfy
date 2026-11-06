@@ -547,8 +547,8 @@ describe('Orchestrator relaunch and the messages it carries over', () => {
 
   it('after the unattended Session crashed: the relaunch carries the queue held, nothing goes by itself, then each message once', async () => {
     const { h, calls, releases, unattended } = await unattendedInTurn('held-crash')
-    // Autopilot gives the Orchestrator back once the turn ends; the turn ends with a crash.
-    await h.orchestrators.setUnattended(PROJECT, false)
+    // A graceful Stop gives the Orchestrator back once the turn ends (worfy-autopilot-queue ticket 08); the turn ends with a crash.
+    await h.orchestrators.setUnattended(PROJECT, false, undefined, { waitForWork: true })
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
     releases.release('turn')
     const attended = await attendedAfter(h, unattended)

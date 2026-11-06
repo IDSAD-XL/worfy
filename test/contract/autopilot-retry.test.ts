@@ -544,6 +544,25 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'user-stop' })
   })
 
+  it('on: Stop during the wait while the implementers run is a graceful Stop: the Orchestrator stays unattended until they end, then starts again attended (worfy-autopilot-queue ticket 08)', async () => {
+    const h = harness({ script: 'autopilot-fault-api-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const stopped = await h.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    // Not given back as it runs, unlike a stop of the run's own: the person chose to let the Wave's work end unattended.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(autopilotStatusLine(h.state())).toBe('stopped: user stop')
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
+    h.releases.release('tasks')
+    await until(async () => (await h.journal()).some((event) => event.kind === 'background-tasks' && event.tasks.length === 1) && h.sessionState() === 'idle', 'the first report')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    h.releases.release('tasks')
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the give-back after the last report')
+    await until(async () => (await h.kinds()).at(-1) === 'orchestrator-returned', 'orchestrator-returned')
+    expect((await h.journal()).at(-1)).not.toHaveProperty('tasks')
+  })
+
   it('on: the quit and the Force stop during the wait cancel the timer; the continuation never goes', async () => {
     for (const how of ['quit', 'force'] as const) {
       const h = harness({ script: 'autopilot-retry-500' })

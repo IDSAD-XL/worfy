@@ -16,7 +16,9 @@
 // unattended. Such a Session runs in bypassPermissions whatever mode its Node saved, and refuses a
 // change of mode instead of applying it: in any other mode Claude Code would ask before a tool, and
 // no one would answer. The launch is not written to session-settings.json: it belongs to one run,
-// so a restart or the end of the run gives the Node back the user's own picks.
+// so a restart or the end of the run gives the Node back the user's own picks. A stopped run whose
+// Session still has a turn or background tasks gives it back attended without a new process
+// (Session.becomeAttended, worfy-autopilot-queue ticket 08): the launch of a live Session can change.
 import { join } from 'node:path'
 import { z } from 'zod'
 import { readSettings, sessionSettingsSchema, type SessionSettings, type SettingsChange } from '../../shared/agent/settings'

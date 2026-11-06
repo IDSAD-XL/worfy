@@ -1,5 +1,6 @@
 // The status line of a run that waits for its Orchestrator (worfy-autopilot-queue ticket 07):
-// `waiting for the Orchestrator · 4 min`, counted from `waitingSince`.
+// `waiting for the Orchestrator · 4 min`, counted from `waitingSince`; and of a stopped run whose Session went back
+// to a person with its tasks still running (ticket 08).
 import { describe, expect, it } from 'vitest'
 import { autopilotStateSchema, autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 
@@ -32,5 +33,19 @@ describe('autopilotStatusLine while the run waits for the Orchestrator', () => {
       revision: 3,
     }
     expect(autopilotStateSchema.parse(state)).toEqual(state)
+  })
+})
+
+describe('autopilotStatusLine of a stopped run that gave its Session back as it runs (worfy-autopilot-queue ticket 08)', () => {
+  const stopped = { status: 'stopped' as const, wave: 1, reason: 'turn-error' as const, resumesAt: null }
+
+  it('names the background tasks that still run in the Session given back', () => {
+    expect(autopilotStatusLine({ ...stopped, backgroundTasks: 3 })).toBe('stopped: turn error · 3 background tasks still run')
+    expect(autopilotStatusLine({ ...stopped, backgroundTasks: 1 })).toBe('stopped: turn error · 1 background task still runs')
+  })
+
+  it('names none once they ended, or when the state says nothing of them', () => {
+    expect(autopilotStatusLine({ ...stopped, backgroundTasks: 0 })).toBe('stopped: turn error')
+    expect(autopilotStatusLine(stopped)).toBe('stopped: turn error')
   })
 })

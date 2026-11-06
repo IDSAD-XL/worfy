@@ -22,7 +22,7 @@ const stand = vi.hoisted(() => ({
   harness: 'plugin' as HarnessKind,
   orchestrators: {
     newUnattendedSession: vi.fn((projectId: string) => Promise.resolve({ projectId, sessionId: 'new-session' })),
-    setUnattended: vi.fn(() => Promise.resolve(null)),
+    setUnattended: vi.fn<(projectId: string, unattended: boolean, approval?: unknown, options?: { waitForWork?: boolean }) => Promise<null>>(() => Promise.resolve(null)),
     giveBackNow: vi.fn(() => Promise.resolve(null)),
     open: vi.fn((projectId: string) => Promise.resolve({ projectId, sessionId: 'orchestrator-session' })),
     /** Session ids whose stopped run waits to be given back (Orchestrators.awaitsGiveBack). */
@@ -113,6 +113,17 @@ describe("a run that waits for the busy Orchestrator, over the app's Orchestrato
     await expect(deps().orchestrators.takeNow?.('demo-00000007', undefined, 100)).resolves.toEqual({ view: { projectId: 'demo-00000007', sessionId: 'orchestrator-session' }, killed: [] })
     expect(stand.orchestrators.takeNow).toHaveBeenCalledWith('demo-00000007', undefined, 100)
     expect(deps().orchestrators.runsOn?.('demo-00000007')).toBe('claude')
+  })
+})
+
+describe("a stop gives the Orchestrator back over the app's Orchestrators (worfy-autopilot-queue ticket 08)", () => {
+  it('waitForWork of a graceful Stop reaches them as the run passed it, and its absence too', async () => {
+    await deps().orchestrators.setUnattended('demo-00000008', false, undefined, { waitForWork: true })
+    await deps().orchestrators.setUnattended('demo-00000008', false, undefined, {})
+    expect(stand.orchestrators.setUnattended.mock.calls).toEqual([
+      ['demo-00000008', false, undefined, { waitForWork: true }],
+      ['demo-00000008', false, undefined, {}],
+    ])
   })
 })
 
