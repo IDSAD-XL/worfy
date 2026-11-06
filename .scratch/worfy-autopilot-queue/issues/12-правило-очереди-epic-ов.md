@@ -1,7 +1,8 @@
 # 12 — Правило очереди Epic-ов: дальше, пропуск или стоп
 
 Type: task
-Status: claimed 2026-11-06T09:46Z
+Status: done 2026-11-06T11:08Z
+PR: #1485
 Branch: worfy-autopilot-queue/12
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Очередь Epic-ов», «Правило»; «Решения владельца», 18, 20; «Решено без владельца», 6; «Риски», 6; [03](03-очередь-epic-ов.md), Q3, Q5
@@ -34,8 +35,11 @@ Source: [spec.md](../spec.md), «Как работает» → «Очередь 
       agent` — `stop`; `no-progress` (красный CI main) — `stop`; `limits-timeout` — `stop`; `tickets-done` у
       Run-а из одного Epic-а; Ticket `done` только в ветке — не `done`.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/epic-queue.test.ts) · mac - · 05aae51d208d166dd8539348ee7e7ee8d34f8b56
+  - evidence: review pass · PR #1485 · - - · fce351979afaba3d21bb1fe501a20188d9077683
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 05aae51d208d166dd8539348ee7e7ee8d34f8b56
+  - evidence: review pass · PR #1485 · - - · fce351979afaba3d21bb1fe501a20188d9077683
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42200176361 · ci - · fce351979afaba3d21bb1fe501a20188d9077683
 
 ## Тесты
 
