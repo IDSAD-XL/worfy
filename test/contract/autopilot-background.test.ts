@@ -1345,8 +1345,14 @@ describe('a live background task that sends no events is not stalled while its o
   async function onlyTheGateLeft(): Promise<ReturnType<typeof harness>> {
     const h = harness({ script: silentGateScript() })
     await waveWaitsForTasks(h)
+    // The turn's end is judged after a fresh read, held here: the limit the test fires is the one set after that read,
+    // not one set by a task event before the turn began (its mark of the file would be older than the test's writes).
+    h.gate.held = true
     h.releases.release('tasks')
     await until(async () => (await taskIds(h)).length === 1 && (await h.session()).state === 'idle', 'the first task-notification turn')
+    await until(() => h.gate.waiting > 0, 'the read after the turn')
+    expect(h.clock.pending()).toEqual([])
+    h.gate.open()
     await until(() => h.clock.pending().length === 1, 'the limit set again')
     expect(await taskIds(h)).toEqual(['task_impl_0002'])
     expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
