@@ -8,6 +8,8 @@
 //   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
 //   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
 //   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
+//   An epic with a spec.md also carries specStatus and acceptedAt — the spec's Status line and the date the owner
+//   accepted it (specStatusOf below; TICKETS.md, "Spec status"); an epic without one has neither key.
 //   --ref in a Silent project (profile mode "silent") is exit 3: there the status does not live in branches.
 //
 // epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
@@ -130,6 +132,17 @@ function diskTree(root) {
                 .map((n) => B(n))
                 .sort((a, b) => byteOrder(a + "/", b + "/")),
         hasFile: (epic, name) => isFile(path.join(root, Buffer.from(epic, "latin1").toString("utf8"), name)),
+        // `<root>/<epic>/<name>` of each epic, as a byte string; null when it cannot be read.
+        readFiles: (epics, name) =>
+            new Map(
+                epics.map((e) => {
+                    try {
+                        return [e, fs.readFileSync(path.join(root, Buffer.from(e, "latin1").toString("utf8"), name)).toString("latin1")]
+                    } catch {
+                        return [e, null]
+                    }
+                }),
+            ),
         // `<root>/<epic>/issues/*.md` (one epic) or `<root>/*/issues/*.md` (all): regular files.
         tickets(only) {
             const list = []
@@ -179,6 +192,13 @@ function refTree(entries, gitDir) {
         exists: entries.length > 0,
         epics: () => [...epicSet].sort((a, b) => byteOrder(a + "/", b + "/")),
         hasFile: (epic, name) => files.has(epic + "/" + B(name)),
+        // `<epic>/<name>` of each epic, from one more `git cat-file --batch`; null when the tree has no such file.
+        readFiles(epics, name) {
+            const oid = (e) => files.get(e + "/" + B(name))
+            const ids = [...new Set(epics.map(oid).filter((id) => id !== undefined))]
+            const got = ids.length ? load(ids) : new Map()
+            return new Map(epics.map((e) => [e, got.get(oid(e)) ?? null]))
+        },
         tickets(only) {
             const list = []
             for (const [p, oid] of entries) {
@@ -349,10 +369,65 @@ const ticketJson = (t, ref) =>
 // backslash and quote escaped, no other cleaning. The ticket fields are cleaned instead (jstr).
 const jsonRaw = (x) => '"' + x.replace(/[\r\n]/g, "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
 
+// --- the spec status ----------------------------------------------------------------------
+// The Status line of an epic's spec.md (TICKETS.md, "Spec status"). It is looked for in the first paragraph after
+// the leading headings; the lines after it in that paragraph continue it, up to a line that starts another field
+// ("Source:"). The parts are joined by single spaces and cut to SPEC_STATUS_MAX characters. acceptedAt is the
+// first date of the whole value, when the value starts with a word of specAccepted, or starts with a word of
+// specAcceptedDecisions and has a word of specAcceptedDecisionsWord (lib/input-words.json); otherwise null, also
+// when such a value carries no date. The text is read as UTF-8 here: the cut counts characters, not bytes.
+const SPEC_STATUS_MAX = 300
+const SPEC_FIELD = /^\p{L}[\p{L}\p{N} _-]{0,40}:/u
+const SPEC_DATE = /(?<![0-9])[0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9])/
+const SPEC_HEADING = /^#{1,6}([ \t]|$)/
+const blankLine = (l) => /^[ \t]*$/.test(l)
+const notWordAfter = (s) => !/^[\p{L}\p{N}]/u.test(s)
+const startsWithWord = (s, w) => s.startsWith(w) && notWordAfter(s.slice(w.length))
+const hasWord = (s, w) => new RegExp(`(?<![\\p{L}\\p{N}])${escRe(w)}(?![\\p{L}\\p{N}])`, "u").test(s)
+const specAccepted = (s) =>
+    INPUT.specAccepted.some((w) => startsWithWord(s, w)) ||
+    (INPUT.specAcceptedDecisions.some((w) => startsWithWord(s, w)) && INPUT.specAcceptedDecisionsWord.some((w) => hasWord(s, w)))
+
+// spec.md as a byte string (or null) → { status, acceptedAt }: byte strings, null when absent.
+function specStatusOf(raw) {
+    const none = { status: null, acceptedAt: null }
+    if (raw === null) return none
+    let text = Buffer.from(raw, "latin1").toString("utf8")
+    if (text.startsWith("﻿")) text = text.slice(1)
+    const lines = text.split("\n").map((l) => l.replace(/\r$/, ""))
+    let i = 0
+    while (i < lines.length && (blankLine(lines[i]) || SPEC_HEADING.test(lines[i]))) i++
+    let parts = null
+    for (; i < lines.length && !blankLine(lines[i]); i++) {
+        const l = lines[i]
+        if (parts === null) {
+            if (l.startsWith("Status:")) parts = [l.slice("Status:".length)]
+        } else if (SPEC_FIELD.test(l)) break
+        else parts.push(l)
+    }
+    if (parts === null) return none
+    const value = parts
+        .map((p) => p.replace(/[\x00-\x1f\x7f]/g, " ").trim())
+        .filter((p) => p !== "")
+        .join(" ")
+    if (value === "") return none
+    const date = specAccepted(value) ? SPEC_DATE.exec(value) : null
+    return { status: B(Array.from(value).slice(0, SPEC_STATUS_MAX).join("")), acceptedAt: date ? date[0] : null }
+}
+
 function jsonDump(tree, ref) {
     const label = jsonRaw(ref)
     const epics = tree.exists ? tree.epics() : []
-    const e = epics.map((n) => `{"epic":${jsonRaw(n)},"hasSpec":${tree.hasFile(n, "spec.md")},"hasMap":${tree.hasFile(n, "map.md")}}`)
+    const specs = tree.readFiles(
+        epics.filter((n) => tree.hasFile(n, "spec.md")),
+        "spec.md",
+    )
+    const specJson = (n) => {
+        if (!specs.has(n)) return ""
+        const s = specStatusOf(specs.get(n))
+        return `,"specStatus":${s.status === null ? "null" : jstr(s.status)},"acceptedAt":${s.acceptedAt === null ? "null" : jstr(s.acceptedAt)}`
+    }
+    const e = epics.map((n) => `{"epic":${jsonRaw(n)},"hasSpec":${tree.hasFile(n, "spec.md")},"hasMap":${tree.hasFile(n, "map.md")}${specJson(n)}}`)
     const t = rows(tree, null).map((r) => ticketJson(r, ref))
     out(`{"ref":${label},"epics":[${e.join(",")}],"tickets":[${t.join(",")}]}\n`)
 }
