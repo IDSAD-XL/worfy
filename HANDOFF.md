@@ -25,8 +25,7 @@
 
 ## Ждёт владельца
 
-- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-faults` 08, `worfy-evidence` 09, `worfy-auto-approve` 11, `worfy-retry` 11; [список](.scratch/owner-manual-checks.md).
-- Ручные проверки владельца (Mac и ПК, ~30 мин) и песочница приёмки (`worfy-harness` 36) — [один список](.scratch/owner-manual-checks.md).
+- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → `worfy-faults` 08, `worfy-evidence` 09 → по готовности кода `worfy-auto-approve` 11, `worfy-retry` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
 
 ## Риски и долги
