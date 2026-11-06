@@ -303,6 +303,8 @@ export interface ApprovalAt {
   started: Readonly<Record<string, string>>
   /** The whole environment the process started with, when the driver tells it (ApprovalWhere.env). */
   env?: Readonly<Record<string, string | undefined>> | undefined
+  /** The variables of `env` a command surely gets, when the driver tells them (ApprovalWhere.known). */
+  known?: readonly string[] | undefined
 }
 
 /** What a Session launched by a run reads of the run's policy (SessionLaunch.approval). */
@@ -422,6 +424,7 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
         platform,
         cwd: at.cwd ?? options.root,
         env,
+        known: at.known === undefined ? undefined : new Set(at.known),
         worktrees,
         scratch,
         runTemp: temp,

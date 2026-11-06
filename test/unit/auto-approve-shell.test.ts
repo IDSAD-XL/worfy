@@ -836,3 +836,34 @@ describe('Windows (Git Bash)', () => {
     }
   })
 })
+
+// worfy-auto-approve ticket 05, round 3: a Vendor that may drop variables from the command's shell (Codex's
+// shell_environment_policy) names the ones the command surely gets; any other variable is unknown, though the
+// environment has it and its checks (IFS, BASH_ENV…) still see it.
+describe('the variables whose value the command surely gets (AnalyzeContext.known)', () => {
+  const known = (names: string[]): AnalyzeContext => ({ ...posix, known: new Set(names) })
+
+  it('expands a known variable as without the list', () => {
+    expect(brief('rm -rf "$TMPDIR"x', known(['TMPDIR']))).toEqual(brief('rm -rf "$TMPDIR"x'))
+  })
+
+  it.each([
+    ['a variable of the environment not on the list', 'rm -rf "$M"/x'],
+    ['the same in braces', 'rm -rf "${M}"/x'],
+    ['an empty one', 'rm -rf "$EMPTY"/x'],
+  ])('%s is unknown', (_name, command) => {
+    expect(analyze(command, known(['TMPDIR']))).toEqual({ judged: false, why: 'an unknown variable' })
+  })
+
+  it('an empty list knows no variable of the environment', () => {
+    expect(analyze('rm -rf "$TMPDIR"x', known([]))).toEqual({ judged: false, why: 'an unknown variable' })
+  })
+
+  it('a variable the command assigns itself is known', () => {
+    expect(brief('X=/tmp/demo/a; rm -rf "$X"', known([]))).toEqual(brief('X=/tmp/demo/a; rm -rf "$X"'))
+  })
+
+  it('the checks of the environment still see a variable not on the list', () => {
+    expect(analyze('rm x', { ...posix, env: { ...posix.env, IFS: ':' }, known: new Set() })).toEqual({ judged: false, why: 'IFS in the environment' })
+  })
+})

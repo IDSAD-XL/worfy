@@ -485,11 +485,13 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(lines.map((event) => (event.kind === 'auto-approval' ? [event.mode, event.outcome, event.rule] : []))).toEqual(Array(4).fill(['on', 'deny', 'policy-failed']))
   })
 
-  it('a run whose Orchestrator is on another Vendor (Codex) says off in run-started and keeps no folder: nothing judges there yet', async () => {
+  it('a run whose Orchestrator is on Codex keeps its policy as on Claude Code (worfy-auto-approve ticket 05): its mode in run-started, a line per request, no folder left', async () => {
     const h = harness({ mode: { value: 'on' }, vendor: 'codex' })
     await h.runToEnd()
     const journal = await h.journal()
-    expect(journal[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', autoApproval: 'off' })
+    expect(journal[0]).toMatchObject({ kind: 'run-started', vendor: 'codex', autoApproval: 'on' })
+    // The four requests, the parked one with the owner's answer (ticket 07).
+    expect(journal.filter((event) => event.kind === 'auto-approval').map((line) => line.outcome)).toEqual(['allow', 'park', 'park-answered', 'hard-deny', 'deny'])
     expect(existsSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) ? readdirSync(join(h.env.WORFY_DATA_DIR, 'autopilot-tmp')) : []).toEqual([])
   })
 

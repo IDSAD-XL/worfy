@@ -74,6 +74,11 @@ export interface ApprovalWhere {
   scratchpad: string | null
   /** The whole environment the agent's process started with, when the driver knows it. */
   env?: Readonly<Record<string, string | undefined>> | undefined
+  /**
+   * The variables of `env` whose value each command surely gets, when the Vendor may leave the others out of the
+   * command's shell (Codex: the ones worfy pins); absent: all of `env`.
+   */
+  known?: readonly string[] | undefined
 }
 
 /** One decision of the approval policy as the driver reports it: the `auto_approval` event without its time. */
