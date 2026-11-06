@@ -144,6 +144,10 @@ repo "$T/shop"
 draft shop silent null "$T/shop" >"$T/shop.json"
 before="$(state)"
 check "--schema-only passes a draft by the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/shop.json"
+# A draft whose writer is still busy when project-connect starts is read, not taken for broken JSON: the
+# script does not touch process.stdin (which would make Node hold the pipe non-blocking) before its
+# synchronous read, so the read waits for the writer instead of failing with EAGAIN.
+check "--schema-only reads a draft that comes late on its pipe" 0 '"ok": true' bash -c '{ sleep 1; cat "$2"; } | "$1" --schema-only' _ "$CONNECT" "$T/shop.json"
 check "--check passes and names the default Workflow folder" 0 "$(jpath "$HARNESS_HOME/projects/shop/workflow")" "$CONNECT" --check <"$T/shop.json"
 [ "$before" = "$(state)" ] && ok "--check and --schema-only write nothing" || bad "--check and --schema-only wrote into HARNESS_HOME"
 n0="$(commits)"

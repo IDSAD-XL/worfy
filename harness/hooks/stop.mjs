@@ -44,58 +44,18 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { codexAgent, isCodexInput, READ_ONLY_AGENTS } from "./codex-input.mjs"
 import { gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
+import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 const MAX_BLOCKS = 2
 // How long the resolver may take: about the 10 s the whole hook had under Claude Code before its
 // limit in hooks.json became the 900 s the gate run on Codex needs.
 const RESOLVE_MS = 10_000
 
-// The hook input: stdin read as a stream to its end. Not fs.readFileSync(0): once process.stdin has
-// been touched (its isTTY below), Node holds a pipe on descriptor 0 in non-blocking mode, and a
-// synchronous read of it fails with EAGAIN when the input has not arrived yet — under load the
-// writer is late. The hook then took the input for empty: on Codex it ran no gate and held or let go
-// the turn by the marker an earlier run had left.
-// A pipe that stays open and sends nothing gets STDIN_FIRST_BYTE_MS for its first byte, then the
-// input is empty: without a limit the hook would hold the turn until its own limit in hooks.json
-// (900 s). Not the 2 s of silence gate.mjs allows a manual run: a late hook input is exactly what
-// this reader is for. Once the first byte has come, the input is read to its end.
-const STDIN_FIRST_BYTE_MS = (() => {
-    const DEFAULT = 30_000
-    // A test may shorten the wait, never lengthen it.
-    const v = Number(process.env.CLAUDE_STOP_STDIN_WAIT_MS)
-    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
-})()
-
-function readStdin() {
-    let stdin
-    try {
-        stdin = process.stdin // a closed descriptor 0 makes this getter throw
-    } catch {
-        return Promise.resolve("")
-    }
-    // A terminal: a hook always gets its input on a pipe, and a person at a terminal sends none.
-    if (stdin.isTTY) return Promise.resolve("")
-    return new Promise((resolve) => {
-        let text = ""
-        const done = (value) => {
-            clearTimeout(timer)
-            stdin.removeAllListeners("data")
-            stdin.removeAllListeners("end")
-            stdin.removeAllListeners("error")
-            // An open pipe would keep the process alive after the hook has decided.
-            stdin.destroy()
-            resolve(value)
-        }
-        const timer = setTimeout(() => done(""), STDIN_FIRST_BYTE_MS)
-        stdin.setEncoding("utf8")
-        stdin.on("data", (chunk) => {
-            clearTimeout(timer)
-            text += chunk
-        })
-        stdin.on("end", () => done(text))
-        stdin.on("error", () => done(""))
-    })
-}
+// The hook input: hook-stdin.mjs reads it as a stream (a synchronous read after a look at process.stdin
+// fails with EAGAIN when the writer is late). Without it, on Codex, the hook ran no gate and held or let
+// go the turn by the marker an earlier run had left. The first byte gets 30 s (FIRST_BYTE_MS there);
+// CLAUDE_STOP_STDIN_WAIT_MS may only shorten it.
+const STDIN_FIRST_BYTE_MS = firstByteWait(FIRST_BYTE_MS["stop.mjs"], "CLAUDE_STOP_STDIN_WAIT_MS")
 
 // A top-level string field of the hook JSON, or "".
 function field(payload, name) {
@@ -368,7 +328,7 @@ function isMain() {
 if (isMain()) {
     let code = 0
     try {
-        code = main(await readStdin())
+        code = main(await readStdin(STDIN_FIRST_BYTE_MS))
     } catch (e) {
         // code stays 0: a broken hook must not hold the turn.
         process.stderr.write(`stop: ${String(e?.message ?? e).split("\n")[0]}\n`)

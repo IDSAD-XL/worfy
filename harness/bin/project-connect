@@ -461,7 +461,10 @@ if (mode === "remove") {
     process.exit(0)
 }
 
-if (process.stdin.isTTY) {
+// A terminal is asked of descriptor 0 itself, not of process.stdin: touching process.stdin makes Node
+// hold a pipe there in non-blocking mode, and the synchronous read below then fails with EAGAIN when the
+// writer is late. Untouched, the pipe stays blocking and the read waits for the writer.
+if (require("node:tty").isatty(0)) {
     err("the draft is read from stdin")
     process.stderr.write(USAGE + "\n")
     process.exit(2)

@@ -223,12 +223,14 @@ Object.defineProperty(process, 'stdin', { configurable: true, enumerable: own.en
   it('take an input pipe that stays open and sends nothing for no input once the wait for its first byte is over', async () => {
     const { work, state, mode } = project()
     mode('bad')
+    const started = Date.now()
     const child = spawn(scriptNode(), [join(plugin, 'hooks', 'stop.mjs')], { cwd: work, env: { ...process.env, CLAUDE_STOP_STDIN_WAIT_MS: '200' }, stdio: 'pipe' })
     let output = ''
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => (output += chunk))
-    // stdin is never written or closed: only the hook's own wait ends the run.
+    // stdin is never written or closed: only the hook's own wait ends the run, the shortened one.
     expect(await closeOf(child)).toBe(0)
+    expect(Date.now() - started).toBeLessThan(30_000)
     expect(output).toBe('')
     expect(readdirNames(state).filter((name) => name.startsWith('verdict-')), 'no input, no gate run').toEqual([])
   }, RUN_MS)

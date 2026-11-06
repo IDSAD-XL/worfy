@@ -21,26 +21,19 @@
 //
 // bin/profile runs as `node <script>` (process.execPath), not by its #! line.
 // For tests: CLAUDE_PROFILE_BIN replaces bin/profile; GH_TOKEN_ENV_GH names the program run instead
-// of gh from PATH (a .mjs file runs with this node). Tests: hooks/tests/gh-token-env.test.sh.
+// of gh from PATH (a .mjs file runs with this node); CLAUDE_HOOK_STDIN_WAIT_MS shortens the wait for the
+// input (hook-stdin.mjs). Tests: hooks/tests/gh-token-env.test.sh, test/contract/harness-hook-stdin.test.ts.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 // A GitHub login (the same rule as the worfy app's check of github.account): letters, digits
 // and single inner hyphens, at most 39 characters. Anything else would land in a shell line that
 // runs before every Bash command, or be read by gh as an option.
 const GITHUB_LOGIN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/
-
-function readStdin() {
-    if (process.stdin.isTTY) return ""
-    try {
-        return fs.readFileSync(0, "utf8")
-    } catch {
-        return ""
-    }
-}
 
 function isDir(p) {
     try {
@@ -74,7 +67,7 @@ function note(account, why) {
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } }) + "\n")
 }
 
-function main() {
+async function main() {
     const envFile = process.env.CLAUDE_ENV_FILE || ""
     if (!envFile) return
 
@@ -83,7 +76,8 @@ function main() {
     const profileBin = process.env.CLAUDE_PROFILE_BIN || path.join(path.dirname(here), "bin", "profile")
     if (!fs.existsSync(profileBin)) return
 
-    const cwd = sessionDir(readStdin())
+    // The hook JSON on stdin (hook-stdin.mjs); "" when stdin is a terminal, cannot be read or sends nothing in time.
+    const cwd = sessionDir(await readStdin(firstByteWait(FIRST_BYTE_MS["gh-token-env.mjs"], "CLAUDE_HOOK_STDIN_WAIT_MS")))
     const run = spawnSync(process.execPath, [profileBin, "-C", cwd, "--field", "github.account"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -122,7 +116,7 @@ function main() {
 }
 
 try {
-    main()
+    await main()
 } catch (e) {
     process.stderr.write(`gh-token-env: ${String(e?.message ?? e).split("\n")[0]}\n`)
 }
