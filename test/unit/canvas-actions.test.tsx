@@ -840,6 +840,17 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at }, utc)).toBe('waiting for limits · resumes 00:00')
   })
 
+  it('autopilotStatusLine says a retry after an API error: which of how many, and when (worfy-retry ticket 04)', () => {
+    const at = Date.UTC(2026, 10, 6, 14, 20)
+    const utc = { timeZone: 'UTC' }
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'retry', retry: { attempt: 2, of: 5 } }, utc)).toBe('API error · retry 2/5 · 14:20')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 1, reason: null, resumesAt: at + 9 * 3_600_000, waitingFor: 'retry', retry: { attempt: 5, of: 5 } }, utc)).toBe('API error · retry 5/5 · 23:20')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: null, waitingFor: 'retry', retry: { attempt: 1, of: 5 } }, utc)).toBe('API error · retry 1/5')
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'retry' }, utc)).toBe('API error · 14:20')
+    // A Stop clicked during the wait does not hide what the run waits for.
+    expect(autopilotStatusLine({ status: 'waiting', wave: 2, reason: null, resumesAt: at, waitingFor: 'retry', retry: { attempt: 2, of: 5 }, stopping: true, ticketsInWork: 1 }, utc)).toBe('API error · retry 2/5 · 14:20')
+  })
+
   it('autopilotStatusLine says why the Start window holds the next Wave back: outside it, or the Wave too long for it (worfy-resource-planner ticket 05)', () => {
     const at = Date.UTC(2026, 10, 1, 23, 0)
     const utc = { timeZone: 'UTC' }

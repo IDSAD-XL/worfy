@@ -74,6 +74,8 @@ const appended: JournalEventFields[] = [
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
   { kind: 'waiting-until', until: '2026-10-06T06:01:00.000Z' },
   { kind: 'resumed' },
+  { kind: 'turn-retry', attempt: 1, of: 5, error: 'api-500', message: 'API Error: 500', until: '2026-10-06T06:02:00.000Z' },
+  { kind: 'retry-refused', reason: 'cap' },
   { kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { kind: 'refused-dialog', session: null, what: 'AskUserQuestion' },
   { kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-07', vendor: 'claude', mode: 'shadow', outcome: 'would-allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/07/build'], command: 'rm -rf build' },

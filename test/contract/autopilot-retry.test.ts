@@ -1,0 +1,486 @@
+// Autopilot continues after a temporary API error (worfy-retry ticket 04) on the fake agent: the real
+// Session registry, Orchestrators, launcher, run journal, cycle and LimitsTracker over a copy of an
+// Epic in a temporary folder, as in autopilot-limits.test.ts. Auto-continue is the test's switch
+// (AutopilotDeps.retry.enabled), the clock is fixed, the pause's timer is the test's and the jitter
+// is fixed at the middle (random 0.5: each pause is the plan's own, 1, 5, 15, 30, 60 minutes).
+// keep-awake is a fake, nothing calls the model.
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ActionLauncher } from '../../src/main/actions/launch'
+import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
+import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits'
+import { Orchestrators } from '../../src/main/agent/orchestrator'
+import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { SessionSettingsStore } from '../../src/main/agent/session-settings'
+import { openRun, readRun } from '../../src/main/autopilot/journal'
+import { Autopilot } from '../../src/main/autopilot/run'
+import { LayoutStore } from '../../src/main/layout/store'
+import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { MAX_RETRIES, RETRY_DELAYS_MS, retryText } from '../../src/shared/agent/continue-plan'
+import type { JournalEvent } from '../../src/shared/autopilot/journal'
+import { autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
+import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { ms } from '../time-scale'
+
+vi.mock('electron', () => ({
+  app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
+  BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+  dialog: { showMessageBox: () => Promise.reject(new Error('no dialog in this test')) },
+  powerSaveBlocker: { start: () => 0, stop: () => undefined, isStarted: () => false },
+}))
+
+const fixtures = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
+const PROJECT = 'demo-000000b4'
+const EPIC = 'demo'
+const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
+/** 2026-10-05T06:10:00Z: the run's start; the times of the test go from it. */
+const START_MS = 1791180600 * 1000
+/** Any Cyrillic letter: what worfy sends an agent is English (ADR-0074, point 6). */
+const CYRILLIC = /[Ѐ-ӿ]/u
+
+let scratch: string
+let repo: string
+let clock: number
+let registries: SessionRegistry[] = []
+let autopilots: Autopilot[] = []
+
+// ── the Epic in a temporary folder (Wave 1: 01 and 02; Wave 2: 03) ───────────
+
+const TICKETS = [
+  { num: 1, blocked: '—' },
+  { num: 2, blocked: '—' },
+  { num: 3, blocked: '01, 02' },
+]
+const nn = (num: number): string => String(num).padStart(2, '0')
+const ticketPath = (num: number): string => join(repo, '.scratch', EPIC, 'issues', `${nn(num)}-ticket-${num}.md`)
+
+function writeTicket(num: number, status: string): void {
+  const { blocked } = TICKETS.find((each) => each.num === num)!
+  writeFileSync(ticketPath(num), [`# ${nn(num)} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Где в коде', '', `- \`src/f${num}.ts\``, ''].join('\n'))
+}
+
+const runner: EpicStatusRunner = (cwd) => {
+  const dir = join(cwd, '.scratch', EPIC, 'issues')
+  const tickets = readdirSync(dir).map((name) => {
+    const text = readFileSync(join(dir, name), 'utf8')
+    const field = (key: string) => new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(text)?.[1] ?? null
+    const status = field('Status')
+    const blocked = field('Blocked by')
+    const word = (status ?? '').split(/\s/)[0] ?? ''
+    const state = /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : 'open'
+    const nums = blocked && blocked !== '—' ? blocked.split(',').map((each) => Number(each.trim())) : []
+    const match = /^(\d+)-(.*)\.md$/.exec(name)!
+    return { epic: EPIC, num: Number(match[1]), slug: match[2], title: text.split('\n')[0]!.replace(/^#\s*/, ''), statusRaw: status, state, blockedRaw: blocked, blockedNums: nums, blockedParsed: true }
+  })
+  return Promise.resolve(JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets }))
+}
+
+beforeEach(() => {
+  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-autopilot-retry-')))
+  repo = join(scratch, 'repo')
+  mkdirSync(join(repo, '.scratch', EPIC, 'issues'), { recursive: true })
+  writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), '# demo\n')
+  for (const { num } of TICKETS) writeTicket(num, 'open')
+  mkdirSync(join(scratch, 'data', PROJECT), { recursive: true })
+  clock = START_MS
+})
+
+afterEach(async () => {
+  for (const autopilot of autopilots) await autopilot.stopAll()
+  autopilots = []
+  for (const registry of registries) registry.closeAll()
+  registries = []
+  await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
+
+// ── the harness ──────────────────────────────────────────────────────────────
+
+async function until(condition: () => boolean | Promise<boolean>, what: string, limit = 3000): Promise<void> {
+  const end = Date.now() + ms(limit)
+  while (!(await condition())) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((done) => setTimeout(done, 10))
+  }
+}
+
+const tick = (wait = 50): Promise<void> => new Promise((done) => setTimeout(done, wait))
+
+/** The lines of a fixture script, as objects. */
+const scriptLines = (script: string): Record<string, unknown>[] =>
+  readFileSync(join(fixtures, `${script}.jsonl`), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+
+interface Timer {
+  at: number
+  fire: () => void
+  cancelled: boolean
+}
+
+interface HarnessOptions {
+  /** The fixture the run's Orchestrator plays (test/fixtures/agent-scripts). */
+  script: string
+  /** A variant of the script: its lines, written to a scripts folder of the test. */
+  lines?: Record<string, unknown>[]
+  /** Auto-continue for the Project at the start (default on). */
+  on?: boolean
+  /** Without AutopilotDeps.retry at all: the app before this ticket. */
+  noRetry?: boolean
+}
+
+function harness(options: HarnessOptions) {
+  const dataRoot = join(scratch, 'data-root')
+  mkdirSync(dataRoot, { recursive: true })
+  let scriptsDir = fixtures
+  if (options.lines !== undefined) {
+    scriptsDir = join(scratch, 'scripts')
+    mkdirSync(scriptsDir, { recursive: true })
+    writeFileSync(join(scriptsDir, `${options.script}.jsonl`), options.lines.map((line) => JSON.stringify(line)).join('\n') + '\n')
+    writeFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), readFileSync(join(fixtures, 'autopilot-waves.jsonl'), 'utf8'))
+  }
+  const tracker = new LimitsTracker({ dataDir: dataRoot, now: () => clock })
+  const calls: FakeCall[] = []
+  const releases = new FakeReleases()
+  const scriptOf = (request: QueryRequest): string => (request.unattended === true ? options.script : 'autopilot-waves')
+  const registry = new SessionRegistry(
+    tracker.observe((request) =>
+      fakeQueryFactory({
+        scriptsDir,
+        script: scriptOf(request),
+        releases,
+        record: (call) => {
+          if (request.unattended === true) calls.push(call)
+        },
+      })(request),
+    ),
+  )
+  registries.push(registry)
+  const orchestrators = new Orchestrators({
+    layout: new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 }),
+    projectPath: () => repo,
+    registry,
+    settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
+    transcript: () => Promise.resolve({ model: null, statusBlock: null }),
+    broadcast: () => undefined,
+    publish: () => undefined,
+  })
+  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  const launcher = new ActionLauncher({
+    projectRoot: () => repo,
+    settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),
+    branch: () => Promise.resolve('main'),
+    workflow,
+    sessions: { create: () => ({ nodeId: 'n', sessionId: 's' }) as never },
+    orchestrators,
+    registry,
+    bindings: { setLaunch: () => undefined },
+    pollMs: 5,
+    waitMs: 200,
+  })
+  // The agent marks the Wave's Tickets done when its "Run wave" arrives.
+  registry.observe((_sessionId, event) => {
+    if (event.type === 'prompt' && event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
+  })
+  const env = { WORFY_DATA_DIR: dataRoot }
+  const timers: Timer[] = []
+  const states: AutopilotState[] = []
+  let on = options.on ?? true
+  /** Whom the switch was asked for: the run reads it before each decision. */
+  const asked: string[] = []
+  const schedule = (at: number, fire: () => void): (() => void) => {
+    const timer: Timer = { at, fire, cancelled: false }
+    timers.push(timer)
+    return () => {
+      timer.cancelled = true
+    }
+  }
+  const send = (sessionId: string, text: string): void => {
+    registry.get(sessionId).send(text)
+  }
+  const autopilot = new Autopilot({
+    projectRoot: () => repo,
+    selfRefusal: () => Promise.resolve(null),
+    workflow,
+    watchWorkflow: () => Promise.resolve(() => undefined),
+    orchestrators,
+    registry,
+    waves: launcher,
+    journal: (start) => openRun(start, { env }),
+    harness: () => 'plugin',
+    keepAwake: () => ({ start: () => undefined, stop: () => undefined }),
+    onChange: (state) => states.push(state),
+    settleMs: 60_000,
+    limits: {
+      state: () => tracker.snapshot(),
+      observeSession: (isSession, listener) => observeSessionLimits((sink) => registry.observe(sink), isSession, listener),
+      send,
+      now: () => clock,
+      schedule,
+    },
+    ...(options.noRetry === true
+      ? {}
+      : {
+          retry: {
+            enabled: (projectId: string) => {
+              asked.push(projectId)
+              return on
+            },
+            send,
+            now: () => clock,
+            schedule,
+            random: () => 0.5,
+          },
+        }),
+  })
+  autopilots.push(autopilot)
+  launcher.attachAutopilot(autopilot)
+  const journal = async (): Promise<JournalEvent[]> => {
+    const runs = readdirSync(join(dataRoot, 'autopilot')).map((name) => name.replace(/\.jsonl$/, ''))
+    expect(runs).toHaveLength(1)
+    return (await readRun(runs[0]!, { env }))!.events
+  }
+  const kinds = async () => (await journal()).map((event) => event.kind)
+  const messages = () => calls.filter((call): call is Extract<FakeCall, { kind: 'message' }> => call.kind === 'message').map((call) => call.text)
+  const state = () => autopilot.state(PROJECT)
+  const live = () => timers.filter((timer) => !timer.cancelled)
+  const setOn = (value: boolean): void => {
+    on = value
+  }
+  return { autopilot, orchestrators, timers, live, states, journal, kinds, messages, state, releases, setOn, asked }
+}
+
+type Harness = ReturnType<typeof harness>
+
+const iso = (at: number): string => new Date(at).toISOString()
+/** The `turn-retry` lines of the journal. */
+const retries = async (h: Harness) => (await h.journal()).filter((event): event is Extract<JournalEvent, { kind: 'turn-retry' }> => event.kind === 'turn-retry')
+/** The texts the Orchestrator got that are continuations after an API error. */
+const continuations = (h: Harness): string[] => h.messages().filter((text) => text.startsWith('The previous turn ended with a temporary API error'))
+/** The 400 of the Anthropic API, in place of the 500 of autopilot-retry-500. */
+const ERROR_400 = 'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"},"request_id":"req_fake_400"}'
+
+/** Starts the run and waits for its first `turn-retry`. */
+async function untilRetry(h: Harness, count = 1): Promise<void> {
+  await until(async () => (await retries(h)).length >= count && h.state().status === 'waiting', `turn-retry ${count}`)
+}
+
+// ── the runs ─────────────────────────────────────────────────────────────────
+
+describe('Autopilot continues after a temporary API error (worfy-retry ticket 04)', () => {
+  it('off: a 500 stops the run with turn-error, as before the ticket; nothing waits and nothing more goes to the Orchestrator', async () => {
+    for (const noRetry of [false, true]) {
+      const h = harness({ script: 'autopilot-retry-500', on: false, noRetry })
+      await h.autopilot.start(PROJECT, EPIC)
+      await until(() => h.state().status === 'stopped', 'the run to stop')
+      expect(h.state()).toMatchObject({ reason: 'turn-error', wave: 1 })
+      expect(h.state().message).toMatch(/^API Error: 500 /u)
+      const kinds = await h.kinds()
+      expect(kinds).not.toContain('turn-retry')
+      expect(kinds).not.toContain('retry-refused')
+      expect(kinds.slice(0, 2)).toEqual(['run-started', 'wave-started'])
+      expect(kinds).toContain('session-error')
+      expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'turn-error' })
+      expect(h.messages()).toEqual([WAVE_1])
+      expect(h.timers).toEqual([])
+      if (noRetry) expect(h.asked).toEqual([])
+      else expect(h.asked).toEqual([PROJECT])
+      for (const autopilot of autopilots) await autopilot.stopAll()
+      autopilots = []
+      for (const registry of registries) registry.closeAll()
+      registries = []
+      await rm(join(scratch, 'data-root'), { recursive: true, force: true })
+      for (const { num } of TICKETS) writeTicket(num, 'open')
+    }
+  })
+
+  it('on: a 500 gives turn-retry 1 of 5; at the timer the Orchestrator gets one continuation without the Wave command, and the run goes on', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+
+    const until1 = START_MS + RETRY_DELAYS_MS[0]!
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'retry', retry: { attempt: 1, of: MAX_RETRIES }, resumesAt: until1, wave: 1, reason: null })
+    expect(autopilotStateSchema.parse(h.state())).toEqual(h.state())
+    expect(autopilotStatusLine(h.state(), { timeZone: 'UTC' })).toBe('API error · retry 1/5 · 06:11')
+    const [line] = await retries(h)
+    expect(line).toMatchObject({ attempt: 1, of: 5, error: 'api-500', until: iso(until1) })
+    expect(line!.message).toMatch(/^API Error: 500 \{"type":"error","error":\{"type":"api_error"/u)
+    expect(h.live().map((timer) => timer.at)).toEqual([until1])
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1])
+
+    // The timer: one continuation, even if it fires twice.
+    clock = until1
+    const timer = h.live()[0]!
+    timer.fire()
+    timer.fire()
+    await until(() => h.messages().length >= 2, 'the continuation')
+    const continuation = h.messages()[1]!
+    expect(continuation).toBe(retryText({ attempt: 1, of: MAX_RETRIES, error: 'api-500', actions: [] }))
+    expect(continuation).not.toMatch(/epic-wave/u)
+    expect(continuation).not.toMatch(CYRILLIC)
+
+    // The continuation's turn went through: Wave 1 is finished, Wave 2 goes (its own new Session fails again).
+    await until(async () => (await retries(h)).length >= 2, 'the turn-retry of Wave 2')
+    expect(h.messages().filter((text) => text === WAVE_1)).toHaveLength(1)
+    expect(continuations(h)).toHaveLength(1)
+    expect(h.state()).toMatchObject({ status: 'waiting', wave: 2, retry: { attempt: 1, of: 5 } })
+    await h.autopilot.forceStop(PROJECT)
+    const kinds = await h.kinds()
+    const wave1 = kinds.slice(0, kinds.indexOf('wave-finished') + 1)
+    expect(wave1.filter((kind) => kind !== 'ticket-status')).toEqual(['run-started', 'wave-started', 'turn-retry', 'resumed', 'wave-finished'])
+    expect(kinds.slice(-3)).toEqual(['turn-retry', 'run-stopped', 'orchestrator-returned'])
+    expect(h.live()).toEqual([])
+  })
+
+  it('on: 529 again and again — pauses of 1, 5, 15, 30 and 60 minutes, then retry-refused cap and turn-error', async () => {
+    const h = harness({ script: 'autopilot-retry-overloaded-5' })
+    await h.autopilot.start(PROJECT, EPIC)
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+      await untilRetry(h, attempt)
+      const timer = h.live().at(-1)!
+      expect(h.live()).toHaveLength(1)
+      expect(timer.at - clock).toBe(RETRY_DELAYS_MS[attempt - 1])
+      expect(h.state()).toMatchObject({ waitingFor: 'retry', retry: { attempt, of: 5 }, resumesAt: timer.at })
+      clock = timer.at
+      timer.fire()
+      await until(() => continuations(h).length === attempt, `continuation ${attempt}`)
+    }
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'turn-error' })
+    expect(h.state().message).toMatch(/^API Error: 529 .*gave up after 5 retries/su)
+    const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'turn-retry').map((event) => [event.attempt, event.error])).toEqual([1, 2, 3, 4, 5].map((attempt) => [attempt, 'overloaded']))
+    expect(events.filter((event) => event.kind === 'retry-refused')).toMatchObject([{ reason: 'cap' }])
+    const kinds = events.map((event) => event.kind)
+    expect(kinds.slice(kinds.indexOf('retry-refused')).filter((kind) => kind !== 'ticket-status')).toEqual(['retry-refused', 'session-error', 'run-stopped'])
+    expect(continuations(h)).toEqual([1, 2, 3, 4, 5].map((attempt) => retryText({ attempt, of: 5, error: 'overloaded', actions: [] })))
+    expect(h.messages().filter((text) => text === WAVE_1)).toHaveLength(1)
+  })
+
+  it('on: a 400 is no temporary error — retry-refused not-transient, turn-error, no continuation', async () => {
+    const lines = scriptLines('autopilot-retry-500').map((line) => (line.type === 'result' && line.is_error === true ? { ...line, result: ERROR_400 } : line))
+    const h = harness({ script: 'autopilot-retry-500', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'turn-error', message: ERROR_400 })
+    const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'retry-refused')).toMatchObject([{ reason: 'not-transient' }])
+    expect(events.find((event) => event.kind === 'retry-refused')).not.toHaveProperty('actions')
+    expect(events.map((event) => event.kind)).not.toContain('turn-retry')
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(h.timers).toEqual([])
+  })
+
+  it('on: a git push without its result, then a 500 — retry-refused in-flight names the push, turn-error, no continuation', async () => {
+    const h = harness({ script: 'autopilot-retry-in-flight' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'turn-error' })
+    const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'retry-refused')).toMatchObject([{ reason: 'in-flight', actions: ['git push origin demo/01'] }])
+    expect(events.map((event) => event.kind)).not.toContain('turn-retry')
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(h.timers).toEqual([])
+  })
+
+  it('on: a refusal by the Limits is no retry — limits-hit and waiting-until, as before', async () => {
+    const h = harness({ script: 'autopilot-limits' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    expect(h.state()).toMatchObject({ waitingFor: 'limits' })
+    expect(h.state()).not.toHaveProperty('retry')
+    const kinds = await h.kinds()
+    expect(kinds).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until'])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('on: a turn of a background task that goes through during the wait ends it — no continuation', async () => {
+    const h = harness({ script: 'autopilot-fault-api-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    // The first implementer reports: its turn goes through, and the wait is over.
+    h.releases.release('tasks')
+    await until(() => h.state().status === 'running', 'the wait to end')
+    expect(h.state()).not.toHaveProperty('retry')
+    expect(h.state()).not.toHaveProperty('waitingFor')
+    expect(timer.cancelled).toBe(true)
+    // A late fire of the cancelled timer sends nothing.
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(continuations(h)).toEqual([])
+    expect(h.messages()).toEqual([WAVE_1])
+    // The second implementer reports: the Wave is finished.
+    h.releases.release('tasks')
+    await until(async () => (await h.kinds()).includes('wave-finished'), 'the end of Wave 1')
+    expect(continuations(h)).toEqual([])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('on: Stop during the wait ends the run with user-stop at once; the continuation never goes', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    const stopped = await h.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(timer.cancelled).toBe(true)
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1])
+    const kinds = await h.kinds()
+    expect(kinds).toContain('turn-retry')
+    expect(kinds).not.toContain('resumed')
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'user-stop' })
+  })
+
+  it('on: the quit and the Force stop during the wait cancel the timer; the continuation never goes', async () => {
+    for (const how of ['quit', 'force'] as const) {
+      const h = harness({ script: 'autopilot-retry-500' })
+      await h.autopilot.start(PROJECT, EPIC)
+      await untilRetry(h)
+      const timer = h.live()[0]!
+      if (how === 'quit') await h.autopilot.stopAll()
+      else await h.autopilot.forceStop(PROJECT)
+      expect(h.state()).toMatchObject({ status: 'stopped', reason: how === 'quit' ? 'app-quit' : 'user-force-stop' })
+      expect(timer.cancelled).toBe(true)
+      clock = timer.at
+      timer.fire()
+      await tick()
+      expect(h.messages()).toEqual([WAVE_1])
+      expect(await h.kinds()).not.toContain('resumed')
+      for (const autopilot of autopilots) await autopilot.stopAll()
+      autopilots = []
+      for (const registry of registries) registry.closeAll()
+      registries = []
+      await rm(join(scratch, 'data-root'), { recursive: true, force: true })
+      for (const { num } of TICKETS) writeTicket(num, 'open')
+      clock = START_MS
+    }
+  })
+
+  it('on, then off during the wait: at the timer the wait is dropped and the error ends the run with turn-error; no continuation', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    h.setOn(false)
+    const timer = h.live()[0]!
+    clock = timer.at
+    timer.fire()
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'turn-error' })
+    expect(h.state().message).toMatch(/^API Error: 500 /u)
+    expect(h.messages()).toEqual([WAVE_1])
+    const kinds = await h.kinds()
+    expect(kinds).not.toContain('resumed')
+    expect(kinds.slice(kinds.indexOf('turn-retry')).filter((kind) => kind !== 'ticket-status')).toEqual(['turn-retry', 'session-error', 'run-stopped'])
+  })
+})
