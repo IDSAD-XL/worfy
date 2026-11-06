@@ -90,6 +90,27 @@ export function parseJournal(text) {
 }
 
 /**
+ * The Epics of one Run, in queue order (worfy-autopilot-queue tickets 14, 18): `run-started.epics` of a Run
+ * over a queue, else the Epic of its first line; then each Epic `queue-changed` added, each it removed taken
+ * out (it never began), and an Epic an `epic-started` names that the list misses. The events of one Run's
+ * file, in file order; none — an empty list.
+ */
+export function runEpics(events) {
+  const first = events.find((event) => event.kind === 'run-started') ?? events[0]
+  if (first === undefined) return []
+  const named = (value) => Array.isArray(value) && value.length > 0 && value.every((epic) => typeof epic === 'string' && epic !== '')
+  const epics = first.kind === 'run-started' && named(first.epics) ? [...new Set(first.epics)] : [first.epic]
+  for (const event of events) {
+    if (event.kind === 'queue-changed') {
+      if (named(event.added)) for (const epic of event.added) if (!epics.includes(epic)) epics.push(epic)
+      if (named(event.removed)) for (const epic of event.removed) if (epics.includes(epic)) epics.splice(epics.indexOf(epic), 1)
+    }
+    if (event.kind === 'epic-started' && !epics.includes(event.epic)) epics.push(event.epic)
+  }
+  return epics
+}
+
+/**
  * One Run from the events of its Journal file. A Wave runs from wave-started to wave-finished; a Wave the Run
  * stopped inside, or one a later wave-started replaced, has no end. A Limits wait starts at limits-hit or
  * waiting-until and ends at resumed or at the stop of the Run; it holds the Tickets of the Wave open when it

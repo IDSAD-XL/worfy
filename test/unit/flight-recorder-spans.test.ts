@@ -96,7 +96,7 @@ describe('the vocabulary', () => {
     expect(SPAN_KINDS).toEqual(['run', 'wave', 'ticket', 'stage', 'agent', 'ci', 'gate', 'script', 'wait', 'orchestrator-turn'])
     expect(SPAN_OUTCOMES).toEqual(['ok', 'failed', 'rejected', 'blocked', 'stopped', 'cut-off'])
     expect(AGENT_SUBKINDS).toEqual(['implementer', 'verifier', 'other'])
-    expect(WAIT_CAUSES).toEqual(['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry'])
+    expect(WAIT_CAUSES).toEqual(['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry', 'orchestrator-busy'])
   })
 
   it('tells an agent subkind by its Harness type, else its name', () => {

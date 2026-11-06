@@ -38,12 +38,16 @@ sidebar goes back to the Canvas too.
 #### The header
 
 The header has a picker of the Project's runs, newest first, each as its local start time and Epic, with `live` for a
-run that goes on. Opened from an Epic's menu, the list holds only that Epic's runs, and a chip says `Epic filter: <epic>`.
-Then the facts of the chosen run:
+run that goes on. A run over a queue of Epics names them in order, `worfy-faults → worfy-retry → worfy-guide`, three at
+most and `+N` for the rest. Opened from an Epic's menu, the list holds the runs whose queue holds that Epic, and a chip
+says `Epic filter: <epic>`. Then the facts of the chosen run:
 
-- the Epic, the start and the end (`now` while it goes on) in local time, and the duration;
+- the Epic (`Epics` and the queue for a run over several, all of them in the tooltip), the start and the end (`now`
+  while it goes on) in local time, and the duration;
 - how it stopped: `running`, `stopped: <reason>`, or `no stop in the Journal` when the journal just ends. A stop for a
-  block or a failure is in the problem colour;
+  block or a failure is in the problem colour. A run that waited for its Orchestrator says it in words:
+  `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the Orchestrator was
+  free`;
 - the number of Waves, and the Tickets `done`, `blocked` and `cut-off`. `blocked` and `cut-off` are counted only once
   the run has stopped: while it goes on, a Ticket that is not done, a blocked one included, counts as `not done yet`.
   After the stop, Tickets that are none of these three count as `stopped`;
@@ -80,16 +84,22 @@ rows. The narrowest stretch is one minute. Times on the axis are local.
 The rows, top to bottom:
 
 1. The **Waits** lane: the waits of the run, one bar each, named by cause: `Limits`, `Limits budget`, `Start window`,
-   `Background tasks`, `Gate queue`, `Other Machine` or `Retry after an API error` (from `turn-retry` to `resumed`, or
-   to the `limits-hit` that takes it over). The tooltip of a `Start window` bar gives its reason:
+   `Background tasks`, `Gate queue`, `Other Machine`, `Retry after an API error` (from `turn-retry` to `resumed`, or
+   to the `limits-hit` that takes it over) or `Orchestrator busy` (a run accepted while the Orchestrator was busy, from
+   `orchestrator-busy` to `orchestrator-free`, or to the stop of a run cancelled while it waited; its reason is
+   `turn`, `N queued` and the Orchestrator's tasks by name). The tooltip of a `Start window` bar gives its reason:
    `outside, until <time>`, or `wave-too-long, until <time>` when the next Wave would not end inside the window. The
    time of a wait's `until` is local, as the other times on the screen, in the tooltip and in the detail panel.
 2. The **Orchestrator** lane: the Orchestrator's turns. A turn links to the Tickets it touched and is not nested in
-   them. An `i` mark stands for each refused dialog and each time a person stepped in. A request the approval policy
-   answered in Shadow or On is an `auto-approval` line, not a refused dialog, and has no mark.
+   them. An `i` mark stands for each refused dialog and each time a person stepped in, `Start now` of a waiting run
+   included. A request the approval policy answered in Shadow or On is an `auto-approval` line, not a refused dialog,
+   and has no mark.
 3. The tree: Run → Wave → Ticket → Stage → work. Work is an agent (implementer, verifier or other), a CI run, a gate run
    or a script. A Ticket that went through several Waves is one row, under the Wave it started in, with one part per
-   Wave and the gap between them.
+   Wave and the gap between them. In a run over a queue of Epics each Epic counts its Waves from 1, so a Wave is named
+   with its Epic, `Wave 1 · worfy-retry`, and an `i` mark on the run's row stands for the start of each next Epic
+   (`Epic 2/3: worfy-retry`) and for an Epic the run passed over (`Epic worfy-retry skipped: waits for the owner`, or
+   `runs elsewhere`).
 
 At first the run, its Waves and Tickets and the Waits lane are open. A row has `▸` or `▾`, a dot in the colour of its
 kind, its name, and its outcome in words when it is not `ok`. A collapsed row draws its children as thin bars under its
@@ -203,7 +213,7 @@ commits are found by the branch of a Ticket and by sha; nothing is stamped into 
 
 | Source | Gives |
 |---|---|
-| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks, the gate queue and a retry after an API error, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
+| The Autopilot journal | The run and its Waves, the waits for the Limits, the budget, background tasks, the gate queue, a retry after an API error and a busy Orchestrator, the Epics of a queue and their starts, the Tickets' statuses (`ticket-status`), the narrow fix round, Session errors, refused dialogs, a person's actions, the stop. |
 | The Orchestrator's transcript | Its turns, the `Agent` calls and the `SendMessage` calls that resume an agent, the task-notifications. On Codex: the spawns, `send_message` and `followup_task`, and the Subagents' ends. |
 | The Subagents' transcripts | The start, the end and the outcome of each agent. |
 | GitHub | The PR opened and its new heads, CI runs and their retries, verdict comments, marks of agents on the head, the merge, and the label of the cross-machine gate (the wait `Other Machine`). |

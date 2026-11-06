@@ -18,7 +18,8 @@ import { relocatedJsonText } from './relocate-fixture'
 // (WORFY_GH) — and two small Runs of the same Project written here: one that stopped on a block, one whose
 // Journal ends without run-stopped (cut-off) and whose block reason is too long for its row; and a Run in the
 // Run mode Start window with the Epic forecast at its start, a wait for the window and the actual share at its
-// stop (worfy-resource-planner ticket 11). The fixture is
+// stop (worfy-resource-planner ticket 11); and a Run over a queue of Epics that waited for its busy Orchestrator
+// first (worfy-autopilot-queue ticket 18). The fixture is
 // copied with its root `/Users/someone/Stuff/CanvasForAI` replaced by a folder of the test, so the transcripts'
 // `cwd` lies in the Project and gh runs in a folder that exists. openRunHistory (src/renderer/flight-recorder/
 // open.ts) opens the screen through the page's `__worfyRunHistory`, which an init script defines before the
@@ -37,6 +38,7 @@ const PROJECT = 'CanvasForAI-38cb72ec'
 const BLOCKED_RUN = makeRunId(new Date('2026-10-19T09:00:00.000Z'), 'b10c4e')
 const CUT_RUN = makeRunId(new Date('2026-10-20T09:00:00.000Z'), 'c07c07')
 const PLAN_RUN = makeRunId(new Date('2026-10-21T09:00:00.000Z'), 'f0ca57')
+const QUEUE_RUN = makeRunId(new Date('2026-10-18T09:00:00.000Z'), 'a9e0e0')
 const LONG_REASON = 'The owner has to choose between the two designs of the Settings window before the implementer goes on with the rest of it'
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -103,6 +105,27 @@ function prepareNight() {
     { at: at('20', '09:30'), kind: 'ticket-status', ticket: '02', state: 'blocked', reason: LONG_REASON, waits: 'the owner' },
     // The Journal ends here: the app quit in the middle of the Run.
     { at: at('20', '09:50'), kind: 'background-tasks', tasks: [{ id: 'a1', type: 'local_agent', description: 'Implement ticket 01' }] },
+  ])
+
+  // A Run over a queue of four Epics that waited for its busy Orchestrator first (worfy-autopilot-queue ticket 18):
+  // two Waves 1 of two Epics, an Epic passed over for the owner between them.
+  writeRun(dataDir, QUEUE_RUN, 'demo-faults', [
+    { at: at('18', '09:00'), kind: 'run-started', by: 'command', epics: ['demo-faults', 'demo-retry', 'demo-guide', 'demo-link'] },
+    { at: at('18', '09:00'), kind: 'orchestrator-busy', turn: true, queued: 2, tasks: [{ id: 'b1', type: 'local_bash', description: 'pnpm test' }] },
+    { at: at('18', '09:20'), kind: 'orchestrator-free' },
+    { at: at('18', '09:21'), kind: 'wave-started', wave: 1, tickets: ['01'] },
+    { at: at('18', '09:22'), kind: 'ticket-status', ticket: '01', state: 'claimed' },
+    { at: at('18', '10:00'), kind: 'ticket-status', ticket: '01', state: 'done' },
+    { at: at('18', '10:01'), kind: 'wave-finished', wave: 1, tickets: ['01'] },
+    { at: at('18', '10:02'), kind: 'epic-finished', outcome: 'done' },
+    { at: at('18', '10:02'), epic: 'demo-retry', kind: 'epic-started', index: 2, of: 4 },
+    { at: at('18', '10:02'), epic: 'demo-retry', kind: 'epic-finished', outcome: 'waits-owner', tickets: ['03'] },
+    { at: at('18', '10:03'), epic: 'demo-guide', kind: 'epic-started', index: 3, of: 4 },
+    { at: at('18', '10:04'), epic: 'demo-guide', kind: 'wave-started', wave: 1, tickets: ['01'] },
+    { at: at('18', '10:05'), epic: 'demo-guide', kind: 'ticket-status', ticket: '01', state: 'claimed' },
+    { at: at('18', '10:50'), epic: 'demo-guide', kind: 'ticket-status', ticket: '01', state: 'done' },
+    { at: at('18', '10:51'), epic: 'demo-guide', kind: 'wave-finished', wave: 1, tickets: ['01'] },
+    { at: at('18', '10:52'), epic: 'demo-guide', kind: 'run-stopped', reason: 'user-stop' },
   ])
 
   writeRun(dataDir, PLAN_RUN, 'demo-plan', [
@@ -351,6 +374,22 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     expect(waitTitle).toContain('start-window: outside')
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
     await snapshots(window, 'forecast-and-actual')
+
+    // The Run over a queue of Epics (worfy-autopilot-queue ticket 18): the header names three Epics and «+1»; its
+    // wait for the busy Orchestrator is on the Wait lane as «Orchestrator busy»; each Wave is named by its Epic.
+    await window.getByTestId('run-history-choose').selectOption(QUEUE_RUN)
+    await expect(window.getByTestId('run-history-epic')).toHaveText('demo-faults → demo-retry → demo-guide +1')
+    await expect(window.locator(`[data-testid="run-history-choose"] option[value="${QUEUE_RUN}"]`)).toHaveText(/ · demo-faults → demo-retry → demo-guide \+1$/)
+    const busyBar = window.locator('[data-testid="run-history-bar"][data-span-id="wait:orchestrator-busy:1"]').first()
+    await expect(busyBar).toBeVisible()
+    const busyTitle = (await busyBar.getAttribute('title')) ?? ''
+    expect(busyTitle.split('\n')[0]).toBe('Orchestrator busy')
+    expect(busyTitle).toContain('orchestrator-busy: turn; 2 queued; pnpm test')
+    await expect(window.locator('[data-testid="run-history-row"][data-row-id="wave:1"]')).toContainText('Wave 1 · demo-faults')
+    await expect(window.locator('[data-testid="run-history-row"][data-row-id="wave:2"]')).toContainText('Wave 1 · demo-guide')
+    await expect(window.locator('[data-testid="run-history-row"][data-row-id="run"] [data-testid="run-history-note"]')).toHaveCount(3)
+    expect(await expectLabelsClear(window)).toBeGreaterThan(0)
+    await snapshots(window, 'queue-run')
 
     // Esc: the Canvas again.
     await window.getByTestId('run-history-timeline').click({ position: { x: 5, y: 5 } })

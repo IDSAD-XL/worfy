@@ -89,7 +89,7 @@ export interface FlightRecorderOptions {
   profile: (root: string) => Promise<RunProfile>
   /** A read-only gh command in the Project's root as its account (PrTracker.gh of src/main/github/prs.ts). */
   gh: (root: string, args: readonly string[]) => Promise<string>
-  /** Whether Autopilot works on this Epic of the Project now (running or waiting, not stopped). */
+  /** Whether Autopilot works on this Epic of the Project now (running or waiting, not stopped); asked for each Epic of a Run's queue. */
   running: (projectId: string, epic: string) => boolean
   /** The branch of each Ticket of the Epic by number (the Ticket's `Branch:` line, else `<epic>/<NN>`). */
   branches?: (root: string, epic: string) => Promise<ReadonlyMap<number, string>>
@@ -270,7 +270,7 @@ export class FlightRecorder {
     this.github = new GithubReader({ gh: options.gh, now: this.now })
   }
 
-  /** The Runs of the Project, newest first; with `epic`, those of that Epic only. */
+  /** The Runs of the Project, newest first; with `epic`, those whose queue holds that Epic. */
   async list(projectId: string, epic?: string): Promise<RunListItem[]> {
     // A Project that is not in the list has no Runs to show, whatever Journals name it.
     this.options.projectRoot(projectId)
@@ -278,7 +278,7 @@ export class FlightRecorder {
     const runs = await listRuns(projectId, { env: this.env })
     const newest = runs[0]?.run
     for (const summary of runs) {
-      if (epic !== undefined && summary.epic !== epic) continue
+      if (epic !== undefined && !summary.epics.includes(epic)) continue
       const journal = await this.journal(summary.run, projectId).catch(() => null)
       if (journal === null) continue
       const live = this.isLive(projectId, summary.run, journal.facts, newest)
@@ -286,6 +286,7 @@ export class FlightRecorder {
       items.push({
         run: summary.run,
         epic: journal.facts.epic,
+        ...(journal.facts.epics.length > 1 ? { epics: journal.facts.epics } : {}),
         startedAt: run.startedAt,
         stoppedAt: run.stoppedAt,
         reason: run.reason ?? null,
@@ -420,9 +421,12 @@ export class FlightRecorder {
     this.sync()
   }
 
-  /** A Run goes on: its Journal has no run-stopped, it is the Project's newest, and Autopilot works on its Epic. */
+  /**
+   * A Run goes on: its Journal has no run-stopped, it is the Project's newest, and Autopilot works on one of its
+   * Epics — a Run over a queue is on its second Epic and later ones too (worfy-autopilot-queue ticket 18).
+   */
   private isLive(projectId: string, run: string, facts: JournalFacts, newest: string | undefined): boolean {
-    return facts.run.stoppedAt === null && newest === run && this.options.running(projectId, facts.epic)
+    return facts.run.stoppedAt === null && newest === run && facts.epics.some((epic) => this.options.running(projectId, epic))
   }
 
   private forget(key: string, entry: OpenRun): void {
@@ -592,7 +596,7 @@ export class FlightRecorder {
     const timeline = buildTimeline(facts)
     const read = await originOf()
     const repoUrl = read.url === null ? null : repoPageUrl(read.url)
-    const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
+    const view: RunView = { projectId, run, epic: journal.epic, ...(journal.epics.length > 1 ? { epics: journal.epics } : {}), timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
     const autoApproval = await this.autoApproval(runs, journal)
     if (autoApproval !== null) view.autoApproval = autoApproval
     return { view, profile, origin: read }

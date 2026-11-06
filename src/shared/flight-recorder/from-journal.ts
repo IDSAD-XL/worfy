@@ -19,6 +19,15 @@
 //   background-tasks Wait still open at run-stopped ends there; a gate-queue has its own
 //   end, so one without it (a Journal of before ticket 11) is left open, last seen at run-stopped
 //   (which follows the gate queue's turn), and the model cuts it off there.
+// - A Run accepted while its Orchestrator was busy (worfy-autopilot-queue tickets 07, 18) has a Wait
+//   `orchestrator-busy` from the first orchestrator-busy to orchestrator-free, or to run-stopped when it was
+//   cancelled (`start-cancelled`) or the app quit; its detail is «turn», «N queued» and the tasks by name. A
+//   Start now (tasks-killed `start-now`) is a mark of a person's input on the Orchestrator's lane, and a
+//   refusal once the Orchestrator was free is run-stopped `start-refused` after orchestrator-free.
+// - A Run over a queue of Epics (worfy-autopilot-queue ticket 14): `epics` is its queue (runEpics); a
+//   Ticket is `<epic>/<NN>` of the Epic its line names; each Epic counts its Waves from 1, so the Waves are
+//   numbered through the Run and named «Wave <n> · <epic>»; epic-started, and an epic-finished of an Epic
+//   passed over (`waits-owner`, `elsewhere`), are marks on the Run's row.
 // - The `background-tasks` Wait is the Journal's word, not the Run standing idle: the tasks are the
 //   Orchestrator's agents, gate runs and scripts, so the Wait covers their own work (on the night Run,
 //   most of the Run). The Journal cannot tell whether the Orchestrator's turn still went on meanwhile
@@ -58,7 +67,7 @@ import { COMMAND_MAX, RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES, type RunMode } from '../autopilot/run-mode'
 import { isVendorId, type VendorId } from '../vendors/vendor'
 import type { AutoApprovalDecisionFact, OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
-import { parseJournal, walkRun, type JournalEvent } from './journal-walk.mjs'
+import { parseJournal, runEpics, walkRun, type JournalEvent } from './journal-walk.mjs'
 
 type Iso = string
 
@@ -96,7 +105,10 @@ export interface JournalActual {
 export interface JournalFacts {
   /** The Run; `live` is the service's. */
   run: Omit<RunFact, 'live'>
+  /** The Epic the Run began with. */
   epic: string
+  /** The Epics of the Run in queue order (runEpics of journal-walk.mjs): `[epic]` for a Run of one Epic. */
+  epics: string[]
   /** Every Ticket the Waves name, in the order they are first named. */
   tickets: string[]
   /** run-started `by`: who started the Run (`button`, `command`, `tool`), as written. */
@@ -238,7 +250,10 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   const skipped = parsed.notJson + parsed.unknownKind + parsed.badFields + (parsed.events.length - events.length)
 
   const epic = first.epic
-  const key = (num: string): string => `${epic}/${num}`
+  // A Ticket is of the Epic its line names: in a Run over a queue that is the Epic the Run is on then.
+  const key = (num: string, of: string = epic): string => `${of}/${num}`
+  const epics = runEpics(events)
+  const queue = epics.length > 1 || events.some((event) => event.kind === 'epic-started')
   const walked = walkRun(events)
   const stopIndex = events.findLastIndex((event) => event.kind === 'run-stopped')
   const inRun = stopIndex === -1 ? events : events.slice(0, stopIndex + 1)
@@ -254,12 +269,19 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     if (outcome !== undefined) run.outcome = outcome
   }
 
-  // The Waves: walkRun gives one per wave-started, in file order.
+  // The Waves: walkRun gives one per wave-started, in file order. A Run over a queue counts the Waves of each
+  // Epic from 1 again: its Waves are numbered through the Run (the key of their spans) and named by their Epic.
   const starts = events.flatMap((event, index) => (event.kind === 'wave-started' ? [index] : []))
   const waves = walked.waves.map((wave, n): JournalWave => {
     const index = starts[n] ?? 0
     const line = events[index]
-    const fact: JournalWave = { number: wave.wave, startedAt: iso(wave.start), finishedAt: wave.end === null ? null : iso(wave.end), tickets: wave.tickets.map(key) }
+    const fact: JournalWave = {
+      number: queue ? n + 1 : wave.wave,
+      ...(queue ? { label: `Wave ${wave.wave} · ${wave.epic}` } : {}),
+      startedAt: iso(wave.start),
+      finishedAt: wave.end === null ? null : iso(wave.end),
+      tickets: wave.tickets.map((num) => key(num, wave.epic)),
+    }
     if (wave.end === null) {
       // Its last line: before the next wave-started, else up to run-stopped or the end of the file.
       const next = starts[n + 1]
@@ -280,7 +302,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   const previous = new Map<string, number>()
   for (const event of inRun) {
     if (event.kind !== 'ticket-status') continue
-    const ticket = key(event.ticket as string)
+    const ticket = key(event.ticket as string, event.epic)
     const told = moment(event.statusAt)
     const before = previous.get(ticket)
     const at = told === null || told > event.at || (before !== undefined && told < before) ? event.at : Math.max(told, startedAt)
@@ -315,7 +337,7 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   const close = (wait: OpenWait, end: number | null) => {
     const n = (counts.get(wait.cause) ?? 0) + 1
     counts.set(wait.cause, n)
-    const detail = wait.detail.length === 0 ? undefined : wait.detail.join(wait.cause === 'background-tasks' ? '; ' : ', ')
+    const detail = wait.detail.length === 0 ? undefined : wait.detail.join(wait.cause === 'background-tasks' || wait.cause === 'orchestrator-busy' ? '; ' : ', ')
     waits.push({
       id: `${wait.cause}:${n}`,
       cause: wait.cause,
@@ -333,13 +355,49 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   let gate: OpenWait | null = null
   // The pause before a retry after an API error (worfy-retry ticket 04): turn-retry to resumed.
   let retry: OpenWait | null = null
+  // The wait for a busy Orchestrator (worfy-autopilot-queue ticket 07): orchestrator-busy to orchestrator-free,
+  // or to run-stopped (`start-cancelled`, `app-quit`). Its detail is all the lines said: a turn ran, the most
+  // messages queued, every task by name.
+  let busy: (OpenWait & { turn: boolean; queued: number; names: string[] }) | null = null
   const retryCauses: RetryCauseFact[] = []
   const orchestratorMarks: OrchestratorMarkFact[] = []
 
   for (const event of inRun) {
     const { at } = event
-    for (const wait of [limits, tasks, gate, retry]) if (wait !== null) wait.lastSeen = at
+    for (const wait of [limits, tasks, gate, retry, busy]) if (wait !== null) wait.lastSeen = at
     switch (event.kind) {
+      case 'orchestrator-busy': {
+        busy ??= { ...open('orchestrator-busy', at), turn: false, queued: 0, names: [] }
+        if (event.turn === true) busy.turn = true
+        if (isCount(event.queued)) busy.queued = Math.max(busy.queued, event.queued)
+        for (const name of taskNames(event.tasks)) if (!busy.names.includes(name)) busy.names.push(name)
+        busy.detail = [...(busy.turn ? ['turn'] : []), ...(busy.queued > 0 ? [`${busy.queued} queued`] : []), ...busy.names]
+        break
+      }
+      case 'orchestrator-free':
+        if (busy !== null) close(busy, at)
+        busy = null
+        break
+      case 'tasks-killed': {
+        // Start now ended the busy Orchestrator's turn and tasks; the kills of a stop come after run-stopped.
+        if (event.reason !== 'start-now') break
+        const names = taskNames(event.tasks)
+        orchestratorMarks.push({ kind: 'human-input', at: iso(at), text: `Start now: the Orchestrator's turn and tasks were ended${names.length === 0 ? '' : ` (${names.join('; ')})`}` })
+        break
+      }
+      case 'epic-started': {
+        const { index, of } = event
+        orchestratorMarks.push({ kind: 'epic-started', at: iso(at), text: `${isCount(index) && isCount(of) ? `Epic ${index}/${of}` : 'Epic'}: ${event.epic}` })
+        break
+      }
+      case 'epic-finished': {
+        // Only an Epic the Run passed over gets a mark: one done ends at the next epic-started, one removed never began.
+        const why = event.outcome === 'waits-owner' ? 'waits for the owner' : event.outcome === 'elsewhere' ? 'runs elsewhere' : undefined
+        if (why === undefined) break
+        const left = numbers(event.tickets)
+        orchestratorMarks.push({ kind: 'epic-finished', at: iso(at), text: `Epic ${event.epic} skipped: ${why}${left === undefined ? '' : ` (${left.map((num) => key(num, event.epic)).join(', ')})`}` })
+        break
+      }
       case 'limits-hit':
         // A refusal by a quota (worfy-multi-vendor ticket 38) is no Wait: nothing resets, and run-stopped `vendor-quota` follows.
         if (event.reason === 'quota') break
@@ -400,14 +458,16 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
         if (limits !== null) close(limits, at)
         if (tasks !== null) close(tasks, at)
         if (retry !== null) close(retry, at)
+        if (busy !== null) close(busy, at)
         limits = null
         tasks = null
         retry = null
+        busy = null
         break
       case 'narrow-round':
         if (event.outcome === 'started') {
           const said = text(event.text)
-          retryCauses.push({ ticket: key(event.ticket as string), kind: 'agent', at: iso(at), reason: said === undefined ? 'narrow round' : `narrow round: ${said}`, source: 'journal' })
+          retryCauses.push({ ticket: key(event.ticket as string, event.epic), kind: 'agent', at: iso(at), reason: said === undefined ? 'narrow round' : `narrow round: ${said}`, source: 'journal' })
         }
         break
       case 'session-error': {
@@ -430,13 +490,14 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
         break
     }
   }
-  for (const wait of [limits, tasks, gate, retry]) if (wait !== null) close(wait, null)
+  for (const wait of [limits, tasks, gate, retry, busy]) if (wait !== null) close(wait, null)
   waits.sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
   // A budget-stop or a start-window is checked before a Wave, never inside one (often in the
   // millisecond of the last wave-finished, where the model still counts that Wave open): the Tickets
-  // that stood are the next Wave's, none when the Run sent no other.
+  // that stood are the next Wave's, none when the Run sent no other. The wait for a busy Orchestrator
+  // comes before the first Wave.
   for (const wait of waits) {
-    if (wait.cause !== 'limits-budget' && wait.cause !== 'start-window') continue
+    if (wait.cause !== 'limits-budget' && wait.cause !== 'start-window' && wait.cause !== 'orchestrator-busy') continue
     wait.tickets = waves.find((wave) => Date.parse(wave.startedAt) >= Date.parse(wait.start))?.tickets ?? []
   }
 
@@ -447,12 +508,13 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
   })
 
   // An auto-approval line of another shape is a line left out, as one with a field the walk relies on.
-  const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped: skipped + judged.length - autoApproval.length }
+  const facts: JournalFacts = { run, epic, epics, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped: skipped + judged.length - autoApproval.length }
   // Another value of `by` reads as none (the run-started header of src/shared/autopilot/journal.ts).
   const by = (RUN_STARTED_BY as readonly unknown[]).includes(runStarted?.by) ? (runStarted?.by as string) : undefined
   if (by !== undefined) facts.by = by
   const named = numbers(runStarted?.tickets)
-  if (named !== undefined) facts.named = named.map(key)
+  // Named Tickets come only with a Run of one Epic.
+  if (named !== undefined) facts.named = named.map((num) => key(num))
   const mode = (RUN_MODES as readonly unknown[]).includes(runStarted?.mode) ? (runStarted?.mode as RunMode) : undefined
   if (mode !== undefined) facts.mode = mode
   // A Vendor this build does not know reads as none, as the Journal's schema reads it.

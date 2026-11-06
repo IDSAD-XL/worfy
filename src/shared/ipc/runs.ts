@@ -8,7 +8,7 @@ import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-
 import { epicNameSchema } from '../binding/resolve'
 import { isRunId, RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES } from '../autopilot/run-mode'
-import { AGENT_SUBKINDS, FACT_SOURCES, LOST_SOURCE_LABELS, SPAN_KINDS, SPAN_OUTCOMES, WAIT_CAUSES, WORK_KINDS } from '../flight-recorder/facts'
+import { AGENT_SUBKINDS, FACT_SOURCES, LOST_SOURCE_LABELS, ORCHESTRATOR_MARK_KINDS, SPAN_KINDS, SPAN_OUTCOMES, WAIT_CAUSES, WORK_KINDS } from '../flight-recorder/facts'
 import { WORK_NOTE } from '../flight-recorder/summary'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -27,7 +27,13 @@ const count = z.number().int().nonnegative()
 /** A Run of the Project in the list: what its Journal says, without the timeline. */
 export const runListItemSchema = z.object({
   run: runIdSchema,
+  /** The Epic the Run began with. */
   epic: z.string(),
+  /**
+   * The Epics of a Run over a queue, in order, the first one `epic` (worfy-autopilot-queue ticket 18): the list
+   * and its filter by Epic go by them. Absent — the one `epic`, as for every Run of one Epic.
+   */
+  epics: z.array(z.string()).optional(),
   startedAt: z.string(),
   /** `run-stopped`; null while the Run goes on, or when the Journal ends without it. */
   stoppedAt: z.string().nullable(),
@@ -98,7 +104,7 @@ export const timelineSchema = z.object({
   now: time,
   spans: z.array(spanSchema).readonly(),
   blocks: z.array(z.object({ ticket: z.string(), at: time, until: time, reason: z.string(), waits: z.string().nullable(), cleared: z.boolean(), source })).readonly(),
-  orchestratorMarks: z.array(z.object({ kind: z.enum(['refused-dialog', 'human-input']), at: time, text: z.string() })).readonly(),
+  orchestratorMarks: z.array(z.object({ kind: z.enum(ORCHESTRATOR_MARK_KINDS), at: time, text: z.string() })).readonly(),
 })
 
 const workSubkind = z.enum([...AGENT_SUBKINDS, ...WORK_KINDS.filter((kind) => kind !== 'agent')] as [string, ...string[]])
@@ -154,6 +160,8 @@ export const runViewSchema = z.object({
   projectId,
   run: runIdSchema,
   epic: z.string(),
+  /** The Epics of a Run over a queue, in order (worfy-autopilot-queue ticket 18); absent — the one `epic`. */
+  epics: z.array(z.string()).optional(),
   timeline: timelineSchema,
   summary: summarySchema,
   github: runGithubSchema,
@@ -182,7 +190,7 @@ export type RunView = z.infer<typeof runViewSchema>
 
 const runRef = z.object({ projectId, run: runIdSchema })
 
-/** The Runs of the Project, newest first; with `epic`, those of that Epic only. */
+/** The Runs of the Project, newest first; with `epic`, those whose queue holds that Epic. */
 export const runsList = invokeChannel('runs.list', z.object({ projectId, epic: epicNameSchema.optional() }), z.object({ runs: z.array(runListItemSchema) }), 'project', 'read')
 
 /**

@@ -530,6 +530,130 @@ describe('from-journal: the marks of the Orchestrator', () => {
   })
 })
 
+describe('from-journal: a Run that waits for its Orchestrator (worfy-autopilot-queue ticket 18)', () => {
+  const busy = (hhmm: string, turn: boolean, queued: number, ...descriptions: string[]) =>
+    line(hhmm, 'orchestrator-busy', { turn, queued, tasks: descriptions.map((description, index) => ({ id: `t${index}`, type: 'local_bash', description })) })
+
+  it('turns orchestrator-busy … orchestrator-free into a Wait `orchestrator-busy` with all the lines said: the turn, the most messages queued, the tasks', () => {
+    const journal = read(
+      started(),
+      busy('10:00', true, 0),
+      busy('10:02', true, 2, 'pnpm test'),
+      busy('10:04', false, 0, 'pnpm test', 'gate fast'),
+      line('10:06', 'orchestrator-free'),
+      wave('10:06', 1, ['01']),
+      finished('10:30', 1, ['01']),
+      stopped('10:31'),
+    )
+    expect(journal.waits).toEqual([
+      { id: 'orchestrator-busy:1', cause: 'orchestrator-busy', start: T('10:00'), end: T('10:06'), detail: 'turn; 2 queued; pnpm test; gate fast', tickets: ['e/01'], startSource: 'journal', endSource: 'journal' },
+    ])
+    const [wait] = buildTimeline(runFacts(journal)).spans.filter((item) => item.kind === 'wait')
+    expect(wait).toMatchObject({ waitCause: 'orchestrator-busy', reason: 'orchestrator-busy: turn; 2 queued; pnpm test; gate fast' })
+  })
+
+  it('ends the Wait at run-stopped when the wait is cancelled; the Run is stopped, not failed', () => {
+    const journal = read(started(), busy('10:00', true, 1), stopped('10:07', 'start-cancelled'))
+    expect(journal.waits).toMatchObject([{ cause: 'orchestrator-busy', start: T('10:00'), end: T('10:07'), detail: 'turn; 1 queued', tickets: [] }])
+    expect(journal.run).toMatchObject({ reason: 'start-cancelled', outcome: 'stopped' })
+  })
+
+  it('ends the Wait at orchestrator-free before a refusal of the start, and marks a Start now on the Orchestrator’s lane', () => {
+    const journal = read(
+      started(),
+      busy('10:00', false, 0, 'pnpm test'),
+      line('10:03', 'tasks-killed', { reason: 'start-now', tasks: [{ id: 't0', type: 'local_bash', description: 'pnpm test' }] }),
+      line('10:03', 'orchestrator-free'),
+      stopped('10:03', 'start-refused', { message: 'a dev build of worfy' }),
+    )
+    expect(journal.waits).toMatchObject([{ cause: 'orchestrator-busy', end: T('10:03') }])
+    expect(journal.orchestratorMarks).toEqual([{ kind: 'human-input', at: T('10:03'), text: "Start now: the Orchestrator's turn and tasks were ended (pnpm test)" }])
+    expect(journal.run).toMatchObject({ reason: 'start-refused', outcome: 'failed' })
+  })
+
+  it('leaves the Wait open, last seen at its last line, while the Run still waits', () => {
+    const journal = read(started(), busy('10:00', true, 0), busy('10:09', true, 3))
+    expect(journal.waits).toMatchObject([{ cause: 'orchestrator-busy', end: null, lastSeenAt: T('10:09'), detail: 'turn; 3 queued' }])
+  })
+})
+
+describe('from-journal: a Run over a queue of Epics (worfy-autopilot-queue tickets 14, 18)', () => {
+  /** A line of the queue Run on Epic `epic`. */
+  const on = (epic: string, hhmm: string, kind: string, fields: Record<string, unknown> = {}): string =>
+    JSON.stringify({ at: T(hhmm), run: RUN, project: 'repo-1a2b3c4d', epic, kind, ...fields })
+  const queueRun = () =>
+    read(
+      on('a', '10:00', 'run-started', { by: 'command', epics: ['a', 'b', 'c'] }),
+      on('a', '10:01', 'wave-started', { wave: 1, tickets: ['01'] }),
+      on('a', '10:02', 'ticket-status', { ticket: '01', state: 'claimed' }),
+      on('a', '10:20', 'ticket-status', { ticket: '01', state: 'done' }),
+      on('a', '10:21', 'wave-finished', { wave: 1, tickets: ['01'] }),
+      on('a', '10:22', 'epic-finished', { outcome: 'done' }),
+      on('b', '10:22', 'epic-started', { index: 2, of: 3 }),
+      on('b', '10:22', 'epic-finished', { outcome: 'waits-owner', tickets: ['02'] }),
+      on('c', '10:23', 'epic-started', { index: 3, of: 3 }),
+      on('c', '10:24', 'wave-started', { wave: 1, tickets: ['01'] }),
+      on('c', '10:25', 'ticket-status', { ticket: '01', state: 'claimed' }),
+      on('c', '10:25', 'narrow-round', { ticket: '01', outcome: 'started' }),
+      on('c', '10:40', 'ticket-status', { ticket: '01', state: 'done' }),
+      on('c', '10:41', 'wave-finished', { wave: 1, tickets: ['01'] }),
+      on('c', '10:42', 'run-stopped', { reason: 'no-ready-wave' }),
+    )
+
+  it('gives the Epics of the queue, and keys each Ticket by the Epic its line names', () => {
+    const journal = queueRun()
+    expect(journal.epic).toBe('a')
+    expect(journal.epics).toEqual(['a', 'b', 'c'])
+    expect(journal.tickets).toEqual(['a/01', 'c/01'])
+    expect(journal.ticketEvents.map((event) => `${event.ticket} ${event.event === 'status' ? event.state : event.event}`)).toEqual(['a/01 claimed', 'a/01 done', 'c/01 claimed', 'c/01 done'])
+    expect(journal.retryCauses.map(({ ticket }) => ticket)).toEqual(['c/01'])
+  })
+
+  it('numbers the Waves through the Run and names each by its Epic: the Waves 1 of two Epics do not collide', () => {
+    const journal = queueRun()
+    expect(journal.waves.map(({ number, label, tickets }) => ({ number, label, tickets }))).toEqual([
+      { number: 1, label: 'Wave 1 · a', tickets: ['a/01'] },
+      { number: 2, label: 'Wave 1 · c', tickets: ['c/01'] },
+    ])
+    const timeline = buildTimeline(runFacts(journal))
+    expect(timeline.spans.filter((item) => item.kind === 'wave').map(({ id, name }) => `${id} ${name}`)).toEqual(['wave:1 Wave 1 · a', 'wave:2 Wave 1 · c'])
+    const rows = timeline.spans.filter((item) => item.kind === 'ticket')
+    expect(rows.map(({ links }) => `${links.ticket} ${links.waves?.join(',')}`)).toEqual(['a/01 1', 'c/01 2'])
+    expect(rows.every((row) => row.outcome === 'ok')).toBe(true)
+  })
+
+  it('marks the start of each next Epic, and an Epic passed over with its cause, on the Run’s row', () => {
+    const journal = queueRun()
+    expect(journal.orchestratorMarks).toEqual([
+      { kind: 'epic-started', at: T('10:22'), text: 'Epic 2/3: b' },
+      { kind: 'epic-finished', at: T('10:22'), text: 'Epic b skipped: waits for the owner (b/02)' },
+      { kind: 'epic-started', at: T('10:23'), text: 'Epic 3/3: c' },
+    ])
+  })
+
+  it('marks an Epic that ran elsewhere; a done or removed one has no mark', () => {
+    const journal = read(
+      on('a', '10:00', 'run-started', { epics: ['a', 'b'] }),
+      on('a', '10:01', 'queue-changed', { added: ['d'], removed: ['b'] }),
+      on('b', '10:01', 'epic-finished', { outcome: 'removed' }),
+      on('a', '10:02', 'epic-finished', { outcome: 'elsewhere' }),
+      on('d', '10:02', 'epic-started', { index: 2, of: 2 }),
+      on('d', '10:03', 'run-stopped', { reason: 'no-ready-wave' }),
+    )
+    expect(journal.epics).toEqual(['a', 'd'])
+    expect(journal.orchestratorMarks.map(({ text }) => text)).toEqual(['Epic a skipped: runs elsewhere', 'Epic 2/2: d'])
+  })
+
+  it('reads a Run of one Epic as before: its Waves by their own numbers, no label, the Epic alone', () => {
+    const journal = read(started(), wave('10:01', 1, ['01']), finished('10:10', 1, ['01']), wave('10:11', 2, ['02']), finished('10:20', 2, ['02']), stopped('10:21'))
+    expect(journal.epics).toEqual(['e'])
+    expect(journal.waves.map(({ number, label }) => ({ number, label }))).toEqual([
+      { number: 1, label: undefined },
+      { number: 2, label: undefined },
+    ])
+  })
+})
+
 describe('from-journal: the frame of the Run', () => {
   it('gives the Run, its Waves (number, Tickets, Session, text) and the stop with its outcome', () => {
     const journal = read(

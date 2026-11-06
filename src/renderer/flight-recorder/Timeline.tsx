@@ -7,6 +7,7 @@
 // follows a live Run's end. A collapsed row shows its children as thin bars under its own; a label never
 // crosses a bar of its row (label-layout.ts) and with no room stays in the bar's tooltip.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { RUN_MARK_KINDS } from '../../shared/flight-recorder/facts'
 import type { BlockMark, OrchestratorMark, Span } from '../../shared/flight-recorder/spans'
 import type { RunView } from '../../shared/ipc/runs'
 import { filterSpans, highlightsOf, NO_FILTER, rowsAbove, type Highlights, type SpanFilter } from './filter'
@@ -251,8 +252,12 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
         marks.push({ key: `block-${index}`, kind: 'block', at: block.at, label: `${block.reason}${block.waits === null ? '' : ` · Waits: ${block.waits}`}` })
       })
   }
-  if (row.lane === 'orchestrator') {
-    view.timeline.orchestratorMarks.forEach((mark: OrchestratorMark, index) => marks.push({ key: `info-${index}`, kind: 'info', at: mark.at, label: mark.text }))
+  // The marks of the Run as a whole: the Epics of a queue on the Run's row (worfy-autopilot-queue ticket 18), the rest on the Orchestrator's lane.
+  const ofRun = row.span?.kind === 'run'
+  if (row.lane === 'orchestrator' || ofRun) {
+    view.timeline.orchestratorMarks.forEach((mark: OrchestratorMark, index) => {
+      if (RUN_MARK_KINDS.has(mark.kind) === ofRun) marks.push({ key: `info-${index}`, kind: 'info', at: mark.at, label: mark.text })
+    })
   }
 
   // A block's label is a chip over its own Ticket's bar, never over another one.

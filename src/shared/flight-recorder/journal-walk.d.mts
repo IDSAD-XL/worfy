@@ -25,6 +25,9 @@ export interface ParsedJournal {
 
 export declare function parseJournal(text: string): ParsedJournal
 
+/** The Epics of one Run, in queue order: `run-started.epics`, else its one Epic, as its queue-changed lines change them. */
+export declare function runEpics(events: readonly { readonly kind: string; readonly epic: string }[]): string[]
+
 export interface RunStart {
   at: number
   epic: string

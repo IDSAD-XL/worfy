@@ -5,7 +5,8 @@
 // fails, the summary, the timeline with its filter, the details of the selected span (ticket 19). Times are local.
 // The header also names the Run mode and sets the Epic forecast at the Run's start beside the actual share
 // at its stop (worfy-resource-planner ticket 11; `fit` is not shown here), from the Run's list item, in
-// whole percents by the rule of the forecast lines (share-percent.ts).
+// whole percents by the rule of the forecast lines (share-percent.ts). A Run over a queue of Epics names them
+// in order in its list item and its header, three at most and «+N» (worfy-autopilot-queue ticket 18).
 import { useEffect, useRef } from 'react'
 import { RUN_MODE_LABELS } from '../../shared/autopilot/run-mode'
 import { shareRangeText, shareText } from '../../shared/autopilot/share-percent'
@@ -14,6 +15,7 @@ import type { RunListItem, RunView } from '../../shared/ipc/runs'
 import { setView, useNavigation } from '../session/navigation'
 import { chooseRun, formatDuration, formatLocal, leaveRunHistory, useRunHistory } from './store'
 import { DetailPanel, GithubNotice } from './DetailPanel'
+import { epicsText, stopReasonText } from './span-words'
 import { SummaryStrip } from './SummaryStrip'
 import { Timeline } from './Timeline'
 import './flight-recorder.css'
@@ -21,7 +23,7 @@ import './flight-recorder.css'
 const STARTED_BY: Record<string, string> = { button: 'the Autopilot button', command: 'a command in a chat', tool: 'a Session (autopilot_start)' }
 
 function runOption(item: RunListItem): string {
-  return `${formatLocal(Date.parse(item.startedAt))} · ${item.epic}${item.live ? ' · live' : ''}`
+  return `${formatLocal(Date.parse(item.startedAt))} · ${epicsText(item.epics ?? [item.epic])}${item.live ? ' · live' : ''}`
 }
 
 /** Why a finished Wave is not in the actual: the rule of the samples (waveGrowth, limits-estimate.ts). */
@@ -70,7 +72,7 @@ function stopWords(view: RunView, run: Span | undefined): string {
   if (view.timeline.live) return 'running'
   // A cut-off Run has no run-stopped line: the Journal just ends.
   if (run === undefined || run.end === null || run.outcome === 'cut-off') return 'no stop in the Journal'
-  return run.reason === null ? 'stopped' : `stopped: ${run.reason}`
+  return run.reason === null ? 'stopped' : `stopped: ${stopReasonText(run.reason)}`
 }
 
 /**
@@ -100,6 +102,8 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
   const run = view.timeline.spans.find((span) => span.kind === 'run')
   const counts = ticketCounts(view.timeline.spans)
   const waves = view.timeline.spans.filter((span) => span.kind === 'wave').length
+  // A Run over a queue names its Epics in order (worfy-autopilot-queue ticket 18); the view follows the queue live.
+  const epics = view.epics ?? item?.epics ?? [view.epic]
   // The stop reason in the problem colour when the Run ended on a block or a failure (STOP_OUTCOMES, from-journal.ts).
   const problem = run?.outcome === 'blocked' || run?.outcome === 'failed'
   return (
@@ -107,8 +111,8 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
       <h1 className="w-fr-header__title">Run history</h1>
       {picker}
       {epic !== null ? <span className="w-fr-chip">Epic filter: {epic}</span> : null}
-      <span>
-        Epic <b data-testid="run-history-epic">{view.epic}</b>
+      <span title={epics.length > 3 ? epics.join(' → ') : undefined}>
+        {epics.length > 1 ? 'Epics' : 'Epic'} <b data-testid="run-history-epic">{epicsText(epics)}</b>
       </span>
       {run !== undefined ? (
         <>

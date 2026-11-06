@@ -162,6 +162,34 @@ describe('the Runs of a Project', () => {
     running = false
     expect((await recorder.list('p-1')).map((item) => item.live)).toEqual([false, false])
   })
+
+  it('a Run over a queue of Epics: the filter by its second Epic finds it, it names its Epics, and it is live while Autopilot is on its second Epic (worfy-autopilot-queue ticket 18)', async () => {
+    const data = await folder('data')
+    const id = makeRunId(new Date('2026-10-05T10:00:00.000Z'), 'abcdef')
+    const at = (hhmm: string) => `2026-10-05T${hhmm}:00.000Z`
+    const on = (epic: string, hhmm: string, kind: string, fields: Record<string, unknown> = {}) => ({ at: at(hhmm), run: id, project: 'p-1', epic, kind, ...fields })
+    await writeJournal(data, id, [
+      on('alpha', '10:00', 'run-started', { epics: ['alpha', 'beta'] }),
+      on('alpha', '10:01', 'wave-started', { wave: 1, tickets: ['01'] }),
+      on('alpha', '10:10', 'wave-finished', { wave: 1, tickets: ['01'] }),
+      on('alpha', '10:10', 'queue-changed', { added: ['gamma'] }),
+      on('alpha', '10:11', 'epic-finished', { outcome: 'done' }),
+      on('beta', '10:11', 'epic-started', { index: 2, of: 3 }),
+      on('beta', '10:12', 'wave-started', { wave: 1, tickets: ['01'] }),
+    ])
+    let epicNow = 'beta'
+    const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: data }, harnessHome: await folder('harness'), projectRoot: () => base, profile: async () => profileOf(), gh: async () => '[]', running: (project, epic) => project === 'p-1' && epic === epicNow, git: noGit })
+    for (const epic of ['alpha', 'beta', 'gamma']) expect((await recorder.list('p-1', epic)).map((item) => item.run), epic).toEqual([id])
+    expect(await recorder.list('p-1', 'delta')).toEqual([])
+    const [item] = await recorder.list('p-1')
+    expect(item).toMatchObject({ epic: 'alpha', epics: ['alpha', 'beta', 'gamma'], live: true, tickets: ['alpha/01', 'beta/01'] })
+    // Autopilot on another Epic of the Project: not this Run.
+    epicNow = 'delta'
+    expect((await recorder.list('p-1')).map((each) => each.live)).toEqual([false])
+    const view = await recorder.view('p-1', id)
+    expect(view.epics).toEqual(['alpha', 'beta', 'gamma'])
+    expect(view.timeline.spans.filter((span) => span.kind === 'wave').map((span) => span.name)).toEqual(['Wave 1 · alpha', 'Wave 1 · beta'])
+  })
 })
 
 describe('the timeline of the night Run', () => {

@@ -376,7 +376,7 @@ describe('listRuns', () => {
 
     const runs = await listRuns(PROJECT)
     expect(runs.map((run) => run.run)).toEqual([newest.run, middle.run, oldest.run])
-    expect(runs[0]).toEqual({ run: newest.run, project: PROJECT, epic: EPIC, startedAt: new Date(T0 + 120_000).toISOString(), file: newest.file })
+    expect(runs[0]).toEqual({ run: newest.run, project: PROJECT, epic: EPIC, epics: [EPIC], startedAt: new Date(T0 + 120_000).toISOString(), file: newest.file })
     expect((await listRuns(OTHER_PROJECT)).map((run) => run.project)).toEqual([OTHER_PROJECT])
   })
 
