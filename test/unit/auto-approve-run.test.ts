@@ -2,7 +2,7 @@
 // (hooksActive, hooksPath, rebase.updateRefs, remotes, the default branch), the git environment of its
 // Session, the worktrees of its Wave, and the Journal's cleaning of a command.
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, truncateSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -20,7 +20,8 @@ import { removeTestTree } from '../remove'
 let scratch: string
 let repo: string
 
-const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_CONFIG_GLOBAL: join(scratch, 'global-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '' })
+// XDG_CONFIG_HOME of the machine (the Linux runners set one) would add its git/config to the config files read.
+const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_CONFIG_GLOBAL: join(scratch, 'global-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '', XDG_CONFIG_HOME: undefined })
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', ...args], { cwd, env: gitEnv(), encoding: 'utf8' })
 
 beforeEach(() => {
@@ -557,7 +558,9 @@ describe('openRunApproval: round 4 (review of PR #1460)', () => {
     }
     // One command that writes the file and runs git; and the same as two requests.
     expect(await bash(approval, `printf '[core]\\n\\thooksPath = h\\n' > cfg && git status`)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
-    expect(await bash(approval, 'cp /dev/null cfg')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    expect(await bash(approval, 'cp a.txt cfg')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
+    // On Windows `/dev/null` is no path the policy can place: the command is refused unjudged there.
+    expect(await bash(approval, 'cp /dev/null cfg')).toMatchObject(process.platform === 'win32' ? { outcome: 'deny', rule: 'not-judged' } : { outcome: 'deny', rule: 'git-files' })
     expect(await bash(approval, 'rm -f cfg-existing')).toMatchObject({ outcome: 'deny', rule: 'git-files' })
     // A file of the worktree git does not include stays an ordinary one.
     expect(await write(approval, join(wt(), 'other.txt'))).toMatchObject({ outcome: 'allow' })
@@ -616,6 +619,14 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
   /** As `ask`, for a process that started with GIT_NO_LAZY_FETCH: the policy's own decision, not the park of the run's git environment. */
   const fetchless = (approval: Approval, command: string) =>
     approval.judge({ tool: 'Bash', input: { command } }, { cwd: wt(), scratchpad: null, sessionId: 's', started: { ...approval.environment, GIT_NO_LAZY_FETCH: '1' } })
+  /**
+   * Writes over an existing file in place. Git for Windows hides a worktree's `.git` file (core.hideDotFiles), and
+   * Windows refuses to create a hidden file anew (EPERM): truncating it and writing into it is allowed.
+   */
+  const rewrite = (path: string, text: string): void => {
+    truncateSync(path, 0)
+    writeFileSync(path, text, { flag: 'r+' })
+  }
   /** A copy of the Project's git folder, which the worktree's `commondir` is then made to name. */
   const otherCommon = (): string => {
     const other = join(scratch, 'other-common')
@@ -657,18 +668,18 @@ describe('openRunApproval: round 5 (review of PR #1460): a worktree whose git fo
     // The worktree's .git file names a copy of its git folder in another common folder, and that copy's commondir names it.
     const other = otherCommon()
     writeFileSync(join(other, 'worktrees', 'wt', 'commondir'), `${other}\n`)
-    writeFileSync(join(wt(), '.git'), `gitdir: ${join(other, 'worktrees', 'wt')}\n`)
+    rewrite(join(wt(), '.git'), `gitdir: ${join(other, 'worktrees', 'wt')}\n`)
     expect((await fetchless(approval, 'git status')).outcome).not.toBe('allow')
     // Back to the Project's git folder, it is allowed again; without a readable commondir it is not.
-    writeFileSync(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
+    rewrite(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
     // A gitdir relative to the worktree, as git 2.48 writes it with worktree.useRelativePaths.
-    writeFileSync(join(wt(), '.git'), 'gitdir: ../repo/.git/worktrees/wt\n')
+    rewrite(join(wt(), '.git'), 'gitdir: ../repo/.git/worktrees/wt\n')
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'allow' })
     // A .git file without a gitdir line names no git folder.
-    writeFileSync(join(wt(), '.git'), 'not a gitdir line\n')
+    rewrite(join(wt(), '.git'), 'not a gitdir line\n')
     expect((await fetchless(approval, 'git status')).outcome).not.toBe('allow')
-    writeFileSync(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
+    rewrite(join(wt(), '.git'), `gitdir: ${join(repo, '.git', 'worktrees', 'wt')}\n`)
     // A commondir that names a folder that does not exist.
     writeFileSync(join(repo, '.git', 'worktrees', 'wt', 'commondir'), `${join(scratch, 'no-such-folder')}\n`)
     expect(await fetchless(approval, 'git status')).toMatchObject({ outcome: 'park', rule: 'git-hooks' })
