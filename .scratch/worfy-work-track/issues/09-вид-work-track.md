@@ -1,7 +1,8 @@
 # 09 — Вид Work track: переключатель, период, дорожки, плотность
 
 Type: task
-Status: open
+Status: done 2026-11-06T21:31Z
+PR: #1529
 Blocked by: 08
 Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2, 4–6; «Вид (прототип)»; «Решения владельца», 1, 8, 9; «Открытые вопросы», 1; [05](../../worfy-autopilot-queue/issues/05-вид-work-track.md), Q1–Q3, Q6
 
@@ -28,8 +29,10 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
 - [ ] Unit test вида: переключатель, период и сдвиг, «by Epic», развёртка Subagent-ов, пробел с подсказкой; Month →
       щелчок → Day.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/work-track-view.test.tsx` 10 passed, exit 0 · mac - · 865d83d99c456f62c1c46dcf3e644d165ecf7139
+  - evidence: review pass · PR #1529 · - - · fce4a9eaf6c8327188dcea12f1e7ae392c38a90e
 - [ ] e2e: Runs → Work track → Week на fixture-данных (stub канала) → Day → Month; Run history по-прежнему открывается.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/work-track.spec.ts` 1 passed, exit 0 · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139
+  - evidence: review pass · PR #1529 · - - · fce4a9eaf6c8327188dcea12f1e7ae392c38a90e
 - [ ] Снимки Week, Day, Month в обеих темах — `../evidence/09-*.png`, сверка с прототипом `card-dcf3918a` в «Итог».
   - evidence: screenshot pass · `../evidence/09-week-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
   - evidence: screenshot pass · `../evidence/09-week-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
@@ -39,8 +42,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
   - evidence: screenshot pass · `../evidence/09-month-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
   - evidence: screenshot pass · `../evidence/09-month-before-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
   - evidence: screenshot pass · `../evidence/09-month-before-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
+  - evidence: review pass · PR #1529 · - - · fce4a9eaf6c8327188dcea12f1e7ae392c38a90e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0: [gate] green (fast) lint, typecheck, test · mac - · c8a31982b
+  - evidence: review pass · PR #1529 · - - · fce4a9eaf6c8327188dcea12f1e7ae392c38a90e
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42292817174 · ci - · fce4a9eaf6c8327188dcea12f1e7ae392c38a90e
 
 ## Тесты
 
