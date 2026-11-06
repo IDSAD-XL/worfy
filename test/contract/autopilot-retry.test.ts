@@ -666,6 +666,21 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     await h.autopilot.forceStop(PROJECT)
   })
 
+  it('on: a 500 of the Wave turn that ends after a Force stop starts no wait', async () => {
+    const [wait, init, failed] = scriptLines('autopilot-retry-500')
+    const lines = [wait!, init!, { fake: 'wait_release', name: 'turn' }, failed!]
+    const h = harness({ script: 'autopilot-retry-500', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.sessionState() === 'busy', 'the Wave turn')
+    await h.autopilot.forceStop(PROJECT)
+    h.releases.release('turn')
+    await until(() => h.sessionState() === 'idle', 'the turn to end')
+    await tick()
+    expect(h.state()).toMatchObject({ status: 'stopped', reason: 'user-force-stop' })
+    expect(h.timers).toEqual([])
+    expect(await h.kinds()).not.toContain('turn-retry')
+  })
+
   it('on: the timer fired just before a Force stop or the quit sends nothing', async () => {
     for (const how of ['quit', 'force'] as const) {
       const h = harness({ script: 'autopilot-retry-500' })
