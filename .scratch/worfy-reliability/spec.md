@@ -1,6 +1,6 @@
 # worfy-reliability: надёжность Autopilot и уроки из сбоев
 
-Status: по решению владельца 2026-10-15 («Берем А В E F в отдельные тикеты, D не берем вовсе»);
+Status: принят владельцем 2026-10-15 («Берем А В E F в отдельные тикеты, D не берем вовсе»);
 разбиение на Ticket-ы, «Готово, когда» и «Соглашения» — предложение этого docs-PR
 Source: исследование [PR #325](https://github.com/IDSAD-XL/worfy/pull/325),
 `docs/research/2026-10-15-frontier-ai-runtime-ideas.md` (ветка

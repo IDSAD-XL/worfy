@@ -5,7 +5,7 @@ Status: open
 Blocked by:
 Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3; «Как работает» → «Run принят и ждёт»; «Решения владельца», 1–6, 8; «ADR»; «Решено без владельца», 1–4; [02](02-старт-при-идущей-работе.md), Q1–Q6, Q8
 
-Начинать после merge worfy-retry 04, 05 и 14 (общие run.ts, cycle.ts, журнал).
+Начинать после merge worfy-retry 05 и 14 (общие run.ts, cycle.ts, журнал; worfy-retry 04 влит 2026-11-06, PR #1468).
 
 ## Что происходит
 
@@ -32,7 +32,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
 2. **Настоящий старт.** Orchestrator свободен — `ownChecks` и `checkElsewhere` заново, `setUnattended(true)`, дальше
    цикл как сейчас. Отказ на этом шаге — `run-stopped` `start-refused` с текстом (новая причина в `cycle.ts`). Start
    window, budget и Limits (`boundaryCheck`, `run.ts:1551`) считают от этого момента: `startedAt` Run-а для них — время
-   `orchestrator-free`.
+   `orchestrator-free`. keep-awake (`deps.keepAwake()`, `power.ts`) включается тоже здесь (и при Start now), не при
+   нажатии: пока Run ждёт, Mac может уснуть (решение владельца 2026-11-06, spec, «Открытые вопросы», 1).
 3. **Cancel** (`Autopilot.cancel(projectId)` и канал; IPC `autopilot.stop` на ожидающем Run-е делает то же) —
    `run-stopped` `start-cancelled`; Orchestrator не трогается.
 4. **Start now** (`Autopilot.startNow(projectId)`, канал `autopilot.startNow`, `write`): `Session.halt` и новый процесс

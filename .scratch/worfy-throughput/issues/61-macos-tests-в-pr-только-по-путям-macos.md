@@ -12,7 +12,7 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
 Номер: бриф Orchestrator-а назвал этот Ticket 60, но номер 60 уже занят
 ([60](60-переключатель-eco-mode-в-чате-orchestrator-а.md), done) — взят следующий свободный, 61.
 Ветка — `worfy-throughput/61` (шаблон `tickets.branch` Profile-а) вместо `throughput-60-macos-tests-by-paths` из
-брифа. Решено без владельца, подтвердить.
+брифа. Подтверждено владельцем 2026-11-06.
 
 ## Что происходит
 
@@ -97,25 +97,25 @@ PR трогает пути macOS; push в `main` по-прежнему гоня�
 
 ## Решения без владельца
 
-- Номер 61 и ветка `worfy-throughput/61` вместо 60 и `throughput-60-macos-tests-by-paths` (номер 60 занят). Решено
-  без владельца, подтвердить.
+- Номер 61 и ветка `worfy-throughput/61` вместо 60 и `throughput-60-macos-tests-by-paths` (номер 60 занят). Подтверждено
+  владельцем 2026-11-06.
 - Зависимости (`package.json`, lockfile, `pnpm-workspace.yaml`, `scripts/postinstall.mjs`) и способ запуска vitest
   считаются путями macOS: нативные пакеты (`node-pty` под Electron, `fsevents`) собираются под macOS, а такие PR
-  уже идут на macOS-job `macos-package`. Решено без владельца, подтвердить.
+  уже идут на macOS-job `macos-package`. Подтверждено владельцем 2026-11-06.
 - Watcher-ы — пути macOS: на chokidar (`src/main/cards/store.ts`, `src/main/workflow/watch.ts`,
   `src/main/claude-home/registry.ts`, `src/main/link-safe-watch.ts`, `src/main/chokidar-close.ts`; на macOS —
   FSEvents) и на `fs.watch` (`src/main/watch-gone.ts`, `src/main/docs/watch.ts`, `src/main/ipc/docs.ts`): их
   macOS-only test-ы (`cards-watch-edits`, `tickets-chokidar`, `docs-watch-root`, `docs`) проверяют это до merge.
-  Решено без владельца, подтвердить.
+  Подтверждено владельцем 2026-11-06.
 - Модули с веткой `platform === 'darwin'`, которую Linux test-ы проверяют подставленным `platform`
   (`src/shared/shortcuts.ts`, `src/main/window-frame.ts`, `src/main/agent/auto-approve/policy.ts` и др.), путями
-  macOS не считаются. Решено без владельца, подтвердить.
+  macOS не считаются. Подтверждено владельцем 2026-11-06.
 - После ревью 1 добавлены строки `src/main/terminal/pty.ts`, `src/main/ipc/terminal.ts`,
   `src/main/vendors/claude/options.ts`, `src/main/update/restart.ts`, `harness/hooks/gate-failures.mjs` и helper-ы
   `test/contract/terminal-harness.ts`, `test/remove.ts`, `test/time-scale.ts`, `test/fixtures/eval-stub/**`.
   `console-request.test.ts`, `terminal-console.test.ts` и `ci-workflow.test.ts` стоят в
   `MACOS_TESTS_CHECKED_OTHERWISE`: их `darwin` — параметр `it.each` или текст регулярного выражения, и их случаи
-  идут на Linux тоже. Решено без владельца, подтвердить.
+  идут на Linux тоже. Подтверждено владельцем 2026-11-06.
 
 ## Итог
 

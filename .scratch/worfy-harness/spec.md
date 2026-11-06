@@ -1,6 +1,6 @@
 # worfy-harness: Harness как часть worfy
 
-Status: по решениям владельца 2026-10-07 (сводка решений Q1–Q35 подтверждена владельцем целиком)
+Status: принят владельцем 2026-10-07 (сводка решений Q1–Q35 подтверждена владельцем целиком)
 Source: [roadmap.md](../../docs/roadmap.md), раздел E3; [CONTEXT.md](../../CONTEXT.md); ADR
 [0018](../../docs/adr/0018-project-is-a-workflow-folder.md),
 [0019](../../docs/adr/0019-harness-claude-code-plugin.md),
