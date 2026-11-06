@@ -405,7 +405,7 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     const token = `ghp_${'a1'.repeat(12)}`
     const lines = scriptLines('autopilot-retry-in-flight').map((line) => {
       if (line.type !== 'assistant') return line
-      const text = JSON.stringify(line).replace('git push origin demo/01', `git push https://bot:${token}@github.com/o/r.git main`)
+      const text = JSON.stringify(line).replace('git push origin demo/01', `git push https://bot:${token}@git.example.org/o/r.git main`)
       return JSON.parse(text) as Record<string, unknown>
     })
     const h = harness({ script: 'autopilot-retry-in-flight', lines })
@@ -414,7 +414,7 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     const refused = (await h.journal()).find((event) => event.kind === 'retry-refused')
     expect(refused).toMatchObject({ reason: 'in-flight' })
     expect(JSON.stringify(refused)).not.toContain(token)
-    expect(refused).toMatchObject({ actions: [expect.stringMatching(/^git push https:\/\/bot:\*\*\*@github\.com/u)] })
+    expect(refused).toMatchObject({ actions: [expect.stringMatching(/^git push https:\/\/bot:\*\*\*@git\.example\.org/u)] })
   })
 
   it('on: each continuation names the actions of the turn that failed, not of an earlier one', async () => {

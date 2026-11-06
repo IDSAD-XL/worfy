@@ -58,7 +58,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(3), kind: 'waiting-until', until: at(31) },
   { ...base, at: at(31), kind: 'resumed' },
   { ...base, at: at(31), kind: 'turn-retry', attempt: 2, of: 5, error: 'overloaded', message: 'API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}', until: at(32) },
-  { ...base, at: at(32), kind: 'retry-refused', reason: 'in-flight', actions: ['git push origin main'] },
+  { ...base, at: at(32), kind: 'retry-refused', reason: 'in-flight', actions: ['gh pr merge 12'] },
   { ...base, at: at(32), kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'AskUserQuestion' },
   { ...base, at: at(33), kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-01', vendor: 'claude', mode: 'on', outcome: 'allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/01/build'], command: 'rm -rf build' },
