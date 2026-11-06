@@ -321,7 +321,7 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | `wave-gate` | One Gate full for the set of a Wave's ready PRs, then their merge |
 | `land` | Merges ready PRs one by one and closes their Tickets in one documents PR |
 | `wave-brief` | The short summary of an Epic's Waves that a new Orchestrator reads first. Read-only |
-| `decision-log` | Adds one decision to the log of a Wave that runs without a person |
+| `decision-log` | Adds one row to the log of a Wave: its start and end markers, and each decision made without a person |
 | `silent-check` | Looks for traces of the workflow in a text or a diff, see [Full mode and Silent mode](projects.md) |
 | `shortcut-ledger` | Lists the `shortcut:` comments of a work tree, one row each |
 | `code-map` | The code map of a repository, kept next to the Profile, with a commit for each folder |

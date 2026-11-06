@@ -1,8 +1,8 @@
 # 02 — Harness: `epic-wave` пишет маркер начала и конца каждой Wave
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:43Z
+Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 4; «Решено без владельца», 1; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 2, «Рекомендация» (б); [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
 ## Что происходит
@@ -23,8 +23,11 @@ Source: [spec.md](../spec.md), «Решения владельца», 4; «Ре�
 
 - [ ] `harness/bin/tests/decision-log.test.sh`: пример из `SKILL.md` (две строки маркера и строка решения) даёт файл,
       который читает разбор worfy (формат — четыре поля через TAB, заголовок).
+  - evidence: test-run pass · `bash harness/bin/tests/decision-log.test.sh` exit 0 · mac - · b55891661c00f6e31de5940927e515742a9cdc8f
 - [ ] Текст `SKILL.md` — про каждую Wave; линза `documentation` без находок.
+  - evidence: commit pass · epic-wave: every wave marks its start and end in decisions.tsv · - - · b55891661c00f6e31de5940927e515742a9cdc8f
 - [ ] Test-ы — с `HOME` и `HARNESS_HOME` во временном каталоге. PR ждёт Windows (ADR-0056); `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b55891661c00f6e31de5940927e515742a9cdc8f
 
 ## Тесты
 
