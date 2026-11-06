@@ -25,8 +25,7 @@
 
 ## Ждёт владельца
 
-- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-faults` 08, `worfy-evidence` 09, `worfy-auto-approve` 11, `worfy-retry` 11; [список](.scratch/owner-manual-checks.md).
-- Ручные проверки владельца (Mac и ПК, ~30 мин) и песочница приёмки (`worfy-harness` 36) — [один список](.scratch/owner-manual-checks.md).
+- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → `worfy-faults` 08, `worfy-evidence` 09 → по готовности кода `worfy-auto-approve` 11, `worfy-retry` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
 
 ## Риски и долги
@@ -55,7 +54,6 @@
 - Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
 - `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): закрыт, 14/14, принят владельцем 2026-11-02; «Итог» ПК записан в 12.
-- Приёмка `worfy-harness` 26 — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 05, 08–12, 15, 17, 18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - После `pnpm install:stable` — первый `retro` на настоящем сбое (`worfy-reliability` 09, пункт «(вручную)»).
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).

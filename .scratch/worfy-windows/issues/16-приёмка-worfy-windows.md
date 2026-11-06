@@ -113,6 +113,8 @@ machines (`worfy-link`).
 - [ ] Пункт 5: `GATE_SCOPE=all` gate full на Mac на коммите main после последнего мержа Epic-а — код 0 и вердикт «зелено». Кто прогнал, коммит и строка `[gate]` — в Итог.
 - [ ] `GATE_SCOPE=all` gate full на ветке с contract test-ом — код 0 на ПК владельца и на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
+Пошаговый гайд для владельца: [owner-acceptance-guides.md](../../owner-acceptance-guides.md#worfy-windows-16)
+
 ## Тесты
 
 Сначала падающий test — контрольный шаг `test/contract/harness-node-only.test.ts`: копия
