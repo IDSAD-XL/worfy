@@ -396,3 +396,27 @@ a pid's start time`.
   каждой копии, окно `StorSvc` было в четырёх. Задержки C: выше 0.06 s в этих четырёх не случилось, поэтому правка под
   тяжёлым видом эпизода ещё не наблюдалась — это покажут run-ы `windows-e2e` после merge. Один красный первой попытки
   там — `browser-profile.spec.ts:127` («three pages, two on the partition of admin»), при простое машины: другая причина.
+
+## Наблюдения 2026-11-06 (CI)
+
+Записаны по CI run-ам 2026-11-06 (сообщения test-ов — из annotations job-ов). Строки — по main `fe0ff152`.
+Причина ни одного не установлена, если не сказано иное. Timeout-ы не поднимать.
+
+- `test/contract/codex-app-server.test.ts:304` («close() kills a fake that outlives its stdin, after the time it was
+  given»): job `windows (3/3) / full-suite`, push run main `90e7760d` — после `server.close(200)` процесс fake-а ещё
+  жив (`expected false to be true`, строка 308): kill в `close()` не успел к проверке. Run 42288755059.
+- `test/contract/harness-evals-outcome.test.ts:1171` (describe «the tests-intact check (stub agents on synthetic kept
+  runs)»): job `windows (3/3) / full-suite`, PR #1530 (head `d3b19239`) — подготовка `keptRuns` упала с
+  `Error: kept run:` и пустым stderr (сообщение строится на строке 790). Run 42292913448.
+- `test/contract/autopilot-faults-api.test.ts:74` («API 500: the Run stops with turn-error…»): job
+  `windows (1/3) / full-suite`, PR #1532 (head `2afcbfd3`) — после Force stop живы 2 процесса stub-а Claude Code
+  вместо 1 (`expected 2 to be 1`, строка 78). Run 42296063770.
+- `test/unit/feature-docs-lag.test.ts:233` и `test/unit/guide-lag.test.ts:104`: job `windows (1/3) / full-suite`,
+  push run main `a0d72a4f` — оба `Test timed out in 15000ms`; оба test-а строят временный git-репозиторий и делают в
+  нём commit-ы. Run 42251826160.
+- `test/e2e/update-settings.spec.ts:98` («"Check now" shows the Available update…», проверка на строке 178 ждёт
+  `ready — restart` в Command palette): job `windows-e2e (4/4)`, run id не записан. Гонка: первая рассылка состояния
+  после смены `idle` (примерно через 2 s после старта приложения; `src/main/ipc/update.ts:198-210`,
+  `src/main/update/idle.ts:73-80`) затирает последнее подложенное test-ом состояние `ready`. 0 красных из 20 до
+  #1519 (TEMP job-а на диск D:), 3 из 26 после. Исправление — отдельным PR этого Ticket-а: spec ждёт `idleNow`,
+  потом подкладывает состояния.
