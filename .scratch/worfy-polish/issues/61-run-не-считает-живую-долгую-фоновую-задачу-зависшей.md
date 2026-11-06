@@ -1,7 +1,8 @@
 # 61 — Run не считает живую долгую фоновую задачу зависшей
 
 Type: task
-Status: open
+Status: done 2026-11-06T23:33Z
+PR: #1531
 Blocked by: —
 Source: приёмка [worfy-windows 16](../../worfy-windows/issues/16-приёмка-worfy-windows.md), пункт 9
 
@@ -36,14 +37,18 @@ Source: приёмка [worfy-windows 16](../../worfy-windows/issues/16-приё
       останавливается. До правки — красный (`background-stalled`).
   - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0; red before the fix (2 of 4 failed on origin/main run.ts) · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
   - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0, six runs; red on origin/main run.ts (2 of 4 failed) · mac - · 59ab5f28243a1bc4fac78c35b222a949911161d7
+  - evidence: review pass · PR #1531 · - - · ae47e81f07ceb3cd49ee0a74a752187e306c8eaf
 - [ ] Contract test: task без событий и без признака жизни дольше `BACKGROUND_STALL_MS` — Run останавливается с
       `background-stalled`, как раньше.
   - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0 · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
   - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0, six runs · mac - · 59ab5f28243a1bc4fac78c35b222a949911161d7
+  - evidence: review pass · PR #1531 · - - · ae47e81f07ceb3cd49ee0a74a752187e306c8eaf
 - [ ] Все unit и contract test-ы `src/shared/autopilot/` и `src/main/autopilot/`, `pnpm typecheck`, `pnpm lint`,
       gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0; `vitest run` of 52 autopilot unit and contract files exit 0 · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 59ab5f28243a1bc4fac78c35b222a949911161d7
+  - evidence: review pass · PR #1531 · - - · ae47e81f07ceb3cd49ee0a74a752187e306c8eaf
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42306242922 · ci - · ae47e81f07ceb3cd49ee0a74a752187e306c8eaf
 
 ## Где в коде
 
