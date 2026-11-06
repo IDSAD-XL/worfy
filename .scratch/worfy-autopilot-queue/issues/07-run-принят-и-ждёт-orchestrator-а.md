@@ -55,18 +55,24 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
 - [ ] Contract test: Orchestrator в ходе — `start` отвечает состоянием `waitingFor: 'orchestrator'`, журнал
       `run-started`, `orchestrator-busy`; ход кончился — `orchestrator-free`, `wave-started`; Wave-команда ушла один раз.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] Contract test: очередь из двух сообщений и две задачи — ждёт, пока очередь пуста и задач нет; новое сообщение
       человека во время ожидания продлевает ожидание.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] Contract test: Cancel — `run-stopped` `start-cancelled`, Session не перезапускалась, сообщения на месте.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] Contract test: Start now — `tasks-killed` `start-now` с задачами, Session unattended, Wave пошла; сообщения
       очереди не ушли в unattended Session и достались Session человека после остановки Run-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] Contract test: Run того же Epic-а на другой Machine начался во время ожидания — `run-stopped` `start-refused`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] Contract test: Run mode Start window — окно считается от `orchestrator-free` (часы test-а).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 - [ ] `test/contract/autopilot-start-tool.test.ts:592-654`: вместо «hint while a start waits» и «starts after this
       turn» — ожидание общим путём.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-start-tool.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
@@ -78,6 +84,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
   - evidence: commit pass · Autopilot: a run started while the Orchestrator is busy waits for it (worfy-autopilot-queue 07) · - - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6b6ff67de78b24219801fbe4d6a55345069e1ffd
 
 ## Тесты
 
