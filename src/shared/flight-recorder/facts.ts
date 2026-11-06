@@ -26,7 +26,7 @@ export type SpanOutcome = (typeof SPAN_OUTCOMES)[number]
  * the Run mode Start window held the next Wave until the next start of its hours (worfy-resource-planner
  * ticket 08).
  */
-export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine'] as const
+export const WAIT_CAUSES = ['limits', 'limits-budget', 'start-window', 'background-tasks', 'gate-queue', 'other-machine', 'api-retry'] as const
 export type WaitCause = (typeof WAIT_CAUSES)[number]
 
 /** Where a fact came from: the source of a span's start and of its end. */

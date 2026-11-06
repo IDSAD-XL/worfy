@@ -1,7 +1,8 @@
 // How long a Wave takes (worfy-resource-planner ticket 02, ADR-0093): the samples a Start window
 // judges by whether a Wave still fits before the window ends. A sample is the time from a Run's
-// wave-started to its wave-finished of the same Wave number, minus the waits for the Limits inside
-// that pair: from limits-hit to resumed, or to wave-finished when no resumed came. The Run writes
+// wave-started to its wave-finished of the same Wave number, minus the waits inside that pair for the
+// Limits and before a retry after an API error (worfy-retry ticket 04): from limits-hit or turn-retry
+// to resumed, or to wave-finished when no resumed came. The Run writes
 // resumed both when the wait's timer goes off and when a turn that goes through ends the wait
 // earlier (a person's turn, a background task's notification; run.ts). The waits for
 // the budget and for the window never fall inside the pair: the Run decides them before it sends
@@ -30,7 +31,7 @@ export interface WaveDuration {
 interface OpenWave {
   wave: number
   start: number
-  /** The ms waited for the Limits so far. */
+  /** The ms waited for the Limits or a retry so far. */
   waited: number
   /** When the wait still open began; null when none is. */
   waitFrom: number | null
@@ -48,7 +49,8 @@ export function waveDurations(runs: readonly (readonly JournalEvent[])[]): numbe
       const at = Date.parse(event.at)
       if (event.kind === 'wave-started') open = { wave: event.wave, start: at, waited: 0, waitFrom: null }
       else if (open === null) continue
-      else if (event.kind === 'limits-hit') open.waitFrom ??= at
+      // A pause before a retry after an API error is a wait too (worfy-retry ticket 04); the Limits that take it over go on with it.
+      else if (event.kind === 'limits-hit' || event.kind === 'turn-retry') open.waitFrom ??= at
       else if (event.kind === 'resumed' && open.waitFrom !== null) {
         open.waited += at - open.waitFrom
         open.waitFrom = null

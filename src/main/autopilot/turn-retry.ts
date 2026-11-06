@@ -11,6 +11,8 @@
 // 3. A turn that ends without an error (the continuation's, a background task's, a person's) resets
 //    the count; the sixth failure in a row, an error that is not temporary, or an external action
 //    without its result is refused (`retry-refused`), and the turn's end goes to the cycle as before.
+// 4. A turn under way when the timer fires ends the wait (`resumed`) and its end decides; a refusal by
+//    the Limits ends it too, and the Limits wait goes on alone (run.ts).
 //
 // The pause goes by the wall clock (wallTimer, limits-wait.ts), as the wait for the Limits does. The
 // switch is read before each decision and again when the timer fires: off by then, the wait is
@@ -32,6 +34,23 @@ export interface TurnRetryDeps {
   schedule?(at: number, fire: () => void): () => void
   /** A random number in [0, 1) for the spread of a pause (default Math.random). */
   random?(): number
+}
+
+/**
+ * An external call of the turn with its command line as the model wrote it (a shell call; null for
+ * another tool). The journal masks this line, not worfy's summary: the summary drops the option names
+ * (`--token x` reads `x`) that the masking goes by.
+ */
+export interface RetryAction extends ExternalAction {
+  command: string | null
+}
+
+/** The command line of a shell call's input (`command`: a text, or Codex's list of words); null when it has none. */
+function commandLine(input: unknown): string | null {
+  const command = typeof input === 'object' && input !== null ? (input as { command?: unknown }).command : undefined
+  if (typeof command === 'string') return command
+  if (Array.isArray(command)) return command.filter((part): part is string => typeof part === 'string').join(' ')
+  return null
 }
 
 /** The failed turn a retry follows: the kind of its error, its calls and its error text. */
@@ -100,9 +119,11 @@ export class TurnRetry {
     if (event.type === 'tool_use' || event.type === 'tool_result') this.calls.push(event)
   }
 
-  /** The external and unclassified calls of the current turn (continue-plan.ts, externalActions). */
-  actions(): ExternalAction[] {
-    return externalActions(this.calls)
+  /** The external and unclassified calls of the current turn (continue-plan.ts, externalActions), each with its command line. */
+  actions(): RetryAction[] {
+    const inputs = new Map<string, unknown>()
+    for (const event of this.calls) if (event.type === 'tool_use') inputs.set(event.id, event.input)
+    return externalActions(this.calls).map((action) => ({ ...action, command: commandLine(inputs.get(action.toolUseId)) }))
   }
 
   /** Whether to retry after the failure, given the turn's calls: the next attempt of the count. */

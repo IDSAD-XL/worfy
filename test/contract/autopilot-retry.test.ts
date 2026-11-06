@@ -478,15 +478,23 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     await until(() => h.sessionState() === 'busy', 'the turn of the report')
     clock = timer.at
     timer.fire()
-    await tick()
+    // The fire during the turn ends the wait: the Canvas shows the run running, not a retry due in the past.
+    await until(() => h.state().status === 'running', 'the wait to end at the fire')
     expect(continuations(h)).toEqual([])
-    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'retry' })
-    // The turn goes through: the wait is over.
-    h.releases.release('turn')
-    await until(() => h.state().status === 'running', 'the wait to end')
     expect(h.state()).not.toHaveProperty('retry')
     expect(h.state()).not.toHaveProperty('waitingFor')
+    expect(h.state().resumesAt).toBeNull()
+    // …and so does the state the Canvas got last.
+    await until(() => h.states.at(-1)?.status === 'running', 'the running state to be published')
+    expect(h.states.at(-1)).not.toHaveProperty('retry')
+    expect((await h.kinds()).filter((kind) => kind === 'turn-retry' || kind === 'resumed')).toEqual(['turn-retry', 'resumed'])
+    // The turn goes through: nothing waits, and no second resumed.
+    h.releases.release('turn')
+    await until(() => h.sessionState() === 'idle', 'the turn of the report to end')
+    await tick()
+    expect(h.state()).toMatchObject({ status: 'running' })
     expect(timer.cancelled).toBe(true)
+    expect((await h.kinds()).filter((kind) => kind === 'turn-retry' || kind === 'resumed')).toEqual(['turn-retry', 'resumed'])
     // A late fire of the old timer sends nothing and stops nothing, the switch off or not.
     h.setOn(false)
     timer.fire()
@@ -497,6 +505,23 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     // The second implementer reports: the Wave is finished.
     h.releases.release('tasks')
     await until(async () => (await h.kinds()).includes('wave-finished'), 'the end of Wave 1')
+    expect(continuations(h)).toEqual([])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('on: a turn of a background task that goes through before the timer ends the wait with resumed — no continuation', async () => {
+    const h = harness({ script: 'autopilot-fault-api-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    // The first implementer reports, and its turn ends without an error before the timer is due.
+    h.releases.release('tasks')
+    await until(() => h.state().status === 'running', 'the wait to end')
+    expect(timer.cancelled).toBe(true)
+    expect(h.state()).not.toHaveProperty('retry')
+    await until(async () => (await h.kinds()).includes('resumed'), 'the resumed of the wait')
+    const kinds = await h.kinds()
+    expect(kinds.filter((kind) => kind === 'turn-retry' || kind === 'resumed')).toEqual(['turn-retry', 'resumed'])
     expect(continuations(h)).toEqual([])
     await h.autopilot.forceStop(PROJECT)
   })
@@ -559,5 +584,110 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     const kinds = await h.kinds()
     expect(kinds).not.toContain('resumed')
     expect(kinds.slice(kinds.indexOf('turn-retry')).filter((kind) => kind !== 'ticket-status')).toEqual(['turn-retry', 'session-error', 'run-stopped'])
+  })
+
+  it('on: a refusal by the Limits during the wait ends the retry — the Limits wait alone goes on, and the retry timer sends nothing', async () => {
+    // The Wave's turn fails with a 500; the turn of the first implementer's report is refused by the Limits.
+    const lines = scriptLines('autopilot-fault-api-500')
+    const limits = scriptLines('autopilot-limits')
+    const refusal = limits.slice(2, 5)
+    const report = lines.findIndex((line) => line.type === 'assistant' && JSON.stringify(line).includes('msg_background_2'))
+    lines.splice(report, 2, ...refusal)
+    const h = harness({ script: 'autopilot-fault-api-500', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    h.releases.release('tasks')
+    await until(async () => (await h.kinds()).includes('waiting-until'), 'the wait for the Limits')
+    expect(timer.cancelled).toBe(true)
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'limits' })
+    expect(h.state()).not.toHaveProperty('retry')
+    // The retry timer fires anyway (it was due first): nothing goes, and the Limits wait stays open.
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(continuations(h)).toEqual([])
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'limits' })
+    const kinds = await h.kinds()
+    expect(kinds.slice(kinds.indexOf('turn-retry')).filter((kind) => kind !== 'ticket-status' && kind !== 'background-tasks')).toEqual(['turn-retry', 'limits-hit', 'waiting-until'])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it.each([
+    ['vercel --token abcd1234efgh5678ijkl deploy', 'abcd1234efgh5678ijkl'],
+    ['mytool --password hunter2secret run', 'hunter2secret'],
+  ])('on: the journal keeps no secret option of a command in flight — %s', async (command, secret) => {
+    const lines = scriptLines('autopilot-retry-in-flight').map((line) => {
+      if (line.type !== 'assistant') return line
+      return JSON.parse(JSON.stringify(line).replace('git push origin demo/01', command)) as Record<string, unknown>
+    })
+    const h = harness({ script: 'autopilot-retry-in-flight', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    const refused = (await h.journal()).find((event) => event.kind === 'retry-refused')
+    expect(refused).toMatchObject({ reason: 'in-flight' })
+    expect(JSON.stringify(refused)).not.toContain(secret)
+    expect(refused).toMatchObject({ actions: [command.replace(secret, '***')] })
+  })
+
+  it('on: a second Stop while stopping ends a retry wait at once with user-stop', async () => {
+    // The Wave's turn holds; the first Stop makes the run stopping; that turn and the Stop's turn fail with a 500.
+    const [wait, init, failed] = scriptLines('autopilot-retry-500')
+    const lines = [wait!, init!, { fake: 'wait_release', name: 'turn' }, failed!, wait!, init!, failed!]
+    const h = harness({ script: 'autopilot-retry-500', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.sessionState() === 'busy', 'the Wave turn')
+    const first = await h.autopilot.stop(PROJECT)
+    expect(first).toMatchObject({ stopping: true })
+    h.releases.release('turn')
+    await until(async () => (await retries(h)).length >= 2 && h.state().status === 'waiting', 'the wait after the Stop turn')
+    expect(h.state()).toMatchObject({ waitingFor: 'retry', stopping: true })
+    const timer = h.live().at(-1)!
+    const second = await h.autopilot.stop(PROJECT)
+    expect(second).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(timer.cancelled).toBe(true)
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'user-stop' })
+  })
+
+  it('on: a Stop while a turn is under way during the wait is graceful — the run goes stopping, not stopped', async () => {
+    const lines = scriptLines('autopilot-fault-api-500')
+    const report = lines.findIndex((line) => line.type === 'result' && line.is_error === false)
+    lines.splice(report, 0, { fake: 'wait_release', name: 'turn' })
+    const h = harness({ script: 'autopilot-fault-api-500', lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    h.releases.release('tasks')
+    await until(() => h.sessionState() === 'busy', 'the turn of the report')
+    const stopped = await h.autopilot.stop(PROJECT)
+    expect(stopped).toMatchObject({ stopping: true })
+    expect(stopped.status).not.toBe('stopped')
+    expect(await h.kinds()).toContain('run-stopping')
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('on: the timer fired just before a Force stop or the quit sends nothing', async () => {
+    for (const how of ['quit', 'force'] as const) {
+      const h = harness({ script: 'autopilot-retry-500' })
+      await h.autopilot.start(PROJECT, EPIC)
+      await untilRetry(h)
+      const timer = h.live()[0]!
+      clock = timer.at
+      // The timer's step is queued first; the Force stop and the quit go ahead of the run's order.
+      timer.fire()
+      if (how === 'quit') await h.autopilot.stopAll()
+      else await h.autopilot.forceStop(PROJECT)
+      await tick()
+      expect(h.state()).toMatchObject({ status: 'stopped', reason: how === 'quit' ? 'app-quit' : 'user-force-stop' })
+      expect(h.messages()).toEqual([WAVE_1])
+      expect(await h.kinds()).not.toContain('resumed')
+      for (const autopilot of autopilots) await autopilot.stopAll()
+      autopilots = []
+      for (const registry of registries) registry.closeAll()
+      registries = []
+      await rm(join(scratch, 'data-root'), { recursive: true, force: true })
+      for (const { num } of TICKETS) writeTicket(num, 'open')
+      clock = START_MS
+    }
   })
 })

@@ -24,6 +24,7 @@ const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
   'background-tasks': 'Background tasks',
   'gate-queue': 'Gate queue',
   'other-machine': 'Other Machine',
+  'api-retry': 'Retry after an API error',
 }
 
 /** The name a span goes by on screen. */

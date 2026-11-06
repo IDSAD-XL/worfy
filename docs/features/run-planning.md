@@ -222,8 +222,8 @@ the local clock shows those hours. An hour the clocks skip gives the moment afte
 again after every wait, so a wake-up that lands outside the window only makes it wait once more.
 
 **The duration of a Wave.** A sample is the time from a run's `wave-started` to its `wave-finished` of the same Wave,
-minus the waits for the Limits inside it: from `limits-hit` to `resumed`, or to `wave-finished` when no `resumed`
-came. The waits for the budget and the window are
+minus the waits inside it for the Limits and before a retry after an API error: from `limits-hit` or `turn-retry` to
+`resumed`, or to `wave-finished` when no `resumed` came. The waits for the budget and the window are
 never inside: the run decides them before it sends "Run wave" and writes `wave-started` after that. A Wave without
 `wave-finished`, such as one cut by a Force stop, gives no sample, and neither does a Wave whose times go back. The p90
 of the last 10 samples by the Wave's end is the duration, by the nearest rank; under 5 samples there is none.

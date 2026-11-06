@@ -82,6 +82,38 @@ describe('from-journal: the Waits', () => {
     expect(wait).toMatchObject({ waitCause: 'limits', start: Date.parse(T('10:10')), end: Date.parse(T('11:00')), reason: `limits: five_hour, until ${T('11:00')}`, links: { tickets: ['e/01'] } })
   })
 
+  it('turns turn-retry … resumed into a Wait `api-retry`, and a limits-hit during it ends it where the Wait `limits` starts (worfy-retry ticket 04)', () => {
+    const retry = (hhmm: string, attempt: number, until: string) => line(hhmm, 'turn-retry', { attempt, of: 5, error: 'api-500', message: 'API Error: 500', until: T(until) })
+    const facts = read(
+      started(),
+      wave('10:01', 1, ['01']),
+      retry('10:10', 1, '10:11'),
+      line('10:11', 'resumed'),
+      retry('10:20', 2, '10:25'),
+      line('10:22', 'limits-hit', { window: 'five_hour', resetsAt: T('11:00') }),
+      line('10:22', 'waiting-until', { until: T('11:00') }),
+      line('11:00', 'resumed'),
+      retry('11:10', 1, '11:11'),
+      stopped('11:12', 'user-stop'),
+    )
+    expect(facts.waits).toEqual([
+      { id: 'api-retry:1', cause: 'api-retry', start: T('10:10'), end: T('10:11'), detail: `api-500, retry 1 of 5, until ${T('10:11')}`, startSource: 'journal', endSource: 'journal' },
+      { id: 'api-retry:2', cause: 'api-retry', start: T('10:20'), end: T('10:22'), detail: `api-500, retry 2 of 5, until ${T('10:25')}`, startSource: 'journal', endSource: 'journal' },
+      { id: 'limits:1', cause: 'limits', start: T('10:22'), end: T('11:00'), detail: `five_hour, until ${T('11:00')}`, startSource: 'journal', endSource: 'journal' },
+      { id: 'api-retry:3', cause: 'api-retry', start: T('11:10'), end: T('11:12'), detail: `api-500, retry 1 of 5, until ${T('11:11')}`, startSource: 'journal', endSource: 'journal' },
+    ])
+    const wait = buildTimeline(runFacts(facts)).spans.find((item) => item.kind === 'wait')
+    expect(wait).toMatchObject({ waitCause: 'api-retry', start: Date.parse(T('10:10')), end: Date.parse(T('10:11')) })
+  })
+
+  it('a second turn-retry with no resumed between goes on with the same Wait `api-retry`; a Journal that ends while the Run waits leaves it open, last seen at its last line', () => {
+    const retry = (hhmm: string, attempt: number, until: string) => line(hhmm, 'turn-retry', { attempt, of: 5, error: 'overloaded', message: 'API Error: 529', until: T(until) })
+    const facts = read(started(), wave('10:01', 1, ['01']), retry('10:10', 1, '10:11'), retry('10:12', 2, '10:17'), status('10:15', '01', 'claimed'))
+    expect(facts.waits).toEqual([
+      { id: 'api-retry:1', cause: 'api-retry', start: T('10:10'), end: null, lastSeenAt: T('10:15'), detail: `overloaded, retry 1 of 5, until ${T('10:11')}`, startSource: 'journal' },
+    ])
+  })
+
   it('a Run on Codex: the Wave lines\' {windows} limits read alike, and a limits-hit of a quota opens no Wait; the Run fails with vendor-quota (worfy-multi-vendor ticket 38)', () => {
     const windows = { windows: [{ vendor: 'codex', id: 'primary', label: '5h', usedPercent: 30, windowMinutes: 300, resetsAt: T('15:00'), receivedAt: T('10:01'), state: 'ok', source: 'read' }] }
     const quota = read(

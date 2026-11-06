@@ -1009,9 +1009,10 @@ const ERROR_WORDS: Record<TransientError, string> = {
   stream: 'the response stream broke off',
 }
 
-const NO_ACTION_SENTENCE = 'worfy saw no action of that turn that changes something outside this Session.'
+// Never «nothing reached outside»: a script (`node <file>`, every Harness script) reads as local here,
+// though it may push, merge or mark a Ticket done (worfy-retry ticket 04, review round 1).
 const CHECK_SENTENCE =
-  'Before you repeat any action that changes something outside this Session (commit, push, PR, merge, an Agent), check whether it already happened — git log, gh pr view, the task list — and do not do it twice.'
+  "Any command of that turn may have changed something outside this Session, a script included: a commit, a push, a PR, a merge, a Ticket's status, an Agent. Before you repeat a command of that turn, check what it already did — git log, gh pr view, the Ticket's file, the task list — and do not do it twice."
 
 export interface RetryTextInput {
   attempt: number
@@ -1035,7 +1036,6 @@ export function retryText({ attempt, of, error, actions }: RetryTextInput): stri
   const lines = [`The previous turn ended with a temporary API error (${ERROR_WORDS[error]}) before it finished (retry ${attempt} of ${of}). Continue from where you stopped.`]
   if (ran.length > 0) lines.push(`These actions of that turn already ran (worfy's summary of the calls):\n${list(ran)}`)
   if (unclear.length > 0) lines.push(`worfy could not tell whether these commands of that turn changed something outside this Session:\n${list(unclear)}`)
-  if (ran.length === 0 && unclear.length === 0) lines.push(NO_ACTION_SENTENCE)
   lines.push(CHECK_SENTENCE)
   return lines.join('\n')
 }

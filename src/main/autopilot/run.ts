@@ -157,7 +157,7 @@ import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { messageText } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
-import { MAX_RETRIES, type ExternalAction } from '../../shared/agent/continue-plan'
+import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
@@ -195,7 +195,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
-import { TurnRetry, type TurnRetryDeps } from './turn-retry'
+import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
 export interface RunSession {
@@ -1093,7 +1093,8 @@ export class Autopilot {
 
   /**
    * The graceful Stop (worfy-week ticket 18): answers the run's state as soon as it is stopping or
-   * stopped. A second Stop while stopping sends nothing and answers the state.
+   * stopped. A second Stop while stopping sends nothing and answers the state; during a wait to retry
+   * after an API error it ends the run (worfy-retry ticket 04).
    *
    * The Stop is noted on the run at once, before its step waits in the run's order: a step ahead of
    * it (the end of a turn, a workflow change, reading the workflow for hundreds of milliseconds)
@@ -1104,12 +1105,17 @@ export class Autopilot {
     if (run === undefined) return this.state(projectId)
     run.requestStop()
     await run.enqueue(async () => {
-      if (run.cycle.phase === 'stopped' || run.cycle.stopping) return
+      if (run.cycle.phase === 'stopped') return
+      // Waiting to retry after an API error with no turn under way: nothing goes on that a graceful
+      // Stop would wait for, also when an earlier Stop made the run stopping (worfy-retry ticket 04).
+      if (run.retry?.until != null && !this.turnUnderWay(run)) {
+        await this.feed(run, { type: 'stop', reason: 'user-stop' })
+        return
+      }
+      if (run.cycle.stopping) return
       // Waiting for the budget or the Start window before a Wave: no Wave is in work, the run ends
       // now (worfy-throughput ticket 41, worfy-resource-planner ticket 05).
-      // Waiting to retry after an API error with no turn under way: nothing goes on that a graceful
-      // Stop would wait for (worfy-retry ticket 04).
-      if (run.boundary !== null || (run.retry?.until != null && !this.turnUnderWay(run))) {
+      if (run.boundary !== null) {
         await this.feed(run, { type: 'stop', reason: 'user-stop' })
         return
       }
@@ -1834,12 +1840,15 @@ export class Autopilot {
    * refused (`retry-refused`) and goes to the cycle as before, with the words of the give-up after
    * the last retry. A turn that ends any other way ends a wait and the count of retries.
    */
-  private async retryTurn(run: Run, end: { failure: TurnFailure; actions: readonly ExternalAction[]; interrupted: boolean; message: string | null }): Promise<{ waits: boolean; message: string | null }> {
+  private async retryTurn(run: Run, end: { failure: TurnFailure; actions: readonly RetryAction[]; interrupted: boolean; message: string | null }): Promise<{ waits: boolean; message: string | null }> {
     const retry = run.retry
     const { failure, message } = end
     if (retry === null) return { waits: false, message }
+    // A wait this turn ends gets its `resumed`, as a Limits wait does (wave-duration.ts).
+    const waited = retry.until !== null
     if (end.interrupted || failure.kind === 'none' || run.cycle.phase === 'stopped' || !retry.enabled()) {
       retry.passed()
+      if (waited) await this.write(run, { kind: 'resumed' })
       return { waits: false, message }
     }
     const decision = retry.decide(failure, end.actions)
@@ -1853,7 +1862,11 @@ export class Autopilot {
     const reason = decision.kind === 'refused' ? decision.reason : 'not-transient'
     const inFlight = decision.kind === 'refused' ? decision.inFlight : []
     const home = homedir()
-    await this.write(run, { kind: 'retry-refused', reason, ...(inFlight.length === 0 ? {} : { actions: inFlight.map((action) => journalCommand(action.description, home)) }) })
+    // The command as the model wrote it is masked, not worfy's summary: the summary drops the option
+    // names (`--token x` becomes `x`) that the masking goes by.
+    const lines = new Map(end.actions.map((action) => [action.toolUseId, action.command]))
+    const commands = inFlight.map((action) => journalCommand(lines.get(action.toolUseId) ?? action.description, home))
+    await this.write(run, { kind: 'retry-refused', reason, ...(commands.length === 0 ? {} : { actions: commands }) })
     if (reason !== 'cap') return { waits: false, message }
     const gaveUp = `gave up after ${MAX_RETRIES} retries`
     return { waits: false, message: message === null || message === '' ? gaveUp : `${message} — ${gaveUp}` }
@@ -1861,14 +1874,21 @@ export class Autopilot {
 
   /**
    * The retry wait `id` is over: the Orchestrator gets the continuation, once. A wait cancelled or
-   * replaced since its timer fired sends nothing; so does a Stop on its way (its step ends the run),
-   * and a turn under way (its end decides: one that goes through ends the wait). Auto-continue
+   * replaced since its timer fired sends nothing; so does a Stop on its way (its step ends the run).
+   * A turn under way ends the wait with `resumed`, and that turn's end decides. Auto-continue
    * switched off meanwhile: the wait is dropped and the failed turn's end goes to the cycle.
    */
   private async retryResume(run: Run, id: number): Promise<void> {
     const retry = run.retry
     if (retry === null || !retry.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null || run.rushed || this.quitting) return
-    if ((run.stopRequested && !run.cycle.stopping) || this.turnUnderWay(run)) return
+    if (run.stopRequested && !run.cycle.stopping) return
+    if (this.turnUnderWay(run)) {
+      // That turn's end decides; the wait is over, so the Canvas shows the run running, not a retry due.
+      retry.cancel()
+      await this.write(run, { kind: 'resumed' })
+      this.publish(run.projectId)
+      return
+    }
     if (!retry.enabled()) {
       const message = retry.failed?.message ?? null
       retry.passed()
@@ -1903,6 +1923,8 @@ export class Autopilot {
   private async limitsHit(run: Run, hit: LimitsHit, message: string | null): Promise<void> {
     const wait = run.limits
     if (wait === null || (run.cycle.phase !== 'turn' && run.cycle.phase !== 'settling')) return
+    // The Limits wait takes over a wait to retry after an API error: one wait, one resumed (worfy-retry ticket 04).
+    run.retry?.cancel()
     const said = message === null || message.trim() === '' ? null : clipLastText(message)
     await this.write(run, {
       kind: 'limits-hit',

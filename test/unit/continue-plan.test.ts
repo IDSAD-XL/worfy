@@ -18,9 +18,10 @@ import {
 
 const MINUTE = 60_000
 const TRANSIENT: TurnFailure = { kind: 'transient', error: 'api-500' }
-const NO_ACTION = 'worfy saw no action of that turn that changes something outside this Session.'
+/** The continuation never says nothing reached outside: worfy reads a script (`node <file>`) as local, and a script may push or merge. */
+const NO_ACTION = /saw no action|nothing .*outside/u
 const CHECK =
-  'Before you repeat any action that changes something outside this Session (commit, push, PR, merge, an Agent), check whether it already happened — git log, gh pr view, the task list — and do not do it twice.'
+  "Any command of that turn may have changed something outside this Session, a script included: a commit, a push, a PR, a merge, a Ticket's status, an Agent. Before you repeat a command of that turn, check what it already did — git log, gh pr view, the Ticket's file, the task list — and do not do it twice."
 
 const use = (id: string, name: string, input: unknown, parentToolUseId: string | null = null): AgentEvent => ({ type: 'tool_use', id, name, input, parentToolUseId })
 const result = (toolUseId: string, parentToolUseId: string | null = null): AgentEvent => ({ type: 'tool_result', toolUseId, content: 'ok', isError: false, parentToolUseId })
@@ -829,10 +830,22 @@ describe('retryText', () => {
     expect(text).toContain('- `git commit`\n')
   })
 
-  it('says it saw no external action when there was none', () => {
-    expect(retryText({ attempt: 1, of: 5, error: 'api-500', actions: [] })).toBe(
-      ['The previous turn ended with a temporary API error (API error 500) before it finished (retry 1 of 5). Continue from where you stopped.', NO_ACTION, CHECK].join('\n'),
-    )
+  it('with no action named still asks to check every command of the turn, and never says nothing reached outside', () => {
+    const text = retryText({ attempt: 1, of: 5, error: 'api-500', actions: [] })
+    expect(text).toBe(['The previous turn ended with a temporary API error (API error 500) before it finished (retry 1 of 5). Continue from where you stopped.', CHECK].join('\n'))
+    expect(text).not.toMatch(NO_ACTION)
+  })
+
+  it('a turn of Harness scripts (node <file>) names no action, and the text still asks to check what they did', () => {
+    // worfy reads `node <file>` as a local script, though the Harness scripts merge PRs and mark Tickets done.
+    const events = [bash('node scripts/merge-pr.mjs 12'), result('t1'), use('t2', 'Bash', { command: 'node ~/.claude/worfy-harness/plugin/bin/ticket done worfy-retry 04 --pr 12' }), result('t2')]
+    expect(externalActions(events)).toEqual([])
+    const text = retryText({ attempt: 1, of: 5, error: 'api-500', actions: externalActions(events) })
+    expect(text).not.toMatch(NO_ACTION)
+    expect(text).toContain(CHECK)
+    expect(text).toMatch(/a script included/u)
+    expect(text).toMatch(/merge/u)
+    expect(text).toMatch(/Ticket's status/u)
   })
 
   it('names the commands it could not classify instead of saying nothing reached outside', () => {
@@ -847,12 +860,12 @@ describe('retryText', () => {
         CHECK,
       ].join('\n'),
     )
-    expect(retryText({ attempt: 1, of: 5, error: 'api-500', actions: externalActions([bash('make deploy'), result('t1')]) })).not.toContain(NO_ACTION)
+    expect(retryText({ attempt: 1, of: 5, error: 'api-500', actions: externalActions([bash('make deploy'), result('t1')]) })).not.toMatch(NO_ACTION)
   })
 
   it('names no action that has no result', () => {
     expect(retryText({ attempt: 1, of: 5, error: 'api-500', actions: [action('gh pr merge 12', false), action('make deploy', false, 't2', false)] })).toBe(
-      ['The previous turn ended with a temporary API error (API error 500) before it finished (retry 1 of 5). Continue from where you stopped.', NO_ACTION, CHECK].join('\n'),
+      ['The previous turn ended with a temporary API error (API error 500) before it finished (retry 1 of 5). Continue from where you stopped.', CHECK].join('\n'),
     )
   })
 

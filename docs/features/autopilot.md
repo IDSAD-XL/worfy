@@ -218,17 +218,21 @@ with a temporary API error does not end the run. Temporary are a 500, 502, 503 o
 could not be made, a timeout and a broken response stream; a refusal by the Limits is not one, it waits as above. The run
 waits 1, 5, 15, 30, then 60 minutes, each spread by up to 20 % either way, by the wall clock. Then the Orchestrator gets one
 message: the previous turn ended with a temporary API error, continue from where you stopped, with the actions of that turn
-that reached outside the Session (a commit, a push, a PR, an Agent) named so that the model checks them before it repeats
-one. The Wave's command and the original message never go again. A turn that ends without an error resets the count.
+that reached outside the Session (a commit, a push, a PR, an Agent) named. The message never says that nothing reached
+outside: a script (`node <file>`, every Harness script) reads as local to worfy and may still push, merge or mark a Ticket
+done, so it always asks the model to check what every command of that turn did before it repeats one. The Wave's command
+and the original message never go again. A turn that ends without an error resets the count.
 
 The run does not retry, and stops with `turn-error` as before, after an error that is not temporary (`not-transient`),
 when an action of the turn that reaches outside has no result (`in-flight`: a push or a merge may or may not have run),
 and after the fifth retry in a row (`cap`; the message says "gave up after 5 retries"). The journal has `retry-refused`
 with the reason first.
 
-During the wait a turn of a background task or of a person holds the retry; when it ends without an error, the wait is
-over and no continuation goes. **Stop autopilot** during the wait, with no turn under way, ends the run at once with
-`user-stop`; Force stop, the end of the Session and the app's quit cancel the wait. Auto-continue switched off during the
+During the wait a turn of a background task or of a person holds the retry: the wait ends there (`resumed`), the status
+line shows the run running, and that turn's end decides. Without an error the count starts over and no continuation goes;
+with a temporary error again the next retry waits. A refusal by the Limits during the wait ends it too: the run waits for
+the Limits alone. **Stop autopilot** during the wait, with no turn under way, ends the run at once with `user-stop`, also
+when an earlier Stop already made the run stopping; Force stop, the end of the Session and the app's quit cancel the wait. Auto-continue switched off during the
 wait is read when the time comes: the wait is dropped and the run stops with `turn-error`. With Auto-continue off a turn
 with an API error stops the run with `turn-error`, as before.
 
@@ -488,9 +492,9 @@ it cannot read.
 | `start-window` | The Start window held the next Wave back: `reason` is `outside` or `wave-too-long`. `waiting-until` follows. |
 | `budget-stop` | The budget stopped the next Wave. `waiting-until` follows. |
 | `limits-hit` | The Limits refused a turn. A Codex refusal with no window used up has `reason: "quota"` and `message`, and `run-stopped` with `vendor-quota` follows. |
-| `waiting-until`, `resumed` | A wait began or ended. `resumed` also follows a `turn-retry` when the continuation has gone. |
+| `waiting-until`, `resumed` | A wait began or ended. `resumed` also follows a `turn-retry` when the continuation has gone, or when a turn ends the wait. |
 | `turn-retry` | A turn ended with a temporary API error and Auto-continue is on. Has `attempt` and `of` (1 of 5 …), `error` (`api-500`, `overloaded`, `connection`, …), `message` (the first 300 characters of the error text) and `until`, when the continuation goes. |
-| `retry-refused` | Auto-continue is on and the failed turn is not retried. `reason` is `not-transient`, `in-flight` or `cap`; with `in-flight`, `actions` has worfy's summary of each call without a result (`git push origin main`), secrets replaced by `***` as in `auto-approval`. `session-error` and `run-stopped` with `turn-error` follow. |
+| `retry-refused` | Auto-continue is on and the failed turn is not retried. `reason` is `not-transient`, `in-flight` or `cap`; with `in-flight`, `actions` has each call without a result (`git push origin main`): a shell call's command as the model wrote it, another tool's worfy summary, secrets replaced by `***` as in `auto-approval` (`--token ***`). `session-error` and `run-stopped` with `turn-error` follow. |
 | `session-error` | A Session failed. |
 | `refused-dialog` | An unattended Session refused a request. Has the Subagent and the reason when given, and never the command. The home folder is written as `~`. |
 | `auto-approval` | The approval policy judged a permission request in Shadow or On. Has the Session, the Subagent when given, the Vendor, the `mode`, the `outcome`, the `rule`, the tool, the `targets` and, for a shell command, the `command` cut to 200 characters with secrets replaced by `***`: the values of secret-named variables, options and JSON keys, passwords in URLs, after curl's `-u`, the `-p` of mysql, docker login and sshpass, and `password` of `.netrc`, secret-named headers and known token forms. The home folder is written as `~`. |
@@ -541,7 +545,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
 | `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the start after the Orchestrator's turn. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
-| `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result, the Limits, a background task's turn, Stop, Force stop, the quit and the switch turned off during the wait. |
+| `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |
 | `test/contract/codex-orchestrator.test.ts` | A run on a Codex Orchestrator on the fake app-server: Full access, the refusal while the hooks are not approved, before a later Wave and before the gate queue, the wait for a Codex window, `vendor-quota`, the budget by the Codex windows. |
 | `test/unit/autopilot-vendor-limits.test.ts` | The budget window of Codex, its samples and forecast, both forms of `limits` in the journal. |
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
