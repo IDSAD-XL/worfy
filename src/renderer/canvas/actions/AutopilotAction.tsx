@@ -16,6 +16,7 @@ import {
 } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { askStart } from '../../autopilot/start-modal'
+import { StartNowModal, type OrchestratorBusy } from '../../autopilot/StartNowModal'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
 import { openRunHistory } from '../../flight-recorder/open'
@@ -69,6 +70,19 @@ import { hasRunWave, useRunWaveState } from './gates'
 // refused: the run waits for it (ticket 07). The Project's run state
 // is asked once (`autopilot.state`), then taken from `autopilot.changed`; a state replaces the one
 // before it only with a higher revision.
+//
+// A run that waits for its Orchestrator (worfy-autopilot-queue tickets 07, 10; `waitingFor:
+// 'orchestrator'`) says so in the status line, "waiting for the Orchestrator · 4 min" (the minutes
+// counted at each redraw, useNow), with "Start now" and "Cancel" beside it:
+// - "Cancel" ends the wait at once, with no window (`autopilot.stop`: the run stops `start-cancelled`
+//   and the Orchestrator is not touched), and the toast "Autopilot cancelled; the Orchestrator was not
+//   touched".
+// - "Start now" opens the "Start now?" window (src/renderer/autopilot/StartNowModal.tsx) over the
+//   state's live `busy`; its "Interrupt and start" sends `autopilot.startNow`, and the toast says what
+//   stopped, as the window listed it at the click: "Turn interrupted, 3 background tasks stopped ·
+//   Autopilot started". A start main refuses as the run takes the Orchestrator (`start-refused`) is an
+//   error toast with main's words. The window closes by itself once the run no longer waits.
+// The "Stop autopilot" button stays as for any run; it cancels a waiting run too.
 //
 // A run keeps the display on from its start to its end (ticket 32, ADR-0034): the hints of the
 // "Autopilot" button and of the status line while running or waiting say so. The visible line does
@@ -306,6 +320,87 @@ async function stop(projectId: string, kind: StopKind): Promise<string | undefin
 
 const noRun = (): Promise<undefined> => Promise.resolve(undefined)
 
+/** The key and `data-testid` of the toasts of "Start now" and "Cancel" in the line of a run that waits for its Orchestrator (ticket 10). */
+const WAIT_TOAST = 'autopilot-wait'
+
+/** The toast of "Cancel" in that line. */
+const WAIT_CANCELLED_TEXT = 'Autopilot cancelled; the Orchestrator was not touched'
+
+/** The toast of "Start now": what it stopped, as the "Start now?" window listed it at the click. */
+function startNowText(busy: OrchestratorBusy): string {
+  const tasks = busy.tasks.length
+  const stopped = [...(busy.turn ? ['Turn interrupted'] : []), ...(tasks > 0 ? [`${tasks} background ${tasks === 1 ? 'task' : 'tasks'} stopped`] : [])]
+  return [...(stopped.length > 0 ? [stopped.join(', ')] : []), 'Autopilot started'].join(' · ')
+}
+
+function waitToast(projectId: string, kind: 'info' | 'success' | 'error', text: string): void {
+  showToast({ kind, key: `${WAIT_TOAST}:${projectId}`, testId: WAIT_TOAST, projectId, text })
+}
+
+/** "Cancel" of the line: the waiting run stops `start-cancelled`; its Orchestrator is not touched. */
+async function cancelWait(projectId: string): Promise<void> {
+  const result = await invoke('autopilot.stop', { projectId })
+  if (!result.ok) {
+    waitToast(projectId, 'error', failureReason('autopilot.stop', result.error))
+    return
+  }
+  take(result.value)
+  // The Orchestrator was free first and the run had started: the click was a graceful Stop, and the line says so.
+  if (result.value.reason === 'start-cancelled') waitToast(projectId, 'info', WAIT_CANCELLED_TEXT)
+}
+
+/** "Interrupt and start" of the "Start now?" window: the run takes its Orchestrator at once; `busy` is what the window listed. */
+async function startNow(projectId: string, busy: OrchestratorBusy): Promise<void> {
+  const result = await invoke('autopilot.startNow', { projectId })
+  if (!result.ok) {
+    waitToast(projectId, 'error', failureReason('autopilot.startNow', result.error))
+    return
+  }
+  const state = result.value
+  take(state)
+  if (state.status === 'stopped') waitToast(projectId, 'error', `Autopilot did not start: ${state.message ?? (state.reason ?? 'stopped').replaceAll('-', ' ')}`)
+  else if (state.waitingFor !== 'orchestrator') waitToast(projectId, 'success', startNowText(busy))
+}
+
+/** The titles of "Start now" and "Cancel" in the line of a run that waits for its Orchestrator. */
+const START_NOW_TITLE = 'Start Autopilot now: shows what it interrupts first'
+const CANCEL_WAIT_TITLE = 'Cancel this Autopilot: it has not started, and the Orchestrator is not touched'
+
+/** "· Start now · Cancel" after the status line of a run that waits for its Orchestrator; `title` is the read-only reason, when there is one. */
+function WaitButtons({ enabled, title, onStartNow, onCancel }: { enabled: boolean; title: string | null; onStartNow: () => void; onCancel: () => void }) {
+  const dot = (
+    <span aria-hidden="true" style={{ color: 'var(--text-muted)' }}>
+      ·
+    </span>
+  )
+  // Text buttons as "History", greyed while off.
+  const style: CSSProperties = enabled ? historyStyle : { ...historyStyle, color: 'var(--text-muted)', textDecoration: 'none', cursor: 'default' }
+  const button = (testId: string, label: string, hint: string, run: () => void) => (
+    <button
+      type="button"
+      className="nodrag"
+      data-testid={testId}
+      aria-disabled={enabled ? 'false' : 'true'}
+      title={title ?? hint}
+      style={style}
+      onClick={() => {
+        if (enabled) run()
+      }}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <>
+      {dot}
+      {button('autopilot-start-now', 'Start now', START_NOW_TITLE, onStartNow)}
+      {dot}
+      {button('autopilot-cancel-wait', 'Cancel', CANCEL_WAIT_TITLE, onCancel)}
+    </>
+  )
+}
+
 /** What the hint's forecast reads of Settings → Autopilot. */
 interface HintSettings {
   /** The default Run mode: the button starts in it. */
@@ -420,6 +515,12 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   // Nothing to start, stop or say: the button is not drawn, and "⋯" only for an Epic with past Runs.
   const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined
   const pastRuns = usePastRuns(projectId, epic.epic, hidden)
+  // A run of this Epic that waits for its Orchestrator: "Start now" and "Cancel" in the line (ticket 10).
+  const wait = mine && state?.status === 'waiting' && state.waitingFor === 'orchestrator' && state.busy !== undefined ? { busy: state.busy, since: state.waitingSince ?? 0 } : null
+  // The wait the "Start now?" window was opened for: it shows while that wait goes on.
+  const [askedFor, setAskedFor] = useState<number | null>(null)
+  // "Start now" or "Cancel" on its way to main.
+  const [acting, setActing] = useState(false)
   if (hidden && !pastRuns) return null
 
   const button =
@@ -514,6 +615,17 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
           >
             {line}
           </span>
+          {wait === null ? null : (
+            <WaitButtons
+              enabled={readOnly === null && !acting}
+              title={readOnly}
+              onStartNow={() => setAskedFor(wait.since)}
+              onCancel={() => {
+                setActing(true)
+                void cancelWait(projectId).finally(() => setActing(false))
+              }}
+            />
+          )}
           {shownRun === null ? null : (
             <button
               type="button"
@@ -554,6 +666,21 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
             </span>
           )}
         </div>
+      )}
+      {wait === null || askedFor !== wait.since ? null : (
+        <StartNowModal
+          epic={epic.epic}
+          busy={wait.busy}
+          starting={acting}
+          onCancel={() => setAskedFor(null)}
+          onStart={() => {
+            setActing(true)
+            void startNow(projectId, wait.busy).finally(() => {
+              setActing(false)
+              setAskedFor(null)
+            })
+          }}
+        />
       )}
     </div>
   )

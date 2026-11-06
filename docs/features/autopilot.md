@@ -54,10 +54,20 @@ sent during the wait makes it longer. Then the checks above run again: a refusal
 only with the real start. **Stop** (and Force stop) on a waiting run cancels it: `start-cancelled`, the Orchestrator
 untouched. **Start now** (channel `autopilot.startNow`) does not wait: it stops the Orchestrator's turn and background
 tasks, journals them as `tasks-killed` with the reason `start-now`, and starts the run at once. The checks above run
-first, so Start now can also end the run with `start-refused`. The window has no Start now button yet: only the main
-process channel calls it. The messages of the queue
+first, so Start now can also end the run with `start-refused`. The messages of the queue
 are not sent to the run: they come back, held, to the person's Session after the run
 ([ADR-0099](../adr/0099-run-waits-for-orchestrator.md)).
+
+On the Canvas the status line of a waiting run has **Start now** and **Cancel** beside it. **Cancel** cancels the run at
+once, with no confirmation, as Stop does, and the toast says `Autopilot cancelled; the Orchestrator was not touched`.
+**Start now** first opens a small window, **Start now?**
+(`src/renderer/autopilot/StartNowModal.tsx`): `Autopilot <Epic> starts right away. This stops:`, then
+`✕ the running turn` while a turn runs, `✕ 3 background tasks: <names>`, and `✓ 2 queued messages stay in the queue`. The
+list follows what keeps the Orchestrator busy while the window is open, and the window closes by itself once the run no
+longer waits. The focus is on **Cancel**, and Esc is Cancel: the run goes on waiting. The red **Interrupt and start**
+calls `autopilot.startNow`. The toast then says what stopped, as the window listed it:
+`Turn interrupted, 3 background tasks stopped · Autopilot started`. A `start-refused` at that moment is an error toast
+with the reason.
 
 No run starts by itself, also not after the app restarts.
 
@@ -136,7 +146,7 @@ The line above the button shows the state of the run:
 | Status line | Meaning |
 |---|---|
 | `starting` | The run has begun and no Wave has gone yet. |
-| `waiting for the Orchestrator · 4 min` | The run has begun and waits for the Orchestrator's turn, queue and background tasks to end. No minutes in the first minute. |
+| `waiting for the Orchestrator · 4 min` | The run has begun and waits for the Orchestrator's turn, queue and background tasks to end. No minutes in the first minute. **Start now** and **Cancel** stand beside it. |
 | `Wave 2 · running` | The run has sent its second Wave. Waves are counted per run from 1, this is not the Wave number of the Epic's plan. |
 | `Wave 2 · 4 background tasks` | The same, with four live background tasks of the Orchestrator. |
 | `waiting for limits · resumes 14:20` | The Limits refused a turn. The run continues at this time. |
@@ -472,7 +482,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `workflow-error` | The workflow could not be read when the run had to judge the Wave. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
-| `start-cancelled` | Stop or Force stop while the run waited for the Orchestrator. |
+| `start-cancelled` | Cancel, Stop or Force stop while the run waited for the Orchestrator. |
 | `start-refused` | A check refused when the Orchestrator became free. The reason is in the journal's `message`. |
 | `app-quit` | The app quit. |
 
@@ -605,7 +615,8 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/autopilot/harness-drift.ts` | Whether the Harness in `main` is newer than this build's. Read-only: no `git fetch`. Packaged builds only. |
 | `src/main/mcp/browser-server.ts` | What a Session in Autopilot may do with a Browser. |
 | `src/main/ipc/card-api.ts` | The refusal of a Card's `session.ask` to an unattended Session. |
-| `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips. |
+| `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips; Start now and Cancel of a waiting run. |
+| `src/renderer/autopilot/StartNowModal.tsx` | The "Start now?" window: what Start now stops and what stays. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
 | `scripts/install-stable.mjs` | `pnpm install:stable`: the Stable copy. |
 

@@ -26,11 +26,18 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
 ## Готово, когда
 
 - [ ] Unit test окна Start now: строки по `busy` (ход есть / нет, 0 и 3 задачи, сообщения), Esc не прерывает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/start-now-modal.test.tsx` exit 0 · mac - · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b
 - [ ] e2e: Orchestrator в ходе (fake agent держит ход) → «Start when free» → строка ожидания с минутами → «Start now» →
       окно со списком → «Interrupt and start» → Wave пошла; второй сценарий — «Cancel» в строке → Run остановлен
       `start-cancelled`, ход Orchestrator-а продолжается.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-wait.spec.ts` exit 0 · mac dev · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b
 - [ ] Снимки строки ожидания и окна Start now в обеих темах — `../evidence/10-*.png`.
+  - evidence: screenshot pass · `../evidence/10-waiting-line-light.png` · mac dev · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/10-waiting-line-dark.png` · mac dev · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/10-start-now-window-light.png` · mac dev · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b · scrub: 2026-11-06
+  - evidence: screenshot pass · `../evidence/10-start-now-window-dark.png` · mac dev · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b · scrub: 2026-11-06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 01473f0e0e5a23ab6776b2c4d72433aec0a68b9b
 
 ## Тесты
 
