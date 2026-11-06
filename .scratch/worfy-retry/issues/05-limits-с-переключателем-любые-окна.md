@@ -58,6 +58,7 @@ Source: [spec.md](../spec.md), «Цель» (окна у планов разны
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f74dd1ef88bb40190abdbf9bee010b17324de15c
 
 ## Тесты
 
@@ -130,3 +131,17 @@ test-а Force stop на далёком ожидании).
 
 Не проверено: подписка `observe` в самом приложении (`src/main/ipc/autopilot.ts`) test-ом не покрыта — проверена только
 через stub в contract test-е.
+
+### Итог раунда 3
+
+Проверенный head — f74dd1ef8 (на `origin/main`, rebase не понадобился).
+
+- Run, отпустивший keep-awake на далёком ожидании Limits, останавливается (Stop или выключенный Auto-continue), а в это
+  время начинается ход (человека или task-notification): `end()` оставляет Orchestrator ждать этот ход и теперь снова
+  берёт keep-awake (`run.ts`, ветка `linger`). После хода keep-awake отпускается, как раньше.
+- Test: `test/contract/autopilot-limits-switch.test.ts`, «the switch turned off during a far wait, and a turn starting
+  while the run ends…»; до исправления красный (`['start', 'stop']` вместо `['start', 'stop', 'start']`).
+- Mutation testing на изменённых строках: 3 мутанта, 2 убиты; выживший — `run.asleep = false` после остановки (никто
+  его больше не читает), строка удалена.
+- `pnpm lint`, `pnpm typecheck` — exit 0; unit и contract test-ы модулей autopilot (34 файла) — exit 0; gate fast —
+  exit 0, `[gate] green (fast)`.
