@@ -5,8 +5,13 @@
 //
 // - The Epic must be one of the Project's and every named Ticket one of the Epic's (startRefusal):
 //   otherwise the answer is a refusal that names it.
+// - A start may name a queue of Epics (`epics`, worfy-autopilot-queue ticket 15, ADR-0100): the
+//   command `epics A, B` or `accepted` and the tool's `epics`. Every Epic of it must be the Project's;
+//   the queue goes to Autopilot.start as its `epics` (the first is `epic`), which checks it again.
 // - While a run of the Project goes on, starts or waits for its Orchestrator the answer is a refusal
-//   with chatRunningHint. Nothing reaches the journal: there is no new run.
+//   with chatRunningHint, which points to "Add to queue…": neither the command nor the tool adds an Epic
+//   to a run's queue (the spec's decision 4 made without the owner). Nothing reaches the journal: there
+//   is no new run.
 // - A busy Orchestrator — also the one whose turn asked, through the tool — is no refusal: the run is
 //   accepted and waits for it, as a start by the button does (worfy-autopilot-queue ticket 07,
 //   ADR-0099), and the answer is WAIT_MESSAGE. A refusal that comes only when the run takes the
@@ -25,7 +30,8 @@ import { startRefusal, type Autopilot, type AutopilotStartOptions } from './run'
 export const WAIT_MESSAGE = 'Autopilot waits for the Orchestrator and starts when it is free'
 
 /** The refusal of a start from a chat while a run of `epic` goes on in the Project (as "Run wave" by hand is refused). */
-export const chatRunningHint = (epic: string): string => `Autopilot is already running Epic ${epic}. Stop it first.`
+export const chatRunningHint = (epic: string): string =>
+  `Autopilot is already running Epic ${epic}. Stop it first, or add Epics to its queue with "Add to queue…" in the ⋯ menu.`
 
 /** What the Session that asked shows when the run that waited for the Orchestrator is refused once it is free. */
 export const lateRefusalNotice = (epic: string, message: string): string => `Autopilot did not start Epic ${epic}: ${message}`
@@ -35,6 +41,11 @@ export interface ChatStartRequest {
   epic: string
   /** A run over these Tickets of the Epic only; absent: the whole Epic. */
   tickets?: readonly number[]
+  /**
+   * A run over this queue of Epics, in order, the first being `epic` (worfy-autopilot-queue ticket 15);
+   * never with `tickets` when more than one. Absent: the Epic alone.
+   */
+  epics?: readonly string[]
   /** A command typed in a chat, or the Orchestrator's tool. */
   by: 'command' | 'tool'
   /** The Session whose turn asked, when known: a refusal after the answer is told there. */
@@ -73,7 +84,7 @@ export class ChatStarts {
 
   /** Checks the Epic and the Tickets, refuses while a run goes on, and starts the run, now or once the Orchestrator is free. */
   async startFromChat(request: ChatStartRequest): Promise<ChatStartAnswer> {
-    const { projectId, epic, tickets, by, mode } = request
+    const { projectId, epic, tickets, epics, by, mode } = request
     const busy = this.busy(projectId)
     if (busy !== null) return { kind: 'refused', message: busy }
     let model: WorkflowModel
@@ -83,14 +94,20 @@ export class ChatStarts {
       return { kind: 'refused', message: messageOf(error) }
     }
     if (model.error !== null) return { kind: 'refused', message: `Cannot read the workflow: ${model.error.message}` }
-    const refusal = startRefusal(model, epic, tickets)
-    if (refusal !== null) return { kind: 'refused', message: refusal }
+    const queue = epics ?? [epic]
+    // Every Epic of the queue, each told in the order named: a refusal names the first the Project has not.
+    for (const each of queue) {
+      const refusal = startRefusal(model, each, each === epic ? tickets : undefined)
+      if (refusal !== null) return { kind: 'refused', message: refusal }
+    }
     const session = request.session ?? null
     // The same arguments as the button's start (src/main/ipc/autopilot.ts), with the list, who asked and the mode.
     const options: AutopilotStartOptions = {
       override: false,
       by,
       ...(tickets === undefined ? {} : { tickets }),
+      // A queue of one is the Epic alone: the run and its journal are as before the queue (ADR-0100).
+      ...(queue.length > 1 ? { epics: queue } : {}),
       ...(mode === undefined ? {} : { mode }),
       ...(session === null ? {} : { onLateRefusal: (message: string) => this.tell(projectId, session, lateRefusalNotice(epic, message)) }),
     }

@@ -25,7 +25,7 @@ const PROJECT = 'demo-000000a4'
 const EPIC = 'demo'
 const START = `/worfy:epic-wave tickets 01 of epic ${EPIC}`
 const STARTED = `Autopilot started on Epic ${EPIC}`
-const RUNNING = `Autopilot is already running Epic ${EPIC}. Stop it first.`
+const RUNNING = `Autopilot is already running Epic ${EPIC}. Stop it first, or add Epics to its queue with "Add to queue…" in the ⋯ menu.`
 // The Wave the run sends for the one named Ticket, in the bundled template's words.
 const WAVE_OF_01 = `/epic-wave Ticket-ы 01 эпика ${EPIC}`
 

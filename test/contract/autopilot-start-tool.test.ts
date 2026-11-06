@@ -284,7 +284,7 @@ const recorded = (start: AutopilotStartOptions | undefined): AutopilotStartOptio
  * With `orchestratorBusy` the run is accepted and waits for the Orchestrator, as the real one does
  * (worfy-autopilot-queue ticket 07): its journal opens at once all the same.
  */
-function world(options: { running?: string | null; orchestratorBusy?: boolean } = {}) {
+function world(options: { running?: string | null; orchestratorBusy?: boolean; model?: WorkflowModel } = {}) {
   const out = {
     running: options.running ?? null,
     starts: [] as [string, string, AutopilotStartOptions | undefined][],
@@ -303,7 +303,7 @@ function world(options: { running?: string | null; orchestratorBusy?: boolean } 
         return Promise.resolve(state as unknown as AutopilotState)
       },
     },
-    workflow: () => Promise.resolve(MODEL),
+    workflow: () => Promise.resolve(options.model ?? MODEL),
     notify: () => undefined,
   }
   const chat = new ChatStarts(deps)
@@ -673,7 +673,7 @@ describe('autopilot_start: refusals without an ask', () => {
     const result = await (await connect(NODE_SESSION, tool(w, ask).starter)).call('autopilot_start', { epic: EPIC })
     expect(result.isError).toBe(true)
     expect(textOf(result)).toBe(chatRunningHint('billing'))
-    expect(textOf(result)).toBe('Autopilot is already running Epic billing. Stop it first.')
+    expect(textOf(result)).toBe('Autopilot is already running Epic billing. Stop it first, or add Epics to its queue with "Add to queue…" in the ⋯ menu.')
     expect(ask.shown).toEqual([])
     expect(w.startFromChat).not.toHaveBeenCalled()
     expect(w.out.journal).toEqual(['run-started'])
@@ -719,6 +719,78 @@ describe('autopilot_start: refusals without an ask', () => {
     expect(malformed.isError).toBe(true)
     expect(textOf(malformed)).toMatch(/epic/u)
     expect(ask.shown).toEqual([])
+  })
+})
+
+describe('autopilot_start: a queue of Epics (worfy-autopilot-queue ticket 15)', () => {
+  /** Epic demo with Tickets 05–07 and Epic shop with Tickets 01, 02, all open. */
+  const QUEUE_MODEL = {
+    ...MODEL,
+    epics: [...MODEL.epics, { epic: 'shop', hasSpec: true, hasMap: false }],
+    tickets: [...MODEL.tickets, { ...t(1), epic: 'shop' }, { ...t(2), epic: 'shop' }],
+  } as unknown as WorkflowModel
+
+  it('`epics`: the window is asked with the queue and the forecast of all its Waves; a Run mode starts the run with `epics`', async () => {
+    const w = world({ model: QUEUE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(QUEUE_MODEL) }).starter)
+    const call = rpc.call('autopilot_start', { epics: [EPIC, 'shop'] })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]).toMatchObject({ epic: EPIC, epics: [EPIC, 'shop'], session: ORCHESTRATOR })
+    expect(ask.shown[0]).not.toHaveProperty('tickets')
+    // Both Epics' Waves: demo's one of 3 Tickets, then shop's one of 2.
+    expect(ask.shown[0]?.forecast[0]).toMatch(/^Forecast: This Epic: 2 Waves, 5 Tickets left\./u)
+    ask.answer('fastest')
+    const result = await call
+    expect(result.isError, textOf(result)).toBeFalsy()
+    expect(textOf(result)).toBe(`Autopilot started a queue of 2 Epics: ${EPIC}, shop.`)
+    expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: EPIC, epics: [EPIC, 'shop'], by: 'tool', session: ORCHESTRATOR, mode: 'fastest' })
+    expect(w.out.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'tool', epics: [EPIC, 'shop'], mode: 'fastest' }]])
+  })
+
+  it('`epics` of one Epic is that Epic alone: the ask and the start name no queue, and its Tickets may be named', async () => {
+    const w = world({ model: QUEUE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(QUEUE_MODEL) }).starter)
+    const call = rpc.call('autopilot_start', { epics: ['shop'], tickets: ['02'] })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    expect(ask.shown[0]).toMatchObject({ epic: 'shop', tickets: [2] })
+    expect(ask.shown[0]).not.toHaveProperty('epics')
+    ask.answer('fastest')
+    expect(textOf(await call)).toBe('Autopilot started Ticket 02 of Epic shop.')
+    expect(w.out.starts).toEqual([[PROJECT, 'shop', { override: false, by: 'tool', tickets: [2], mode: 'fastest' }]])
+  })
+
+  it('`epics` with `tickets`, with `epic`, an Epic named twice, none or more than 10 Epics is a form error: no ask, no start', async () => {
+    const w = world({ model: QUEUE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(QUEUE_MODEL) }).starter)
+    const eleven = Array.from({ length: 11 }, (_, at) => `e${at + 1}`)
+    const calls: [Record<string, unknown>, RegExp][] = [
+      [{ epics: [EPIC, 'shop'], tickets: ['05'] }, /tickets are named only with one Epic/u],
+      [{ epic: EPIC, epics: [EPIC, 'shop'] }, /either epic or epics, not both/u],
+      [{ epics: [EPIC, 'shop', EPIC] }, /Epic demo is named twice/u],
+      [{ epics: [] }, /epics/u],
+      [{ epics: eleven }, /epics/u],
+    ]
+    for (const [args, message] of calls) {
+      const result = await rpc.call('autopilot_start', args)
+      expect(result.isError, JSON.stringify(args)).toBe(true)
+      // The server checks the shape first (an empty or too long list), the tool the rest.
+      expect(textOf(result)).toMatch(/Invalid arguments for autopilot_start|Input validation error/u)
+      expect(textOf(result)).toMatch(message)
+    }
+    expect(ask.shown).toEqual([])
+    expect(w.startFromChat).not.toHaveBeenCalled()
+  })
+
+  it('an Epic of the queue the Project has not is refused before anyone is asked', async () => {
+    const w = world({ model: QUEUE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(QUEUE_MODEL) }).starter)
+    expect(textOf(await rpc.call('autopilot_start', { epics: [EPIC, 'billing'] }))).toBe('The Project has no Epic billing')
+    expect(ask.shown).toEqual([])
+    expect(w.out.starts).toEqual([])
   })
 })
 

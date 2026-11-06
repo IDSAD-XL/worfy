@@ -82,11 +82,12 @@ describe('startFromChat', () => {
     expect(s.starts).toEqual([])
   })
 
-  it('refuses while a run goes on in the Project, naming its Epic, and writes nothing to the journal', async () => {
+  it('refuses while a run goes on in the Project, naming its Epic and "Add to queue…", and writes nothing to the journal', async () => {
     const s = standIn({ running: 'billing' })
+    const hint = 'Autopilot is already running Epic billing. Stop it first, or add Epics to its queue with "Add to queue…" in the ⋯ menu.'
     const answer = await new ChatStarts(s.deps).startFromChat({ projectId: PROJECT, epic: EPIC, tickets: [5], by: 'command' })
-    expect(answer).toEqual({ kind: 'refused', message: 'Autopilot is already running Epic billing. Stop it first.' })
-    expect(chatRunningHint('billing')).toBe('Autopilot is already running Epic billing. Stop it first.')
+    expect(answer).toEqual({ kind: 'refused', message: hint })
+    expect(chatRunningHint('billing')).toBe(hint)
     expect(s.starts).toEqual([])
     expect(s.journal).toEqual([])
   })
