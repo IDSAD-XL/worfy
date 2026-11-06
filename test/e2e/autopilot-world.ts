@@ -26,10 +26,14 @@ const nn = (num: number): string => String(num).padStart(2, '0')
 const JOURNAL_STATE: Record<EpicState, TicketStatusState> = { open: 'open', work: 'claimed', done: 'done', blocked: 'blocked' }
 export type EpicState = 'open' | 'work' | 'done' | 'blocked'
 
-/** Runs git with an identity of its own and none of the test process's GIT_ variables. */
+/**
+ * Runs git with an identity of its own and none of the test process's GIT_ variables. No auto maintenance: a commit
+ * may start it detached, and its `.git/objects/maintenance.lock` comes and goes while the test reads the repository.
+ */
 export function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' }).trim()
+  const settings = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'maintenance.auto=false']
+  return execFileSync('git', [...settings, ...args], { cwd, env, encoding: 'utf8' }).trim()
 }
 
 /** Every file under `dir` with its bytes (base64), by path; for "nothing was written there". */
