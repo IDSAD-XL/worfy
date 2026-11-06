@@ -1,7 +1,8 @@
 # 04 — Повтор хода в Run-е Autopilot-а: `TurnRetry`, Journal и строка на Canvas
 
 Type: task
-Status: open
+Status: done 2026-11-06T02:26Z
+PR: #1468
 Blocked by: 02, 03
 Source: [spec.md](../spec.md), «Что видит владелец», п. 3–4; «Как работает» → «Повтор после ошибки API (A)», «Где живёт»; «Совместимость с worfy-faults»; «Сценарии» (строки Ticket-а 04); [worfy-polish 50](../../worfy-polish/issues/50-autopilot-не-стартует-после-остановки-run-а.md), «Что происходит»
 
