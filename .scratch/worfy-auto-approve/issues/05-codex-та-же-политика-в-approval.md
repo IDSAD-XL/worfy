@@ -31,15 +31,19 @@ Source: [spec.md](../spec.md), «Как работает», п. 8; Q7
       — `decline` и строка `would-allow`; `on` — `accept` внутри worktree, `decline` вне корня и на hard deny.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-codex.test.ts` exit 0 · mac - · 12d15f59620d8ea8367c65a6869ea24887eae5e6
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/auto-approve test/contract/codex- test/unit/codex- test/unit/auto-approve` exit 0 · mac - · ed459f539
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/auto-approve test/contract/codex- test/unit/codex- test/unit/auto-approve` exit 0 · mac - · 7dbf66aba
 - [ ] Contract test: `fileChange` с путём вне корней — `decline`; с `grantRoot` вне корней — `decline`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-codex.test.ts` exit 0 · mac - · 12d15f59620d8ea8367c65a6869ea24887eae5e6
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/auto-approve test/contract/codex- test/unit/codex- test/unit/auto-approve` exit 0 · mac - · ed459f539
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/auto-approve test/contract/codex- test/unit/codex- test/unit/auto-approve` exit 0 · mac - · 7dbf66aba
 - [ ] Ответ про текст подсказки Codex — в «Итог», со ссылкой на файл схемы протокола.
   - evidence: commit pass · Codex: judge unattended approvals by the Auto-approval policy · - - · 12d15f59620d8ea8367c65a6869ea24887eae5e6
   - evidence: commit pass · Codex Auto-approval: a parked approval waits for the owner on the Session gate · - - · ed459f539
+  - evidence: commit pass · Codex Auto-approval: pinned variables, one script word, no Accept for a grantRoot · - - · 7dbf66aba
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 12d15f59620d8ea8367c65a6869ea24887eae5e6
   - evidence: gate pass · `gate fast` exit 0 · mac - · ed459f539
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7dbf66aba
 
 ## Тесты
 
