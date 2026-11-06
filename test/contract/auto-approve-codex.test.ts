@@ -133,31 +133,37 @@ function zshLc(script: string): string {
   return script.includes("'") ? `/bin/zsh -lc "${script.replace(/["\\$`]/g, (c) => `\\${c}`)}"` : `/bin/zsh -lc '${script}'`
 }
 
+/**
+ * A path as one single-quoted shell word. A path stays quoted in every script: on Windows its backslashes would
+ * otherwise escape the next letter (`C:\\work` reads as the drive-relative `C:work`), which the policy refuses.
+ */
+const sq = (path: string): string => `'${path}'`
+
 /** The value of GH_TOKEN in the app-server's environment. */
 const TOKEN = 'ghs_token05value'
 
 /** The approvals of the turn, in the order the fake asks them. */
 function approvals(): Step[] {
   return [
-    ...command('cmd_inside', zshLc(`rm -rf ${join(worktree, 'build')}`), worktree, { kind: 'command' }),
+    ...command('cmd_inside', zshLc(`rm -rf ${sq(join(worktree, 'build'))}`), worktree, { kind: 'command' }),
     ...command('cmd_outside', zshLc(`rm -rf '${join(outside, 'build')}'`), worktree),
-    ...command('cmd_hard', zshLc(`rm -rf ${join(homedir(), '.ssh', 'demo-key')}`), worktree),
+    ...command('cmd_hard', zshLc(`rm -rf ${sq(join(homedir(), '.ssh', 'demo-key'))}`), worktree),
     ...change('patch_inside', [update(join(worktree, 'README.md'))], null),
     ...change('patch_outside', [update(join(outside, 'README.md'))], null),
     ...change('patch_grant_outside', [update(join(worktree, 'README.md'))], outside),
     ...change('patch_move_outside', [update(join(worktree, 'README.md'), join(outside, 'README.md'))], null),
     ...change('patch_grant_inside', [update(join(worktree, 'README.md'))], join(worktree, 'src')),
     ...command('cmd_stdin', 'y', worktree, { kind: 'writeStdin' }),
-    ...command('cmd_network', zshLc(`rm -rf ${join(worktree, 'cache')}`), worktree, { networkApprovalContext: { host: 'example.com', protocol: 'https' } }),
+    ...command('cmd_network', zshLc(`rm -rf ${sq(join(worktree, 'cache'))}`), worktree, { networkApprovalContext: { host: 'example.com', protocol: 'https' } }),
     // No network asked: an ordinary command.
-    ...command('cmd_network_null', zshLc(`rm -rf ${join(worktree, 'cache')}`), worktree, { networkApprovalContext: null }),
+    ...command('cmd_network_null', zshLc(`rm -rf ${sq(join(worktree, 'cache'))}`), worktree, { networkApprovalContext: null }),
     // A secret of the app-server's environment: the command's shell may not have it (Codex's shell_environment_policy).
-    ...command('cmd_token_path', zshLc(`rm -rf "$GH_TOKEN"${join(outside, 'x')}`), worktree),
-    ...command('cmd_token_target', zshLc(`touch ${join(worktree, '$GH_TOKEN')}`), worktree),
+    ...command('cmd_token_path', zshLc(`rm -rf "$GH_TOKEN"${sq(join(outside, 'x'))}`), worktree),
+    ...command('cmd_token_target', zshLc(`touch ${sq(worktree)}/$GH_TOKEN`), worktree),
     // Wrappers that are not exactly `<shell> -lc <script>`: not unwrapped.
-    ...command('cmd_two_words', `${zshLc(`rm -rf ${join(worktree, 'build')}`)} extra`, worktree),
-    ...command('cmd_other_shell', `${join(outside, 'zsh')} -lc 'rm -rf ${join(worktree, 'build')}'`, worktree),
-    ...command('cmd_bare', `rm -rf ${join(worktree, 'build')}`, worktree),
+    ...command('cmd_two_words', `${zshLc(`rm -rf ${sq(join(worktree, 'build'))}`)} extra`, worktree),
+    ...command('cmd_other_shell', `${join(outside, 'zsh')} -lc "rm -rf ${sq(join(worktree, 'build'))}"`, worktree),
+    ...command('cmd_bare', `rm -rf ${sq(join(worktree, 'build'))}`, worktree),
   ]
 }
 
@@ -347,7 +353,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(off.refused).toEqual(before.refused)
     expect(off.refused).toHaveLength(COUNT)
     expect(off.refused.every(([, message]) => message === UNATTENDED_DECLINED_MESSAGE)).toBe(true)
-    expect(off.refused[0]).toEqual([zshLc(`rm -rf ${join(worktree, 'build')}`), UNATTENDED_DECLINED_MESSAGE, { reason: 'The command runs outside the sandbox.' }])
+    expect(off.refused[0]).toEqual([zshLc(`rm -rf ${sq(join(worktree, 'build'))}`), UNATTENDED_DECLINED_MESSAGE, { reason: 'The command runs outside the sandbox.' }])
     expect(off.wheres).toEqual([])
     expect(off.decided).toEqual([])
     expect(off.asked).toEqual([])
@@ -384,7 +390,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['shadow', 'would-park', expect.any(String), 'commandExecution'],
       ['shadow', 'would-allow', 'files-inside-roots', 'commandExecution'],
     ])
-    expect(shadow.decided[0]).toMatchObject({ command: zshLc(`rm -rf ${join(worktree, 'build')}`), reason: 'The command runs outside the sandbox.' })
+    expect(shadow.decided[0]).toMatchObject({ command: zshLc(`rm -rf ${sq(join(worktree, 'build'))}`), reason: 'The command runs outside the sandbox.' })
     expect(shadow.decided[3]).toMatchObject({ command: null, reason: 'The change writes a file.' })
   })
 
@@ -445,8 +451,11 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     const spawned = on.spawnedEnv[0]
     expect(spawned?.['TMPDIR']).toBe(on.run.runTemp)
     expect(spawned?.['GIT_CONFIG_PARAMETERS']).toBe(on.run.environment['GIT_CONFIG_PARAMETERS'])
-    // The run's variables and HOME are pinned for every command of the thread (shell_environment_policy.set).
-    const pinned = { HOME: homedir(), ...on.run.environment }
+    // The home folder (HOME, and USERPROFILE on Windows, as the process has them) and the run's variables are pinned
+    // for every command of the thread (shell_environment_policy.set).
+    const home = Object.fromEntries(['HOME', 'USERPROFILE'].flatMap((name) => (spawned?.[name] === undefined ? [] : [[name, spawned[name]]])))
+    expect(Object.keys(home).length).toBeGreaterThan(0)
+    const pinned = { ...home, ...on.run.environment }
     expect(on.threadStart()?.['config']).toEqual(Object.fromEntries(Object.entries(pinned).map(([name, value]) => [`shell_environment_policy.set.${name}`, value])))
     expect(on.wheres).toHaveLength(COUNT)
     for (const where of on.wheres) {
@@ -586,8 +595,8 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     const env = { ...process.env, GITHUB_PAT: 'ghp_pat05value', DB_PASS: 'db05value', NPM_AUTH: 'npm05value', DEMO_DIR: worktree }
     const steps = [
       ...command('cmd_pat', zshLc('touch "$TMPDIR/$GITHUB_PAT"'), worktree),
-      ...command('cmd_pass', zshLc(`touch "${join(worktree, 'x')}$DB_PASS"`), worktree),
-      ...command('cmd_auth', zshLc(`touch ${worktree}/$NPM_AUTH`), worktree),
+      ...command('cmd_pass', zshLc(`touch ${sq(join(worktree, 'x'))}"$DB_PASS"`), worktree),
+      ...command('cmd_auth', zshLc(`touch ${sq(worktree)}/$NPM_AUTH`), worktree),
       ...command('cmd_other', zshLc('touch "$DEMO_DIR/x"'), worktree),
       ...command('cmd_tmp', zshLc('touch "$TMPDIR/x"'), worktree),
     ]
