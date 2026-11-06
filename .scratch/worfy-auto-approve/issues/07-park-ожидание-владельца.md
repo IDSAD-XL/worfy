@@ -34,6 +34,8 @@ Source: [spec.md](../spec.md), «Как работает», п. 1; «Решен�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 475c00080778cdc1701dd124175f89fe79712a05
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/auto-approve-claude.test.ts` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 914a8ee605487cb29d9c6fc6a75df40bc307081e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 914a8ee605487cb29d9c6fc6a75df40bc307081e
 - [ ] Unit test: уведомление уходит один раз на запрос, без текста команды.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/auto-approve-park.test.ts` exit 0 · mac - · 475c00080778cdc1701dd124175f89fe79712a05
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7e1aeb7af0297dd11bdbd63aff095412d5520dfd
