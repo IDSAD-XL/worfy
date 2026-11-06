@@ -307,11 +307,9 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
     await snapshots(window, 'retry')
     await window.getByRole('button', { name: 'Fit', exact: true }).click()
-    // The gate runs whose logs are gone: hatched, with the label of the lost source.
-    const lost = window.locator('[data-testid="run-history-row"]', { has: window.locator('.w-fr-bar--lost') }).first()
-    await expect(lost).toContainText('gate logs deleted (10 runs or 8 days)')
-    await lost.scrollIntoViewIfNeeded()
-    await snapshots(window, 'lost-source')
+    // No check of the hatched «gate logs deleted» rows here: the app reads them on its own clock, and the
+    // gate keeps a record 31 days (gate-logs.ts), so the night Run shows them only from 2026-11-18 on. The
+    // screen test draws them from night-run-view.json, computed past that day (flight-recorder-view.test.tsx).
     await window.getByRole('button', { name: 'Collapse', exact: true }).click()
     await expect(window.locator('[data-testid="run-history-row"][data-kind="stage"]')).toHaveCount(0)
     await expect(window.locator('[data-testid="run-history-row"][data-kind="ticket"]').first().locator('.w-fr-bar--thin').first()).toBeVisible()
