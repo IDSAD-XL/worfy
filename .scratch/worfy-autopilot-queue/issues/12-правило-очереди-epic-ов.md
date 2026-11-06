@@ -1,8 +1,9 @@
 # 12 — Правило очереди Epic-ов: дальше, пропуск или стоп
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:46Z
+Branch: worfy-autopilot-queue/12
+Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Очередь Epic-ов», «Правило»; «Решения владельца», 18, 20; «Решено без владельца», 6; «Риски», 6; [03](03-очередь-epic-ов.md), Q3, Q5
 
 ## Что происходит
