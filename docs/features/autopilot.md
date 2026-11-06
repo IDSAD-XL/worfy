@@ -74,18 +74,29 @@ typed it. These forms are commands:
   that cannot be read, or that has no Wave N, gives a refusal that asks to name the Tickets:
   "name the Tickets: tickets NN, NN of epic X".
 - `/worfy:epic-wave epic X`: the whole Epic. `/worfy:epic-wave X` too, when the Project has Epic X.
+- `/worfy:epic-wave epics A, B, C`: one run over a queue of Epics, in the order typed, comma-separated as the Tickets of
+  `tickets` (1 to 10 Epics). A word that is no Epic name, an Epic named twice or more than 10 Epics is refused in words,
+  and so is an Epic the Project does not have. A queue of one Epic is that Epic alone.
+- `/worfy:epic-wave accepted`: a queue of every Epic of the Project whose spec the owner accepted and that has a ready
+  Ticket, oldest acceptance first. No such Epic, or more than 10, is a refusal. `/worfy:epic-wave epic accepted` still
+  names an Epic called `accepted`.
 
 Any other text after `/worfy:epic-wave` goes to the agent as before, for example "resume after a session break", a word
 that is no Epic of the Project, an argument such as `depth medium`, or a message with attachments. A toast says what
-became of the command: "Autopilot started on Epic X", or the refusal. While a run of the Project goes on, the refusal is
-"Autopilot is already running Epic X. Stop it first." A refused command writes no journal, and a running run does not
+became of the command: "Autopilot started on Epic X" ("Autopilot started on a queue of 2 Epics: A, B" for a queue), or
+the refusal. While a run of the Project goes on, the refusal is "Autopilot is already running Epic X. Stop it first, or
+add Epics to its queue with "Add to queue…" in the ⋯ menu."; a command never adds an Epic to a running queue. A refused command writes no journal, and a running run does not
 count it as a person stepping in. A message sent right after a command waits for its answer, so it reaches the run that
 command started, and the run journals it as a person stepping in. Typed while the Orchestrator is busy, also in its own Session during its turn, the run
 waits for it as described under "While the Orchestrator is busy", and the toast says "Autopilot waits for the Orchestrator and starts when it is free". The Waves Autopilot sends to the Orchestrator are never
 read as a command.
 
 **From a chat, by the agent.** When the user asks a Session in words to run an Epic, or some of its Tickets, on autopilot,
-the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. worfy then asks the
+the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. For several Epics
+one after another it gives `epics` (1 to 10, each once) instead of `epic`; both fields, neither, an Epic named twice, or
+`tickets` with more than one Epic is a form error before any ask. The ask then carries the queue (`epics` on
+`autopilot.confirm.ask`, when it has more than one Epic) and the forecast of all its Epics' Waves, and the start goes
+with the queue; the window itself still names only the first Epic of it. worfy then asks the
 user in the same **Start Autopilot** window as the button, in its "Agent asks" view: under the title it says
 `Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` and counts down 10 minutes;
 the last minute is in the blocked colours. The facts, the Modes and the Run mode are as for the button, and the
@@ -106,8 +117,9 @@ waits for it as described under "While the Orchestrator is busy", and the agent 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a
   stopped run that still waits for its turn or background tasks is not refused: it gets the window;
 - a Session worfy cannot find;
-- a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
-- an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
+- a Project with a run under way: the same refusal as the command's, with the hint to stop it or use "Add to queue…"; the
+  tool never adds an Epic to a running queue, and the journal gets nothing;
+- an Epic (of the queue too) or a Ticket the Project does not have, or a workflow that cannot be read;
 - a second call while an ask of the same Project waits;
 - a Machine with no worfy window open;
 - a Start Autopilot window already open for another start: the agent is told so.

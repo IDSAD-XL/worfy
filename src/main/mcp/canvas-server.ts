@@ -13,6 +13,7 @@
 // `autopilot_start` (worfy-flight-recorder ticket 23, ADR-0091) changes no Layout: it asks a person to
 // confirm a start of Autopilot and then starts it as the command typed in a chat does
 // (src/main/autopilot/chat-confirm.ts). A Session that runs unattended is refused without a dialog.
+// It names one Epic or a queue of them (`epics`, worfy-autopilot-queue ticket 15), never both.
 //
 // canvasForSession() binds a server to the Project a Session works in and watches the Session's
 // messages for file writes into a Card's folder: the last Session that wrote there is kept in the
@@ -31,13 +32,14 @@ import {
   CARD_SIZE,
   NOTE_KIND,
   NOTE_SIZE,
-  autopilotTicketNums,
+  autopilotStartTarget,
   canvasToolDescriptions,
   canvasToolShapes,
   linkTargetSchema,
   parseLinkTarget,
   parseToolArgs,
   placeNear,
+  type AutopilotStartTarget,
   type CanvasToolArgs,
   type CanvasToolName,
   type LinkTarget,
@@ -291,8 +293,13 @@ function handlers(context: CanvasContext): Handlers {
 
     autopilot_start: async (args) => {
       if (context.autopilotStart === undefined) throw new ToolError(NO_AUTOPILOT_MESSAGE)
-      const tickets = autopilotTicketNums(args.tickets)
-      return context.autopilotStart({ projectId, epic: args.epic, ...(tickets === undefined ? {} : { tickets }), session: context.sessionId() })
+      let target: AutopilotStartTarget
+      try {
+        target = autopilotStartTarget(args)
+      } catch (error) {
+        throw new ToolError(`Invalid arguments for autopilot_start: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      return context.autopilotStart({ projectId, ...target, session: context.sessionId() })
     },
   }
 }

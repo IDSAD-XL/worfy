@@ -74,11 +74,18 @@ background task-и Orchestrator-а, пишет их в journal как `tasks-kil
   Таблица, которая не читается или в которой нет Wave N, даёт отказ с просьбой назвать Ticket-ы:
   «name the Tickets: tickets NN, NN of epic X».
 - `/worfy:epic-wave epic X`: весь Epic. `/worfy:epic-wave X` тоже, если у Project-а есть Epic X.
+- `/worfy:epic-wave epics A, B, C`: один run по очереди Epic-ов в набранном порядке, через запятую, как Ticket-ы у
+  `tickets` (от 1 до 10 Epic-ов). Слово, которое не может быть именем Epic-а, Epic, названный дважды, больше 10 Epic-ов и
+  Epic, которого у Project-а нет, дают отказ словами. Очередь из одного Epic-а — просто этот Epic.
+- `/worfy:epic-wave accepted`: очередь из всех Epic-ов Project-а, чей spec принят владельцем и у которых есть готовый
+  Ticket, от самого раннего принятия. Если таких нет или их больше 10 — отказ. `/worfy:epic-wave epic accepted` по-прежнему
+  называет Epic с именем `accepted`.
 
 Любой другой текст после `/worfy:epic-wave` идёт агенту, как и раньше: например «resume after a session break», слово,
 которое не является Epic-ом Project-а, аргумент вроде `depth medium` или сообщение с вложениями. Toast говорит, чем
-кончилась команда: «Autopilot started on Epic X» или отказ. Пока у Project-а идёт run, отказ такой: «Autopilot is already
-running Epic X. Stop it first.» Команда с отказом не пишет journal, и идущий run не считает её вмешательством человека.
+кончилась команда: «Autopilot started on Epic X» («Autopilot started on a queue of 2 Epics: A, B» для очереди) или отказ.
+Пока у Project-а идёт run, отказ такой: «Autopilot is already running Epic X. Stop it first, or add Epics to its queue
+with "Add to queue…" in the ⋯ menu.»; команда никогда не добавляет Epic в идущую очередь. Команда с отказом не пишет journal, и идущий run не считает её вмешательством человека.
 Сообщение, отправленное сразу после команды, ждёт её ответа, поэтому попадает в run, который запустила эта команда, и run
 пишет его в journal как вмешательство человека. Если Orchestrator занят, в том числе когда команду набрали в его собственной
 Session во время turn-а, run ждёт его, как сказано в «Пока Orchestrator занят», а toast говорит «Autopilot waits for the
@@ -86,7 +93,11 @@ Orchestrator and starts when it is free». Wave-ы, которые
 Autopilot отправляет Orchestrator-у, никогда не читаются как команда.
 
 **Из чата, через агента.** Когда пользователь словами просит Session запустить на autopilot Epic или часть его Ticket-ов,
-агент вызывает canvas-инструмент `autopilot_start` с Epic-ом и, если Ticket-ы названы, их номерами. Тогда worfy спрашивает
+агент вызывает canvas-инструмент `autopilot_start` с Epic-ом и, если Ticket-ы названы, их номерами. Для нескольких Epic-ов
+подряд он передаёт `epics` (от 1 до 10, каждый один раз) вместо `epic`; оба поля, ни одного, Epic, названный дважды, или
+`tickets` при нескольких Epic-ах — ошибка формы до всякой просьбы. Тогда просьба несёт очередь (`epics` в
+`autopilot.confirm.ask`, если в ней больше одного Epic-а) и прогноз по Wave-ам всех её Epic-ов, а старт идёт с очередью;
+само окно пока называет только первый Epic очереди. Тогда worfy спрашивает
 пользователя в том же окне **Start Autopilot**, что и кнопка, в его виде «Agent asks»: под заголовком —
 `Asked by Session "<первые 8 символов id Session>" in a chat · answer within 9:59` и обратный отсчёт 10 минут;
 последняя минута — цветом блокировки. Факты, Modes и Run mode — как у кнопки, и человек выбирает там Run mode этого
@@ -106,8 +117,9 @@ when it is free». Без просьбы в окне инструмент отк
 
 - Session, которая работает unattended, например Orchestrator во время run-а: подтвердить некому;
 - Session, которую worfy не может найти;
-- Project, у которого идёт run: «Autopilot is already running Epic X. Stop it first.», и в journal ничего не попадает;
-- Epic или Ticket, которого у Project-а нет, или workflow, который не читается;
+- Project, у которого идёт run: тот же отказ, что у команды, с подсказкой остановить run или взять «Add to queue…»;
+  инструмент никогда не добавляет Epic в идущую очередь, и в journal ничего не попадает;
+- Epic (в том числе из очереди) или Ticket, которого у Project-а нет, или workflow, который не читается;
 - второй вызов, пока ждёт просьба того же Project-а;
 - Machine без открытого окна worfy;
 - окно Start Autopilot, уже открытое для другого старта: агенту говорят об этом.

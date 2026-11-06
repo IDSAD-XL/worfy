@@ -9,6 +9,7 @@
 // the Layout whoever calls the handler. Descriptions are short on purpose: every Session carries
 // them in its context next to the user's own MCP servers (ticket 06).
 import { z } from 'zod'
+import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { nodeIdSchema } from '../layout/types'
 
 export const CANVAS_SERVER_NAME = 'worfy-canvas'
@@ -65,6 +66,31 @@ const ticketNumber = z.union([
   z.number().int().min(1).max(999_999),
 ])
 
+const epicName = z.string().trim().min(1).max(200).regex(EPIC_NAME, 'an Epic name such as "worfy-mvp"')
+
+/** What autopilot_start starts (worfy-autopilot-queue ticket 15): the queue of Epics, the first first, and the named Tickets of a queue of one. */
+export interface AutopilotStartTarget {
+  epic: string
+  /** The queue, when it has more than one Epic; absent: `epic` alone. */
+  epics?: string[]
+  tickets?: number[]
+}
+
+/**
+ * The start autopilot_start asks for: `epic`, or the queue `epics` (1 to MAX_QUEUE_EPICS, each Epic
+ * once), never both and never neither; `tickets` only with one Epic. Throws the refusal in words.
+ */
+export function autopilotStartTarget(args: { epic?: string | undefined; epics?: readonly string[] | undefined; tickets?: readonly (string | number)[] | undefined }): AutopilotStartTarget {
+  if (args.epic !== undefined && args.epics !== undefined) throw new Error('Give either epic or epics, not both')
+  const queue = args.epics ?? (args.epic === undefined ? [] : [args.epic])
+  if (queue.length === 0) throw new Error('Give the Epic to start: epic, or epics for a queue of Epics')
+  const twice = queue.find((epic, at) => queue.indexOf(epic) !== at)
+  if (twice !== undefined) throw new Error(`Epic ${twice} is named twice in epics`)
+  const tickets = autopilotTicketNums(args.tickets)
+  if (tickets !== undefined && queue.length > 1) throw new Error('tickets are named only with one Epic, not with a queue of Epics')
+  return { epic: queue[0]!, ...(queue.length > 1 ? { epics: [...queue] } : {}), ...(tickets === undefined ? {} : { tickets }) }
+}
+
 /** The numbers of autopilot_start's `tickets`, without repeats, in the order given; undefined for the whole Epic. */
 export function autopilotTicketNums(tickets: readonly (string | number)[] | undefined): number[] | undefined {
   return tickets === undefined ? undefined : [...new Set(tickets.map(Number))]
@@ -84,7 +110,9 @@ export const canvasToolShapes = {
     remove: z.boolean().default(false),
   },
   autopilot_start: {
-    epic: z.string().trim().min(1).max(200).regex(EPIC_NAME, 'an Epic name such as "worfy-mvp"'),
+    // Exactly one of the two (autopilotStartTarget): an object schema cannot say so to the agent.
+    epic: epicName.optional(),
+    epics: z.array(epicName).min(1).max(MAX_QUEUE_EPICS).optional(),
     tickets: z.array(ticketNumber).min(1).max(AUTOPILOT_TICKETS_MAX).optional(),
   },
 } satisfies Record<string, z.ZodRawShape>
@@ -115,8 +143,9 @@ export const canvasToolDescriptions: Record<CanvasToolName, string> = {
   link_card: 'Link a Card to an Epic ("<epic>") or a Ticket ("<epic>/<NN>"); remove=true unlinks.',
   autopilot_start:
     'Start worfy Autopilot on an Epic of this Project, only when the user asks in words to run it on autopilot, autonomously or automatically. ' +
-    'For named Tickets ("run 05 and 06 on autopilot") give tickets: ["05", "06"]; without tickets the whole Epic runs. ' +
-    'The user confirms in a dialog first, so the call may wait up to 10 minutes; a refusal says why. Refused in an unattended (Autopilot) Session.',
+    'Give epic, or epics for a queue of Epics run one after another in that order (up to ' + String(MAX_QUEUE_EPICS) + '), never both. ' +
+    'For named Tickets of one Epic ("run 05 and 06 on autopilot") give tickets: ["05", "06"]; without tickets the whole Epic runs. ' +
+    'The user confirms in a dialog that shows the queue, so the call may wait up to 10 minutes; a refusal says why. Refused in an unattended (Autopilot) Session and while a run goes on.',
 }
 
 /** A Node as list_nodes reports it. */

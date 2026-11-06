@@ -5,6 +5,10 @@
 // Session itself (session.send) reach the agent as before. While a run goes on a command is refused
 // with the hint, no second run starts and the journal gets no line: not even the line a running run
 // writes for a person's input (the registry's input observers hear nothing).
+//
+// A queue of Epics (worfy-autopilot-queue ticket 15): `epics A, B` and `accepted` start one run over the
+// queue, `epics` going to Autopilot.start; a queue typed wrong, an Epic the Project has not and a Project
+// with no accepted Epic are refused in words, and none of them reaches the agent.
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -13,9 +17,9 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { SessionRegistry } from '../../src/main/agent/session'
-import { ChatStarts, type ChatStartRequest } from '../../src/main/autopilot/chat-start'
+import { ChatStarts, chatRunningHint, type ChatStartRequest } from '../../src/main/autopilot/chat-start'
 import type { AutopilotStartOptions } from '../../src/main/autopilot/run'
-import { agentHandlers, OUTSIDE_PROJECTS, type AttachDeps, type ChatCommandDeps } from '../../src/main/ipc/agent'
+import { agentHandlers, NO_ACCEPTED_EPICS, OUTSIDE_PROJECTS, type AttachDeps, type ChatCommandDeps } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -34,8 +38,8 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 // The plan of the Epic's spec.md, in the Russian headings this repository's specs have.
 const SPEC = ['# Demo', '', '## Волны', '', '| Тикет | Файлы | Волна |', '| --- | --- | --- |', '| 01 | `a` | 1 |', '| 02 | `b` | 1 |', '| 03 | `c` | 2 |', ''].join('\n')
 
-const ticket = (num: number, state: Ticket['state']): Ticket => ({
-  epic: EPIC,
+const ticket = (num: number, state: Ticket['state'], epic = EPIC): Ticket => ({
+  epic,
   num,
   slug: `t${num}`,
   title: `T${num}`,
@@ -80,6 +84,8 @@ interface HarnessOptions {
   startGate?: Promise<void>
   /** What the read of the workflow answers; the model below by default. */
   workflow?: () => Promise<WorkflowModel>
+  /** The Project's workflow model; Epic demo alone by default. */
+  model?: WorkflowModel
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -97,7 +103,7 @@ async function harness(options: HarnessOptions = {}) {
   registry.observeInput((_session, what) => order.push(`input ${what}`))
   const journalInput = () => registry.observeInput((_session, what) => journal.push(`human-input ${what}`))
   if (options.input !== 'from-start') journalInput()
-  const model: WorkflowModel = { root: project, epics: [{ epic: EPIC, hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [ticket(1, 'done'), ticket(2, 'open'), ticket(3, 'open')], error: null, branchErrors: [] }
+  const model: WorkflowModel = options.model ?? { root: project, epics: [{ epic: EPIC, hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [ticket(1, 'done'), ticket(2, 'open'), ticket(3, 'open')], error: null, branchErrors: [] }
   const starter = new ChatStarts({
     autopilot: {
       runningEpic: () => running,
@@ -299,12 +305,83 @@ describe('agent.send: a command while a run goes on', () => {
     const h = await harness({ running: EPIC })
     const id = await h.start()
     expect(await h.send(id, '/worfy:epic-wave tickets 02 of epic demo')).toEqual({
-      autopilot: { kind: 'refused', epic: EPIC, message: 'Autopilot is already running Epic demo. Stop it first.' },
+      autopilot: { kind: 'refused', epic: EPIC, message: chatRunningHint(EPIC) },
     })
     expect(await h.send(id, '/worfy:epic-wave wave 1 of epic demo')).toMatchObject({ autopilot: { kind: 'refused' } })
     expect(h.starts).toEqual([])
     expect(h.journal).toEqual([])
     expect(await h.send(id, 'hi')).toBeUndefined()
     expect(await h.reached()).toEqual(['hi'])
+  })
+})
+
+describe('agent.send: a queue of Epics (worfy-autopilot-queue ticket 15)', () => {
+  /** Epics demo, shop and docs; shop and demo accepted, shop first, docs not; each with a ready Ticket. */
+  const queueModel = (): WorkflowModel => ({
+    root: project,
+    epics: [
+      { epic: EPIC, hasSpec: true, hasMap: false, title: 'Demo', acceptedAt: '2026-11-03' },
+      { epic: 'shop', hasSpec: true, hasMap: false, title: 'Shop', acceptedAt: '2026-11-01' },
+      { epic: 'docs', hasSpec: true, hasMap: false, title: 'Docs' },
+    ],
+    tickets: [ticket(1, 'open'), ticket(1, 'open', 'shop'), ticket(1, 'open', 'docs')],
+    error: null,
+    branchErrors: [],
+  })
+
+  it('`epics demo, shop` starts one run over the queue, by `command`; the message does not reach the agent', async () => {
+    const h = await harness({ model: queueModel() })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave epics demo, shop')).toEqual({
+      autopilot: { kind: 'started', epic: EPIC, message: 'Autopilot started on a queue of 2 Epics: demo, shop' },
+    })
+    expect(h.requests).toEqual([{ projectId: PROJECT, epic: EPIC, epics: [EPIC, 'shop'], by: 'command', session: id }])
+    expect(h.starts).toEqual([[PROJECT, EPIC, { override: false, by: 'command', epics: [EPIC, 'shop'], onLateRefusal: expect.any(Function) }]])
+    expect(h.journal).toEqual(['run-started'])
+    // The next message is the agent's first: the command never reached it.
+    expect(await h.send(id, 'hi')).toBeUndefined()
+    expect(await h.reached()).toEqual(['hi'])
+  })
+
+  it('`accepted` starts the accepted Epics with a ready Ticket, oldest acceptance first', async () => {
+    const h = await harness({ model: queueModel() })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave accepted')).toEqual({
+      autopilot: { kind: 'started', epic: 'shop', message: 'Autopilot started on a queue of 2 Epics: shop, demo' },
+    })
+    expect(h.starts.map(([, epic, start]) => [epic, start?.epics])).toEqual([['shop', ['shop', EPIC]]])
+  })
+
+  it('a queue of one Epic is the Epic alone, as before the queue', async () => {
+    const h = await harness({ model: queueModel() })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave epics shop')).toEqual({ autopilot: { kind: 'started', epic: 'shop', message: 'Autopilot started on Epic shop' } })
+    expect(h.requests).toEqual([{ projectId: PROJECT, epic: 'shop', by: 'command', session: id }])
+  })
+
+  it('a queue typed wrong, an Epic the Project has not, and no accepted Epic are refused in words; nothing starts or reaches the agent', async () => {
+    const none = { ...queueModel(), epics: queueModel().epics.map((epic) => ({ ...epic, acceptedAt: null })) }
+    const h = await harness({ model: queueModel(), workflow: vi.fn<() => Promise<WorkflowModel>>().mockResolvedValueOnce(queueModel()).mockResolvedValue(none) })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave epics demo, shop, demo')).toEqual({ autopilot: { kind: 'refused', epic: '', message: 'Epic demo is named twice in the queue' } })
+    expect(await h.send(id, '/worfy:epic-wave epics demo, billing')).toEqual({ autopilot: { kind: 'refused', epic: EPIC, message: 'The Project has no Epic billing' } })
+    // The first read answers the accepted Epics; the next one has none.
+    expect(await h.send(id, '/worfy:epic-wave accepted')).toMatchObject({ autopilot: { kind: 'started' } })
+    h.setRunning(null)
+    expect(await h.send(id, '/worfy:epic-wave accepted')).toEqual({ autopilot: { kind: 'refused', epic: '', message: NO_ACCEPTED_EPICS } })
+    expect(h.starts).toHaveLength(1)
+    expect(await h.send(id, 'hi')).toBeUndefined()
+    expect(await h.reached()).toEqual(['hi'])
+  })
+
+  it('while a run goes on, a queue is refused with the hint to stop it or use "Add to queue…"; it is not added to the run', async () => {
+    const h = await harness({ running: EPIC, model: queueModel() })
+    const id = await h.start()
+    expect(await h.send(id, '/worfy:epic-wave epics shop, docs')).toEqual({
+      autopilot: { kind: 'refused', epic: 'shop', message: chatRunningHint(EPIC) },
+    })
+    expect(chatRunningHint(EPIC)).toContain('Add to queue…')
+    expect(h.starts).toEqual([])
+    expect(h.journal).toEqual([])
   })
 })

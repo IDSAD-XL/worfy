@@ -3,6 +3,7 @@
 // the older forms of the Harness skill epic-wave, which the command still takes.
 import { describe, expect, it } from 'vitest'
 import { CHAT_COMMAND_TOAST, chatCommandToast, chatStartedText, parseChatCommand, type ChatCommand } from '../../src/shared/autopilot/chat-command'
+import { MAX_QUEUE_EPICS } from '../../src/shared/autopilot/epic-queue'
 import { MAX_NAMED_TICKETS } from '../../src/shared/ipc/autopilot'
 
 describe('parseChatCommand', () => {
@@ -52,6 +53,49 @@ describe('parseChatCommand', () => {
     const list = (count: number) => Array.from({ length: count }, (_, at) => at + 1).join(', ')
     expect(parseChatCommand(`/worfy:epic-wave tickets ${list(MAX_NAMED_TICKETS)} of epic demo`)).toMatchObject({ kind: 'tickets' })
     expect(parseChatCommand(`/worfy:epic-wave tickets ${list(MAX_NAMED_TICKETS + 1)} of epic demo`)).toBeNull()
+  })
+})
+
+// A queue of Epics (worfy-autopilot-queue ticket 15): `epics A, B` in the order typed, and `accepted` for
+// every accepted Epic. A queue typed wrong is a refusal in words, not a message for the agent.
+describe('parseChatCommand: a queue of Epics', () => {
+  it.each<[string, ChatCommand]>([
+    ['/worfy:epic-wave epics A, B', { kind: 'epics', epics: ['A', 'B'] }],
+    ['/worfy:epic-wave epics worfy-retry,worfy-guide , demo_2.x', { kind: 'epics', epics: ['worfy-retry', 'worfy-guide', 'demo_2.x'] }],
+    ['  /worfy:epic-wave  Epics  demo. ', { kind: 'epics', epics: ['demo'] }],
+    ['/worfy:epic-wave accepted', { kind: 'accepted' }],
+    ['/worfy:epic-wave Accepted.', { kind: 'accepted' }],
+  ])('%j is a command', (text, command) => {
+    expect(parseChatCommand(text)).toEqual(command)
+  })
+
+  it.each<[string, string]>([
+    ['/worfy:epic-wave epics A, ../b', '"../b" is not an Epic name'],
+    ['/worfy:epic-wave epics A B', '"A B" is not an Epic name'],
+    ['/worfy:epic-wave epics A,, B', '"" is not an Epic name'],
+    ['/worfy:epic-wave epics A, B, A', 'Epic A is named twice in the queue'],
+  ])('%j is refused: %s', (text, message) => {
+    expect(parseChatCommand(text)).toEqual({ kind: 'invalid', message })
+  })
+
+  it(`takes ${MAX_QUEUE_EPICS} Epics, and refuses more in words`, () => {
+    const names = (count: number) => Array.from({ length: count }, (_, at) => `e${at + 1}`)
+    expect(parseChatCommand(`/worfy:epic-wave epics ${names(MAX_QUEUE_EPICS).join(', ')}`)).toEqual({ kind: 'epics', epics: names(MAX_QUEUE_EPICS) })
+    expect(parseChatCommand(`/worfy:epic-wave epics ${names(MAX_QUEUE_EPICS + 1).join(', ')}`)).toEqual({
+      kind: 'invalid',
+      message: `A queue holds at most ${MAX_QUEUE_EPICS} Epics: ${MAX_QUEUE_EPICS + 1} are named`,
+    })
+  })
+
+  it('`epics` alone is still an Epic named alone, and `epic accepted` the Epic of that name', () => {
+    expect(parseChatCommand('/worfy:epic-wave epics')).toEqual({ kind: 'epic', epic: 'epics', bare: true })
+    expect(parseChatCommand('/worfy:epic-wave epic accepted')).toEqual({ kind: 'epic', epic: 'accepted', bare: false })
+  })
+
+  it('the answer of a started queue names its Epics; one Epic, as before', () => {
+    expect(chatStartedText('demo')).toBe('Autopilot started on Epic demo')
+    expect(chatStartedText('demo', ['demo'])).toBe('Autopilot started on Epic demo')
+    expect(chatStartedText('A', ['A', 'B', 'C'])).toBe('Autopilot started on a queue of 3 Epics: A, B, C')
   })
 })
 

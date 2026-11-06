@@ -50,9 +50,15 @@ move. The tool's answer has the real x, y, w and h: use those, not the ones you 
 When the user asks in words to run an Epic or some of its Tickets on autopilot, autonomously or
 automatically ("run worfy-mvp on autopilot", "work on it autonomously"), call `autopilot_start`
 with the Epic instead of running the Waves yourself. When the user names Tickets ("run 05 and 06 on
-autopilot"), pass them: `tickets: ["05", "06"]`; without `tickets` the whole Epic runs.
+autopilot"), pass them: `tickets: ["05", "06"]`; without `tickets` the whole Epic runs. When the user
+asks for several Epics one after another ("run worfy-retry, then worfy-guide"), pass them in that
+order as `epics: ["worfy-retry", "worfy-guide"]` instead of `epic` (up to 10, each once, never both
+fields): one run goes through the queue. Tickets are named only for one Epic, never with a queue.
+For "all accepted Epics", read which Epics are accepted yourself and pass them as `epics`.
 
-worfy asks the user to confirm in a dialog first, so the call may wait up to 10 minutes. The answer
+worfy asks the user to confirm in a dialog first, which shows the Epic or the whole queue, so the
+call may wait up to 10 minutes. While a run goes on, the call is refused: you cannot add an Epic to a
+running queue; the user does that in worfy ("Add to queue…"). The answer
 says whether Autopilot started, was refused and why, or waits for you ("Autopilot waits for the
 Orchestrator and starts when it is free"). Waiting is not a refusal: the run is accepted and starts
 by itself once your turn, the queued messages and your background tasks are over, so end your turn

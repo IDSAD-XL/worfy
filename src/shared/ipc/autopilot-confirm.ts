@@ -7,7 +7,11 @@
 // Every channel here is `local`: a Linked machine's screen never gets the ask and cannot answer it
 // (the spec's decisions made without the owner, item 7). Main takes an answer only from the window it
 // asked.
+//
+// An ask for a queue of Epics (worfy-autopilot-queue ticket 15) carries `epics` besides `epic`, its
+// first; the window's view of the queue is ticket 16.
 import { z } from 'zod'
+import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { RUN_MODES } from '../autopilot/run-mode'
 import { epicNameSchema, ticketNumSchema } from '../binding/resolve'
 import { eventChannel, invokeChannel } from './channels'
@@ -20,6 +24,8 @@ export const autopilotConfirmAskSchema = z.object({
   /** The Project's name, as its list shows it. */
   project: z.string(),
   epic: epicNameSchema,
+  /** The queue of Epics of the run, in order, the first being `epic`, when it has more than one; absent: the Epic alone. */
+  epics: z.array(epicNameSchema).min(2).max(MAX_QUEUE_EPICS).optional(),
   /** The named Tickets; absent: the whole Epic. */
   tickets: z.array(ticketNumSchema).min(1).max(MAX_NAMED_TICKETS).optional(),
   /** The id of the Session that asked (its SDK id). */

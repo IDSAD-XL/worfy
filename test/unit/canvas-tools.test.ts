@@ -1,8 +1,9 @@
 // The form and the description of the canvas tool autopilot_start (worfy-flight-recorder ticket 23,
-// ADR-0091): `epic` is required, `tickets` an optional list of Ticket numbers (owner's answer Q4),
+// ADR-0091): `epic` or a queue `epics` (worfy-autopilot-queue ticket 15), `tickets` an optional list of Ticket numbers (owner's answer Q4),
 // and the description says when an agent calls it.
 import { describe, expect, it } from 'vitest'
-import { AUTOPILOT_TICKETS_MAX, CANVAS_TOOL_NAMES, autopilotTicketNums, canvasToolDescriptions, parseToolArgs } from '../../src/shared/canvas/tools'
+import { MAX_QUEUE_EPICS } from '../../src/shared/autopilot/epic-queue'
+import { AUTOPILOT_TICKETS_MAX, CANVAS_TOOL_NAMES, autopilotStartTarget, autopilotTicketNums, canvasToolDescriptions, parseToolArgs } from '../../src/shared/canvas/tools'
 
 describe('autopilot_start: the form', () => {
   it('is one of the canvas tools', () => {
@@ -26,10 +27,26 @@ describe('autopilot_start: the form', () => {
     expect(autopilotTicketNums(numbers.data?.tickets)).toEqual([7, 24])
   })
 
-  it('refuses a call without an Epic, with the field named', () => {
-    const parsed = parseToolArgs('autopilot_start', { tickets: ['05'] })
-    expect(parsed.success).toBe(false)
-    expect(parsed.error?.issues.map((issue) => issue.path.join('.'))).toContain('epic')
+  // worfy-autopilot-queue ticket 15: `epic` or the queue `epics`, exactly one of the two (autopilotStartTarget).
+  it('takes a queue of Epics; a queue of one is the Epic alone', () => {
+    const parsed = parseToolArgs('autopilot_start', { epics: ['worfy-mvp', 'worfy-guide'] })
+    expect(parsed.success).toBe(true)
+    expect(autopilotStartTarget(parsed.data!)).toEqual({ epic: 'worfy-mvp', epics: ['worfy-mvp', 'worfy-guide'] })
+    expect(autopilotStartTarget({ epics: ['worfy-mvp'], tickets: ['05'] })).toEqual({ epic: 'worfy-mvp', tickets: [5] })
+    expect(autopilotStartTarget({ epic: 'worfy-mvp' })).toEqual({ epic: 'worfy-mvp' })
+  })
+
+  it('refuses neither epic nor epics, both, an Epic named twice and Tickets with a queue, in words', () => {
+    expect(() => autopilotStartTarget({ tickets: ['05'] })).toThrow(/epic, or epics/u)
+    expect(() => autopilotStartTarget({ epic: 'a', epics: ['a', 'b'] })).toThrow('Give either epic or epics, not both')
+    expect(() => autopilotStartTarget({ epics: ['a', 'b', 'a'] })).toThrow('Epic a is named twice in epics')
+    expect(() => autopilotStartTarget({ epics: ['a', 'b'], tickets: ['05'] })).toThrow('tickets are named only with one Epic, not with a queue of Epics')
+  })
+
+  it(`refuses an empty queue, a malformed Epic in it and more than ${MAX_QUEUE_EPICS} Epics`, () => {
+    for (const epics of [[], ['a', 'b/05'], Array.from({ length: MAX_QUEUE_EPICS + 1 }, (_, index) => `e${index}`)]) {
+      expect(parseToolArgs('autopilot_start', { epics }).success, JSON.stringify(epics)).toBe(false)
+    }
   })
 
   it('refuses an empty list, Ticket 0, a word for a number, a malformed Epic and a list too long', () => {

@@ -14,7 +14,9 @@
 // src/shared/autopilot/chat-command.ts) does not reach the agent: agent.send starts Autopilot through
 // the app's one start from a chat (startFromChat, src/main/autopilot/chat-start.ts) and answers what
 // became of it. No confirmation: the person typed it. It is not told to the input observers either,
-// since nothing reached the Session (a running run would journal it as a person stepping in). Only
+// since nothing reached the Session (a running run would journal it as a person stepping in). A queue
+// (`epics A, B`, `accepted`; worfy-autopilot-queue ticket 15) starts the same way: `accepted` is read
+// here from a fresh workflow model (acceptedEpics), and a queue typed wrong is refused in words. Only
 // agent.send is read so: the Waves Autopilot sends go to the Session directly (session.send).
 import { readFile, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
@@ -57,6 +59,8 @@ import {
 import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shared/agent/attachments'
 import type { SettingsChange } from '../../shared/agent/settings'
 import { chatStartedText, parseChatCommand, type ChatCommand } from '../../shared/autopilot/chat-command'
+import { MAX_QUEUE_EPICS } from '../../shared/autopilot/epic-queue'
+import { acceptedEpics } from '../../shared/workflow/accepted-epics'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { waveTickets } from '../../shared/workflow/wave-plan'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
@@ -139,6 +143,17 @@ export const appChatCommands: ChatCommandDeps = {
   spec: (projectId, epic) => readEpicSpec(projectStore().get(projectId).path, epic),
 }
 
+/** The refusal of `accepted` when the Project has no accepted Epic with a ready Ticket. */
+export const NO_ACCEPTED_EPICS = 'No Epic of this Project is accepted by the owner and has a ready Ticket: nothing to start'
+
+/** The refusal of `accepted` when more Epics are accepted than one queue holds. */
+export const tooManyAccepted = (count: number): string =>
+  `${count} accepted Epics have a ready Ticket, more than a queue holds (${MAX_QUEUE_EPICS}): name the ones to run with epics A, B, …`
+
+/** The Epic a command names first, for its answer; none before `accepted` is read, or for a queue typed wrong. */
+const firstEpic = (command: ChatCommand): string =>
+  command.kind === 'epics' ? command.epics[0]! : command.kind === 'accepted' || command.kind === 'invalid' ? '' : command.epic
+
 const hasEpic = (model: WorkflowModel, epic: string): boolean => model.epics.some((each) => each.epic === epic) || model.tickets.some((each) => each.epic === epic)
 
 /**
@@ -147,13 +162,25 @@ const hasEpic = (model: WorkflowModel, epic: string): boolean => model.epics.som
  * that word was meant for the agent.
  */
 async function startCommand(chat: ChatCommandDeps, command: ChatCommand, session: Session): Promise<ChatCommandAnswer | null> {
-  const { epic } = command
+  let epic = firstEpic(command)
   const bare = command.kind === 'epic' && command.bare
   const refused = (message: string): ChatCommandAnswer => ({ kind: 'refused', epic, message })
+  if (command.kind === 'invalid') return refused(command.message)
   const projectId = chat.projectOf(session.cwd)
   if (projectId === null) return bare ? null : refused(OUTSIDE_PROJECTS)
   let tickets: number[] | undefined
-  if (bare) {
+  let epics: string[] | undefined
+  if (command.kind === 'epics') {
+    epics = command.epics
+  } else if (command.kind === 'accepted') {
+    const model = await chat.workflow(projectId)
+    if (model.error !== null) return refused(`Cannot read the workflow: ${model.error.message}`)
+    const accepted = acceptedEpics(model).map((each) => each.epic)
+    if (accepted.length === 0) return refused(NO_ACCEPTED_EPICS)
+    if (accepted.length > MAX_QUEUE_EPICS) return refused(tooManyAccepted(accepted.length))
+    epic = accepted[0]!
+    epics = accepted
+  } else if (bare) {
     const model = await chat.workflow(projectId).catch(() => null)
     if (model === null || model.error !== null || !hasEpic(model, epic)) return null
   } else if (command.kind === 'tickets') {
@@ -165,8 +192,10 @@ async function startCommand(chat: ChatCommandDeps, command: ChatCommand, session
     if (!wave.ok) return refused(wave.message)
     tickets = wave.tickets
   }
-  const answer = await chat.start({ projectId, epic, ...(tickets === undefined ? {} : { tickets }), by: 'command', session: session.id })
-  if (answer.kind === 'started') return { kind: 'started', epic, message: chatStartedText(epic) }
+  // A queue of one is the Epic alone, as the button starts it.
+  const queue = epics !== undefined && epics.length > 1 ? { epics } : {}
+  const answer = await chat.start({ projectId, epic, ...queue, ...(tickets === undefined ? {} : { tickets }), by: 'command', session: session.id })
+  if (answer.kind === 'started') return { kind: 'started', epic, message: chatStartedText(epic, epics) }
   return { kind: answer.kind, epic, message: answer.message }
 }
 
@@ -229,7 +258,7 @@ export function agentHandlers(
           .then(async () => {
             const answer = await startCommand(chat, command, session).catch((error: unknown): ChatCommandAnswer => ({
               kind: 'refused',
-              epic: command.epic,
+              epic: firstEpic(command),
               message: error instanceof Error ? error.message : String(error),
             }))
             if (answer !== null) return { autopilot: answer }

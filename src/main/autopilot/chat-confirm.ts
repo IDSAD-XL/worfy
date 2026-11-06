@@ -30,6 +30,10 @@
 //   same fresh workflow read the start is checked on (only the named Tickets in a run over them), the
 //   app's Limits now and the reserve and window of Settings. Journals that cannot be read leave the
 //   forecast out; the window still asks.
+// - A queue of Epics (`epics`, worfy-autopilot-queue ticket 15): every Epic of it is checked before the
+//   ask as the one Epic is, the ask carries the queue (`epics`, when more than one) and the forecast of
+//   all their Waves left, one Epic after another, and the start goes with the queue. The window's view of
+//   the queue is worfy-autopilot-queue ticket 16.
 // - A start goes to startFromChat with `by: 'tool'` and its mode (src/main/autopilot/chat-start.ts),
 //   as the command typed in a chat: the same run as the button. While the Orchestrator is busy, also
 //   in the turn that asked, the run is accepted and waits for it (WAIT_MESSAGE, worfy-autopilot-queue ticket 07).
@@ -85,6 +89,8 @@ export interface AutopilotPrompt {
   /** The Project's name, as its list shows it. */
   project: string
   epic: string
+  /** The queue of Epics the run goes through, the first being `epic`, when it has more than one; absent: the Epic alone. */
+  epics?: readonly string[] | undefined
   /** The named Tickets; absent: the whole Epic. */
   tickets?: readonly number[] | undefined
   /** The id of the Session that asks. */
@@ -153,6 +159,7 @@ export class WindowAsks {
         projectId: prompt.projectId,
         project: prompt.project,
         epic: prompt.epic,
+        ...(prompt.epics === undefined || prompt.epics.length < 2 ? {} : { epics: [...prompt.epics] }),
         ...(prompt.tickets === undefined || prompt.tickets.length === 0 ? {} : { tickets: [...prompt.tickets] }),
         session: prompt.session,
         mode: prompt.mode,
@@ -211,6 +218,8 @@ export function dialogOwner(windows: LocalWindows = BrowserWindow): BrowserWindo
 export interface AutopilotToolRequest {
   projectId: string
   epic: string
+  /** A queue of Epics, the first being `epic` (worfy-autopilot-queue ticket 15); absent: the Epic alone. */
+  epics?: readonly string[] | undefined
   /** The named Tickets; absent: the whole Epic. */
   tickets?: readonly number[] | undefined
   /** The calling Session's id (the SDK id, which the Session registry keys it by); null before it is known. */
@@ -252,8 +261,11 @@ export interface ForecastSources {
   vendor?(projectId: string): VendorLimits | undefined
 }
 
-/** The forecast lines of the dialog for `epic` (only the named Tickets when there are any); none when the journals cannot be read. */
-async function forecastLines(sources: ForecastSources, projectId: string, model: Pick<WorkflowModel, 'tickets'>, epic: string, tickets: readonly number[] | undefined, settings: ReturnType<ForecastSources['settings']>): Promise<string[]> {
+/**
+ * The forecast lines of the dialog for the Epics of `queue`, each one's Waves left after the one before's
+ * (only the named Tickets when there are any); none when the journals cannot be read.
+ */
+async function forecastLines(sources: ForecastSources, projectId: string, model: Pick<WorkflowModel, 'tickets'>, queue: readonly string[], tickets: readonly number[] | undefined, settings: ReturnType<ForecastSources['settings']>): Promise<string[]> {
   let runs: JournalEvent[][]
   try {
     runs = await sources.runs(projectId)
@@ -262,7 +274,9 @@ async function forecastLines(sources: ForecastSources, projectId: string, model:
     return []
   }
   const vendor = sources.vendor?.(projectId)
-  const forecast = epicForecast({ samples: waveSamples(runs, vendor?.vendor), waves: remainingWaves(model.tickets, epic, tickets) })
+  const left = queue.map((epic) => remainingWaves(model.tickets, epic, tickets))
+  const waves = { waves: left.flatMap((part) => part.waves), uncounted: left.flatMap((part) => part.uncounted) }
+  const forecast = epicForecast({ samples: waveSamples(runs, vendor?.vendor), waves })
   return dialogLines({ forecast, wave: waveDurationP90(runs), limits: sources.limits(), now: sources.now(), reserve: settings.budget.reserve, window: settings.run.window, ...(vendor === undefined ? {} : { vendor }) })
 }
 
@@ -272,7 +286,7 @@ export type AutopilotStarter = (request: AutopilotToolRequest) => Promise<string
 /** The tool over `deps`; one dialog per Project at a time. */
 export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
   const asking = new Set<string>()
-  return async ({ projectId, epic, tickets, session }) => {
+  return async ({ projectId, epic, epics, tickets, session }) => {
     if (session === null) throw new Error(UNKNOWN_SESSION_MESSAGE)
     const unattended = deps.unattended(session)
     if (unattended === null) throw new Error(UNKNOWN_SESSION_MESSAGE)
@@ -284,18 +298,23 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
     try {
       const model = await deps.workflow(projectId)
       if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
-      const refusal = startRefusal(model, epic, tickets)
-      if (refusal !== null) throw new Error(refusal)
+      const queue = epics !== undefined && epics.length > 1 ? epics : [epic]
+      for (const each of queue) {
+        const refusal = startRefusal(model, each, each === epic ? tickets : undefined)
+        if (refusal !== null) throw new Error(refusal)
+      }
+      const many = queue.length > 1 ? { epics: queue } : {}
       const settings = deps.forecast.settings()
-      const forecast = await forecastLines(deps.forecast, projectId, model, epic, tickets, settings)
-      const answer = await deps.confirm({ projectId, project: deps.projectName(projectId), epic, ...(tickets === undefined ? {} : { tickets }), session, mode: settings.run.mode, forecast })
+      const forecast = await forecastLines(deps.forecast, projectId, model, queue, tickets, settings)
+      const answer = await deps.confirm({ projectId, project: deps.projectName(projectId), epic, ...many, ...(tickets === undefined ? {} : { tickets }), session, mode: settings.run.mode, forecast })
       if (answer === 'no-window') throw new Error(NO_WINDOW_MESSAGE)
       if (answer === 'occupied') throw new Error(WINDOW_OCCUPIED_MESSAGE)
       if (answer === 'timeout') throw new Error(NO_ONE_CONFIRMED)
       if (answer === 'cancel') throw new Error(CANCELED_MESSAGE)
-      const started = await deps.startFromChat({ projectId, epic, ...(tickets === undefined ? {} : { tickets }), by: 'tool', session, mode: answer })
+      const started = await deps.startFromChat({ projectId, epic, ...many, ...(tickets === undefined ? {} : { tickets }), by: 'tool', session, mode: answer })
       if (started.kind === 'refused') throw new Error(started.message)
       if (started.kind === 'after-turn') return started.message
+      if (queue.length > 1) return `Autopilot started a queue of ${queue.length} Epics: ${queue.join(', ')}.`
       return `Autopilot started ${tickets === undefined ? `Epic ${epic}` : `${ticketsText(tickets)} of Epic ${epic}`}.`
     } finally {
       asking.delete(projectId)
