@@ -35,21 +35,29 @@ Source: [spec.md](../spec.md), «Цель» (окна у планов разны
 
 - [ ] Unit test `resumeAt`: stub Limits с `five_hour` и `seven_day`, отказ `five_hour` → сброс `five_hour` + 2 мин.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Unit test: stub только с `seven_day` (верхний план) → сброс `seven_day`; `five_hour` нигде не нужен.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Unit test: ни одного окна → `recheck` через 30 мин; квота → `give-up` с причиной.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Unit test: сброс через 3 дня — off → `give-up` (как сегодня), on → `at`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-resume-at.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Contract test: Run с переключателем on, отказ `seven_day` без `five_hour` → `limits-hit`, `waiting-until`, по
       таймеру test-а `resumed`; продолжение одно.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Contract test: off — те же сценарии, что `test/contract/autopilot-limits.test.ts`, без изменений и зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] Все Limits — stub-ы (`LimitsTracker` с часами test-а); настоящих Limits test нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-limits-switch.test.ts` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 54ae0d1836ff7a970dd707acaa7f58cd8032a30e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6a509ea13bc19b4e0dde7b4223ff0d77f3ad3527
 
 ## Тесты
 
@@ -96,3 +104,29 @@ PR #1473. Переключатель — Auto-continue Project-а; Run чита�
 
 Долг: ветка `resume()` → `plan(again, …)` (Codex: окно всё ещё исчерпано после ожидания, сброс дальше 24 ч) с
 включённым переключателем не покрыта test-ом.
+
+### Итог раунда 2
+
+После ревью head 4b83db225; ветка перебазирована на `origin/main` 22d807a69, проверенный head — 6a509ea13.
+
+- (1) Auto-continue, выключенный во время ожидания, которое держит только переключатель (сброс дальше 24 ч,
+  `LimitsWait.far`), останавливает Run с `limits-timeout` сразу: Run подписан на `changed` хранилища настроек
+  (`TurnRetryDeps.observe`, `src/main/ipc/autopilot.ts`). Без подписки переключатель читается на таймере «за 24 ч» и на
+  таймере сброса — проспавший сброс Mac продолжения не шлёт.
+- (2) После далёкого ожидания 24 ч попыток без времени сброса считаются от следующего отказа (`LimitsWait.resume`).
+- (3) Stop во время далёкого ожидания без идущего хода — сразу `user-stop`; Stop, пришедший до отказа с далёким
+  сбросом, — тоже. Ближнее ожидание ведёт себя как раньше: `autopilot-limits.test.ts` не менялся и зелёный.
+- (4) ADR-0097 — поправка к пункту 2 ADR-0034 с ценой (экран гаснет и может заблокироваться, после продолжения e2e и
+  `gate full` ждут человека); в ADR-0034 — раздел `## Amendments` со ссылкой; страницы `docs/features/autopilot.md` и
+  `docs/features/ru/autopilot.md`.
+- (5) keep-awake отпускается, только пока не идёт ход и не жив ни один background task, и берётся снова, как только
+  они начинаются; после остановки Run события Session его не трогают.
+- (6) Contract test `five_hour` с переключателем on и off; (7) contract test пути Codex (`resume()` →
+  `plan(again, switch)`) в `test/contract/codex-orchestrator.test.ts`; (8) русская страница обновлена.
+
+Проверки: `pnpm lint`, `pnpm typecheck` — exit 0; unit и contract test-ы затронутых модулей (37 файлов) — exit 0;
+gate fast — exit 0, `[gate] green (fast)`. Mutation testing на строках раунда: 16 мутантов, все убиты (R13 — после
+test-а Force stop на далёком ожидании).
+
+Не проверено: подписка `observe` в самом приложении (`src/main/ipc/autopilot.ts`) test-ом не покрыта — проверена только
+через stub в contract test-е.
