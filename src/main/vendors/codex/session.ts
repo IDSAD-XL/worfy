@@ -58,10 +58,11 @@ import type { ModelOption } from '../../../shared/agent/settings'
 import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
 import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
+import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import type { Decision } from '../../agent/auto-approve/policy'
 import type { PermissionAsk, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
-import { approvalAsk, decisionOf, isApprovalRequest, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
+import { approvalAsk, decisionOf, isApprovalRequest, judgedEnvironment, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
 import { codexModelOptions, codexPermissionPreset, codexPresetFor, codexSandboxPolicy, codexSettings, type CodexModelSource } from './capabilities'
 import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName, type CodexCommand, type CodexSkillSource } from './commands'
@@ -121,20 +122,6 @@ export function withGhToken(env: NodeJS.ProcessEnv, token: string | null): NodeJ
 /** The JSON-RPC error a server→client request worfy does not answer gets (rpc.ts's METHOD_NOT_FOUND). */
 const METHOD_NOT_FOUND = -32601
 
-/** What Shadow reports for an outcome: what would have been done; a hard deny is one in any mode. */
-const SHADOW_OUTCOME = { allow: 'would-allow', deny: 'would-deny', park: 'would-park', 'hard-deny': 'hard-deny' } as const
-
-/** The mode of `approval` now; Off without one, and when reading it fails. */
-function approvalMode(approval: SessionApproval | undefined): AutoApprovalMode {
-  if (approval === undefined) return 'off'
-  try {
-    return approval.mode()
-  } catch (error) {
-    console.warn('[codex] could not read the Auto-approval mode, the approval is declined as at Off', error)
-    return 'off'
-  }
-}
-
 /** How many pages of `model/list` a Session reads at most. */
 const MODEL_PAGES = 10
 
@@ -184,7 +171,7 @@ export function userInput(message: SessionMessage, skill?: Extract<CodexCommand,
 /** One `codex app-server` process of a Session, behind worfy's SessionHandle. */
 class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource {
   private server: CodexAppServer | null = null
-  /** The whole environment of the app-server process, which every shell of the Session inherits; null: not known. */
+  /** The whole environment of the app-server process, which the shells of the Session inherit; null: not known. */
   private processEnv: Readonly<Record<string, string | undefined>> | null = null
   private threadId = ''
   private readonly out = new InputQueue<AgentEvent>()
@@ -609,7 +596,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     const ask = approvalAsk(request, this.items.item(request.params.itemId))
     if (this.opts.unattended) {
       const approval = this.opts.approval
-      const mode = approvalMode(approval)
+      const mode = approvalMode(approval, 'codex')
       if (approval === undefined || mode === 'off') {
         server.respond(request.id, { decision: 'decline' })
         this.opts.refused(ask.subject, UNATTENDED_DECLINED_MESSAGE, ask.description === null ? {} : { reason: ask.description })
@@ -629,15 +616,17 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
   /**
    * An approval of an unattended Session at Shadow or On (worfy-auto-approve ticket 05), answered by the approval
    * policy. The request stays open while it is judged: Interrupt and the close answer it `cancel`, and Codex may
-   * withdraw it. The command is judged in the folder Codex names for it, a file change in the Session's folder, both
-   * in the whole environment the app-server process started with. Shadow declines as Off does and reports what would
+   * withdraw it; either way no decision is reported (Claude Code's canUseTool cannot be withdrawn, and reports each).
+   * The command is judged in the folder Codex names for it, a file change in the Session's folder, both in the
+   * environment the app-server process started with, its secrets left out. Shadow declines as Off does and reports what would
    * have been done; On accepts what the policy allows and declines the rest — park too, until the owner can be asked
    * (worfy-auto-approve ticket 07). A decision is for this request only: never `acceptForSession`.
    */
   private judged(request: CodexApprovalRequest, ask: Omit<PermissionAsk, 'signal'>, approval: SessionApproval, mode: Exclude<AutoApprovalMode, 'off'>): void {
     this.approvals.set(request.id, new AbortController())
     const { request: judged, cwd, grantRoot } = policyRequestOf(request, ask)
-    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: this.processEnv }) }
+    // The secrets of the process are left out: a command's shell may not have them (judgedEnvironment).
+    const where = { cwd: judged.tool === 'fileChange' ? this.opts.cwd : cwd, scratchpad: null, ...(this.processEnv === null ? {} : { env: judgedEnvironment(this.processEnv) }) }
     const failed: Decision = { outcome: 'deny', rule: 'policy-failed', hint: null, targets: [] }
     void approval
       .judge(judged, where)
@@ -651,7 +640,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
         const command = (ask.input as Record<string, unknown>)['command']
         approval.decided({
           mode,
-          outcome: mode === 'shadow' ? SHADOW_OUTCOME[final.outcome] : final.outcome,
+          outcome: reportedOutcome(mode, final.outcome),
           rule: final.rule,
           tool: judged.tool,
           targets: [...final.targets],

@@ -139,11 +139,16 @@ While a run goes on:
   from counting as stalled. The journal gets `park` when it is parked, then `park-answered` or `park-expired`.
   On a Codex Orchestrator the request is Codex's approval of a command or a file
   change, and the answer is `accept` or `decline`: Codex's answer carries no text, so the rule's hint reaches only the
-  journal. A command is judged in the folder Codex names for it; a file change by each path it writes, the new path of
-  a rename and its `grantRoot` included. A request with a `grantRoot` (writes under a folder for the rest of the
+  journal. A command is judged in the folder Codex names for it. Codex wraps each command in the login shell
+  (`/bin/zsh -lc '<script>'`); that exact form is judged as `zsh -c '<script>'` — the login profile is the owner's own
+  and outside every root — and any other wrapper is not approved. The environment of the judging is the app-server's
+  without the variables named like secrets (`*TOKEN*`, `*KEY*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`): Codex may
+  leave them out of the command's shell, so a command that uses one is not approved. A file change is judged by each
+  path it writes, the new path of a rename and its `grantRoot` included. A request with a `grantRoot` (writes under a folder for the rest of the
   Session) is never accepted, input to a running command and a request for network access are parked, and no answer is
-  ever "accept for this Session". An unattended Codex runs in Full access, so it asks nothing for now. Each
-  request is judged in the environment the agent's process started with: its
+  ever "accept for this Session". A request Codex withdraws, or one Interrupt cancels, while it is being judged gets
+  no journal line on Codex; on Claude Code each judged request gets one. An unattended Codex runs in Full access, so it
+  asks nothing for now. Each request is judged in the environment the agent's process started with: its
   whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
   when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git

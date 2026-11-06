@@ -3,12 +3,14 @@
 // of the test file, test/setup-contract.ts; the real Codex never starts), with the run's side of the policy
 // (openRunApproval) over a temporary git Project whose Wave has the worktree of Ticket 01.
 //
-// The fake's script, written by the test with the temporary paths, asks ten approvals of one turn, each
-// after the item/started of its item: three commands (a delete inside the Wave's worktree, one outside
-// every root, one in ~/.ssh), five file changes (inside the worktree; outside every root; inside with a
-// grantRoot outside; inside with a move_path outside; inside with a folder of the worktree as grantRoot), input to a
-// running command (kind writeStdin) and a command's request for network access. Off answers as before the ticket, Shadow judges and declines, On
-// accepts what the policy allows. What worfy answered is read from the fake's log (WORFY_CODEX_LOG).
+// The fake's script, written by the test with the temporary paths, asks sixteen approvals of one turn, each
+// after the item/started of its item, the commands in the form real Codex sends them (`/bin/zsh -lc '<script>'`):
+// deletes inside the Wave's worktree, outside every root and in ~/.ssh; five file changes (inside the worktree;
+// outside every root; inside with a grantRoot outside; inside with a move_path outside; inside with a folder of the
+// worktree as grantRoot); input to a running command (kind writeStdin); a request for network access and one with
+// no network asked; two commands that use GH_TOKEN of the app-server's environment; wrappers that are not exactly
+// `<shell> -lc <script>`; a bare command. Off answers as before the ticket, Shadow judges and declines, On accepts
+// what the policy allows. What worfy answered is read from the fake's log (WORFY_CODEX_LOG).
 import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -17,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openRunApproval, type RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { hasExited } from '../../src/main/agent/session/process'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
-import { UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
+import { codexScript, judgedEnvironment, UNATTENDED_DECLINED_MESSAGE } from '../../src/main/vendors/codex/approvals'
 import { codexSessions } from '../../src/main/vendors/codex/session'
 import type { ApprovalDecided, ApprovalWhere, RefusalDetails, SessionApproval, SessionHandle } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
@@ -120,19 +122,40 @@ function change(id: string, changes: ReturnType<typeof update>[], grantRoot: str
   ]
 }
 
-/** The ten approvals of the turn, in the order the fake asks them. */
+/**
+ * A command as Codex 0.166 sends it (test/fixtures/codex-messages/turn.jsonl, approval-declined.jsonl): the login
+ * shell with `-lc` and the script as one word — in single quotes, or in double quotes with `"`, `\`, `$` and the
+ * backquote escaped when the script holds a single quote.
+ */
+function zshLc(script: string): string {
+  return script.includes("'") ? `/bin/zsh -lc "${script.replace(/["\\$`]/g, (c) => `\\${c}`)}"` : `/bin/zsh -lc '${script}'`
+}
+
+/** The value of GH_TOKEN in the app-server's environment. */
+const TOKEN = 'ghs_token05value'
+
+/** The approvals of the turn, in the order the fake asks them. */
 function approvals(): Step[] {
   return [
-    ...command('cmd_inside', `rm -rf '${join(worktree, 'build')}'`, worktree, { kind: 'command' }),
-    ...command('cmd_outside', `rm -rf '${join(outside, 'build')}'`, worktree),
-    ...command('cmd_hard', `rm -rf '${join(homedir(), '.ssh', 'demo-key')}'`, worktree),
+    ...command('cmd_inside', zshLc(`rm -rf ${join(worktree, 'build')}`), worktree, { kind: 'command' }),
+    ...command('cmd_outside', zshLc(`rm -rf '${join(outside, 'build')}'`), worktree),
+    ...command('cmd_hard', zshLc(`rm -rf ${join(homedir(), '.ssh', 'demo-key')}`), worktree),
     ...change('patch_inside', [update(join(worktree, 'README.md'))], null),
     ...change('patch_outside', [update(join(outside, 'README.md'))], null),
     ...change('patch_grant_outside', [update(join(worktree, 'README.md'))], outside),
     ...change('patch_move_outside', [update(join(worktree, 'README.md'), join(outside, 'README.md'))], null),
     ...change('patch_grant_inside', [update(join(worktree, 'README.md'))], join(worktree, 'src')),
     ...command('cmd_stdin', 'y', worktree, { kind: 'writeStdin' }),
-    ...command('cmd_network', `rm -rf '${join(worktree, 'cache')}'`, worktree, { networkApprovalContext: { host: 'example.com', protocol: 'https' } }),
+    ...command('cmd_network', zshLc(`rm -rf ${join(worktree, 'cache')}`), worktree, { networkApprovalContext: { host: 'example.com', protocol: 'https' } }),
+    // No network asked: an ordinary command.
+    ...command('cmd_network_null', zshLc(`rm -rf ${join(worktree, 'cache')}`), worktree, { networkApprovalContext: null }),
+    // A secret of the app-server's environment: the command's shell may not have it (Codex's shell_environment_policy).
+    ...command('cmd_token_path', zshLc(`rm -rf "$GH_TOKEN"${join(outside, 'x')}`), worktree),
+    ...command('cmd_token_target', zshLc(`touch ${join(worktree, '$GH_TOKEN')}`), worktree),
+    // Wrappers that are not exactly `<shell> -lc <script>`: not unwrapped.
+    ...command('cmd_two_words', `${zshLc(`rm -rf ${join(worktree, 'build')}`)} extra`, worktree),
+    ...command('cmd_other_shell', `${join(outside, 'zsh')} -lc 'rm -rf ${join(worktree, 'build')}'`, worktree),
+    ...command('cmd_bare', `rm -rf ${join(worktree, 'build')}`, worktree),
   ]
 }
 
@@ -168,12 +191,14 @@ interface RunOptions {
   broken?: 'mode' | 'judge'
   /** Each judging waits for it; with it the run does not wait for the turn's result. */
   hold?: Promise<void>
+  /** The approvals of the turn; approvals() by default. */
+  steps?: Step[]
 }
 
 /** One unattended Codex Session over the fake, with the run's policy as agent/session.ts hands it to the driver. */
 async function codexRun(options: RunOptions) {
   const dir = mkdtempSync(join(scratch, 'codex-'))
-  writeScript(dir, approvals())
+  writeScript(dir, options.steps ?? approvals())
   const log = join(dir, 'codex.log')
   const run = await openRunApproval({
     root: repo,
@@ -223,7 +248,7 @@ async function codexRun(options: RunOptions) {
       runtime: RUNTIME,
       appPath: REPO,
       clientVersion: '9.9.9',
-      env: { ...(options.env ?? process.env), WORFY_CODEX: 'fake', WORFY_CODEX_SCRIPTS: dir, WORFY_CODEX_SCRIPT: 'auto-approve', WORFY_CODEX_LOG: log },
+      env: { ...(options.env ?? process.env), GH_TOKEN: TOKEN, WORFY_CODEX: 'fake', WORFY_CODEX_SCRIPTS: dir, WORFY_CODEX_SCRIPT: 'auto-approve', WORFY_CODEX_LOG: log },
       spawnProcess,
       log: () => undefined,
     }),
@@ -261,7 +286,8 @@ async function codexRun(options: RunOptions) {
   return { decided, wheres, refused, spawnedEnv, answers, run, events, handle, settled: () => settled }
 }
 
-const DECLINED_ALL = Array(10).fill('decline')
+const COUNT = 16
+const DECLINED_ALL = Array(COUNT).fill('decline')
 
 describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticket 05)', () => {
   it('Off: every approval is declined at once and reported as refused, as without a policy; the policy is not asked and the process gets no variables of the run', async () => {
@@ -270,9 +296,9 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     expect(off.answers()).toEqual(DECLINED_ALL)
     expect(off.answers()).toEqual(before.answers())
     expect(off.refused).toEqual(before.refused)
-    expect(off.refused).toHaveLength(10)
+    expect(off.refused).toHaveLength(COUNT)
     expect(off.refused.every(([, message]) => message === UNATTENDED_DECLINED_MESSAGE)).toBe(true)
-    expect(off.refused[0]).toEqual([`rm -rf '${join(worktree, 'build')}'`, UNATTENDED_DECLINED_MESSAGE, { reason: 'The command runs outside the sandbox.' }])
+    expect(off.refused[0]).toEqual([zshLc(`rm -rf ${join(worktree, 'build')}`), UNATTENDED_DECLINED_MESSAGE, { reason: 'The command runs outside the sandbox.' }])
     expect(off.wheres).toEqual([])
     expect(off.decided).toEqual([])
     // The same environment as without a policy: no TMPDIR, no git variables of the run.
@@ -286,7 +312,7 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     // Shadow reports no refusal: each request has its decision instead.
     expect(shadow.refused).toEqual([])
     expect(shadow.decided.map((each) => [each.mode, each.outcome, each.rule, each.tool])).toEqual([
-      ['shadow', 'would-allow', 'files-inside-roots', 'commandExecution'],
+      ['shadow', 'would-allow', 'files-inside-roots+shell-script-inside-roots', 'commandExecution'],
       ['shadow', 'would-park', expect.any(String), 'commandExecution'],
       ['shadow', 'hard-deny', 'hard:ssh', 'commandExecution'],
       ['shadow', 'would-allow', 'edit-inside-roots', 'fileChange'],
@@ -296,17 +322,23 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['shadow', 'would-park', 'grant-root', 'fileChange'],
       ['shadow', 'would-park', 'unknown-tool', 'writeStdin'],
       ['shadow', 'would-park', 'unknown-tool', 'networkAccess'],
+      ['shadow', 'would-allow', 'files-inside-roots+shell-script-inside-roots', 'commandExecution'],
+      ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
+      ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
+      ['shadow', 'would-deny', 'not-judged', 'commandExecution'],
+      ['shadow', 'would-park', expect.any(String), 'commandExecution'],
+      ['shadow', 'would-allow', 'files-inside-roots', 'commandExecution'],
     ])
-    expect(shadow.decided[0]).toMatchObject({ command: `rm -rf '${join(worktree, 'build')}'`, reason: 'The command runs outside the sandbox.' })
+    expect(shadow.decided[0]).toMatchObject({ command: zshLc(`rm -rf ${join(worktree, 'build')}`), reason: 'The command runs outside the sandbox.' })
     expect(shadow.decided[3]).toMatchObject({ command: null, reason: 'The change writes a file.' })
   })
 
   it('On: accept inside the Wave\'s worktree; decline outside every root, on a hard deny, a grantRoot or a move_path outside the roots, a grantRoot inside them, input to a running command and a request for network access', async () => {
     const on = await codexRun({ mode: 'on' })
-    expect(on.answers()).toEqual(['accept', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'decline', 'decline'])
+    expect(on.answers()).toEqual(['accept', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'decline', 'decline', 'accept', 'decline', 'decline', 'decline', 'decline', 'accept'])
     expect(on.refused).toEqual([])
     expect(on.decided.map((each) => [each.mode, each.outcome, each.rule])).toEqual([
-      ['on', 'allow', 'files-inside-roots'],
+      ['on', 'allow', 'files-inside-roots+shell-script-inside-roots'],
       ['on', 'park', expect.any(String)],
       ['on', 'hard-deny', 'hard:ssh'],
       ['on', 'allow', 'edit-inside-roots'],
@@ -316,7 +348,15 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
       ['on', 'park', 'grant-root'],
       ['on', 'park', 'unknown-tool'],
       ['on', 'park', 'unknown-tool'],
+      ['on', 'allow', 'files-inside-roots+shell-script-inside-roots'],
+      ['on', 'deny', 'not-judged'],
+      ['on', 'deny', 'not-judged'],
+      ['on', 'deny', 'not-judged'],
+      ['on', 'park', expect.any(String)],
+      ['on', 'allow', 'files-inside-roots'],
     ])
+    // A secret of the app-server's environment is no known value: no decision names it.
+    expect(JSON.stringify(on.decided)).not.toContain(TOKEN)
     // The grantRoot and the move_path are judged as paths the change writes.
     const slash = (paths: readonly string[]): string[] => paths.map((path) => path.replaceAll('\\', '/'))
     expect(slash(on.decided[5]?.targets ?? [])).toContain(outside.replaceAll('\\', '/'))
@@ -330,8 +370,12 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     const spawned = on.spawnedEnv[0]
     expect(spawned?.['TMPDIR']).toBe(on.run.runTemp)
     expect(spawned?.['GIT_CONFIG_PARAMETERS']).toBe(on.run.environment['GIT_CONFIG_PARAMETERS'])
-    expect(on.wheres).toHaveLength(10)
-    for (const where of on.wheres) expect(where.env).toEqual(spawned)
+    expect(on.wheres).toHaveLength(COUNT)
+    // The secrets of the environment are not judged with: a command's shell may not have them.
+    const judgedEnv = Object.fromEntries(Object.entries(spawned ?? {}).filter(([name]) => !/KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i.test(name)))
+    expect(judgedEnv['GH_TOKEN']).toBeUndefined()
+    expect(judgedEnv['TMPDIR']).toBe(on.run.runTemp)
+    for (const where of on.wheres) expect(where.env).toEqual(judgedEnv)
     expect(on.wheres[0]).toMatchObject({ cwd: worktree, scratchpad: null })
     // A file change is judged from the Session's folder.
     expect(on.wheres[3]).toMatchObject({ cwd: repo, scratchpad: null })
@@ -356,12 +400,23 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
   it('a mode that cannot be read is Off; a judging that fails declines and is reported as policy-failed', async () => {
     const unread = await codexRun({ mode: 'on', broken: 'mode' })
     expect(unread.answers()).toEqual(DECLINED_ALL)
-    expect(unread.refused).toHaveLength(10)
+    expect(unread.refused).toHaveLength(COUNT)
     expect(unread.wheres).toEqual([])
     const failing = await codexRun({ mode: 'on', broken: 'judge' })
     expect(failing.answers()).toEqual(DECLINED_ALL)
     expect(failing.refused).toEqual([])
-    expect(failing.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(10).fill(['deny', 'policy-failed']))
+    expect(failing.decided.map((each) => [each.outcome, each.rule])).toEqual(Array(COUNT).fill(['deny', 'policy-failed']))
+  })
+
+  it('git inside the login-shell wrapper: accepted in the Wave\'s worktree, parked once the repository has a hook', async () => {
+    const add = command('cmd_add', zshLc('git add -A'), worktree)
+    const clean = await codexRun({ mode: 'on', steps: add })
+    expect(clean.answers()).toEqual(['accept'])
+    expect(clean.decided.map((each) => [each.outcome, each.rule])).toEqual([['allow', 'shell-script-inside-roots+git-in-wave-worktree']])
+    writeFileSync(join(repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n')
+    const hooked = await codexRun({ mode: 'on', steps: add })
+    expect(hooked.answers()).toEqual(['decline'])
+    expect(hooked.decided.map((each) => [each.outcome, each.rule])).toEqual([['park', 'git-hooks']])
   })
 
   it('an app-server without HOME: no home folder, so the policy approves nothing', async () => {
@@ -371,5 +426,40 @@ describe('Auto-approval of an unattended Codex Session (worfy-auto-approve ticke
     const on = await codexRun({ mode: 'on', env })
     expect(on.answers()).toEqual(DECLINED_ALL)
     expect(on.decided.filter((each) => each.outcome !== 'hard-deny').every((each) => each.rule === 'no-home')).toBe(true)
+  })
+})
+
+describe('the login-shell wrapper of a Codex command (codexScript)', () => {
+  it.each([
+    ["/bin/zsh -lc 'ls'", "zsh -c 'ls'"],
+    ["/bin/bash -c 'ls'", "bash -c 'ls'"],
+    ["sh -lc 'ls'", "sh -c 'ls'"],
+    ["/usr/bin/zsh -lc 'ls'", "zsh -c 'ls'"],
+    ["/usr/local/bin/bash -lc 'ls'", "bash -c 'ls'"],
+    ["/opt/homebrew/bin/zsh -lc 'ls'", "zsh -c 'ls'"],
+    ["/bin/zsh -lc 'ls\npwd'", "zsh -c 'ls\npwd'"],
+    ['/bin/zsh -lc "echo \\$HOME \\`x\\` \\" \\\\"', 'zsh -c "echo \\$HOME \\`x\\` \\" \\\\"'],
+  ])('%s is judged as %s', (command, script) => {
+    expect(codexScript(command)).toBe(script)
+  })
+
+  it.each([
+    "/tmp/zsh -lc 'ls'",
+    "/bin/fish -lc 'ls'",
+    "/bin/zsh -ilc 'ls'",
+    "/bin/zsh -l -c 'ls'",
+    '/bin/zsh -lc ls',
+    "/bin/zsh  -lc 'ls'",
+    "x/bin/zsh -lc 'ls'",
+    '/bin/zsh -lc "echo $HOME"',
+    '/bin/zsh -lc "echo `id`"',
+    '/bin/zsh -lc "echo \\\\$HOME"',
+  ])('%s stays as it is', (command) => {
+    expect(codexScript(command)).toBe(command)
+  })
+
+  it('leaves out of the judged environment every name a secret is kept under', () => {
+    const env = { PATH: '/bin', GH_TOKEN: 't', WORFY_MCP_TOKEN: 't', OPENAI_API_KEY: 'k', aws_secret: 's', DB_PASSWORD: 'p', GIT_CREDENTIAL_X: 'c', HOME: '/h' }
+    expect(judgedEnvironment(env)).toEqual({ PATH: '/bin', HOME: '/h' })
   })
 })

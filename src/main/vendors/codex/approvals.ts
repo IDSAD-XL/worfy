@@ -95,6 +95,45 @@ export function approvalAsk(request: CodexApprovalRequest, item: ThreadItem | un
   }
 }
 
+/**
+ * The login shell Codex wraps a command in, as it names it: `<shell> -lc <script>` (or `-c`), the shell zsh, bash or
+ * sh by name or in a folder of the system the agent cannot write, the script one quoted word. Codex runs the shell
+ * with the script as one argument and shows the command joined with quotes (test/fixtures/codex-messages/turn.jsonl:
+ * `/bin/zsh -lc 'cat README.md'`).
+ */
+const CODEX_SHELL = /^(?:(?:\/usr\/local|\/opt\/homebrew|\/usr)?\/bin\/)?(zsh|bash|sh) -l?c (["'].*)$/s
+/** A `$` or a backquote no backslash escapes. */
+const UNESCAPED_EXPANSION = /(?<!\\)(?:\\\\)*[$`]/
+
+/**
+ * The command the policy judges for Codex's `command`: its login-shell wrapper as `<shell> -c <script>`, so the
+ * script is read by the shell grammar's own `-c` rules (shell.ts: one unglobbed script word, a refusal when ZDOTDIR,
+ * BASH_ENV or ENV is set). `-l` makes the shell read the owner's login profile first; the agent cannot write it (it is
+ * outside every root), so `-lc` is judged as `-c`. Any other form stays as it is, and the policy does not approve it:
+ * another shell or folder, other options, a second word after the script (the grammar refuses it). A double-quoted
+ * script with an unescaped `$` or backquote stays as well: the grammar would expand it in the outer word, Codex does not.
+ */
+export function codexScript(command: string): string {
+  const match = CODEX_SHELL.exec(command)
+  if (match === null) return command
+  const [, shell, script] = match as unknown as [string, string, string]
+  if (script.startsWith('"') && UNESCAPED_EXPANSION.test(script)) return command
+  return `${shell} -c ${script}`
+}
+
+/** Names of the environment a secret is kept under. */
+const SECRET_NAME = /KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i
+
+/**
+ * The environment a request is judged in: the app-server's without the variables named like secrets (GH_TOKEN, the
+ * MCP token WORFY_MCP_TOKEN, any *_KEY). Codex's `shell_environment_policy` may leave them out of the command's shell,
+ * so their values cannot be known there: a command that names one is not judged, and no value of one reaches the
+ * journal.
+ */
+export function judgedEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !SECRET_NAME.test(name)))
+}
+
 /** An approval in the terms of the approval policy (policyRequestOf). */
 export interface CodexPolicyRequest {
   request: ApprovalRequest
@@ -106,7 +145,7 @@ export interface CodexPolicyRequest {
 
 /**
  * What the approval policy judges of an approval (worfy-auto-approve ticket 05), from its permission request `ask`:
- * - a command: `commandExecution` with its command and folder. Input to a command that runs (`kind` writeStdin) and a
+ * - a command: `commandExecution` with its command (its login-shell wrapper as `-c`: codexScript) and folder. Input to a command that runs (`kind` writeStdin) and a
  *   request for network access (`networkApprovalContext`) are no command the policy can read: they go under their own
  *   tool names, which the policy parks as unknown;
  * - a file change: `fileChange` with a path for each change, each `move_path` (an update that renames writes there
@@ -118,7 +157,8 @@ export function policyRequestOf(request: CodexApprovalRequest, ask: Omit<Permiss
     const { kind, networkApprovalContext } = request.params as { kind?: unknown; networkApprovalContext?: unknown }
     const tool = kind !== undefined && kind !== 'command' ? 'writeStdin' : networkApprovalContext !== undefined && networkApprovalContext !== null ? 'networkAccess' : 'commandExecution'
     const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : null
-    return { request: { tool, input: { command: input['command'], cwd } }, cwd, grantRoot: null }
+    const command = input['command']
+    return { request: { tool, input: { command: typeof command === 'string' ? codexScript(command) : command, cwd } }, cwd, grantRoot: null }
   }
   const grantRoot = text(request.params.grantRoot)
   const changes = Array.isArray(input['changes']) ? (input['changes'] as unknown[]) : []

@@ -27,6 +27,7 @@
 // The app's part makes its query factory (query.ts) at its first start. Nothing in this driver imports
 // the Session registry (src/main/agent/app-registry.ts), which is made over it: the registry wires
 // what the fake agent needs from it itself (test/contract/vendor-imports.test.ts).
+import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import { createParker, PARK_EXPIRED_HINT, PARK_STOPPED_HINT, type Parker } from '../../agent/auto-approve/park'
 import { HINTS } from '../../agent/auto-approve/policy'
 import { CommandCatalog } from '../../agent/commands'
@@ -47,7 +48,6 @@ import type {
 import type { SlashCommand } from '../../../shared/agent/commands'
 import type { AgentEvent, PermissionOption } from '../../../shared/agent/events'
 import { ASK_USER_QUESTION, parseQuestions } from '../../../shared/agent/questions'
-import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
@@ -134,9 +134,6 @@ export function claudeCanUseTool(asker: PermissionAsker): CanUseToolHandler {
 export const approvalDeniedMessage = (reason: string | null, hint: string): string =>
   `${UNATTENDED_DENIED_MESSAGE}${reason === null ? '' : `\nrefused because: ${reason}`}\n${hint}`
 
-/** What Shadow records for an outcome: what would have been done; a hard deny is one in any mode. */
-const SHADOW_OUTCOME = { allow: 'would-allow', deny: 'would-deny', park: 'would-park', 'hard-deny': 'hard-deny' } as const
-
 /** How many tool calls the folders are kept for, waiting for canUseTool: most calls are never asked about. */
 const TOOL_USES_KEPT = 256
 
@@ -171,17 +168,6 @@ export class ToolUseFolders {
   }
 }
 
-/** The mode of `approval` now; Off without one, and when reading it fails. */
-function modeOf(approval: SessionApproval | undefined): AutoApprovalMode {
-  if (approval === undefined) return 'off'
-  try {
-    return approval.mode()
-  } catch (error) {
-    console.warn('[agent] could not read the Auto-approval mode, the request is refused as at Off', error)
-    return 'off'
-  }
-}
-
 /**
  * canUseTool of an unattended Session. Claude Code still asks in bypassPermissions for a few of its
  * own checks (`rm -rf` with a target it cannot resolve); its `decisionReason` goes to the model, so it
@@ -211,7 +197,7 @@ export function unattendedCanUseTool(
     const agent = text(options.agentID)
     const message = reason === null ? UNATTENDED_DENIED_MESSAGE : unattendedDeniedMessage(reason)
     const details: RefusalDetails = { ...(agent === null ? {} : { agent }), ...(reason === null ? {} : { reason }) }
-    const mode = modeOf(approval)
+    const mode = approvalMode(approval, 'agent')
     if (approval === undefined || mode === 'off') {
       refused(toolName, message, details)
       return { behavior: 'deny', message }
@@ -219,9 +205,8 @@ export function unattendedCanUseTool(
     const where = folders?.take(text(options.toolUseID)) ?? { cwd: null, scratchpad: null }
     const decision = await approval.judge({ tool: toolName, input }, where)
     const command = typeof input['command'] === 'string' ? input['command'] : null
-    const outcome = mode === 'shadow' ? SHADOW_OUTCOME[decision.outcome] : decision.outcome
     const line = { mode, rule: decision.rule, tool: toolName, targets: [...decision.targets], command, ...details }
-    approval.decided({ ...line, outcome })
+    approval.decided({ ...line, outcome: reportedOutcome(mode, decision.outcome) })
     if (mode === 'shadow') return { behavior: 'deny', message }
     if (decision.outcome === 'allow') return { behavior: 'allow', updatedInput: input }
     if (decision.outcome === 'park' && park !== undefined) {
