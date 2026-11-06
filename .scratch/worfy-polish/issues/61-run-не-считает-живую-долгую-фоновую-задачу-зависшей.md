@@ -34,10 +34,13 @@ Source: приёмка [worfy-windows 16](../../worfy-windows/issues/16-приё
 
 - [ ] Contract test: task без событий дольше `BACKGROUND_STALL_MS`, но с признаком жизни — Run ждёт и не
       останавливается. До правки — красный (`background-stalled`).
+  - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0; red before the fix (2 of 4 failed on origin/main run.ts) · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
 - [ ] Contract test: task без событий и без признака жизни дольше `BACKGROUND_STALL_MS` — Run останавливается с
       `background-stalled`, как раньше.
+  - evidence: test-run pass · `pnpm exec vitest run test/contract/autopilot-background.test.ts -t "worfy-polish ticket 61"` exit 0 · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
 - [ ] Все unit и contract test-ы `src/shared/autopilot/` и `src/main/autopilot/`, `pnpm typecheck`, `pnpm lint`,
       gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0; `vitest run` of 52 autopilot unit and contract files exit 0 · mac - · 038f946096b6ea6f91a9c35ba88942ca0c30785d
 
 ## Где в коде
 
