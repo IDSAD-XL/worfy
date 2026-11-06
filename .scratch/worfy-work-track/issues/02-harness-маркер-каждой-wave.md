@@ -1,8 +1,8 @@
 # 02 — Harness: `epic-wave` пишет маркер начала и конца каждой Wave
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:43Z
+Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца», 4; «Решено без владельца», 1; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), «Пробелы», 2, «Рекомендация» (б); [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q2
 
 ## Что происходит

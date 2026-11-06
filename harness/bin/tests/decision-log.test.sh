@@ -12,9 +12,11 @@
 #   - a last line that lost its line feed is not glued to the new row;
 #   - several processes that write to one file at once: one header, every row whole — with the
 #     order of their steps set by the test, and once more on a volume without hard links;
-#   - the block of skills/epic-wave that names the log and writes its first row: run under bash and
-#     zsh, with the words of the skill's call in place of $0…$9, with values that hold commands, and
-#     with no project name; the sentences of the skill's two rules.
+#   - the block of skills/epic-wave that names the log of every wave and writes its first row, the
+#     start marker `wave-started`: run under bash and zsh, with the words of the skill's call in place
+#     of $0…$9, with values that hold commands, and with no project name; the skill's example — the
+#     start marker, a decision row and the end marker `wave-finished`, the later rows written the way
+#     the skill says — gives one log of four-field rows; the sentences of the skill's two rules.
 # Run: bash harness/bin/tests/decision-log.test.sh; exit code 0 means everything passed.
 # BIN_DIR points it at another copy of bin/ (a mutant of the script); EPIC_WAVE_FILE at another
 # copy of the skill.
@@ -417,15 +419,23 @@ block_ok() {
     [ "$(line "$log" 1 2>/dev/null)" = "$HEADER" ] && [ "$(last "$log" 2>/dev/null)" = "$row" ] && [ "$(lines "$log" 2>/dev/null)" = 2 ] \
         && ok "$what: the file at that path holds the header and the row" || bad "$what: no log with the row at '$log': '$(tail -n 1 "$log" 2>/dev/null)'"
 }
+# later_row <shell> <printed path> <decision> <why> <evidence> — a later row as the skill says to write it: the
+# decision-log line of the block, the printed path in single quotes in place of "$LOG" and the row's three values
+# in place of the start marker's; sets out
+later_row() {
+    local sh="$1" text
+    text="$(printf '%s\n' "$block" | grep 'bin/decision-log' | P="'$2'" V="'$3' '$4' '$5'" \
+        perl -pe 's/"\$LOG"/$ENV{P}/; s/\x27wave-started\x27 \x27<tickets>\x27 \x27-\x27/$ENV{V}/')"
+    out="$(cd "$T/cwd" && env -u HARNESS_HOME TZ=Pacific/Kiritimati HOME="$T/home-later" CLAUDE_PLUGIN_ROOT="$PLUGIN" "$sh" -c "$text" 2>&1)"
+}
 # Claude Code puts the words of the skill's call in place of $0…$9 anywhere in the skill's text, bash
 # blocks included. The wave is called as "/worfy:epic-wave tickets 02, 06 of epic checkout".
 called="$(printf '%s' "$block" | perl -pe 'BEGIN { @w = ("tickets", "02,", "06", "of", "epic", "checkout", "", "", "", "") } s/\$([0-9])/$w[$1]/g')"
 # Values an agent may well write: a command in backquotes, a command substitution, a variable.
-hostile="$(printf '%s' "$block" | D="the check \`touch $T/ran-backquote\` failed" W="\$(touch $T/ran-dollar) is the reason" E="\$HOME/notes.md:12" \
-    perl -pe 's/<decision>/$ENV{D}/; s/<why>/$ENV{W}/; s/<evidence>/$ENV{E}/')"
+hostile="$(printf '%s' "$block" | W="\`touch $T/ran-backquote\` \$(touch $T/ran-dollar) \$HOME" perl -pe 's/<tickets>/$ENV{W}/')"
 # An apostrophe inside a value, written the way the skill says.
-apostrophe="$(printf '%s' "$block" | W="it'\\''s the owner'\\''s call" perl -pe 's/<why>/$ENV{W}/')"
-PLAIN_ROW="<decision>${TAB}<why>${TAB}<evidence>"
+apostrophe="$(printf '%s' "$block" | W="it'\\''s the owner'\\''s call" perl -pe 's/<tickets>/$ENV{W}/')"
+PLAIN_ROW="wave-started${TAB}<tickets>${TAB}-"
 for sh in bash zsh; do
     # Git Bash on Windows has no zsh; on macOS and Linux the contract test of these scripts requires it.
     if ! command -v "$sh" >/dev/null 2>&1; then echo "skip the skill block under $sh: not installed"; continue; fi
@@ -438,9 +448,23 @@ for sh in bash zsh; do
     block_ok "epic-wave block under $sh, with the words of the call in place of \$0…\$9" "$T/called-$sh/runs" "$PLAIN_ROW"
     run_block "$sh" "$T/hostile-$sh" "$T/home-c-$sh" "$hostile"
     block_ok "epic-wave block under $sh, values with backquotes, \$(…) and \$HOME" "$T/hostile-$sh/runs" \
-        "the check \`touch $T/ran-backquote\` failed${TAB}\$(touch $T/ran-dollar) is the reason${TAB}\$HOME/notes.md:12"
+        "wave-started${TAB}\`touch $T/ran-backquote\` \$(touch $T/ran-dollar) \$HOME${TAB}-"
     run_block "$sh" "$T/apostrophe-$sh" "$T/home-d-$sh" "$apostrophe"
-    block_ok "epic-wave block under $sh, an apostrophe written as '\\''" "$T/apostrophe-$sh/runs" "<decision>${TAB}it's the owner's call${TAB}<evidence>"
+    block_ok "epic-wave block under $sh, an apostrophe written as '\\''" "$T/apostrophe-$sh/runs" "wave-started${TAB}it's the owner's call${TAB}-"
+    # The example of the skill: the start marker from the block, one decision row and the end marker,
+    # the later rows written the way the skill says. The file is what a reader of the log expects:
+    # the header, then rows of four tab-separated fields, the markers first and last.
+    run_block "$sh" "$T/example-$sh" "$T/home-f-$sh" "$(printf '%s' "$block" | perl -pe 's/<tickets>/02, 06/')"
+    ex="$log"; ex_out="$out"
+    later_row "$sh" "$ex" "06 left the wave" "its gate gave REJECTED twice" "PR #77, the second verdict"; ex_out="$ex_out $out"
+    later_row "$sh" "$ex" "wave-finished" "merged 1" "-"; ex_out="$ex_out $out"
+    [ "$(printf '%s' "$ex_out" | grep -o 'EXIT=0' | wc -l | tr -d ' ')" = 3 ] && [ "$(lines "$ex")" = 4 ] && [ "$(line "$ex" 1)" = "$HEADER" ] && four_fields "$ex" \
+        && [ "$(sed 1d "$ex" | cut -f1 | grep -cvE "$TIME_RE")" = 0 ] \
+        && [ "$(line "$ex" 2 | cut -f2-)" = "wave-started${TAB}02, 06${TAB}-" ] \
+        && [ "$(line "$ex" 3 | cut -f2-)" = "06 left the wave${TAB}its gate gave REJECTED twice${TAB}PR #77, the second verdict" ] \
+        && [ "$(line "$ex" 4 | cut -f2-)" = "wave-finished${TAB}merged 1${TAB}-" ] \
+        && ok "epic-wave example under $sh: the start marker, a decision and the end marker in one log of four-field rows" \
+        || bad "epic-wave example under $sh: output '${ex_out:0:300}', log: $(tr '\t\n' '|/' <"$ex" 2>/dev/null)"
     # No project name: no log, and the block says so.
     STUB_PROJECT=""; run_block "$sh" "$T/nameless-$sh" "$T/home-e-$sh" "$block"; STUB_PROJECT=demo
     [[ "$out" == *"no project name: the decision log is not kept"* ]] && [[ "$out" != *"EXIT="* ]] && [ ! -e "$T/nameless-$sh" ] \
@@ -449,11 +473,11 @@ for sh in bash zsh; do
 done
 [ ! -e "$T/ran-backquote" ] && [ ! -e "$T/ran-dollar" ] && ok "epic-wave block: a command inside a value is not run" || bad "epic-wave block: a command inside a value was run: $(ls "$T" | grep '^ran-' | tr '\n' ' ')"
 [ -z "$(ls -A "$T/cwd")" ] && ok "epic-wave block: nothing is left in the folder it runs in" || bad "epic-wave block: left in the current folder: $(ls -A "$T/cwd" | tr '\n' ' ')"
-[[ "$block" == *"\"\$LOG\" '<decision>' '<why>' '<evidence>'"* ]] && ok "epic-wave block: the three values stand in single quotes" || bad "epic-wave block: the values are not in single quotes"
+[[ "$block" == *"\"\$LOG\" 'wave-started' '<tickets>' '-'"* ]] && ok "epic-wave block: the first row is the start marker, its three values in single quotes" || bad "epic-wave block: the first row is not 'wave-started' '<tickets>' '-' in single quotes"
 
 # The two rules of the skill, the block included: each is the last text of its section, so it runs
 # from its heading to the next section.
-rules_all="$(awk '/^\*\*The decision log of a wave without a human\*\*/{p=1} /^\*\*A wave without a human names its decision log\*\*/{p=1} /^## /{p=0} p' "$EW")"
+rules_all="$(awk '/^\*\*The wave log — every wave, with a human or without\.\*\*/{p=1} /^\*\*A wave without a human names its decision log\*\*/{p=1} /^## /{p=0} p' "$EW")"
 positional="$(printf '%s\n' "$rules_all" | grep -nE '\$[0-9]' | head -n 3 | tr '\n' ' ')"
 [ -n "$rules_all" ] && [ -z "$positional" ] && ok "epic-wave: the two rules have no \$0…\$9 for Claude Code to replace" || bad "epic-wave: the rules are not found or hold a positional token: $positional"
 
@@ -463,19 +487,26 @@ section() { awk -v re="^## $2\\\\." '$0 ~ re {p=1; next} /^## /{p=0} p' "$1" | t
 s1="$(section "$EW" 1)"; s5="$(section "$EW" 5)"
 # has <name> <section text> <sentence>
 has() { [[ "$2" == *"$3"* ]] && ok "epic-wave $1" || bad "epic-wave $1 — missing: $3"; }
-has "section 1: the log is kept by a wave without a human" "$s1" '**The decision log of a wave without a human** (worfy Autopilot).'
-has "section 1: what decides is the declined question, as for the narrow round" "$s1" \
-    'What decides is the same as for the narrow round in section 3: a question to the owner is declined automatically; the wave then usually came as the Autopilot command.'
-has "section 1: every decision made without the owner gets a row, outside the repository" "$s1" \
-    'So every decision made without the owner gets a row in a file of that run, `decisions.tsv`, in the Harness state folder of the machine, outside the repository.'
-has "section 1: the file is started when the sign shows, the plan is its first row" "$s1" \
-    'Start the file at the moment that sign shows — with the plan table when the wave came as the Autopilot command, later when a question is declined only then — name it once, and write the plan as its first row:'
+has "section 1: every wave keeps a log, with a human or without" "$s1" \
+    '**The wave log — every wave, with a human or without.** Every wave keeps a file of its own, `decisions.tsv`, in the Harness state folder of the machine, outside the repository.'
+has "section 1: the first row is the start, the last the end, decisions between" "$s1" \
+    'Its first row marks the start of the wave, its last row the end (section 5), and between the two go the decisions of a wave without a human (below).'
+has "section 1: the file is started at the plan table, the start marker is its first row" "$s1" \
+    'Start the file once the plan table is ready, before dispatch, name it once, and write the start marker as its first row: `wave-started`, with the wave'"'"'s tickets in place of `<tickets>` — their numbers as in the plan table, joined by a comma and a space (`05, 06, 07`):'
 has "section 1: later rows use the printed path, not the variable" "$s1" \
-    'Every later row is the `decision-log` line of that block with the printed path written out in place of `$LOG`: a shell variable does not live until the next command, and a second `date` would name another file.'
+    'Every later row is the `decision-log` line of that block with the printed path, in single quotes, written out in place of `"$LOG"`, and the row'"'"'s three values in place of `'"'wave-started' '<tickets>' '-'"'`: a shell variable does not live until the next command, and a second `date` would name another file.'
 has "section 1: the values stay in single quotes" "$s1" \
     'The three values stay in single quotes, so the shell hands them to the script as written: a backquote or a `$` inside a value is neither run nor expanded.'
 has "section 1: an apostrophe inside a value" "$s1" 'An apostrophe inside a value is written as `'"'\\''"'`.'
 has "section 1: only the script writes the file" "$s1" '`decision-log` creates the file with its header and its folders, and only appends; do not create or edit the file any other way.'
+has "section 1: the marker words are not translated" "$s1" \
+    'The words `wave-started`, `wave-finished`, `merged` and `stopped:` stay as written whatever the reports language: a program reads them.'
+has "section 1: the run folders have no time limit" "$s1" 'The run folders are kept with no time limit.'
+has "section 1: the decision rows are kept by a wave without a human" "$s1" '**The decision rows of a wave without a human** (worfy Autopilot).'
+has "section 1: what decides is the declined question, as for the narrow round" "$s1" \
+    'What decides is the same as for the narrow round in section 3: a question to the owner is declined automatically; the wave then usually came as the Autopilot command.'
+has "section 1: every decision made without the owner gets a row between the markers" "$s1" \
+    'So every decision made without the owner gets a row in the wave'"'"'s log, between the two markers — starting with the plan table when the wave came as the Autopilot command, otherwise with the first declined question.'
 has "section 1: a row for the plan and for a ticket that is not dispatched" "$s1" \
     '- the plan — which tickets go into the wave and in which order — and each ticket that is not dispatched, with the reason;'
 has "section 1: a row for a fork settled for the owner" "$s1" '- a fork the owner decides, settled by the recommended option (section 2);'
@@ -483,19 +514,30 @@ has "section 1: a row for a dismissed finding" "$s1" '- a finding put into Dismi
 has "section 1: a row for a narrow round and for a ticket taken out of the wave" "$s1" '- a narrow round given or refused, and a ticket taken out of the wave (section 3);'
 has "section 1: a row for a merge order that differs from the plan" "$s1" '- the order of the merges when it differs from the plan (section 4).'
 has "section 1: what the three values are" "$s1" \
-    '`<decision>` says what was decided and names the ticket; `<why>` is the reason in one sentence; `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with its exit code — and is left out when there is none.'
+    '`<decision>` says what was decided and names the ticket; `<why>` is the reason in one sentence; `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with its exit code — and is `-` when there is none.'
 has "section 1: no secrets in a row" "$s1" 'No secret goes into a row — a token, a password, a key: the same rule as for a profile.'
 has "section 1: a wrong row is corrected by a new one" "$s1" 'A wrong row is corrected by a new row.'
 has "section 1: a log that cannot be started or written does not stop the wave" "$s1" \
     'If the project name comes out empty, `EXIT` is not 0 or the command is refused, the wave goes on without the log and the report says that it could not be written.'
-has "section 1: the log is not a state file" "$s1" 'The log is not a state file: it is not committed, and a resumed wave does not read it — it starts a file of its own.'
-has "section 1: a session with a human needs no log" "$s1" 'A session with a human needs no log.'
+has "section 1: the log is not a state file, a resumed wave starts its own" "$s1" \
+    'The log is not a state file: it is not committed, and a resumed wave does not read it — it starts a file of its own, with its own start marker.'
+has "section 1: a session with a human writes only the markers" "$s1" 'A session with a human writes only the two markers: its decisions are the owner'"'"'s.'
 has "section 5: the report is compared with the log" "$s5" \
     'Before the report is written, compare the two: every decision the report shows — a `blocked` row, a narrow round, a ticket that was not dispatched, a Dismissed finding, a fork settled for the owner, a merge out of the plan'"'"'s order — has its row in the log'
 has "section 5: a missing row is added with the mark, written rows are not edited" "$s5" \
     'A decision without a row gets one now, and its `<why>` starts with `added at reconciliation: `; the rows already written are not edited.'
+has "section 5: every wave writes the end marker last, after the reconciliation" "$s5" \
+    '**Every wave closes its log with the end marker** (section 1). Right before the report, after the reconciliation above, write the last row of the log, once: the `decision-log` line of the block in section 1 with `'"'wave-finished' '<outcome>' '-'"'`.'
+has "section 5: the outcome is merged N or stopped with the reason" "$s5" \
+    '`<outcome>` is `merged <N>` when the wave comes to its report — `<N>` is the number of the wave'"'"'s tickets merged, `merged 0` included — and `stopped: <reason>` when the wave ends before its report: the owner stopped it, or an error it cannot get past.'
+has "section 5: a wave that stops on an error writes the end marker too" "$s5" \
+    'A wave that stops on an error writes the row too, before it stops; only a session that ends with no turn left — killed or crashed — leaves the log without it.'
 has "section 5: the report names the log between the groups and the status block" "$s5" \
     'Then one line goes between the groups of findings and the status block: `Decision log: <path>`, or `Decision log: not written — <reason>`.'
+has "section 5: a session with a human puts the brief into the report" "$s5" '# a session with a human: the brief goes into the report'
+# The end marker comes after the reconciliation and before the report, brief and stop.
+order="$(awk '/^\*\*A wave without a human names its decision log\*\*/{print "reconcile"} /^\*\*Every wave closes its log with the end marker\*\*/{print "end"} /^\*\*Report, brief, stop\.\*\*/{print "report"}' "$EW" | tr '\n' ' ')"
+[ "$order" = "reconcile end report " ] && ok "epic-wave section 5: reconciliation, then the end marker, then the report" || bad "epic-wave section 5: the order of the paragraphs is '$order'"
 # No word in capitals for emphasis in the two rules; EXIT is the word of the bash block.
 rules_text="$(printf '%s\n' "$rules_all" | awk '/^```bash/{c=1} !c; /^```$/{c=0}' | tr '\n' ' ')"
 caps="$(perl -e 'my %ok = map { $_ => 1 } qw(EXIT); my $t = shift; while ($t =~ /(?<![A-Z])([A-Z]{4,})(?![A-Z])/g) { print "$1 " unless $ok{$1} }' "$rules_text")"

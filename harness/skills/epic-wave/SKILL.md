@@ -285,29 +285,39 @@ ticket out of the wave (it once took one ticket and, after it, the whole epic ou
 only via `F numbering.migrations.generate` on top of the base. Once the table is ready, dispatch
 right away, without waiting for confirmation.
 
-**The decision log of a wave without a human** (worfy Autopilot). What decides is the same as for
-the narrow round in section 3: a question to the owner is declined automatically; the wave then
-usually came as the Autopilot command. After such a wave only the transcript says why a ticket left
-the wave or why one PR was merged before another, and nobody reads a transcript. So every decision
-made without the owner gets a row in a file of that run, `decisions.tsv`, in the Harness state
-folder of the machine, outside the repository. Start the file at the moment that sign shows — with
-the plan table when the wave came as the Autopilot command, later when a question is declined only
-then — name it once, and write the plan as its first row:
+**The wave log — every wave, with a human or without.** Every wave keeps a file of its own,
+`decisions.tsv`, in the Harness state folder of the machine, outside the repository. Its first row
+marks the start of the wave, its last row the end (section 5), and between the two go the decisions
+of a wave without a human (below). Start the file once the plan table is ready, before dispatch,
+name it once, and write the start marker as its first row: `wave-started`, with the wave's tickets
+in place of `<tickets>` — their numbers as in the plan table, joined by a comma and a space
+(`05, 06, 07`):
 
 ```bash
 P=$("${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --name)
 if [ -z "$P" ]; then echo "no project name: the decision log is not kept"; else
   LOG=${HARNESS_HOME:-~/.claude/worfy-harness}"/runs/$P/<epic>-wave-$(date -u +%Y%m%dT%H%M%SZ)/decisions.tsv"
-  "${CLAUDE_PLUGIN_ROOT}/bin/decision-log" "$LOG" '<decision>' '<why>' '<evidence>'; echo "EXIT=$?"; echo "$LOG"
+  "${CLAUDE_PLUGIN_ROOT}/bin/decision-log" "$LOG" 'wave-started' '<tickets>' '-'; echo "EXIT=$?"; echo "$LOG"
 fi
 ```
 
-Every later row is the `decision-log` line of that block with the printed path written out in
-place of `$LOG`: a shell variable does not live until the next command, and a second `date` would
-name another file. The three values stay in single quotes, so the shell hands them to the script
-as written: a backquote or a `$` inside a value is neither run nor expanded. An apostrophe inside a
-value is written as `'\''`. `decision-log` creates the file with its header and its folders, and
-only appends; do not create or edit the file any other way. One row per decision:
+Every later row is the `decision-log` line of that block with the printed path, in single quotes,
+written out in place of `"$LOG"`, and the row's three values in place of
+`'wave-started' '<tickets>' '-'`: a shell variable does not live until the next command, and a
+second `date` would name another file. The three values stay in single quotes, so the shell hands
+them to the script as written: a backquote or a `$` inside a value is neither run nor expanded. An
+apostrophe inside a value is written as `'\''`. `decision-log` creates the file with its header and
+its folders, and only appends; do not create or edit the file any other way. The words
+`wave-started`, `wave-finished`, `merged` and `stopped:` stay as written whatever the reports
+language: a program reads them. The run folders are kept with no time limit.
+
+**The decision rows of a wave without a human** (worfy Autopilot). What decides is the same as for
+the narrow round in section 3: a question to the owner is declined automatically; the wave then
+usually came as the Autopilot command. After such a wave only the transcript says why a ticket left
+the wave or why one PR was merged before another, and nobody reads a transcript. So every decision
+made without the owner gets a row in the wave's log, between the two markers — starting with the
+plan table when the wave came as the Autopilot command, otherwise with the first declined question.
+One row per decision:
 - the plan — which tickets go into the wave and in which order — and each ticket that is not
   dispatched, with the reason;
 - a fork the owner decides, settled by the recommended option (section 2);
@@ -319,12 +329,13 @@ only appends; do not create or edit the file any other way. One row per decision
 
 `<decision>` says what was decided and names the ticket; `<why>` is the reason in one sentence;
 `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with
-its exit code — and is left out when there is none. The values are in `F language.reports`. No
+its exit code — and is `-` when there is none. The values are in `F language.reports`. No
 secret goes into a row — a token, a password, a key: the same rule as for a profile. A wrong row is
 corrected by a new row. If the project name comes out empty, `EXIT` is not 0 or the command is
 refused, the wave goes on without the log and the report says that it could not be written. The log
 is not a state file: it is not committed, and a resumed wave does not read it — it starts a file of
-its own. A session with a human needs no log.
+its own, with its own start marker. A session with a human writes only the two markers: its
+decisions are the owner's.
 
 ## 2. Dispatch
 
@@ -1718,8 +1729,17 @@ compare the two: every decision the report shows — a `blocked` row, a narrow r
 was not dispatched, a Dismissed finding, a fork settled for the owner, a merge out of the plan's
 order — has its row in the log (`cut -f2 <path>` prints the decisions). A decision without a row
 gets one now, and its `<why>` starts with `added at reconciliation: `; the rows already written
-are not edited. Then one line goes between the groups of findings and the status block:
-`Decision log: <path>`, or `Decision log: not written — <reason>`.
+are not edited.
+
+**Every wave closes its log with the end marker** (section 1). Right before the report, after the
+reconciliation above, write the last row of the log, once: the `decision-log` line of the block in
+section 1 with `'wave-finished' '<outcome>' '-'`. `<outcome>` is `merged <N>` when the wave comes to
+its report — `<N>` is the number of the wave's tickets merged, `merged 0` included — and
+`stopped: <reason>` when the wave ends before its report: the owner stopped it, or an error it
+cannot get past. A wave that stops on an error writes the row too, before it stops; only a session
+that ends with no turn left — killed or crashed — leaves the log without it. Then one line goes
+between the groups of findings and the status block: `Decision log: <path>`, or
+`Decision log: not written — <reason>`.
 
 **Report, brief, stop.** A wave ends with its report, a saved brief and a stop: the orchestrator
 does not start the next wave on its own initiative. A wave that worfy Autopilot or the owner sends,
@@ -1734,7 +1754,7 @@ with none of either, no `--land`. `<run folder>` is the folder of the decision l
 
 ```bash
 (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…) >"<run folder>/wave-brief.txt"; echo "EXIT=$?"   # a wave without a human
-(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…); echo "EXIT=$?"                                  # a session with a human: no run folder
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/wave-brief" <epic> --land <state file>…); echo "EXIT=$?"                                  # a session with a human: the brief goes into the report
 ```
 
 `wave-brief` only reads: the tickets, the state files, the epic's branches and open PRs (`gh pr
