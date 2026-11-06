@@ -37,6 +37,7 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
   - evidence: test-run pass · `pnpm test test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 63e961516e8fa12a512bf43b96eea7e10114f9f2
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c23447116a1396ca61d3b70056991327c856831f
 
 ## Тесты
 
@@ -84,3 +85,7 @@ Source: [spec.md](../spec.md), «Как работает» → «Источни�
 6. **Смены статуса — только из git** (07): строки `ticket-status` журнала дали бы дубль той же смены.
 7. **Night-view Flight Recorder**: `now` test-а `flight-recorder-night-view` сдвинут на 2026-11-20 — за 31 день от Run-а,
    чтобы экранные test-ы по-прежнему рисовали пометку «gate logs deleted»; в файле вида изменилось только `now`.
+8. **e2e `flight-recorder.spec.ts` больше не проверяет пометку «gate logs deleted» ночного Run-а.** Приложение считает её
+   по своим часам: при сроке 31 день пометка появляется только с 2026-11-18, до того её нет — проверка зависела бы от даты
+   (на этом PR job `windows-e2e (2/4)` упал именно на ней). Пометку и штриховку рисует unit test
+   `flight-recorder-view.test.tsx` по `night-run-view.json`, посчитанному после этой даты.
