@@ -549,6 +549,7 @@ export class Session {
           }
         },
         decided: (decision) => this.emit({ type: 'auto_approval', ...decision }),
+        parks: () => approval.parks?.() ?? true,
       },
       // In Off, none: the process starts in the shell's environment as before.
       ...(Object.keys(environment).length === 0 ? {} : { environment }),

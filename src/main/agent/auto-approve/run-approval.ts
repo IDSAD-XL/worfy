@@ -312,6 +312,8 @@ export interface LaunchApproval {
   /** The variables the agent's process starts with over its own environment; {} in Off. */
   environment(): Readonly<Record<string, string>>
   judge(request: ApprovalRequest, at: ApprovalAt): Promise<Decision>
+  /** Whether a parked request may wait for the owner now: not while the run stops (worfy-auto-approve ticket 07); absent: it may. */
+  parks?(): boolean
 }
 
 /** One run's side of the policy (openRunApproval). */

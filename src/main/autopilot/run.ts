@@ -2211,6 +2211,10 @@ export class Autopilot {
   private launchApproval(projectId: string): LaunchApproval {
     const known = this.launchApprovals.get(projectId)
     if (known !== undefined) return known
+    const parks = (): boolean => {
+      const run = this.runs.get(projectId)
+      return run !== undefined && !run.cycle.stopping && run.cycle.phase !== 'stopped'
+    }
     const made: LaunchApproval = {
       mode: () => (this.activeApprovals.has(projectId) ? this.approvalMode(projectId) : 'off'),
       // In Off the process starts as before the ticket: no TMPDIR and no git environment of the run.
@@ -2221,10 +2225,10 @@ export class Autopilot {
       judge: async (request, at) => {
         const decision = await (this.activeApprovals.get(projectId)?.judge(request, at) ?? NO_RUN_DECISION)
         // No park while the run stops, or after it stopped (worfy-auto-approve ticket 07): nothing would wait for the owner.
-        const run = this.runs.get(projectId)
-        const parks = run !== undefined && !run.cycle.stopping && run.cycle.phase !== 'stopped'
-        return decision.outcome === 'park' && !parks ? { ...decision, outcome: 'deny', hint: PARK_STOPPED_HINT } : decision
+        return decision.outcome === 'park' && !parks() ? { ...decision, outcome: 'deny', hint: PARK_STOPPED_HINT } : decision
       },
+      // Asked again once a parked request is open on the gate: a Stop after the decision takes it off at once.
+      parks: () => parks(),
     }
     this.launchApprovals.set(projectId, made)
     return made

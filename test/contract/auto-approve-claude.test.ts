@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import { PARK_EXPIRED_HINT, PARK_STOPPED_HINT } from '../../src/main/agent/auto-approve/park'
 import { hardHint, HINTS } from '../../src/main/agent/auto-approve/policy'
-import { openRunApproval } from '../../src/main/agent/auto-approve/run-approval'
+import { openRunApproval, type LaunchApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -206,12 +206,25 @@ function harness(options: HarnessOptions = {}) {
             return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
           },
         })
+  // The policy each unattended launch of the Orchestrator gets (worfy-auto-approve ticket 07: parks()).
+  const launches: LaunchApproval[] = []
+  const launched = new Proxy(seen, {
+    get(target, key) {
+      if (key === 'setUnattended')
+        return (...args: Parameters<Orchestrators['setUnattended']>) => {
+          if (args[2] !== undefined) launches.push(args[2])
+          return target.setUnattended(...args)
+        }
+      const value: unknown = Reflect.get(target, key)
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value
+    },
+  })
   const autopilot = new Autopilot({
     projectRoot: () => ownRepo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
     watchWorkflow: () => Promise.resolve(() => undefined),
-    orchestrators: seen,
+    orchestrators: launched,
     registry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
@@ -273,7 +286,7 @@ function harness(options: HarnessOptions = {}) {
   const answerParked = (n: number, option: 'allow' | 'deny'): boolean => registry.get(parkedIn[n]!).answerPermission(parked[n]!.requestId, option)
   /** The Session the `n`th parked request waits in. */
   const parkedSession = (n: number) => registry.get(parkedIn[n]!)
-  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests, parked, answerParked, parkedSession }
+  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests, parked, answerParked, parkedSession, launches }
 }
 
 /** A text with what changes from run to run written as placeholders. */
@@ -538,7 +551,11 @@ describe('A parked request of a background task in an Autopilot run (worfy-auto-
 
   it('a graceful Stop ends the parked request at once, and a request the policy would park while the run stops is refused at once', async () => {
     const h = await parkedInTasks(new ManualClock())
+    // A parked request may wait while the run goes; once it stops, a request the gate just opened is taken off.
+    expect(h.launches).toHaveLength(1)
+    expect(h.launches[0]?.parks?.()).toBe(true)
     await h.autopilot.stop(PROJECT)
+    expect(h.launches[0]?.parks?.()).toBe(false)
     await until(() => h.answers().length === 1, 'the refusal of the parked request')
     expect(h.answers()).toEqual([refusedWith(PARK_EXPIRED_HINT)])
     h.releases.release('next')

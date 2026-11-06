@@ -52,10 +52,15 @@ export interface ParkRequest {
   options: readonly PermissionOption[]
   /** The Vendor's own withdrawal of the request. */
   signal: AbortSignal
+  /**
+   * Whether a parked request may wait for the owner now: false once the run is stopping or stopped. Asked
+   * once the request is open on the gate, so a Stop that came after the policy's decision takes it off.
+   */
+  waits?: (() => boolean) | undefined
 }
 
 /** How a park ended: the owner picked an option, or it ended without an answer (the limit, a stop, a cancel). */
-export type ParkEnd = { outcome: 'answered'; option: string; kind: PermissionOptionKind } | { outcome: 'expired' }
+export type ParkEnd = { outcome: 'answered'; option: string; kind: PermissionOptionKind } | { outcome: 'expired' } | { outcome: 'stopped' }
 
 export type Parker = (request: ParkRequest) => Promise<ParkEnd>
 
@@ -74,8 +79,9 @@ export function createParker(asker: PermissionAsker, { limitMs = PARK_LIMIT_MS, 
     request.signal.addEventListener('abort', withdraw, { once: true })
     if (request.signal.aborted) wait.abort()
     const timer = clock.setTimeout(withdraw, limitMs)
+    let stopped = false
     try {
-      const picked = await asker.ask({
+      const asked = asker.ask({
         subject: request.toolName,
         toolName: request.toolName,
         toolUseId: request.toolUseId,
@@ -88,8 +94,15 @@ export function createParker(asker: PermissionAsker, { limitMs = PARK_LIMIT_MS, 
         parked: { rule: request.rule, targets: [...request.targets] },
         signal: wait.signal,
       })
+      // The gate opened it synchronously: a run that began to stop since the policy decided takes it off now.
+      if (request.waits?.() === false) {
+        stopped = true
+        wait.abort()
+      }
+      const picked = await asked
       const option = picked === null ? undefined : options.find((each) => each.id === picked)
-      return option === undefined ? { outcome: 'expired' } : { outcome: 'answered', option: option.id, kind: option.kind }
+      if (option !== undefined) return { outcome: 'answered', option: option.id, kind: option.kind }
+      return stopped ? { outcome: 'stopped' } : { outcome: 'expired' }
     } finally {
       clock.clearTimeout(timer)
       request.signal.removeEventListener('abort', withdraw)

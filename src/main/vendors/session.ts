@@ -91,6 +91,8 @@ export interface SessionApproval {
   judge(request: ApprovalRequest, where: ApprovalWhere): Promise<Decision>
   /** Told each decision of Shadow and On, as the agent got it. */
   decided(decision: ApprovalDecided): void
+  /** Whether a parked request may wait for the owner now (worfy-auto-approve ticket 07); absent: it may. */
+  parks?(): boolean
 }
 
 /** What the agent of a Session is started with; the same for a start and a resume. */

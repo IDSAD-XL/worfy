@@ -27,7 +27,7 @@
 // The app's part makes its query factory (query.ts) at its first start. Nothing in this driver imports
 // the Session registry (src/main/agent/app-registry.ts), which is made over it: the registry wires
 // what the fake agent needs from it itself (test/contract/vendor-imports.test.ts).
-import { createParker, PARK_EXPIRED_HINT, type Parker } from '../../agent/auto-approve/park'
+import { createParker, PARK_EXPIRED_HINT, PARK_STOPPED_HINT, type Parker } from '../../agent/auto-approve/park'
 import { HINTS } from '../../agent/auto-approve/policy'
 import { CommandCatalog } from '../../agent/commands'
 import { userContent } from '../../agent/attachments'
@@ -234,6 +234,7 @@ export function unattendedCanUseTool(
         targets: decision.targets,
         options: CLAUDE_PERMISSION_OPTIONS,
         signal: options.signal,
+        waits: () => approval.parks?.() ?? true,
       })
       if (end.outcome === 'answered') {
         const allowed = end.kind !== 'deny'
@@ -241,6 +242,7 @@ export function unattendedCanUseTool(
         return allowed ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: DENIED_MESSAGE }
       }
       approval.decided({ ...line, outcome: 'park-expired' })
+      if (end.outcome === 'stopped') return { behavior: 'deny', message: approvalDeniedMessage(reason, PARK_STOPPED_HINT) }
       return { behavior: 'deny', message: approvalDeniedMessage(reason, decision.hint === null ? PARK_EXPIRED_HINT : `${PARK_EXPIRED_HINT}\n${decision.hint}`) }
     }
     const hint = decision.outcome === 'park' ? HINTS.parkPending : decision.hint

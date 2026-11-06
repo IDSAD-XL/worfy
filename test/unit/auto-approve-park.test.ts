@@ -5,7 +5,7 @@
 // says "Parked: <tool> in <Project>" and never the command (src/main/notify.ts). The clock is a parameter;
 // no real timer, process or OS notification runs here.
 import { describe, expect, it, vi } from 'vitest'
-import { createParker, PARK_EXPIRED_HINT, PARK_LIMIT_MS, parkDescription, type ParkClock, type ParkRequest } from '../../src/main/agent/auto-approve/park'
+import { createParker, PARK_EXPIRED_HINT, PARK_LIMIT_MS, PARK_STOPPED_HINT, parkDescription, type ParkClock, type ParkRequest } from '../../src/main/agent/auto-approve/park'
 import type { Decision } from '../../src/main/agent/auto-approve/policy'
 import { PermissionGate } from '../../src/main/agent/permissions'
 import type { PermissionRequestOptions } from '../../src/main/agent/session/types'
@@ -217,10 +217,40 @@ describe('park: the wait limit and the stop of the run', () => {
   })
 })
 
+describe('park: a run that stops while the request is on its way to the gate (review round 3 of PR #1467)', () => {
+  it('a request opened on the gate while it may not wait is taken off at once as stopped', async () => {
+    const g = gate()
+    const c = fakeClock()
+    const park = createParker(g.permissions, { clock: c.clock })
+    await expect(park(parkRequest({ waits: () => false }))).resolves.toEqual({ outcome: 'stopped' })
+    expect(g.requests()).toHaveLength(1)
+    expect(g.events.at(-1)).toMatchObject({ type: 'permission_resolved', decision: 'cancelled' })
+    expect(g.permissions.pending).toBe(0)
+    expect(c.timers.size).toBe(0)
+  })
+
+  it('one that may wait stays open', async () => {
+    const g = gate()
+    const park = createParker(g.permissions, { clock: fakeClock().clock })
+    void park(parkRequest({ waits: () => true }))
+    await settle()
+    expect(g.permissions.parked).toBe(1)
+  })
+})
+
 describe('the unattended canUseTool parks in On', () => {
-  function driver(mode: AutoApprovalMode, decision: Decision) {
+  function driver(mode: AutoApprovalMode, decision: Decision, run: { stopping: boolean; stopAtJudge?: boolean } = { stopping: false }) {
     const decided: unknown[] = []
-    const approval: SessionApproval = { mode: () => mode, judge: () => Promise.resolve(decision), decided: (fields) => decided.push(fields) }
+    const approval: SessionApproval = {
+      mode: () => mode,
+      judge: () => {
+        // The run turns to stopping after the judge decided, before the request reaches the gate.
+        if (run.stopAtJudge === true) run.stopping = true
+        return Promise.resolve(decision)
+      },
+      decided: (fields) => decided.push(fields),
+      parks: () => !run.stopping,
+    }
     const g = gate()
     const c = fakeClock()
     const canUseTool = unattendedCanUseTool(() => undefined, approval, undefined, createParker(g.permissions, { clock: c.clock }))
@@ -270,6 +300,18 @@ describe('the unattended canUseTool parks in On', () => {
     await settle()
     d.g.permissions.releaseParked()
     await expect(answer).resolves.toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: why\n${PARK_EXPIRED_HINT}\nthe hooks hint` })
+  })
+
+  it('a Stop between the judge and the gate: the request is taken off at once with PARK_STOPPED_HINT and park-expired', async () => {
+    const d = driver('on', parkDecision, { stopping: false, stopAtJudge: true })
+    const answer = await d.ask(input)
+    expect(answer).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: why\n${PARK_STOPPED_HINT}` })
+    expect(d.g.requests()).toHaveLength(1)
+    expect(d.g.permissions.pending).toBe(0)
+    expect(d.decided).toEqual([
+      { ...line, outcome: 'park' },
+      { ...line, outcome: 'park-expired' },
+    ])
   })
 
   it('Shadow parks nothing: it refuses as before and records would-park', async () => {
