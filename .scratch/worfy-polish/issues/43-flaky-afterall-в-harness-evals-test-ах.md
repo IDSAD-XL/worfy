@@ -175,3 +175,17 @@ PR #839: ревью medium, одна находка low (на macOS промах
 `wave-gate-lock.test.sh` был skip) исправлена коммитом оркестратора: теперь на Darwin это `bad`.
 Вердикт Windows — полный прогон Windows runner 40412053753, со второй попытки (первая: flaky
 `cards-watch-links.test.ts`, не из PR). gate full зелёный, merge `4eb0aac9`.
+
+## Наблюдения 2026-11-06 (CI)
+
+Ticket закрыт; сюда — flaky test-ы под нагрузкой, которым нет открытого Ticket-а (Windows-случаи — в
+[47](47-flaky-e2e-windows-в-gate-full-0eddc918.md)). Платформа и run id не записаны в заметке Orchestrator-а.
+Строки — по main `fe0ff152`.
+
+- `test/contract/e3-sandbox.test.ts:1304` («40 runs each end within 15 s and leave no heartbeat shell or sleep
+  behind»): красный в первой попытке, зелёный в retry. Run id не записан.
+- `test/e2e/evidence-capture.spec.ts:755` («recordClip: a frame that never comes back once the window is gone…»):
+  timeout под нагрузкой. Похожий отказ `recordClip` на macOS закрыт в
+  [60](60-recordclip-e2e-висит-на-macos.md) (#1395). Run id не записан.
+- `test/contract/harness-hook-stdin.test.ts:345` («… refuses a terminal on stdin at once …»): красный один раз в gate
+  fast. Run id не записан.

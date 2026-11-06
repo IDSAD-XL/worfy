@@ -352,3 +352,14 @@ Low:
   7,47 s при бюджете 6 s. Граница не менялась по решению Моста.
 
 Перед push-ем — код 0 у каждого: guard-silent (104 passed); `test/unit` целиком, вместе с `e2e-no-spawn-on-load` (6122 passed); `workflow-reader`, `terminal-ai-assist`, `script-node`, `test-timeout-scale` (170 passed); `harness-evals` (92 passed, 10 строк времени сборки в логе при CLAUDECODE=1); lint; typecheck; plugin-neutral (31 passed).
+
+## Наблюдения 2026-11-06 (CI)
+
+Ticket закрыт, но записи quarantine с владельцем `worfy-polish 41` (до 2026-11-12) живут; наблюдение — о дыре в их
+покрытии. Строки — по main `fe0ff152`.
+
+- `test/unit/affected-tests.test.ts:140` (`beforeAll` на уровне файла, общий для всех describe): job
+  `windows (2/3) / full-suite`, push run main `caf7206d` — `Hook timed out in 30000ms`. Записи
+  quarantine `affected-tests-repo-*` закрывают только describe `:609` (его `beforeAll` — `:617`) и только на darwin,
+  `affected-tests-github-output` — test `:421` на darwin и win32; `beforeAll` на `:140` не закрыт ни на одной
+  платформе. Run 42290382544.
