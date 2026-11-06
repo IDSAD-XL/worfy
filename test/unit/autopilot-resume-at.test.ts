@@ -131,7 +131,7 @@ describe('resumeAt with the Auto-continue switch (worfy-retry ticket 05)', () =>
     const far = NOW + 3 * 24 * H
     const hit = { window: 'seven_day', resetsAt: S(far) }
     expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW })).toEqual({ kind: 'give-up', reason: `The Limits reset at ${new Date(far).toISOString()}, more than 24 h after the wait began` })
-    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW, farReset: 'wait' })).toEqual({ kind: 'at', at: far + RESUME_MARGIN_MS, resetsAt: far, window: 'seven_day' })
+    expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW, farReset: 'wait' })).toEqual({ kind: 'at', at: far + RESUME_MARGIN_MS, resetsAt: far, window: 'seven_day', far: true })
     // On, a wait that has already lasted a day still waits for a known reset.
     expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW - MAX_WAIT_MS, farReset: 'wait' })).toMatchObject({ kind: 'at', at: far + RESUME_MARGIN_MS })
     expect(resumeAt({ hit, limits: limits(), now: NOW, since: NOW - MAX_WAIT_MS })).toMatchObject({ kind: 'give-up' })

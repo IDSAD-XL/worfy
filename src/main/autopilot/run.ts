@@ -1114,6 +1114,12 @@ export class Autopilot {
         await this.feed(run, { type: 'stop', reason: 'user-stop' })
         return
       }
+      // Likewise a Limits wait past 24 h that only Auto-continue keeps (worfy-retry ticket 05): the run
+      // would otherwise stay unattended for days.
+      if (run.limits?.until != null && run.limits.far && !this.turnUnderWay(run)) {
+        await this.feed(run, { type: 'stop', reason: 'user-stop' })
+        return
+      }
       if (run.cycle.stopping) return
       // Waiting for the budget or the Start window before a Wave: no Wave is in work, the run ends
       // now (worfy-throughput ticket 41, worfy-resource-planner ticket 05).
@@ -1172,10 +1178,16 @@ export class Autopilot {
 
   private subscribe(run: Run): void {
     if (run.limits !== null) run.cleanups.push(run.limits.watch((sessionId) => run.session !== null && sessionId === run.session.id))
+    const unobserve = this.deps.retry?.observe?.(() => void run.enqueue(async () => void (await this.farWaitDropped(run))))
+    if (unobserve !== undefined) run.cleanups.push(unobserve)
     run.cleanups.push(
       this.deps.registry.observe((sessionId, event) => {
         if (run.session === null || sessionId !== run.session.id) return
         this.onEvent(run, event)
+        // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
+        // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
+        // passed() keeps it, a refusal waits again (waitForLimits).
+        if (run.asleep || (event.type === 'background_tasks' && run.limits?.until != null)) this.holdAwake(run)
       }),
       this.deps.registry.observeInput((session, what) => {
         if (session !== run.session) return
@@ -1947,6 +1959,11 @@ export class Autopilot {
       await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
       return
     }
+    // A Stop came before a refusal whose wait passes 24 h (worfy-retry ticket 05): no wait of days for it.
+    if (plan.kind === 'at' && plan.far === true && (run.cycle.stopping || run.stopRequested)) {
+      await this.feed(run, { type: 'stop', reason: 'user-stop' })
+      return
+    }
     await this.waitForLimits(run, wait, plan.at)
   }
 
@@ -1963,12 +1980,14 @@ export class Autopilot {
   }
 
   /**
-   * keep-awake during a Limits wait (worfy-retry ticket 05, spec Q8 (c)): released while the
-   * continuation is more than 24 h away (LimitsWait.keepAwake), held again from then on.
+   * keep-awake during a Limits wait (worfy-retry ticket 05, spec Q8 (c), ADR-0097): released while the
+   * continuation is more than 24 h away (LimitsWait.keepAwake), no turn is under way and no background
+   * task lives (ADR-0029); held again as soon as one of them is no longer so.
    */
   private holdAwake(run: Run): void {
-    const asleep = run.limits !== null && !run.limits.keepAwake
-    if (run.awake === null || asleep === run.asleep) return
+    if (run.awake === null || run.cycle.phase === 'stopped') return
+    const asleep = run.limits !== null && !run.limits.keepAwake && !this.turnUnderWay(run) && this.liveTasks(run).length === 0
+    if (asleep === run.asleep) return
     run.asleep = asleep
     try {
       if (asleep) run.awake.stop()
@@ -1978,20 +1997,27 @@ export class Autopilot {
     }
   }
 
-  /**
-   * 24 h before the continuation of a far wait: keep-awake again. Auto-continue turned off since stops
-   * the run with `limits-timeout`, as it would have stopped at the refusal without the switch.
-   */
+  /** 24 h before the continuation of a far wait: keep-awake again, unless Auto-continue is off by now (farWaitDropped). */
   private async wake(run: Run, id: number): Promise<void> {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped') return
-    if (run.retry?.enabled() !== true) {
-      wait.cancel()
-      run.message = `Auto-continue was turned off while the run waited for a Limits reset more than 24 h away`
-      await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
-      return
-    }
+    if (await this.farWaitDropped(run)) return
     this.holdAwake(run)
+  }
+
+  /**
+   * A Limits wait past 24 h exists only because Auto-continue is on (LimitsWait.far): with the switch
+   * off by now, it is dropped and the run stops with `limits-timeout`, as it would have at the refusal
+   * without the switch. Read when the switch changes (TurnRetryDeps.observe) and at the wait's timers.
+   * Answers whether the run stopped.
+   */
+  private async farWaitDropped(run: Run): Promise<boolean> {
+    const wait = run.limits
+    if (wait === null || wait.until === null || !wait.far || run.cycle.phase === 'stopped' || run.retry?.enabled() === true) return false
+    wait.cancel()
+    run.message = 'Auto-continue was turned off while the run waited for a Limits reset more than 24 h away'
+    await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+    return true
   }
 
   /**
@@ -2021,6 +2047,8 @@ export class Autopilot {
   private async resume(run: Run, id: number): Promise<void> {
     const wait = run.limits
     if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped' || run.session === null) return
+    // A far wait whose switch was turned off meanwhile continues nothing (worfy-retry ticket 05).
+    if (await this.farWaitDropped(run)) return
     // On another Vendor, the windows are read again first: still used up, the run waits once more.
     const again = await this.stillRefused(run, wait)
     // Read anew after the read: a stop may have come meanwhile. A Force stop or the quit waits behind this

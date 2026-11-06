@@ -102,6 +102,7 @@ export class LimitsWait {
   private cancelTimer: (() => void) | null = null
   private untilValue: number | null = null
   private windowValue: string | null = null
+  private farValue = false
   private readonly now: () => number
   private readonly schedule: (at: number, fire: () => void) => () => void
 
@@ -121,6 +122,14 @@ export class LimitsWait {
    */
   get window(): string | null {
     return this.windowValue
+  }
+
+  /**
+   * Whether the current wait goes past MAX_WAIT_MS only because Auto-continue is on (the plan's `far`):
+   * the switch turned off ends it, and so does a Stop (run.ts). Meaningful while `until` is set.
+   */
+  get far(): boolean {
+    return this.farValue
   }
 
   /**
@@ -168,6 +177,7 @@ export class LimitsWait {
     this.since ??= now
     const plan = resumeAt({ hit, limits: this.deps.state(), now, since: this.since, ...(farReset ? { farReset: 'wait' as const } : {}) })
     this.windowValue = plan.kind === 'at' ? plan.window : null
+    this.farValue = plan.kind === 'at' && plan.far === true
     return plan
   }
 
@@ -196,10 +206,15 @@ export class LimitsWait {
     return this.untilValue !== null && this.id === id
   }
 
-  /** The wait is over: answers the message for the Orchestrator, with the pause from its first refusal until now. */
+  /**
+   * The wait is over: answers the message for the Orchestrator, with the pause from its first refusal
+   * until now. After a far wait the next refusal starts a new wait: the MAX_WAIT_MS of its tries
+   * without a reset time count from it, not from a refusal days ago.
+   */
   resume(): string {
     const now = this.now()
     const text = continueText(this.since ?? now, now)
+    if (this.farValue) this.since = null
     this.cancel()
     return text
   }

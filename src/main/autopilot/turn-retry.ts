@@ -34,6 +34,12 @@ export interface TurnRetryDeps {
   schedule?(at: number, fire: () => void): () => void
   /** A random number in [0, 1) for the spread of a pause (default Math.random). */
   random?(): number
+  /**
+   * Calls `listener` on each change of the settings where the switch lives (AppSettingsStore `changed`);
+   * answers the unsubscribe. A run waiting for a Limits reset more than 24 h away reads the switch then
+   * (run.ts, worfy-retry ticket 05). Absent: the run reads it only at its timers.
+   */
+  observe?(listener: () => void): () => void
 }
 
 /**

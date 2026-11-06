@@ -63,8 +63,11 @@ export interface LimitsHit {
 }
 
 export type ResumePlan =
-  /** Continue at `at`: `resetsAt` (ms) of the window, plus RESUME_MARGIN_MS; `window` its name, null when not reported. */
-  | { kind: 'at'; at: number; resetsAt: number; window: string | null }
+  /**
+   * Continue at `at`: `resetsAt` (ms) of the window, plus RESUME_MARGIN_MS; `window` its name, null when
+   * not reported. `far`: the wait passes MAX_WAIT_MS and goes on only because of `farReset` (Auto-continue on).
+   */
+  | { kind: 'at'; at: number; resetsAt: number; window: string | null; far?: true }
   /** No reset time is known: try again at `at`. */
   | { kind: 'recheck'; at: number }
   /** Waiting would pass MAX_WAIT_MS: stop the run with `reason`. */
@@ -119,7 +122,10 @@ export function resumeAt({ hit, limits, now, since, farReset }: ResumeInput): Re
   const reported = hit.resetsAt === null ? null : toMs(hit.resetsAt)
   const known = reported !== null && reported > now ? { resetsAt: reported, window: hit.window } : resetFromLimits(limits, hit.window, now)
   // Auto-continue on: a known reset is waited for however far it is (spec Q8 (c)).
-  if (known !== null && farReset === 'wait') return { kind: 'at', at: known.resetsAt + RESUME_MARGIN_MS, ...known }
+  if (known !== null && farReset === 'wait') {
+    const at = known.resetsAt + RESUME_MARGIN_MS
+    return { kind: 'at', at, ...known, ...(now >= deadline || at > deadline ? { far: true as const } : {}) }
+  }
   if (now >= deadline) return { kind: 'give-up', reason: `Waited for the Limits since ${new Date(since).toISOString()}, longer than ${MAX_WAIT_MS / 3_600_000} h` }
   if (known === null) return { kind: 'recheck', at: Math.min(now + RECHECK_MS, deadline) }
   const at = known.resetsAt + RESUME_MARGIN_MS

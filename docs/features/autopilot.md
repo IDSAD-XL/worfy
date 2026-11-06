@@ -203,10 +203,14 @@ window: on a plan without it the run waits for the 7-day window. If no reset tim
 minutes. If the wait would pass 24 hours from the first refusal, the run stops with `limits-timeout`.
 
 With Auto-continue on for the Project, a known reset more than 24 hours away does not stop the run: it waits until that
-reset, for example 3 days for the 7-day window. While the reset is more than 24 hours away the run releases keep-awake, so
-the Mac may sleep; 24 hours before the reset it takes keep-awake again. A Mac asleep at the reset continues when it next
-wakes. Auto-continue switched off during such a wait is read 24 hours before the reset: the run then stops with
-`limits-timeout`. The 30-minute tries without a reset time keep their 24-hour limit either way.
+reset, for example 3 days for the 7-day window. While the continuation is more than 24 hours away, no turn runs and no
+background task lives, the run releases keep-awake ([ADR-0097](../adr/0097-far-limits-wait-releases-keep-awake.md)): the
+display may go dark and macOS may lock the screen, and the Mac may sleep. keep-awake comes back 24 hours before the
+continuation, and as soon as a turn or a background task starts. A Mac asleep at the reset continues when it next wakes.
+A locked screen stays locked: after the continuation, agents that need a window (e2e, `gate full`) wait for a person.
+Auto-continue switched off during such a wait stops the run at once with `limits-timeout`, and Stop during it with no turn
+running, or a Stop that came before the refusal, stops the run at once with `user-stop`. After the continuation, the 24 hours of 30-minute tries without a reset
+time count from the next refusal. Those tries keep their 24-hour limit whatever the switch.
 
 On a Codex Orchestrator the refusal is Codex's `usageLimitExceeded`. When a Codex window is used up and has a reset time,
 the run waits for that reset, as above. When the time comes, worfy reads the Codex windows again: while one is still used

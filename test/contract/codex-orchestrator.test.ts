@@ -189,6 +189,8 @@ interface HarnessOptions {
   budget?: AutopilotDeps['budget']
   /** The text of "Process gate queue" on a machine with `serve`, and what happens when it is read (worfy-multi-vendor ticket 38). */
   gateQueue?: { text: string; onRead?: () => void }
+  /** Auto-continue on for the Project (worfy-retry ticket 05): AutopilotDeps.retry with the switch on. */
+  autoContinue?: boolean
 }
 
 /**
@@ -368,6 +370,7 @@ function harness(options: HarnessOptions) {
     ...(limits === undefined ? {} : { limits }),
     ...(usage === undefined ? {} : { usage }),
     ...(options.budget === undefined ? {} : { budget: options.budget }),
+    ...(options.autoContinue === true ? { retry: { enabled: () => true, send: (sessionId: string, text: string) => void registry.get(sessionId).send(text), ...(clock === undefined ? {} : { now: () => clock }) } } : {}),
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
@@ -809,6 +812,19 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     expect(kinds.filter((kind) => kind === 'waiting-until')).toHaveLength(1)
     expect(kinds).not.toContain('resumed')
     expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'limits-timeout' })
+  })
+
+  it('with Auto-continue on, a window still used up after the wait whose reset is more than 24 h after the wait began is waited for once more (worfy-retry ticket 05)', async () => {
+    const farReset = CLOCK / 1000 + 30 * 3600
+    const far = plus(100, 64).map((each) => (each.id === 'primary' ? { ...each, resetsAt: farReset } : each))
+    const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, reads: [plus(12, 40), far], autoContinue: true })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(async () => (await h.journal()).filter((event) => event.kind === 'waiting-until').length === 2, 'the second wait')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'waiting', waitingFor: 'limits', limitsWindow: 'primary', resumesAt: farReset * 1000 + RESUME_MARGIN_MS })
+    const events = await h.journal()
+    expect(events.filter((event) => event.kind === 'waiting-until').at(-1)).toMatchObject({ until: new Date(farReset * 1000 + RESUME_MARGIN_MS).toISOString() })
+    expect(events.map((event) => event.kind)).not.toContain('run-stopped')
+    expect(events.map((event) => event.kind)).not.toContain('resumed')
   })
 
   for (const [what, stop] of [
