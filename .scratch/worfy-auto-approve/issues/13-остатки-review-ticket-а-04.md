@@ -1,7 +1,8 @@
 # 13 — Остатки review Ticket-а 04
 
 Type: task
-Status: claimed 2026-11-06T02:57Z
+Status: done 2026-11-06T09:38Z
+PR: #1475
 Blocked by: 04
 Source: review PR #1460 (Ticket 04), раунды 4–5; предел трёх раундов review (`review-of-another-pr.md:32-36`)
 
