@@ -413,11 +413,18 @@ jobs:
       # expression in its place, `@(-split …)`, reaches a PowerShell script shim of pnpm (pnpm.ps1) as
       # one argument holding the array, and the shim hands it to node as one string with every name in
       # it (the Harness shell test jobs of windows-tests.yml, run 40939802575).
+      # TEMP and TMP point at runner.temp, on D:, the machine's own NVMe disk. Every app under test
+      # keeps its data folder and Chromium profile in os.tmpdir(), by default on C:, a network disk:
+      # some 8 minutes after the machine starts, a Windows service pages heavily on C: and its latency
+      # rose to 0.1-0.34 s for minutes while D: stayed at 0 ms. The app then answered nothing for 10 s
+      # and more, and canvasReady failed with «the window is N px wide» (worfy-polish 47, run 42259996872).
       - name: Run the e2e tests, one shard
         shell: pwsh
         env:
           SHARD: ${{ matrix.shard }}
           E2E_FILES: ${{ needs.changes.outputs.e2e-files }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: $files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files
       # A failing e2e test keeps the app's trace and a screenshot of its window under test-results/.
       - if: failure()
