@@ -1,7 +1,8 @@
 # 06 — GitHub: пакетное чтение PR и CI за период
 
 Type: task
-Status: open
+Status: done 2026-11-06T15:39Z
+PR: #1505
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает» → «Чтение»; «Риски», 2; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), п. 3, «Пробелы», 5
 
@@ -25,11 +26,15 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение»;
 - [ ] Contract test на stub `gh` (`WORFY_GH`): неделя из 150 PR — две страницы; месяц — четыре-пять запросов search, по
       одному на неделю; CI — по дню; повтор в интервале — без вызовов `gh`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/work-track-github.test.ts` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
+  - evidence: review pass · PR #1505 · - - · eb80f6dcb6bacd920c5fc22d4377428c4212e38d
 - [ ] Contract test: `gh` упал — пробел с причиной, остальные факты есть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/work-track-github.test.ts` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
+  - evidence: review pass · PR #1505 · - - · eb80f6dcb6bacd920c5fc22d4377428c4212e38d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7c7755a2fdcbb39c14297076784c13f533de47df
+  - evidence: review pass · PR #1505 · - - · eb80f6dcb6bacd920c5fc22d4377428c4212e38d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42241539244 · ci - · eb80f6dcb6bacd920c5fc22d4377428c4212e38d
 
 ## Тесты
 
