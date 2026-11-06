@@ -980,3 +980,46 @@ describe('a Run on Codex', () => {
     expect(agents.map((span) => [span.name, span.links.ticket ?? null])).toEqual([['impl_01', 'e/01']])
   })
 })
+
+// ── the Auto-approval decisions of a Run (worfy-auto-approve ticket 08) ──────
+
+describe('the Auto-approval decisions of a Run', () => {
+  it('come with its view, the command as the Journal masked it; with one in Shadow, the Project\'s Shadow decisions so far; none — no field', async () => {
+    const data = await folder('data')
+    const project = 'p-aa'
+    const runOn = (day: string, suffix: string) => makeRunId(new Date(`2026-11-${day}T22:00:00.000Z`), suffix)
+    const decision = (id: string, day: string, mode: string, outcome: string, more: Record<string, unknown> = {}) => ({
+      at: `2026-11-${day}T22:30:00.000Z`,
+      run: id,
+      project,
+      epic: 'e',
+      kind: 'auto-approval',
+      session: 's-1',
+      vendor: 'claude',
+      mode,
+      outcome,
+      rule: 'files-inside-roots',
+      tool: 'Bash',
+      targets: ['~/repo/build'],
+      ...more,
+    })
+    const lines = (id: string, day: string, rest: Record<string, unknown>[], projectId = project) => [
+      { at: `2026-11-${day}T22:00:00.000Z`, run: id, project: projectId, epic: 'e', kind: 'run-started' },
+      ...rest,
+      { at: `2026-11-${day}T23:00:00.000Z`, run: id, project: projectId, epic: 'e', kind: 'run-stopped', reason: 'tickets-done' },
+    ]
+    const [first, second, on, none, other] = [runOn('01', 'aaaaaa'), runOn('02', 'bbbbbb'), runOn('03', 'cccccc'), runOn('04', 'dddddd'), runOn('05', 'eeeeee')]
+    await writeJournal(data, first, lines(first, '01', [decision(first, '01', 'shadow', 'would-allow'), decision(first, '01', 'shadow', 'hard-deny', { rule: 'hard:ssh' })]))
+    await writeJournal(data, second, lines(second, '02', [decision(second, '02', 'shadow', 'would-deny', { rule: 'not-judged', command: 'GH_TOKEN=*** gh pr list' })]))
+    await writeJournal(data, on, lines(on, '03', [decision(on, '03', 'on', 'park'), decision(on, '03', 'on', 'park-expired')]))
+    await writeJournal(data, none, lines(none, '04', []))
+    // Another Project's Shadow decision is not this Project's.
+    await writeJournal(data, other, lines(other, '05', [decision(other, '05', 'shadow', 'would-allow')].map((each) => ({ ...each, project: 'p-other' })), 'p-other'))
+    const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: data, WORFY_CLAUDE_HOME: await folder('claude') }, harnessHome: await folder('harness'), projectRoot: () => base, profile: async () => profileOf({ finish: 'local-green' }), gh: async () => '[]', running: () => false, git: noGit })
+
+    const shadow = await recorder.view(project, second)
+    expect(shadow.autoApproval).toEqual({ decisions: [{ at: '2026-11-02T22:30:00.000Z', mode: 'shadow', outcome: 'would-deny', rule: 'not-judged', tool: 'Bash', targets: ['~/repo/build'], command: 'GH_TOKEN=*** gh pr list' }], shadowSoFar: 3 })
+    expect((await recorder.view(project, on)).autoApproval).toEqual({ decisions: [expect.objectContaining({ outcome: 'park' }), expect.objectContaining({ outcome: 'park-expired' })], shadowSoFar: null })
+    expect(await recorder.view(project, none)).not.toHaveProperty('autoApproval')
+  })
+})

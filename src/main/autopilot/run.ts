@@ -164,6 +164,7 @@ import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failure'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
+import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
 import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
 import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
@@ -222,6 +223,8 @@ export interface RunSession {
   releaseParked?(): void
   /** How many requests wait parked for the owner (Session.parkedRequests); a task with one is waiting, not stalled. */
   parkedRequests?(): number
+  /** A notice of worfy's own in the Session's view (Session.notice): the Auto-approval line at the end of a run. */
+  notice?(text: string): void
 }
 
 /**
@@ -637,6 +640,8 @@ class Run {
   vendor: string = STORED_LIMITS_VENDOR
   /** The policy's side of the run (worfy-auto-approve ticket 04); null without Auto-approval, or when it could not open. */
   approval: RunApproval | null = null
+  /** The policy's decisions so far (`auto_approval` events): the line in the Orchestrator's chat at the end (worfy-auto-approve ticket 08). */
+  readonly decisions: Judged[] = []
   message: string | null = null
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
@@ -1259,6 +1264,7 @@ export class Autopilot {
         // A decision is a sign of life of whoever asked: the limit of the tasks starts over at once, so a park
         // that just ended is not overtaken by that limit (worfy-auto-approve ticket 07).
         this.tasksTimer(run, true)
+        run.decisions.push({ mode: event.mode, outcome: event.outcome })
         void run.enqueue(() => this.write(run, autoApprovalLine(event, run.session?.id ?? null, run.vendor)))
         return
       case 'background_tasks': {
@@ -2221,6 +2227,7 @@ export class Autopilot {
       ...(lastText === null ? {} : { lastText }),
       ...(run.actual.waves === 0 ? {} : { actual: { ...run.actual, share: millionths(run.actual.share) } }),
     })
+    this.noticeDecisions(run)
     this.dropQueuedWave(run)
     if (reason === 'user-force-stop' || reason === 'session-error') run.interrupted = tickets ?? []
     if (reason === 'user-force-stop') {
@@ -2253,6 +2260,20 @@ export class Autopilot {
     this.last.set(run.projectId, this.snapshot(run))
     this.publish(run.projectId)
     run.finish()
+  }
+
+  /**
+   * The one line of the policy's decisions in the Orchestrator's chat, once, at the end of the run, before the
+   * Orchestrator is given back (worfy-auto-approve ticket 08): none without a decision.
+   */
+  private noticeDecisions(run: Run): void {
+    const line = autoApprovalChatLine(run.decisions)
+    if (line === null || run.session === null) return
+    try {
+      run.session.notice?.(line)
+    } catch (error) {
+      console.warn(`[autopilot] ${run.projectId}: could not show the Auto-approval line in the Orchestrator's chat`, error)
+    }
   }
 
   /**

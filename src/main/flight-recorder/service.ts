@@ -27,17 +27,21 @@
 //   while the Run is open, and so is the parse of each file (TranscriptParses of transcripts.ts,
 //   ticket 27), which takes only the lines that came since the last step. A Run that is over is read
 //   and parsed whole, once per computation, and kept nowhere.
+// - The Auto-approval decisions of the Run (worfy-auto-approve ticket 08) come with its view when it has any;
+//   with one in Shadow the view also counts the Shadow decisions of every Run of the Project so far (Q2),
+//   from their Journals as listRuns reads them.
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { isShadowDecision } from '../../shared/autopilot/auto-approval-summary'
 import { isRunId, journalFileName } from '../../shared/autopilot/journal'
 import type { CrossMachineGate } from '../../shared/flight-recorder/from-github'
 import { githubFacts, githubNoAnswer, type GithubFacts } from '../../shared/flight-recorder/from-github'
 import { journalFacts, type JournalFacts } from '../../shared/flight-recorder/from-journal'
 import { buildTimeline, type LostFact, type RunFacts, type StageEventFact } from '../../shared/flight-recorder/spans'
 import { summarize } from '../../shared/flight-recorder/summary'
-import type { RunGithub, RunListItem, RunView } from '../../shared/ipc/runs'
+import type { RunAutoApproval, RunGithub, RunListItem, RunView } from '../../shared/ipc/runs'
 import type { PipelineStage } from '../../shared/workflow/pipeline'
-import { journalDir, listRuns } from '../autopilot/journal'
+import { journalDir, listRuns, readRecentRuns } from '../autopilot/journal'
 import type { ClientId } from '../clients'
 import { readNewLines, type TailCursor } from '../claude-home/tail'
 import { marksInFile, gitRunner, type GitRunner } from '../workflow/stages'
@@ -583,7 +587,20 @@ export class FlightRecorder {
     const read = await originOf()
     const repoUrl = read.url === null ? null : repoPageUrl(read.url)
     const view: RunView = { projectId, run, epic: journal.epic, timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
+    const autoApproval = await this.autoApproval(projectId, journal)
+    if (autoApproval !== null) view.autoApproval = autoApproval
     return { view, profile, origin: read }
+  }
+
+  /** The Run's Auto-approval decisions and, with one in Shadow, the Project's Shadow decisions so far; null without a decision. */
+  private async autoApproval(projectId: string, journal: JournalFacts): Promise<RunAutoApproval | null> {
+    const decisions = journal.autoApproval
+    if (decisions.length === 0) return null
+    if (!decisions.some(isShadowDecision)) return { decisions, shadowSoFar: null }
+    // Every Run of the Project, this one with them: the Journals the schema reads, a line of another shape left out.
+    const runs = await readRecentRuns(projectId, { env: this.env, limit: Number.POSITIVE_INFINITY })
+    const shadowSoFar = runs.reduce((sum, events) => sum + events.filter((event) => event.kind === 'auto-approval' && isShadowDecision(event)).length, 0)
+    return { decisions, shadowSoFar }
   }
 }
 

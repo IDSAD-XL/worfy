@@ -47,11 +47,16 @@
 // - The Vendor of the Orchestrator (`run-started.vendor`, worfy-multi-vendor ticket 37): the reader of
 //   the transcripts reads a Run of another Vendor than Claude through that Vendor's driver (ticket 40).
 //   None, or a Vendor this build does not know, reads as none: Claude.
+// - The decisions of Auto-approval (`auto-approval`, worfy-auto-approve ticket 08), for the block «Auto-approval»
+//   of Run history: every such line of the Run's file, those after run-stopped too (the Session stays under the
+//   Run's policy while its tasks end), as the line has it — the command stays as the Journal masked it. A line of
+//   another shape (journalEventSchema of src/shared/autopilot/journal.ts) is left out of the list.
+import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import type { AutopilotStopReason } from '../autopilot/cycle'
-import { RUN_STARTED_BY } from '../autopilot/journal'
+import { COMMAND_MAX, RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES, type RunMode } from '../autopilot/run-mode'
 import { isVendorId, type VendorId } from '../vendors/vendor'
-import type { OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
+import type { AutoApprovalDecisionFact, OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
 import { parseJournal, walkRun, type JournalEvent } from './journal-walk.mjs'
 
 type Iso = string
@@ -110,6 +115,8 @@ export interface JournalFacts {
   retryCauses: RetryCauseFact[]
   waits: WaitFact[]
   orchestratorMarks: OrchestratorMarkFact[]
+  /** The `auto-approval` lines of the Run's file, in file order (worfy-auto-approve ticket 08). */
+  autoApproval: AutoApprovalDecisionFact[]
   /** The lines left out: not JSON, an unknown kind, fields that do not match, another Run's. */
   skipped: number
 }
@@ -166,6 +173,28 @@ function actualOf(value: unknown): JournalActual | null {
   const { share, waves, counted } = value as Record<string, unknown>
   if (!isShare(share) || !isCount(waves) || waves === 0 || !isCount(counted) || counted > waves) return null
   return { share, waves, counted }
+}
+
+const isText = (value: unknown): value is string => typeof value === 'string' && value !== ''
+
+/** An `auto-approval` line as a decision; null when a field has another shape than the Journal's schema gives it. */
+function decisionOf(event: JournalEvent): AutoApprovalDecisionFact | null {
+  const { mode, outcome, rule, tool, targets, command, agent } = event
+  if (!(AUTO_APPROVAL_LINE_MODES as readonly unknown[]).includes(mode) || !(AUTO_APPROVAL_OUTCOMES as readonly unknown[]).includes(outcome)) return null
+  if (!isText(rule) || typeof tool !== 'string') return null
+  if (!Array.isArray(targets) || !targets.every((target) => isText(target) && target.length <= COMMAND_MAX)) return null
+  if (command !== undefined && (typeof command !== 'string' || command.length > COMMAND_MAX)) return null
+  if (agent !== undefined && !isText(agent)) return null
+  return {
+    at: iso(event.at),
+    mode: mode as AutoApprovalDecisionFact['mode'],
+    outcome: outcome as AutoApprovalDecisionFact['outcome'],
+    rule,
+    tool,
+    targets: targets as string[],
+    ...(command === undefined ? {} : { command }),
+    ...(agent === undefined ? {} : { agent }),
+  }
 }
 
 /** A full timestamp with a zone: a moment. A date, or a time without a zone, is none. */
@@ -406,7 +435,12 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     wait.tickets = waves.find((wave) => Date.parse(wave.startedAt) >= Date.parse(wait.start))?.tickets ?? []
   }
 
-  const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, skipped }
+  const autoApproval = events.flatMap((event) => {
+    const decision = event.kind === 'auto-approval' ? decisionOf(event) : null
+    return decision === null ? [] : [decision]
+  })
+
+  const facts: JournalFacts = { run, epic, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped }
   // Another value of `by` reads as none (the run-started header of src/shared/autopilot/journal.ts).
   const by = (RUN_STARTED_BY as readonly unknown[]).includes(runStarted?.by) ? (runStarted?.by as string) : undefined
   if (by !== undefined) facts.by = by

@@ -1,6 +1,7 @@
 // The facts of a Run: the contract between the readers of the sources (worfy-flight-recorder
 // tickets 13–16), the service that gathers them (ticket 17) and the span model (spans.ts), with the
 // vocabulary they share. Pure types and constants: no Node, no DOM.
+import type { AUTO_APPROVAL_LINE_MODES, AutoApprovalOutcome } from '../agent/auto-approval'
 import type { MarkVerdict, PipelineStage } from '../workflow/pipeline'
 
 // ── the vocabulary ───────────────────────────────────────────────────────────
@@ -64,6 +65,9 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // | `turns`              | the Orchestrator's transcript (14)                                     |
 // | `lost`               | the reader of the source that is gone: 14 transcripts, 15 GitHub, 16 gate logs and branches |
 // | `orchestratorMarks`  | Journal (13): `refused-dialog`, `human-input`                         |
+//
+// Beside RunFacts the Journal gives the Run's Auto-approval decisions (AutoApprovalDecisionFact,
+// worfy-auto-approve ticket 08): the service puts them in the view, the span model does not read them.
 //
 // No reader needs another source to fill its part: a gate run names its `sha` or `worktree`, and the
 // model finds the Ticket (the sha of the Ticket's events and work, the worktree of its agents); a
@@ -260,6 +264,28 @@ export interface OrchestratorMarkFact {
   kind: 'refused-dialog' | 'human-input'
   at: Iso
   text: string
+}
+
+/**
+ * A decision of the approval policy: an `auto-approval` line of the Journal (worfy-auto-approve ticket 08), as
+ * the line has it — the command and the targets already shortened and cleaned when the run wrote them
+ * (journalCommand, journalTarget of src/shared/autopilot/journal.ts). Not a part of RunFacts: no span is
+ * built from it; Run history lists it in the block «Auto-approval» (RunView.autoApproval).
+ */
+export interface AutoApprovalDecisionFact {
+  at: Iso
+  mode: (typeof AUTO_APPROVAL_LINE_MODES)[number]
+  outcome: AutoApprovalOutcome
+  /** The id of the rule that decided. */
+  rule: string
+  /** The tool asked for. */
+  tool: string
+  /** The paths judged, the home folder as `~`. */
+  targets: readonly string[]
+  /** A Bash command as the Journal keeps it; absent for other tools. */
+  command?: string
+  /** The Subagent that asked; absent for the Session's own turn. */
+  agent?: string
 }
 
 /** Everything a timeline is built from. */

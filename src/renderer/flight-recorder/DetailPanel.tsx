@@ -11,8 +11,14 @@
 //
 // «Retry» (`runs.retry`, ticket 17) reads gh at once; its answer is the new timeline, which replaces the one on
 // screen, so «GitHub did not answer» goes once gh answers.
+//
+// Under the panel, whatever is selected, the block «Auto-approval» of the Run (worfy-auto-approve ticket 08): the
+// counters of its decisions by mode (`would-*` for Shadow), with Shadow «Shadow: N decisions so far» over every
+// Run of the Project, and the list — time, outcome, rule, tool, targets, the command as the Journal masked it.
+// No block for a Run without a decision.
 import { useState, type ReactNode } from 'react'
 import { create } from 'zustand'
+import { autoApprovalCounts, ON_COUNTERS, SHADOW_COUNTERS } from '../../shared/autopilot/auto-approval-summary'
 import { type FactSource, type Span } from '../../shared/flight-recorder/spans'
 import { selfTime } from '../../shared/flight-recorder/summary'
 import type { RunView } from '../../shared/ipc/runs'
@@ -381,8 +387,84 @@ function Source({ span, view }: { span: Span; view: RunView }) {
   )
 }
 
-/** The panel at the bottom of the screen; a hint while no span is selected. */
+/** «allow 3 · deny 1 · park 0 · hard-deny 0»: one mode's counters, in the order the chat names them. */
+function Counters({ mode, counts }: { mode: 'on' | 'shadow'; counts: Readonly<Record<string, number>> }) {
+  const names = mode === 'on' ? ON_COUNTERS : SHADOW_COUNTERS
+  return (
+    <span data-testid={`run-history-auto-approval-${mode}`}>
+      {mode === 'on' ? 'On' : 'Shadow'}:{' '}
+      {names.map((name, index) => (
+        <span key={name}>
+          {index > 0 ? ' · ' : ''}
+          {name} <b>{counts[name] ?? 0}</b>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** The block «Auto-approval» of the Run; nothing for a Run without a decision. */
+export function AutoApprovalBlock({ view }: { view: RunView }) {
+  const approval = view.autoApproval
+  if (approval === undefined || approval.decisions.length === 0) return null
+  const { on, shadow } = autoApprovalCounts(approval.decisions)
+  return (
+    <section className="w-fr-approval" data-testid="run-history-auto-approval" aria-label="Auto-approval">
+      <div className="w-fr-approval__head">
+        <b>Auto-approval</b>
+        {on !== null ? <Counters mode="on" counts={on} /> : null}
+        {shadow !== null ? <Counters mode="shadow" counts={shadow} /> : null}
+        {approval.shadowSoFar !== null ? (
+          <span className="w-fr-muted" data-testid="run-history-auto-approval-so-far" title="Every Run of the Project so far: switch to On once the would-allow list looks right">
+            Shadow: {approval.shadowSoFar} decisions so far
+          </span>
+        ) : null}
+      </div>
+      <table className="w-fr-approval__table">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Outcome</th>
+            <th scope="col">Rule</th>
+            <th scope="col">Tool</th>
+            <th scope="col">Targets</th>
+            <th scope="col">Command</th>
+          </tr>
+        </thead>
+        <tbody>
+          {approval.decisions.map((decision, index) => (
+            <tr key={index} data-testid="run-history-auto-approval-decision">
+              <td>{clock(Date.parse(decision.at))}</td>
+              <td>{decision.outcome}</td>
+              <td>
+                <code>{decision.rule}</code>
+              </td>
+              <td>
+                {decision.tool}
+                {decision.agent === undefined ? null : <span className="w-fr-muted"> ({decision.agent})</span>}
+              </td>
+              <td>{decision.targets.length === 0 ? '—' : decision.targets.join(', ')}</td>
+              <td>{decision.command === undefined ? '—' : <code>{decision.command}</code>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+/** The panel at the bottom of the screen with the block «Auto-approval» under it. */
 export function DetailPanel({ view }: { view: RunView }) {
+  return (
+    <>
+      <SpanDetails view={view} />
+      <AutoApprovalBlock view={view} />
+    </>
+  )
+}
+
+/** The details of the selected span; a hint while none is selected. */
+function SpanDetails({ view }: { view: RunView }) {
   const selected = useRunHistory((state) => state.selected)
   const [tab, setTab] = useState<Tab>('overview')
   const [error, setError] = useState<string | null>(null)
