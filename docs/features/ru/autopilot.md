@@ -127,7 +127,7 @@ when it is free». Без диалога инструмент отказывае
 | `wave too long for window · resumes 23:00` | Run mode — Start window: следующая Wave обычно идёт дольше, чем осталось от окна. |
 | `stopping · 2 tickets in work` | Пришёл Stop. Два Ticket-а текущей Wave в работе. Если таких нет, строка говорит `stopping`. |
 | `stopped: no ready wave` | Run окончен, с причиной (см. ниже). |
-| `stopped: turn-error · 2 background tasks still run` | Run окончен и сразу отдал Orchestrator человеку; две его фоновые задачи ещё идут там. |
+| `stopped: turn error · 2 background tasks still run` | Run окончен и сразу отдал Orchestrator человеку; две его фоновые задачи ещё идут там. |
 
 Пока идёт run:
 
@@ -333,10 +333,24 @@ Orchestrator заново не запускается, а background task-и з�
 
 #### После любой другой остановки
 
-Orchestrator сразу возвращается к человеку, когда ничего не идёт. Если turn или background task ещё живы, состояние уже
-говорит `stopped`, но Orchestrator остаётся unattended, экран остаётся включённым, пока они не закончатся, а новый старт
-получает отказ. Task-и в это время могут продолжать работу. После последнего task-а Orchestrator ждёт 30 секунд turn,
-который запускает его task-notification, а затем возвращается.
+Orchestrator сразу возвращается к человеку. Если ничего не идёт, он заново запускается как attended. Если turn или
+background task ещё живы, он не перезапускается — это убило бы их: тот же процесс продолжает работу как Session
+человека, в permission mode, сохранённом для Node (на Codex — со следующего turn-а). Turn и task-и работают дальше там,
+turn-ы их task-notification идут в Session человека, а их запросы разрешений — человеку. Journal сразу получает
+`orchestrator-returned` с ещё живыми task-ами. Состояние говорит, например, `stopped: turn error · 2 background tasks
+still run`, а экран остаётся включённым, пока turn и task-и не закончатся. Сообщение, которое Start now отложил,
+возвращается в очередь человека, удержанным. Новый run в это время ждёт Orchestrator (`orchestrator-busy`), как любой
+run, который застал его занятым; Start now останавливает task-и.
+
+После **Stop autopilot**, если turn или background task ещё живы, и после любой остановки, при которой Session не
+удалось сменить (агент отказал в смене permission mode), действует прежний порядок: состояние уже говорит `stopped`, но
+Orchestrator остаётся unattended, экран остаётся включённым, пока они не закончатся. Task-и в это время могут
+продолжать работу. После последнего task-а Orchestrator ждёт 30 секунд turn, который запускает его task-notification, а
+затем возвращается.
+
+Новый run может стартовать во время этого ожидания, с кнопки Autopilot или через `autopilot_start`, если turn уже не
+идёт. Он забирает тот же unattended Orchestrator как есть. Orchestrator не перезапускается, поэтому его background task-и
+продолжают работу. Они становятся task-ами нового run-а, а journal старого run-а больше не получает строк.
 
 #### Почему run останавливается
 
@@ -511,8 +525,10 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 4. События Session (`prompt`, `result`, `state`, `background_tasks`, `refused_dialog`) и изменения workflow становятся
    событиями цикла, каждое со свежим чтением workflow, где циклу оно нужно. Каждый эффект идёт в journal или в Session.
 5. `end` пишет `run-stopped`, убирает сообщения run-а из очереди и возвращает Orchestrator через `setUnattended`. Если turn
-   или task живы, это ждёт их конца, а `linger` следит за этим для journal. Force stop идёт вместо этого через
-   `interruptAndGiveBack`.
+   или task живы, остановка по причине самого run-а отдаёт его на ходу (`giveBackAsItRuns`: `Session.becomeAttended`
+   переводит живой процесс в настройки Node), сразу пишет `orchestrator-returned`, а `watchReturned` держит keep-awake и
+   счёт task-ов в строке состояния до их конца. После Stop autopilot (`waitForWork`) или при отказе в этой смене возврат
+   ждёт их конца, а `linger` следит за этим для journal. Force stop идёт вместо этого через `interruptAndGiveBack`.
 6. Каждое новое состояние идёт во все окна как `autopilot.changed`. Клиент оставляет состояние с наибольшей revision.
 
 Остальные каналы — `autopilot.stop`, `autopilot.forceStop`, `autopilot.state` и `autopilot.estimate`. Запрос состояния

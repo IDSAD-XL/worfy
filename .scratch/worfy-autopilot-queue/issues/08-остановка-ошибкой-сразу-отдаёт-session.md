@@ -73,6 +73,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
   каждый запрос), `src/main/vendors/session.ts` (doc `SessionStart.unattended`), `src/shared/autopilot/journal.ts`
   (`tasks` у `orchestrator-returned`), `src/shared/ipc/autopilot.ts` (строка остановленного Run-а),
   `src/main/ipc/autopilot.ts` (4-й аргумент `setUnattended`); test-ы `test/contract/autopilot-retry.test.ts`,
+  `autopilot-wiring.test.ts` (раунд 2: проводка `waitForWork`),
   `autopilot-faults-api.test.ts`, `autopilot-faults-setup.ts`, `autopilot-limits-switch.test.ts`, `orchestrator.test.ts`,
   `test/unit/autopilot-journal.test.ts`, `autopilot-wait-line.test.ts`, e2e `test/e2e/autopilot.spec.ts` (test
   worfy-polish 50: после `turn-error` при задачах новый Run ждёт Orchestrator); feature pages `docs/features/autopilot.md` и
@@ -114,3 +115,31 @@ contract test ждал attended. Mutation testing (каждая правка о�
 - Строка «почему смена не удалась» не сделана: пункты «Готово, когда» её не требуют; отказ виден в логе (`warn`).
 - Сценарий `autopilot-faults-api`: новый старт после ошибки API теперь ждёт занятый Orchestrator и паузу
   `TASKS_GRACE_MS`, а не перехватывает его.
+
+### Раунд 2
+
+По вердикту `REJECTED` в PR #1512:
+
+- Отдача на месте теперь возвращает человеку и очередь, которую отложил Start now (`entry.kept`): сообщения встают в
+  очередь Session первыми и удержанными, `kept` очищается (`attendInPlace`, `src/main/agent/orchestrator.ts`). Раньше
+  они брались только при перезапуске attended, которого после отдачи на месте нет, и пропадали при выходе. Contract
+  test: Start now с сообщением в очереди → `turn-error` при живых задачах → сообщение в очереди человека, удержано;
+  следующий Run его не возвращает второй раз.
+- Отказ в смене режима, когда последняя задача кончилась во время попытки: перезапуск ждёт паузу `returnGraceMs`
+  (`relaunchAfterGrace`), чтобы не оборвать turn её task-notification; без задач — сразу, как раньше.
+- Проводка `waitForWork` через `sharedAutopilot` проверена в `test/contract/autopilot-wiring.test.ts`.
+- Отдельные test-ы: политика Run-а отпускается при отдаче (`mode()` — `off`, окружение пустое, папка остаётся); следующий
+  процесс отданной Session стартует attended и как Orchestrator.
+- Комментарий `becomeAttended`: при отказе на effort процесс остаётся в режиме Node-а, но unattended (`pushSettings` идёт
+  model → mode → effort). Откат режима не делался.
+- Страницы `docs/features/autopilot.md` и `ru/autopilot.md`: «После любой другой остановки» описывает отдачу на месте,
+  прежний текст оставлен для Stop autopilot и для неудачной смены; строка `stopped: turn error · …`; строка решений
+  Auto-approval и шаг 5 потока данных. ADR-0029, поправка: что переживает смену на месте, и задача, ждущая человека
+  ночью.
+
+Сначала падающие: test очереди Start now и test паузы — красные на коде раунда 1. Mutation testing (правка откатывалась,
+test падал): нет `adoptQueue` — 1; `kept` не очищается — 1; `options` не передаётся в проводке — 1; `relaunchIfFree`
+вместо паузы — 1; нет `closeApproval(run, false)` при отдаче — 1; launch без `orchestrator` — 1. Выжили и не покрыты:
+`stopTimers` и `unobserveSession` в начале `giveBackAsItRuns` (мутанты N25, N26 ревью): без них все test-ы
+`autopilot-background` зелёные, в том числе отказ, во время которого задачи кончаются; дешёвого сценария, где они
+нужны, не нашлось.

@@ -127,7 +127,7 @@ The line above the button shows the state of the run:
 | `wave too long for window · resumes 23:00` | The Run mode is Start window: the next Wave usually takes longer than what is left of the window. |
 | `stopping · 2 tickets in work` | A Stop came. Two Tickets of the current Wave are in work. Without any it says `stopping`. |
 | `stopped: no ready wave` | The run is over, with its reason (see below). |
-| `stopped: turn-error · 2 background tasks still run` | The run is over and gave the Orchestrator back to a person at once; two of its background tasks still run there. |
+| `stopped: turn error · 2 background tasks still run` | The run is over and gave the Orchestrator back to a person at once; two of its background tasks still run there. |
 
 While a run goes on:
 
@@ -161,11 +161,14 @@ While a run goes on:
   the answer to the agent; with no answer in 60 minutes, or when the run stops, the request is refused with a hint, and
   while the run is stopping a request is not parked but refused at once. A parked request keeps its background task
   from counting as stalled. The journal gets `park` when it is parked, then `park-answered` or `park-expired`.
-  When the run is over, the Orchestrator's chat gets one line that counts the run's decisions: at the stop when
-  nothing is left running, else once the run's turn and background tasks have ended and the Orchestrator is back, the
-  app quits, or the next run takes the Session over. A request of those tasks after the stop is judged by the run's
-  policy and journaled as during the run, and the line counts it; once the next run has opened its own policy, the
-  requests are judged by that policy and belong to the next run. The line reads `Auto-approval: allowed 3,
+  When the run is over, the Orchestrator's chat gets one line that counts the run's decisions. It comes at the stop when
+  nothing is left running, and also when the run gives the Orchestrator back to a person with its turn or background
+  tasks still running ([after any other stop](#after-any-other-stop)): their later requests go to the person, not to the
+  policy. After Stop autopilot with a turn or tasks still running, and when the give-back could not change the Session,
+  the line comes once the run's turn and background tasks have ended and the Orchestrator is back, the app quits, or the
+  next run takes the Session over. A request of those tasks after such a stop is judged by the run's policy and
+  journaled as during the run, and the line counts it; once the next run has opened its own policy, the requests are
+  judged by that policy and belong to the next run. The line reads `Auto-approval: allowed 3,
   denied 1, parked 0` for On, `Shadow: would allow 2, would deny 1, would park 0` for Shadow, with `hard-denied N` added
   when there was a hard deny, and both, On first, when the mode was switched during the run. The end of a park is not
   counted again. A run with no decision gets no line. Run history lists the decisions
@@ -409,10 +412,20 @@ Orchestrator is not started again, and background tasks end with the app.
 
 #### After any other stop
 
-The Orchestrator goes back to the person at once when nothing runs. If a turn or a background task is still alive, the status
-already says `stopped`, but the Orchestrator stays unattended and the display stays on until they end. The tasks may keep
-working during that time. After the last task the Orchestrator waits 30 seconds for the turn its task-notification starts,
-then goes back.
+The Orchestrator goes back to the person at once. When nothing runs, it is started again attended. If a turn or a
+background task is still alive, it is not started again, which would kill them: the same process goes on as the
+person's Session, in the permission mode the Node keeps (on Codex from its next turn). The turn and the tasks keep
+working there, their task-notification turns run in the person's Session, and their permission requests go to the
+person. The journal gets `orchestrator-returned` at once, with the tasks still alive. The status says, for example,
+`stopped: turn error · 2 background tasks still run`, and the display stays on until the turn and the tasks end. A
+message Start now kept aside comes back to the person's queue, held. A new run during that time waits for the
+Orchestrator (`orchestrator-busy`) like any run that finds it busy; Start now stops the tasks.
+
+After **Stop autopilot**, should a turn or a background task still be alive, and after any stop whose give-back could
+not change the Session (the agent refused the change of permission mode), the old way holds: the status already says
+`stopped`, but the Orchestrator stays unattended and the display stays on until they end. The tasks may keep working
+during that time. After the last task the Orchestrator waits 30 seconds for the turn its task-notification starts, then
+goes back.
 
 A new run may start during that wait, from the Autopilot button or from `autopilot_start`, unless a turn is still running.
 It takes the same unattended Orchestrator over as it is. The Orchestrator is not started again, so its background tasks
@@ -593,7 +606,10 @@ page.
 4. Events of the Session (`prompt`, `result`, `state`, `background_tasks`, `refused_dialog`) and workflow changes become cycle events,
    each with a fresh read of the workflow where the cycle needs one. Each effect goes to the journal or to the Session.
 5. `end` writes `run-stopped`, takes the run's messages out of the queue, and gives the Orchestrator back through `setUnattended`. With
-   a turn or a task alive that waits until they end, and `linger` follows it for the journal. A Force stop goes through
+   a turn or a task alive, a stop of the run's own gives it back as it runs (`giveBackAsItRuns`: `Session.becomeAttended`
+   changes the live process to the Node's settings), writes `orchestrator-returned` at once, and `watchReturned` keeps
+   keep-awake and the status line's task count until they end. After Stop autopilot (`waitForWork`), or when that change is
+   refused, the give-back waits until they end, and `linger` follows it for the journal. A Force stop goes through
    `interruptAndGiveBack` instead.
 6. Every new state goes to every window as `autopilot.changed`. A client keeps the state with the highest revision.
 
