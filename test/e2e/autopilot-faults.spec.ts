@@ -7,6 +7,7 @@ import { checkRecovery, type StatusWrite } from '../autopilot-invariants'
 import { EPIC, files, ghCalls, journals, kindsOf, messages, prepareWorld, releaseTurn, setStatus } from './autopilot-world'
 import { endApp } from './end-app'
 import { launchApp } from './helpers'
+import { startAutopilot } from './autopilot-start'
 
 // Fault scenarios of an Autopilot Run in the built app (worfy-faults ticket 05; the scenarios table of
 // .scratch/worfy-faults/spec.md): the app killed with SIGKILL in the middle of a Wave and started
@@ -43,7 +44,7 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: not
   let killed = false
   try {
     const frame = frameOf(first.window)
-    await frame.getByTestId('action-autopilot').click()
+    await startAutopilot(frame.getByTestId('action-autopilot'))
     await expect(frame.getByTestId('autopilot-status')).toHaveText('Wave 1 · running')
     await expect.poll(() => messages(world.log)).toEqual([WAVE_1])
     writes.push(setStatus(world, 1, 'work'))
@@ -82,7 +83,7 @@ test('the app killed with SIGKILL in the middle of a Wave and started again: not
     expect(messages(world.log)).toEqual([WAVE_1])
 
     // The button starts a new Run, without a refusal; 01 is in work, so its Wave is 02 alone.
-    await autopilot.click()
+    await startAutopilot(autopilot)
     await expect(status).toHaveText('Wave 1 · running')
     await expect.poll(() => journals(world.dataDir).map(kindsOf)).toEqual([
       ['run-started', 'forecast', 'wave-started 1', 'ticket-status'],
@@ -125,7 +126,7 @@ test('GitHub out of reach for the whole Run: the Run goes through both Waves, th
     const status = frame.getByTestId('autopilot-status')
     await expect(autopilot).toHaveAttribute('aria-disabled', 'false')
 
-    await autopilot.click()
+    await startAutopilot(autopilot)
     await expect(status).toHaveText('Wave 1 · running')
     await expect(frame.getByTestId('action-stop-autopilot')).toHaveText('Stop autopilot')
     await expect.poll(() => messages(world.log)).toEqual([WAVE_1])

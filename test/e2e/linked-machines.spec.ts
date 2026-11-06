@@ -41,6 +41,7 @@ import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { ms } from '../time-scale'
+import { startAutopilot } from './autopilot-start'
 
 test.setTimeout(ms(120_000))
 
@@ -823,7 +824,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     // Autopilot started and stopped from A: B runs it, both windows show it. First, while every
     // camera is still where the Layout opens it, so the Epic frame is in view.
     const frame = (window: Page) => window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
-    await frame(a.window).getByTestId('action-autopilot').click()
+    await startAutopilot(frame(a.window).getByTestId('action-autopilot'))
     for (const window of [a.window, bWindow]) await expect(frame(window).getByTestId('autopilot-status')).toHaveText('Wave 1 · running', { timeout: ms(20_000) })
     await frame(a.window).getByTestId('action-autopilot-more').click()
     await a.window.getByTestId('action-force-stop-autopilot').click()

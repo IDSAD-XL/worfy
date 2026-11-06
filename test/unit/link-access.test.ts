@@ -185,6 +185,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'autopilot.state',
     // The estimate of a Wave's share of the week, read from the run journals (worfy-throughput ticket 40).
     'autopilot.estimate',
+    // The facts of the Start Autopilot window (worfy-autopilot-queue ticket 09): a read-only screen reads, the start stays write.
+    'autopilot.prepare',
     'bindings.get',
     'bindings.signals',
     // The Browser profiles of a Project: a read-only screen shows a frame's profile name (worfy-browser ticket 03).
