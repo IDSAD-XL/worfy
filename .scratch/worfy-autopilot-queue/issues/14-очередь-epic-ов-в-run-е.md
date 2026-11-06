@@ -1,7 +1,8 @@
 # 14 — Очередь Epic-ов в Run-е: Run, журнал и правка между Wave-ами
 
 Type: task
-Status: open
+Status: done 2026-11-06T20:29Z
+PR: #1523
 Blocked by: 07, 08, 12
 Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5; «Как работает» → «Очередь Epic-ов», «Run»; «Решения владельца», 17–21, 23; «ADR»; «Решено без владельца», 2, 4, 6, 8; [03](03-очередь-epic-ов.md), Q2–Q6, Q8
 
@@ -44,18 +45,26 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 - [ ] Contract test: очередь из двух Epic-ов — первый кончился (`done`), `epic-finished`, `epic-started` второго,
       Wave-ы второго; `run-stopped` один на весь Run.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Contract test: в первом Epic-е остался `blocked` `Waits: owner` — `epic-finished` `waits-owner`, второй идёт.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Contract test: `limits-timeout` и `no-progress` в первом Epic-е — весь Run стоп, второй не начат.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Contract test: второй Epic идёт на другой Machine (stub `linkedRuns`) — `elsewhere`, третий идёт.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Contract test: `editQueue` add/remove во время Wave — применено на её границе, `queue-changed`; убрать идущий —
       отказ.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Contract test: `epics` + `tickets` — отказ; старый вход `{ epic }` работает как сейчас.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
 - [ ] Новый ADR. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
+  - evidence: review pass · PR #1523 · - - · 8cead0f861bc6e3337a8f7253651637424e361bd
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42283474714 · ci - · 8cead0f861bc6e3337a8f7253651637424e361bd
 
 ## Тесты
 
