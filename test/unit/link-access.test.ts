@@ -252,6 +252,9 @@ describe('the read-or-write mark of `project` channels', () => {
     // The text of one Ticket file, for the focused Ticket (worfy-polish ticket 33), as docs.read.
     'tickets.read',
     'trash.list',
+    // The Work track of a Project over a period (worfy-work-track ticket 08): the Journals, the Harness
+    // state, the transcripts and git are read; gh only reads, as checks.get.
+    'workTrack.read',
     'workflow.close',
     'workflow.open',
   ]

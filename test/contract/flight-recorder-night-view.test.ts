@@ -57,7 +57,8 @@ describe('the night Run as the Run history screen gets it', () => {
       running: () => false,
       // The fixture's repository: its page gives the PR and commit links of the screen (RunView.repoUrl).
       git: async (_cwd, args) => (args.join(' ') === 'remote get-url origin' ? { code: 0, stdout: 'git@github.com:someone/worfy.git\n' } : { code: 128, stdout: '' }),
-      now: () => Date.parse('2026-11-01T10:00:00Z'),
+      // Past the 31 days the gate keeps a record (gate-logs.ts): the screen tests draw the label of gate logs gone.
+      now: () => Date.parse('2026-11-20T10:00:00Z'),
     })
     const view = runViewSchema.parse(await recorder.view(NIGHT_PROJECT, NIGHT_RUN))
     if (process.env.WORFY_WRITE_NIGHT_VIEW === '1') writeFileSync(VIEW_FILE, `${JSON.stringify(view, null, 1)}\n`)
