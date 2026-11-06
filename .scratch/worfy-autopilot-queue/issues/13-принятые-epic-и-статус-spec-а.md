@@ -1,8 +1,8 @@
 # 13 — Принятые Epic-и: статус spec-а в `epic-status` и список для «Run all accepted»
 
 Type: task
-Status: open
-Blocked by:
+Status: claimed 2026-11-06T09:43Z
+Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Очередь Epic-ов», «Принятые Epic-и»; «Решения владельца», 16; [03](03-очередь-epic-ов.md), Q1; ADR-0002 (worfy читает workflow через инструменты Harness-а)
 
 ## Что происходит

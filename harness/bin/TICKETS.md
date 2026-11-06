@@ -154,6 +154,17 @@ Where the epic is in the process: `/to-spec`, `/wayfinder`, `/to-tickets`, `/imp
 stored nowhere. It is a different axis from `State`: `Stage` is about the epic, `State` about a
 ticket.
 
+**Spec status** / **Accepted**
+The `Status:` line of an epic's `spec.md`: the first such line in the first paragraph after the
+leading headings, with the lines after it in that paragraph up to the next field (`Source:`), joined
+by spaces and cut to 300 characters. `epic-status --json` gives it as `specStatus` of an epic that
+has a `spec.md` (null without the line), next to `acceptedAt`: the first `YYYY-MM-DD` of the line
+when the line says the owner accepted the spec, otherwise null. What counts as "accepted" are the
+words of `lib/input-words.json` a line starts with (`specAccepted`, or `specAcceptedDecisions` with
+a word of `specAcceptedDecisionsWord` anywhere in the line); a line with such words and no date is not
+accepted. The line is the project's text, not a header `bin/ticket` writes: a project writes it in
+its own language, and its canonical form is the project's rule. The Stage line does not use it.
+
 **Blocked by**
 A ticket field. It is parsed into numbers only if EVERY item of the list starts with digits
 ("12, 14, 15", "01 — scaffold") or the whole value is a negation word ("none", "—", "None — can start

@@ -13,6 +13,14 @@ export const epicStatusEpicSchema = z.object({
   epic: z.string().min(1),
   hasSpec: z.boolean(),
   hasMap: z.boolean(),
+  /*
+   * The spec's Status line and the date the owner accepted it (harness/bin/TICKETS.md, "Spec status"). Optional:
+   * an epic without spec.md and an older Harness do not send them; absent reads as null.
+   */
+  /** The `Status:` line of spec.md, continuation lines joined, at most 300 characters; null without one. */
+  specStatus: z.string().nullable().optional(),
+  /** `YYYY-MM-DD`: the date of a Status line that says the owner accepted the spec; null otherwise. */
+  acceptedAt: z.string().nullable().optional(),
 })
 
 /** One Ticket in `epic-status --json`. */
