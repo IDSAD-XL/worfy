@@ -120,6 +120,12 @@ put_desc src/ab 'Folder ab: described again.'
 change src/ab/two.txt 'two, changed twice'
 stale_is "a commit in src/ab does not make src/a stale (a name prefix is not a folder)" "src/ab"
 put_desc src/ab 'Folder ab: described a third time.'
+# A description whose writer is still busy when code-map starts is read, not refused: code-map does not
+# touch process.stdin (which would make Node hold the pipe non-blocking) before its synchronous read,
+# so the read waits for the writer instead of failing with EAGAIN.
+{ sleep 1; printf '%s\n' 'Folder ab: written late.'; } | node "$CM" put src/ab -C "$R" >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" -eq 0 ] && sec src/ab | grep -qxF 'Folder ab: written late.' && ok "put reads a description that comes late on its pipe" \
+    || bad "put with a late writer: exit $rc; stderr: $(cat "$T/err")"
 
 # --- 6. A file moved out of a folder ------------------------------------------------------------------
 git -C "$R" mv src/b/three.txt docs/three.txt && git -C "$R" commit -qm "move three"

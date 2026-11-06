@@ -29,7 +29,8 @@
 // not break the session.
 //
 // For tests: CLAUDE_PROFILE_BIN replaces bin/profile; CLAUDE_GATE_CONFIG and
-// CLAUDE_PROFILES_DIR go to profile as they are. Tests: hooks/tests/session-hooks.test.sh.
+// CLAUDE_PROFILES_DIR go to profile as they are; CLAUDE_HOOK_STDIN_WAIT_MS shortens the wait for the
+// input (hook-stdin.mjs). Tests: hooks/tests/session-hooks.test.sh, test/contract/harness-hook-stdin.test.ts.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
@@ -37,18 +38,9 @@ import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 const DEFAULT_CAP = 20000
-
-// The hook JSON on stdin; "" when stdin is a terminal or cannot be read.
-function readStdin() {
-    if (process.stdin.isTTY) return ""
-    try {
-        return fs.readFileSync(0, "utf8")
-    } catch {
-        return ""
-    }
-}
 
 // The session directory: `cwd` of the hook JSON when it is a folder, else the current folder.
 function sessionDir(input) {
@@ -121,12 +113,13 @@ function capped(text, cap, file) {
     return `${cut}\n… truncated, full text: ${file || "the source file"}`
 }
 
-function main() {
+async function main() {
     // bin/profile of this plugin: the folder above hooks/, found from this script's real file.
     const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))
     const profileBin = process.env.CLAUDE_PROFILE_BIN || path.join(path.dirname(here), "bin", "profile")
 
-    const cwd = sessionDir(readStdin())
+    // The hook JSON on stdin (hook-stdin.mjs); "" when stdin is a terminal, cannot be read or sends nothing in time.
+    const cwd = sessionDir(await readStdin(firstByteWait(FIRST_BYTE_MS["session-start.mjs"], "CLAUDE_HOOK_STDIN_WAIT_MS")))
     const run = spawnSync(process.execPath, [profileBin, "-C", cwd, "--json"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
@@ -228,7 +221,7 @@ function main() {
 }
 
 try {
-    main()
+    await main()
 } catch (e) {
     process.stderr.write(`session-start: ${String(e?.message ?? e).split("\n")[0]}\n`)
 }
