@@ -195,7 +195,12 @@ function harness(options: HarnessOptions) {
     broadcast: () => undefined,
     publish: () => undefined,
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  /** While set, every read of the workflow waits for it: the reads of the run's end() take as long as the test likes. */
+  let readGate: Promise<void> | null = null
+  const workflow = async (root: string) => {
+    if (readGate !== null) await readGate
+    return (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
+  }
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
     settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),
@@ -277,11 +282,20 @@ function harness(options: HarnessOptions) {
   const state = () => autopilot.state(PROJECT)
   const live = () => timers.filter((timer) => !timer.cancelled)
   /** Turns the switch, as the Modes menu does: the store's change reaches every subscriber. */
+  /** Holds every read of the workflow from now on; answers the release. */
+  const holdReads = (): (() => void) => {
+    let release!: () => void
+    readGate = new Promise<void>((resolve) => (release = resolve))
+    return () => {
+      readGate = null
+      release()
+    }
+  }
   const setOn = (value: boolean): void => {
     on = value
     for (const listener of [...listeners]) listener()
   }
-  return { autopilot, orchestrators, registry, releases, listeners, tracker, timers, live, states, power, powerAtMessage, journal, kinds, messages, continuations, state, setOn }
+  return { autopilot, orchestrators, registry, releases, listeners, holdReads, tracker, timers, live, states, power, powerAtMessage, journal, kinds, messages, continuations, state, setOn }
 }
 
 type Harness = ReturnType<typeof harness>
@@ -526,6 +540,34 @@ describe('Autopilot, the Limits and the Auto-continue switch (worfy-retry ticket
     expect(h.live()).toEqual([])
     expect(h.continuations()).toEqual([])
     expect(await h.kinds()).not.toContain('resumed')
+  })
+
+  it('on: the switch turned off during a far wait, and a turn starting while the run ends: keep-awake is taken again for the turn the stop waits for (ADR-0029)', async () => {
+    const all = scriptLines(WEEKLY)
+    const second = all.findIndex((line, i) => i > 0 && line.fake === 'wait_message')
+    const lines = [...all.slice(0, second + 2), { fake: 'wait_release', name: 'person' }, ...all.slice(second + 2)]
+    const h = harness({ script: WEEKLY, lines, on: true })
+    await h.autopilot.start(PROJECT, EPIC)
+    await waitingFor(h)
+    expect(h.power).toEqual(['start', 'stop'])
+    const sessionId = h.registry.list()[0]!.sessionId
+    // The run's end reads the Tickets: held, so the turn starts while the run is already stopping.
+    const release = h.holdReads()
+    h.setOn(false)
+    await tick(100)
+    expect(h.state().status).not.toBe('stopped')
+    h.registry.get(sessionId).send('how is it going?')
+    await until(() => h.registry.get(sessionId).state === 'busy', 'the turn to start')
+    release()
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'limits-timeout' })
+    // The Orchestrator waits for the turn, and the Mac stays awake for it.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.power).toEqual(['start', 'stop', 'start'])
+    h.releases.release('person')
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+    await until(() => h.power.at(-1) === 'stop', 'keep-awake released after the turn')
+    expect(h.power).toEqual(['start', 'stop', 'start', 'stop'])
   })
 
   it("on: a person's turn during a far wait takes keep-awake while it runs", async () => {

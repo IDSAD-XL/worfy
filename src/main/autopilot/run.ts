@@ -2233,7 +2233,17 @@ export class Autopilot {
       // a stop during it may come before any task has started. The Session is read again here, after
       // the journal write: its turn may have ended meanwhile.
       const linger = reason !== 'app-quit' && run.session !== null && (this.liveTasks(run).length > 0 || inTurn(run.session.state))
-      if (linger) this.linger(run)
+      if (linger) {
+        // keep-awake released for a far Limits wait comes back for that turn or those tasks (worfy-retry ticket 05).
+        if (run.asleep) {
+          try {
+            run.awake?.start()
+          } catch (error) {
+            console.error(`[autopilot] ${run.projectId}: could not take keep-awake`, error)
+          }
+        }
+        this.linger(run)
+      }
       // On quit the Orchestrator closes with every Session: starting it again would start Claude Code.
       await this.release(run, reason !== 'app-quit', !linger)
     }
