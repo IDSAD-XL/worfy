@@ -54,20 +54,30 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
 
 - [ ] Contract test: Orchestrator в ходе — `start` отвечает состоянием `waitingFor: 'orchestrator'`, журнал
       `run-started`, `orchestrator-busy`; ход кончился — `orchestrator-free`, `wave-started`; Wave-команда ушла один раз.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Contract test: очередь из двух сообщений и две задачи — ждёт, пока очередь пуста и задач нет; новое сообщение
       человека во время ожидания продлевает ожидание.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Contract test: Cancel — `run-stopped` `start-cancelled`, Session не перезапускалась, сообщения на месте.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Contract test: Start now — `tasks-killed` `start-now` с задачами, Session unattended, Wave пошла; сообщения
       очереди не ушли в unattended Session и достались Session человека после остановки Run-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Contract test: Run того же Epic-а на другой Machine начался во время ожидания — `run-stopped` `start-refused`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Contract test: Run mode Start window — окно считается от `orchestrator-free` (часы test-а).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-wait.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] `test/contract/autopilot-start-tool.test.ts:592-654`: вместо «hint while a start waits» и «starts after this
       turn» — ожидание общим путём.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-start-tool.test.ts` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] e2e `test/e2e/autopilot.spec.ts:1161-1196` (toast отказа, worfy-polish 50) берёт за пример отказа Orchestrator в
       ходе: пример меняется на отказ, который остаётся (пустой шаблон «Run wave»), а Orchestrator в ходе даёт строку
       ожидания.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot.spec.ts` exit 0 · mac dev · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] Новый ADR и `## Amendments` в ADR-0029 и ADR-0091.
+  - evidence: commit pass · Autopilot: a run started while the Orchestrator is busy waits for it (worfy-autopilot-queue 07) · - - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b4b4fa6e4279723cfb7afde9f53809e3221476a0
 
 ## Тесты
 
@@ -94,3 +104,37 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2–3
   `docs/adr/0091-autopilot-from-chat.md`
 
 Только читать: `src/shared/flight-recorder/facts.ts`, `src/main/autopilot/chat-confirm.ts`.
+
+## Итог
+
+PR #1499. ADR-0099, `## Amendments` в ADR-0029 и ADR-0091. Старт при занятом Orchestrator-е (turn, очередь, живые
+background tasks) больше не отказ: Run заводится сразу (`run-started`, `orchestrator-busy`) и ждёт; состояние
+`waitingFor: 'orchestrator'` с `busy` и `waitingSince`, строка `waiting for the Orchestrator · N min`. Свободен —
+`orchestrator-free`, проверки заново, `setUnattended(true)`; отказ здесь — `run-stopped` `start-refused` с `message`.
+Cancel — Stop и Force stop на ожидающем Run-е (`start-cancelled`). Start now — канал `autopilot.startNow` →
+`Orchestrators.takeNow` (`tasks-killed` `start-now`, очередь человека откладывается и возвращается придержанной).
+Старт из чата — тем же путём: `startAfterTurn`, `whenIdle`, `orchestratorRefusal` удалены.
+
+Сначала падающий: до правки все новые contract test-ы `autopilot-wait.test.ts` падали с
+`The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot`, unit
+`autopilot-wait-line.test.ts` получал `waiting for limits`.
+
+Решено без владельца:
+
+- `startedAt` Run-а — время нажатия; Start window, budget и Limits смотрят на часы у Wave, то есть после
+  `orchestrator-free`.
+- Отдельного канала Cancel нет: его делает `autopilot.stop`; Force stop на ожидающем Run-е — тоже `start-cancelled`.
+- Ожидание кончается после паузы `TASKS_GRACE_MS` за последней задачей, чтобы не оборвать turn от task-notification.
+- В первую минуту строка без минут.
+- Исходы Flight Recorder: `start-cancelled` → `stopped`, `start-refused` → `failed`.
+- `ChatStartAnswer.kind` остаётся `'after-turn'` (его читает `chat-confirm.ts`, только чтение), текст новый.
+- Политика Auto-approval открывается при нажатии, действует с момента, когда Run берёт Orchestrator.
+
+Вне списка файлов: `src/shared/flight-recorder/from-journal.ts` (исходы новых причин, иначе typecheck),
+`src/shared/flight-recorder/journal-walk.mjs` (новые виды событий), test-ы `agent-send-autopilot`,
+`autopilot-background`, `autopilot-journal` (unit и contract), `flight-recorder-journal`, `link-access`.
+Feature pages и `CONTEXT.md` не правились (их правят открытые Ticket-ы worfy-auto-approve): готовый текст — в описании
+PR, раздел «Docs to add after worfy-auto-approve 10».
+
+Долг: кнопки Start now и Cancel в окне нет — только канал main; Flight Recorder ещё не показывает Wait
+`orchestrator-busy` (`facts.ts` — только чтение в этом Ticket-е).
