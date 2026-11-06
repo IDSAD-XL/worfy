@@ -23,7 +23,7 @@ import { openRun, readRun } from '../../src/main/autopilot/journal'
 import { Autopilot } from '../../src/main/autopilot/run'
 import { LayoutStore } from '../../src/main/layout/store'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { UNATTENDED_DENIED_MESSAGE, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
+import { DENIED_MESSAGE, UNATTENDED_DENIED_MESSAGE, unattendedDeniedMessage } from '../../src/main/vendors/claude/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
@@ -113,6 +113,8 @@ interface HarnessOptions {
   vendor?: 'codex'
   /** The whole environment the factory tells the Session its process starts with, as the SDK's does (QueryRequest.processEnv). */
   processEnv?: Record<string, string>
+  /** The owner's answer to each request parked on the Session's gate (worfy-auto-approve ticket 07); `deny` by default. */
+  answerParked?: 'allow' | 'deny'
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -211,6 +213,13 @@ function harness(options: HarnessOptions = {}) {
   registry.observe((sessionId, event) => {
     if (registry.get(sessionId).unattended) events.push(event)
   })
+  // The owner at the card of a parked request: it waits on the Session's gate until answered.
+  const parked: Extract<AgentEvent, { type: 'permission_request' }>[] = []
+  registry.observe((sessionId, event) => {
+    if (event.type !== 'permission_request' || event.parked === undefined) return
+    parked.push(event)
+    setTimeout(() => registry.get(sessionId).answerPermission(event.requestId, options.answerParked ?? 'deny'), 0)
+  })
   const runFile = (): string => {
     const dir = join(env.WORFY_DATA_DIR, 'autopilot')
     const runs = readdirSync(dir)
@@ -225,7 +234,7 @@ function harness(options: HarnessOptions = {}) {
     await autopilot.start(PROJECT, EPIC)
     await until(() => autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
   }
-  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests }
+  return { autopilot, registry, events, journal, runFile, answers, releases, env, runToEnd, requests, parked }
 }
 
 /** A text with what changes from run to run written as placeholders. */
@@ -274,13 +283,16 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', autoApproval: 'shadow' })
   })
 
-  it('On: a delete inside the Wave\'s worktree goes through, one outside every root is refused with a hint, a hard deny is refused', async () => {
+  it('On: a delete inside the Wave\'s worktree goes through, one outside every root waits for the owner, a hard deny is refused', async () => {
     const h = harness({ mode: { value: 'on' } })
     await h.runToEnd()
     const [inside, outside, hard, secret] = h.answers()
     expect(inside).toEqual({ behavior: 'allow', updatedInput: { command: `rm -rf '${repo}/.claude/worktrees/01/build'`, description: "Remove the build folder of the Ticket's worktree" } })
-    expect(outside).toMatchObject({ behavior: 'deny' })
-    expect((outside as { message: string }).message).toBe(`${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.parkPending}`)
+    // Parked on the Session's gate (ticket 07) with its rule, and refused as the owner answered.
+    expect(h.parked).toHaveLength(1)
+    expect(h.parked[0]?.parked?.rule).toBe('outside-roots')
+    expect(h.parked[0]?.options.map((option) => option.kind)).toEqual(['allow', 'deny'])
+    expect(outside).toEqual({ behavior: 'deny', message: DENIED_MESSAGE })
     expect(hard).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${hardHint('ssh', process.platform)}` })
     expect(secret).toEqual({ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: Dangerous rm operation on statically-unresolvable target\n${HINTS.notJudged}` })
 
@@ -288,7 +300,8 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     const lines = journal.filter((event) => event.kind === 'auto-approval')
     expect(lines.map((line) => [line.mode, line.outcome, line.rule, line.agent])).toEqual([
       ['on', 'allow', 'files-inside-roots', 'agent-impl-01'],
-      ['on', 'park', expect.any(String), 'agent-impl-01'],
+      ['on', 'park', 'outside-roots', 'agent-impl-01'],
+      ['on', 'park-answered', 'outside-roots', 'agent-impl-01'],
       ['on', 'hard-deny', 'hard:ssh', undefined],
       ['on', 'deny', 'not-judged', 'agent-impl-02'],
     ])
@@ -337,6 +350,7 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     expect(decided).toEqual([
       ['shadow', 'would-allow'],
       ['on', 'park'],
+      ['on', 'park-answered'],
       ['off', 'refused-dialog'],
       ['on', 'deny'],
     ])
@@ -386,9 +400,13 @@ describe('Auto-approval of an unattended Claude Session (worfy-auto-approve tick
     off.releases.release('next')
     await until(() => off.answers().length === 1, 'the git request')
     expect(off.requests.map((request) => request.environment)).toEqual([undefined])
-    expect(off.answers()).toEqual([{ behavior: 'deny', message: `${UNATTENDED_DENIED_MESSAGE}\nrefused because: This command requires approval\n${HINTS.parkPending}` }])
+    expect(off.answers()).toEqual([{ behavior: 'deny', message: DENIED_MESSAGE }])
+    expect(off.parked.map((request) => request.parked?.rule)).toEqual(['git-without-run-environment'])
     await until(() => off.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
-    expect((await off.journal()).find((event) => event.kind === 'auto-approval')).toMatchObject({ mode: 'on', outcome: 'park', rule: 'git-without-run-environment' })
+    expect((await off.journal()).filter((event) => event.kind === 'auto-approval')).toMatchObject([
+      { mode: 'on', outcome: 'park', rule: 'git-without-run-environment' },
+      { mode: 'on', outcome: 'park-answered', rule: 'git-without-run-environment' },
+    ])
   })
 
   it('a policy that cannot start: run-started says off, the Session starts as before, and every request is refused as before', async () => {
