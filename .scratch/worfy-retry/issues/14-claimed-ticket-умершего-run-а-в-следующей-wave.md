@@ -1,7 +1,8 @@
 # 14 — Ticket умершего Run-а остаётся `claimed`: следующий Run называет его в команде Wave
 
 Type: task
-Status: claimed 2026-11-06T08:27Z
+Status: done 2026-11-06T09:34Z
+PR: #1480
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», 14; решения владельца 2026-11-05: Q8 — Ticket перенесён из Epic-а [worfy-faults](../../worfy-faults/spec.md) (там был 09; тот Epic остаётся только test-ами), Q9 — поправка ADR-0050 входит в этот Ticket; дефект найден сценарием 1 Ticket-а [worfy-faults 03](../../worfy-faults/issues/03-убитый-orchestrator-и-упавший-implementer.md) (влит #1439), его «Итог»; [worfy-faults](../../worfy-faults/spec.md), «Вопросы владельцу», Q4 (найденный дефект — Ticket с «Инцидент»); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет статус Ticket-а), [ADR-0050](../../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md) (`resumable` после Force stop)
 
