@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"a0a0a0a0-0000-4000-8000-000000000001","cwd":"/work/acme/shop/.claude/worktrees/05","timestamp":"2026-03-03T09:20:12.000Z","isSidechain":true,"message":{"role":"user","content":"SECRET-AGENT-PROMPT-A2"},"agentId":"a2"}
+{"type":"assistant","sessionId":"a0a0a0a0-0000-4000-8000-000000000001","cwd":"/work/acme/shop/.claude/worktrees/05","timestamp":"2026-03-03T09:39:58.000Z","isSidechain":true,"message":{"role":"assistant","model":"claude-test","content":[{"type":"text","text":"REJECTED: SECRET-VERDICT-REASON"}]},"agentId":"a2"}

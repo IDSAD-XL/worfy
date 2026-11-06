@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"d0d0d0d0-0000-4000-8000-000000000004","cwd":"/work/acme-shop","timestamp":"2026-03-03T10:00:00.000Z","isSidechain":false,"message":{"role":"user","content":"SECRET-PROMPT-D1"}}
+{"type":"assistant","sessionId":"d0d0d0d0-0000-4000-8000-000000000004","cwd":"/work/acme-shop","timestamp":"2026-03-03T10:01:00.000Z","isSidechain":false,"message":{"role":"assistant","model":"claude-test","content":[{"type":"text","text":"SECRET-ANSWER-D1"}]}}
