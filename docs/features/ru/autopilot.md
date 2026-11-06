@@ -182,6 +182,50 @@ window**. **Cancel** — кнопка по умолчанию, поэтому En
 - Когда в `main` собственного репозитория worfy в Harness есть изменения, которых нет в этой сборке, под кнопкой стоит
   chip «Harness in main is newer than the Stable copy», с run-ом и без него. Run продолжается как есть.
 
+#### Auto-approval
+
+Auto-approval решает, что worfy отвечает, когда агент run-а просит разрешения. Он задаётся для Project-а на Machine
+Project-а, в меню Modes Orchestrator-а ([Sessions](sessions.md)), и стоит в Off, пока его не задали. Mode хранится в
+собственном `app-settings.json` worfy, а не в Profile, который агент мог бы поменять сам. Пока worfy запущен с debugging
+port или открытым Node inspector, действует Off, что бы ни было сохранено. Run читает mode при каждом запросе.
+
+| Mode | Что получает агент | Что получает journal |
+|---|---|---|
+| Off | Отказ unattended Session, как без Auto-approval. Policy не спрашивается. | `refused-dialog` |
+| Shadow | Тот же отказ, что при Off: без hint-а и без park. | `auto-approval` с тем, что policy сделала бы: `would-allow`, `would-deny`, `would-park` или `hard-deny`. |
+| On | Решение policy (ниже). | `auto-approval` с `allow`, `deny`, `park` или `hard-deny`; у park, когда он кончается, ещё `park-answered` или `park-expired`. |
+
+Approval policy оценивает каждый запрос в заданном порядке и даёт один исход с rule, которое его решило:
+
+- **deny с hint-ом**: агент может переписать запрос. Вопрос с вариантами ответа — всегда этот исход («реши по правилам
+  Project-а или запиши вопрос в вопросы владельцу Ticket-а»); он же — для команды, которую policy не может прочитать
+  целиком (подстановка команды в цели, `eval`, цикл с целью-переменной, переменная без известного значения), для
+  symbolic link на пути, удаления целого root-а и записи в config, hooks или attributes git. Чего policy не прочитала,
+  того она не разрешает никогда. Hint — постоянный текст rule, никогда не кусок запроса.
+- **allow**: каждая цель внутри root-ов run-а — worktree-ов Ticket-ов текущей Wave, `.scratch` Project-а, собственной
+  временной папки run-а и scratchpad Session, — и каждое действие проходит одно из allow-rule: файловые программы внутри
+  root-ов без сети, скрипт `sh`/`bash`/`zsh -c`, каждое действие которого проходит другое rule, git в worktree Wave без
+  push и без удаления ветки, а также Edit, Write, MultiEdit, NotebookEdit (Claude Code) или изменение файла (Codex)
+  внутри root-ов. Push не одобряется никогда.
+- **park**: запрос разобран, но решить его может только человек — например, push или tool, которого policy не знает.
+  Запрос ждёт на Session Orchestrator-а не дольше 60 минут, как описано в разделе [Во время run-а](#во-время-run-а).
+- **hard deny**: отказ в любом mode, его не снимает никакой ответ. Секреты и настройки домашней папки (`~/.claude`,
+  `~/.codex`, `~/.ssh`, `~/.gnupg`, `~/.config/gh`, `~/.gitconfig`, `~/.config/git`, `~/.npmrc`, файлы shell rc,
+  `~/Library`), `%APPDATA%` и папка данных worfy (кроме временной папки run-а) — на запись, удаление и чтение; запись в
+  Harness home, в папки других живых Session и в другие worktree; программы, которые меняют настройки системы или
+  приложений (`sudo`, `launchctl`, `security`, `crontab`, `defaults write` и подобные); `chmod` и `chown` вне root-ов;
+  force push, push с удалением, push в ветку по умолчанию или в ветку другого worktree, а также удаление, checkout и
+  commit в такой ветке; запуск скачанного (`curl … | sh`); отправка наружу файла вне root-ов.
+
+Policy видит только те запросы, которые агент задаёт. В `bypassPermissions` Claude Code исполняет большинство команд
+без вопроса, поэтому Auto-approval не делает run опаснее, чем `bypassPermissions`: он только говорит «да» части того, что
+раньше получало «нет». Решение и его причины записаны в [ADR-0098](../../adr/0098-approval-policy.md).
+
+Где смотреть решения: Run history показывает их в блоке Auto-approval, со счётчиками, а в Shadow — с решениями Shadow
+всех run-ов Project-а ([Flight Recorder](../flight-recorder.md#the-auto-approval-block)). Когда run окончен, чат
+Orchestrator-а получает одну строку: `Auto-approval: allowed 3, denied 1, parked 0` или `Shadow: would allow 2, would
+deny 1, would park 0`. Переключить Shadow на On может только владелец: сам worfy mode не меняет.
+
 #### Когда Wave окончена
 
 Wave окончена, когда верно всё это:
@@ -514,6 +558,17 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `test/contract/autopilot-background.test.ts` | Background task-и и остановки при живых task-ах. |
 | `test/contract/autopilot-start-tool.test.ts` | Инструмент `autopilot_start`: диалог, его 10 минут, окно, в котором он появляется, отказы без него, старт после turn-а Orchestrator-а. |
 | `test/contract/autopilot-limits.test.ts` | Ожидание Limits и бюджет, с часами, которые двигает test. |
+| `test/unit/auto-approve-shell.test.ts` | Разбор shell-команды для Auto-approval: примеры spec-а, каждая конструкция вне грамматики, слова и кавычки, переменные, которые команда точно получает, Git Bash на Windows. |
+| `test/contract/auto-approve-shell-sh.test.ts` | Разбор против настоящих shell-ов (sh, bash, dash и zsh, где они есть, Git Bash на Windows): слова, которые он читает, — это слова, которые передаёт shell. |
+| `test/unit/auto-approve-policy.test.ts` | Approval policy: hard deny в любом mode, вопросы, команды вне грамматики, каждое allow-rule, атаки из spec-а («удали всё», ссылка на домашнюю папку), config и hooks git, другие worktree и ветка по умолчанию, пути Windows, hint-ы. |
+| `test/unit/auto-approve-roots.test.ts` | Root-ы и hard-области: ссылки и glob-ы на диске, папка `mktemp -d`, root-ы, записанные на старте и сдвинутые с тех пор, что приносит с собой копия, формы путей Windows. |
+| `test/unit/auto-approve-run.test.ts` | Policy run-а: его git-окружение и что он читает из репозитория, контекст каждого запроса, команда и цели в том виде, в каком их хранит journal, driver Claude по mode, и ни одной записи в Project. |
+| `test/unit/auto-approve-park.test.ts` | Park: ожидание на gate, предел 60 минут, остановка run-а (в том числе пока запрос идёт к gate), notification. |
+| `test/unit/auto-approve-summary.test.ts` | Решения run-а в его journal, их счётчики для Run history и строка в чате Orchestrator-а в конце run-а. |
+| `test/contract/auto-approve-claude.test.ts` | Auto-approval unattended Session Claude Code: Off без изменений байт в байт, Shadow, On, переключение во время run-а, окружение run-а, policy, которая не стартует или бросает исключение, запрос background task-а в park, Stop во время park. |
+| `test/contract/auto-approve-codex.test.ts` | То же на Codex поверх fake app-server: Off, Shadow, On, переменные, закреплённые в shell Codex-а, обёртка login shell, запрос, закрытый во время оценки, park и его концы, изменение файла с `grantRoot`. |
+| `test/contract/auto-approve-setting.test.ts` | Mode в `app-settings.json`: по Project-ам, мусор читается как Off, запись только через свой канал, правка, сделанная вне worfy, Linked machine, debugging port и inspector. |
+| `test/e2e/auto-approve.spec.ts` | Собранное приложение под debugging port Playwright: меню Modes показывает действующий Off с причиной, сохранённый mode читается на старте, ничего не пишется. |
 | `test/contract/autopilot-journal.test.ts` | Файлы journal, строка, дописанная снаружи, отсутствие записи вне папки данных. |
 | `test/contract/autopilot-wiring.test.ts` | Связка новой session на Wave в `sharedAutopilot`. |
 | `test/e2e/autopilot.spec.ts` | Собранное приложение: run, ожидание Limits, бюджет, background task-и, Force stop, узкий круг исправления. |
