@@ -37,17 +37,24 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
 - [ ] Contract test: `turn-error` при двух живых задачах — Session attended сразу, процесс тот же (нет нового `init`
       от перезапуска), задачи в `orchestrator-returned`, их `task_notification` начинает ход в attended Session.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
 - [ ] Contract test: `user-stop` при живых задачах — как сейчас (unattended до конца задач).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-retry.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/autopilot-retry.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
 - [ ] Contract test: Codex (fake Codex, временный `CODEX_HOME`) — следующий `turn/start` идёт с режимом Node.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
 - [ ] Contract test: seam отказал — `wanted = ATTENDED`, поведение как сейчас.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/orchestrator-relaunch.test.ts test/contract/autopilot-background.test.ts` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
 - [ ] `## Amendments` в ADR-0029.
   - evidence: commit pass · docs: ADR-0029 amendment, stop rows and ticket result for the in-place give-back (worfy-autopilot-queue 08) · - - · 1fc13a60f
+  - evidence: commit pass · docs: ADR-0029 amendment, stop rows and ticket result for the in-place give-back (worfy-autopilot-queue 08) · - - · ed1c9ebb2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
   - evidence: gate pass · `gate fast` exit 0 · mac - · e97076d0a2ac70f80eb0433a55549b4e83ce9312
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a23bec41e6fce924ee815169693c44c8ce7eae6f
 
 ## Тесты
 
