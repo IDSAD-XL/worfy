@@ -54,10 +54,19 @@ Orchestrator занят — **Start when free**; окно тогда говор�
 keep-awake включается только при настоящем старте. **Stop** (и Force stop) на ожидающем run-е его отменяет:
 `start-cancelled`, Orchestrator не трогается. **Start now** (канал `autopilot.startNow`) не ждёт: останавливает turn и
 background task-и Orchestrator-а, пишет их в journal как `tasks-killed` с причиной `start-now` и сразу запускает run.
-Проверки из списка выше идут и здесь, так что Start now тоже может закончить run с `start-refused`. Кнопки Start now в
-окне пока нет: его вызывает только канал main process.
+Проверки из списка выше идут и здесь, так что Start now тоже может закончить run с `start-refused`.
 Сообщения очереди run-у не уходят: они возвращаются в Session человека после run-а, придержанными
 ([ADR-0099](../../adr/0099-run-waits-for-orchestrator.md)).
+
+На Canvas рядом со строкой состояния ожидающего run-а стоят **Start now** и **Cancel**. **Cancel** отменяет run сразу,
+без подтверждения, как Stop, и toast говорит `Autopilot cancelled; the Orchestrator was not touched`. **Start now**
+сначала открывает маленькое окно **Start now?** (`src/renderer/autopilot/StartNowModal.tsx`):
+`Autopilot <Epic> starts right away. This stops:`, затем `✕ the running turn`, пока идёт turn,
+`✕ 3 background tasks: <имена>` и `✓ 2 queued messages stay in the queue`. Пока окно открыто, список следует за тем, чем
+занят Orchestrator, а когда run перестаёт ждать, окно закрывается само. Фокус — на **Cancel**, Esc — это Cancel: run
+ждёт дальше. Красная **Interrupt and start** вызывает `autopilot.startNow`. Toast затем говорит, что остановлено, как это
+перечисляло окно: `Turn interrupted, 3 background tasks stopped · Autopilot started`. `start-refused` в этот момент —
+toast ошибки с причиной.
 
 Сам по себе run не стартует, и после перезапуска приложения тоже.
 
@@ -136,7 +145,7 @@ when it is free». Без просьбы в окне инструмент отк
 | Строка состояния | Значение |
 |---|---|
 | `starting` | Run начался, Wave ещё не ушла. |
-| `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. |
+| `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. Рядом — **Start now** и **Cancel**. |
 | `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1, это не номер Wave в плане Epic-а. |
 | `Wave 2 · 4 background tasks` | То же, и у Orchestrator-а четыре живых background task-а. |
 | `waiting for limits · resumes 14:20` | Limits отказали turn-у. Run продолжит в это время. |
@@ -391,7 +400,7 @@ Orchestrator остаётся unattended, экран остаётся включ
 | `workflow-error` | Workflow не прочитался, когда run должен был оценить Wave. |
 | `user-stop` | Stop autopilot. |
 | `user-force-stop` | Force stop. |
-| `start-cancelled` | Stop или Force stop, пока run ждал Orchestrator. |
+| `start-cancelled` | Cancel, Stop или Force stop, пока run ждал Orchestrator. |
 | `start-refused` | Проверка отказала, когда Orchestrator освободился. Причина — в `message` journal-а. |
 | `app-quit` | Выход из приложения. |
 
@@ -523,7 +532,8 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/autopilot/harness-drift.ts` | Новее ли Harness в `main`, чем в этой сборке. Только чтение, без `git fetch`. Только packaged-сборки. |
 | `src/main/mcp/browser-server.ts` | Что Session в Autopilot может делать с Browser. |
 | `src/main/ipc/card-api.ts` | Отказ `session.ask` от Card для unattended Session. |
-| `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы. |
+| `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы; Start now и Cancel ожидающего run-а. |
+| `src/renderer/autopilot/StartNowModal.tsx` | Окно «Start now?»: что Start now остановит и что останется. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
 | `scripts/install-stable.mjs` | `pnpm install:stable`: Stable copy. |
 
