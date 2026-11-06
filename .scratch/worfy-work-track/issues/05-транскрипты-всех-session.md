@@ -1,7 +1,8 @@
 # 05 — Транскрипты всех Session Project-а: ходы и Subagent-ы за период
 
 Type: task
-Status: open
+Status: done 2026-11-06T17:30Z
+PR: #1506
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает» → «Чтение»; «Решения владельца», 2, 7; «Решено без владельца», 2, 3; «Риски», 1; [research 04](../../worfy-autopilot-queue/issues/04-данные-work-track.md), п. 2; [06](../../worfy-autopilot-queue/issues/06-объём-и-доступ-work-track.md), Q1, Q5
 
@@ -29,16 +30,22 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение»;
 - [ ] Contract test на fixture Claude home: три Session (одна скрытая на Canvas, одна без Node), Subagent-ы, файл
       другого Project-а — не входит; факты с верными временами; текст prompt-ов не попал ни в один факт.
   - evidence: test-run pass · `pnpm test -- test/contract/work-track-transcripts.test.ts` exit 0 · mac - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
+  - evidence: review pass · PR #1506 · - - · 84b4b346ae198c75d322c7955459839757ecce95
 - [ ] Contract test: повторное чтение не читает файл заново, если mtime и размер те же; ничего не записано в fixture
       (ADR-0005).
   - evidence: test-run pass · `pnpm test -- test/contract/work-track-transcripts.test.ts` exit 0 · mac - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
+  - evidence: review pass · PR #1506 · - - · 84b4b346ae198c75d322c7955459839757ecce95
 - [ ] Contract test: fake Codex с двумя тредами — ходы Session на Codex.
   - evidence: test-run pass · `pnpm test -- test/contract/work-track-transcripts.test.ts` exit 0 · mac - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
+  - evidence: review pass · PR #1506 · - - · 84b4b346ae198c75d322c7955459839757ecce95
 - [ ] Замер на fixture в 200 MB — время в «Итог»; Week на Mac владельца — замер в «Итог».
   - evidence: commit pass · Work track: read the transcripts of every Session of a Project (worfy-work-track 05) · - - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
+  - evidence: review pass · PR #1506 · - - · 84b4b346ae198c75d322c7955459839757ecce95
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
   - evidence: gate pass · `gate fast` exit 0 · mac - · 92e32693fc0d7a03a0ac40cbd7c061e4851d32d2
+  - evidence: review pass · PR #1506 · - - · 84b4b346ae198c75d322c7955459839757ecce95
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42259140592 · ci - · 84b4b346ae198c75d322c7955459839757ecce95
 
 ## Тесты
 
