@@ -17,8 +17,8 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
 Если Codex применяет `shell_environment_policy.include_only` после `set`, то `include_only` в config владельца
 (`~/.codex/config.toml`) без этих имён снимет их из shell-а команды. Тогда:
 
-- `/bin/zsh -lc 'rm -rf "$TMPDIR"/Users/x'` policy судит как `<runTemp>/Users/x` и даёт `allow files-inside-roots`, а
-  shell выполнит `rm -rf /Users/x`;
+- `/bin/zsh -lc 'rm -rf "$TMPDIR"/opt/x'` policy судит как `<runTemp>/opt/x` и даёт `allow files-inside-roots`, а
+  shell выполнит `rm -rf /opt/x`;
 - `GIT_CONFIG_PARAMETERS` и `GIT_NO_LAZY_FETCH` Run-а пропадут из shell-а, а `run-approval.ts:487` считает git-окружение
   безопасным по значениям на старте.
 
@@ -40,7 +40,7 @@ Ticket 05 (PR #1469) судит команду Codex так. Значение п
      целиком: в shell команды попадут переменные, которые владелец намеренно убрал (например секреты). Не брать без
      владельца.
 3. Если `set` применяется последним — исправить только комментарий `approvals.ts:147` и добавить ссылку на исходник.
-4. Contract test на поддельном app-server: при пути (а) `rm -rf "$TMPDIR"/Users/x` → не `allow`; git-команда, которой
+4. Contract test на поддельном app-server: при пути (а) `rm -rf "$TMPDIR"/opt/x` → не `allow`; git-команда, которой
    нужны защитные переменные Run-а, → не `allow`.
 
 ## Готово, когда
