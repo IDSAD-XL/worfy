@@ -286,12 +286,18 @@ test('"Run all accepted" opens the window over the accepted Epics; the run start
     await expect(rows.nth(2)).toContainText('accepted Nov 6')
     await captureScreenshot(dialog, 'start-window-queue')
 
-    // Untick the second; drag the third onto the first: the queue is search, then demo.
+    // Untick the second; swap the first and the third — the third dragged to the top with the mouse, then
+    // the first moved down with ⌥↓: the queue is search, then demo.
     await dialog.getByRole('checkbox', { name: 'Include checkout' }).uncheck()
     await expect(rows.nth(1)).toHaveAttribute('data-on', 'false')
     await expect(heading).toHaveText('Start Autopilot · 2 Epics, 3 Waves')
     await rows.nth(2).dragTo(rows.nth(0))
     await expect.poll(order).toEqual(['search', EPIC, 'checkout'])
+    const grip = dialog.getByRole('button', { name: `Reorder ${EPIC}` })
+    await grip.focus()
+    await window.keyboard.press('Alt+ArrowDown')
+    await expect.poll(order).toEqual(['search', 'checkout', EPIC])
+    await expect(grip).toBeFocused()
     await expect(dialog).toHaveAttribute('data-facts', 'read')
     expect(journalsOf(world.dataDir)).toEqual([])
 
