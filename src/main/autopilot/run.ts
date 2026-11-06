@@ -951,10 +951,6 @@ export class Autopilot {
         if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
         run.session = this.deps.registry.get(view.sessionId)
         run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
-        // Only the Claude driver asks the policy (worfy-auto-approve ticket 05 brings Codex): another
-        // Vendor's run says `off`, and its policy lets go of the folder.
-        const judged = view.vendor === undefined || view.vendor === 'claude'
-        if (!judged) await this.closeApproval(run)
         run.journal = await this.deps.journal({
           // The run's folder for temporary files is named by the run id: the journal takes the same one.
           ...(run.approval === null ? {} : { run: run.approval.run }),
@@ -968,7 +964,7 @@ export class Autopilot {
           mode: run.mode,
           // Whose agent runs the Waves, as the Orchestrator's view names it (worfy-multi-vendor ticket 37).
           ...(view.vendor === undefined ? {} : { vendor: view.vendor }),
-          ...(judged || autoApproval.autoApproval === undefined ? autoApproval : { autoApproval: 'off' as const }),
+          ...autoApproval,
         })
         await this.journalHarness(run)
         await this.journalForecast(run, model.tickets)

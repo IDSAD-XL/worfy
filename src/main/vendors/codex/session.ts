@@ -647,6 +647,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
         const answered = mode === 'on' && final.outcome === 'allow' ? 'accept' : 'decline'
         // Codex withdrew the request, or the turn was interrupted: the agent got no decision, nothing is reported.
         if (!this.answer(request.id, answered)) return
+        // A file change's input has no command: its line names none.
         const command = (ask.input as Record<string, unknown>)['command']
         approval.decided({
           mode,
@@ -654,7 +655,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
           rule: final.rule,
           tool: judged.tool,
           targets: [...final.targets],
-          command: judged.tool === 'fileChange' || typeof command !== 'string' ? null : command,
+          command: typeof command === 'string' ? command : null,
           ...(ask.description === null ? {} : { reason: ask.description }),
         })
       })
