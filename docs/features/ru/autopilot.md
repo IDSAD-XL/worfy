@@ -127,6 +127,7 @@ when it is free». Без диалога инструмент отказывае
 | `wave too long for window · resumes 23:00` | Run mode — Start window: следующая Wave обычно идёт дольше, чем осталось от окна. |
 | `stopping · 2 tickets in work` | Пришёл Stop. Два Ticket-а текущей Wave в работе. Если таких нет, строка говорит `stopping`. |
 | `stopped: no ready wave` | Run окончен, с причиной (см. ниже). |
+| `stopped: turn-error · 2 background tasks still run` | Run окончен и сразу отдал Orchestrator человеку; две его фоновые задачи ещё идут там. |
 
 Пока идёт run:
 
@@ -548,7 +549,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `gate-queue` | Run отправил «Process gate queue». |
 | `gate-queue-finished` | Turn «Process gate queue» закончился. Дальше идёт `run-stopped`. |
 | `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets` и `user-force-stop`. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
-| `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. |
+| `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. Остановка по причине самого Run-а, не Stop и не Force stop, отдаёт его сразу, без перезапуска: тогда `tasks` перечисляет фоновые задачи, которые идут дальше в Session человека. |
 | `tasks-killed` | Task-и, которых ждал run, закончились вместе с процессом, при выходе или Force stop. С причиной `start-now` — task-и Orchestrator-а, которые остановил Start now. |
 
 #### Windows

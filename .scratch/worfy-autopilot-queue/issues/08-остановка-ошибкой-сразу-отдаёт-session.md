@@ -55,5 +55,47 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 6; «
 - `src/main/agent/session.ts` (`launch`, `becomeAttended`), `src/main/agent/session-settings.ts`
 - `test/contract/autopilot-background.test.ts`, `test/contract/orchestrator-relaunch.test.ts`
 - `docs/adr/0029-autopilot-waits-for-background-tasks.md`
+- Добавлены в ходе работы (с согласия Orchestrator-а): `src/main/vendors/claude/session.ts` (выбор `canUseTool` на
+  каждый запрос), `src/main/vendors/session.ts` (doc `SessionStart.unattended`), `src/shared/autopilot/journal.ts`
+  (`tasks` у `orchestrator-returned`), `src/shared/ipc/autopilot.ts` (строка остановленного Run-а),
+  `src/main/ipc/autopilot.ts` (4-й аргумент `setUnattended`); test-ы `test/contract/autopilot-retry.test.ts`,
+  `autopilot-faults-api.test.ts`, `autopilot-faults-setup.ts`, `autopilot-limits-switch.test.ts`, `orchestrator.test.ts`,
+  `test/unit/autopilot-journal.test.ts`, `autopilot-wait-line.test.ts`; feature pages `docs/features/autopilot.md` и
+  `docs/features/ru/autopilot.md` (две строки таблиц).
 
-Только читать: `src/main/vendors/session.ts`, `src/main/vendors/claude/session.ts`, `src/main/vendors/codex/session.ts`.
+Только читать: `src/main/vendors/codex/session.ts`.
+
+## Итог
+
+`Session.becomeAttended(settings)` (`src/main/agent/session.ts`) меняет launch на attended в живом процессе: permission
+mode Node-а уходит через `setPermissionPreset`, процесс, задачи и очередь остаются; отказ seam-а — ошибка, launch не
+меняется. `Orchestrators.setUnattended(false)` при ходе или задачах сначала пробует её (`attendInPlace`); не удалось —
+`wanted = ATTENDED` и перезапуск, когда Session свободна, как раньше. `user-stop` передаёт `waitForWork: true` и идёт
+прежним путём. В `Autopilot.end` при остановке по причине самого Run-а (не `user-stop`, `user-force-stop`, `app-quit`)
+с живыми задачами или ходом — `giveBackAsItRuns`: Session отдаётся сразу, журнал `orchestrator-returned` с `tasks`,
+keep-awake держится, пока задачи живы или идёт ход; строка Canvas — `stopped: <причина> · N background tasks still
+run`, число убывает вживую. Claude Code: `canUseTool` выбирает обработчик на каждый запрос по живому
+`opts.unattended`, поэтому после отдачи запросы разрешений идут человеку; Codex читает `unattended` при каждом
+approval, следующий `turn/start` идёт с режимом Node-а (`on-request`, `workspaceWrite`). `## Amendments` в ADR-0029.
+
+Сначала падающий: до правки `turn-error` при двух задачах оставлял Session unattended (`isUnattended` true), новый
+contract test ждал attended. Mutation testing (каждая правка откатывалась, падали test-ы): нет отдачи на месте — 10;
+выбор `canUseTool` один раз при старте — тест отдачи на месте и оба теста Off/On; всегда attended — оба теста Off/On;
+`unattended` значением вместо getter-а — 4, включая Codex; `{...opts}` вместо `Object.assign` — 4; `user-stop` тоже
+отдаёт на месте — тест `user-stop` в `autopilot-retry`; `waitForWork` не учитывается — 3; нет перезапуска после
+позднего отказа — 2; keep-awake не держится — 4; `linger` не видит закрытую Session — 1; строка не обновляется — 1;
+папка удаляется при отдаче — 1; строка без задач — unit и contract; `orchestrator-returned` без `tasks` — 1;
+`entry.launch` не меняется — 5; launch Session не меняется — 6; app-quit не пишет `tasks-killed` — 2.
+
+Решено без владельца:
+
+- `canUseTool` Claude Code выбирается на каждый запрос (`src/main/vendors/claude/session.ts`), а не один раз при
+  старте процесса: иначе отданная Session отвечала бы на запросы правилами Run-а. Пока Run держит Session, запросы
+  идут прежнему обработчику (Off/Shadow отказывают, On судит политика Run-а).
+- keep-awake держится и для идущего хода без задач, не только для задач (как пункт 5 ADR-0029).
+- Папка прогона (TMPDIR процесса) после отдачи на месте остаётся и удаляется `sweepRunTemps` при следующем старте
+  приложения: процесс продолжает ею пользоваться. Политика Auto-approval отпускается сразу.
+- app-quit, пока отданные задачи живы, пишет в журнал `tasks-killed` с причиной `app-quit`.
+- Строка «почему смена не удалась» не сделана: пункты «Готово, когда» её не требуют; отказ виден в логе (`warn`).
+- Сценарий `autopilot-faults-api`: новый старт после ошибки API теперь ждёт занятый Orchestrator и паузу
+  `TASKS_GRACE_MS`, а не перехватывает его.

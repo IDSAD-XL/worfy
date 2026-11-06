@@ -127,6 +127,7 @@ The line above the button shows the state of the run:
 | `wave too long for window · resumes 23:00` | The Run mode is Start window: the next Wave usually takes longer than what is left of the window. |
 | `stopping · 2 tickets in work` | A Stop came. Two Tickets of the current Wave are in work. Without any it says `stopping`. |
 | `stopped: no ready wave` | The run is over, with its reason (see below). |
+| `stopped: turn-error · 2 background tasks still run` | The run is over and gave the Orchestrator back to a person at once; two of its background tasks still run there. |
 
 While a run goes on:
 
@@ -632,7 +633,7 @@ it cannot read.
 | `gate-queue` | The run sent "Process gate queue". |
 | `gate-queue-finished` | The turn of "Process gate queue" ended. `run-stopped` follows. |
 | `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets`, and for `user-force-stop` and `session-error` after the first Wave. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
-| `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. |
+| `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. A stop for a reason of the run itself, not Stop or Force stop, gives it back at once, without a restart: `tasks` then lists the background tasks that go on in the person's Session. |
 | `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. With the reason `start-now`: the tasks of the Orchestrator that Start now stopped. |
 
 #### Windows
