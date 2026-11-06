@@ -53,7 +53,7 @@
 // same conditions that refuse setUnattended. Start now (takeNow) does not wait: it halts the Session,
 // as Stop in Autopilot does, and starts it again unattended at once, so the old process ends its
 // background tasks. The halted Session's queue does not go to the unattended Session: it is kept
-// aside and goes, held, to the Session that gives the Orchestrator back attended, after the queue of
+// aside and goes, held, to the Session that gives the Orchestrator back attended, before the queue of
 // the unattended one.
 import type { BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent } from '../../shared/agent/events'

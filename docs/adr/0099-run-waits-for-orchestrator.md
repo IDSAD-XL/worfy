@@ -21,7 +21,7 @@ ADR-0029, п. 5). Старт из чата (ADR-0091) обходил отказ 
    очередь); Journal пишет `orchestrator-busy` в начале и при каждом изменении `{ turn, queued, tasks }`. Новое сообщение
    человека во время ожидания ожидание продлевает.
 3. **Пауза после последней задачи.** Задачи кончились, а Orchestrator ещё не начал ход от `task-notification`: Run ждёт
-   ту же паузу, что Run в конце Wave (`TASKS_GRACE_MS`, 2 минуты, ADR-0029, п. 4), и только потом считает его свободным.
+   ту же паузу, что Run в конце Wave (`TASKS_GRACE_MS`, 2 минуты, ADR-0029, п. 3), и только потом считает его свободным.
    Иначе Run перезапускал бы Session в тот момент, когда она собирается ответить человеку о готовой задаче.
 4. **Настоящий старт.** Orchestrator свободен — Journal пишет `orchestrator-free`, проверки п. 1 и проверка Linked machine
    идут заново, `setUnattended(true)`, дальше цикл как раньше. Отказ на этом шаге — `run-stopped` с причиной
@@ -30,7 +30,7 @@ ADR-0029, п. 5). Старт из чата (ADR-0091) обходил отказ 
    `orchestrator-free`; `startedAt` Run-а остаётся временем нажатия. keep-awake включается при настоящем старте
    (решение владельца 2026-11-06, spec, «Открытые вопросы», 1): пока Run ждёт, Mac может уснуть. Политика Auto-approval
    Run-а открывается при нажатии, а действует с момента, когда Run берёт Orchestrator.
-5. **Cancel.** `Autopilot.cancel(projectId)`; Stop и Force stop на ожидающем Run-е делают то же (`autopilot.stop`,
+5. **Cancel.** Отдельного метода и канала нет: Cancel — это Stop и Force stop на ожидающем Run-е (`autopilot.stop`,
    `autopilot.forceStop`). Journal — `run-stopped` с причиной `start-cancelled`. Orchestrator не трогается: ход, очередь и
    задачи человека остаются как были.
 6. **Start now** (`Autopilot.startNow(projectId)`, канал `autopilot.startNow`, доступ `write`;

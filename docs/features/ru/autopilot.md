@@ -36,7 +36,7 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 спрашивает.
 
 **Пока Orchestrator занят** — в turn-е, с живыми background task-ами или с сообщениями в очереди — старт не получает
-отказ. Run начинается сразу, его journal открывается строкой `orchestrator-busy`, а строка состояния говорит
+отказ. Run начинается сразу, его journal открывается строками `run-started` и `orchestrator-busy`, а строка состояния говорит
 `waiting for the Orchestrator · 4 min`. Первую Wave run отправляет, когда Orchestrator свободен: turn кончился, очередь
 пуста, живых background task-ов нет, и за две минуты после конца последней задачи не начался новый turn. Сообщение,
 отправленное во время ожидания, ожидание продлевает. Затем проверки из списка выше идут заново: отказ в этот момент
@@ -44,6 +44,8 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 keep-awake включается только при настоящем старте. **Stop** (и Force stop) на ожидающем run-е его отменяет:
 `start-cancelled`, Orchestrator не трогается. **Start now** (канал `autopilot.startNow`) не ждёт: останавливает turn и
 background task-и Orchestrator-а, пишет их в journal как `tasks-killed` с причиной `start-now` и сразу запускает run.
+Проверки из списка выше идут и здесь, так что Start now тоже может закончить run с `start-refused`. Кнопки Start now в
+окне пока нет: его вызывает только канал main process.
 Сообщения очереди run-у не уходят: они возвращаются в Session человека после run-а, придержанными
 ([ADR-0099](../../adr/0099-run-waits-for-orchestrator.md)).
 
@@ -90,7 +92,6 @@ when it is free». Без диалога инструмент отказывае
 - Session, которая работает unattended, например Orchestrator во время run-а: подтвердить некому;
 - Session, которую worfy не может найти;
 - Project, у которого идёт run: «Autopilot is already running Epic X. Stop it first.», и в journal ничего не попадает;
-- Project, чей старт из чата ждёт конца turn-а Orchestrator-а;
 - Epic или Ticket, которого у Project-а нет, или workflow, который не читается;
 - второй вызов, пока ждёт диалог того же Project-а;
 - Machine без открытого окна worfy: диалог без окна заблокировал бы worfy на macOS.
@@ -452,7 +453,7 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | Путь | Что там |
 |---|---|
 | `src/main/autopilot/run.ts` | Класс `Autopilot` и один `Run`: проверки старта, события Session, эффекты цикла, остановки, возврат Orchestrator-а. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: старт из чата, по Epic-у или по названным Ticket-ам; отказ, пока идёт run, и старт после turn-а спрашивающего Orchestrator-а. Его вызывают команда, набранная в чате, и инструмент `autopilot_start`. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: старт из чата, по Epic-у или по названным Ticket-ам; отказ, пока идёт run, ответ, что run ждёт занятого Orchestrator-а, и notice, если этот run позже получил отказ. Его вызывают команда, набранная в чате, и инструмент `autopilot_start`. |
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: какие набранные сообщения являются командой, с каким Epic-ом и Ticket-ами; toast её ответа. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: таблица Waves в `spec.md` Epic-а и ещё не выполненные Ticket-ы Wave N. |
 | `src/main/ipc/agent.ts` | `agent.send`: команда не доходит до агента; она запускает run через `startFromChat` и отвечает, чем кончилась. |

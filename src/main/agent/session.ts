@@ -205,8 +205,9 @@ export class Session {
 
   /**
    * Shows `text` in the Session's view as a notice of worfy's own (kind `notification`), outside any
-   * turn; Claude Code does not see it. A start of Autopilot promised after the Orchestrator's turn
-   * says so when it is refused then (src/main/autopilot/chat-start.ts, worfy-flight-recorder ticket 21).
+   * turn; Claude Code does not see it. A start of Autopilot from a chat that waited for the busy
+   * Orchestrator says so when it is refused once the Orchestrator is free (src/main/autopilot/chat-start.ts,
+   * worfy-autopilot-queue ticket 07).
    */
   notice(text: string): void {
     this.emit({ type: 'notice', kind: 'notification', text })

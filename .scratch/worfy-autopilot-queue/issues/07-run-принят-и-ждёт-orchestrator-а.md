@@ -138,3 +138,20 @@ Feature pages (`docs/features/autopilot.md`, `docs/features/ru/autopilot.md`) и
 
 Долг: кнопки Start now и Cancel в окне нет — только канал main; Flight Recorder ещё не показывает Wait
 `orchestrator-busy` (`facts.ts` — только чтение в этом Ticket-е).
+
+Раунд 2 (вердикт REJECTED на PR #1499). Шесть новых contract test-ов в `test/contract/autopilot-wait.test.ts`, каждый
+падает на своём mutant-е из вердикта и проходит на коде: Start now на Run-е, который не ждёт, ничего не делает (без
+guard-а `run.wait === null` — вторая Session, второй keep-awake); Force stop на ожидающем Run-е — `start-cancelled`;
+отказ при взятии Orchestrator-а доходит до `onLateRefusal`; Orchestrator свободен, но человек написал до взятия — Run
+снова ждёт (`orchestrator-busy`) и стартует после следующего конца turn-а; Run, который ждал, запускает Session под
+своей политикой Auto-approval и с её TMPDIR; «Start anyway» на ожидающем Run-е проходит мимо run-а того же Epic-а на
+Linked machine. Ещё три поведения раунда, test-ы сначала падали на старом коде: сообщение человека между чтением
+`busy()` и ответом `setUnattended` в `start()` — Run ждёт, а не получает отказ; Run, вернувшийся в ожидание, снимает
+свою политику (действует прежняя, если её run её не отпустил); `parks()` не считает ожидающий Run своим.
+`Autopilot.cancel` удалён: вызывающих в приложении не было, Cancel — это Stop и Force stop (ADR-0099, п. 5 поправлен).
+`Autopilot.startCheck` остаётся: приложение его больше не вызывает, но contract test Codex
+(`codex-orchestrator.test.ts`, worfy-multi-vendor 39) проверяет им, что Run на Codex стартовал бы, не запуская его.
+`agent-instructions.md` — новый ответ инструмента вместо «Autopilot starts after this turn»; feature pages: строка
+отказа «старт из чата ждёт конца turn-а» удалена, journal открывается `run-started`, Start now может закончиться
+`start-refused`, кнопки Start now в окне пока нет (и в `CONTEXT.md`); устаревшие комментарии в `chat-confirm.ts`,
+`orchestrator.ts`, `ipc/agent.ts`, `session.ts`; ADR-0099 п. 3 ссылается на ADR-0029 п. 3.

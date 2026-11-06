@@ -6,9 +6,8 @@
 //   Orchestrator's Session whose run has stopped and which only waits to be given back (for its turn
 //   or its background tasks) is no longer driven by a run: it gets the dialog, and the new run takes
 //   it over as it is (Orchestrators.awaitsGiveBack, worfy-polish ticket 50).
-// - While a run of the Project goes on, or a start from a chat waits for the Orchestrator's turn to
-//   end, the refusal is ChatStarts' own (chatRunningHint, chatWaitingHint), also before any dialog,
-//   and nothing reaches the journal. An Epic or a Ticket the Project does not have is refused before
+// - While a run of the Project goes on, starts or waits for its Orchestrator, the refusal is
+//   ChatStarts' own (chatRunningHint), also before any dialog, and nothing reaches the journal. An Epic or a Ticket the Project does not have is refused before
 //   the dialog too (startRefusal): no one is asked about a start that cannot happen.
 // - The dialog is a native message box of the main process on the Machine of the Project, which runs
 //   the Session and this tool (owner's answer Q2). It always has a parent window (dialogOwner): on
@@ -29,8 +28,8 @@
 //   Tickets in a run over them), the app's Limits now and the reserve and window of Settings. Journals
 //   that cannot be read leave the forecast out; the dialog still asks.
 // - A start button goes to startFromChat with `by: 'tool'` and its mode (src/main/autopilot/chat-start.ts),
-//   as the command typed in a chat: the same run as the button. Asked from the turn of the
-//   Project's own Orchestrator, the run starts after that turn (AFTER_TURN_MESSAGE).
+//   as the command typed in a chat: the same run as the button. While the Orchestrator is busy, also
+//   in the turn that asked, the run is accepted and waits for it (WAIT_MESSAGE, worfy-autopilot-queue ticket 07).
 import { BrowserWindow, dialog, type Dialog, type MessageBoxOptions } from 'electron'
 import { ticketNumber } from '../../shared/actions/render-template'
 import type { LimitsState } from '../../shared/agent/limits'
@@ -183,7 +182,7 @@ export interface AutopilotToolDeps {
   unattended(sessionId: string): boolean | null
   /** Whether the Session is an Orchestrator's whose run has stopped and which only waits to be given back (Orchestrators.awaitsGiveBack). */
   awaitsGiveBack(sessionId: string): boolean
-  /** Why a start from a chat is refused now: a run under way or starting, or a start waiting for a turn's end (ChatStarts.busyRefusal); null when none. */
+  /** Why a start from a chat is refused now: a run of the Project under way, starting or waiting for its Orchestrator (ChatStarts.busyRefusal); null when none. */
   busy(projectId: string): string | null
   /** A fresh read of the Project's Epics and Tickets. */
   workflow(projectId: string): Promise<Pick<WorkflowModel, 'epics' | 'tickets' | 'error'>>

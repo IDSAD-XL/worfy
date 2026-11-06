@@ -885,6 +885,8 @@ export class Autopilot {
   private readonly launchApprovals = new Map<string, LaunchApproval>()
   /** The open policy of each Project's run, until the run lets its Session go (closeApproval). */
   private readonly activeApprovals = new Map<string, RunApproval>()
+  /** The policies their runs have let go (closeApproval): none of them judges again. */
+  private readonly letGo = new WeakSet<RunApproval>()
 
   constructor(private readonly deps: AutopilotDeps) {}
 
@@ -1027,11 +1029,19 @@ export class Autopilot {
         return this.snapshot(run)
       }
 
-      this.activateApproval(run)
+      const deactivate = this.activateApproval(run)
       let view: OrchestratorView | null
       try {
         view = await this.deps.orchestrators.setUnattended(projectId, true, this.runLaunchApproval(projectId))
       } catch (error) {
+        // A message of the person landed between the read above and the Orchestrator's answer: the run
+        // waits for it, as when the read saw it.
+        const late = this.deps.orchestrators.busy?.(projectId) ?? null
+        if (late !== null && !this.quitting) {
+          deactivate()
+          await this.waitForOrchestrator(run, late, facts)
+          return this.snapshot(run)
+        }
         await this.closeApproval(run)
         throw error
       }
@@ -1198,7 +1208,7 @@ export class Autopilot {
     }
     // The quit ends the run in its order (stopAll), behind this step.
     if (this.quitting) return
-    this.activateApproval(run)
+    const deactivate = this.activateApproval(run)
     const approval = this.runLaunchApproval(run.projectId)
     let view: OrchestratorView | null
     if (now) {
@@ -1225,6 +1235,8 @@ export class Autopilot {
           await this.refuse(run, error)
           return
         }
+        // Waiting again, the run's policy judges nothing until it takes the Orchestrator.
+        deactivate()
         wait.busy = busy
         await this.write(run, busyLine(busy))
         this.publish(run.projectId)
@@ -1281,21 +1293,6 @@ export class Autopilot {
   }
 
   /**
-   * Cancel (worfy-autopilot-queue ticket 07): a run that waits for its Orchestrator ends with
-   * `start-cancelled`, and the Orchestrator is not touched. Answers the Project's state once it has
-   * stopped; a run that does not wait (any more) is left as it is.
-   */
-  async cancel(projectId: string): Promise<AutopilotState> {
-    const run = this.runs.get(projectId)
-    if (run === undefined) return this.state(projectId)
-    await run.enqueue(async () => {
-      if (run.wait === null || run.cycle.phase === 'stopped') return
-      await this.feed(run, { type: 'stop', reason: 'start-cancelled' })
-    })
-    return this.state(projectId)
-  }
-
-  /**
    * Start now (worfy-autopilot-queue ticket 07): a run that waits for its Orchestrator takes it at once
    * (begin). Answers the state once the run has taken it, or has stopped with `start-refused`; a run
    * that does not wait (any more) is left as it is.
@@ -1331,8 +1328,9 @@ export class Autopilot {
    * Why a start of `epic` would be refused now, without starting anything: a run of the Project,
    * the checks of start() that need no Orchestrator (ownChecks), and — without `override` — a run
    * of the same Epic and origin elsewhere. Null when start() would go past them. The Orchestrator's
-   * own state is not asked here (chat-start.ts asks it). Used by a start from a chat before it
-   * promises to start after the Orchestrator's turn (ADR-0091).
+   * own state is not asked here: a busy one refuses no start (worfy-autopilot-queue ticket 07). No
+   * start of the app asks it since that ticket; test/contract/codex-orchestrator.test.ts (worfy-multi-vendor
+   * ticket 39) does, to show a Run on Codex would start once its hooks are approved, without starting one.
    */
   async startCheck(projectId: string, epic: string, options: AutopilotStartOptions = {}): Promise<string | null> {
     const running = this.runningEpic(projectId)
@@ -2720,10 +2718,20 @@ export class Autopilot {
   /**
    * The run's policy judges the Project's unattended Session from now on: right before the run takes
    * the Orchestrator. A run that waits for it opened its policy at the click, but the stopped run whose
-   * Session may still linger keeps judging until then (worfy-autopilot-queue ticket 07).
+   * Session may still linger keeps judging until then (worfy-autopilot-queue ticket 07). Answers the
+   * undo, for a run that goes back to waiting: the policy active before judges again, unless it has
+   * been let go meanwhile (closeApproval); else none does.
    */
-  private activateApproval(run: Run): void {
-    if (run.approval !== null) this.activeApprovals.set(run.projectId, run.approval)
+  private activateApproval(run: Run): () => void {
+    const approval = run.approval
+    if (approval === null) return () => undefined
+    const previous = this.activeApprovals.get(run.projectId)
+    this.activeApprovals.set(run.projectId, approval)
+    return () => {
+      if (this.activeApprovals.get(run.projectId) !== approval) return
+      if (previous === undefined || this.letGo.has(previous)) this.activeApprovals.delete(run.projectId)
+      else this.activeApprovals.set(run.projectId, previous)
+    }
   }
 
   /**
@@ -2764,7 +2772,8 @@ export class Autopilot {
     if (known !== undefined) return known
     const parks = (): boolean => {
       const run = this.runs.get(projectId)
-      return run !== undefined && !run.cycle.stopping && run.cycle.phase !== 'stopped'
+      // A run that waits for its Orchestrator has not taken it: what is judged now is not its own.
+      return run !== undefined && run.wait === null && !run.cycle.stopping && run.cycle.phase !== 'stopped'
     }
     const made: LaunchApproval = {
       mode: () => (this.activeApprovals.has(projectId) ? this.approvalMode(projectId) : 'off'),
@@ -2793,6 +2802,7 @@ export class Autopilot {
     const approval = run.approval
     if (approval === null) return
     run.approval = null
+    this.letGo.add(approval)
     if (this.activeApprovals.get(run.projectId) === approval) this.activeApprovals.delete(run.projectId)
     if (!remove) return
     try {

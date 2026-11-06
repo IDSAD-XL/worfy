@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
+import type { LaunchApproval, RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
@@ -22,7 +23,7 @@ import { LayoutStore } from '../../src/main/layout/store'
 import { Autopilot, runningElsewhere, type LinkedRuns } from '../../src/main/autopilot/run'
 import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { emptyLimits } from '../../src/shared/agent/limits'
-import type { JournalEvent } from '../../src/shared/autopilot/journal'
+import { makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStateSchema, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { ms } from '../time-scale'
@@ -141,6 +142,35 @@ interface HarnessOptions {
   linked?: LinkedRuns[]
   /** A run in the Run mode Start window, over this window, with the Limits' clock at `now()`. */
   window?: { from: number; to: number; now: () => number }
+  /** The script of the run's unattended Orchestrator. */
+  unattended?: 'autopilot-waves' | 'autopilot-waves-held'
+  /** Auto-approval On: each run opens a fake policy (fakeApproval), and its folder is the Session's TMPDIR. */
+  approval?: boolean
+}
+
+interface FakeApproval {
+  run: string
+  runTemp: string
+  closed: boolean
+}
+
+/** A run's policy that judges nothing and tells when its folder goes, as in test/contract/autopilot-background.test.ts. */
+function fakeApproval(approvals: FakeApproval[]): RunApproval {
+  const run = makeRunId(new Date(), (approvals.length + 1).toString(16).padStart(6, '0'))
+  const entry: FakeApproval = { run, runTemp: join(scratch, 'run-temp', run), closed: false }
+  approvals.push(entry)
+  return {
+    run,
+    runTemp: entry.runTemp,
+    environment: { TMPDIR: entry.runTemp },
+    facts: { hooksPath: null, hooksActive: false, rebaseUpdateRefs: false, remotes: [], defaultBranch: 'main', configFiles: [], checkoutConfig: false, commonDir: null },
+    setWave: () => undefined,
+    judge: () => Promise.resolve({ outcome: 'deny', rule: 'not-judged', hint: null, targets: [] }),
+    close: () => {
+      entry.closed = true
+      return Promise.resolve()
+    },
+  }
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -153,7 +183,7 @@ function harness(options: HarnessOptions = {}) {
     const unattended = request.unattended === true
     return fakeQueryFactory({
       scriptsDir,
-      script: unattended ? 'autopilot-waves' : (options.attended ?? 'autopilot-wait-person'),
+      script: unattended ? (options.unattended ?? 'autopilot-waves') : (options.attended ?? 'autopilot-wait-person'),
       record: (call) => calls.push({ ...call, unattended }),
       releases,
     })(request)
@@ -191,6 +221,7 @@ function harness(options: HarnessOptions = {}) {
   const clock = new ManualClock()
   const linked = options.linked
   const window = options.window
+  const approvals: FakeApproval[] = []
   const autopilot = new Autopilot({
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
@@ -207,6 +238,7 @@ function harness(options: HarnessOptions = {}) {
     tasksClock: clock,
     tasksGraceMs: GRACE_MS,
     haltTurnMs: HALT_MS,
+    ...(options.approval === true ? { approval: { mode: () => 'on' as const, open: () => Promise.resolve(fakeApproval(approvals)) } } : {}),
     ...(linked === undefined ? {} : { origin: () => Promise.resolve(ORIGIN), linkedRuns: () => Promise.resolve(linked) }),
     ...(window === undefined
       ? {}
@@ -229,7 +261,26 @@ function harness(options: HarnessOptions = {}) {
   /** The texts of the messages Claude Code got, of the unattended Sessions or of the person's. */
   const messages = (unattended: boolean) => calls.flatMap((call) => (call.kind === 'message' && call.unattended === unattended ? [call.text] : []))
   const state = () => autopilot.state(PROJECT)
-  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, journal, kinds, session, messages, state, texts }
+  /**
+   * Every call of Orchestrators.setUnattended, with the policy the run passed (the same object for every
+   * run of the Project). `before` runs once, ahead of the next call that makes the Orchestrator unattended.
+   */
+  const unattendedCalls: (LaunchApproval | undefined)[] = []
+  let before: (() => Promise<void>) | null = null
+  const setUnattended = orchestrators.setUnattended.bind(orchestrators)
+  vi.spyOn(orchestrators, 'setUnattended').mockImplementation(async (projectId, unattended, approval) => {
+    if (unattended) {
+      unattendedCalls.push(approval)
+      const first = before
+      before = null
+      await first?.()
+    }
+    return setUnattended(projectId, unattended, approval)
+  })
+  const beforeUnattended = (fn: () => Promise<void>): void => {
+    before = fn
+  }
+  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, journal, kinds, session, messages, state, texts, approvals, unattendedCalls, beforeUnattended }
 }
 
 /** The person's message starts a turn of the attended Orchestrator that holds until released. */
@@ -344,12 +395,12 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
   })
 
-  it('Cancel: run-stopped start-cancelled; the Session was not started again and its queue is where it was', async () => {
+  it('Stop cancels a waiting run: run-stopped start-cancelled; the Session was not started again and its queue is where it was', async () => {
     const h = harness()
     const session = await personInTurn(h)
     session.send('then this')
     await h.autopilot.start(PROJECT, EPIC)
-    expect(await h.autopilot.cancel(PROJECT)).toMatchObject({ status: 'stopped', reason: 'start-cancelled', wave: 0 })
+    expect(await h.autopilot.stop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'start-cancelled', wave: 0 })
     expect(await h.kinds()).toEqual(['run-started', 'orchestrator-busy', 'run-stopped start-cancelled'])
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
     expect(session.state).toBe('busy')
@@ -364,13 +415,107 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(await h.kinds()).toEqual(['run-started', 'orchestrator-busy', 'run-stopped start-cancelled'])
   })
 
-  it('Stop on a waiting run (autopilot.stop) cancels it the same way', async () => {
+  it('Force stop on a waiting run cancels it the same way: start-cancelled, and the person\'s Orchestrator is not touched', async () => {
     const h = harness()
-    await personInTurn(h)
+    const session = await personInTurn(h)
     await h.autopilot.start(PROJECT, EPIC)
-    expect(await h.autopilot.stop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'start-cancelled' })
+    expect(await h.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'start-cancelled', wave: 0 })
     expect(await h.kinds()).toEqual(['run-started', 'orchestrator-busy', 'run-stopped start-cancelled'])
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(session.state).toBe('busy')
+    expect(h.power).toEqual([])
+  })
+
+  it('Start now on a run that does not wait does nothing: no tasks-killed, no new Session, no second start, keep-awake held once', async () => {
+    // The Wave's turn holds until the test releases `wave`: the run is in its Wave when Start now comes.
+    const lines = readFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), 'utf8').trim().split('\n')
+    writeFileSync(join(scriptsDir, 'autopilot-waves-held.jsonl'), `${[...lines.slice(0, 2), '{"fake":"wait_release","name":"wave"}', ...lines.slice(2)].join('\n')}\n`)
+    const h = harness({ unattended: 'autopilot-waves-held' })
+    expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'running' })
+    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy', 'the Wave\'s turn')
+    const requests = h.requests.length
+    const before = await h.kinds()
+    expect(await h.autopilot.startNow(PROJECT)).toMatchObject({ status: 'running' })
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.requests).toHaveLength(requests)
+    expect(h.calls.filter((call) => call.kind === 'close')).toEqual([])
+    expect(await h.kinds()).toEqual(before)
+    expect(before).not.toContain('tasks-killed')
+    expect(before).not.toContain('orchestrator-free')
+    expect(h.messages(true)).toEqual([WAVE_1])
+    expect(h.power).toEqual(['start'])
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+  })
+
+  it('free, then busy again before the run takes it (a person wrote meanwhile): the run goes on waiting, and starts at the next end', async () => {
+    const h = harness({ approval: true })
+    const session = await personInTurn(h)
+    await h.autopilot.start(PROJECT, EPIC)
+    // The person writes again right as the run asks for the Orchestrator.
+    h.beforeUnattended(async () => {
+      session.send('one more question')
+      await until(() => session.state === 'busy', 'the person\'s second turn')
+    })
+    h.releases.release('turn')
+    await until(async () => (await h.kinds()).length === 4, 'the wait to go on')
+    expect(await h.kinds()).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'orchestrator-busy'])
+    expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: true } })
+    expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(h.power).toEqual([])
+    // Back to waiting, the run's policy no longer judges the Project's unattended Session.
+    expect(h.unattendedCalls[0]?.mode()).toBe('off')
+    expect(h.unattendedCalls[0]?.environment()).toEqual({})
+
+    h.releases.release('turn')
+    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    expect((await h.kinds()).slice(0, 6)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
+    expect(h.messages(false)).toEqual(['how is it going?', 'one more question'])
+    await until(() => h.messages(true).length === 1, 'the Wave to reach the Orchestrator')
+    expect(h.messages(true)).toEqual([WAVE_1])
+  })
+
+  it('a message that lands between the start\'s read of the Orchestrator and its answer: the run waits instead of being refused', async () => {
+    const h = harness({ approval: true })
+    const session = await h.session()
+    await until(() => session.state === 'idle', 'the idle Orchestrator')
+    h.beforeUnattended(async () => {
+      session.send('a late question')
+      await until(() => session.state === 'busy', 'the person\'s turn')
+    })
+    expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: true } })
+    expect(await h.kinds()).toEqual(['run-started', 'orchestrator-busy'])
+    expect(h.unattendedCalls[0]?.mode()).toBe('off')
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
+    h.releases.release('turn')
+    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
+    expect(h.requests.at(-1)).toMatchObject({ unattended: true, environment: { TMPDIR: h.approvals[0]!.runTemp } })
+  })
+
+  it('a run that waited starts its Session under its Auto-approval policy, with the run\'s TMPDIR', async () => {
+    const h = harness({ approval: true })
+    await personInTurn(h)
+    await h.autopilot.start(PROJECT, EPIC)
+    expect(h.approvals).toHaveLength(1)
+    h.releases.release('turn')
+    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    expect(h.requests.at(-1)?.environment).toEqual({ TMPDIR: h.approvals[0]!.runTemp })
+    expect(h.unattendedCalls[0]?.mode()).toBe('on')
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', autoApproval: 'on', run: h.approvals[0]!.run })
+  })
+
+  it('a waiting run parks nothing: the stopped run\'s Session it waits for gets no park', async () => {
+    const h = harness({ approval: true })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.messages(true).length === 1, 'the Wave to reach the Orchestrator')
+    const launch = h.unattendedCalls[0]!
+    expect(launch.parks?.()).toBe(true)
+    await h.autopilot.forceStop(PROJECT)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    await personInTurn(h)
+    expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    expect(launch.parks?.()).toBe(false)
   })
 
   it('Start now: tasks-killed start-now with the tasks, the Session unattended at once, the Wave goes; the queued message stays the person\'s', async () => {
@@ -408,11 +553,13 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(h.messages(true)).toEqual([WAVE_1])
   })
 
-  it('a run of the same Epic starts on a Linked machine during the wait: run-stopped start-refused with the reason', async () => {
+  it('a run of the same Epic starts on a Linked machine during the wait: run-stopped start-refused with the reason, told to the start\'s listener', async () => {
     const linked: LinkedRuns[] = [{ machine: 'Studio', runs: [] }]
     const h = harness({ linked })
     await personInTurn(h)
-    expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    const refusals: string[] = []
+    expect(await h.autopilot.start(PROJECT, EPIC, { onLateRefusal: (message) => refusals.push(message) })).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    expect(refusals).toEqual([])
     linked[0] = { machine: 'Studio', runs: [{ epic: EPIC, origin: ORIGIN }] }
     h.releases.release('turn')
     await until(() => h.state().status === 'stopped', 'the run to stop')
@@ -421,6 +568,20 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'start-refused', message: runningElsewhere(EPIC, 'Studio') })
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
     expect(h.power).toEqual([])
+    expect(refusals).toEqual([runningElsewhere(EPIC, 'Studio')])
+  })
+
+  it('"Start anyway" on a waiting run: the run of the same Epic elsewhere does not refuse it when the Orchestrator is free', async () => {
+    const linked: LinkedRuns[] = [{ machine: 'Studio', runs: [{ epic: EPIC, origin: ORIGIN }] }]
+    const h = harness({ linked })
+    await personInTurn(h)
+    await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(runningElsewhere(EPIC, 'Studio'))
+    expect(await h.autopilot.start(PROJECT, EPIC, { override: true })).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    h.releases.release('turn')
+    await until(async () => (await h.kinds()).includes('wave-started') || h.state().status === 'stopped', 'Wave 1 or the end of the run')
+    expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
+    expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', override: true })
+    expect(h.messages(true)).toEqual([WAVE_1])
   })
 
   it('Start window: the window is weighed when the Orchestrator is free, not at the click', async () => {

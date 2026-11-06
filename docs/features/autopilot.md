@@ -35,14 +35,16 @@ not answer within 3 seconds, does not block a start: the chip "on <Machine>" nam
 remote `origin` asks no one.
 
 **While the Orchestrator is busy** — in a turn, with live background tasks, or with messages waiting in its queue — a
-start is not refused. The run begins at once, its journal opens with `orchestrator-busy`, and the status line says
+start is not refused. The run begins at once, its journal opens with `run-started` and `orchestrator-busy`, and the status line says
 `waiting for the Orchestrator · 4 min`. The run sends its first Wave once the Orchestrator is free: the turn is over, the
 queue is empty, no background task lives, and two minutes passed after the last task ended with no new turn. A message
 sent during the wait makes it longer. Then the checks above run again: a refusal at this moment stops the run with
 `start-refused` and the reason, in the journal and as a notice in the Session that asked from a chat. keep-awake starts
 only with the real start. **Stop** (and Force stop) on a waiting run cancels it: `start-cancelled`, the Orchestrator
 untouched. **Start now** (channel `autopilot.startNow`) does not wait: it stops the Orchestrator's turn and background
-tasks, journals them as `tasks-killed` with the reason `start-now`, and starts the run at once. The messages of the queue
+tasks, journals them as `tasks-killed` with the reason `start-now`, and starts the run at once. The checks above run
+first, so Start now can also end the run with `start-refused`. The window has no Start now button yet: only the main
+process channel calls it. The messages of the queue
 are not sent to the run: they come back, held, to the person's Session after the run
 ([ADR-0099](../adr/0099-run-waits-for-orchestrator.md)).
 
@@ -88,7 +90,6 @@ waits for it as described under "While the Orchestrator is busy", and the agent 
   stopped run that still waits for its turn or background tasks is not refused: it gets the dialog;
 - a Session worfy cannot find;
 - a Project with a run under way: "Autopilot is already running Epic X. Stop it first.", and the journal gets nothing;
-- a Project whose start from a chat waits for the Orchestrator's turn to end;
 - an Epic or a Ticket the Project does not have, or a workflow that cannot be read;
 - a second call while a dialog of the same Project waits;
 - a Machine with no worfy window open: a box without a window would block worfy on macOS.
@@ -528,7 +529,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | Path | What it holds |
 |---|---|
 | `src/main/autopilot/run.ts` | The `Autopilot` class and one `Run`: start checks, events of the Session, effects of the cycle, stops, give-back. |
-| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, and the start after the asking Orchestrator's turn. The command typed in a chat and the tool `autopilot_start` call it. |
+| `src/main/autopilot/chat-start.ts` | `ChatStarts.startFromChat`: the start from a chat, over the Epic or named Tickets; the refusal while a run goes on, the answer that the run waits for a busy Orchestrator, and the notice when that run is refused later. The command typed in a chat and the tool `autopilot_start` call it. |
 | `src/shared/autopilot/chat-command.ts` | `parseChatCommand`: which typed messages are a command, with what Epic and Tickets; the toast of its answer. |
 | `src/shared/workflow/wave-plan.ts` | `parseWavePlan`, `waveTickets`: the Waves table of an Epic's `spec.md`, and the Tickets of Wave N not done yet. |
 | `src/main/ipc/agent.ts` | `agent.send`: a command does not reach the agent; it starts the run through `startFromChat` and answers what became of it. |
