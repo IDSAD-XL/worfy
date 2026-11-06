@@ -1289,3 +1289,128 @@ describe('the folder for temporary files of a run with a policy (worfy-auto-appr
     expect(h.approvals.map((approval) => approval.closed)).toEqual([true])
   })
 })
+
+describe('a live background task that sends no events is not stalled while its output file changes (worfy-polish ticket 61)', () => {
+  const GATE = 'Run full gate on main merge commit'
+  /** The second task's output file, as the tool result that started it names it. */
+  let output: string
+
+  /**
+   * The fixture, with the second task a Bash in the background — a gate full — that sends no task_progress: its
+   * Bash tool_use and the tool result naming its output file come right after its task_started.
+   */
+  function silentGateScript(): string {
+    output = join(scratch, 'claude-tmp', 'session', 'tasks', 'task_impl_0002.output')
+    mkdirSync(dirname(output), { recursive: true })
+    writeFileSync(output, '')
+    const bash = (line: Record<string, unknown>): Record<string, unknown> => {
+      if (line.task_id === 'task_impl_0002' && line.subtype === 'task_started') {
+        const rest = { ...line }
+        delete rest.subagent_type
+        delete rest.spawn_depth
+        return { ...rest, description: GATE, task_type: 'local_bash' }
+      }
+      if (!Array.isArray(line.tasks)) return line
+      return { ...line, tasks: (line.tasks as Record<string, unknown>[]).map((task) => (task.task_id === 'task_impl_0002' ? { ...task, task_type: 'local_bash', description: GATE } : task)) }
+    }
+    const lines = readFileSync(join(fixtures, 'autopilot-background.jsonl'), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .flatMap((text) => {
+        const line = bash(JSON.parse(text) as Record<string, unknown>)
+        if (line.subtype !== 'task_started' || line.task_id !== 'task_impl_0002') return [line]
+        return [
+          line,
+          {
+            type: 'assistant',
+            message: { id: 'msg_gate_bash', model: 'claude-opus-5-5', type: 'message', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_impl_0002', name: 'Bash', input: { command: 'GATE_SCOPE=all node gate.mjs full </dev/null; echo "EXIT=$?"', run_in_background: true } }], stop_reason: null },
+            parent_tool_use_id: null,
+            session_id: '{{session}}',
+            uuid: '00000000-0000-4000-8000-000000006101',
+          },
+          {
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_impl_0002', content: `Command running in background with ID: task_impl_0002. Output is being written to: ${output}. You will be notified when it completes. To check interim output, use Read on that file path.`, is_error: false }] },
+            parent_tool_use_id: null,
+            session_id: '{{session}}',
+            uuid: '00000000-0000-4000-8000-000000006102',
+          },
+        ]
+      })
+    writeFileSync(join(scriptsDir, 'silent-gate.jsonl'), `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`)
+    return 'silent-gate'
+  }
+
+  /** The first task ends and its turn passes: only the silent gate is left, and the run waits for it with the limit set. */
+  async function onlyTheGateLeft(): Promise<ReturnType<typeof harness>> {
+    const h = harness({ script: silentGateScript() })
+    await waveWaitsForTasks(h)
+    // The turn's end is judged after a fresh read, held here: the limit the test fires is the one set after that read,
+    // not one set by a task event before the turn began (its mark of the file would be older than the test's writes).
+    h.gate.held = true
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 1 && (await h.session()).state === 'idle', 'the first task-notification turn')
+    await until(() => h.gate.waiting > 0, 'the read after the turn')
+    expect(h.clock.pending()).toEqual([])
+    h.gate.open()
+    await until(() => h.clock.pending().length === 1, 'the limit set again')
+    expect(await taskIds(h)).toEqual(['task_impl_0002'])
+    expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
+    return h
+  }
+
+  /** The limit runs out; resolves once the run either set it anew or stopped. */
+  async function limitRunsOut(h: ReturnType<typeof harness>): Promise<void> {
+    const before = h.clock.sets
+    h.clock.fire(BACKGROUND_STALL_MS)
+    await until(() => h.clock.sets > before || h.autopilot.state(PROJECT).status === 'stopped', 'the limit set anew, or the run stopped')
+  }
+
+  const gateWrites = (text: string): void => writeFileSync(output, `${readFileSync(output, 'utf8')}${text}\n`)
+
+  it('a gate full that writes a line a step goes on past the limit, more than once, and the Wave ends with its task-notification', async () => {
+    const h = await onlyTheGateLeft()
+    gateWrites('[gate] time (full): worfy/.:test 1553.4 s')
+    await limitRunsOut(h)
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running', backgroundTasks: 1 })
+    expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
+    gateWrites('[gate] time (full): worfy/.:test:e2e 2009.5 s')
+    await limitRunsOut(h)
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running', backgroundTasks: 1 })
+    expect(h.clock.pending()).toEqual([BACKGROUND_STALL_MS])
+    // The gate ends normally: its task-notification turn judges the Wave.
+    writeTicket(1, 'done — 2026-11-06')
+    writeTicket(2, 'done — 2026-11-06')
+    h.releases.release('tasks')
+    await until(async () => (await h.kinds()).includes('wave-finished'), 'Wave 1 to finish')
+    const journal = await h.journal()
+    expect(journal.filter((event) => event.kind === 'run-stopped' && event.reason === 'background-stalled')).toEqual([])
+    expect(heldWhileTasksLive(journal)).toEqual([])
+  })
+
+  it('a gate whose output file does not change in the limit stops the run with background-stalled, as before', async () => {
+    const h = await onlyTheGateLeft()
+    await limitRunsOut(h)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'background-stalled' })
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'background-stalled', tasks: [{ id: 'task_impl_0002', type: 'local_bash', description: GATE }] })
+  })
+
+  it('a gate that writes, then stops writing, stops the run at the first limit with no change', async () => {
+    const h = await onlyTheGateLeft()
+    gateWrites('[gate] time (full): worfy/.:lint 47.8 s')
+    await limitRunsOut(h)
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
+    await limitRunsOut(h)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'background-stalled' })
+  })
+
+  it('a gate whose output file is gone gives no sign of life: the run stops with background-stalled', async () => {
+    const h = await onlyTheGateLeft()
+    await rm(output)
+    await limitRunsOut(h)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'background-stalled' })
+  })
+})

@@ -31,7 +31,8 @@
 // - The run waits for the background tasks of its Orchestrator Session (worfy-daily ticket 29,
 //   ADR-0029): a turn that ends while they live does not end the Wave; their task-notifications
 //   start turns of the Wave. Every change of the set goes to the journal. Without any task event
-//   for the limit the run stops with `background-stalled`. A run stopped by the cycle while tasks
+//   for the limit, and with no live task's output file changed in it (task-output.ts, worfy-polish
+//   ticket 61), the run stops with `background-stalled`. A run stopped by the cycle while tasks
 //   live, or while a turn runs (it may start some), leaves the Orchestrator unattended, and keeps
 //   keep-awake, until the turn and the tasks have ended (orchestrator.ts);
 //   then the journal says `orchestrator-returned`, or, if the app quits first, `tasks-killed`.
@@ -234,6 +235,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { BASE_INTERVAL_MS } from '../github/prs'
 import type { RunStart } from './journal'
 import { LimitsWait, wallTimer, type LimitsWaitDeps } from './limits-wait'
+import { outputChanged, outputMarks, rememberTaskOutputs, type OutputMarks } from './task-output'
 import { TurnRetry, type RetryAction, type TurnRetryDeps } from './turn-retry'
 
 /** The run's Orchestrator Session, as far as the run needs it. */
@@ -792,6 +794,8 @@ class Run {
   settleTimer: ReturnType<typeof setTimeout> | null = null
   /** The wait for background tasks (phase `tasks`): their limit, or the grace time after the last one. */
   tasksTimer: unknown = null
+  /** The output files of the Session's tasks, by task id, as the tool results that started them name them (task-output.ts). */
+  readonly taskOutputs = new Map<string, string>()
   /** Turns of the Orchestrator's Session the run has seen start: one per `prompt` event. */
   turns = 0
   /**
@@ -1852,6 +1856,8 @@ export class Autopilot {
       }
       default:
         run.retry?.observe(event)
+        // A background task's output file, for a sign of life of a task that sends no events (worfy-polish ticket 61).
+        if (event.type === 'tool_result') rememberTaskOutputs(run.taskOutputs, event.content)
         // Any other event of a task is a sign of life: the limit starts over.
         if (isTaskEvent(event)) void run.enqueue(() => this.tasksTimer(run, true))
         return
@@ -2744,7 +2750,8 @@ export class Autopilot {
   /**
    * In phase `tasks`, the wait for the background tasks: their limit while any lives, the grace
    * time for the task-notification turn once none does. Set when the phase begins and, with
-   * `restart`, set again on every task event; cleared in every other phase.
+   * `restart`, set again on every task event; cleared in every other phase. When the limit runs
+   * out, a live task whose output file changed since it was set starts it over.
    */
   private tasksTimer(run: Run, restart: boolean): void {
     const clock = this.deps.tasksClock ?? realClock
@@ -2753,18 +2760,24 @@ export class Autopilot {
       run.tasksTimer = null
     }
     if (run.cycle.phase !== 'tasks' || run.tasksTimer !== null) return
-    const ms = this.liveTasks(run).length > 0 ? (this.deps.backgroundStallMs ?? BACKGROUND_STALL_MS) : (this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
+    const live = this.liveTasks(run)
+    const ms = live.length > 0 ? (this.deps.backgroundStallMs ?? BACKGROUND_STALL_MS) : (this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
+    // The output files of the live tasks as the limit starts; none in the grace time, when no task lives.
+    const marks: OutputMarks | null = live.length > 0 ? outputMarks(run.taskOutputs, live) : null
     const timer = clock.setTimeout(() => {
       if (run.tasksTimer !== timer) return
       run.tasksTimer = null
       // A task whose request waits parked for the owner is waiting, not stalled: the limit starts over.
       if ((run.session?.parkedRequests?.() ?? 0) > 0) return this.tasksTimer(run, false)
-      void run.enqueue(() =>
-        this.readAndFeed(run, 'stop', (tickets) => {
+      void run.enqueue(() => {
+        // A task whose output file changed since the limit started is at work, though it sent no event (a gate full
+        // in one silent Bash, worfy-polish ticket 61): the limit starts over.
+        if (marks !== null && outputChanged(marks, outputMarks(run.taskOutputs, this.liveTasks(run)))) return this.tasksTimer(run, false)
+        return this.readAndFeed(run, 'stop', (tickets) => {
           run.turnMayCome = true
           return { type: 'tasks-timeout', tasks: this.liveTasks(run).length, tickets }
-        }),
-      )
+        })
+      })
     }, ms)
     run.tasksTimer = timer
   }
