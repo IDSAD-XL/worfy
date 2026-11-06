@@ -191,9 +191,12 @@ describe('park: the wait limit and the stop of the run', () => {
     const signal = new AbortController().signal
     void g.permissions.ask({ subject: 'Edit', toolName: 'Edit', toolUseId: null, input: {}, title: null, description: null, blockedPath: null, suggestions: [], options: CLAUDE_PERMISSION_OPTIONS.map((option) => ({ ...option })), signal })
     expect(g.permissions.pending).toBe(2)
+    // Only the parked one counts as parked (the run's limit of the background tasks reads it).
+    expect(g.permissions.parked).toBe(1)
     g.permissions.releaseParked()
     await expect(end).resolves.toEqual({ outcome: 'expired' })
     expect(g.permissions.pending).toBe(1)
+    expect(g.permissions.parked).toBe(0)
     expect(c.timers.size).toBe(0)
   })
 
