@@ -1,7 +1,7 @@
 /* The Runs tab and its Work track (RunsView.tsx, WorkTrackView.tsx, Lanes.tsx, MonthGrid.tsx; worfy-work-track
-   ticket 09). Colours come from tokens.css only — the `--span-*` tokens of F-SPEC "Run history" for the
-   work of Subagents, Runs, Waves, gate runs, problems and «no data», `--kind-session` and `--kind-epic` for
-   the turns of a Session and the Epic lanes — so both themes come for free. */
+   ticket 09). Colours come from tokens.css only, the `--span-*` tokens of F-SPEC "Run history": the turns of
+   a Session take the colour of an Orchestrator turn there, an Epic lane the colour of a Ticket; the `kind-*`
+   roles stay the Node kinds' alone (ADR-0077). Both themes come for free. */
 
 .w-runs {
   display: flex;
@@ -272,7 +272,7 @@ button.w-wt-toggle {
   line-height: calc(var(--w-wt-bar) - 3px);
 }
 .w-wt-bar--turn {
-  background: var(--kind-session);
+  background: var(--span-orchestrator);
 }
 .w-wt-bar--implementer {
   background: var(--span-implementer);
@@ -302,7 +302,7 @@ button.w-wt-toggle {
   --w-wt-colour: var(--span-wave);
 }
 .w-wt-colour--turn {
-  --w-wt-colour: var(--kind-session);
+  --w-wt-colour: var(--span-orchestrator);
 }
 .w-wt-colour--implementer {
   --w-wt-colour: var(--span-implementer);
@@ -314,7 +314,7 @@ button.w-wt-toggle {
   --w-wt-colour: var(--span-agent);
 }
 .w-wt-colour--epic {
-  --w-wt-colour: var(--kind-epic);
+  --w-wt-colour: var(--span-ticket);
 }
 .w-wt-colour--gate {
   --w-wt-colour: var(--span-gate);
