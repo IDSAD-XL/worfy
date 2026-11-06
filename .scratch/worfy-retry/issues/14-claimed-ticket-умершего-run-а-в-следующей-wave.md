@@ -65,6 +65,7 @@ Ticket перенесён в worfy-retry решением владельца 202
 - [ ] Force stop, graceful Stop и остальные причины остановки ведут себя как раньше: `test/contract/autopilot.test.ts`,
       `test/contract/autopilot-background.test.ts`, `test/unit/autopilot-cycle.test.ts`, `test/unit/autopilot-run.test.ts`
       зелёные без правки их ожиданий.
+  - evidence: test-run pass · `vitest run test/contract/autopilot test/unit/autopilot- test/unit/canvas-actions.test.tsx` exit 0; one expectation changed: autopilot-cycle.test.ts:138 session-error in phase turn now has tickets [1, 2], the case this ticket changes; one assertion added: autopilot.test.ts resumable [] after blocked-tickets (review round 1) · mac - · 92bc1e306
 - [ ] worfy не пишет `Status:` Ticket-а (ADR-0002): И7 в `checkRecovery` сценария 1 пустой.
   - evidence: test-run pass · `vitest run test/contract/autopilot-faults-process.test.ts` exit 0 · mac - · 4a232a36b
 - [ ] `docs/features/autopilot.md` описывает новое поведение.
