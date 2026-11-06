@@ -106,11 +106,11 @@ describe('from-journal: the Waits', () => {
     expect(wait).toMatchObject({ waitCause: 'api-retry', start: Date.parse(T('10:10')), end: Date.parse(T('10:11')) })
   })
 
-  it('a second turn-retry with no resumed between goes on with the same Wait `api-retry`; a Journal that ends while the Run waits leaves it open, last seen at its last line', () => {
+  it('a second turn-retry with no resumed between goes on with the same Wait `api-retry` from its first start, named by its last retry; a Journal that ends while the Run waits leaves it open, last seen at its last line', () => {
     const retry = (hhmm: string, attempt: number, until: string) => line(hhmm, 'turn-retry', { attempt, of: 5, error: 'overloaded', message: 'API Error: 529', until: T(until) })
     const facts = read(started(), wave('10:01', 1, ['01']), retry('10:10', 1, '10:11'), retry('10:12', 2, '10:17'), status('10:15', '01', 'claimed'))
     expect(facts.waits).toEqual([
-      { id: 'api-retry:1', cause: 'api-retry', start: T('10:10'), end: null, lastSeenAt: T('10:15'), detail: `overloaded, retry 1 of 5, until ${T('10:11')}`, startSource: 'journal' },
+      { id: 'api-retry:1', cause: 'api-retry', start: T('10:10'), end: null, lastSeenAt: T('10:15'), detail: `overloaded, retry 2 of 5, until ${T('10:17')}`, startSource: 'journal' },
     ])
   })
 

@@ -328,8 +328,13 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
       case 'turn-retry': {
         const { attempt, of } = event
         const until = text(event.until)
-        const detail = [text(event.error), typeof attempt === 'number' && typeof of === 'number' ? `retry ${attempt} of ${of}` : undefined, until === undefined ? undefined : `until ${until}`]
-        retry ??= open('api-retry', at, detail.filter((part): part is string => part !== undefined))
+        const detail = [text(event.error), typeof attempt === 'number' && typeof of === 'number' ? `retry ${attempt} of ${of}` : undefined, until === undefined ? undefined : `until ${until}`].filter(
+          (part): part is string => part !== undefined,
+        )
+        // A turn that fails again during the wait (a background task's) writes the next turn-retry with
+        // no resumed between: the same Wait goes on from its start, named by its last retry.
+        retry ??= open('api-retry', at)
+        retry.detail = detail
         break
       }
       case 'resumed':
