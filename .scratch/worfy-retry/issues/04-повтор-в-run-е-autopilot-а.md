@@ -36,13 +36,19 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 3–4
 
 - [ ] Contract test: переключатель off, 500 → `run-stopped` `turn-error`, как сегодня (скрипт worfy-faults не нужен:
       свой fixture).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Contract test: on, 500 → `turn-retry` 1/5, по таймеру test-а `resumed`, Run дальше; команда Wave ушла один раз;
       продолжение одно и без `/epic-wave`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Contract test: on, 529 пять раз подряд — паузы по `retryDelay`, затем `retry-refused` `cap`, `turn-error`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Contract test: on, 400 → `retry-refused` `not-transient`; `git push` без результата → `in-flight`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Contract test: on, отказ Limits не уходит в повтор (`limits-hit`, не `turn-retry`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Contract test: ожидание и удачный ход фоновой задачи — продолжения нет; Stop во время ожидания — `user-stop`,
       продолжения нет; выход — таймер отменён.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts` exit 0 · mac - · 8ff83b09c7d0863c5a3c32ef2fefd497f36057c5
 - [ ] Unit test `autopilotStatusLine`: вид `retry`. Снимки строки Canvas в двух темах.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный (Linux, macOS, Windows). Ревью не ниже `high`.
 
