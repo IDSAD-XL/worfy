@@ -205,6 +205,52 @@ While a run goes on:
 - When the Harness in `main` of worfy's own repository has changes that this build does not have, the chip "Harness in
   main is newer than the Stable copy" stands under the button, with or without a run. The run goes on as it is.
 
+#### Auto-approval
+
+Auto-approval decides what worfy answers when the agent of a run asks for a permission. It is set per Project on the
+Machine of the Project, in the Orchestrator's Modes menu ([Sessions](sessions.md)), and is Off until set. The mode is
+kept in worfy's own `app-settings.json`, not in the Profile, which the agent could change itself. While worfy runs with
+a debugging port or the Node inspector open, Off applies whatever is saved. A run reads the mode at each request.
+
+| Mode | What the agent gets | What the journal gets |
+|---|---|---|
+| Off | The refusal of an unattended Session, as without Auto-approval. The policy is not asked. | `refused-dialog` |
+| Shadow | The same refusal as at Off: no hint, no park. | `auto-approval` with what the policy would have done: `would-allow`, `would-deny`, `would-park`, or `hard-deny`. |
+| On | The policy's decision (below). | `auto-approval` with `allow`, `deny`, `park` or `hard-deny`; a park also gets `park-answered` or `park-expired` when it ends. |
+
+The approval policy judges each request in a fixed order and gives one outcome with the rule that decided it:
+
+- **deny with a hint**: the agent can rewrite the request. A question with answer options is always this ("decide by
+  the rules of the Project, or write the question into the owner questions of the Ticket"); so is a command the
+  policy cannot read in full (a command substitution in a target, `eval`, a loop over a variable target, a variable with
+  no known value), a symbolic link on the path, a delete of a whole root, and a write to git's config, hooks or
+  attributes. What the policy did not read it never allows. The hint is fixed text of the rule, never a piece of the
+  request.
+- **allow**: every target is inside the roots of the run — the worktrees of the Tickets of the current Wave, the
+  Project's `.scratch`, the run's own temporary folder and the Session's scratchpad — and an allow rule passes every
+  action: file programs inside the roots without the network, an `sh`/`bash`/`zsh -c` script whose every action another
+  rule passes, git in a worktree of the Wave without push and without deleting a branch, and Edit, Write, MultiEdit,
+  NotebookEdit (Claude Code) or a file change (Codex) inside the roots. A push is never allowed.
+- **park**: parsed, but only a person can decide, such as a push or a tool the policy does not know. The request waits
+  on the Orchestrator's Session for at most 60 minutes, as described under [During a run](#during-a-run).
+- **hard deny**: refused in every mode, and no answer lifts it. The secrets and settings of the home folder
+  (`~/.claude`, `~/.codex`, `~/.ssh`, `~/.gnupg`, `~/.config/gh`, `~/.gitconfig`, `~/.config/git`, `~/.npmrc`, the shell
+  rc files, `~/Library`) and `%APPDATA%` and worfy's data folder (except the run's own temporary folder), to write,
+  delete or read; writing into the Harness home, the folders of other live Sessions and other worktrees; programs that
+  change the system or app settings (`sudo`, `launchctl`, `security`, `crontab`, `defaults write` and the like);
+  `chmod` and `chown` outside the roots; a force push, a push that deletes, a push to the default branch or a branch of
+  another worktree, and deleting, checking out or committing on such a branch; running what was downloaded
+  (`curl … | sh`); sending a file from outside the roots.
+
+The policy sees only the requests the agent asks. In `bypassPermissions` Claude Code runs most commands without asking,
+so Auto-approval makes a run no less safe than `bypassPermissions` is: it only says yes to part of what used to get no.
+The decision and its reasons are recorded in [ADR-0098](../adr/0098-approval-policy.md).
+
+Where to see the decisions: Run history lists them in its Auto-approval block, with the counters and, in Shadow, the
+Project's Shadow decisions so far ([Flight Recorder](flight-recorder.md#the-auto-approval-block)). When the run is over
+the Orchestrator's chat gets one line, `Auto-approval: allowed 3, denied 1, parked 0` or `Shadow: would allow 2, would
+deny 1, would park 0`. A switch from Shadow to On is the owner's: worfy never changes the mode itself.
+
 #### When a Wave is over
 
 A Wave is over when all of this is true:
@@ -595,6 +641,17 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |
+| `test/unit/auto-approve-shell.test.ts` | The parser of a shell command for Auto-approval: the examples of the spec, each construct outside the grammar, words and quotes, the variables a command surely gets, Git Bash on Windows. |
+| `test/contract/auto-approve-shell-sh.test.ts` | The parser against real shells (sh, bash, dash and zsh where installed, Git Bash on Windows): the words it reads are the words the shell passes. |
+| `test/unit/auto-approve-policy.test.ts` | The approval policy: hard deny in every mode, questions, commands outside the grammar, each allow rule, the attacks of the spec (delete everything, a link to the home folder), git config and hooks, other worktrees and the default branch, Windows paths, the hints. |
+| `test/unit/auto-approve-roots.test.ts` | The roots and hard areas: links and globs on disk, the folder of `mktemp -d`, roots recorded at the start and moved since, what a copy brings along, Windows path forms. |
+| `test/unit/auto-approve-run.test.ts` | The policy of a run: its git environment and what it reads of the repository, the context of each request, the command and the targets as the journal keeps them, the Claude driver by mode, and no write into the Project. |
+| `test/unit/auto-approve-park.test.ts` | Park: the wait on the gate, the 60-minute limit, a stop of the run (also while the request is on its way), the notification. |
+| `test/unit/auto-approve-summary.test.ts` | The decisions of a run in its journal, their counters for Run history and the line in the Orchestrator's chat at the end of a run. |
+| `test/contract/auto-approve-claude.test.ts` | Auto-approval of an unattended Claude Code Session: Off unchanged byte for byte, Shadow, On, a switch during the run, the run's environment, a policy that cannot start or throws, a parked request of a background task, a Stop during a park. |
+| `test/contract/auto-approve-codex.test.ts` | The same on Codex over the fake app-server: Off, Shadow, On, the variables pinned in Codex's shell, the login-shell wrapper, a request closed while judged, a park and its ends, a file change with a `grantRoot`. |
+| `test/contract/auto-approve-setting.test.ts` | The mode in `app-settings.json`: per Project, garbage read as Off, writes only through its channel, an edit made outside worfy, a Linked machine, the debugging port and the inspector. |
+| `test/e2e/auto-approve.spec.ts` | The built app under Playwright's debugging port: the Modes menu shows Off in force with the reason, the saved mode is read at start, nothing is written. |
 | `test/contract/codex-orchestrator.test.ts` | A run on a Codex Orchestrator on the fake app-server: Full access, the refusal while the hooks are not approved, before a later Wave and before the gate queue, the wait for a Codex window, `vendor-quota`, the budget by the Codex windows. |
 | `test/unit/autopilot-vendor-limits.test.ts` | The budget window of Codex, its samples and forecast, both forms of `limits` in the journal. |
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
