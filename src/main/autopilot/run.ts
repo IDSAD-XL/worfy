@@ -625,6 +625,8 @@ class Run {
   session: RunSession | null = null
   journal: RunJournalLike | null = null
   awake: { start(): void; stop(): void } | null = null
+  /** keep-awake released for a far Limits wait (holdAwake, worfy-retry ticket 05). */
+  asleep = false
   /** The run's wait for the Limits; null when the app gave no Limits (AutopilotDeps.limits). */
   limits: LimitsWait | null = null
   /** The run's retries after a temporary API error; null when the app gave no Auto-continue (AutopilotDeps.retry). */
@@ -1217,6 +1219,7 @@ export class Autopilot {
           // the Wave's duration does not count the rest of the Wave as waiting (wave-duration.ts).
           const waiting = run.limits?.until != null
           run.limits?.passed()
+          this.holdAwake(run)
           run.turnMayCome = false
           if (waiting) await this.write(run, { kind: 'resumed' })
           const retried = await this.retryTurn(run, { failure, actions, interrupted, message })
@@ -1932,7 +1935,8 @@ export class Autopilot {
       resetsAt: hit.resetsAt === null ? null : new Date(toMs(hit.resetsAt)).toISOString(),
       ...(hit.quota === true ? { reason: 'quota' as const, ...(said === null ? {} : { message: said }) } : {}),
     })
-    const plan = wait.plan(hit)
+    // Auto-continue on: a reset more than 24 h away is waited for (worfy-retry ticket 05).
+    const plan = wait.plan(hit, run.retry?.enabled() === true)
     if (plan.kind === 'quota') {
       run.message = said ?? `${run.vendor} refused the turn by its Limits, and nothing resets`
       await this.feed(run, { type: 'stop', reason: 'vendor-quota' })
@@ -1949,8 +1953,45 @@ export class Autopilot {
   /** The run sleeps until `at` (`waiting-until`), then resumes (resume). */
   private async waitForLimits(run: Run, wait: LimitsWait, at: number): Promise<void> {
     await this.write(run, { kind: 'waiting-until', until: new Date(at).toISOString() })
-    const id = wait.wait(at, () => void run.enqueue(() => this.resume(run, id)))
+    const id = wait.wait(
+      at,
+      () => void run.enqueue(() => this.resume(run, id)),
+      () => void run.enqueue(() => this.wake(run, id)),
+    )
+    this.holdAwake(run)
     this.publish(run.projectId)
+  }
+
+  /**
+   * keep-awake during a Limits wait (worfy-retry ticket 05, spec Q8 (c)): released while the
+   * continuation is more than 24 h away (LimitsWait.keepAwake), held again from then on.
+   */
+  private holdAwake(run: Run): void {
+    const asleep = run.limits !== null && !run.limits.keepAwake
+    if (run.awake === null || asleep === run.asleep) return
+    run.asleep = asleep
+    try {
+      if (asleep) run.awake.stop()
+      else run.awake.start()
+    } catch (error) {
+      console.error(`[autopilot] ${run.projectId}: could not ${asleep ? 'release' : 'take'} keep-awake`, error)
+    }
+  }
+
+  /**
+   * 24 h before the continuation of a far wait: keep-awake again. Auto-continue turned off since stops
+   * the run with `limits-timeout`, as it would have stopped at the refusal without the switch.
+   */
+  private async wake(run: Run, id: number): Promise<void> {
+    const wait = run.limits
+    if (wait === null || !wait.isCurrent(id) || run.cycle.phase === 'stopped') return
+    if (run.retry?.enabled() !== true) {
+      wait.cancel()
+      run.message = `Auto-continue was turned off while the run waited for a Limits reset more than 24 h away`
+      await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+      return
+    }
+    this.holdAwake(run)
   }
 
   /**
@@ -1987,7 +2028,7 @@ export class Autopilot {
     const phase = run.cycle.phase as CycleState['phase']
     if (!wait.isCurrent(id) || phase === 'stopped' || run.session === null || run.rushed || this.quitting) return
     if (again !== null) {
-      const plan = wait.plan(again)
+      const plan = wait.plan(again, run.retry?.enabled() === true)
       if (plan.kind === 'give-up') {
         wait.cancel()
         run.message = plan.reason
@@ -2003,6 +2044,7 @@ export class Autopilot {
     // Also when Stop was clicked but its step still waits behind this one: the Session would hold
     // STOP_TEXT behind the continuation's turn, which then runs without it.
     const continuation = wait.resume()
+    this.holdAwake(run)
     const withStop = run.cycle.stopping || run.stopRequested
     const text = withStop ? `${continuation}\n\n${STOP_TEXT}` : continuation
     if (withStop) run.stopSent = true
@@ -2481,6 +2523,7 @@ export class Autopilot {
       backgroundTasks: run.running ? this.liveTasks(run).length : 0,
       resumesAt,
       ...(waitingFor === undefined ? {} : { waitingFor }),
+      ...(limitsUntil === null ? {} : { limitsWindow: run.limits?.window ?? null }),
       ...(windowReason === undefined ? {} : { windowReason }),
       ...(retry === null ? {} : { retry }),
       reason: run.done ? run.cycle.reason : null,

@@ -21,8 +21,14 @@
 // window that resets (`limit_reached` with `reason: 'quota'`) is a hit with `quota`, and the run
 // stops with `vendor-quota` rather than wait (resume-at.ts). When a wait for a window is over, the
 // run reads the Vendor's windows again (run.ts, AutopilotDeps.usage) before it sends the Orchestrator on.
+//
+// With Auto-continue on for the Project (worfy-retry ticket 05, spec Q8 (c)) a reset more than
+// MAX_WAIT_MS away is waited for (plan with `farReset`), and the Mac may sleep meanwhile: `keepAwake`
+// is false while the continuation is more than MAX_WAIT_MS away, and wait() calls its `awake` then,
+// for run.ts to take keep-awake again. A Mac that sleeps through the reset continues at its first
+// wake after it (the wall-clock timer).
 import type { LimitsState, LimitWindow } from '../../shared/agent/limits'
-import { isLimitsMessage, resumeAt, type LimitsHit, type ResumePlan } from '../../shared/autopilot/resume-at'
+import { isLimitsMessage, MAX_WAIT_MS, resumeAt, type LimitsHit, type ResumePlan } from '../../shared/autopilot/resume-at'
 import type { SessionLimitsStatus } from '../agent/limits'
 
 /** What the Orchestrator gets when the Limits have reset; continueText() adds the times of the pause. */
@@ -95,6 +101,7 @@ export class LimitsWait {
   private since: number | null = null
   private cancelTimer: (() => void) | null = null
   private untilValue: number | null = null
+  private windowValue: string | null = null
   private readonly now: () => number
   private readonly schedule: (at: number, fire: () => void) => () => void
 
@@ -106,6 +113,22 @@ export class LimitsWait {
   /** While the run waits: when it continues (milliseconds); otherwise null. */
   get until(): number | null {
     return this.untilValue
+  }
+
+  /**
+   * The window of the last plan (`at`); null for a plan with no reset time known, the run then tries
+   * again every RECHECK_MS (worfy-retry ticket 05). Meaningful while `until` is set.
+   */
+  get window(): string | null {
+    return this.windowValue
+  }
+
+  /**
+   * Whether the run holds keep-awake: always, but during a wait whose continuation is more than
+   * MAX_WAIT_MS away (Auto-continue on, a far reset; spec Q8 (c)).
+   */
+  get keepAwake(): boolean {
+    return this.untilValue === null || this.untilValue - this.now() <= MAX_WAIT_MS
   }
 
   /** Follows the Limits status of the run's Session; answers the unsubscribe. */
@@ -136,19 +159,31 @@ export class LimitsWait {
     return null
   }
 
-  /** When the run continues after `hit`; the first refusal of a wait starts its clock. */
-  plan(hit: LimitsHit): ResumePlan {
+  /**
+   * When the run continues after `hit`; the first refusal of a wait starts its clock. `farReset`:
+   * Auto-continue is on for the Project — a known reset more than MAX_WAIT_MS away is waited for.
+   */
+  plan(hit: LimitsHit, farReset = false): ResumePlan {
     const now = this.now()
     this.since ??= now
-    return resumeAt({ hit, limits: this.deps.state(), now, since: this.since })
+    const plan = resumeAt({ hit, limits: this.deps.state(), now, since: this.since, ...(farReset ? { farReset: 'wait' as const } : {}) })
+    this.windowValue = plan.kind === 'at' ? plan.window : null
+    return plan
   }
 
-  /** Waits until `at`, then calls `fire` once; answers the wait's id (isCurrent). */
-  wait(at: number, fire: () => void): number {
+  /**
+   * Waits until `at`, then calls `fire` once; answers the wait's id (isCurrent). With `at` more than
+   * MAX_WAIT_MS away, calls `awake` once MAX_WAIT_MS before it (keepAwake turns true then).
+   */
+  wait(at: number, fire: () => void, awake?: () => void): number {
     this.cancel()
     this.id += 1
     this.untilValue = at
-    this.cancelTimer = this.schedule(at, fire)
+    const cancels = [this.schedule(at, fire)]
+    if (awake !== undefined && !this.keepAwake) cancels.push(this.schedule(at - MAX_WAIT_MS, awake))
+    this.cancelTimer = () => {
+      for (const cancel of cancels) cancel()
+    }
     return this.id
   }
 

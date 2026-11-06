@@ -198,8 +198,15 @@ Harness, which has no `wave-brief`.
 #### Waiting for the Limits
 
 When the Limits refuse a turn of the Wave, the Wave does not end. The run waits until the refused window resets, plus
-2 minutes. If no reset time is known, it tries again every 30 minutes. If the wait would pass 24 hours from the first
-refusal, the run stops with `limits-timeout`.
+2 minutes: the window the refusal names, or else the latest refused window known to worfy. Nothing depends on the 5-hour
+window: on a plan without it the run waits for the 7-day window. If no reset time is known, it tries again every 30
+minutes. If the wait would pass 24 hours from the first refusal, the run stops with `limits-timeout`.
+
+With Auto-continue on for the Project, a known reset more than 24 hours away does not stop the run: it waits until that
+reset, for example 3 days for the 7-day window. While the reset is more than 24 hours away the run releases keep-awake, so
+the Mac may sleep; 24 hours before the reset it takes keep-awake again. A Mac asleep at the reset continues when it next
+wakes. Auto-continue switched off during such a wait is read 24 hours before the reset: the run then stops with
+`limits-timeout`. The 30-minute tries without a reset time keep their 24-hour limit either way.
 
 On a Codex Orchestrator the refusal is Codex's `usageLimitExceeded`. When a Codex window is used up and has a reset time,
 the run waits for that reset, as above. When the time comes, worfy reads the Codex windows again: while one is still used
@@ -304,7 +311,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour. |
-| `limits-timeout` | The wait for the Limits would pass 24 hours. |
+| `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), or Auto-continue was switched off during a wait for a reset more than 24 hours away. |
 | `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
@@ -545,6 +552,7 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/autopilot-background.test.ts` | Background tasks, and stops while they live. |
 | `test/contract/autopilot-start-tool.test.ts` | The tool `autopilot_start`: the dialog, its 10 minutes, the window it is on, the refusals without it, the start after the Orchestrator's turn. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
+| `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |
 | `test/contract/codex-orchestrator.test.ts` | A run on a Codex Orchestrator on the fake app-server: Full access, the refusal while the hooks are not approved, before a later Wave and before the gate queue, the wait for a Codex window, `vendor-quota`, the budget by the Codex windows. |
 | `test/unit/autopilot-vendor-limits.test.ts` | The budget window of Codex, its samples and forecast, both forms of `limits` in the journal. |

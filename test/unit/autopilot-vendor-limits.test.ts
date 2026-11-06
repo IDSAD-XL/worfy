@@ -304,7 +304,7 @@ describe('a Codex refusal: usage-limit-window waits until resetsAt, usage-limit-
     expect(statuses).toEqual([{ status: 'rejected', window: 'primary', resetsAt: 1_793_003_600 }])
     const hit = wait.hitOf(end)
     expect(hit).toEqual({ window: 'primary', resetsAt: 1_793_003_600 })
-    expect(wait.plan(hit!)).toEqual({ kind: 'at', at: 1_793_003_600_000 + RESUME_MARGIN_MS, resetsAt: 1_793_003_600_000 })
+    expect(wait.plan(hit!)).toEqual({ kind: 'at', at: 1_793_003_600_000 + RESUME_MARGIN_MS, resetsAt: 1_793_003_600_000, window: 'primary' })
   })
 
   it('a quota after a refusal with the same window and reset (both unknown) is a new status, not a repeat', () => {

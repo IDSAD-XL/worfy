@@ -16,6 +16,13 @@
 // the run stops with `vendor-quota` instead of waiting (the plan `quota`). When the wait is over, the
 // run reads the Vendor's windows again (account/rateLimits/read) and waits once more while one of
 // them is still used up (stillUsedUp).
+//
+// The windows differ by plan (worfy-retry ticket 05): below the top plan Claude Code reports
+// `five_hour` and `seven_day`, the top plan has no `five_hour` — only `seven_day`, or no window with a
+// reset time at all. Nothing here needs `five_hour`: the run waits for the window of the refusal or of
+// limits.json, and with none it tries again every RECHECK_MS. With Auto-continue on for the Project
+// (`farReset: 'wait'`, spec Q8 (c)) a reset more than MAX_WAIT_MS away is waited for, not given up;
+// with it off the run gives up past MAX_WAIT_MS as before the switch.
 import type { LimitsState, LimitWindow } from '../agent/limits'
 
 /** Added to a reset time: the reset is the server's, and a message sent on the second may still be refused. */
@@ -56,8 +63,8 @@ export interface LimitsHit {
 }
 
 export type ResumePlan =
-  /** Continue at `at`: `resetsAt` (ms) of the window, plus RESUME_MARGIN_MS. */
-  | { kind: 'at'; at: number; resetsAt: number }
+  /** Continue at `at`: `resetsAt` (ms) of the window, plus RESUME_MARGIN_MS; `window` its name, null when not reported. */
+  | { kind: 'at'; at: number; resetsAt: number; window: string | null }
   /** No reset time is known: try again at `at`. */
   | { kind: 'recheck'; at: number }
   /** Waiting would pass MAX_WAIT_MS: stop the run with `reason`. */
@@ -73,36 +80,51 @@ export interface ResumeInput {
   now: number
   /** When the wait began: the first refusal not followed by a turn that went through. */
   since: number
+  /**
+   * `wait`: Auto-continue is on for the Project (worfy-retry ticket 05) — a known reset more than
+   * MAX_WAIT_MS away is waited for. Absent: past MAX_WAIT_MS the run gives up, as before the switch.
+   * A wait with no reset time known keeps its MAX_WAIT_MS either way.
+   */
+  farReset?: 'wait'
+}
+
+/** A reset the run can wait for: its time (ms) and the window's name, null when not reported. */
+interface KnownReset {
+  resetsAt: number
+  window: string | null
 }
 
 /**
  * The reset time from limits.json, when the hit had none: the hit's window, or else the latest of
  * the windows whose last status was `rejected`. Only times still ahead count.
  */
-function resetFromLimits(limits: LimitsState, window: string | null, now: number): number | null {
+function resetFromLimits(limits: LimitsState, window: string | null, now: number): KnownReset | null {
   const ahead = (time: number | null | undefined): number | null => (time === null || time === undefined || toMs(time) <= now ? null : toMs(time))
   if (window !== null) {
     const known = ahead(limits.windows[window]?.resetsAt)
-    if (known !== null) return known
+    if (known !== null) return { resetsAt: known, window }
   }
-  const rejected = Object.values(limits.windows)
-    .filter((state) => state.status === 'rejected')
-    .map((state) => ahead(state.resetsAt))
-    .filter((time): time is number => time !== null)
-  return rejected.length === 0 ? null : Math.max(...rejected)
+  let latest: KnownReset | null = null
+  for (const [name, state] of Object.entries(limits.windows)) {
+    const time = state.status === 'rejected' ? ahead(state.resetsAt) : null
+    if (time !== null && (latest === null || time > latest.resetsAt)) latest = { resetsAt: time, window: name }
+  }
+  return latest
 }
 
 /** When the run continues after `hit`. */
-export function resumeAt({ hit, limits, now, since }: ResumeInput): ResumePlan {
+export function resumeAt({ hit, limits, now, since, farReset }: ResumeInput): ResumePlan {
   if (hit.quota === true) return { kind: 'quota' }
   const deadline = since + MAX_WAIT_MS
-  if (now >= deadline) return { kind: 'give-up', reason: `Waited for the Limits since ${new Date(since).toISOString()}, longer than ${MAX_WAIT_MS / 3_600_000} h` }
   const reported = hit.resetsAt === null ? null : toMs(hit.resetsAt)
-  const resetsAt = reported !== null && reported > now ? reported : resetFromLimits(limits, hit.window, now)
-  if (resetsAt === null) return { kind: 'recheck', at: Math.min(now + RECHECK_MS, deadline) }
-  const at = resetsAt + RESUME_MARGIN_MS
-  if (at > deadline) return { kind: 'give-up', reason: `The Limits reset at ${new Date(resetsAt).toISOString()}, more than ${MAX_WAIT_MS / 3_600_000} h after the wait began` }
-  return { kind: 'at', at, resetsAt }
+  const known = reported !== null && reported > now ? { resetsAt: reported, window: hit.window } : resetFromLimits(limits, hit.window, now)
+  // Auto-continue on: a known reset is waited for however far it is (spec Q8 (c)).
+  if (known !== null && farReset === 'wait') return { kind: 'at', at: known.resetsAt + RESUME_MARGIN_MS, ...known }
+  if (now >= deadline) return { kind: 'give-up', reason: `Waited for the Limits since ${new Date(since).toISOString()}, longer than ${MAX_WAIT_MS / 3_600_000} h` }
+  if (known === null) return { kind: 'recheck', at: Math.min(now + RECHECK_MS, deadline) }
+  const at = known.resetsAt + RESUME_MARGIN_MS
+  if (at > deadline) return { kind: 'give-up', reason: `The Limits reset at ${new Date(known.resetsAt).toISOString()}, more than ${MAX_WAIT_MS / 3_600_000} h after the wait began` }
+  return { kind: 'at', at, ...known }
 }
 
 /**

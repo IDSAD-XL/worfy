@@ -54,6 +54,12 @@ export const autopilotStateSchema = z.object({
    * builds before ticket 41.
    */
   waitingFor: z.enum(['limits', 'daily-share', 'five-hour', 'start-window', 'retry']).optional(),
+  /**
+   * While `waitingFor` is `limits`: the window whose reset the run waits for (`five_hour`, `seven_day`,
+   * `primary`…), or null when no reset time was reported and the run tries again every 30 minutes
+   * (worfy-retry ticket 05). Absent otherwise.
+   */
+  limitsWindow: z.string().nullable().optional(),
   /** While `waitingFor` is `retry`: the retry the run waits to send, `attempt` of `of` at most in a row. Absent otherwise. */
   retry: z.object({ attempt: z.number().int().positive(), of: z.number().int().positive() }).optional(),
   /** While `waitingFor` is `start-window`: `outside` the window, or the next Wave `wave-too-long` for it. Absent otherwise. */
