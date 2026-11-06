@@ -101,3 +101,32 @@ Test-ы: `test/contract/auto-approve-codex.test.ts` (новый, fake app-server
 Mutation testing изменённых строк `approvals.ts` и `session.ts` (19 mutant-ов, ручные замены, прогон
 `auto-approve-codex.test.ts`): 18 убиты. Выжил один — проверка `judged.tool === 'fileChange'` перед `command`: у входа
 file change нет `command`, проверка была лишней; убрана.
+
+### Раунд 2 (review high PR #1469: 2 medium, 3 low)
+
+1. **Окружение суда было шире окружения команды** (medium). Политика судила во всём окружении app-server-а, с GH_TOKEN
+   и токеном MCP; `shell_environment_policy` Codex может убрать их из shell-а команды. `rm -rf "$GH_TOKEN"<путь>`
+   судился внутри worktree, а исполнялся бы вне его; значение токена попадало в `targets` Journal. Теперь
+   (`judgedEnvironment`, `approvals.ts`) из окружения суда убраны все имена по `/KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL/i`:
+   ссылка на них — неизвестная переменная, команда не одобряется (`not-judged`). Test: обе команды → `decline`, ни в
+   одном решении нет значения токена.
+2. **В On не проходила ни одна настоящая команда Codex** (medium). Codex 0.166 шлёт команду строкой
+   `/bin/zsh -lc '<script>'` (`test/fixtures/codex-messages/turn.jsonl`, `approval-declined.jsonl`); `/bin/zsh` политика
+   не знала — всё уходило в park. Теперь (`codexScript`) ровно эта форма — zsh, bash или sh по имени или из `/bin`,
+   `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`; `-lc` или `-c`; скрипт одним словом в кавычках — судится как
+   `<shell> -c '<script>'` по правилам `-c` грамматики (`shell.ts`), с отказом при ZDOTDIR / BASH_ENV / ENV. `-l`
+   читает login profile владельца; агент писать его не может (вне корней), поэтому `-lc` судится как `-c`. Любая
+   другая обёртка (другая папка, `-ilc`, `-l -c`, второе слово, скрипт без кавычек) не разворачивается и не
+   одобряется. Скрипт в двойных кавычках с неэкранированным `$` или обратной кавычкой тоже не разворачивается:
+   грамматика раскрыла бы его во внешнем слове, а Codex передаёт скрипт как есть. Contract test теперь шлёт команды
+   в записанной форме Codex: `accept` внутри worktree, `decline` вне корней, park `git-hooks` при hook-е в репозитории.
+3. (low) Команда с `networkApprovalContext: null` — обычная команда, `accept` (новый случай в test-е).
+4. (low) Запрос, снятый Codex или отменённый Interrupt-ом во время суда, строки Journal не получает; у Claude Code
+   каждый судимый запрос её получает (`canUseTool` не снимается). Разница названа на странице
+   `docs/features/autopilot.md` и в комментарии `judged`.
+5. (low) `SHADOW_OUTCOME` и чтение режима — в одном helper-е `src/main/agent/auto-approve/mode.ts`
+   (`reportedOutcome`, `approvalMode`); оба драйвера его импортируют.
+
+Mutation testing изменённых строк раунда 2 (`approvals.ts`, `session.ts`, `mode.ts`; 28 mutant-ов: части regex обёртки,
+проверка `$` в двойных кавычках, каждое имя секрета, окружение суда, `networkApprovalContext: null`, helper режима):
+28 убиты, выживших нет.
