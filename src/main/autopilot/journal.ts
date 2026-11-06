@@ -64,9 +64,10 @@ export class RunJournal {
 
   /**
    * Appends one event as one line. Rejects, and writes nothing, when the event is outside the
-   * format; a failed write rejects this call only, the next append still runs.
+   * format; a failed write rejects this call only, the next append still runs. `epic`: the Epic the
+   * line is about, in a run over a queue of Epics (worfy-autopilot-queue ticket 14); the run's first when absent.
    */
-  append(fields: JournalEventFields): Promise<void> {
+  append(fields: JournalEventFields, epic: string = this.epic): Promise<void> {
     let line: string
     try {
       line = formatJournalLine({
@@ -74,7 +75,7 @@ export class RunJournal {
         at: this.now().toISOString(),
         run: this.run,
         project: this.project,
-        epic: this.epic,
+        epic,
       } as JournalEvent)
     } catch (error) {
       return Promise.reject(error instanceof Error ? error : new Error(String(error)))
@@ -89,6 +90,8 @@ export class RunJournal {
 export interface RunStart {
   project: string
   epic: string
+  /** A run over a queue of more than one Epic: its Epics in order, `epic` first (worfy-autopilot-queue ticket 14). */
+  epics?: string[]
   /** The key of the Project's origin; absent without one. */
   origin?: string
   /** The start went past the question to the Linked machines ("Start anyway"). */
@@ -137,6 +140,7 @@ export async function openRun(start: RunStart, options: JournalOptions = {}): Pr
       project: start.project,
       epic: start.epic,
       kind: 'run-started',
+      ...(start.epics === undefined ? {} : { epics: [...start.epics] }),
       ...(start.origin === undefined ? {} : { origin: start.origin }),
       ...(start.override === true ? { override: true } : {}),
       ...(start.unasked === undefined || start.unasked.length === 0 ? {} : { unasked: [...start.unasked] }),

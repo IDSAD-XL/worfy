@@ -167,6 +167,23 @@
 //   the same Vendor.
 // - The gate queue's turn is asked of the Vendor first, as every Wave after the first is (waveRefused):
 //   refused, the run stops with `session-error` and the reason, and no gate-queue goes.
+// - A run over a queue of Epics (worfy-autopilot-queue ticket 14, ADR-0100): a start may name `epics`
+//   (1 to MAX_QUEUE_EPICS, the first is `epic`, an Epic named twice runs once); named Tickets only with
+//   one Epic. The run goes through the queue in order, one Epic's cycle at a time (initialCycle anew for
+//   each), and `epic` of the run, of its state and of each journal line is the Epic it is on. When an
+//   Epic's cycle stops, the rule of the queue (epic-queue.ts, epicOutcome) on a fresh read decides: `next`
+//   — the Epic's last statuses and narrow rounds, `epic-finished` with `done` or `waits-owner`, then the
+//   next Epic with `epic-started` (`index` from 1, `of`); `stop` — the whole run stops as before. With
+//   no Epic left, or after a Stop, a Force stop or the quit, the run stops with the reason of the Epic it
+//   was on (the gate queue's turn first, as for one Epic). Every Epic of the queue is asked at the start
+//   whether it runs elsewhere (one refusal, past which only "Start anyway" goes), and each later one again
+//   when it is reached: running elsewhere then, it ends with `epic-finished` `elsewhere`, unless the start
+//   went with "Start anyway", and the run goes on. A run of one Epic writes neither line, and run-started
+//   names `epics` only for more than one: its journal is as before the ticket. Between Waves the queue
+//   may be edited (editQueue): an Epic of the Project added at its end, one not started removed; never
+//   reordered. An edit during a Wave waits for its end (`wave-finished`) and is applied there; while the
+//   run waits for its Orchestrator, for the budget or for the Start window it is applied at once. An applied edit writes `queue-changed`, and each Epic removed
+//   `epic-finished` `removed`. An edit not applied when the run stops is dropped.
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
@@ -183,7 +200,8 @@ import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } 
 import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
 import { clipLastText, clipRetryMessage, journalCommand, journalLimits, journalReason, journalTarget, journalVendorLimits, type JournalEventFields, type JournalLimits, type RunStartedBy, type TicketStatusState } from '../../shared/autopilot/journal'
 import { BUDGET_FRESH_MS, budgetDecision, budgetStopText, type AutopilotBudget, type BudgetCause, type BudgetDecision } from '../../shared/autopilot/budget'
-import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
+import { epicOutcome, MAX_QUEUE_EPICS, nextEpic, type EpicFinish } from '../../shared/autopilot/epic-queue'
+import { epicForecast, remainingWaves, type RemainingWaves } from '../../shared/autopilot/forecast'
 import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate, waveGrowth, waveSamples, type WaveLine } from '../../shared/autopilot/limits-estimate'
@@ -200,7 +218,7 @@ import {
   type CycleEvent,
   type CycleState,
 } from '../../shared/autopilot/cycle'
-import type { AutopilotState, HarnessBehind } from '../../shared/ipc/autopilot'
+import type { AutopilotQueueEdit, AutopilotState, HarnessBehind, QueueEpicStatus } from '../../shared/ipc/autopilot'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
@@ -286,7 +304,8 @@ export interface LinkedRuns {
 /** One open journal (journal.ts, RunJournal). */
 export interface RunJournalLike {
   readonly run: string
-  append(fields: JournalEventFields): Promise<void>
+  /** `epic`: the Epic the line is about (worfy-autopilot-queue ticket 14); absent, the run's first. */
+  append(fields: JournalEventFields, epic?: string): Promise<void>
 }
 
 export interface AutopilotDeps {
@@ -532,6 +551,12 @@ export interface AutopilotStartOptions {
   override?: boolean
   /** A run over these Tickets of the Epic only (worfy-flight-recorder ticket 21); absent: the whole Epic. */
   tickets?: readonly number[]
+  /**
+   * A run over a queue of Epics, in this order (worfy-autopilot-queue ticket 14): 1 to MAX_QUEUE_EPICS, the
+   * first being the Epic started; an Epic named twice runs once. Not with `tickets` when more than one.
+   * Absent: the Epic alone.
+   */
+  epics?: readonly string[]
   /** Who started the run; the button when absent. */
   by?: AutopilotStartedBy
   /** The Run mode of this run (worfy-resource-planner ticket 05); absent: the default mode at the start. */
@@ -567,6 +592,49 @@ export function startRefusal(model: Pick<WorkflowModel, 'epics' | 'tickets'>, ep
   if (missing.length === 0) return null
   return `Epic ${epic} has no ${missing.length === 1 ? 'Ticket' : 'Tickets'} ${missing.map(ticketNumber).join(', ')}`
 }
+
+/** What a start over a queue of more than one Epic that names Tickets is refused with (ticket 14). */
+export const QUEUE_TICKETS_MESSAGE = 'Tickets are named only in a run of one Epic, not in a queue of Epics'
+
+/** What a start whose queue is empty, or longer than MAX_QUEUE_EPICS, is refused with. */
+export const QUEUE_SIZE_MESSAGE = `A queue holds 1 to ${MAX_QUEUE_EPICS} Epics`
+
+/** What a start whose queue does not begin with the Epic started is refused with. */
+export const queueFirstMessage = (epic: string, first: string): string => `The queue begins with Epic ${first}, not with Epic ${epic}`
+
+/**
+ * The queue of a start of `epic` (worfy-autopilot-queue ticket 14): `epics` in order without repeats, or
+ * the Epic alone when absent. Throws the refusal: an empty queue or one of more than MAX_QUEUE_EPICS
+ * Epics, a queue that does not begin with `epic`, and named Tickets with more than one Epic.
+ */
+export function startQueue(epic: string, epics: readonly string[] | undefined, tickets: readonly number[] | undefined): string[] {
+  const queue = epics === undefined ? [epic] : [...new Set(epics)]
+  if (queue.length === 0 || queue.length > MAX_QUEUE_EPICS) throw new Error(QUEUE_SIZE_MESSAGE)
+  if (queue[0] !== epic) throw new Error(queueFirstMessage(epic, queue[0]!))
+  if (tickets !== undefined && queue.length > 1) throw new Error(QUEUE_TICKETS_MESSAGE)
+  return queue
+}
+
+/** What editQueue is refused with when the Project has no run that goes on. */
+export const NO_RUN_MESSAGE = 'Autopilot is not running in this Project: there is no queue to change'
+
+/** What editQueue is refused with when it names no Epic. */
+export const NO_EDIT_MESSAGE = 'Name an Epic to add to the queue or to remove from it'
+
+/** What adding an Epic to the queue of a run over named Tickets is refused with. */
+export const NAMED_QUEUE_MESSAGE = 'A run over named Tickets runs one Epic: no Epic can be added to it'
+
+/** The refusals of editQueue for one Epic. */
+export const queueRefusals = {
+  queued: (epic: string): string => `Epic ${epic} is in the queue already`,
+  full: (): string => `The queue holds ${MAX_QUEUE_EPICS} Epics at most`,
+  absent: (epic: string): string => `Epic ${epic} is not in the queue`,
+  running: (epic: string): string => `Epic ${epic} is running: it cannot be removed from the queue`,
+  finished: (epic: string): string => `Epic ${epic} has finished: it cannot be removed from the queue`,
+}
+
+/** What the state says of each Epic of the queue (AutopilotState.queue): its outcome, else running or next. */
+const QUEUE_STATUS: Record<Exclude<EpicFinish, 'removed'>, QueueEpicStatus> = { done: 'done', 'waits-owner': 'waits-owner', elsewhere: 'elsewhere' }
 
 /** What the start of a run is refused with while another run of the Project goes on. */
 export const alreadyRunning = (epic: string): string => `Autopilot is already running in this Project (Epic ${epic}): stop it first`
@@ -659,7 +727,8 @@ function statusChanges(run: Run, tickets: WorkflowModel['tickets']): JournalEven
  * worfy-flight-recorder ticket 20).
  */
 function waveTicketCounts(run: Run): { done: number; blocked: number } {
-  const counts = { done: 0, blocked: 0 }
+  // The Epics of the queue the run has left are counted as they were left (Autopilot.beginEpic).
+  const counts = { ...run.earlierCounts }
   for (const num of run.waveTickets) {
     const key = run.statuses.get(num)
     if (key === undefined) continue
@@ -680,6 +749,15 @@ function resumableOf(run: Run): number[] {
   // ended it (a Stop during the wait for the Start window, worfy-resource-planner ticket 05).
   const given = run.cycle.wave === 0 ? run.given : []
   return [...new Set([...given, ...run.interrupted, ...run.carried])].sort((a, b) => a - b)
+}
+
+/**
+ * The Waves left in every Epic of the run's queue (worfy-autopilot-queue ticket 14), for the forecast at its start:
+ * each Epic's remainingWaves one after another. Named Tickets come only with a queue of one Epic.
+ */
+function queueWaves(run: Run, tickets: WorkflowModel['tickets']): RemainingWaves {
+  const parts = run.queue.map((epic) => remainingWaves(tickets, epic, run.cycle.named))
+  return { waves: parts.flatMap((part) => part.waves), uncounted: parts.flatMap((part) => part.uncounted) }
 }
 
 /** One run of one Project. */
@@ -821,15 +899,34 @@ class Run {
   readonly ended: Promise<void>
   finish!: () => void
 
+  /** The Epic the run is on: the queue's at `index` (worfy-autopilot-queue ticket 14). */
+  epic: string
+  /** The Epics of the run, in order; edited between Waves (Autopilot.editQueue): added at the end, removed if not started. */
+  queue: string[]
+  /** Where in `queue` the run is: the Epic it is on. */
+  index = 0
+  /** How each Epic of the queue the run has left ended (epic-finished); an Epic removed leaves the queue instead. */
+  readonly outcomes = new Map<string, Exclude<EpicFinish, 'removed'>>()
+  /** Edits of the queue made during a Wave, applied at its end (applyEdits). */
+  edits: { add: string[]; remove: string[] } = { add: [], remove: [] }
+  /** Waves sent over the whole run, all its Epics: every Wave after the first goes to a new SDK session. */
+  wavesSent = 0
+  /** Of the Tickets of the Waves of the Epics the run has left, how many were done and blocked when it left them. */
+  earlierCounts = { done: 0, blocked: 0 }
+
   constructor(
     readonly projectId: string,
-    readonly epic: string,
+    epic: string,
     readonly root: string,
     /** The Tickets of a run over named Tickets; absent for the whole Epic. */
     named?: readonly number[],
     /** Who started the run (worfy-flight-recorder ticket 21); the journal gets it with ticket 11. */
     readonly by: AutopilotStartedBy = 'button',
+    /** The queue of Epics, `epic` first (startQueue); the Epic alone when absent. */
+    queue: readonly string[] = [epic],
   ) {
+    this.epic = epic
+    this.queue = [...queue]
     this.cycle = initialCycle(epic, named)
     this.rushing = new Promise((done) => {
       this.rushDone = done
@@ -1002,20 +1099,22 @@ export class Autopilot {
     // Taken before the first await: two starts that arrive together do not both pass.
     const live = this.runs.get(projectId)
     if (this.starting.has(projectId) || live?.running === true) throw new Error(alreadyRunning(live?.epic ?? epic))
+    const queue = startQueue(epic, options.epics, options.tickets)
     const starting = { epic, origin: null as string | null }
     this.starting.set(projectId, starting)
     try {
-      const { root, model } = await this.ownChecks(projectId, epic, options.tickets)
+      const { root, model } = await this.ownChecks(projectId, queue, options.tickets)
       // Counted among this Machine's runs before anyone is asked: a Linked machine starting the same
-      // key meanwhile hears of this start (runKeys), as this one hears of its.
+      // key meanwhile hears of this start (runKeys), as this one hears of its. Every Epic of the queue
+      // is asked about at once (worfy-autopilot-queue ticket 14).
       starting.origin = await this.originOf(projectId, root)
-      const check = starting.origin === null ? { elsewhere: null, unasked: [] } : await this.checkElsewhere(projectId, epic, starting.origin)
+      const check = starting.origin === null ? { elsewhere: null, unasked: [] } : await this.checkElsewhere(projectId, queue, starting.origin)
       if (check.elsewhere !== null && options.override !== true) throw check.elsewhere
       // Asked again on "Start anyway" too: once the other run has ended, the start is a plain one.
       const override = check.elsewhere !== null
       if (this.quitting) throw new Error(QUITTING_MESSAGE)
 
-      const run = new Run(projectId, epic, root, options.tickets, options.by)
+      const run = new Run(projectId, epic, root, options.tickets, options.by, queue)
       run.mode = options.mode ?? this.defaultMode()
       run.origin = starting.origin
       run.unasked = check.unasked
@@ -1127,6 +1226,8 @@ export class Autopilot {
       ...(run.approval === null ? {} : { run: run.approval.run }),
       project: run.projectId,
       epic: run.epic,
+      // A queue of more than one Epic names them all (worfy-autopilot-queue ticket 14); one Epic, as before.
+      ...(run.queue.length > 1 ? { epics: [...run.queue] } : {}),
       ...(run.origin === null ? {} : { origin: run.origin }),
       ...(facts.override ? { override: true as const } : {}),
       ...(run.unasked.length > 0 ? { unasked: run.unasked } : {}),
@@ -1277,9 +1378,9 @@ export class Autopilot {
    * "Start anyway" goes. Throws the refusal; answers a fresh read of the workflow.
    */
   private async startChecks(run: Run): Promise<WorkflowModel> {
-    const { model } = await this.ownChecks(run.projectId, run.epic, run.cycle.named)
+    const { model } = await this.ownChecks(run.projectId, run.queue, run.cycle.named)
     if (run.origin === null) return model
-    const check = await this.checkElsewhere(run.projectId, run.epic, run.origin)
+    const check = await this.checkElsewhere(run.projectId, run.queue, run.origin)
     if (check.elsewhere !== null && !run.override) throw check.elsewhere
     return model
   }
@@ -1322,19 +1423,156 @@ export class Autopilot {
   }
 
   /**
+   * Changes the queue of the Project's run (worfy-autopilot-queue ticket 14): `add` an Epic of the Project at its
+   * end, one not in it; `remove` an Epic not started yet (or one whose adding still waits). Never reorders.
+   * Between Waves — while the run waits for its Orchestrator, for the budget or for the Start window, or before
+   * its first Wave — the change applies at once; during a Wave it waits for the Wave's end (applyEdits). Throws
+   * the refusal: no run, nothing named, the Epic in the queue already or not in it, the queue full, an Epic the
+   * Project has not, the Epic running or finished, an Epic added to a run over named Tickets. Answers the state.
+   */
+  async editQueue(projectId: string, edit: AutopilotQueueEdit): Promise<AutopilotState> {
+    const run = this.runs.get(projectId)
+    if (run === undefined) throw new Error(NO_RUN_MESSAGE)
+    let refusal: string | null = NO_RUN_MESSAGE
+    await run.enqueue(async () => {
+      refusal = await this.edit(run, edit)
+    })
+    if (refusal !== null) throw new Error(refusal)
+    return this.state(projectId)
+  }
+
+  /** editQueue in the run's order: the refusal, or null once the change is made (or waits for the Wave's end). */
+  private async edit(run: Run, edit: AutopilotQueueEdit): Promise<string | null> {
+    if (run.cycle.phase === 'stopped') return NO_RUN_MESSAGE
+    const { add, remove } = edit
+    if (add === undefined && remove === undefined) return NO_EDIT_MESSAGE
+    if (add !== undefined) {
+      if (run.cycle.named !== undefined) return NAMED_QUEUE_MESSAGE
+      if (run.queue.includes(add) || run.edits.add.includes(add)) return queueRefusals.queued(add)
+      if (run.queue.length + run.edits.add.length >= MAX_QUEUE_EPICS) return queueRefusals.full()
+      const model = await this.freshModel(run)
+      if (typeof model === 'string') return model
+      const unknown = startRefusal(model, add)
+      if (unknown !== null) return unknown
+    }
+    // An Epic whose adding waits for the end of the Wave is taken back; any other must be in the queue, not started.
+    const takenBack = remove !== undefined && run.edits.add.includes(remove)
+    if (remove !== undefined && !takenBack) {
+      const at = run.queue.indexOf(remove)
+      if (at === -1) return queueRefusals.absent(remove)
+      if (at === run.index) return queueRefusals.running(remove)
+      if (at < run.index) return queueRefusals.finished(remove)
+    }
+    if (takenBack) run.edits.add = run.edits.add.filter((epic) => epic !== remove)
+    else if (remove !== undefined && !run.edits.remove.includes(remove)) run.edits.remove.push(remove)
+    if (add !== undefined) run.edits.add.push(add)
+    // Between Waves — waiting for the Orchestrator, the budget or the Start window — the change is made now.
+    if (run.wait !== null || run.boundary !== null) await this.applyEdits(run)
+    return null
+  }
+
+  /** A fresh read of the workflow model, or the refusal in words when it cannot be read. */
+  private async freshModel(run: Run): Promise<WorkflowModel | string> {
+    let model: WorkflowModel
+    try {
+      model = await this.deps.workflow(run.root)
+    } catch (error) {
+      return `Cannot read the workflow: ${messageOf(error)}`
+    }
+    return model.error === null ? model : `Cannot read the workflow: ${model.error.message}`
+  }
+
+  /**
+   * The edits of the queue that wait (Run.edits) are made: the Epics removed leave it, those added join its end;
+   * `queue-changed` names both, and each Epic removed gets `epic-finished` `removed`, on a line of its own Epic.
+   */
+  private async applyEdits(run: Run): Promise<void> {
+    const { add, remove } = run.edits
+    if (add.length === 0 && remove.length === 0) return
+    run.edits = { add: [], remove: [] }
+    run.queue = [...run.queue.filter((epic) => !remove.includes(epic)), ...add]
+    await this.write(run, { kind: 'queue-changed', ...(add.length === 0 ? {} : { added: add }), ...(remove.length === 0 ? {} : { removed: remove }) })
+    for (const epic of remove) await this.write(run, { kind: 'epic-finished', outcome: 'removed' }, epic)
+    this.publish(run.projectId)
+  }
+
+  /**
+   * The cycle of the Epic the run is on has stopped with `effect` (worfy-autopilot-queue ticket 14). Unless a Stop,
+   * a Force stop or the quit has come, and while an Epic of the queue is left, the rule of the queue judges the stop
+   * on a fresh read (epicOutcome). `next`: the Epic's last narrow
+   * rounds and statuses, `epic-finished` with its outcome, and the next Epic begins (beginEpic). Answers whether
+   * the run goes on; false — no Epic left, the rule says stop, the workflow cannot be read — and the run stops
+   * with `effect` as for one Epic.
+   */
+  private async moveOn(run: Run, effect: { reason: AutopilotStopReason }): Promise<boolean> {
+    if (run.stopRequested || run.rushed || this.quitting) return false
+    if (nextEpic(run.queue, run.index, run.outcomes) === null) return false
+    const model = await this.freshModel(run)
+    if (typeof model === 'string') {
+      console.warn(`[autopilot] ${run.projectId}: the queue stops: ${model}`)
+      return false
+    }
+    const outcome = epicOutcome(effect.reason, model.tickets, run.epic)
+    if (outcome.kind === 'stop') return false
+    await this.journalNarrow(run, await this.lastPrs(run))
+    for (const fields of statusChanges(run, model.tickets)) await this.write(run, fields)
+    run.outcomes.set(run.epic, outcome.outcome)
+    await this.write(run, { kind: 'epic-finished', outcome: outcome.outcome, ...(outcome.outcome === 'waits-owner' ? { tickets: outcome.tickets.map(ticketNumber) } : {}) })
+    return this.beginEpic(run, model)
+  }
+
+  /**
+   * The run begins the next Epic of its queue: one that runs elsewhere now (a run of the same Epic and origin on
+   * another Machine or in another Project) gets `epic-finished` `elsewhere` and is passed, unless the start went
+   * with "Start anyway". The Epic begun: what was the last Epic's (its Wave Tickets, statuses, narrow rounds, the
+   * Tickets to take along) is left behind with its counts kept, a new cycle, `epic-started` with its place in the
+   * queue, the first read of its statuses, and the cycle's start. False when no Epic is left, or a stop has come.
+   */
+  private async beginEpic(run: Run, model: WorkflowModel): Promise<boolean> {
+    for (;;) {
+      const next = nextEpic(run.queue, run.index, run.outcomes)
+      if (next === null) return false
+      const elsewhere = run.origin === null || run.override ? null : (await this.checkElsewhere(run.projectId, [next.epic], run.origin)).elsewhere
+      // A Stop, a Force stop or the quit meanwhile: the run stops on the Epic it was on.
+      if (run.stopRequested || run.rushed || this.quitting) return false
+      if (elsewhere !== null) {
+        console.warn(`[autopilot] ${run.projectId}: ${elsewhere.message}; the queue goes on without it`)
+        run.outcomes.set(next.epic, 'elsewhere')
+        await this.write(run, { kind: 'epic-finished', outcome: 'elsewhere' }, next.epic)
+        continue
+      }
+      run.earlierCounts = waveTicketCounts(run)
+      run.waveTickets.clear()
+      run.narrowJournaled.clear()
+      run.resume = []
+      run.given = []
+      run.epic = next.epic
+      run.index = next.index
+      run.cycle = initialCycle(next.epic)
+      await this.write(run, { kind: 'epic-started', index: next.index + 1, of: run.queue.length })
+      // The Epic's first read of the statuses: a status from before the run reached it is not a change.
+      statusChanges(run, model.tickets)
+      await this.feed(run, { type: 'start', tickets: model.tickets, resume: [] })
+      return true
+    }
+  }
+
+  /**
    * The checks of a start that need no Orchestrator and no Linked machine: worfy's own repository in
    * a development build, the "Run wave" template, the Vendor of the Orchestrator (its `harness`
-   * capability), the workflow, the Epic and the named Tickets.
+   * capability), the workflow, each Epic of the queue and the named Tickets (of a queue of one).
    * Throws the refusal; answers the root and the model read.
    */
-  private async ownChecks(projectId: string, epic: string, tickets: readonly number[] | undefined): Promise<{ root: string; model: WorkflowModel }> {
+  private async ownChecks(projectId: string, queue: readonly string[], tickets: readonly number[] | undefined): Promise<{ root: string; model: WorkflowModel }> {
     const root = this.deps.projectRoot(projectId)
     const refusal = (await this.deps.selfRefusal(root)) ?? this.deps.waves.autopilotRefusal(projectId) ?? (await this.deps.orchestrators.unattendedRefusal?.(projectId)) ?? null
     if (refusal !== null) throw new Error(refusal)
     const model = await this.deps.workflow(root)
     if (model.error !== null) throw new Error(`Cannot read the workflow: ${model.error.message}`)
-    const unknown = startRefusal(model, epic, tickets)
-    if (unknown !== null) throw new Error(unknown)
+    for (const epic of queue) {
+      const unknown = startRefusal(model, epic, tickets)
+      if (unknown !== null) throw new Error(unknown)
+    }
     return { root, model }
   }
 
@@ -1350,11 +1588,12 @@ export class Autopilot {
     const running = this.runningEpic(projectId)
     if (running !== null) return alreadyRunning(running)
     try {
-      const { root } = await this.ownChecks(projectId, epic, options.tickets)
+      const queue = startQueue(epic, options.epics, options.tickets)
+      const { root } = await this.ownChecks(projectId, queue, options.tickets)
       if (options.override === true) return null
       const origin = await this.originOf(projectId, root)
       if (origin === null) return null
-      return (await this.checkElsewhere(projectId, epic, origin)).elsewhere?.message ?? null
+      return (await this.checkElsewhere(projectId, queue, origin)).elsewhere?.message ?? null
     } catch (error) {
       return messageOf(error)
     }
@@ -1372,14 +1611,18 @@ export class Autopilot {
   }
 
   /**
-   * Where else `epic` of the same origin runs or starts: another Project of this Machine, or a
-   * Linked machine (`elsewhere`, null when nowhere); and the Linked machines that could not be asked.
+   * Where else an Epic of `epics` of the same origin runs or starts: another Project of this Machine,
+   * or a Linked machine (`elsewhere`, for the first such Epic in the order of `epics`, null when
+   * nowhere); and the Linked machines that could not be asked. The Linked machines are asked once.
    */
-  private async checkElsewhere(projectId: string, epic: string, origin: string): Promise<{ elsewhere: RunningElsewhere | null; unasked: string[] }> {
-    for (const [other, key] of this.keys()) {
-      if (other === projectId || key.epic !== epic || key.origin !== origin) continue
-      const here = this.deps.machine?.()?.name
-      return { elsewhere: new RunningElsewhere(epic, here === undefined ? `this Machine (Project ${other})` : `${here} (this Machine, Project ${other})`), unasked: [] }
+  private async checkElsewhere(projectId: string, epics: readonly string[], origin: string): Promise<{ elsewhere: RunningElsewhere | null; unasked: string[] }> {
+    const keys = this.keys()
+    for (const epic of epics) {
+      for (const [other, key] of keys) {
+        if (other === projectId || key.epic !== epic || key.origin !== origin) continue
+        const here = this.deps.machine?.()?.name
+        return { elsewhere: new RunningElsewhere(epic, here === undefined ? `this Machine (Project ${other})` : `${here} (this Machine, Project ${other})`), unasked: [] }
+      }
     }
     if (this.deps.linkedRuns === undefined) return { elsewhere: null, unasked: [] }
     let answers: readonly LinkedRuns[]
@@ -1389,9 +1632,12 @@ export class Autopilot {
       console.warn(`[autopilot] ${projectId}: could not ask the Linked machines for their runs`, error)
       return { elsewhere: null, unasked: [] }
     }
-    const hit = answers.find((answer) => answer.runs?.some((key) => key.epic === epic && key.origin === origin) === true)
     const unasked = answers.filter((answer) => answer.runs === null).map((answer) => answer.machine)
-    return { elsewhere: hit === undefined ? null : new RunningElsewhere(epic, hit.machine), unasked }
+    for (const epic of epics) {
+      const hit = answers.find((answer) => answer.runs?.some((key) => key.epic === epic && key.origin === origin) === true)
+      if (hit !== undefined) return { elsewhere: new RunningElsewhere(epic, hit.machine), unasked }
+    }
+    return { elsewhere: null, unasked }
   }
 
   /** Every run of this Machine with an origin, starting ones included, by Project. */
@@ -1664,7 +1910,7 @@ export class Autopilot {
           await this.journalHarness(run)
           const tickets = effect.tickets.map(ticketNumber)
           // Their worktrees are the policy's roots from now on (worfy-auto-approve ticket 04).
-          run.approval?.setWave(tickets)
+          run.approval?.setWave(tickets, run.epic)
           run.waveStart = this.waveLine(run, { kind: 'wave-started', wave: effect.wave, tickets, ...(run.sentLimits === undefined ? {} : { limits: run.sentLimits }) })
           await this.write(run, {
             kind: 'wave-started',
@@ -1686,6 +1932,8 @@ export class Autopilot {
           const fields = { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber), ...(limits === undefined ? {} : { limits }) }
           this.countActual(run, this.waveLine(run, fields))
           await this.write(run, fields)
+          // The end of a Wave: the edits of the queue made during it apply now (worfy-autopilot-queue ticket 14).
+          await this.applyEdits(run)
           break
         }
         case 'stopping':
@@ -1697,6 +1945,7 @@ export class Autopilot {
           break
         case 'stopped':
           if (run.gateQueue !== null) await this.endGateQueue(run, effect)
+          else if (await this.moveOn(run, effect)) break
           else if (!(await this.gateQueueTurn(run, effect))) await this.end(run, effect.reason, effect.tickets)
           break
       }
@@ -1811,13 +2060,14 @@ export class Autopilot {
     // Before every Wave after the run's first the Vendor is asked again (worfy-multi-vendor ticket 39):
     // an update of the Harness since the start turns Codex's hooks off. Refused: no Session starts, and
     // the run stops with the reason (waveRefused). A Stop clicked meanwhile ends the run as above.
-    if (run.cycle.wave > 0 && (await this.waveRefused(run))) return
+    if (run.wavesSent > 0 && (await this.waveRefused(run))) return
     if (run.stopRequested) {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
     }
-    // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52).
-    const fresh = run.cycle.wave > 0 && !run.turnMayCome && this.deps.harness() !== 'legacy' ? await this.newSession(run) : 'same'
+    // Every Wave after the run's first goes to a new SDK session (worfy-throughput ticket 52), the first
+    // Wave of a later Epic of the queue too (worfy-autopilot-queue ticket 14).
+    const fresh = run.wavesSent > 0 && !run.turnMayCome && this.deps.harness() !== 'legacy' ? await this.newSession(run) : 'same'
     if (fresh === 'gone') return
     // A Stop, a Force stop or the quit while the new session started: the Wave does not go, as above.
     if (run.stopRequested) {
@@ -1834,6 +2084,7 @@ export class Autopilot {
     run.resume = []
     try {
       sent = await this.deps.waves.autopilotWave(run.projectId, run.epic, resume, fresh === 'fresh', run.cycle.named)
+      run.wavesSent += 1
     } catch (error) {
       run.message = messageOf(error)
       await this.feed(run, { type: 'send-failed', message: run.message })
@@ -2125,7 +2376,7 @@ export class Autopilot {
       const now = this.now()
       const limits = this.deps.limits?.state() ?? { windows: {} }
       const vendor = this.vendorLimits(run)
-      const forecast = epicForecast({ samples: waveSamples(runs, run.vendor), waves: remainingWaves(tickets, run.epic, run.cycle.named) })
+      const forecast = epicForecast({ samples: waveSamples(runs, run.vendor), waves: queueWaves(run, tickets) })
       const duration = waveDurationP90(runs)
       const settings = budget.settings()
       // The budget acts in Budget-aware whatever its switch says, in Start window only with it on
@@ -3017,10 +3268,11 @@ export class Autopilot {
     this.cancelBoundary(run)
   }
 
-  private async write(run: Run, fields: JournalEventFields): Promise<void> {
+  /** One line of the run's journal; `epic`: the Epic it is about, the one the run is on when absent. */
+  private async write(run: Run, fields: JournalEventFields, epic = run.epic): Promise<void> {
     if (run.journal === null) return
     try {
-      await run.journal.append(fields)
+      await run.journal.append(fields, epic)
     } catch (error) {
       console.error(`[autopilot] ${run.projectId}: could not write ${fields.kind} to the journal`, error)
     }
@@ -3040,6 +3292,11 @@ export class Autopilot {
     return {
       projectId: run.projectId,
       epic: run.epic,
+      queue: run.queue.map((epic, at) => {
+        const outcome = run.outcomes.get(epic)
+        return { epic, status: outcome !== undefined ? QUEUE_STATUS[outcome] : at === run.index ? 'running' : 'next' }
+      }),
+      index: run.index,
       status: !run.running ? 'stopped' : resumesAt !== null || wait !== null ? 'waiting' : 'running',
       wave: run.cycle.wave,
       backgroundTasks: run.running ? this.liveTasks(run).length : run.returnedTasks,

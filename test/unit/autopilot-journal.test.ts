@@ -56,6 +56,9 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(1), kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:01Z' },
   { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' },
   { ...base, at: at(2), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { ...base, at: at(2), kind: 'queue-changed', added: ['worfy-retry'], removed: ['worfy-link'] },
+  { ...base, at: at(2), kind: 'epic-finished', outcome: 'waits-owner', tickets: ['03'] },
+  { ...base, at: at(2), epic: 'worfy-retry', kind: 'epic-started', index: 2, of: 2 },
   { ...base, at: at(2), kind: 'start-window', reason: 'wave-too-long', until: at(23), text: 'Wave 2 usually takes up to 2 h 10 min and would end after 07:00: Autopilot continues at 23:00', durationP90Ms: 7_800_000 },
   { ...base, at: at(2), kind: 'budget-stop', cause: 'daily-share', share: 0.09, used: 0.1, need: 0, until: at(29), text: "Today's share of the Limits is used: Autopilot continues at 00:00" },
   { ...base, at: at(3), kind: 'limits-hit', window: 'five_hour', resetsAt: at(30) },
@@ -129,6 +132,36 @@ describe('parseJournal', () => {
     expect(parseJournal(line(started) + line(busy) + line(killed) + line(free) + line(refused))).toEqual({ events: [started, busy, killed, free, refused], skipped: 0 })
     expect(parseJournal(line(started) + line(busy) + line(cancelled))).toEqual({ events: [started, busy, cancelled], skipped: 0 })
     expect(parseJournal(line(started) + line({ ...base, at: at(0), kind: 'orchestrator-busy', turn: true }))).toEqual({ events: [started], skipped: 1 })
+  })
+
+  // A run over a queue of Epics (worfy-autopilot-queue ticket 14, ADR-0100).
+  it('reads run-started with its queue, the four outcomes of epic-finished, epic-started and queue-changed; skips each outside the format', () => {
+    const queued: JournalEvent = { ...started, epics: ['demo', 'worfy-retry'] }
+    const finished = (['done', 'waits-owner', 'elsewhere', 'removed'] as const).map((outcome, i): JournalEvent => ({ ...base, at: at(i + 1), kind: 'epic-finished', outcome }))
+    const owner: JournalEvent = { ...base, at: at(5), kind: 'epic-finished', outcome: 'waits-owner', tickets: ['04', '05'] }
+    const begun: JournalEvent = { ...base, at: at(6), epic: 'worfy-retry', kind: 'epic-started', index: 2, of: 3 }
+    const last: JournalEvent = { ...begun, index: 3 }
+    const added: JournalEvent = { ...base, at: at(7), kind: 'queue-changed', added: ['worfy-link'] }
+    const removed: JournalEvent = { ...base, at: at(7), kind: 'queue-changed', removed: ['worfy-link'] }
+    const good = [queued, ...finished, owner, begun, last, added, removed]
+    expect(parseJournal(good.map(line).join(''))).toEqual({ events: good, skipped: 0 })
+    const bad = [
+      // A queue is two Epics or more: one Epic writes none.
+      { ...started, epics: ['demo'] },
+      { ...started, epics: ['demo', ''] },
+      { ...finished[0], outcome: 'stopped' },
+      { ...owner, tickets: [''] },
+      { ...begun, index: 0 },
+      { ...begun, of: 0 },
+      // Not past the end of the queue.
+      { ...begun, index: 4 },
+      { ...begun, index: 1.5 },
+      // A change names at least one Epic.
+      { ...base, at: at(7), kind: 'queue-changed' },
+      { ...added, added: [] },
+      { ...removed, removed: [] },
+    ]
+    expect(parseJournal(bad.map(line).join(''))).toEqual({ events: [], skipped: bad.length })
   })
 
   it('reads harness-behind (worfy-harness ticket 21), and a journal without it as before', () => {

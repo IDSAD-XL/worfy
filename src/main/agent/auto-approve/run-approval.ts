@@ -407,8 +407,11 @@ export interface RunApproval {
   readonly environment: Readonly<Record<string, string>>
   /** What the run read of git when it started. */
   readonly facts: GitFacts
-  /** The Tickets of the Wave now (`01`): their worktrees are roots. */
-  setWave(tickets: readonly string[]): void
+  /**
+   * The Tickets of the Wave now (`01`): their worktrees are roots. `epic`: theirs, in a run over a queue of Epics
+   * (worfy-autopilot-queue ticket 14); the run's first Epic when absent.
+   */
+  setWave(tickets: readonly string[], epic?: string): void
   judge(request: ApprovalRequest, at: ApprovalAt): Promise<Decision>
   /** Removes the run's folder, by its literal path. */
   close(): Promise<void>
@@ -479,13 +482,15 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
     if (normal !== null && !(normal in recorded)) Object.assign(recorded, recordRoots([normal], platform))
   }
   let wave: string[] = []
+  let waveEpic = options.epic
   return {
     run,
     runTemp,
     environment,
     facts,
-    setWave: (tickets) => {
+    setWave: (tickets, epic) => {
       wave = [...tickets]
+      waveEpic = epic ?? options.epic
     },
     judge: async (request, at) => {
       if (at.cwd === null && COMMAND_TOOLS.has(request.tool)) return refusal('no-cwd')
@@ -493,7 +498,7 @@ export async function openRunApproval(options: RunApprovalOptions): Promise<RunA
       if (checkouts === null) return refusal('no-checkouts')
       // shortcut: the Wave's worktrees are found by the branch `<epic>/<NN>`, the default of the Profile's
       // tickets.branch; redo when a Project with another template runs Autopilot with Auto-approval.
-      const branches = new Set(wave.map((ticket) => `${options.epic}/${ticket}`))
+      const branches = new Set(wave.map((ticket) => `${waveEpic}/${ticket}`))
       const worktrees = checkouts.filter((checkout) => checkout.branch !== null && branches.has(checkout.branch)).map((checkout) => checkout.path)
       // The folder for temporary files of this process: the one it started with, also another run's.
       const temp = at.started['TMPDIR'] ?? runTemp

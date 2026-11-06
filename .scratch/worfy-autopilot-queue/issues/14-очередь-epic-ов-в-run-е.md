@@ -67,3 +67,34 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 - `docs/adr/<номер>-run-epic-queue.md` (новый)
 
 Только читать: `src/shared/autopilot/epic-queue.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/workflow/accepted-epics.ts`.
+
+## Итог
+
+ADR-0100. Run ведёт очередь Epic-ов: `AutopilotStartOptions.epics` (1–10, первый — `epic`), `queue`, `index`,
+`outcomes`, свой `initialCycle` на каждый Epic. Остановка цикла → `epicOutcome` (Ticket 12) на свежем чтении workflow:
+`next` — `epic-finished` и `epic-started` следующего, `stop` — `run-stopped` всего Run-а. Журнал: `run-started.epics`,
+`epic-started`, `epic-finished`, `queue-changed`, `epic` строки — Epic, о котором она. Канал `autopilot.queue`
+(`Autopilot.editQueue`), в состоянии `queue` и `index`, прогноз — по всем Epic-ам очереди.
+
+Сначала падающий: с отключённым переходом к следующему Epic-у (`moveOn`) 13 из 28 test-ов
+`test/contract/autopilot-queue.test.ts` падали, первый — «второй Epic не начинается» (`epic-started` нет, Run кончается
+на первом Epic-е).
+
+Решено без владельца:
+
+- При старте занятый на другой Machine Epic очереди — отказ старта (как для одного Epic-а), «Start anyway» снимает
+  проверку на весь Run; без него проверка повторяется в начале каждого следующего Epic-а и даёт `elsewhere`.
+- `epic-started` нет у первого Epic-а; `epic-finished` нет у Epic-а, на котором Run остановился; Run из одного Epic-а
+  не пишет `epics` и новых событий.
+- Убранный Epic получает `epic-finished` `removed` на своей строке сразу после `queue-changed`.
+- Wave-ы считаются с 1 в каждом Epic-е; сведение по номеру Wave в Flight Recorder и Run history — Ticket 18.
+- Правка во время Wave применяется после `wave-finished`; не применённая к остановке Run-а — отбрасывается; добавить к
+  Run-у с named Ticket-ами нельзя; добавление, которое ждёт, забирается обратно удалением того же Epic-а.
+- Статус `running` в состоянии остаётся у Epic-а, на котором Run остановился.
+- `epics`, где первый не `epic`, — отказ.
+
+Вне списка файлов: `src/main/autopilot/journal.ts` (`append` со своим `epic`, `epics` в `run-started`),
+`src/main/agent/auto-approve/run-approval.ts` (ветки Wave — от Epic-а этой Wave, не первого),
+`src/shared/flight-recorder/journal-walk.mjs` (три новых вида событий), test-ы `autopilot-journal` (unit и contract),
+`auto-approve-run`. Feature page `docs/features/autopilot.md` не менялась: точек входа для очереди ещё нет
+(Ticket-ы 15–17), описание — Ticket 19.

@@ -71,6 +71,9 @@ const appended: JournalEventFields[] = [
   { kind: 'ticket-status', ticket: '01', state: 'claimed', statusAt: '2026-10-06T01:02Z' },
   { kind: 'narrow-round', ticket: '02', outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open' },
   { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
+  { kind: 'queue-changed', added: ['worfy-retry'] },
+  { kind: 'epic-finished', outcome: 'done' },
+  { kind: 'epic-started', index: 2, of: 2 },
   { kind: 'start-window', reason: 'outside', until: '2026-10-06T20:00:00.000Z', text: 'Outside the start window 23:00–07:00: Autopilot continues at 23:00' },
   { kind: 'budget-stop', cause: 'five-hour', share: 0.0925, used: 0.04, need: 0.06, until: '2026-10-06T05:02:00.000Z', text: "The 5-hour Limits are used, today's share is not: Autopilot continues at 05:02" },
   { kind: 'limits-hit', window: 'five_hour', resetsAt: '2026-10-06T06:00:00.000Z' },
@@ -112,6 +115,24 @@ describe('openRun and append', () => {
       })
     })
     expect(await readRun(journal.run)).toEqual({ events: lines, skipped: 0 })
+  })
+
+  it('writes the queue of a run in run-started, and each line with the Epic it is about; the run\'s first without one (worfy-autopilot-queue ticket 14)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC, epics: [EPIC, 'worfy-retry'] }, { now: ticking(T0), suffix: suffixes('a1b2c3') })
+    await journal.append({ kind: 'epic-finished', outcome: 'done' })
+    await journal.append({ kind: 'epic-started', index: 2, of: 2 }, 'worfy-retry')
+    await journal.append({ kind: 'wave-started', wave: 1, tickets: ['01'] }, 'worfy-retry')
+    const lines = rawLines(journal.file).map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.map((line) => [line.kind, line.epic])).toEqual([
+      ['run-started', EPIC],
+      ['epic-finished', EPIC],
+      ['epic-started', 'worfy-retry'],
+      ['wave-started', 'worfy-retry'],
+    ])
+    expect(lines[0]).toMatchObject({ epics: [EPIC, 'worfy-retry'] })
+    // One Epic: no `epics`, as before the ticket.
+    const one = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0), suffix: suffixes('d4e5f6') })
+    expect(JSON.parse(rawLines(one.file)[0]!)).not.toHaveProperty('epics')
   })
 
   it('opens two runs as two files', async () => {

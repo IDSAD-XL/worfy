@@ -15,7 +15,10 @@
 //            (`2026-10-06T01:02:03.004Z`, `2026-10-06T04:02:03+03:00`)
 //   run      the run id, the same as the file name without `.jsonl`
 //   project  the Project id (`<folder name>-<8 hex digits>`, src/main/projects/store.ts)
-//   epic     the Epic's name (`worfy-daily`)
+//   epic     the Epic's name (`worfy-daily`): the Epic the run is on when the line is written; in a
+//            run over a queue of Epics (worfy-autopilot-queue ticket 14) it changes with
+//            epic-started, and epic-finished names the Epic that ended. Lines written before the
+//            ticket name the run's one Epic
 //   kind     one of the kinds below, plus that kind's fields
 //
 // Kinds and their fields:
@@ -54,6 +57,10 @@
 //                                    absent when it was Off, as in every line written before the
 //                                    ticket. A mode switched later counts from the next request,
 //                                    and each auto-approval line names the mode it was judged in
+//                  epics?            a run over a queue of more than one Epic (worfy-autopilot-queue
+//                                    ticket 14, ADR-0100): its Epics in order, the line's `epic`
+//                                    first; absent for a run of one Epic, as in every line written
+//                                    before the ticket
 //   orchestrator-busy turn, queued,  the run was accepted while the Project's Orchestrator was busy
 //                  tasks             and waits for it (worfy-autopilot-queue ticket 07): written
 //                                    right after run-started and again at every change; turn: a
@@ -162,6 +169,29 @@
 //                                    may be missing. Journals written before ticket 20 have none
 //   wave-finished  wave, tickets,    wave and tickets as in wave-started
 //                  limits?
+//   queue-changed  added?, removed?  the queue of a run was changed between Waves (worfy-autopilot-
+//                                    queue ticket 14): added, the Epics put at its end; removed, the
+//                                    Epics taken out of it, not started; at least one of the two. A
+//                                    change made during a Wave is written at the Wave's end, right
+//                                    after its wave-finished; one made while the run waits between
+//                                    Waves, at once; one still waiting when the run stops, never. Each Epic
+//                                    removed gets its epic-finished `removed` right after
+//   epic-finished  outcome,          an Epic of the run's queue ended and the run goes on
+//                  tickets?          (worfy-autopilot-queue ticket 14, ADR-0100); `epic` of the line
+//                                    is that Epic. outcome: `done` (every Ticket done in the
+//                                    checkout, or the named Tickets), `waits-owner` (only Tickets
+//                                    for the owner are left: `Waits: owner`, no status, or blocked
+//                                    by those; tickets names them, as in wave-started), `elsewhere`
+//                                    (it ran on another Machine, or in another Project, when the run
+//                                    reached it: not begun) or `removed` (taken out of the queue
+//                                    before it began, after queue-changed). The Epic a run stops on
+//                                    has none: run-stopped ends it. A run of one Epic writes none
+//   epic-started   index, of         the run begins the next Epic of its queue (worfy-autopilot-
+//                                    queue ticket 14), after the last one's epic-finished; `epic` of
+//                                    the line, and of the lines after it, is that Epic. index: its
+//                                    place in the queue from 1; of: how many Epics the queue holds
+//                                    then. Its Waves count from 1 again. The first Epic of a run has
+//                                    none: run-started begins it
 //
 //   limits? of wave-started and wave-finished: the share of the Limits windows when the line
 //   was written (worfy-throughput ticket 40), in the shape of the Vendor of the run (run-started
@@ -357,6 +387,7 @@ import { z } from 'zod'
 import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import { limitStateSchema, type LimitWindow, type LimitWindowId, type LimitsState } from '../agent/limits'
 import { vendorIdSchema } from '../vendors/vendor'
+import type { EpicFinish } from './epic-queue'
 import { RUN_MODES, WINDOW_WAIT_REASONS } from './run-mode'
 
 /** Every kind of event, in the order a run usually meets them. */
@@ -370,6 +401,9 @@ export const JOURNAL_EVENT_KINDS = [
   'ticket-status',
   'narrow-round',
   'wave-finished',
+  'queue-changed',
+  'epic-finished',
+  'epic-started',
   'start-window',
   'budget-stop',
   'limits-hit',
@@ -415,6 +449,9 @@ export type RunStartedBy = (typeof RUN_STARTED_BY)[number]
 /** The states a `ticket-status` line names: the Ticket's `Status:` as the Harness writes it. */
 export const TICKET_STATUS_STATES = ['claimed', 'blocked', 'done', 'open'] as const
 export type TicketStatusState = (typeof TICKET_STATUS_STATES)[number]
+
+/** How an Epic of a run's queue ended, as `epic-finished` says it (src/shared/autopilot/epic-queue.ts, EpicFinish). */
+export const EPIC_FINISHES = ['done', 'waits-owner', 'elsewhere', 'removed'] as const satisfies readonly EpicFinish[]
 
 /** The states of a narrow fix round a `narrow-round` line names. */
 export const NARROW_OUTCOMES = ['started', 'verified', 'rejected'] as const
@@ -501,7 +538,7 @@ const event = <K extends JournalEventKind, F extends z.ZodRawShape>(kind: K, fie
   z.object({ ...common, kind: z.literal(kind), ...fields })
 
 export const journalEventSchema = z.discriminatedUnion('kind', [
-  event('run-started', { origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined), autoApproval: z.enum(['off', 'shadow', 'on']).optional().catch(undefined) }),
+  event('run-started', { epics: z.array(text).min(2).optional(), origin: text.optional(), override: z.literal(true).optional(), unasked: z.array(text).optional(), by: z.enum(RUN_STARTED_BY).optional().catch(undefined), tickets: z.array(text).optional(), mode: z.enum(RUN_MODES).optional().catch(undefined), vendor: vendorIdSchema.optional().catch(undefined), autoApproval: z.enum(['off', 'shadow', 'on']).optional().catch(undefined) }),
   event('orchestrator-busy', { turn: z.boolean(), queued: count, tasks }),
   event('orchestrator-free', {}),
   event('harness-behind', { harness: text, main: text, commits: z.number().int().positive() }),
@@ -523,6 +560,9 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('ticket-status', { ticket: text, state: z.enum(TICKET_STATUS_STATES), statusAt: text.optional(), reason: text.optional(), waits: text.optional() }),
   event('narrow-round', { ticket: text, outcome: z.enum(NARROW_OUTCOMES), text: text.max(LAST_TEXT_MAX) }),
   event('wave-finished', { ...wave, limits }),
+  event('queue-changed', { added: z.array(text).min(1).optional(), removed: z.array(text).min(1).optional() }).refine((line) => line.added !== undefined || line.removed !== undefined),
+  event('epic-finished', { outcome: z.enum(EPIC_FINISHES), tickets: z.array(text).optional() }),
+  event('epic-started', { index: z.number().int().positive(), of: z.number().int().positive() }).refine((line) => line.index <= line.of),
   event('start-window', { reason: z.enum(WINDOW_WAIT_REASONS), until: isoTime, text, durationP90Ms: z.number().int().nonnegative().optional() }),
   event('budget-stop', { cause: z.enum(BUDGET_CAUSES), share: z.number().nonnegative(), used: z.number().nonnegative(), need: z.number().nonnegative(), until: isoTime, text }),
   event('limits-hit', { window: z.string().min(1).nullable(), resetsAt: isoTime.nullable(), reason: z.enum(LIMITS_HIT_REASONS).optional().catch(undefined), message: z.string().max(LAST_TEXT_MAX).optional() }),

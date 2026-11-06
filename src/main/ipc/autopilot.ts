@@ -19,7 +19,8 @@
 // the default one of Settings when the start names none, and reads the Start window there before each
 // Wave (worfy-resource-planner ticket 05). A start while the Orchestrator is busy waits for it
 // (worfy-autopilot-queue ticket 07): Stop on such a run cancels it, Start now (`autopilot.startNow`)
-// takes the Orchestrator at once (Orchestrators.takeNow).
+// takes the Orchestrator at once (Orchestrators.takeNow). A start may name a queue of Epics, and
+// `autopilot.queue` changes the queue of a run between Waves (worfy-autopilot-queue ticket 14, ADR-0100).
 import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import type { LimitsState } from '../../shared/agent/limits'
@@ -30,6 +31,7 @@ import {
   autopilotChanged,
   autopilotEstimate,
   autopilotForceStop,
+  autopilotQueue,
   autopilotStart,
   autopilotStartNow,
   autopilotState,
@@ -48,7 +50,7 @@ import { harnessDriftWatch } from '../autopilot/harness-drift'
 import { openRun, readRecentRuns } from '../autopilot/journal'
 import { KeepAwake } from '../autopilot/power'
 import { readOriginKey } from '../autopilot/origin'
-import { Autopilot, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
+import { Autopilot, NO_RUN_MESSAGE, RunningElsewhere, selfProjectRefusal, type AutopilotDeps } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { currentHarness } from '../harness/locate'
@@ -90,13 +92,18 @@ const appEstimateSources: EstimateSources = { runs: (projectId) => readRecentRun
 
 /** The handlers over an Autopilot; tests pass their own. */
 export function autopilotHandlers(
-  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow'>>,
+  autopilot: () => Pick<Autopilot, 'start' | 'stop' | 'forceStop' | 'state'> & Partial<Pick<Autopilot, 'refreshHarness' | 'startNow' | 'editQueue'>>,
   sources: EstimateSources = appEstimateSources,
 ): HandlerModule {
   return [
-    defineHandler(autopilotStart, async ({ projectId, epic, override, tickets, mode }) => {
+    defineHandler(autopilotStart, async ({ projectId, epic, epics, override, tickets, mode }) => {
       try {
-        return await autopilot().start(projectId, epic, { override: override === true, ...(tickets === undefined ? {} : { tickets }), ...(mode === undefined ? {} : { mode }) })
+        return await autopilot().start(projectId, epic, {
+          override: override === true,
+          ...(epics === undefined ? {} : { epics }),
+          ...(tickets === undefined ? {} : { tickets }),
+          ...(mode === undefined ? {} : { mode }),
+        })
       } catch (error) {
         if (!(error instanceof RunningElsewhere)) throw error
         return { runningElsewhere: { epic: error.epic, machine: error.machine, message: error.message } }
@@ -104,6 +111,11 @@ export function autopilotHandlers(
     }),
     defineHandler(autopilotStop, ({ projectId }) => autopilot().stop(projectId)),
     defineHandler(autopilotForceStop, ({ projectId }) => autopilot().forceStop(projectId)),
+    defineHandler(autopilotQueue, ({ projectId, add, remove }) => {
+      const current = autopilot()
+      if (current.editQueue === undefined) throw new Error(NO_RUN_MESSAGE)
+      return current.editQueue(projectId, { ...(add === undefined ? {} : { add }), ...(remove === undefined ? {} : { remove }) })
+    }),
     defineHandler(autopilotStartNow, ({ projectId }) => {
       const current = autopilot()
       return current.startNow?.(projectId) ?? current.state(projectId)

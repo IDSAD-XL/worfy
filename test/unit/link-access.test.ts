@@ -276,6 +276,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'autoApproval.set',
     'autoContinue.set',
     'autopilot.forceStop',
+    // Adding an Epic to a Run's queue or taking one out (worfy-autopilot-queue ticket 14) changes what the Run does.
+    'autopilot.queue',
     'autopilot.start',
     'autopilot.startNow',
     'autopilot.stop',
