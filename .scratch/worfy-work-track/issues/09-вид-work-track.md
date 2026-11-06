@@ -40,6 +40,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 1–2
   - evidence: screenshot pass · `../evidence/09-month-before-light.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
   - evidence: screenshot pass · `../evidence/09-month-before-dark.png` · mac dev · 865d83d99c456f62c1c46dcf3e644d165ecf7139 · scrub: 2026-11-06
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0: [gate] green (fast) lint, typecheck, test · mac - · c8a31982b
 
 ## Тесты
 
