@@ -471,9 +471,10 @@ export class Session {
    * permission setting through setPermissionPreset: Claude Code's setPermissionMode at once, Codex from its next
    * turn/start), and for every process started later. The process, its background tasks, a running turn and the
    * queue stay; the driver asks the person each permission request from then on (SessionStart.unattended). The run's
-   * approval policy and environment are no longer given to a later process. Rejects when the handle refuses the
-   * change: the Session stays unattended, in the settings it ran in, and the caller decides. Resolves at once for an
-   * attended Session.
+   * approval policy and environment are no longer given to a later process. Rejects when the handle refuses a
+   * change: the Session stays unattended and the caller decides. What the handle took before its refusal stays on the
+   * live process (pushSettings goes model, then permission mode, then effort): a refused effort leaves it in the Node's
+   * mode, still unattended, until the process is started again. Resolves at once for an attended Session.
    */
   becomeAttended(settings: SessionSettings): Promise<SessionSettings> {
     if (this.closing) return Promise.reject(new Error(`Session ${this.current} is closed`))

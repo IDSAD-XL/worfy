@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
-import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
+import type { LaunchApproval, RunApproval } from '../../src/main/agent/auto-approve/run-approval'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
@@ -947,11 +947,12 @@ describe("a stop of the run's own gives the Orchestrator back as it runs: no new
     expect(h.power).toEqual(['start', 'stop'])
   })
 
-  it('a refusal that comes once the tasks and their turns have ended: the Session starts again attended at once, and the run journals orchestrator-returned and lets keep-awake go', async () => {
+  it('a refusal that comes once the tasks and their turns have ended: the Session starts again attended after the grace time, and the run journals orchestrator-returned and lets keep-awake go', async () => {
     let refuse: (error: Error) => void = () => undefined
     let asked = 0
     const h = harness({
       script: turnErrorScript(),
+      returnGraceMs: 2000,
       refuseModeChange: () => {
         asked += 1
         return new Promise<void>((_resolve, reject) => {
@@ -970,11 +971,63 @@ describe("a stop of the run's own gives the Orchestrator back as it runs: no new
     expect(h.autopilot.state(PROJECT).status).toBe('running')
     refuse(new Error(MODE_REFUSED))
     await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    // The last task ended during the change: its task-notification turn may still be on its way, so the grace time runs first.
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
     await until(async () => (await h.kinds()).at(-1) === 'orchestrator-returned', 'the Orchestrator to be given back')
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
     await until(() => h.power.length >= 2, 'keep-awake to stop')
     expect(h.power).toEqual(['start', 'stop'])
     expect(h.autopilot.anyRunning()).toBe(false)
+  })
+
+  it("the message Start now kept aside comes back to the person's Session, held and first, when the run gives it back as it runs; once only", async () => {
+    writeFileSync(join(scriptsDir, 'autopilot-wait-person.jsonl'), readFileSync(join(fixtures, 'autopilot-wait-person.jsonl'), 'utf8'))
+    const h = harness({ script: turnErrorScript(), attendedScript: 'autopilot-wait-person' })
+    await pickMode(h, 'default')
+    const person = await h.session()
+    person.send('how is it going?')
+    await until(() => person.state === 'busy', "the person's turn")
+    expect(person.send('look at the logs later')).toBe('queued')
+    await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
+    await expect(h.autopilot.startNow(PROJECT)).resolves.toMatchObject({ status: 'running' })
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.autopilot.state(PROJECT)).toMatchObject({ reason: 'turn-error', backgroundTasks: 2 })
+    const session = await h.session()
+    expect(session.unattended).toBe(false)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    // Not lost with the person's closed process, and never sent to the run's: it waits for "Send queued".
+    expect(session.queued()).toMatchObject({ items: [{ text: 'look at the logs later' }], paused: true })
+    expect(h.calls.filter((call) => call.kind === 'message').map((call) => (call.kind === 'message' ? call.text : ''))).not.toContain('look at the logs later')
+
+    // Given back once: the person drops it, the tasks end, and the next run's give-back brings nothing back.
+    expect(session.removeQueued(session.queued().items[0]!.id)).toBe(true)
+    h.releases.release('tasks')
+    h.releases.release('tasks')
+    await until(async () => (await taskIds(h)).length === 0 && session.state === 'idle', 'the last task-notification turn')
+    await until(() => !h.autopilot.anyRunning(), 'the first run to be done')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.requests.length === 3 && h.autopilot.state(PROJECT).status === 'stopped', 'the second run to stop')
+    const second = await h.session()
+    expect(second.unattended).toBe(false)
+    expect(second.queued().items).toEqual([])
+  })
+
+  it("the run's policy is let go at the give-back: the person's Session is judged by none, its folder stays", async () => {
+    const h = harness({ script: turnErrorScript(), approval: true })
+    const launches: (LaunchApproval | undefined)[] = []
+    const setUnattended = h.orchestrators.setUnattended.bind(h.orchestrators)
+    vi.spyOn(h.orchestrators, 'setUnattended').mockImplementation((projectId, unattended, approval, options) => {
+      if (unattended) launches.push(approval)
+      return setUnattended(projectId, unattended, approval, options)
+    })
+    await pickMode(h, 'default')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.autopilot.state(PROJECT).status === 'stopped', 'the run to stop')
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(launches[0]?.mode()).toBe('off')
+    expect(launches[0]?.environment()).toEqual({})
+    expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
   })
 
   it("a new run while the given-back Session still has its tasks waits for them: the Orchestrator is a busy person's Session now", async () => {

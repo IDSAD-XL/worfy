@@ -232,11 +232,11 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
 })
 
 describe('going attended while a turn runs gives the Session back as it runs, without a relaunch (worfy-autopilot-queue ticket 08)', () => {
-  /** A turn held until the test releases `turn`, then a turn with a permission request outside bypassPermissions. */
+  /** A turn held until the test releases `turn`, then a turn with a permission request outside bypassPermissions; then the process exits. */
   const held = (): string => {
     const lines = readFileSync(join(scratch, 'scripts', 'turn.jsonl'), 'utf8').trim().split('\n')
     const ask = JSON.stringify({ fake: 'permission', toolName: 'Bash', toolUseId: 'toolu_after_ls', input: { command: 'ls build', description: 'List the build folder' } })
-    writeFileSync(join(scratch, 'scripts', 'held.jsonl'), [lines[0], lines[1], JSON.stringify({ fake: 'wait_release', name: 'turn' }), lines[2], lines[0], lines[1], ask, lines[2]].join('\n'))
+    writeFileSync(join(scratch, 'scripts', 'held.jsonl'), [lines[0], lines[1], JSON.stringify({ fake: 'wait_release', name: 'turn' }), lines[2], lines[0], lines[1], ask, lines[2], JSON.stringify({ fake: 'exit' })].join('\n'))
     return 'held'
   }
 
@@ -288,9 +288,14 @@ describe('going attended while a turn runs gives the Session back as it runs, wi
     expect(events.filter((event) => event.type === 'refused_dialog')).toEqual([])
     expect(session.answerPermission(asked[0]!.requestId, 'allow')).toBe(true)
     await vi.waitFor(() => expect(h.calls.filter((call) => call.kind === 'permission')).toMatchObject([{ result: { behavior: 'allow' } }]))
-    // The Node keeps the person's pick; the run's bypassPermissions was never saved for it.
-    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    // The Node keeps the person's pick; the run's bypassPermissions was never saved for it. The script is over, and the process with it.
+    await vi.waitFor(() => expect(session.state).toBe('error'))
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+
+    // The Session's next process is the person's Orchestrator, in the Node's mode.
+    session.send('one more')
+    await vi.waitFor(() => expect(h.requests).toHaveLength(3))
+    expect(h.requests[2]).toMatchObject({ unattended: false, orchestrator: true, settings: { permissionMode: 'default' } })
   })
 
   it('waitForWork (a graceful Stop): the Session stays unattended until the turn has ended, then starts again attended', async () => {

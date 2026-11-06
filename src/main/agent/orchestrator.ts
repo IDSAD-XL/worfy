@@ -56,7 +56,7 @@
 // as Stop in Autopilot does, and starts it again unattended at once, so the old process ends its
 // background tasks. The halted Session's queue does not go to the unattended Session: it is kept
 // aside and goes, held, to the Session that gives the Orchestrator back attended, before the queue of
-// the unattended one.
+// the unattended one — a new Session, or the unattended one given back as it runs (ticket 08).
 import type { BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
@@ -339,13 +339,17 @@ export class Orchestrators {
         entry.wanted = null
       } else if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) {
         const session = entry.run?.session ?? null
+        const hadTasks = liveTasksOf(entry) > 0
         // A request parked for the owner would hold the turn, and so the give-back, up to its limit: a
         // stop of the run ends it as the limit would (worfy-auto-approve ticket 07).
         session?.releaseParked()
         if (options.waitForWork === true || session === null || !(await this.attendInPlace(entry, session))) {
           entry.wanted = ATTENDED
           // The turn and the tasks may have ended while the change was tried: nothing would start the wait's relaunch then.
-          if (entry.run !== null) this.relaunchIfFree(entry, entry.run)
+          // The last task ending meanwhile gets the grace time for its task-notification turn, as on its own event.
+          const run = entry.run
+          if (run !== null && hadTasks && liveTasksOf(entry) === 0) this.relaunchAfterGrace(entry, run)
+          else if (run !== null) this.relaunchIfFree(entry, run)
         }
       } else {
         await this.relaunch(entry, ATTENDED)
@@ -378,10 +382,11 @@ export class Orchestrators {
 
   /**
    * The unattended Session goes back to a person as it runs (worfy-autopilot-queue ticket 08): attended,
-   * in the Node's own settings, with no new process, so its turn and background tasks live on. Answers
-   * whether it did; false when the Session refused the change (it stays unattended, as it was). While
-   * the change is tried no give-back waits (entry.wanted stays null): a new run meanwhile finds the
-   * Orchestrator busy rather than a Session left to it.
+   * in the Node's own settings, with no new process, so its turn and background tasks live on. The
+   * person's messages Start now kept aside (takeNow) go into its queue, first and held, as a relaunch
+   * would put them. Answers whether it did; false when the Session refused the change (it stays
+   * unattended, as it was). While the change is tried no give-back waits (entry.wanted stays null): a
+   * new run meanwhile finds the Orchestrator busy rather than a Session left to it.
    */
   private async attendInPlace(entry: Entry, session: Session): Promise<boolean> {
     try {
@@ -395,6 +400,15 @@ export class Orchestrators {
       entry.launch = ATTENDED
       entry.wanted = null
       this.cancelGrace(entry)
+      const kept = entry.kept
+      if (kept !== null) {
+        entry.kept = null
+        try {
+          session.adoptQueue({ items: kept.items, paused: true })
+        } catch (error) {
+          console.warn(`[orchestrator] could not give the queue kept aside back to the Session of ${entry.projectId}`, error)
+        }
+      }
     }
     return true
   }
