@@ -133,8 +133,8 @@ Cancel — Stop и Force stop на ожидающем Run-е (`start-cancelled`)
 Вне списка файлов: `src/shared/flight-recorder/from-journal.ts` (исходы новых причин, иначе typecheck),
 `src/shared/flight-recorder/journal-walk.mjs` (новые виды событий), test-ы `agent-send-autopilot`,
 `autopilot-background`, `autopilot-journal` (unit и contract), `flight-recorder-journal`, `link-access`.
-Feature pages и `CONTEXT.md` не правились (их правят открытые Ticket-ы worfy-auto-approve): готовый текст — в описании
-PR, раздел «Docs to add after worfy-auto-approve 10».
+Feature pages (`docs/features/autopilot.md`, `docs/features/ru/autopilot.md`) и `CONTEXT.md` (Run, Wait) обновлены в этом
+же PR после merge worfy-auto-approve 10 (#1494).
 
 Долг: кнопки Start now и Cancel в окне нет — только канал main; Flight Recorder ещё не показывает Wait
 `orchestrator-busy` (`facts.ts` — только чтение в этом Ticket-е).
