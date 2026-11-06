@@ -363,3 +363,35 @@ a pid's start time`.
 - **Дальше.** После merge PR #1462 считать красные `canvasReady` («the page answered innerWidth only after …») в
   `windows-e2e` run-ов `main` и PR-ов. Если до срока записей (2026-11-16 и 2026-11-19) их не будет, записи снять. Если
   будут — включить probe ещё раз, теперь ради задачи renderer-а `Receive mojo reply`: какой IPC приложения она обслуживает.
+
+### Часть 9. 2026-11-06, ветка `worfy-polish/47-window-width`: «the window is N px wide» — диск C: runner-а через 8–13 минут после загрузки машины
+
+Причина длинных эпизодов найдена. Страница не отвечала (не задержка `setContentSize` и не экран): в обоих красных
+дня — run 42251858642 (job 128008851906, `browser-sleep.spec.ts:215`, 1500 px) и run 42251792065 (job 128008612512,
+`browser.spec.ts:281`, 1400 px) — во всех четырёх попытках строка «The page answered innerWidth only after up to
+7791–9993 ms, and was still not answering». Соседние test-ы тех же job-ов тоже замедлились (31.7 s, 57.2 s, 60 s при
+обычных 4–8 s), то есть стояла машина. Начало эпизода — через 6–13 минут после старта job-а во всех шести разобранных
+случаях (сегодняшние два и четыре старых run-а из записей quarantine); shard 1/4 run-а `main` 42251826160, начатый в ту же
+минуту на другой машине, прошёл те же test-ы в то же время зелёным, то есть эпизод у каждой машины свой.
+
+- **Что делает машина (run-ы 42259996872 и 42261964565 ветки `diag/polish-47-window-width`: 10 копий shard 1/4 с
+  замером раз в секунду; службы названы во втором).** Через 8–11 минут после загрузки Windows Update ставит «Security
+  Intelligence Update for Microsoft Defender Antivirus - KB2267602», через 3–5 s запускается служба Volume Shadow Copy,
+  и svchost службы `StorSvc` минуту-две держит 1–1.2 ядра и 3–11 тысяч страниц в секунду. Чаще это только нагрузка на
+  CPU (задержка C: не выше 0.09 s), но в двух копиях из десяти задержка диска C: минуты держалась на 0.06–0.34 s на
+  операцию при очереди до 15, при CPU машины 5–20 %. Диск D: всё это время — 0 ms. Именно при такой задержке в копии run-а 42261964565 (job 128043949813) воспроизвёлся красный:
+  `codex-session.spec.ts:163`, «the window is 1400 px wide», «answered innerWidth only after up to 5034 ms», а четыре
+  следующих test-а шли 16–28 s; в копии run-а 42259996872 (job 128037104724) так же `card-api.spec.ts` — 47 и 51 s.
+- **Почему это держит приложение.** C: runner-а — сетевой диск («Virtual_Disk NVME Premium»), D: — свой NVMe машины
+  («Microsoft NVMe Direct Disk v2»). TEMP job-а — `C:\Users\RUNNER~1\AppData\Local\Temp`, а каждое приложение под
+  test-ом держит папку данных и профиль Chromium в `os.tmpdir()`: при задержке C: в сотни миллисекунд на операцию оно
+  перестаёт отвечать.
+- **Правка.** В шаге e2e job-а `windows-e2e` (`.github/workflows/ci.yml`) `TEMP` и `TMP` = `runner.temp` (`D:\a\_temp`);
+  contract test в `test/contract/ci-workflow.test.ts`. Timeout-ы не тронуты. Записи quarantine
+  `card-drag-canvas-middle-pan` и `card-drag-card-jerked-lower-end` сняты, у test-ов снова `test(`.
+- **Проверка.** Run 42262647542 (5 копий shard 1/4 с TEMP на D:): данные test-ов на `D:\a\_temp`, 108 test-ов зелёные в
+  каждой копии, окно `StorSvc` было в четырёх. Задержки C: выше 0.06 s в этих четырёх не случилось, поэтому правка под
+  тяжёлым видом эпизода ещё не наблюдалась — это покажут run-ы `windows-e2e` после merge. Один красный первой попытки
+  там — `browser-profile.spec.ts:127` («three pages, two on the partition of admin»), при простое машины: другая причина.
+- **Осталось.** Записи `card-drag-note-jerked-across-card` и `browser-open-bar-long-host-640` — та же причина; бриф
+  этой части их не называл.

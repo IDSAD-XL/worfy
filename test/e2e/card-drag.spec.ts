@@ -177,7 +177,7 @@ async function clickReachesCard(window: Page, clicks: number): Promise<void> {
 // (M23: the Node stayed `dragging` after the release). Held at the lower end, the very first step
 // is on the iframe, before React Flow has seen a move at all.
 for (const [where, below] of [['the middle', 0.5], ['the lower end', 1]] as const) {
-  quarantined('card-drag-card-jerked-lower-end', { when: where === 'the lower end' })(`a Card jerked by ${where} of its header ends its drag on the release, lands where it was dropped, and the viewport stays`, async () => {
+  test(`a Card jerked by ${where} of its header ends its drag on the release, lands where it was dropped, and the viewport stays`, async () => {
     const window = await start([cardNode('c1', 1000, 200)])
     const viewportBefore = await viewportTransform(window)
     const title = await box(header(window, 'c1'))
@@ -229,7 +229,7 @@ test('a Card shrunk by its corner so the pointer falls onto its iframe ends the 
   await clickReachesCard(window, 1)
 })
 
-quarantined('card-drag-canvas-middle-pan')('the Canvas panned with the middle button across a Card ends the pan on the release', async () => {
+test('the Canvas panned with the middle button across a Card ends the pan on the release', async () => {
   const window = await start([cardNode('c1', 1000, 200)])
   const card = await box(nodeElement(window, 'c1'))
   // Pressed on the plane just right of the Card and pulled left: the first step puts the pointer on the Card's iframe.

@@ -213,9 +213,23 @@ describe('ci.yml: every pull request and every push to main, one check for the m
       'env:',
       'SHARD: ${{ matrix.shard }}',
       'E2E_FILES: ${{ needs.changes.outputs.e2e-files }}',
+      'TEMP: ${{ runner.temp }}',
+      'TMP: ${{ runner.temp }}',
       'run: $files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files',
     ])
     expect(steps.join('\n')).not.toMatch(/shell: bash/)
+  })
+
+  it('puts the temporary folder of the Windows e2e tests on the runner\'s local disk, not on C: (worfy-polish 47)', () => {
+    // Every app under test keeps its data folder and Chromium profile in os.tmpdir(), which Node on
+    // Windows reads from TEMP and TMP. The runner's TEMP is on C:, a network disk whose latency rose to
+    // 0.1-0.34 s for minutes some 8 minutes after the machine started, and the app stopped answering;
+    // runner.temp is on D:, the machine's own NVMe disk, which stayed at 0 ms (run 42259996872).
+    const steps = job('windows-e2e')
+    const e2e = steps.findIndex((line) => line.trim() === '- name: Run the e2e tests, one shard')
+    const env = under(steps.slice(e2e), '        env:').map((line) => line.trim())
+    expect(env).toContain('TEMP: ${{ runner.temp }}')
+    expect(env).toContain('TMP: ${{ runner.temp }}')
   })
 
   // The command of that step under PowerShell, with pnpm a function that prints each argument in its
