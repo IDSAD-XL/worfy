@@ -247,8 +247,9 @@ export const HINTS = {
   noHome: 'worfy does not know the home folder of this Session, so it approves nothing here.',
   branchName: 'worfy did not approve this new branch name: git or the owner may read it as another ref (a remote or a branch under one, refs/…, HEAD, a pseudo-ref such as ORIG_HEAD or AUTO_MERGE, an option), or the Project\'s remote names are not known. Choose a plain name, such as the Ticket\'s branch with a suffix.',
   gitHooks: 'This Project has git hooks or programs named in its git config (or worfy could not tell), and this git command may run one; they may run files you can edit, so worfy does not approve it. Reading refs and objects (git log without a diff, rev-parse, ls-tree, cat-file -p) stays approved; leave the rest to the owner, or go on without it.',
-  // What the agent reads when the policy parks a request in On, until worfy-auto-approve ticket 07 parks it
-  // for the owner: a refusal.
+  // What the agent reads when the policy parks a request in On and the driver has no gate to park it on (a
+  // driver without a parker, unattendedCanUseTool): a refusal. With a gate the request waits for the owner
+  // (worfy-auto-approve ticket 07, park.ts).
   parkPending: 'Only the owner can approve this request, and no one is here to answer it now (worfy Autopilot). Go on without it, or write what you need into the owner questions of the Ticket.',
   gitTop: 'worfy approves git only in the repository of the Ticket\'s worktree, and a folder on the way to it holds what git takes for another repository (.git, HEAD, commondir, gitdir, or objects with refs). Run git from the worktree top, and leave such files to the owner.',
 } as const

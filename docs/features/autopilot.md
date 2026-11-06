@@ -130,10 +130,13 @@ While a run goes on:
   the rule, and the model still gets the refusal of Off. On: the policy's decision is the answer — an allowed request
   runs, a denied one is refused with the rule's hint, and a hard deny is always refused. A request only a person can
   decide is parked: it opens on the Orchestrator's Session as a permission card that names the rule and the paths, with
-  Allow and Deny but no Always allow, so one answer covers that one request; the Session shows that it needs permission,
-  a notification "Parked: `<tool>` in `<folder name>`" goes out, and the other Subagents go on. The owner's answer is
-  the answer to the agent; with no answer in 60 minutes, or when the run stops, the request is refused with a hint. The
-  journal gets `park` when it is parked, then `park-answered` or `park-expired`. Each request is judged in the environment the agent's process started with: its
+  Allow and Deny but no Always allow, so one answer covers that one request. During the Orchestrator's own turn the
+  Session shows that it needs permission; a background task's parked request leaves an idle Session idle. A
+  notification "Parked: `<tool>` in `<folder name>`" goes out, and the other Subagents go on. The owner's answer is
+  the answer to the agent; with no answer in 60 minutes, or when the run stops, the request is refused with a hint, and
+  while the run is stopping a request is not parked but refused at once. A parked request keeps its background task
+  from counting as stalled. The journal gets `park` when it is parked, then `park-answered` or `park-expired`. Each
+  request is judged in the environment the agent's process started with: its
   whole shell environment, so `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` or a `GIT_` variable there makes a command
   it changes not approved. Git is read again at each request that writes a file or runs git, in the Project's root and,
   when a worktree may have config of its own (`git config --worktree`, an `includeIf`), in the checkout each git

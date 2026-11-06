@@ -53,8 +53,10 @@ Source: [spec.md](../spec.md), «Как работает», п. 1; «Решен�
 
 - **Park на gate.** `src/main/agent/auto-approve/park.ts`: `createParker(asker)` открывает запрос на gate Session-а
   (`PermissionGate.ask`) с пометкой `parked` (правило и цели), без варианта `allow_always`; описание карточки —
-  «Parked by Auto-approval, rule <правило>: <цели>». Session показывает `needs_permission` (счётчик gate-а), другие
-  Subagent-ы идут дальше: ждёт только этот tool call. Ответ владельца — `answered` с вариантом.
+  «Parked by Auto-approval, rule <правило>: <цели>». Во время хода Orchestrator-а Session показывает
+  `needs_permission` (счётчик gate-а); parked запрос фоновой задачи на Session в `idle` состояние не меняет — видны
+  карточка и уведомление (review раунд 1, low 4: исправлен текст, не поведение). Другие Subagent-ы идут дальше: ждёт
+  только этот tool call. Ответ владельца — `answered` с вариантом.
 - **Предел ожидания** — `PARK_LIMIT_MS` = 60 мин (Q3), часы и предел — параметры. Предел, остановка Run-а, Interrupt,
   закрытие Session и отзыв запроса Vendor-ом — `expired`: агент получает отказ с `PARK_EXPIRED_HINT` (и подсказкой
   правила, если она есть, например `git-hooks`), событие `auto_approval` с `park-expired`.
@@ -83,3 +85,13 @@ Source: [spec.md](../spec.md), «Как работает», п. 1; «Решен�
 2. **Строка `park-expired` при остановке Run-а в Journal не проверена.** Событие приходит уже после `run-stopped`;
    пишет ли его Run в этот момент, зависит от порядка отписки в `run.ts`. Test-ы проверяют событие Session-а.
 3. **Codex** park не делает — это Ticket 05 (approval-ветка Codex).
+
+Раунд 2 review PR #1467 (`src/main/autopilot/run.ts` — пять маленьких правок, их строки названы в «Итог» PR):
+
+- **Park и предел тишины фоновых задач.** Пока у Session есть parked запрос, срабатывание предела тишины
+  (`BACKGROUND_STALL_MS`) не останавливает Run с `background-stalled`, а заводит предел заново. Каждое событие
+  `auto_approval` (в том числе `park-expired`) тоже заводит предел заново, сразу, а не в очереди Run-а: конец park не
+  обгоняет предел тишины. `PARK_LIMIT_MS` оставлен 60 мин, как решил владелец (Q3).
+- **Обычный Stop.** При переходе Run-а в `stopping` parked запросы снимаются (`Session.releaseParked`), а запрос,
+  который политика park-ует, пока Run останавливается или уже остановлен, получает deny с `PARK_STOPPED_HINT` сразу.
+- Текст `HINTS.parkPending` в `policy.ts` — теперь только запасной путь без gate-а.

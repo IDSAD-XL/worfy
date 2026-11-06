@@ -420,6 +420,11 @@ export class Session {
     this.permissions.releaseParked()
   }
 
+  /** The open requests the approval policy parked for the owner (worfy-auto-approve ticket 07). */
+  parkedRequests(): number {
+    return this.permissions.parked
+  }
+
   /** The user's picks for an open question request (null: "Decline"); false when it is no longer open. */
   answerQuestion(requestId: string, picks: readonly QuestionPick[] | null): boolean {
     this.assertOpen()

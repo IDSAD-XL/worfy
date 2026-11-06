@@ -23,6 +23,10 @@ export const PARK_LIMIT_MS = 60 * 60 * 1000
 export const PARK_EXPIRED_HINT =
   'Only the owner can approve this request; it waited for the owner and got no answer (worfy Autopilot). Go on without it, or write what you need into the owner questions of the Ticket.'
 
+/** What the agent reads after Claude Code's reason when the policy would park a request while the run is stopping. */
+export const PARK_STOPPED_HINT =
+  'Only the owner can approve this request, and the Autopilot run is stopping, so it does not wait for the owner (worfy Autopilot). Go on without it, or write what you need into the owner questions of the Ticket.'
+
 /** The timers a park waits with; tests pass their own. */
 export interface ParkClock {
   setTimeout(fn: () => void, ms: number): unknown

@@ -184,6 +184,7 @@ import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { AutopilotRunSettings, AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { VendorId } from '../../shared/vendors/vendor'
+import { PARK_STOPPED_HINT } from '../agent/auto-approve/park'
 import { HINTS, type Decision } from '../agent/auto-approve/policy'
 import type { LaunchApproval, RunApproval } from '../agent/auto-approve/run-approval'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -211,6 +212,10 @@ export interface RunSession {
   halt(timeoutMs?: number): Promise<unknown>
   /** A message to the Orchestrator: starts a turn when idle, else waits in the queue (Session.send); throws when the Session is gone. */
   send(text: string): unknown
+  /** Ends the requests parked for the owner (worfy-auto-approve ticket 07, Session.releaseParked). */
+  releaseParked?(): void
+  /** How many requests wait parked for the owner (Session.parkedRequests); a task with one is waiting, not stalled. */
+  parkedRequests?(): number
 }
 
 /**
@@ -1212,6 +1217,9 @@ export class Autopilot {
         void run.enqueue(() => this.write(run, refusedDialogLine(event, run.session?.id ?? null)))
         return
       case 'auto_approval':
+        // A decision is a sign of life of whoever asked: the limit of the tasks starts over at once, so a park
+        // that just ended is not overtaken by that limit (worfy-auto-approve ticket 07).
+        this.tasksTimer(run, true)
         void run.enqueue(() => this.write(run, autoApprovalLine(event, run.session?.id ?? null, run.vendor)))
         return
       case 'background_tasks': {
@@ -1903,6 +1911,8 @@ export class Autopilot {
    * so the text goes with the continuation (resume).
    */
   private async beginStopping(run: Run, effect: { wave: number; tickets: number[]; inWork: number[] }): Promise<void> {
+    // A request parked for the owner would hold the turn or the task the stop waits for (worfy-auto-approve ticket 07).
+    run.session?.releaseParked?.()
     if (run.waveTurn === null) {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
@@ -1981,6 +1991,8 @@ export class Autopilot {
     const timer = clock.setTimeout(() => {
       if (run.tasksTimer !== timer) return
       run.tasksTimer = null
+      // A task whose request waits parked for the owner is waiting, not stalled: the limit starts over.
+      if ((run.session?.parkedRequests?.() ?? 0) > 0) return this.tasksTimer(run, false)
       void run.enqueue(() =>
         this.readAndFeed(run, 'stop', (tickets) => {
           run.turnMayCome = true
@@ -2206,7 +2218,13 @@ export class Autopilot {
         const active = this.activeApprovals.get(projectId)
         return active === undefined || this.approvalMode(projectId) === 'off' ? {} : active.environment
       },
-      judge: (request, at) => this.activeApprovals.get(projectId)?.judge(request, at) ?? Promise.resolve(NO_RUN_DECISION),
+      judge: async (request, at) => {
+        const decision = await (this.activeApprovals.get(projectId)?.judge(request, at) ?? NO_RUN_DECISION)
+        // No park while the run stops, or after it stopped (worfy-auto-approve ticket 07): nothing would wait for the owner.
+        const run = this.runs.get(projectId)
+        const parks = run !== undefined && !run.cycle.stopping && run.cycle.phase !== 'stopped'
+        return decision.outcome === 'park' && !parks ? { ...decision, outcome: 'deny', hint: PARK_STOPPED_HINT } : decision
+      },
     }
     this.launchApprovals.set(projectId, made)
     return made

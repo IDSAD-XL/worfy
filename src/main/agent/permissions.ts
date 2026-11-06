@@ -72,6 +72,13 @@ export class PermissionGate implements PermissionAsker {
     return this.open.size
   }
 
+  /** Open requests the approval policy parked for the owner. */
+  get parked(): number {
+    let count = 0
+    for (const pending of this.open.values()) if (pending.parked) count += 1
+    return count
+  }
+
   /** The subjects (Claude: tools) an `allow_always` answer covers in this Session. */
   alwaysAllowed(): string[] {
     return [...this.remembered.keys()]
