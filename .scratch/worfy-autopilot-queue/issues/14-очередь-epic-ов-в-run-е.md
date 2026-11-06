@@ -43,12 +43,18 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 
 - [ ] Contract test: очередь из двух Epic-ов — первый кончился (`done`), `epic-finished`, `epic-started` второго,
       Wave-ы второго; `run-stopped` один на весь Run.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: в первом Epic-е остался `blocked` `Waits: owner` — `epic-finished` `waits-owner`, второй идёт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `limits-timeout` и `no-progress` в первом Epic-е — весь Run стоп, второй не начат.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: второй Epic идёт на другой Machine (stub `linkedRuns`) — `elsewhere`, третий идёт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `editQueue` add/remove во время Wave — применено на её границе, `queue-changed`; убрать идущий —
       отказ.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Contract test: `epics` + `tickets` — отказ; старый вход `{ epic }` работает как сейчас.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-queue.test.ts` exit 0 · mac - · 58ba29fe316894a5d9ea74800a45062de1b86213
 - [ ] Новый ADR. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
