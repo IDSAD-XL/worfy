@@ -88,6 +88,45 @@ describe('checkMindMap', () => {
     expect(oneErrorFor(checkMindMap(missing, [1, 2]), 'n4')).toContain('gone')
   })
 
+  it('refuses replaces on a node that is not a decision, even when it points at a decision', () => {
+    for (const index of [0, 1, 4]) {
+      const file = valid()
+      const node = file.nodes[index]!
+      ;(node as { replaces?: string }).replaces = 'n3'
+      expect(oneErrorFor(checkMindMap(file, [1, 2]), node.id)).toMatch(/only a decision/)
+    }
+  })
+
+  it('refuses a decision that replaces itself, and a cycle through replaces', () => {
+    const self = valid()
+    self.nodes[3]!.replaces = 'n4'
+    expect(oneErrorFor(checkMindMap(self, [1, 2]), 'n4')).toMatch(/cycle through replaces/)
+
+    const loop = valid()
+    ;(loop.nodes[2] as { replaces?: string }).replaces = 'n4'
+    const errors = errorsOf(checkMindMap(loop, [1, 2]))
+    expect(errors).toHaveLength(1)
+    expect(errors[0]!.message).toMatch(/cycle through replaces/)
+    for (const id of ['n3', 'n4']) expect(errors[0]!.message).toContain(`"${id}"`)
+  })
+
+  it('accepts only the canonical ticket:NN form: at least two digits, no extra leading zero', () => {
+    for (const from of ['ticket:002', 'ticket:2', 'ticket:0002']) {
+      const file = valid()
+      file.nodes[1]!.from = from
+      expect(oneErrorFor(checkMindMap(file, [1, 2]), 'n2')).toContain(from)
+    }
+    const hundred = valid()
+    hundred.nodes[1]!.from = 'ticket:100'
+    expect(checkMindMap(hundred, [1, 2, 100]).ok).toBe(true)
+  })
+
+  it('refuses a node text of blanks only, as it refuses such a reason and source', () => {
+    const file = valid()
+    file.nodes[0]!.text = '  \t '
+    expect(oneErrorFor(checkMindMap(file, [1, 2]), 'n1')).toContain('text')
+  })
+
   it('refuses a decision without a reason or a status', () => {
     const file = valid()
     delete (file.nodes[3] as { reason?: string }).reason

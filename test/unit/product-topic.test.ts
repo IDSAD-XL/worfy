@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -104,6 +104,17 @@ describe('readTopic', () => {
     expect(read.title).toBeNull()
     expect(read.errors).toEqual([{ file: 'map.md', id: null, message: expect.stringMatching(/no map\.md/) }])
   })
+
+  it('reads a mind-map.json that starts with a UTF-8 byte order mark, as Windows editors save it', async () => {
+    const topic = topicCopy()
+    const file = join(topic, MIND_MAP_FILE)
+    writeFileSync(file, `\uFEFF${readFileSync(file, 'utf8')}`)
+
+    const read = await readTopic(topic)
+
+    expect(read.errors).toEqual([])
+    expect(read.nodes.map((node) => node.id)).toEqual(['idea-1', 'q-1', 'd-1', 'o-1'])
+  })
 })
 
 describe('product paths', () => {
@@ -127,11 +138,12 @@ describe('product paths', () => {
     expect(productCriticFolder(folder)).toBe('/work/app/docs/product/critic')
   })
 
-  it('refuses a topic name that leaves the folder or takes the critic folder', () => {
-    for (const bad of ['..', '.', '', 'a/b', 'a\\b', 'critic', '.hidden']) {
+  it('refuses a topic name that leaves the folder, takes the critic folder in any case, or is reserved on Windows', () => {
+    const reserved = ['critic', 'Critic', 'CRITIC', 'CON', 'con', 'Nul', 'aux.md', 'PRN', 'COM1', 'lpt9.txt', 'topic.', 'topic ']
+    for (const bad of ['..', '.', '', 'a/b', 'a\\b', '.hidden', ...reserved]) {
       expect(isProductTopicName(bad)).toBe(false)
       expect(() => productTopicFolder('/p', bad)).toThrow()
     }
-    for (const good of ['roadmap-demo', 'roadmap_2026', 'v1.2', 'дорожная-карта']) expect(isProductTopicName(good)).toBe(true)
+    for (const good of ['roadmap-demo', 'roadmap_2026', 'v1.2', 'дорожная-карта', 'console', 'com10', 'critics', 'nul-check']) expect(isProductTopicName(good)).toBe(true)
   })
 })

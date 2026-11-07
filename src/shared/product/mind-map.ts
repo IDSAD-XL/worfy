@@ -21,15 +21,22 @@ export type MindMapNodeKind = (typeof MIND_MAP_NODE_KINDS)[number]
 export const DECISION_STATUSES = ['accepted', 'rejected'] as const
 export type DecisionStatus = (typeof DECISION_STATUSES)[number]
 
-/** `ticket:02` — a Ticket of the topic's map as a parent. */
-const TICKET_REF = /^ticket:(\d{1,4})$/
+/**
+ * `ticket:02` — a Ticket of the topic's map as a parent, in one spelling: the number as Ticket files
+ * write it, at least two digits and no extra leading zero (`ticket:02`, `ticket:100`; not `ticket:2`
+ * or `ticket:002`), so one Ticket has one reference.
+ */
+const TICKET_REF = /^ticket:(0[1-9]|[1-9]\d{1,3})$/
 
 /** A node id: letters, digits, `_` and `-`; never `ticket:…`, which names a Ticket of the map. */
 export const mindMapNodeIdSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{1,64}$/, 'a node id is 1 to 64 letters, digits, _ or -')
 
-const text = z.string().min(1).max(MIND_MAP_TEXT_MAX)
+const text = z
+  .string()
+  .max(MIND_MAP_TEXT_MAX)
+  .refine((value) => value.trim() !== '', 'must not be empty or blanks only')
 
 /** One earlier state of a Decision, oldest first. */
 export const decisionHistoryEntrySchema = z.object({
@@ -97,7 +104,7 @@ function rawNodeId(value: unknown, index: PropertyKey | undefined): string | nul
 
 const nodeError = (id: string, message: string): MindMapError => ({ id, message: `node "${id}": ${message}` })
 
-/** The ids on the cycle that `start` leads into through `from`, or null when its chain ends. */
+/** The ids on the cycle that `start` leads into through `parent`, or null when its chain ends. */
 function cycleFrom(start: string, parent: ReadonlyMap<string, string | null>, done: Set<string>): string[] | null {
   const path: string[] = []
   const onPath = new Set<string>()
@@ -116,8 +123,9 @@ function cycleFrom(start: string, parent: ReadonlyMap<string, string | null>, do
  * Checks a parsed `mind-map.json` against the format and the Tickets of its map (their numbers,
  * `02` → 2). Returns the nodes, or every error found, each naming its node: a wrong field, two nodes
  * with one id, a `from` that is neither a node nor a Ticket of the map, a cycle through `from`,
- * `replaces` that is not a Decision, a Decision without a status or a reason, an Objection without
- * a source.
+ * `replaces` on a node that is not a Decision or pointing at one that is not, a cycle through
+ * `replaces` (a Decision that replaces itself among them), a Decision without a status or a reason,
+ * an Objection without a source.
  */
 export function checkMindMap(value: unknown, tickets: readonly number[]): MindMapCheck {
   const parsed = mindMapSchema.safeParse(value)
@@ -142,19 +150,24 @@ export function checkMindMap(value: unknown, tickets: readonly number[]): MindMa
   }
   const ticketSet = new Set(tickets)
 
-  // Only links to nodes take part in the cycle search; a Ticket or the topic ends a chain.
+  // Only links to nodes take part in the cycle searches; a Ticket, the topic or a missing node ends a chain.
   const parent = new Map<string, string | null>()
-  for (const node of byId.values()) parent.set(node.id, node.from !== null && byId.has(node.from) ? node.from : null)
+  const replaced = new Map<string, string | null>()
+  for (const node of byId.values()) {
+    parent.set(node.id, node.from !== null && byId.has(node.from) ? node.from : null)
+    replaced.set(node.id, node.kind === 'decision' && node.replaces !== undefined && byId.has(node.replaces) ? node.replaces : null)
+  }
 
   for (const node of map.nodes) {
     if (node.from !== null && !byId.has(node.from)) {
       const ticket = TICKET_REF.exec(node.from)
-      if (ticket === null) errors.push(nodeError(node.id, `from "${node.from}" is neither a node nor ticket:NN`))
+      if (ticket === null) errors.push(nodeError(node.id, `from "${node.from}" is neither a node nor ticket:NN (two digits at least, no extra leading zero)`))
       else if (!ticketSet.has(Number(ticket[1]))) errors.push(nodeError(node.id, `from "${node.from}": the map has no such Ticket`))
     }
     if (node.replaces !== undefined) {
       const target = byId.get(node.replaces)
-      if (target === undefined) errors.push(nodeError(node.id, `replaces "${node.replaces}": there is no such node`))
+      if (node.kind !== 'decision') errors.push(nodeError(node.id, `only a decision may carry replaces; this node is a ${node.kind}`))
+      else if (target === undefined) errors.push(nodeError(node.id, `replaces "${node.replaces}": there is no such node`))
       else if (target.kind !== 'decision') errors.push(nodeError(node.id, `replaces "${node.replaces}", which is a ${target.kind}, not a decision`))
     }
     if (node.kind === 'decision') {
@@ -166,12 +179,14 @@ export function checkMindMap(value: unknown, tickets: readonly number[]): MindMa
     }
   }
 
-  const done = new Set<string>()
-  for (const id of byId.keys()) {
-    const cycle = cycleFrom(id, parent, done)
-    if (cycle === null) continue
-    for (const member of cycle) done.add(member)
-    errors.push(nodeError(cycle[0]!, `a cycle through from: ${[...cycle, cycle[0]!].map((member) => `"${member}"`).join(' → ')}`))
+  for (const [link, links] of [['from', parent], ['replaces', replaced]] as const) {
+    const done = new Set<string>()
+    for (const id of byId.keys()) {
+      const cycle = cycleFrom(id, links, done)
+      if (cycle === null) continue
+      for (const member of cycle) done.add(member)
+      errors.push(nodeError(cycle[0]!, `a cycle through ${link}: ${[...cycle, cycle[0]!].map((member) => `"${member}"`).join(' → ')}`))
+    }
   }
 
   return errors.length === 0 ? { ok: true, map } : { ok: false, errors }

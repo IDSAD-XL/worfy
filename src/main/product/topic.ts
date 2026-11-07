@@ -159,7 +159,8 @@ export async function readTopic(folder: string): Promise<ProductTopic> {
   if (!('text' in mindMap)) return topic
   let value: unknown
   try {
-    value = JSON.parse(mindMap.text)
+    // A byte order mark at the start, as some Windows editors save UTF-8, is not part of the JSON.
+    value = JSON.parse(mindMap.text.replace(/^\uFEFF/u, ''))
   } catch (error) {
     errors.push({ file: MIND_MAP_FILE, id: null, message: `not valid JSON: ${error instanceof Error ? error.message : String(error)}` })
     return topic

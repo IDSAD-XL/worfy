@@ -41,12 +41,22 @@ export function productFolder(layout: ProductLayout): string {
   return layout.mode === 'silent' ? joinPath(layout.workflowFolder, PRODUCT_SILENT_DIR) : joinPath(layout.root, ...PRODUCT_FULL_DIR)
 }
 
+/** Names Windows keeps for devices, with or without an extension: `CON`, `nul.md`, `COM1`, `LPT9.txt`. */
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/iu
+
 /**
  * A topic name is one folder name: letters of any script, digits, `.`, `_` and `-`, starting with a
- * letter or a digit, at most 80 characters, and not `critic`. No separator, no `..`, nothing hidden.
+ * letter or a digit and not ending with `.`, at most 80 characters. Not `critic` in any case (the
+ * file systems of macOS and Windows ignore case by default) and not a Windows device name. No
+ * separator, no `..`, nothing hidden.
  */
 export function isProductTopicName(name: string): boolean {
-  return /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(name) && name !== CRITIC_DIR
+  return (
+    /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(name) &&
+    !name.endsWith('.') &&
+    name.toLowerCase() !== CRITIC_DIR &&
+    !WINDOWS_DEVICE_NAME.test(name)
+  )
 }
 
 /** The folder of one topic; a name that is not a topic name throws. */
