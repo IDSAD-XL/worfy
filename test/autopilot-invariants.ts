@@ -7,7 +7,12 @@
 //   I1  the command of a Wave reaches the Orchestrator once per Wave
 //   I2  worfy changes nothing on GitHub: every gh call is a read
 //   I3  one ticket-status line per change of a Ticket's Status:, none lost, none repeated
-//   I4  the journal names the expected reason and ends (no run-stopped only for a killed app)
+//   I4  the journal names the expected reason and ends (no run-stopped only for a killed app);
+//       with Auto-continue on (worfy-retry ticket 09) each turn-retry gets its resumed, and a
+//       retry-refused is the give-up right before run-stopped turn-error
+//
+// The continuation Auto-continue sends after a turn-retry holds no `/epic-wave` line: I1 does not
+// count it as a Wave's command, and a Wave command sent again in its place is a second one.
 //   I5  no person stepped in: no human-input, no refused-dialog
 //   I6  a new start after the stop goes through: a new journal that begins with run-started
 //   I7  worfy writes nothing into the Project
@@ -38,6 +43,8 @@ export interface RecoveryExpect {
   waves: number
   /** The Run survived the fault: it has a `resumed` line. */
   resumed?: boolean
+  /** With Auto-continue on (worfy-retry ticket 09): the reason of the `retry-refused` the Run stops with turn-error after. */
+  refused?: Extract<JournalEvent, { kind: 'retry-refused' }>['reason']
   /** The journal of a Run without run-stopped may end with one unreadable line (SIGKILL tore it). */
   tornLastLine?: boolean
 }
@@ -182,9 +189,48 @@ export const namesItsEnd: Rule = (input, runs) => {
     else if (cause === 'session-error' && errorText !== undefined && !errors.some((message) => errorText.test(message)))
       out.push(`I4: session-error before run-stopped ${stop} does not match ${String(errorText)}: ${errors.at(-1)}`)
   }
-  if (errorText !== undefined && (stop === null || CAUSE_EVENT[stop] !== 'session-error') && !errors.some((message) => errorText.test(message)))
-    out.push(`I4: no session-error matches ${String(errorText)}`)
+  // A Run that survived the error with Auto-continue names it in its turn-retry rather than in a session-error.
+  const retried = before.flatMap((event) => (event.kind === 'turn-retry' ? [event.message] : []))
+  if (errorText !== undefined && (stop === null || CAUSE_EVENT[stop] !== 'session-error') && ![...errors, ...retried].some((message) => errorText.test(message)))
+    out.push(`I4: no session-error or turn-retry matches ${String(errorText)}`)
   if (resumed === true && !run.events.some((event) => event.kind === 'resumed')) out.push('I4: the Run has no resumed')
+  return [...out, ...retriesEnd(run, input.expect)]
+}
+
+/** Stops of a person: a wait to retry may end with them, without its `resumed`. */
+const PERSON_STOPS = new Set(['user-stop', 'user-force-stop', 'app-quit'])
+/** The events that end a wait to retry or follow a give-up: the next one after `turn-retry` or `retry-refused`. */
+const RETRY_NEXT = new Set<JournalEvent['kind']>(['resumed', 'turn-retry', 'retry-refused', 'wave-started', 'wave-finished', 'run-stopped'])
+
+/**
+ * I4 with Auto-continue (worfy-retry ticket 09): each `turn-retry` gets its `resumed` before the run's
+ * next step (unless a person stopped the run during the wait, or the app was killed); a `retry-refused`
+ * is followed by `run-stopped` `turn-error`; and the scenario's `refused` reason stands before that stop.
+ */
+function retriesEnd(run: Run, expect: RecoveryExpect): string[] {
+  const out: string[] = []
+  const events = run.events
+  const nextOf = (index: number): JournalEvent | undefined => events.slice(index + 1).find((event) => RETRY_NEXT.has(event.kind))
+  events.forEach((event, index) => {
+    const next = nextOf(index)
+    if (event.kind === 'turn-retry') {
+      if (next?.kind === 'resumed') return
+      if (next?.kind === 'run-stopped' && PERSON_STOPS.has(next.reason)) return
+      if (next === undefined && expect.stop === null) return
+      out.push(`I4: turn-retry ${event.attempt} has no resumed before ${next === undefined ? 'the end of the journal' : next.kind}`)
+    } else if (event.kind === 'retry-refused') {
+      if (next?.kind === 'run-stopped' && next.reason === 'turn-error') return
+      if (next === undefined && expect.stop === null) return
+      const what = next === undefined ? 'the end of the journal' : next.kind === 'run-stopped' ? `run-stopped ${next.reason}` : next.kind
+      out.push(`I4: retry-refused ${event.reason} is followed by ${what}, not run-stopped turn-error`)
+    }
+  })
+  if (expect.refused !== undefined) {
+    const end = events.findIndex((event) => event.kind === 'run-stopped')
+    const refusals = (end === -1 ? events : events.slice(0, end)).flatMap((event) => (event.kind === 'retry-refused' ? [event.reason] : []))
+    if (!refusals.includes(expect.refused))
+      out.push(`I4: no retry-refused ${expect.refused} before ${end === -1 ? 'the end of the journal' : 'run-stopped'}`)
+  }
   return out
 }
 
