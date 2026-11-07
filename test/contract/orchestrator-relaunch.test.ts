@@ -741,3 +741,32 @@ describe('setUnattended refuses an attended Orchestrator that is busy, and start
     expectUntouched(h, session)
   })
 })
+
+describe('a relaunch while a Session in error waits for its old process (audit-code-2026-11-07 ticket 01)', () => {
+  // The run's Session fails with its process alive: the fake agent's exit line ends the query, and the
+  // Session's close never reaches the stub process behind it. A message sent then waits (Session.begin)
+  // for that process; Force stop gives the Orchestrator back meanwhile.
+  it('the message that waits is handed to the person\'s Session and goes to its process, after the old one exited', async () => {
+    const lines = readFileSync(join(scratch, 'scripts', 'turn.jsonl'), 'utf8').trim().split('\n')
+    writeFileSync(join(scratch, 'scripts', 'turn-exit.jsonl'), [...lines, JSON.stringify({ fake: 'exit' })].join('\n'))
+    const h = harness('exit-at-once', 1000, { script: 'turn-exit' })
+    await h.opened()
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    const session = h.registry.get(h.view().sessionId ?? '')
+    session.send('the Wave')
+    await vi.waitFor(() => expect(session.state).toBe('error'))
+    // The run's process outlived its Session's close.
+    expect(h.stub.alive()).toBe(1)
+
+    session.send('the message that waits')
+    await new Promise((done) => setTimeout(done, 100))
+    expect(h.requests).toHaveLength(2)
+
+    await h.orchestrators.giveBackNow(PROJECT)
+    await vi.waitFor(() => expect(h.messagesPerProcess()).toEqual([[], ['the Wave'], ['the message that waits']]), { timeout: ms(5_000) })
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    expect(h.stub.order().slice(-2)).toEqual(['exit 2 SIGKILL', 'spawn 3'])
+    expect(h.stub.maxAlive()).toBe(1)
+  })
+})

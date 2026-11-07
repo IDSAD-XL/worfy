@@ -82,7 +82,24 @@ Claude Code на той же Vendor session, хотя старый процес�
   та самая форма дефекта. Теперь test завершает stub-процесс (`stopAll()`) перед следующим сообщением, как его
   завершил бы выход Claude Code.
 - `docs/features/sessions.md`, «A crash»: следующий процесс ждёт выхода старого, SIGKILL через 7,5 s.
-- Mutation-проверка: без проверки `closing` краснеет test закрытия во время ожидания; без ожидания (граница 0)
-  краснеют test-ы критериев 1 и 2.
-- Проверки: test-ы модулей Session, driver-а Claude и relaunch (82 файла) — exit 0; `pnpm lint && pnpm typecheck &&
-  pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
+- Review, круг 1 (REJECTED, medium): сообщение, ждущее в `run.waiting`, не видели `handOverQueue()` и `keep()`.
+  Relaunch Orchestrator-а во время ожидания (Force stop, `giveBackNow`, Start now) закрывал Session и терял его.
+  Выбрано: `handOverQueue()` отдаёт и сообщения из `run.waiting` — они ещё не дошли ни до одного процесса, —
+  первыми, перед очередью, с флагом `paused` очереди. Второй путь (класть сообщение в видимую очередь) отброшен: в
+  `error` очередь на паузе после `fail()`, и сообщение в ней не ушло бы без «Send queued», а снятие паузы отпустило бы
+  и старые удержанные сообщения. Цена выбранного пути: если в очереди были удержанные сообщения, переданное сообщение
+  в новой Session тоже удержано (виден в очереди, не потерян). Других путей, которые забирают очередь при relaunch,
+  нет: `takeNow` и `relaunch` оба идут через `handOverQueue()`. Заодно это закрывает ту же потерю для сообщения,
+  отправленного во время обычного старта процесса.
+- Test-ы круга 1: «the message that waits is handed to the person's Session and goes to its process, after the old
+  one exited» (`test/contract/orchestrator-relaunch.test.ts`) — сценарий review целиком: Session run-а в `error` с
+  живым процессом, сообщение ждёт, `giveBackNow` → сообщение у процесса 3, после SIGKILL процесса 2; «a message that
+  waits for the old process is handed over with the queue; the closed Session starts nothing» и «a start that fails
+  after the wait fails the Session with its reason» (`test/contract/session-handle-lifecycle.test.ts`).
+- Текст warning-а в `endProcesses()` теперь передаёт вызывающий: «after the close» для `exited()`, «after its next
+  process was asked for» для `begin()`. Условие после ожидания — одно `this.run !== run`: `close()` обнуляет run.
+- Mutation-проверка: без проверки закрытия краснеет test закрытия во время ожидания; без ожидания (граница 0) краснеют
+  test-ы критериев 1 и 2; `handOverQueue()` без `run.waiting` — краснеют оба test-а передачи (exit 1); проглоченный
+  отказ старта после ожидания — краснеет test отказа (exit 1).
+- Проверки круга 1: test-ы, импортирующие Session, driver Claude и Orchestrator (89 файлов), — exit 0; `pnpm lint &&
+  pnpm typecheck && pnpm test` и gate fast — в отчёте implementer-а с exit code.

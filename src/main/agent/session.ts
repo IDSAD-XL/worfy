@@ -288,20 +288,20 @@ export class Session {
     const deadline = Date.now() + killAfterMs
     const left = (): number => Math.max(0, deadline - Date.now())
     await within(Promise.allSettled([...this.pendingStarts]), left())
-    await this.endProcesses(left(), killAfterMs)
+    await this.endProcesses(left(), `${killAfterMs} ms after the close`)
   }
 
   /**
    * Waits `waitMs` for the Session's live processes to exit; one still alive then gets SIGKILL and is
    * waited for KILL_EXIT_MS more, and one that outlives even that is left with a warning. Never
-   * rejects. `killAfterMs`: the limit the warning names.
+   * rejects. `waited`: what the warning says the process outlived ("7500 ms after the close").
    */
-  private async endProcesses(waitMs: number, killAfterMs: number): Promise<void> {
+  private async endProcesses(waitMs: number, waited: string): Promise<void> {
     await within(Promise.all([...this.alive].map(waitForExit)), waitMs)
     const survivors = [...this.alive]
     if (survivors.length === 0) return
     for (const child of survivors) {
-      console.warn(`[agent] Claude Code ${child.pid ?? ''} of ${this.current} did not exit ${killAfterMs} ms after the close; sending SIGKILL`)
+      console.warn(`[agent] Claude Code ${child.pid ?? ''} of ${this.current} did not exit ${waited}; sending SIGKILL`)
       try {
         child.kill('SIGKILL')
       } catch (error) {
@@ -350,10 +350,17 @@ export class Session {
   /**
    * Takes the queue out for the Session that replaces this one (Orchestrators.relaunch): its
    * messages, and whether they were held. Answers nothing once the Session is closed.
+   * Messages sent while the process is still being started — begin() may wait seconds for the
+   * process before it (ADR-0064) — have reached no process yet: they go too, first, as they were
+   * sent before anything still queued. A held queue keeps them held with it.
    */
   handOverQueue(): { items: QueueEntry[]; paused: boolean } {
     if (this.closing) return { items: [], paused: false }
-    return this.queue.takeAll()
+    // Taken only while the run has no handle: consume() hands them to the process once it has one.
+    const sent = this.run?.waiting.splice(0) ?? []
+    const queued = this.queue.takeAll()
+    if (sent.length === 0) return queued
+    return { items: [...sent.map((message) => ({ id: randomUUID(), ...message })), ...queued.items], paused: queued.paused }
   }
 
   /**
@@ -645,8 +652,9 @@ export class Session {
     const starting =
       this.alive.size === 0
         ? startNow()
-        : this.endProcesses(EXIT_WAIT_MS, EXIT_WAIT_MS).then(() => {
-            if (this.run !== run || this.closing) throw new Error(`Session ${this.current} closed before its agent started`)
+        : this.endProcesses(EXIT_WAIT_MS, `${EXIT_WAIT_MS} ms after its next process was asked for`).then(() => {
+            // close() clears the run: a Session closed meanwhile starts nothing.
+            if (this.run !== run) throw new Error(`Session ${this.current} closed before its agent started`)
             return startNow()
           })
     void this.consume(run, starting)

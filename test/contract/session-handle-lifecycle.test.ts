@@ -83,11 +83,18 @@ class Log {
 /**
  * The fake agent with a FakeProcess behind each query: `start n` when the driver starts or resumes
  * the n-th query, its process handed to the Session as Claude Code's is (QueryRequest.spawned), and
- * `close n` when the query is closed, which leaves the process running.
+ * `close n` when the query is closed, which leaves the process running. A start refused() fails
+ * after its `start n`, with no process.
  */
 class FakeProcesses {
   readonly log = new Log()
   private readonly processes: FakeProcess[] = []
+  private readonly refusals = new Map<number, string>()
+
+  /** The driver's n-th start fails with `message`. */
+  refuse(n: number, message: string): void {
+    this.refusals.set(n, message)
+  }
 
   /** The n-th process, from 1. */
   process(n: number): FakeProcess {
@@ -102,6 +109,8 @@ class FakeProcesses {
       const child = new FakeProcess(n, this.log)
       this.processes.push(child)
       this.log.add(`start ${n}`)
+      const refused = this.refusals.get(n)
+      if (refused !== undefined) throw new Error(refused)
       request.spawned?.(child)
       const query = await factory(request)
       const close = query.close.bind(query)
@@ -283,6 +292,48 @@ describe('a message to a Session in error waits for the process it closed', () =
     await vi.waitFor(() => expect(r.results()).toHaveLength(1))
     expect(r.messages(1)).toEqual([])
     expect(r.session.state).toBe('idle')
+  })
+
+  it('a start that fails after the wait fails the Session with its reason', async () => {
+    const processes = new FakeProcesses()
+    processes.refuse(2, 'Claude Code could not be started')
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    const failures = () => r.events.flatMap((event) => (event.type === 'state' && event.state === 'error' ? [event.error ?? ''] : []))
+    expect(failures()).toHaveLength(1)
+    r.session.send('again')
+    expect(r.session.state).toBe('busy')
+    processes.process(1).exit()
+    await vi.waitFor(() => expect(failures()).toHaveLength(2))
+    expect(failures()[1]).toContain('Claude Code could not be started')
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1', 'start 2'])
+    expect(r.session.state).toBe('error')
+  })
+
+  // The Orchestrator's relaunch takes the queue of the Session it closes (handOverQueue): a message
+  // that waits for the old process is in no process yet, and is handed over with it.
+  it('a message that waits for the old process is handed over with the queue; the closed Session starts nothing', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    r.session.send('again')
+    r.session.send('and more')
+    expect(r.session.queued().items.map((item) => item.text)).toEqual(['and more'])
+    expect(r.session.handOverQueue()).toEqual({
+      items: [expect.objectContaining({ text: 'again', attachments: [] }), expect.objectContaining({ text: 'and more', attachments: [] })],
+      paused: false,
+    })
+    expect(r.session.queued().items).toEqual([])
+    r.session.close()
+    processes.process(1).exit()
+    await r.session.exited()
+    await settle()
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1'])
+    expect(r.messages(1)).toEqual(['hello'])
   })
 
   it('a Session closed while it waits starts no process', async () => {
