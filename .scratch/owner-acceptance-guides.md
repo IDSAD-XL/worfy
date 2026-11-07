@@ -25,7 +25,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 3. [`worfy-evidence` 09](#worfy-evidence-09) — принят 2026-11-07. ([`worfy-faults` 08](#worfy-faults-08) — принят 2026-11-06.)
 4. [`worfy-auto-approve` 11](#worfy-auto-approve-11) — ещё не готово: ждёт Ticket-ов 05, 08, 10, 13, 14.
 5. [`worfy-retry` 11](#worfy-retry-11) — принят 2026-11-07.
-6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — ещё не готово: ждёт Ticket-ов 07–19.
+6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — принят 2026-11-07.
 7. [`worfy-work-track` 12](#worfy-work-track-12) — ещё не готово: ждёт Ticket-ов 01–11 (03 — твой шаг, в
    [ручных проверках](#ручные-проверки-вне-приёмок)).
 
@@ -184,7 +184,7 @@ Mac:
 
 ## worfy-autopilot-queue 20
 
-Ещё не готово: ждёт Ticket-ов 07–19 ([Ticket](worfy-autopilot-queue/issues/20-приёмка-с-владельцем.md)).
+Принят 2026-11-07 — «Итог» [Ticket-а](worfy-autopilot-queue/issues/20-приёмка-с-владельцем.md#итог); доработки — [Ticket 21](worfy-autopilot-queue/issues/21-очередь-start-anyway-и-последний-epic-ждёт-владельца.md).
 
 - **Где:** Mac Stable со всеми Ticket-ами Epic-а, демо-проект с `WORFY_AGENT=fake` (без токенов).
 - **Время:** ~10 мин.

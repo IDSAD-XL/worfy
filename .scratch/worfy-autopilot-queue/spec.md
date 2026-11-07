@@ -1,6 +1,7 @@
 # worfy-autopilot-queue: Autopilot стартует, пока идёт работа, и ведёт очередь Epic-ов
 
-Status: принят владельцем 2026-11-06 («со всем согласен»): решения grilling-а 2026-11-05 (Ticket-ы карты 01–03, раунды
+Status: Epic принят владельцем 2026-11-07 («по всем +») — [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог); доработки по приёмке (Q1, Q2) — [Ticket 21](issues/21-очередь-start-anyway-и-последний-epic-ждёт-владельца.md).
+Spec принят владельцем 2026-11-06 («со всем согласен»): решения grilling-а 2026-11-05 (Ticket-ы карты 01–03, раунды
 1 и 2), прототип окна запуска, нарезка на Ticket-ы и Wave-ы, «Решено без владельца» и ответы на «Открытые вопросы».
 Раздача Ticket-ов 07–20 начинается после merge worfy-retry 05 и 14 (общие `run.ts`, `cycle.ts`, журнал; worfy-retry 04
 влит 2026-11-06, PR #1468); Wave 1 этого Epic-а идёт параллельно с Wave 1 [worfy-work-track](../worfy-work-track/spec.md).
@@ -14,7 +15,7 @@ Epic, Linked machine, Vendor; ADR [0002](../../docs/adr/0002-worfy-is-a-view-ove
 [0050](../../docs/adr/0050-autopilot-user-stop-interrupts-orchestrator.md),
 [0091](../../docs/adr/0091-autopilot-from-chat.md), [0092](../../docs/adr/0092-run-history.md),
 [0093](../../docs/adr/0093-run-mode-at-wave-boundary-and-epic-forecast.md).
-Ticket-ы: Epic `worfy-autopilot-queue`, Ticket-ы 07–20 (01–06 — Ticket-ы карты, все `done`). Шапка — `Type:` / `Status:` /
+Ticket-ы: Epic `worfy-autopilot-queue`, Ticket-ы 07–21 (01–06 — Ticket-ы карты, все `done`; 21 — доработки приёмки 20). Шапка — `Type:` / `Status:` /
 `Blocked by:` / `Source:`, как у worfy-retry. Спутник — spec [worfy-work-track](../worfy-work-track/spec.md) той же
 карты: свой Epic, раздаётся параллельно.
 
@@ -298,6 +299,8 @@ Node через seam Vendor-а `setPermissionPreset` (`src/main/vendors/session.
 - **18 — Run history и Flight Recorder: ожидание Orchestrator-а и Run очереди.** Blocked by: 07, 14.
 - **19 — Документация.** Blocked by: 07–18.
 - **20 — Приёмка с владельцем.** Blocked by: 07–19.
+- **21 — Очередь: «Start anyway» в окне очереди и последний Epic, ждущий владельца.** Доработки приёмки 20 (Q1, Q2).
+  Blocked by: —.
 
 ## Волны
 
@@ -321,6 +324,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 17 | `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/shared/ipc/autopilot.ts`, `test/unit/autopilot-queue-line.test.ts`, `test/e2e/autopilot-queue.spec.ts` | 5 |
 | 19 | `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `docs/features/flight-recorder.md`, `docs/features/ru/flight-recorder.md`, `CONTEXT.md`, `src/renderer/guide/topics/autopilot/en.json`, `src/renderer/guide/topics/autopilot/ru.json` | 6 |
 | 20 | `.scratch/worfy-autopilot-queue/spec.md` | 7 |
+| 21 | `src/renderer/autopilot/start-modal.ts`, `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/canvas/actions/AutopilotAction.tsx`, `src/main/autopilot/run.ts`, `src/shared/autopilot/cycle.ts`, `src/shared/autopilot/epic-queue.ts`, `src/shared/ipc/autopilot.ts`, `src/shared/flight-recorder/from-journal.ts`, `docs/adr/0100-run-epic-queue.md`, `docs/features/autopilot.md`, `docs/features/ru/autopilot.md`, `test/unit/start-autopilot-modal.test.tsx`, `test/unit/autopilot-queue-line.test.ts`, `test/contract/autopilot-queue.test.ts`, `test/e2e/autopilot-start-modal.spec.ts` | 8 |
 
 - **Wave 1 — 07, 12, 13.** 07 — ядро ожидания; 12 и 13 — чистое правило очереди и статус spec-а, без общих файлов.
   Начинается после merge worfy-retry 05 и 14 и идёт параллельно с Wave 1 worfy-work-track (01–04): общих файлов в
@@ -330,7 +334,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - **Wave 3 — 10, 11, 14.** 10 и 11 — над окном 09; 14 ждёт `run.ts` после 07 и 08 и правило 12.
 - **Wave 4 — 15, 16, 18.** Точки входа очереди, очередь в окне, Run history.
 - **Wave 5 — 17.** Делит `AutopilotAction.tsx` с 10 и ждёт «Run all accepted» из 16.
-- **Wave 6 — 19.** **Wave 7 — 20**, владелец.
+- **Wave 6 — 19.** **Wave 7 — 20**, владелец. **Wave 8 — 21**, доработки по приёмке 20.
 
 Имена файлов test-ов, которых ещё нет, — предложение; implementer может назвать иначе, не задевая чужих Ticket-ов своей
 Wave. Названия файлов test-ов, которые есть, сверены с `main` 2026-11-05 (`16a0932dc`).
@@ -395,12 +399,14 @@ Ticket 11 там правят `CONTEXT.md` и `docs/features/(ru/)flight-recorde
 
 ## Готово, когда
 
-- [ ] Кнопка Autopilot и просьба агента открывают окно запуска внутри worfy, как прототип `card-918c77d9`; команда чата
-      стартует без окна; системного окна больше нет (09, 11).
-- [ ] Orchestrator занят — Run принят, ждёт, виден в строке Autopilot и в Run history с Wait `orchestrator-busy`;
-      Start now и Cancel работают; Start window, budget и Limits — от настоящего старта (07, 10, 18).
-- [ ] Run, остановленный ошибкой, сразу отдаёт Session; задачи живут и названы (08).
-- [ ] Run идёт по очереди Epic-ов: переход, пропуск «Ждёт владельца», стоп всего Run-а; правка между Wave-ами
-      (12, 14, 17).
-- [ ] Очередь задаётся командой чата, MCP tool-ом, «Run all accepted» и в окне (13, 15, 16).
-- [ ] Новые ADR и поправки ADR-0029, ADR-0091 (07, 08, 14). Страницы Feature, термин Wait (19). Приёмка владельца (20).
+- [x] Кнопка Autopilot и просьба агента открывают окно запуска внутри worfy, как прототип `card-918c77d9`; команда чата
+      стартует без окна; системного окна больше нет (09, 11). Владелец сверил окно с прототипом — [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог).
+- [x] Orchestrator занят — Run принят, ждёт, виден в строке Autopilot и в Run history с Wait `orchestrator-busy`;
+      Start now и Cancel работают; Start window, budget и Limits — от настоящего старта (07, 10, 18). Снимки — [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог).
+- [x] Run, остановленный ошибкой, сразу отдаёт Session; задачи живут и названы (08). Fake agent — [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог).
+- [x] Run идёт по очереди Epic-ов: переход, пропуск «Ждёт владельца», стоп всего Run-а; правка между Wave-ами
+      (12, 14, 17). [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог); последний Epic, ждущий владельца, останавливает Run с `blocked-tickets` — [Ticket 21](issues/21-очередь-start-anyway-и-последний-epic-ждёт-владельца.md).
+- [x] Очередь задаётся командой чата, MCP tool-ом, «Run all accepted» и в окне (13, 15, 16). [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог); «Start anyway» в
+      окне очереди — [Ticket 21](issues/21-очередь-start-anyway-и-последний-epic-ждёт-владельца.md).
+- [x] Новые ADR и поправки ADR-0029, ADR-0091 (07, 08, 14). Страницы Feature, термин Wait (19). Приёмка владельца (20):
+      принята 2026-11-07, [«Итог» 20](issues/20-приёмка-с-владельцем.md#итог).
