@@ -397,6 +397,18 @@ describe('Stages in Full mode with workflow.finish local-green', () => {
     for (const num of [3, 4, 5]) expect(ticket(snapshot, num)).toMatchObject({ stage: 'implementing', rework: false })
     expect(gh.calls.some((args) => args[0] === 'pr' && args[1] === 'list')).toBe(true)
   })
+
+  it('a failing lookup of one branch names that branch; the PRs of the list still give the other Tickets their Stage', async () => {
+    const world = makeWorld()
+    const { B } = world.commits
+    const gh = stubGh({ pulls: [pr(4, 'demo/04', { state: 'MERGED', mergeCommit: { oid: B }, mergedAt: '2026-10-17T12:00:00Z' })], deployments: [], deployMarks: [] })
+    const failing: GhRunner = (args, cwd, env) => (args.includes('--head') && args.includes('demo/03') ? Promise.reject(new Error('HTTP 502: Bad Gateway')) : gh.gh(args, cwd, env))
+    const { hub } = hubOver(world, fullProfile(world), failing)
+    const snapshot = await hub.open(world.repo, { id: 1, send: () => undefined })
+
+    expect(snapshot.error).toBe(`gh could not look up the PR of branch demo/03 in ${world.repo}: HTTP 502: Bad Gateway`)
+    expect(ticket(snapshot, 4).stage).not.toBe('implementing')
+  })
 })
 
 describe('Deploy by the commit status deploy (Full mode, no environment)', () => {

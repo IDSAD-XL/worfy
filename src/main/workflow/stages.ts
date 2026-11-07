@@ -170,6 +170,8 @@ export class StageReader {
       else {
         const read = await this.sources.prs.read(repo, [...new Set(own.map(branchOfTicket))])
         if (!read.gh.available) problems.push(`gh is unavailable in ${repo}: ${read.gh.error ?? 'no reason given'}`)
+        // gh answered the list: only the Tickets of these branches may miss their PR (worfy-polish ticket 68).
+        for (const failed of read.branchErrors ?? []) problems.push(`gh could not look up the PR of branch ${failed.branch} in ${repo}: ${failed.error}`)
         pulls.set(repo, read.pulls)
       }
       heads.set(repo, await this.branchHeads(repo))
