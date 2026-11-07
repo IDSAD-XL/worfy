@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { Orchestrators } from '../../src/main/agent/orchestrator'
+import { ORCHESTRATOR_HAS_QUEUE, ORCHESTRATOR_HAS_TASKS, ORCHESTRATOR_IN_TURN, Orchestrators } from '../../src/main/agent/orchestrator'
 import { sessionOptions, watchedSpawn } from '../../src/main/vendors/claude/options'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { hasExited } from '../../src/main/agent/session/process'
@@ -675,5 +675,66 @@ describe('watchedSpawn: Claude Code started as the SDK starts it', () => {
     const runtime = { packaged: false, resourcesPath: '/nowhere', platform: process.platform, arch: process.arch }
     expect(sessionOptions({ cwd: repo, env: {}, runtime }).spawnClaudeCodeProcess).toBeUndefined()
     expect(sessionOptions({ cwd: repo, env: {}, runtime, spawned: () => undefined }).spawnClaudeCodeProcess).toBeTypeOf('function')
+  })
+})
+
+// The last guards before an attended Orchestrator Session is started again unattended: the restart would kill the
+// person's tasks and lose their queue, so setUnattended refuses a Session that is busy (audit-code-2026-11-07 ticket 02).
+describe('setUnattended refuses an attended Orchestrator that is busy, and starts nothing', () => {
+  /** The turn of a message is held until the test interrupts it (the harness' `turn` script with a wait_interrupt line in it). */
+  const heldTurn = (): string => {
+    const lines = readFileSync(join(scratch, 'scripts', 'turn.jsonl'), 'utf8').trim().split('\n')
+    writeFileSync(join(scratch, 'scripts', 'held-turn.jsonl'), [lines[0], lines[1], JSON.stringify({ fake: 'wait_interrupt' }), lines[2]].join('\n'))
+    return 'held-turn'
+  }
+
+  /** The Orchestrator is attended and idle, running `script`. */
+  async function attended(script: string) {
+    const h = harness('exit-at-once', 5000, { script, releases: new FakeReleases() })
+    await h.opened()
+    return { h, session: h.registry.get(h.view().sessionId ?? '') }
+  }
+
+  /** The refusal came before any new process: the same Session goes on attended, nothing was spawned or stopped. */
+  function expectUntouched(h: Awaited<ReturnType<typeof attended>>['h'], session: ReturnType<typeof h.registry.get>): void {
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(h.registry.get(h.view().sessionId ?? '')).toBe(session)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false])
+    expect(h.stub.order()).toEqual(['spawn 1'])
+  }
+
+  it('refuses a start while the Orchestrator is in a turn', async () => {
+    const { h, session } = await attended(heldTurn())
+    session.send('a long task')
+    await vi.waitFor(() => expect(session.state).toBe('busy'))
+    await expect(h.orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(ORCHESTRATOR_IN_TURN)
+    expect(session.state).toBe('busy')
+    expectUntouched(h, session)
+  })
+
+  it('refuses a start while the Orchestrator has live background tasks', async () => {
+    const tasks = JSON.stringify({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'task_0001', task_type: 'local_agent', description: 'Implement a ticket' }], session_id: '{{session}}', uuid: '00000000-0000-4000-8000-000000002931' })
+    const lines = readFileSync(join(scratch, 'scripts', 'turn.jsonl'), 'utf8').trim().split('\n')
+    writeFileSync(join(scratch, 'scripts', 'tasks.jsonl'), [lines[0], lines[1], tasks, lines[2], JSON.stringify({ fake: 'wait_release', name: 'tasks' })].join('\n'))
+    const { h, session } = await attended('tasks')
+    session.send('start a task')
+    await vi.waitFor(() => expect(session.backgroundTasks()).toHaveLength(1))
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    await expect(h.orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(ORCHESTRATOR_HAS_TASKS)
+    expect(session.backgroundTasks()).toHaveLength(1)
+    expectUntouched(h, session)
+  })
+
+  it('refuses a start while messages wait in the Orchestrator\'s queue, and leaves them there', async () => {
+    const { h, session } = await attended(heldTurn())
+    session.send('a long task')
+    session.send('then this')
+    // Interrupt holds the queue; the turn ends and the Orchestrator is idle with a held message.
+    await session.interrupt()
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then this' }], paused: true })
+    await expect(h.orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(ORCHESTRATOR_HAS_QUEUE)
+    expect(session.queued().items.map((item) => item.text)).toEqual(['then this'])
+    expectUntouched(h, session)
   })
 })

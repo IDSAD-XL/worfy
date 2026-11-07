@@ -568,6 +568,31 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     await expect(orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(CODEX_HOOKS_REFUSAL)
   })
 
+  it('refuses an unattended start when the capabilities of the Vendor cannot be read, and opens no Session', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const h = harness({ vendor: () => 'codex', scripts: ['turn'], hooksApproved: true })
+    const refusal = 'Autopilot did not start: worfy could not read what Codex can do.'
+    const approving: HarnessHooksPart = { refusal: CODEX_HOOKS_REFUSAL, trust: () => Promise.resolve('approved') }
+    const orchestrators = new Orchestrators({
+      layout: h.layout,
+      projectPath: () => repo,
+      registry: h.registry,
+      vendor: () => 'codex',
+      settings: { read: () => ATTENDED_PICKS, write: () => undefined },
+      transcript: () => Promise.resolve({ model: null, statusBlock: null }),
+      capabilities: () => Promise.reject(new Error('the capabilities probe broke')),
+      harnessHooks: () => approving,
+      broadcast: () => undefined,
+      publish: () => undefined,
+    })
+    await expect(orchestrators.unattendedRefusal(PROJECT)).resolves.toBe(refusal)
+    await expect(orchestrators.setUnattended(PROJECT, true)).rejects.toThrow(refusal)
+    expect(orchestrators.isUnattended(PROJECT)).toBe(false)
+    expect(h.logs).toHaveLength(0)
+    expect(warn.mock.calls.some(([message]) => String(message).includes('could not read what codex can do'))).toBe(true)
+    warn.mockRestore()
+  })
+
   it('checks no hooks for Claude Code, and asks an open Orchestrator by the Vendor it runs on, not by the Project setting now', async () => {
     const open = harness({ vendor: () => 'claude', scripts: ['turn'] })
     await expect(open.orchestrators.unattendedRefusal(PROJECT)).resolves.toBeNull()
