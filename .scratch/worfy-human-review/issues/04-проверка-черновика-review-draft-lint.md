@@ -31,11 +31,16 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] `silent-check` после выноса правил: его test-ы зелёные без правок.
+  - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
 - [ ] Черновик с nit-ом длиннее предела, с `.scratch/…`, с `Co-Authored-By: Claude`, с путём домашней папки и со
       словом из `forbidden` — пять находок, exit 1; чистый черновик — exit 0; битый JSON — exit 2.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
 - [ ] Следы workflow ловятся и в Full mode с `attribution: on`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
 - [ ] `--skill`: правило без `[R<n>]` и ссылка на несуществующий раздел — находки; полный fixture — exit 0.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
 - [ ] Вывод не печатает найденные личные данные целиком (`mask()`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
 
 ## Тесты
@@ -95,3 +100,8 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   (233); `ticket-evidence.test.sh`, `land.test.sh`, `hooks/tests/guard-silent.test.sh`, `skill-blocks.test.sh`,
   `eval-env.test.sh`, `plugin-neutral.test.sh`, `agents-text.test.sh` — exit 0.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` (681 файлов) — exit 0.
+- Gate fast (Mac, load average около 70 от параллельных агентов) — три запуска, все exit 2. Первый: красный мой test —
+  gate запускает test-ы с `CLAUDE_GATE_CONFIG` настоящего registry, и скрипт читал его, а не временный `HARNESS_HOME`;
+  test теперь убирает эти переменные (второй commit). Второй и третий: красные только чужие test-ы, каждый раз другие
+  (`test/contract/autopilot-wait.test.ts` — timeout ожидания Wave, `test/contract/remote-calls.test.ts`;
+  в первом ещё `test/unit/install-stable-update.test.ts`). Все три отдельно — exit 0 (63 из 63). Diff их кода не трогает.
