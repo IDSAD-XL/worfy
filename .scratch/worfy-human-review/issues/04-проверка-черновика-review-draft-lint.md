@@ -32,15 +32,21 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] `silent-check` после выноса правил: его test-ы зелёные без правок.
   - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
+  - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
 - [ ] Черновик с nit-ом длиннее предела, с `.scratch/…`, с `Co-Authored-By: Claude`, с путём домашней папки и со
       словом из `forbidden` — пять находок, exit 1; чистый черновик — exit 0; битый JSON — exit 2.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
 - [ ] Следы workflow ловятся и в Full mode с `attribution: on`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
 - [ ] `--skill`: правило без `[R<n>]` и ссылка на несуществующий раздел — находки; полный fixture — exit 0.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
 - [ ] Вывод не печатает найденные личные данные целиком (`mask()`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
 
 ## Тесты
@@ -116,3 +122,6 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - Mutants (каждый — копия файла, правка, test, восстановление из копии), все убиты, exit 1: без правила ADR, без голого
   имени Epic-а, без правила Workflow folder, без `Generated with`, `show = v => v`, `die()` без `show`, значение следа
   без `show`, без снятия BOM, длина через `.length`. Test после восстановления — exit 0, 14 из 14.
+- После rebase на origin/main: `pnpm lint`, `pnpm typecheck`, `silent-mode.test.sh`, `plugin-neutral.test.sh` — exit 0;
+  gate fast на `37ebb6ca` — exit 0, `[gate] green (fast)`. В отдельном `pnpm test` перед этим один чужой test упал под
+  нагрузкой (`test/contract/app-orchestrators.test.ts`, Codex после New conversation); отдельно — exit 0.
