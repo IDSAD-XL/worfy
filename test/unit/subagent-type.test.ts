@@ -9,7 +9,7 @@ describe('subagentTypeLabel', () => {
     expect(subagentTypeLabel('worfy:implementer')).toBe('implementer')
     expect(subagentTypeLabel('worfy:reviewer')).toBe('reviewer')
     expect(subagentTypeLabel('scout')).toBe('scout')
-    expect(subagentTypeLabel('mattpocock-skills:x')).toBe('mattpocock-skills:x')
+    expect(subagentTypeLabel('team-tools:x')).toBe('team-tools:x')
     expect(subagentTypeLabel('workflow')).toBe('workflow')
     expect(subagentTypeLabel(null)).toBeNull()
   })

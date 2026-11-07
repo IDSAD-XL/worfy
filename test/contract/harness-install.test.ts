@@ -42,8 +42,11 @@ import { ms } from '../time-scale'
 const REPO = join(__dirname, '..', '..')
 const V1 = '0.2.0+aaaaaaa'
 const V2 = '0.3.0+bbbbbbb'
-/** The dependency harness/.claude-plugin/plugin.json declares, and the version the stub gives it. */
-const DEP = 'mattpocock-skills@claude-plugins-official'
+/**
+ * The dependency of the fixture copy makeBundle makes, and the version the stub gives it. The Harness of
+ * this repository declares none since worfy-skills 03; the mechanism of ADR-0059 is tested on this one.
+ */
+const DEP = 'example-skills@claude-plugins-official'
 const DEP_VERSION = '1.4.0'
 const LIST = 'plugin list --json'
 const MARKETPLACES = 'plugin marketplace list --json'
@@ -81,8 +84,11 @@ function filesWithTimes(dir: string): Record<string, number> {
   return out
 }
 
-/** The Harness copy a build makes (electron.vite.config.ts): harness/ without its tests, with `version`. */
-function makeBundle(target: string, version: string, dependencies?: string[]): string {
+/**
+ * The Harness copy a build makes (electron.vite.config.ts): harness/ without its tests, with `version`,
+ * and a fixture's `dependencies` (DEP unless given; [] for none).
+ */
+function makeBundle(target: string, version: string, dependencies: string[] = [DEP]): string {
   const source = join(REPO, 'harness')
   const tests = [join('bin', 'tests'), join('hooks', 'tests')]
   cpSync(source, target, {
@@ -94,7 +100,7 @@ function makeBundle(target: string, version: string, dependencies?: string[]): s
   })
   const manifestPath = join(target, '.claude-plugin', 'plugin.json')
   const { name, ...rest } = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
-  writeFileSync(manifestPath, `${JSON.stringify({ name, version, ...rest, ...(dependencies === undefined ? {} : { dependencies }) }, null, 2)}\n`)
+  writeFileSync(manifestPath, `${JSON.stringify({ name, version, ...rest, dependencies }, null, 2)}\n`)
   return target
 }
 
@@ -358,7 +364,7 @@ describe('installing', () => {
     expect(plans.map(({ dependencies, dependencyCommands }) => ({ dependencies, dependencyCommands }))).toEqual([{ dependencies: [], dependencyCommands: [] }])
     const text = confirmationText(plans[0]!)
     expect(text.detail).not.toContain(DEPENDENCY_MARKETPLACE)
-    expect(text.detail).not.toContain('mattpocock-skills')
+    expect(text.detail).not.toContain(DEP.split('@')[0])
     expect(result.status).toMatchObject({ state: { kind: 'installed', version: V1 }, dependencies: dep('installed') })
     // Nothing asks which marketplaces are known: there is nothing to add one for.
     expect(commands()).toEqual([LIST, `plugin marketplace add ${sb.pluginDir}`, INSTALL_WORFY, LIST])
@@ -1405,7 +1411,7 @@ describe('the dialog', () => {
 
   it('without dependency commands says nothing of a dependency, a download or the official marketplace', () => {
     const text = confirmationText(plan)
-    expect(text.detail).not.toContain('mattpocock-skills')
+    expect(text.detail).not.toContain(DEP.split('@')[0])
     expect(text.detail).not.toContain(DEPENDENCY_MARKETPLACE)
     expect(text.detail).not.toMatch(/download/i)
     expect(text.detail).toContain('Nothing else in ~/.claude changes.')

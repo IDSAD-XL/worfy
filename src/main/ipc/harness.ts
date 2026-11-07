@@ -23,12 +23,19 @@
 // window gets the status as `harness.changed`, as after an install. Its step 1 names the Codex binary
 // to start for `/hooks` (`harness.codexBinary`, worfy-polish ticket 54): the one the installer uses,
 // as the user has no `codex` of their own on PATH.
+//
+// Each dependency install worfy runs, in Claude Code and in Codex, is recorded in
+// `harness-dependencies.json` next to `harness-codex.json` (src/main/harness/dependency-cleanup.ts,
+// worfy-skills ticket 03). A run that is not packaged takes the Harness copy to install from
+// WORFY_HARNESS_BUNDLE when set: the e2e specs point it at a fixture copy that declares a dependency,
+// as the Harness of this repository declares none.
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import { harnessChanged, harnessCodexBinary, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
 import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
+import { DEPENDENCY_RECORD_FILE } from '../harness/dependency-cleanup'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { bundledClaudeBinary } from '../vendors/claude/options'
@@ -94,8 +101,9 @@ export function appInstaller(): HarnessInstaller {
   if (installer !== null) return installer
   const env = process.env
   const runtime = appRuntime()
-  const bundledDir = bundledHarnessDir()
+  const bundledDir = (!app.isPackaged && env.WORFY_HARNESS_BUNDLE) || bundledHarnessDir()
   const home = harnessHome(env)
+  const dependencyRecordFile = join(dataRoot(env), DEPENDENCY_RECORD_FILE)
   const codex = codexInstallBinary(env, runtime)
   codexHarness =
     codex === undefined
@@ -107,6 +115,7 @@ export function appInstaller(): HarnessInstaller {
           env,
           codexHome: codexHomeOf(env),
           recordFile: join(dataRoot(env), 'harness-codex.json'),
+          dependencyRecordFile,
         })
   installer = new AnnouncingInstaller({
     bundledDir,
@@ -115,6 +124,7 @@ export function appInstaller(): HarnessInstaller {
     env: claudeCommandEnv(env),
     canInstall: installOffered({ packaged: app.isPackaged, env }),
     claudeHome: claudeHome(env),
+    dependencyRecordFile,
     ...(codexHarness === null ? {} : { codex: codexHarness }),
   })
   return installer

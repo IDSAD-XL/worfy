@@ -18,7 +18,7 @@ export function harnessName(name: string): string | null {
 
 /**
  * The type of a Subagent as the UI shows it: without the Harness plugin (`worfy:implementer` →
- * `implementer`). Another plugin's type (`mattpocock-skills:…`), a bare type and null stay as they are.
+ * `implementer`). Another plugin's type (`team-tools:…`), a bare type and null stay as they are.
  */
 export function subagentTypeLabel(type: string): string
 export function subagentTypeLabel(type: string | null): string | null

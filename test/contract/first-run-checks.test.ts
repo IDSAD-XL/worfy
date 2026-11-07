@@ -48,8 +48,8 @@ const CLAUDE = join(TOOLS, WINDOWS ? 'claude.mjs' : 'claude')
 /** The Claude Code version "this build" carries, as the checks are told. */
 const BUNDLED = '2.1.289'
 const BUNDLED_HARNESS = '1.2.0+abc1234'
-/** The dependency the Harness copy of the build declares, as harness/.claude-plugin/plugin.json does. */
-const DEP = 'mattpocock-skills@claude-plugins-official'
+/** The dependency the fixture Harness copy declares (the Harness of this repository declares none since worfy-skills 03). */
+const DEP = 'example-skills@claude-plugins-official'
 
 let root: string
 let bin: string
@@ -1007,6 +1007,22 @@ describe('first-run actions', () => {
     expect(result.outcome).toBe('failed')
     expect(checkOf(result.report, 'qmd-models')).toMatchObject({ status: 'fail' })
     expect(checkOf(result.report, 'qmd-models').hint).toContain('pull: network down')
+  })
+
+  it("the Harness of this repository (worfy-skills 03): Install on an empty stub runs no command for mattpocock-skills or the marketplace claude-plugins-official, and Plugin dependencies is none", async () => {
+    // The build's copy: harness/.claude-plugin/plugin.json as it is, with the build version written in.
+    const manifest = JSON.parse(readFileSync(join(REPO, 'harness', '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
+    writeFileSync(join(bundle, '.claude-plugin', 'plugin.json'), `${JSON.stringify({ ...manifest, version: BUNDLED_HARNESS }, null, 2)}\n`)
+    tools(...ALL_TOOLS)
+    const shown: Confirmation[] = []
+    const result = await actions(loginEnv(), [true], shown).run('harness-install')
+    expect(result.outcome).toBe('done')
+    const claudeCalls = calls().filter((line) => line.startsWith('claude plugin'))
+    expect(claudeCalls.filter((line) => /mattpocock-skills|claude-plugins-official/.test(line))).toEqual([])
+    expect(shown[0]?.detail ?? '').not.toMatch(/mattpocock-skills|claude-plugins-official/)
+    expect(claudeCalls.filter((line) => !line.endsWith('list --json'))).toEqual([`claude plugin marketplace add ${join(harnessHome, 'plugin')}`, 'claude plugin install worfy@worfy-harness --scope user'])
+    expect(checkOf(result.report, 'harness').status).toBe('ok')
+    expect(checkOf(result.report, 'harness-dependencies')).toMatchObject({ title: 'Plugin dependencies', status: 'ok', detail: 'none' })
   })
 
   it('the Harness: Install shows one dialog with the installer plan — the dependency commands and the download, then the Harness commands — and after Confirm both rows are ok', async () => {

@@ -106,6 +106,19 @@ export function skippedAgentsText(skipped: readonly string[], agentsDir: string)
   return `worfy leaves ${skipped.join(', ')} in ${agentsDir} as ${one ? 'it is' : 'they are'}: ${one ? 'it is a file' : 'they are files'} of your own, not ${one ? 'one' : 'ones'} worfy wrote. To get ${one ? 'that agent' : 'those agents'} of the Harness in Codex, rename or remove ${one ? 'it' : 'them'}, then install again.`
 }
 
+/** The Vendor a plugin of the Harness is installed into. */
+export const harnessVendorSchema = z.enum(['claude', 'codex'])
+export type HarnessVendor = z.infer<typeof harnessVendorSchema>
+
+/**
+ * What an update of the Harness did about a plugin an older Harness had worfy install as its
+ * dependency and this one no longer needs (worfy-skills ticket 03, src/main/harness/dependency-cleanup.ts):
+ * `removed` (the text names the command that puts it back) or `failed` (the text ends with the
+ * command's output; the next Update tries again).
+ */
+export const harnessCleanupSchema = z.object({ vendor: harnessVendorSchema, id: z.string(), outcome: z.enum(['removed', 'failed']), text: z.string() })
+export type HarnessCleanup = z.infer<typeof harnessCleanupSchema>
+
 export const harnessStatusSchema = z.object({
   state: harnessStateSchema,
   /** The `version` of the Harness copy this build carries; null when the build has none. */
@@ -121,6 +134,8 @@ export const harnessStatusSchema = z.object({
   dependencies: z.array(harnessDependencySchema),
   /** The Harness in Codex; absent when this build has no Codex or Codex never ran on this machine (no CODEX_HOME). */
   codex: codexHarnessSchema.optional(),
+  /** Only in the answer of the install that did it: the plugins of an older Harness it removed or failed to remove (harnessCleanupSchema). */
+  cleanup: z.array(harnessCleanupSchema).optional(),
 })
 export type HarnessStatus = z.infer<typeof harnessStatusSchema>
 

@@ -3,8 +3,8 @@
 // (install.ts, ADR-0040) is installed into Codex as well, from the same folder, with the commands of
 // the Codex this build pins (binary.ts, ticket 17), never the user's own `codex`:
 //
-//   the dependency     codex plugin marketplace add anthropics/claude-plugins-official   (when not known yet)
-//                      codex plugin add mattpocock-skills@claude-plugins-official
+//   a dependency       codex plugin marketplace add anthropics/claude-plugins-official   (when not known yet)
+//                      codex plugin add <name>@claude-plugins-official
 //   first install      codex plugin marketplace add <harnessHome>/plugin                  (when not known yet)
 //                      codex plugin add worfy@worfy-harness
 //   another version    codex plugin add worfy@worfy-harness
@@ -12,7 +12,13 @@
 //   known marketplaces codex plugin marketplace list --json                              (install only)
 //
 // Codex has no dependencies between plugins, so the plugins plugin.json names as `dependencies` are
-// installed as plugins of their own, with the same skills as in Claude Code (owner, Q5). Another
+// installed as plugins of their own, with the same skills as in Claude Code (owner, Q5); each such
+// install is recorded in worfy's data folder (dependency-cleanup.ts). The Harness of this repository
+// declares none since worfy-skills ticket 03. After an update of an installed `worfy` in Codex, a
+// plugin an older Harness had worfy add and this one no longer needs is removed
+// (`codex plugin remove <id>`, Codex 0.166.0) — only when worfy's record says worfy added it, or
+// Codex lists its install time inside the window before `worfy`; Codex 0.166.0 lists no install time
+// for a plugin of a local marketplace (test/fixtures/codex-cli/), so without the record it stays. Another
 // version is installed with `plugin add` again: `codex plugin marketplace upgrade` refreshes only Git
 // marketplaces (its help text in the pinned 0.166.0), and the local marketplace is the folder
 // itself, which the Claude install has already replaced.
@@ -46,10 +52,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, posix, win32 } from 'node:path'
-import type { CodexHarness as CodexHarnessStatus, CodexHarnessState, CodexHarnessStep } from '../../shared/ipc/harness'
+import type { CodexHarness as CodexHarnessStatus, CodexHarnessState, CodexHarnessStep, HarnessCleanup } from '../../shared/ipc/harness'
 import { codexExecutablePath, type CodexPackageResolver, type CodexRuntime } from '../vendors/codex/binary'
 import { CODEX_ABSENT } from '../vendors/codex/launch'
 import { codexAgentFiles, codexAgentsDrift, writeCodexAgents, type CodexAgentsDrift } from './codex-agents'
+import { installTimeOf, recordDependencyInstall, retireDependencies } from './dependency-cleanup'
 import { compareHarnessVersions, DEPENDENCY_MARKETPLACE, DEPENDENCY_MARKETPLACE_SOURCE, DOWNLOAD_TIMEOUT_MS, HARNESS_MARKETPLACE, HARNESS_PLUGIN_ID, runTool, type Tool } from './install'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -115,11 +122,15 @@ export interface CodexInstallerOptions {
   renameFile?: (from: string, to: string) => Promise<void>
   /** How long the status waits for `codex plugin list`; CODEX_STATUS_TIMEOUT_MS by default. */
   statusTimeoutMs?: number
+  /** worfy's record of the dependency installs it ran (dependency-cleanup.ts); without it nothing is recorded. */
+  dependencyRecordFile?: string
 }
 
 interface ListedPlugin {
   version: string | null
   enabled: boolean
+  /** When it was installed, in ms since the epoch, when Codex lists a time that reads (`installedAt`, Unix seconds); absent otherwise. */
+  installedAt?: number
 }
 
 /** A Harness version as scripts/build-version.ts stamps it; a version Codex gives a local plugin (`local`) is not one. */
@@ -146,7 +157,8 @@ export function codexPluginsOf(parsed: unknown): Map<string, ListedPlugin> | nul
     const market = text(entry.marketplace) ?? text(entry.marketplaceName) ?? marketplace
     const key = id?.includes('@') ? id : name !== null && market !== null ? `${name}@${market}` : id !== null && market !== null ? `${id}@${market}` : null
     if (key === null) return
-    plugins.set(key, { version: text(entry.localVersion) ?? text(entry.version), enabled: entry.enabled !== false })
+    const installedAt = installTimeOf(entry.installedAt)
+    plugins.set(key, { version: text(entry.localVersion) ?? text(entry.version), enabled: entry.enabled !== false, ...(installedAt === null ? {} : { installedAt }) })
   }
   const top = record(parsed)
   if (Array.isArray(parsed)) for (const item of parsed as unknown[]) add(item, null)
@@ -227,6 +239,8 @@ const alreadyAdded = (message: string): boolean => /already added/i.test(message
 export class CodexHarness {
   /** Set after this run installed or updated the plugin in Codex: Codex then waits for its hooks to be approved. */
   private hooksToApprove = false
+  /** The ids the list of the last plan() named: retireDependencies() asks Codex again only when a retired one is among them. */
+  private listedAtPlan: ReadonlySet<string> = new Set()
 
   constructor(private readonly options: CodexInstallerOptions) {}
 
@@ -325,6 +339,7 @@ export class CodexHarness {
     const bundled = manifestVersion(this.options.bundledDir)
     if (bundled === null) return null
     const listed = await this.listed()
+    this.listedAtPlan = new Set(listed.keys())
     const entry = listed.get(HARNESS_PLUGIN_ID)
     const missing = dependenciesOf(this.options.bundledDir).filter((id) => !listed.has(id))
     const from = entry === undefined ? null : this.versionOf(entry)
@@ -371,7 +386,11 @@ export class CodexHarness {
   async apply(plan: CodexPlan): Promise<void> {
     for (const args of plan.dependencyCommands) {
       if (args[1] === 'marketplace') await this.addMarketplace(args, 'dependency marketplace add')
-      else await this.codex(args, 'dependency add', DOWNLOAD_TIMEOUT_MS)
+      else {
+        await this.codex(args, 'dependency add', DOWNLOAD_TIMEOUT_MS)
+        const [, , id] = args
+        if (id !== undefined && this.options.dependencyRecordFile !== undefined) recordDependencyInstall(this.options.dependencyRecordFile, id, 'codex')
+      }
     }
     for (const args of plan.commands) {
       if (args[1] === 'marketplace') await this.addMarketplace(args, 'marketplace add')
@@ -394,6 +413,28 @@ export class CodexHarness {
     } catch (error) {
       throw new CodexStepError('agents', `writing the Codex agents to ${plan.agentsDir} failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  /**
+   * After `apply(plan)` went in: when the plan updated an installed `worfy` (not a first add), removes
+   * each plugin an older Harness had worfy add and this one no longer needs (retireDependencies), with
+   * `codex plugin remove <id>`. A line for each removal and each failed one.
+   */
+  async retireDependencies(plan: CodexPlan): Promise<HarnessCleanup[]> {
+    const updated = plan.from !== null && plan.commands.some((args) => args[1] === 'add' && args[2] === HARNESS_PLUGIN_ID)
+    if (!updated) return []
+    return retireDependencies({
+      vendor: 'codex',
+      harness: HARNESS_PLUGIN_ID,
+      listedBefore: this.listedAtPlan,
+      needed: dependenciesOf(this.options.bundledDir),
+      recordFile: this.options.dependencyRecordFile,
+      list: async () => new Map([...(await this.listed())].map(([id, entry]) => [id, { installedAt: entry.installedAt ?? null }])),
+      // Not a step of the install: a failure is a line of the result, never the Codex state.
+      remove: async (id) => {
+        await runTool({ binary: this.options.codex, command: 'codex', product: 'Codex', env: this.options.env }, ['plugin', 'remove', id])
+      },
+    })
   }
 
   /** Writes <pluginDir>/.codex-plugin/plugin.json (codexPluginManifest), which `codex plugin add` then copies with the rest. */

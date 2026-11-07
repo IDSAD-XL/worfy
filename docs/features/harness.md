@@ -45,10 +45,11 @@ copy work on.
 native dialog names every command before anything runs, in the order they run:
 
 1. For each missing plugin dependency: `claude plugin marketplace add anthropics/claude-plugins-official` when Claude
-   Code does not know that marketplace, then `claude plugin install <name>@claude-plugins-official --scope user`. The
-   plugin needs `mattpocock-skills@claude-plugins-official`, and Claude Code downloads it from GitHub. worfy installs
+   Code does not know that marketplace, then `claude plugin install <name>@claude-plugins-official --scope user`, and
+   Claude Code downloads it from GitHub. The plugin declares no dependency now: the skills it took from
+   `mattpocock-skills` ship inside it, so this step runs only for a Harness copy that declares one. worfy installs
    dependencies from that marketplace alone: a missing one from another marketplace is an error that asks the user to
-   install it.
+   install it. worfy records each dependency it installs in its data folder (`harness-dependencies.json`).
 2. The copy of this build goes into the plugin folder and replaces what is there. This step is skipped when the folder
    already holds this build's version.
 3. On a first install: `claude plugin marketplace add <plugin folder>`, then `claude plugin install worfy@worfy-harness
@@ -58,6 +59,17 @@ The button says Install, Update or Replace, and Cancel writes nothing. A dialog 
 sessions already running in a terminal see the files change under them and need a restart. While an old Harness is in
 `~/.claude`, the dialog warns that terminal sessions run its hooks and the plugin's both. A command gets 120 s, and a
 command that installs a dependency 600 s.
+
+**A plugin an older Harness had worfy install.** Older Harness versions declared
+`mattpocock-skills@claude-plugins-official`, and worfy installed it. After an update of an installed `worfy` has gone
+in (Update Harness in the toolbar, or the install after an app Update), worfy removes that plugin with
+`claude plugin uninstall mattpocock-skills@claude-plugins-official --scope user`, only when worfy installed it: its own
+record says so, or Claude Code lists the plugin as installed at most 10 minutes before `worfy@worfy-harness`, and
+before it. A plugin the user installed at another time, one without a readable install time, and one on a first
+install stay. Codex follows the same rule with `codex plugin remove <id>`; Codex lists no install time for such a
+plugin, so there only worfy's record removes it. The marketplace stays. The toolbar line then shows
+`· removed mattpocock-skills`, and its tooltip names the command that puts it back. A failed removal shows
+`· could not remove …` with the command's output; the Harness stays installed, and the next Update tries again.
 
 **How a failed install ends.** As Claude Code lists it, the plugin ends installed or not installed, never half way:
 

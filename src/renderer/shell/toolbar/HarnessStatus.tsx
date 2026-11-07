@@ -198,6 +198,7 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHoo
   // same Install installs both, Claude Code first, so until then the line above says what to do.
   const codex = state.kind === 'installed' && status.codex !== undefined ? codexPart(status.codex) : null
   if (codex?.button !== undefined) button = action(codex.button.icon, codex.button.label, codex.button.title, codex.button.icon === 'update')
+  const cleanup = cleanupPart(status.cleanup ?? [])
   return (
     <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: '100%' }} data-testid="harness-status" data-state={state.kind}>
       <span style={{ ...textStyle, color: tone }} title={title ?? text} data-testid="harness-text">
@@ -212,6 +213,11 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHoo
           · {codex.text}
         </span>
       )}
+      {cleanup === null ? null : (
+        <span style={{ ...textStyle, color: cleanup.tone }} title={cleanup.title} data-testid="harness-cleanup" data-state={cleanup.state}>
+          · {cleanup.text}
+        </span>
+      )}
       {button}
       {onMigrate === undefined ? null : <IconButton icon="migrate" label="Move old Harness…" onClick={onMigrate} testId="harness-migrate" />}
     </span>
@@ -224,6 +230,21 @@ interface CodexPart {
   title: string
   tone: string
   button?: { icon: IconButtonProps['icon']; label: string; title: string }
+}
+
+/**
+ * What the line adds after an update that removed, or failed to remove, a plugin an older Harness had
+ * worfy install (worfy-skills ticket 03): the plugins' names, and in the tooltip each line of main,
+ * with the command that puts a removed plugin back or the output of the failed one.
+ */
+function cleanupPart(cleanup: NonNullable<Status['cleanup']>): { state: 'removed' | 'failed'; text: string; title: string; tone: string } | null {
+  if (cleanup.length === 0) return null
+  const names = (outcome: 'removed' | 'failed'): string[] => [...new Set(cleanup.filter((each) => each.outcome === outcome).map((each) => each.id.split('@')[0] ?? each.id))]
+  const removed = names('removed')
+  const failed = names('failed')
+  const text = [removed.length === 0 ? '' : `removed ${removed.join(', ')}`, failed.length === 0 ? '' : `could not remove ${failed.join(', ')}`].filter((part) => part !== '').join('; ')
+  const title = cleanup.map((each) => each.text).join('\n\n')
+  return failed.length === 0 ? { state: 'removed', text, title, tone: 'var(--text-muted)' } : { state: 'failed', text, title, tone: 'var(--blocked-text)' }
 }
 
 /** What the line adds for the Harness in Codex: a short text, its tooltip, and the action when there is one. */
