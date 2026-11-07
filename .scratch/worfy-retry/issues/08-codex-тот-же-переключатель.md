@@ -1,7 +1,8 @@
 # 08 — Codex: тот же переключатель для Orchestrator-а на Codex
 
 Type: task
-Status: open
+Status: done 2026-11-07T08:58Z
+PR: #1562
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Как работает» → «Повтор после ошибки API (A)», п. 1 и 7, «Продолжение после Limits (B)», п. 2; «Сценарии» (строки Ticket-а 08); «Вопросы владельцу», Q6; [worfy-multi-vendor 37](../../worfy-multi-vendor/issues/37-orchestrator-и-autopilot-на-codex.md)
 
@@ -40,18 +41,25 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 
 - [ ] Contract test: Codex, `serverOverloaded`, затем удачный — `turn-retry`, `resumed`, одно продолжение.
   - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] Contract test: `willRetry: true` — worfy ничего не шлёт, `turn-retry` нет.
   - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] Contract test: квота без сброса — остановка с причиной, ожидания нет.
   - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] Unit test: `responseTooManyFailedAttempts` с `httpStatusCode` 429 → `other`; без кода и с 5xx — как сейчас.
   - evidence: gate pass · `gate fast` (pnpm test: test/unit/turn-failure.test.ts, test/unit/codex-items.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] Contract test: ход Codex с `collabAgentToolCall` без результата, затем `serverOverloaded` → `retry-refused` `in-flight`.
   - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] Новые скрипты проходят проверку схемы `codex-fake.test.ts`.
   - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-fake.test.ts, test/contract/codex-compat.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: review pass · PR #1562 · - - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42355777159/job/128358952836 · ci - · 81b6bcc0a1a5daad3fea93f12f30d876c1a415f3
 
 ## Тесты
 
