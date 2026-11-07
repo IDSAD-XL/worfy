@@ -108,6 +108,15 @@ async function until(condition: () => boolean | Promise<boolean>, what: string, 
   }
 }
 
+/**
+ * Wave 1 has started and its message has reached the run's Session. The run writes `wave-started` once "Run wave"
+ * comes back, and that may be before the unattended Session has started its query: a test that looks at the requests
+ * or the Session's messages right after `wave-started` alone races with it.
+ */
+async function waveOne(h: { kinds: () => Promise<string[]>; messages: (unattended: boolean) => string[] }): Promise<void> {
+  await until(async () => (await h.kinds()).includes('wave-started') && h.messages(true).length > 0, 'Wave 1 in the run\'s Session')
+}
+
 /** A clock the test moves by hand: it keeps the timers the run sets and fires them when told. */
 class ManualClock {
   private next = 1
@@ -309,7 +318,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow('Autopilot is already running in this Project (Epic demo): stop it first')
 
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
     expect(h.power).toEqual(['start'])
@@ -359,7 +368,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     h.releases.release('tasks')
     await until(() => h.state().busy?.tasks.length === 1, 'one helper left')
     h.releases.release('tasks')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     const busy = (await h.journal()).filter((event) => event.kind === 'orchestrator-busy')
     expect(busy.length).toBeGreaterThanOrEqual(4)
     expect(busy).toContainEqual(expect.objectContaining({ turn: false, queued: 0 }))
@@ -391,7 +400,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(await h.kinds()).not.toContain('orchestrator-free')
     expect(h.requests.map((request) => request.unattended)).toEqual([false])
     h.clock.fire(GRACE_MS)
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
   })
 
@@ -432,7 +441,9 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     writeFileSync(join(scriptsDir, 'autopilot-waves-held.jsonl'), `${[...lines.slice(0, 2), '{"fake":"wait_release","name":"wave"}', ...lines.slice(2)].join('\n')}\n`)
     const h = harness({ unattended: 'autopilot-waves-held' })
     expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'running' })
-    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy', 'the Wave\'s turn')
+    // The run writes `wave-started` only after "Run wave" has gone and its send has come back, a few awaits after the
+    // message reached the Session: the journal is read once the line is there, so the Wave is fully started.
+    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy' && (await h.kinds()).includes('wave-started'), 'the Wave\'s turn')
     const requests = h.requests.length
     const before = await h.kinds()
     expect(await h.autopilot.startNow(PROJECT)).toMatchObject({ status: 'running' })
@@ -467,7 +478,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(h.unattendedCalls[0]?.environment()).toEqual({})
 
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect((await h.kinds()).slice(0, 6)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
     expect(h.messages(false)).toEqual(['how is it going?', 'one more question'])
     await until(() => h.messages(true).length === 1, 'the Wave to reach the Orchestrator')
@@ -487,7 +498,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(h.unattendedCalls[0]?.mode()).toBe('off')
     expect(h.approvals.map((approval) => approval.closed)).toEqual([false])
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
     expect(h.requests.at(-1)).toMatchObject({ unattended: true, environment: { TMPDIR: h.approvals[0]!.runTemp } })
   })
@@ -498,7 +509,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     await h.autopilot.start(PROJECT, EPIC)
     expect(h.approvals).toHaveLength(1)
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
     expect(h.requests.at(-1)?.environment).toEqual({ TMPDIR: h.approvals[0]!.runTemp })
     expect(h.unattendedCalls[0]?.mode()).toBe('on')
@@ -527,7 +538,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     const started = await h.autopilot.startNow(PROJECT)
     expect(started).toMatchObject({ status: 'running' })
     expect(started.waitingFor).toBeUndefined()
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     const events = await h.journal()
     expect(events.map((event) => event.kind).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'tasks-killed', 'orchestrator-free'])
     expect(events[2]).toMatchObject({
@@ -578,7 +589,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     await expect(h.autopilot.start(PROJECT, EPIC)).rejects.toThrow(runningElsewhere(EPIC, 'Studio'))
     expect(await h.autopilot.start(PROJECT, EPIC, { override: true })).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started') || h.state().status === 'stopped', 'Wave 1 or the end of the run')
+    await until(async () => ((await h.kinds()).includes('wave-started') && h.messages(true).length > 0) || h.state().status === 'stopped', 'Wave 1 in the run\'s Session, or the end of the run')
     expect((await h.kinds()).slice(0, 4)).toEqual(['run-started', 'orchestrator-busy', 'orchestrator-free', 'wave-started'])
     expect((await h.journal())[0]).toMatchObject({ kind: 'run-started', override: true })
     expect(h.messages(true)).toEqual([WAVE_1])
@@ -593,7 +604,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
     now = click + 40 * 60_000
     h.releases.release('turn')
-    await until(async () => (await h.kinds()).includes('wave-started'), 'Wave 1')
+    await waveOne(h)
     expect(await h.kinds()).not.toContain('start-window')
     expect(h.messages(true)).toEqual([WAVE_1])
   })
