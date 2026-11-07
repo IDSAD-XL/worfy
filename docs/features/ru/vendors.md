@@ -1,6 +1,6 @@
 # Vendors
 
-> Перевод [английской версии](../vendors.md), commit `same-pr`.
+> Перевод [английской версии](../vendors.md), commit `bf3d30a4`.
 
 Один Feature. **Vendor** — производитель агента, на котором идёт [Session](sessions.md): Claude Code (Anthropic) или Codex
 (OpenAI). Страница описывает, как пользователь выбирает Vendor-а и входит в него, что есть и чего нет у Session Codex, как
@@ -33,7 +33,7 @@ Claude Code. В одном Project Session-ы обоих Vendor-ов живут 
 Orchestrator на Codex так же, как на Claude Code: unattended, в preset-е Full access. Budget он взвешивает по окнам Codex,
 ждёт сброса исчерпанного окна Codex и останавливается с `vendor-quota`, когда Codex отказывает в ходе, хотя ни одно окно не
 исчерпано. Run на Codex отказан, пока hook-и Harness не подтверждены в `/hooks` Codex. Подробности — на странице
-[Autopilot](autopilot.md#during-a-run).
+[Autopilot](autopilot.md#во-время-run-а).
 
 **Вход в Vendor-а.** В Settings → Vendors строка на каждого Vendor-а этой сборки: Claude Code с пометкой `required`, Codex —
 `optional`. Строка, где вход выполнен, показывает `Signed in: <email> · <plan>`, как проверка входа при первом запуске. У

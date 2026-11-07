@@ -19,6 +19,7 @@ Epic-ам и Ticket-ам.
 | Страница | Разделы |
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
+| [Autopilot faults and recovery](autopilot-faults.md) | Ожидания, остановки и восстановление: ожидание Limits, повтор после ошибки API, причины остановки, Fault scenario-и |
 | [Run planning](run-planning.md) | Run mode и Epic forecast: Start window, budget Limits |
 | [Flight Recorder](flight-recorder.md) | Run history: шкала времени run-а Autopilot |
 | [Work track](work-track.md) | Work track: вся работа Project-а за Day, Week или Month |

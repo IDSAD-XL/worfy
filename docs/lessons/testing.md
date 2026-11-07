@@ -168,7 +168,7 @@ gate full (worfy-harness 53) и время падения; предел test-а 
 а `autopilot_start` отвечал «runs unattended»: Session Orchestrator-а ждала конца своих фоновых задач. Нашёл это владелец, не
 test (worfy-polish 50). Набор Fault scenario-ев теперь есть: test вносит один сбой в Run на fake agent и проверяет правила
 восстановления I1–I8 (`checkRecovery`, `test/autopilot-invariants.ts`; правила — раздел `#### Tests` страницы
-[Autopilot](../features/autopilot.md)).
+[Autopilot faults and recovery](../features/autopilot-faults.md)).
 Как узнать: остановка Run-а, повтор команды Wave, отказ нового старта или ручное вмешательство, которых не поймал ни один test.
 Что делать: сначала сценарий в `test/contract/autopilot-faults-*.test.ts` на `faultRun()` (или в
 `test/e2e/autopilot-faults.spec.ts`, если сбой виден только в собранном приложении), который краснеет на текущем коде, потом

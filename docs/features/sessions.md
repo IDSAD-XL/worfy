@@ -187,7 +187,7 @@ answers.
 - Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
   the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
   once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run
-  reads it before each retry after a temporary API error ([Autopilot, Retry after an API error](autopilot.md#retry-after-an-api-error)).
+  reads it before each retry after a temporary API error ([Autopilot faults and recovery, Retry after an API error](autopilot-faults.md#retry-after-an-api-error)).
 - With Auto-continue on, a turn of the Orchestrator outside a run that ends with a temporary API error (500, 502, 503,
   504, 529, a lost connection, a timed-out request, a broken response stream) is continued the same way as in a run:
   after 1, 5, 15, 30 and 60 minutes (±20 %), five in a row at most, worfy sends the Orchestrator a new message that asks
