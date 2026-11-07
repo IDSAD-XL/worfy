@@ -94,3 +94,4 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 - not verified: `pnpm test` локально — exit 1 только от file-watch contract test-ов (cards-watch-edits,
   claude-home-registry, docs-watch-root, docs, workflow-reader, harness-script-env; перегружен fseventsd на Mac), остальные
   зелёные; `ci-ok` — по PR.
+- Снимки посмотрел владелец 2026-11-07: всё в порядке.
