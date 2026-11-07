@@ -1,7 +1,8 @@
 # 21 — Очередь: «Start anyway» в окне очереди и последний Epic, ждущий владельца
 
 Type: task
-Status: claimed 2026-11-07T11:09Z
+Status: done 2026-11-07T13:39Z
+PR: #1577
 Blocked by: —
 Source: приёмка [20](20-приёмка-с-владельцем.md#итог), Q1 и Q2 — приняты владельцем 2026-11-07 («по всем +»); решение
 владельца утром 2026-11-07 по Ticket-у 14 (Q2, «по всем +»): «Start anyway» снимает проверку «Epic идёт на другой
@@ -43,27 +44,35 @@ Machine» для всей очереди; [spec.md](../spec.md), «Решени�
 - [ ] Unit test окна очереди: отказ `runningElsewhere` → причина и кнопка «Start anyway»; нажатие → `autopilot.start`
       с той же очередью, Run mode и `override: true`; другой отказ — только toast, кнопки нет.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/queue-list.test.tsx, describe "a refused start of the queue") · mac - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] Contract test: очередь из двух Epic-ов, второй идёт в другом Project-е — старт без `override` отказан, с
       `override` — Run идёт по обоим Epic-ам, `run-started` с `override: true`, без `epic-finished` `elsewhere`.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/autopilot-queue.test.ts, Start anyway of a queue whose second Epic runs in another Project) · mac - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] Contract test: последний Epic очереди ждёт только владельца → `epic-finished` `waits-owner` с номерами Ticket-ов
       и `run-stopped` с причиной `waits-owner`; тот же Epic в середине очереди — как сейчас; Run одного Epic-а —
       `blocked-tickets`, как сейчас.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/autopilot-queue.test.ts, the last Epic waits for the owner, serve, a Run of one Epic) · mac - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] Unit test строки и чипа: остановка `waits-owner` — «stopped: waits for owner» и чип «Waits for owner» у
       последнего Epic-а.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/autopilot-queue-line.test.ts, the last Epic of the queue that waits for the owner) · mac - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] e2e — при необходимости: «Run all accepted» → отказ → «Start anyway» → «Epic 1/2» (`test/e2e/autopilot-start-modal.spec.ts`).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts test/e2e/autopilot-queue.spec.ts` exit 0 · mac dev · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] Снимки окна с «Start anyway» и строки последнего Epic-а в обеих темах — `../evidence/21-*.png`.
   - evidence: screenshot pass · `../evidence/21-queue-start-anyway-light.png` · mac dev · 8e612dcfb1b672112c048261b9173b0604d107cb · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/21-queue-start-anyway-dark.png` · mac dev · 8e612dcfb1b672112c048261b9173b0604d107cb · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/21-last-epic-waits-owner-light.png` · mac dev · 8e612dcfb1b672112c048261b9173b0604d107cb · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/21-last-epic-waits-owner-dark.png` · mac dev · 8e612dcfb1b672112c048261b9173b0604d107cb · scrub: 2026-11-07
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] Страница Feature `autopilot` (en и ru): «Start anyway» у очереди и остановка на последнем Epic-е, ждущем владельца.
   - evidence: commit pass · feat(autopilot): Start anyway in the queue window; a queue's last Epic that waits for the owner stops with waits-owner · - - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: review pass · PR #1577 · - - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8e612dcfb1b672112c048261b9173b0604d107cb
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42371570463/job/128405147476 · ci - · e1e3fdad7c2f18538e747b704dabd78083206f9a
 
 ## Тесты
 
