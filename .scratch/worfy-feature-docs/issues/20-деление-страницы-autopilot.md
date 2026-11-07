@@ -37,8 +37,12 @@ Source: «Как устроено» [spec.md](../spec.md) (страница бо
 - [ ] `docs/features/autopilot.md` и `docs/features/autopilot-faults.md` — каждая не больше примерно 400 строк; что
       перенесено и почему — в `## Итог`.
 - [x] Перевод обеих страниц в `docs/features/ru/` с шапкой.
+  - evidence: commit pass · docs(features): move Autopilot waits, stops and Fault scenarios to their own page (worfy-feature-docs 20) · - - · 547d8c402549315ecff890b802d34211a49e25b4
 - [x] Индекс на обоих языках называет новую страницу; ни одна ссылка `docs/` на перенесённый раздел не ведёт в пустоту.
+  - evidence: commit pass · docs(features): move Autopilot waits, stops and Fault scenarios to their own page (worfy-feature-docs 20) · - - · 547d8c402549315ecff890b802d34211a49e25b4
 - [ ] `node scripts/check-feature-docs.mjs` и `pnpm lint` — exit 0; `ci-ok` зелёный. Gate full не нужен: код не меняется.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs && pnpm lint` exit 0 · mac - · 547d8c402549315ecff890b802d34211a49e25b4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 547d8c402549315ecff890b802d34211a49e25b4
 - [ ] Review: один агент уровня `low` проверяет, что утверждения перенесены без изменений и ссылки живые.
 
 ## Тесты
