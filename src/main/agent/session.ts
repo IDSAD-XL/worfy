@@ -288,11 +288,20 @@ export class Session {
     const deadline = Date.now() + killAfterMs
     const left = (): number => Math.max(0, deadline - Date.now())
     await within(Promise.allSettled([...this.pendingStarts]), left())
-    await within(Promise.all([...this.alive].map(waitForExit)), left())
+    await this.endProcesses(left(), `${killAfterMs} ms after the close`)
+  }
+
+  /**
+   * Waits `waitMs` for the Session's live processes to exit; one still alive then gets SIGKILL and is
+   * waited for KILL_EXIT_MS more, and one that outlives even that is left with a warning. Never
+   * rejects. `waited`: what the warning says the process outlived ("7500 ms after the close").
+   */
+  private async endProcesses(waitMs: number, waited: string): Promise<void> {
+    await within(Promise.all([...this.alive].map(waitForExit)), waitMs)
     const survivors = [...this.alive]
     if (survivors.length === 0) return
     for (const child of survivors) {
-      console.warn(`[agent] Claude Code ${child.pid ?? ''} of ${this.current} did not exit ${killAfterMs} ms after the close; sending SIGKILL`)
+      console.warn(`[agent] Claude Code ${child.pid ?? ''} of ${this.current} did not exit ${waited}; sending SIGKILL`)
       try {
         child.kill('SIGKILL')
       } catch (error) {
@@ -307,7 +316,8 @@ export class Session {
 
   /**
    * Sends one user message: at once, or into the queue while a turn runs. A Session in `error` is
-   * started again with `resume` first.
+   * started again with `resume` first, once the process it closed has exited (begin()); the message
+   * waits for the new process meanwhile.
    */
   send(text: string, attachments: readonly Attachment[] = []): 'sent' | 'queued' {
     this.assertOpen()
@@ -340,10 +350,17 @@ export class Session {
   /**
    * Takes the queue out for the Session that replaces this one (Orchestrators.relaunch): its
    * messages, and whether they were held. Answers nothing once the Session is closed.
+   * Messages sent while the process is still being started — begin() may wait seconds for the
+   * process before it (ADR-0064) — have reached no process yet: they go too, first, as they were
+   * sent before anything still queued. A held queue keeps them held with it.
    */
   handOverQueue(): { items: QueueEntry[]; paused: boolean } {
     if (this.closing) return { items: [], paused: false }
-    return this.queue.takeAll()
+    // Taken only while the run has no handle: consume() hands them to the process once it has one.
+    const sent = this.run?.waiting.splice(0) ?? []
+    const queued = this.queue.takeAll()
+    if (sent.length === 0) return queued
+    return { items: [...sent.map((message) => ({ id: randomUUID(), ...message })), ...queued.items], paused: queued.paused }
   }
 
   /**
@@ -627,7 +644,19 @@ export class Session {
       previous: this.lastHandle ?? undefined,
     }
     // Object.assign, not a spread: a spread would copy `unattended` once instead of keeping its getter.
-    const starting = resume === undefined ? this.sessions.start(Object.assign(opts, { sessionId: this.newSessionId() })) : this.sessions.resume(resume, opts)
+    const startNow = (): Promise<SessionHandle> =>
+      resume === undefined ? this.sessions.start(Object.assign(opts, { sessionId: this.newSessionId() })) : this.sessions.resume(resume, opts)
+    // A process this Session closed may still run: fail() closed it, and Claude Code exits up to 7 s
+    // after the SDK's close(). The next one starts once it has exited, or was killed at the limit
+    // exited() keeps, never beside it: two processes would write one transcript (ADR-0064).
+    const starting =
+      this.alive.size === 0
+        ? startNow()
+        : this.endProcesses(EXIT_WAIT_MS, `${EXIT_WAIT_MS} ms after its next process was asked for`).then(() => {
+            // close() clears the run: a Session closed meanwhile starts nothing.
+            if (this.run !== run) throw new Error(`Session ${this.current} closed before its agent started`)
+            return startNow()
+          })
     void this.consume(run, starting)
   }
 

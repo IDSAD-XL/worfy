@@ -1,7 +1,11 @@
 // A Session over the Claude driver's SessionHandle (worfy-multi-vendor ticket 14), on the fake agent:
 // the handle of a failed Session is closed, so the next message starts one live process, not a
 // second one beside it (ADR-0064); and a start check (accountInfo) that fails once a message went to
-// Claude Code or a turn began does not fail the running Session.
+// Claude Code or a turn began does not fail the running Session. A closed process may outlive its
+// close by seconds (the SDK's close() sends SIGTERM 2 s after it, SIGKILL 5 s after that): a message
+// to the Session in `error` starts the next process only once the old one has exited, or was killed
+// at the limit exited() keeps (audit-code-2026-11-07 ticket 01).
+import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,10 +13,115 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { SessionRegistry } from '../../src/main/agent/session'
+import { SessionRegistry, type QueryFactory } from '../../src/main/agent/session'
+import { EXIT_WAIT_MS } from '../../src/main/agent/session/process'
+import type { AgentProcess } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
+
+// The limit before SIGKILL, small so no test waits 7.5 s; the order of starts and exits is checked.
+vi.mock('../../src/main/agent/session/process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/agent/session/process')>()),
+  EXIT_WAIT_MS: 500,
+}))
+
+/**
+ * A Claude Code process as the Session watches it, with nothing behind it: its pid is the test's own,
+ * so the system says it runs and only its exit event ends it. It ignores SIGTERM and the close of its
+ * query, as a process the SDK has not yet ended; SIGKILL ends it.
+ */
+class FakeProcess implements AgentProcess {
+  readonly pid = process.pid
+  exitCode: number | null = null
+  signalCode: NodeJS.Signals | null = null
+  private readonly events = new EventEmitter()
+
+  constructor(
+    private readonly n: number,
+    private readonly log: Log,
+  ) {}
+
+  kill(signal: NodeJS.Signals): boolean {
+    this.log.add(`${signal} ${this.n}`)
+    if (signal === 'SIGKILL') this.exit(signal)
+    return true
+  }
+
+  once(event: 'exit', listener: () => void): unknown {
+    return this.events.once(event, listener)
+  }
+
+  /** The process ends: by itself, or by `signal`. */
+  exit(signal: NodeJS.Signals | null = null): void {
+    if (this.exitCode !== null || this.signalCode !== null) return
+    if (signal === null) this.exitCode = 0
+    else this.signalCode = signal
+    this.log.add(`exit ${this.n}`)
+    this.events.emit('exit', this.exitCode, this.signalCode)
+  }
+}
+
+/** What happened to the agent's processes, in order (`start 1`, `close 1`, `SIGKILL 1`, `exit 1`), and when. */
+class Log {
+  readonly entries: string[] = []
+  private readonly times = new Map<string, number>()
+
+  add(entry: string): void {
+    this.entries.push(entry)
+    this.times.set(entry, Date.now())
+  }
+
+  at(entry: string): number {
+    const time = this.times.get(entry)
+    if (time === undefined) throw new Error(`no ${entry} in ${this.entries.join(', ')}`)
+    return time
+  }
+}
+
+/**
+ * The fake agent with a FakeProcess behind each query: `start n` when the driver starts or resumes
+ * the n-th query, its process handed to the Session as Claude Code's is (QueryRequest.spawned), and
+ * `close n` when the query is closed, which leaves the process running. A start refused() fails
+ * after its `start n`, with no process.
+ */
+class FakeProcesses {
+  readonly log = new Log()
+  private readonly processes: FakeProcess[] = []
+  private readonly refusals = new Map<number, string>()
+
+  /** The driver's n-th start fails with `message`. */
+  refuse(n: number, message: string): void {
+    this.refusals.set(n, message)
+  }
+
+  /** The n-th process, from 1. */
+  process(n: number): FakeProcess {
+    const found = this.processes[n - 1]
+    if (found === undefined) throw new Error(`no process ${n}`)
+    return found
+  }
+
+  wrap(factory: QueryFactory): QueryFactory {
+    return async (request) => {
+      const n = this.processes.length + 1
+      const child = new FakeProcess(n, this.log)
+      this.processes.push(child)
+      this.log.add(`start ${n}`)
+      const refused = this.refusals.get(n)
+      if (refused !== undefined) throw new Error(refused)
+      request.spawned?.(child)
+      const query = await factory(request)
+      const close = query.close.bind(query)
+      query.close = () => {
+        this.log.add(`close ${n}`)
+        close()
+      }
+      return query
+    }
+  }
+}
 
 const fixtures = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
 
@@ -55,18 +164,20 @@ function heldAccount() {
 
 /**
  * A registry over the fake agent playing `script` from `scriptsDir`. `closes`: a spy on close() of
- * each query, in start order. `account`: what accountInfo() of every query returns in its place.
+ * each query, in start order. `account`: what accountInfo() of the first query returns in its place.
  * `throwOn`: the sink throws once, on the first event it matches (a subscriber that fails).
+ * `processes`: a FakeProcess behind each query.
  */
-function rig(scriptsDir: string, script: string, opts: { account?: Promise<never>; throwOn?: (event: AgentEvent) => boolean } = {}) {
+function rig(scriptsDir: string, script: string, opts: { account?: Promise<never>; throwOn?: (event: AgentEvent) => boolean; processes?: FakeProcesses } = {}) {
   const calls: FakeCall[] = []
   const releases = new FakeReleases()
-  const factory = fakeQueryFactory({ scriptsDir, script, releases, record: (call) => calls.push(call) })
+  const fake = fakeQueryFactory({ scriptsDir, script, releases, record: (call) => calls.push(call) })
+  const factory = opts.processes?.wrap(fake) ?? fake
   const closes: MockInstance<() => void>[] = []
   const registry = new SessionRegistry(async (request) => {
     const query = await factory(request)
     closes.push(vi.spyOn(query, 'close'))
-    if (opts.account !== undefined) {
+    if (opts.account !== undefined && closes.length === 1) {
       const account = opts.account
       query.accountInfo = () => account
     }
@@ -84,7 +195,18 @@ function rig(scriptsDir: string, script: string, opts: { account?: Promise<never
   })
   const states = () => events.flatMap((event) => (event.type === 'state' ? [event.state] : []))
   const results = () => events.filter((event) => event.type === 'result')
-  return { session, events, calls, closes, releases, states, results }
+  /** The messages the n-th query got (from 1), by their text: the calls after its start, before the next start. */
+  const messages = (n: number) => {
+    const got: string[][] = []
+    for (const call of calls) {
+      if (call.kind === 'start') got.push([])
+      else if (call.kind === 'message') got.at(-1)?.push(call.text)
+    }
+    return got[n - 1] ?? []
+  }
+  /** What resumed each query: null for a new Vendor session. */
+  const resumes = () => calls.flatMap((call) => (call.kind === 'start' ? [call.resume] : []))
+  return { session, events, calls, closes, releases, states, results, messages, resumes }
 }
 
 /** Lets every pending callback run: the account rejection reaches the handle and the Session. */
@@ -105,6 +227,128 @@ describe('a failed Session closes its process', () => {
     expect(r.closes).toHaveLength(2)
     expect(r.closes[1]).not.toHaveBeenCalled()
     expect(r.session.state).toBe('idle')
+  })
+})
+
+describe('a message to a Session in error waits for the process it closed', () => {
+  const failOnResult = (event: AgentEvent): boolean => event.type === 'result'
+  /** The Vendor session the first process ran, as its init named it. */
+  const firstSdkId = (events: readonly AgentEvent[]): string | undefined => events.flatMap((event) => (event.type === 'init' ? [event.sdkSessionId] : []))[0]
+
+  it('the process lives on after its close: the next one resumes its Vendor session only once it has exited, and gets the message', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    expect(processes.log.entries).toEqual(['start 1', 'close 1'])
+    r.session.send('again')
+    // Process 1 still runs 300 ms after the message: no second process is started beside it.
+    await new Promise((done) => setTimeout(done, 300))
+    expect(processes.log.entries).toEqual(['start 1', 'close 1'])
+    expect(r.resumes()).toEqual([null])
+    processes.process(1).exit()
+    await vi.waitFor(() => expect(r.results()).toHaveLength(2))
+    // It exited by itself, within the limit: nothing killed it.
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1', 'start 2'])
+    expect(r.resumes()).toEqual([null, firstSdkId(r.events)])
+    expect(r.messages(1)).toEqual(['hello'])
+    expect(r.messages(2)).toEqual(['again'])
+    expect(r.session.state).toBe('idle')
+  })
+
+  it('a process that does not exit gets SIGKILL at the limit; then the next one starts and gets the message', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    const sent = Date.now()
+    r.session.send('again')
+    await vi.waitFor(() => expect(r.results()).toHaveLength(2), { timeout: ms(5_000) })
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'SIGKILL 1', 'exit 1', 'start 2'])
+    // At the limit, not at once (a timer may fire a millisecond early).
+    expect(processes.log.at('SIGKILL 1') - sent).toBeGreaterThanOrEqual(EXIT_WAIT_MS - 5)
+    expect(r.resumes()).toEqual([null, firstSdkId(r.events)])
+    expect(r.messages(1)).toEqual(['hello'])
+    expect(r.messages(2)).toEqual(['again'])
+    expect(r.session.state).toBe('idle')
+  })
+
+  // The handle of a start check that failed before anything was sent no longer holds its query
+  // (src/main/vendors/claude/session.ts, finish()), so the Session's close of it does not reach the
+  // process: the wait and SIGKILL at the limit still keep the next one from running beside it.
+  it('a failed start check whose close does not reach the process: the next process starts after its SIGKILL', async () => {
+    const processes = new FakeProcesses()
+    const account = heldAccount()
+    const r = rig(ownScripts, 'held', { account: account.promise, processes })
+    account.reject(new Error('Claude Code did not answer the account request'))
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    expect(processes.log.entries).toEqual(['start 1'])
+    r.session.send('hello')
+    await vi.waitFor(() => expect(processes.log.entries).toEqual(['start 1', 'SIGKILL 1', 'exit 1', 'start 2']), { timeout: ms(5_000) })
+    await vi.waitFor(() => expect(r.messages(2)).toEqual(['hello']))
+    r.releases.release('init')
+    await vi.waitFor(() => expect(r.results()).toHaveLength(1))
+    expect(r.messages(1)).toEqual([])
+    expect(r.session.state).toBe('idle')
+  })
+
+  it('a start that fails after the wait fails the Session with its reason', async () => {
+    const processes = new FakeProcesses()
+    processes.refuse(2, 'Claude Code could not be started')
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    const failures = () => r.events.flatMap((event) => (event.type === 'state' && event.state === 'error' ? [event.error ?? ''] : []))
+    expect(failures()).toHaveLength(1)
+    r.session.send('again')
+    expect(r.session.state).toBe('busy')
+    processes.process(1).exit()
+    await vi.waitFor(() => expect(failures()).toHaveLength(2))
+    expect(failures()[1]).toContain('Claude Code could not be started')
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1', 'start 2'])
+    expect(r.session.state).toBe('error')
+  })
+
+  // The Orchestrator's relaunch takes the queue of the Session it closes (handOverQueue): a message
+  // that waits for the old process is in no process yet, and is handed over with it.
+  it('a message that waits for the old process is handed over with the queue; the closed Session starts nothing', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    r.session.send('again')
+    r.session.send('and more')
+    expect(r.session.queued().items.map((item) => item.text)).toEqual(['and more'])
+    expect(r.session.handOverQueue()).toEqual({
+      items: [expect.objectContaining({ text: 'again', attachments: [] }), expect.objectContaining({ text: 'and more', attachments: [] })],
+      paused: false,
+    })
+    expect(r.session.queued().items).toEqual([])
+    r.session.close()
+    processes.process(1).exit()
+    await r.session.exited()
+    await settle()
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1'])
+    expect(r.messages(1)).toEqual(['hello'])
+  })
+
+  it('a Session closed while it waits starts no process', async () => {
+    const processes = new FakeProcesses()
+    const r = rig(fixtures, 'turn', { throwOn: failOnResult, processes })
+    await vi.waitFor(() => expect(r.session.state).toBe('idle'))
+    r.session.send('hello')
+    await vi.waitFor(() => expect(r.session.state).toBe('error'))
+    r.session.send('again')
+    r.session.close()
+    processes.process(1).exit()
+    await r.session.exited()
+    await settle()
+    expect(processes.log.entries).toEqual(['start 1', 'close 1', 'exit 1'])
+    expect(r.resumes()).toEqual([null])
   })
 })
 
