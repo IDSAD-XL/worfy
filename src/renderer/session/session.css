@@ -1224,6 +1224,39 @@
   white-space: nowrap;
 }
 
+/* Input field: the countdown of Auto-continue (composer/ContinueCountdown.tsx, worfy-retry ticket 07).
+   An item of the hint line drawn as a line of its own over the field: its item takes no room on the
+   line, and the input area grows by the line's height while it shows, so it covers no transcript. */
+.w-composer__item[data-item='ContinueCountdown'] {
+  display: contents;
+}
+
+.w-composer:has(.w-continue) {
+  padding-top: calc(var(--space-3) + var(--w-session-button-height) + 6px);
+}
+
+.w-continue {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  height: var(--w-session-button-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.w-continue__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12);
+  color: var(--blocked-text);
+}
+
 /* Input field: the queue chip and its list (composer/Queue.tsx) */
 .w-queue {
   position: relative;

@@ -616,6 +616,107 @@ describe('Auto-continue of a manual turn: turns without a prompt, the guards at 
   })
 })
 
+// ── the countdown's buttons ──────────────────────────────────────────────────
+
+describe("Retry now, Cancel and the wait's changes for the countdown (worfy-retry ticket 07)", () => {
+  it('Retry now: the continuation of the same retry goes at once, once; the timer sends nothing after it', async () => {
+    const h = harness({ script: 'orchestrator-continue-overloaded' })
+    const told: string[] = []
+    h.continuer.observeWaits((projectId) => told.push(projectId))
+    await h.open()
+    h.write(PERSON)
+    await until(() => h.timers.live().length === 1, 'the wait for the continuation')
+    expect(told).toEqual([PROJECT])
+    const timer = h.timers.live()[0]!
+    await tick()
+
+    // Long before the timer's time: the clock has not moved.
+    expect(h.continuer.retryNow(PROJECT)).toBe(true)
+    // A double click: the second finds the wait already sent.
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+    expect(h.continuer.wait(PROJECT)).toBeNull()
+    expect(timer.cancelled).toBe(true)
+    await until(() => h.results().length >= 2, 'the turn of the continuation')
+    await tick()
+    expect(h.messages()).toEqual([PERSON, retryText({ attempt: 1, of: MAX_RETRIES, error: 'overloaded', actions: [] })])
+    expect(h.notices().at(-1)).toBe(`worfy: sent "continue" (retry 1 of ${MAX_RETRIES})`)
+    expect(told).toEqual([PROJECT, PROJECT])
+
+    // The timer fires anyway, late: nothing more goes; a second click finds nothing to send.
+    clock = timer.at
+    timer.fire()
+    await tick(100)
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+    await tick(100)
+    expect(h.messages()).toHaveLength(2)
+    expect(h.timers.live()).toEqual([])
+  })
+
+  it('Cancel: the wait ends with nothing sent, also when its timer fires later; the next 529 is retry 1 again', async () => {
+    const h = harness({ script: 'orchestrator-continue-overloaded' })
+    const told: string[] = []
+    h.continuer.observeWaits((projectId) => told.push(projectId))
+    await h.open()
+    h.write(PERSON)
+    await until(() => h.timers.live().length === 1, 'the wait for the continuation')
+    const timer = h.timers.live()[0]!
+    await tick()
+
+    expect(h.continuer.cancel(PROJECT)).toBe(true)
+    expect(h.continuer.wait(PROJECT)).toBeNull()
+    expect(timer.cancelled).toBe(true)
+    expect(told).toEqual([PROJECT, PROJECT])
+    clock = timer.at
+    timer.fire()
+    await tick(200)
+    expect(h.messages()).toEqual([PERSON])
+    expect(h.results()).toEqual([true])
+    expect(h.notices().at(-1)).toBe('worfy: the wait was cancelled; nothing was sent')
+    expect(h.continuer.cancel(PROJECT)).toBe(false)
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+
+    // The person goes on: the script's next turn goes through, the one after fails again — retry 1 of a new count.
+    h.write('Go on.')
+    await until(() => h.results().length === 2, 'the turn that goes through')
+    h.write(PERSON)
+    await until(() => h.continuer.wait(PROJECT) !== null, 'the next wait')
+    expect(h.continuer.wait(PROJECT)).toMatchObject({ kind: 'retry', attempt: 1 })
+  })
+
+  it('a Limits wait: Retry now has nothing to send, Cancel ends it with nothing sent', async () => {
+    const h = harness({ script: 'orchestrator-continue-limits' })
+    await h.open()
+    h.write(PERSON)
+    await until(() => h.timers.live().length === 1, 'the wait for the Limits')
+    const timer = h.timers.live()[0]!
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+    expect(h.continuer.wait(PROJECT)).toMatchObject({ kind: 'limits', window: 'seven_day' })
+    expect(h.continuer.cancel(PROJECT)).toBe(true)
+    expect(h.continuer.wait(PROJECT)).toBeNull()
+    expect(timer.cancelled).toBe(true)
+    clock = timer.at
+    timer.fire()
+    await tick(200)
+    expect(h.messages()).toEqual([PERSON])
+  })
+
+  it('nothing waits, or another Project waits: both buttons find nothing, and only the Project that waits is told', async () => {
+    const h = harness({ script: (request) => (request.cwd === repoB ? 'orchestrator-continue-overloaded' : 'orchestrator') })
+    const told: string[] = []
+    h.continuer.observeWaits((projectId) => told.push(projectId))
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+    expect(h.continuer.cancel(PROJECT)).toBe(false)
+    await h.open(PROJECT)
+    await h.open(PROJECT_B)
+    h.write(PERSON, PROJECT_B)
+    await until(() => h.timers.live().length === 1, 'B to wait')
+    expect(h.continuer.retryNow(PROJECT)).toBe(false)
+    expect(h.continuer.cancel(PROJECT)).toBe(false)
+    expect(h.continuer.wait(PROJECT_B)).not.toBeNull()
+    expect(told).toEqual([PROJECT_B])
+  })
+})
+
 // ── the app's wiring ─────────────────────────────────────────────────────────
 
 describe("the app's wiring (app-orchestrators.ts): the switch of app-settings.json, the Orchestrators' views, the quit", () => {
@@ -678,6 +779,23 @@ describe("the app's wiring (app-orchestrators.ts): the switch of app-settings.js
     expect(a.messages()).toHaveLength(2)
     expect(a.messages()[1]!.startsWith(RETRY_START)).toBe(true)
     a.quit()
+  })
+
+  it('WORFY_CONTINUE_PAUSE_MS (the e2e seam): the continuation goes that long after the wait began, the wait still shows the plan; only a whole number above zero counts', async () => {
+    vi.stubEnv('WORFY_CONTINUE_PAUSE_MS', '3000')
+    const a = await app()
+    a.store.setAutoContinue(PROJECT, true)
+    a.session().send(PERSON)
+    await until(() => a.notices().length === 1, 'the line of the wait')
+    const wait = a.wiring.sharedOrchestratorContinue().wait(PROJECT)
+    expect(wait).toMatchObject({ kind: 'retry', attempt: 1 })
+    expect(wait!.until - Date.now()).toBeGreaterThan(30_000)
+    await vi.advanceTimersByTimeAsync(3_100)
+    await until(() => a.results() >= 2, 'the turn of the continuation')
+    expect(a.messages()).toHaveLength(2)
+    expect(a.messages()[1]!.startsWith(RETRY_START)).toBe(true)
+    a.quit()
+    for (const given of [undefined, '', '0', '-5', '1.5', 'soon']) expect(a.wiring.continuePauseSeam(given === undefined ? {} : { WORFY_CONTINUE_PAUSE_MS: given })).toEqual({})
   })
 
   it('turned off in Modes during the wait: the wait ends at once; on again, the quit ends the next one', async () => {

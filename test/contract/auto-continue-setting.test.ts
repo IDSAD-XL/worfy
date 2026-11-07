@@ -16,7 +16,18 @@ import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { projectId } from '../../src/main/projects/store'
 import { APP_SETTINGS_FILE, AppSettingsStore, autoContinueOn } from '../../src/main/settings/store'
-import { autoContinueChanged, autoContinueRead, autoContinueSet } from '../../src/shared/ipc/auto-continue'
+import type { ContinueWait } from '../../src/main/agent/orchestrator-continue'
+import type { ContinueWaits, ManualWaits } from '../../src/main/ipc/auto-continue'
+import type { LimitWindow } from '../../src/shared/agent/limits'
+import {
+  autoContinueCancel,
+  autoContinueChanged,
+  autoContinueRead,
+  autoContinueRetryNow,
+  autoContinueSet,
+  autoContinueWait,
+  autoContinueWaitChanged,
+} from '../../src/shared/ipc/auto-continue'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { appSettingsSchema, autoContinueOf, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
@@ -275,7 +286,7 @@ describe('autoContinue and a Linked machine', () => {
   it('the link adapter registers the read and the write; read-only access reads, and its write is refused with nothing written', async () => {
     const modules: Record<string, ModuleLoader> = { './auto-continue.ts': loadModule }
     const adapter = await createLinkIpc({ modules, isLinked: (id) => id === LINKED })
-    expect([...adapter.channels()].sort()).toEqual(['autoContinue.read', 'autoContinue.set'])
+    expect([...adapter.channels()].sort()).toEqual(['autoContinue.cancel', 'autoContinue.read', 'autoContinue.retryNow', 'autoContinue.set', 'autoContinue.wait'])
 
     const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
     peer.setAccess('read')
@@ -283,5 +294,151 @@ describe('autoContinue and a Linked machine', () => {
     expect(await adapter.call(peer, 'autoContinue.read', { projectId: ALPHA }, 'Beta')).toEqual({ ok: true, value: { on: autoContinueOn(ALPHA) } })
     expect(await adapter.call(peer, 'autoContinue.set', { projectId: ALPHA, on: !autoContinueOn(ALPHA) }, 'Beta')).toEqual({ ok: false, error: readOnlyRefusal('Beta') })
     expect(existsSync(dataFile) ? readFileSync(dataFile, 'utf8') : null).toBe(before)
+  })
+})
+
+// worfy-retry ticket 07: the wait for the countdown over the Orchestrator's input field, and its buttons.
+// The sources are the test's: the waits of the Autopilot runs and of the manual turns, as
+// test/contract/autopilot-retry.test.ts and test/contract/orchestrator-continue.test.ts check them.
+describe('the wait of the Orchestrator and its buttons (worfy-retry ticket 07)', () => {
+  const MINUTE = 60_000
+  const AT = 1_791_180_600_000
+
+  function sources() {
+    const run = new Map<string, ContinueWait>()
+    const manual = new Map<string, ContinueWait>()
+    const calls: string[] = []
+    const listeners = new Set<(projectId: string) => void>()
+    const runs: ContinueWaits = {
+      wait: (projectId) => run.get(projectId) ?? null,
+      retryNow: (projectId) => {
+        calls.push(`run.retryNow ${projectId}`)
+        return Promise.resolve(true)
+      },
+      cancel: (projectId) => {
+        calls.push(`run.cancel ${projectId}`)
+        return Promise.resolve(true)
+      },
+    }
+    const manualWaits: ManualWaits = {
+      wait: (projectId) => manual.get(projectId) ?? null,
+      retryNow: (projectId) => {
+        calls.push(`manual.retryNow ${projectId}`)
+        return true
+      },
+      cancel: (projectId) => {
+        calls.push(`manual.cancel ${projectId}`)
+        return true
+      },
+      observeWaits: (listener) => {
+        listeners.add(listener)
+        return () => void listeners.delete(listener)
+      },
+    }
+    // A Codex window as its driver labels it (src/main/vendors/codex/limits.ts).
+    const windows = [{ vendor: 'codex', id: 'secondary', label: 'weekly' } as LimitWindow]
+    const module = async () => {
+      const { autoContinueHandlers } = await import('../../src/main/ipc/auto-continue')
+      return autoContinueHandlers({ projects, runs: () => Promise.resolve(runs), manual: () => Promise.resolve(manualWaits), windows: () => Promise.resolve(windows) })
+    }
+    return { run, manual, calls, listeners, module }
+  }
+
+  async function caller(s: ReturnType<typeof sources>) {
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, input: unknown) => unknown>()
+    await registerIpc({ handle: (channel, listener) => handlers.set(channel, listener) }, { modules: { './auto-continue.ts': s.module }, isTrustedSender: () => true })
+    const event = { senderFrame: { url: 'app://index.html' } } as unknown as IpcMainInvokeEvent
+    return async (channel: string, input?: unknown): Promise<IpcResult<unknown>> => (await handlers.get(IPC_CHANNEL_PREFIX + channel)!(event, input)) as IpcResult<unknown>
+  }
+
+  const waitChanges = () => electron.sent.filter((sent) => sent.channel === `${IPC_CHANNEL_PREFIX}autoContinue.waitChanged`).map((sent) => sent.payload)
+
+  it("read: null while nothing waits; a manual turn's retry; a run's wait before a manual one; the window by its label", async () => {
+    const s = sources()
+    const call = await caller(s)
+    expect(await call('autoContinue.wait', { projectId: ALPHA })).toEqual({ ok: true, value: null })
+
+    s.manual.set(ALPHA, { kind: 'retry', attempt: 2, of: 5, error: 'overloaded', until: AT + 4 * MINUTE })
+    expect(await call('autoContinue.wait', { projectId: ALPHA })).toEqual({ ok: true, value: { kind: 'retry', attempt: 2, of: 5, error: 'overloaded', at: AT + 4 * MINUTE, source: 'manual' } })
+
+    s.run.set(ALPHA, { kind: 'limits', window: 'seven_day', until: AT + 120 * MINUTE })
+    expect(await call('autoContinue.wait', { projectId: ALPHA })).toEqual({ ok: true, value: { kind: 'limits', window: '7-day', at: AT + 120 * MINUTE, source: 'run' } })
+    s.run.set(ALPHA, { kind: 'limits', window: 'secondary', until: AT })
+    expect(await call('autoContinue.wait', { projectId: ALPHA })).toMatchObject({ ok: true, value: { window: 'weekly' } })
+    s.run.set(ALPHA, { kind: 'limits', window: null, until: AT + 30 * MINUTE })
+    expect(await call('autoContinue.wait', { projectId: ALPHA })).toEqual({ ok: true, value: { kind: 'limits', window: null, at: AT + 30 * MINUTE, source: 'run' } })
+    expect(await call('autoContinue.wait', { projectId: BETA })).toEqual({ ok: true, value: null })
+    expect(await call('autoContinue.wait', { projectId: STRANGER })).toMatchObject({ ok: false, error: expect.stringMatching(/not a Project of this Machine/u) })
+  })
+
+  it("the window's label: the one a Vendor's known window has, else Claude's by the name's start, else the name with spaces", async () => {
+    const { windowLabel } = await import('../../src/main/ipc/auto-continue')
+    const codex = [{ vendor: 'codex', id: 'primary', label: '5h' } as LimitWindow]
+    expect(windowLabel('five_hour', [])).toBe('5-hour')
+    expect(windowLabel('seven_day', [])).toBe('7-day')
+    expect(windowLabel('seven_day_opus', [])).toBe('7-day opus')
+    expect(windowLabel('overage', [])).toBe('overage')
+    expect(windowLabel('some_window', [])).toBe('some window')
+    expect(windowLabel('primary', codex)).toBe('5h')
+  })
+
+  it('Retry now goes to whoever waits — the run first — and only for a retry; Cancel to whoever waits; nothing waits — nothing done', async () => {
+    const s = sources()
+    const call = await caller(s)
+    expect(await call('autoContinue.retryNow', { projectId: ALPHA })).toEqual({ ok: true, value: { done: false } })
+    expect(s.calls).toEqual([])
+
+    s.manual.set(ALPHA, { kind: 'retry', attempt: 1, of: 5, error: 'api-500', until: AT })
+    expect(await call('autoContinue.retryNow', { projectId: ALPHA })).toEqual({ ok: true, value: { done: true } })
+    expect(await call('autoContinue.cancel', { projectId: ALPHA })).toEqual({ ok: true, value: { done: true } })
+    expect(s.calls).toEqual([`manual.retryNow ${ALPHA}`, `manual.cancel ${ALPHA}`])
+
+    s.run.set(ALPHA, { kind: 'retry', attempt: 3, of: 5, error: 'connection', until: AT })
+    expect(await call('autoContinue.retryNow', { projectId: ALPHA })).toEqual({ ok: true, value: { done: true } })
+    expect(await call('autoContinue.cancel', { projectId: ALPHA })).toEqual({ ok: true, value: { done: true } })
+    expect(s.calls.slice(2)).toEqual([`run.retryNow ${ALPHA}`, `run.cancel ${ALPHA}`])
+
+    // A Limits wait has only Cancel.
+    s.run.set(ALPHA, { kind: 'limits', window: 'seven_day', until: AT })
+    expect(await call('autoContinue.retryNow', { projectId: ALPHA })).toEqual({ ok: true, value: { done: false } })
+    expect(s.calls).toHaveLength(4)
+    expect(await call('autoContinue.cancel', { projectId: STRANGER })).toMatchObject({ ok: false })
+    expect(await call('autoContinue.retryNow', { projectId: STRANGER })).toMatchObject({ ok: false })
+    expect(s.calls).toHaveLength(4)
+  })
+
+  it('a change of a manual wait reaches every window with the wait as it is now, from the first read on', async () => {
+    const s = sources()
+    const call = await caller(s)
+    expect(s.listeners.size).toBe(0)
+    await call('autoContinue.wait', { projectId: ALPHA })
+    await call('autoContinue.wait', { projectId: BETA })
+    expect(s.listeners.size).toBe(1)
+
+    s.manual.set(ALPHA, { kind: 'limits', window: 'five_hour', until: AT })
+    for (const listener of s.listeners) listener(ALPHA)
+    await vi.waitFor(() => expect(waitChanges()).toHaveLength(1))
+    expect(waitChanges()).toEqual([{ projectId: ALPHA, wait: { kind: 'limits', window: '5-hour', at: AT, source: 'manual' } }])
+    s.manual.delete(ALPHA)
+    for (const listener of s.listeners) listener(ALPHA)
+    await vi.waitFor(() => expect(waitChanges()).toHaveLength(2))
+    expect(waitChanges()[1]).toEqual({ projectId: ALPHA, wait: null })
+  })
+
+  it('the wait and its change are `project` and `read`, Retry now and Cancel `project` and `write`: read-only access reads the wait, its buttons are refused', async () => {
+    expect([autoContinueWait.access, autoContinueWait.use]).toEqual(['project', 'read'])
+    expect([autoContinueWaitChanged.access, autoContinueWaitChanged.use]).toEqual(['project', 'read'])
+    expect([autoContinueRetryNow.access, autoContinueRetryNow.use]).toEqual(['project', 'write'])
+    expect([autoContinueCancel.access, autoContinueCancel.use]).toEqual(['project', 'write'])
+
+    const s = sources()
+    s.manual.set(ALPHA, { kind: 'retry', attempt: 1, of: 5, error: 'api-500', until: AT })
+    const adapter = await createLinkIpc({ modules: { './auto-continue.ts': s.module }, isLinked: (id) => id === LINKED })
+    const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
+    peer.setAccess('read')
+    expect(await adapter.call(peer, 'autoContinue.wait', { projectId: ALPHA }, 'Beta')).toMatchObject({ ok: true, value: { kind: 'retry', source: 'manual' } })
+    expect(await adapter.call(peer, 'autoContinue.retryNow', { projectId: ALPHA }, 'Beta')).toEqual({ ok: false, error: readOnlyRefusal('Beta') })
+    expect(await adapter.call(peer, 'autoContinue.cancel', { projectId: ALPHA }, 'Beta')).toEqual({ ok: false, error: readOnlyRefusal('Beta') })
+    expect(s.calls).toEqual([])
   })
 })

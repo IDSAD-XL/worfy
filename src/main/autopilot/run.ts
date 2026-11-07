@@ -224,6 +224,7 @@ import type { HarnessKind } from '../../shared/projects/action-templates'
 import type { PullRequest } from '../../shared/ipc/checks'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { OrchestratorBusy } from '../agent/orchestrator'
+import type { ContinueWait } from '../agent/orchestrator-continue'
 import type { AutopilotRunSettings, AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { PARK_STOPPED_HINT } from '../agent/auto-approve/park'
@@ -777,6 +778,8 @@ class Run {
   limits: LimitsWait | null = null
   /** The run's retries after a temporary API error; null when the app gave no Auto-continue (AutopilotDeps.retry). */
   retry: TurnRetry | null = null
+  /** The id of the retry wait last begun (TurnRetry.wait): Retry now sends its continuation (worfy-retry ticket 07). */
+  retryId = 0
   /** The Vendor of the run's Orchestrator, as run-started names it (worfy-multi-vendor ticket 37); Claude without one. */
   vendor: string = STORED_LIMITS_VENDOR
   /** The policy's side of the run (worfy-auto-approve ticket 04); null without Auto-approval, or when it could not open. */
@@ -1711,6 +1714,68 @@ export class Autopilot {
     return this.state(projectId)
   }
 
+  /**
+   * What the Project's running run waits for to send its Orchestrator on (worfy-retry ticket 07): the
+   * countdown in the Orchestrator's chat. Null when it waits for neither a retry after an API error nor
+   * the Limits.
+   */
+  continueWait(projectId: string): ContinueWait | null {
+    const run = this.runs.get(projectId)
+    if (run === undefined || !run.running) return null
+    const limits = run.limits
+    if (limits !== null && limits.until !== null) return { kind: 'limits', window: limits.window, until: limits.until }
+    const failed = run.retry?.failed ?? null
+    const retry = run.retry?.retry ?? null
+    const until = run.retry?.until ?? null
+    if (until !== null && failed !== null && retry !== null) return { kind: 'retry', attempt: retry.attempt, of: retry.of, error: failed.error, until }
+    return null
+  }
+
+  /**
+   * Retry now (worfy-retry ticket 07): the continuation the run waits to send after an API error goes at
+   * once, in the run's order, as at its timer (retryResume) — the same attempt; the timer sends nothing
+   * after it. Answers whether a retry waited.
+   */
+  async retryNow(projectId: string): Promise<boolean> {
+    const run = this.runs.get(projectId)
+    if (run === undefined) return false
+    let waited = false
+    await run.enqueue(async () => {
+      const retry = run.retry
+      if (retry === null || !retry.isCurrent(run.retryId)) return
+      waited = true
+      await this.retryResume(run, run.retryId)
+    })
+    return waited
+  }
+
+  /**
+   * Cancel (worfy-retry ticket 07): the run's wait for its continuation ends with nothing sent, and the
+   * run stops as it would have without Auto-continue — `turn-error` after an API error (the failed turn's
+   * end goes to the cycle), `limits-timeout` after the Limits. Answers whether anything waited.
+   */
+  async cancelContinue(projectId: string): Promise<boolean> {
+    const run = this.runs.get(projectId)
+    if (run === undefined) return false
+    let waited = false
+    await run.enqueue(async () => {
+      if (run.cycle.phase === 'stopped') return
+      const limits = run.limits
+      if (limits !== null && limits.until !== null) {
+        waited = true
+        limits.cancel()
+        run.message = 'The wait for the Limits reset was cancelled'
+        await this.feed(run, { type: 'stop', reason: 'limits-timeout' })
+        return
+      }
+      const retry = run.retry
+      if (retry === null || retry.until === null) return
+      waited = true
+      await this.retryDropped(run, retry)
+    })
+    return waited
+  }
+
   /** Force stop: stops the Project's run with `user-force-stop`; answers its state once it has stopped. */
   async forceStop(projectId: string): Promise<AutopilotState> {
     const run = this.runs.get(projectId)
@@ -2456,7 +2521,7 @@ export class Autopilot {
     }
     const decision = retry.decide(failure, end.actions)
     if (decision.kind === 'retry' && failure.kind === 'transient') {
-      retry.wait(decision, { error: failure.error, actions: end.actions, message }, (id) => void run.enqueue(() => this.retryResume(run, id)))
+      run.retryId = retry.wait(decision, { error: failure.error, actions: end.actions, message }, (id) => void run.enqueue(() => this.retryResume(run, id)))
       await this.write(run, { kind: 'turn-retry', attempt: decision.attempt, of: decision.of, error: failure.error, message: clipRetryMessage(message ?? ''), until: new Date(retry.until ?? this.now()).toISOString() })
       this.publish(run.projectId)
       return { waits: true, message }
@@ -2492,20 +2557,7 @@ export class Autopilot {
       this.publish(run.projectId)
       return
     }
-    if (!retry.enabled()) {
-      const message = retry.failed?.message ?? null
-      retry.passed()
-      this.publish(run.projectId)
-      return this.readAndFeed(run, 'stop', (tickets) => ({
-        type: 'turn-ended',
-        isError: true,
-        interrupted: false,
-        message,
-        tickets,
-        tasks: this.liveTasks(run).length,
-        idle: run.session?.state === 'idle',
-      }))
-    }
+    if (!retry.enabled()) return this.retryDropped(run, retry)
     const text = retry.resume()
     await this.write(run, { kind: 'resumed' })
     this.publish(run.projectId)
@@ -2515,6 +2567,22 @@ export class Autopilot {
       run.message = messageOf(error)
       await this.feed(run, { type: 'session-error', message: run.message })
     }
+  }
+
+  /** The retry wait is dropped with nothing sent: the failed turn's end goes to the cycle, as without Auto-continue. */
+  private async retryDropped(run: Run, retry: TurnRetry): Promise<void> {
+    const message = retry.failed?.message ?? null
+    retry.passed()
+    this.publish(run.projectId)
+    return this.readAndFeed(run, 'stop', (tickets) => ({
+      type: 'turn-ended',
+      isError: true,
+      interrupted: false,
+      message,
+      tickets,
+      tasks: this.liveTasks(run).length,
+      idle: run.session?.state === 'idle',
+    }))
   }
 
   /**

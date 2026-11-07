@@ -28,6 +28,7 @@ import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { appSettingsStore, autoContinueOn } from '../settings/store'
 import { claudeHome } from '../storage/paths'
+import { wallTimer } from '../autopilot/limits-wait'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
 import { appLimits } from './limits'
@@ -104,6 +105,19 @@ export function sharedOrchestrators(): Orchestrators {
 let continuer: OrchestratorContinue | null = null
 
 /**
+ * The e2e tests' seam (worfy-retry ticket 07): with WORFY_CONTINUE_PAUSE_MS a whole number of ms above
+ * zero, a manual wait sends its continuation that long after it began at the latest — seconds, not the
+ * minutes of the plan; the wait still shows the time of the plan. Nothing without it.
+ */
+export function continuePauseSeam(env: NodeJS.ProcessEnv): { schedule?: (at: number, fire: () => void) => () => void } {
+  const given = env.WORFY_CONTINUE_PAUSE_MS
+  if (given === undefined || !/^[1-9]\d*$/u.test(given)) return {}
+  const pause = Number(given)
+  const timer = wallTimer()
+  return { schedule: (at, fire) => timer(Math.min(at, Date.now() + pause), fire) }
+}
+
+/**
  * Auto-continue of the Orchestrators' manual turns, made on first use: the Project's switch of
  * app-settings.json, the Limits of limits.json, the pauses by the wall clock. It stops when the app
  * quits; the registry closes every Session then too, which ends any wait.
@@ -120,6 +134,7 @@ export function sharedOrchestratorContinue(): OrchestratorContinue {
         return () => void store.off('changed', listener)
       },
       limits: () => appLimits().snapshot(),
+      ...continuePauseSeam(process.env),
     })
     app.on('will-quit', () => made.stop())
     continuer = made

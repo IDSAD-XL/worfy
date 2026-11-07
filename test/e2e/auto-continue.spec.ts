@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
 import { expectSamePx } from './px'
+import { ms } from '../time-scale'
 
 // Auto-continue in the Modes menu under the Orchestrator's input field (worfy-retry ticket 02) against
 // the built app, on the fake agent, over a temporary data folder. Off by default: the third icon of the
@@ -151,4 +152,80 @@ test("Auto-continue in the Orchestrator's Modes menu: off by default, on writes 
     await second.close()
   }
   expect(written()).toBeUndefined()
+})
+
+// worfy-retry ticket 07: the countdown over the Orchestrator's input field. Auto-continue is on in
+// app-settings.json and the fake agent ends the first turn with a 529 (orchestrator-continue-overloaded):
+// the line counts down to the retry, with Retry now and Cancel. Retry now sends the continuation at once,
+// and the second turn of the script answers it; Cancel ends the wait, and nothing is sent even after the
+// pause has passed. The pause of the second scenario is the test's seam (WORFY_CONTINUE_PAUSE_MS,
+// src/main/agent/app-orchestrators.ts): seconds, not the minute of the plan. Pictures of the line in both
+// themes go through captureScreenshot.
+
+/** What the script's second turn answers: the continuation reached the Orchestrator. */
+const CONTINUED = 'Continued after the API error; the work is done.'
+
+/** Auto-continue on for the Project, as the Modes menu writes it. */
+const turnOn = (): void => writeFileSync(settingsFile, JSON.stringify({ autoContinue: { [PROJECT]: true } }))
+
+/** Sends a person's message in the Orchestrator's chat and waits for the countdown it ends with. */
+async function failTurn(view: Locator): Promise<Locator> {
+  const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+  await field.fill('Merge the PRs of Wave 3, then start Wave 4.')
+  await field.press('Enter')
+  const line = view.getByTestId('continue-countdown')
+  await expect(line).toBeVisible()
+  return line
+}
+
+test('the countdown of a retry after a 529: the line counts down over the field, Retry now sends the continuation at once', async () => {
+  turnOn()
+  const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator-continue-overloaded' } })
+  try {
+    const { window } = app
+    const view = await openSession(window)
+    const line = await failTurn(view)
+    const text = line.getByTestId('continue-countdown-text')
+    await expect(text).toHaveText(/^API error 529 \(overloaded\) · retry 1 of 5 in [01]:\d\d$/u)
+    // By the second: the text changes while the line waits.
+    const first = await text.textContent()
+    await expect(text).not.toHaveText(first ?? '', { timeout: 5000 })
+    await expect(line.getByRole('button', { name: 'Retry now' })).toBeVisible()
+    await expect(line.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    // The line stands over the field, not on it, and covers none of the transcript.
+    const box = (await view.getByTestId('message-input-box').boundingBox())!
+    const lineBox = (await line.boundingBox())!
+    expect(lineBox.y + lineBox.height).toBeLessThanOrEqual(box.y)
+    const composer = (await view.getByTestId('message-input').boundingBox())!
+    expect(lineBox.y).toBeGreaterThanOrEqual(composer.y)
+    await captureScreenshot(view.getByTestId('message-input'), 'countdown-retry')
+
+    await line.getByRole('button', { name: 'Retry now' }).click()
+    await expect(view.getByText(CONTINUED)).toBeVisible()
+    await expect(line).toHaveCount(0)
+    await expect(view.getByTestId('transcript-notice').filter({ hasText: 'worfy: sent "continue" (retry 1 of 5)' })).toHaveCount(1)
+  } finally {
+    await app.close()
+  }
+})
+
+test('Cancel ends the wait: no continuation, also after the pause has passed', async () => {
+  turnOn()
+  const pause = ms(6000)
+  const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator-continue-overloaded', WORFY_CONTINUE_PAUSE_MS: String(pause) } })
+  try {
+    const { window } = app
+    const view = await openSession(window)
+    const line = await failTurn(view)
+    await line.getByRole('button', { name: 'Cancel' }).click()
+    await expect(line).toHaveCount(0)
+    await expect(view.getByTestId('transcript-notice').filter({ hasText: 'worfy: the wait was cancelled; nothing was sent' })).toHaveCount(1)
+    // Past the pause: the timer sent nothing, and the Orchestrator is idle with the error as the last turn.
+    await window.waitForTimeout(pause + 2000)
+    await expect(view.getByText(CONTINUED)).toHaveCount(0)
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.getByTestId('continue-countdown')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
 })
