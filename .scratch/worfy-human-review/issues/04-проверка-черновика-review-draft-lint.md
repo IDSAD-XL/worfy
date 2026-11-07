@@ -1,7 +1,8 @@
 # 04 — Проверка черновика ревью: `bin/review-draft-lint`
 
 Type: task
-Status: open
+Status: done 2026-11-07T23:06Z
+PR: #1604
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 9, 10 (шаг 7); «Как работает» → «Проверка черновика»; «Вопросы владельцу», Q3; «Риски», п. 4
 
@@ -34,20 +35,26 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
   - evidence: test-run pass · `bash harness/bin/tests/silent-mode.test.sh` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: review pass · PR #1604 · - - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 - [ ] Черновик с nit-ом длиннее предела, с `.scratch/…`, с `Co-Authored-By: Claude`, с путём домашней папки и со
       словом из `forbidden` — пять находок, exit 1; чистый черновик — exit 0; битый JSON — exit 2.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: review pass · PR #1604 · - - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 - [ ] Следы workflow ловятся и в Full mode с `attribution: on`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: review pass · PR #1604 · - - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 - [ ] `--skill`: правило без `[R<n>]` и ссылка на несуществующий раздел — находки; полный fixture — exit 0.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: review pass · PR #1604 · - - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 - [ ] Вывод не печатает найденные личные данные целиком (`mask()`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · b5711b1bb7519b9d111b8a4b217a8eb5bd195eca
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · 37ebb6ca85f7cf7f289716d7b6ad146dc52cde9e
+  - evidence: review pass · PR #1604 · - - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42421028970/job/128556769528 · ci - · 1b84e049a6388577ec37ef0c77155fca6710f90f
 
 ## Тесты
 
