@@ -138,11 +138,12 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     const inHealth = await checksOf(health)
     expect(inHealth.map((each) => each.id)).toEqual(CHECK_IDS)
     expect(checkRuns()).toBe(1)
-    // What First run shows on a first start (test/e2e/first-run.spec.ts): one failed (the Harness
-    // plugin), three warnings (its dependencies and its scripts, checked once it is installed; the qmd models).
-    // On Windows two more: Limits (a development build has no bridge) and PowerShell (no pwsh on the
-    // sandbox's Path).
-    await expect(health.getByTestId('first-run-summary')).toHaveText(process.platform === 'win32' ? '1 failed · 5 warnings' : '1 failed · 3 warnings')
+    // What First run shows on a first start: one failed (the Harness plugin), two warnings (its
+    // scripts, checked once it is installed; the qmd models). Its dependencies are OK, `none`: the
+    // Harness declares none since worfy-skills 03. On Windows two more: Limits (a development build
+    // has no bridge) and PowerShell (no pwsh on the sandbox's Path).
+    await expect(health.getByTestId('first-run-summary')).toHaveText(process.platform === 'win32' ? '1 failed · 4 warnings' : '1 failed · 2 warnings')
+    await expect(health.locator('[data-check="harness-dependencies"]')).toHaveAttribute('data-status', 'ok')
     await expect(health.locator('[data-check="harness"]')).toHaveAttribute('data-status', 'fail')
     await expect(health.locator('[data-check="harness"]').getByRole('button', { name: 'Install' })).toBeVisible()
     await expect(health.getByRole('button', { name: 'Check again' })).toBeVisible()
