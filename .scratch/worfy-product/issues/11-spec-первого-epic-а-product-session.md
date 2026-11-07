@@ -1,7 +1,7 @@
 # 11 — Spec первого Epic-а Product Session
 
 Type: task
-Status: open
+Status: claimed 2026-11-07T20:19Z
 Blocked by: 10, Epic `worfy-skills`
 Source: [map.md](../map.md), Destination
 
@@ -12,3 +12,7 @@ Source: [map.md](../map.md), Destination
 Ticket ждёт Epic `worfy-skills`: skills должны оказаться в плагине раньше, чем на них опирается spec.
 
 ## Answer
+
+## Comments
+
+- 2026-11-07: spec — [worfy-product-session/spec.md](../../worfy-product-session/spec.md), 17 Ticket-ов, принят владельцем 2026-11-07 («тогда да, верно»), Q1–Q10 по рекомендации, Q5 с уточнением владельца; Wave-ы Harness (10–14) — `blocked` до закрытия Epic-а `worfy-skills`. Раздел roadmap — Ticket [10](10-раздел-roadmap-worfy-для-соло-разработки-продукта.md). Оба приняты одним раундом.
