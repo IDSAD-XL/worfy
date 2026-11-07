@@ -13,7 +13,9 @@
 //   that was killed, `rejected` for a verifier whose report starts with REJECTED.
 // - The Ticket: the agent's name (`impl-NN`, `verify-NN`), else `ticket NN` in its description,
 //   else the branch `<epic>/<NN>`, the path `.scratch/<epic>/issues/<NN>-…` or `ticket NN` in its
-//   prompt — when the Run has that Ticket. Otherwise the worktree of its report or the folder it
+//   prompt — when the Run has that Ticket. In a Run over a queue of Epics the Epic of a branch or a path
+//   picks the Ticket of that Epic, and a bare number two Epics share names neither (worfy-polish ticket
+//   62): the next clue decides. Otherwise the worktree of its report or the folder it
 //   moved to is handed over with no Ticket (the reader in main gives it the Ticket of an agent in
 //   that worktree, else `null`), and with neither the agent is the Run's (`null`).
 // - An attempt still open when a new `Agent` call of the same name starts (a restart after a
@@ -317,17 +319,30 @@ function reportWorktree(report: string | null): string | undefined {
   }
 }
 
-/** Which Ticket of the Run a number names: the Run's own spelling (`03`), else `<epic>/<NN>` when the Run names none. */
-function ticketByNumber(digits: string | undefined, epic: string, tickets: readonly string[]): string | null {
+/** The Epic of a Ticket `<epic>/<NN>`: what comes before its last `/`. */
+const epicOf = (ticket: string): string => ticket.slice(0, ticket.lastIndexOf('/'))
+
+/**
+ * Which Ticket of the Run a number names: the Run's own spelling (`03`), else `<epic>/<NN>` when the Run
+ * names none. With `epic` (a branch, an issue path, a Wave line name it) — the Ticket of that Epic. Without
+ * (an agent name, `ticket NN`) — the one Ticket of the Run with that number: in a Run over a queue of Epics
+ * a number two Epics share names neither (worfy-polish ticket 62), and the next clue decides.
+ */
+function ticketByNumber(digits: string | undefined, runEpic: string, tickets: readonly string[], epic?: string): string | null {
   if (digits === undefined) return null
   const number = Number(digits)
-  if (tickets.length === 0) return `${epic}/${String(number).padStart(2, '0')}`
-  return tickets.find((ticket) => Number(/(\d+)$/u.exec(ticket)?.[1]) === number) ?? null
+  if (tickets.length === 0) return `${epic ?? runEpic}/${String(number).padStart(2, '0')}`
+  const found = tickets.filter((ticket) => Number(/(\d+)$/u.exec(ticket)?.[1]) === number && (epic === undefined || epicOf(ticket) === epic))
+  return found.length === 1 ? found[0]! : null
 }
 
 /** What the facts of a parse are asked for with: the Run, and the Subagents' files as they are now. */
 export interface ParseInput {
   session: string
+  /**
+   * The Epic of the Run when it names no Tickets (`tickets` empty): a number then is `<epic>/<NN>`. With
+   * Tickets, each Ticket's own Epic counts, as its key `<epic>/<NN>` says: a Run over a queue holds several.
+   */
   epic: string
   /** The Tickets of the Run as the Journal names them; a number outside them is not a Ticket of this Run. Empty — any. */
   tickets?: readonly string[]
@@ -551,7 +566,14 @@ export class TranscriptParse {
     }
     const nameOf = memo((agent, agentId) => agent.name ?? metaOf(agentId)?.name ?? agent.description ?? metaOf(agentId)?.description ?? agentId ?? agent.callId)
     const ticketOfName = (name: string | null): string | null => ticketByNumber(name === null ? undefined : AGENT_NAME_TICKET.exec(name)?.[1], input.epic, tickets)
-    const branchOrIssue = new RegExp(`(?:\\.scratch/${escape(input.epic)}/issues/|\\b${escape(input.epic)}/)0*(\\d{1,5})(?!\\d)`, 'u')
+    // The Epics of the Run's Tickets (more than one over a queue), else the Run's Epic.
+    const epics = tickets.length === 0 ? [input.epic] : [...new Set(tickets.map(epicOf))]
+    const epicsPattern = epics.map(escape).join('|')
+    const branchOrIssue = new RegExp(`(?:\\.scratch/(${epicsPattern})/issues/|\\b(${epicsPattern})/)0*(\\d{1,5})(?!\\d)`, 'u')
+    const ticketOfPrompt = (prompt: string): string | null => {
+      const match = branchOrIssue.exec(prompt)
+      return match === null ? null : ticketByNumber(match[3], input.epic, tickets, match[1] ?? match[2])
+    }
     const ticketOf = memo((agent, agentId) => {
       const meta = metaOf(agentId)
       // A Vendor's Subagent has its prompt in its own transcript (SubagentParse.prompt).
@@ -559,7 +581,7 @@ export class TranscriptParse {
       return (
         ticketOfName(agent.name ?? meta?.name ?? null) ??
         ticketByNumber(DESCRIPTION_TICKET.exec(agent.description ?? meta?.description ?? '')?.[1], input.epic, tickets) ??
-        ticketByNumber(branchOrIssue.exec(prompt)?.[1], input.epic, tickets) ??
+        ticketOfPrompt(prompt) ??
         ticketByNumber(DESCRIPTION_TICKET.exec(prompt)?.[1], input.epic, tickets)
       )
     })
@@ -584,7 +606,7 @@ export class TranscriptParse {
         case 'agent':
           return [ticketOf(touch.agent, idAt(touch.agent, touch.ids))]
         case 'wave':
-          return touch.epic === input.epic ? touch.numbers.map((digits) => ticketByNumber(digits, input.epic, tickets)) : []
+          return epics.includes(touch.epic) ? touch.numbers.map((digits) => ticketByNumber(digits, input.epic, tickets, touch.epic)) : []
         case 'from': {
           const agent = byName(touch.name, touch.count, touch.ids)
           return [agent === undefined ? ticketOfName(touch.name) : ticketOf(agent, idAt(agent, touch.ids))]

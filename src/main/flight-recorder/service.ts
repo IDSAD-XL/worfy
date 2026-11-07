@@ -108,10 +108,10 @@ const iso = (ms: number): string => new Date(ms).toISOString()
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const missing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as { code?: string }).code ?? '')
 
-/** The number of a Ticket `<epic>/<NN>`, as the Journal writes it; null for anything else. */
-function ticketNumber(ticket: string): number | null {
-  const match = /\/(\d+)$/u.exec(ticket)
-  return match === null ? null : Number(match[1])
+/** The Epic and the number of a Ticket `<epic>/<NN>`, as the Journal writes it; null for anything else. */
+function ticketParts(ticket: string): { epic: string; num: number } | null {
+  const match = /^(.+)\/(\d+)$/u.exec(ticket)
+  return match === null ? null : { epic: match[1]!, num: Number(match[2]) }
 }
 
 /** What TailLines keeps of one file. */
@@ -535,11 +535,13 @@ export class FlightRecorder {
     )
     state.lines?.settle()
 
-    // The branches of the Tickets: the gh read and the Tickets without a PR need them.
-    const known = (await this.options.branches?.(root, journal.epic).catch(() => null)) ?? null
+    // The branches of the Tickets: the gh read and the Tickets without a PR need them. Each Epic of a
+    // queue Run has its own Tickets: a Ticket's branch is read from its own Epic.
+    const ticketEpics = [...new Set([...journal.epics, ...journal.tickets.flatMap((ticket) => ticketParts(ticket)?.epic ?? [])])]
+    const known = new Map(await Promise.all(ticketEpics.map(async (epic) => [epic, (await this.options.branches?.(root, epic).catch(() => null)) ?? null] as const)))
     const branchOf = (ticket: string): string => {
-      const num = ticketNumber(ticket)
-      return (num === null ? undefined : known?.get(num)) ?? ticket
+      const parts = ticketParts(ticket)
+      return (parts === null ? undefined : known.get(parts.epic)?.get(parts.num)) ?? ticket
     }
     const tickets = journal.tickets.map((ticket) => ({ ticket, branch: branchOf(ticket) }))
 
@@ -572,8 +574,8 @@ export class FlightRecorder {
       withPr === null
         ? []
         : tickets.flatMap(({ ticket, branch }) => {
-            const num = ticketNumber(ticket)
-            return worked.has(ticket) && !withPr.has(branch) && num !== null ? [{ ticket, epic: journal.epic, num, branch }] : []
+            const parts = ticketParts(ticket)
+            return worked.has(ticket) && !withPr.has(branch) && parts !== null ? [{ ticket, epic: parts.epic, num: parts.num, branch }] : []
           })
     if (localTickets.length > 0) {
       const inFile = profile.name !== null && (await marksInFile(profile, async () => (await originOf()).url !== null))

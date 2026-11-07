@@ -41,8 +41,8 @@ const TINTED = new Set(['run', 'wave', 'stage', 'wait'])
 
 const retryPrefix = (span: Span): string => (span.attempt > 1 ? `#${span.attempt} ` : '')
 
-function tooltipOf(span: Span): string {
-  const lines = [`${displayName(span)}${span.attempt > 1 ? ` #${span.attempt}` : ''}`, `${formatLocal(span.start)} – ${formatClock(span.until)} · ${formatDuration(spanDuration(span))}`]
+function tooltipOf(span: Span, epics: readonly string[] | undefined): string {
+  const lines = [`${displayName(span, epics)}${span.attempt > 1 ? ` #${span.attempt}` : ''}`, `${formatLocal(span.start)} – ${formatClock(span.until)} · ${formatDuration(spanDuration(span))}`]
   if (span.outcome !== null) lines.push(`Outcome: ${span.outcome}`)
   const reason = reasonText(span)
   if (reason !== null) lines.push(`Reason: ${reason}`)
@@ -228,7 +228,7 @@ function drawRow(row: Row, view: RunView, x: (at: number) => number, width: numb
         left,
         right,
         thin,
-        label: named ? (lost ?? `${retryPrefix(span)}${displayName(span)} · ${formatDuration(spanDuration(span))}`) : '',
+        label: named ? (lost ?? `${retryPrefix(span)}${displayName(span, view.epics)} · ${formatDuration(spanDuration(span))}`) : '',
         short: named ? (lost ?? `${retryPrefix(span)}${formatDuration(spanDuration(span))}`) : '',
         // A hatched bar keeps its label beside it, on the ground of the row.
         inside: lost === null,
@@ -295,7 +295,7 @@ function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view
   const isSelected = span !== null && span.id === selected
   const isCause = span !== null && span.id === highlights.cause
   const isRelated = span !== null && highlights.tickets.has(span.id)
-  const name = span === null ? (row.lane === 'wait' ? 'Waits' : 'Orchestrator') : displayName(span)
+  const name = span === null ? (row.lane === 'wait' ? 'Waits' : 'Orchestrator') : displayName(span, view.epics)
   const word = span === null ? null : outcomeWord(span, view.timeline.live)
   const kindClass = span === null ? (row.lane === 'wait' ? 'wait' : 'orchestrator') : tokenOf(span)
   const toggle = (event: ReactMouseEvent) => {
@@ -315,7 +315,7 @@ function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view
         if (span !== null) selectSpan(span.id)
       }}
     >
-      <div className="w-fr-row__tree" style={{ paddingLeft: 6 + row.depth * 14 }} title={span === null ? undefined : tooltipOf(span)}>
+      <div className="w-fr-row__tree" style={{ paddingLeft: 6 + row.depth * 14 }} title={span === null ? undefined : tooltipOf(span, view.epics)}>
         {row.children.length > 0 ? (
           <button type="button" className="w-fr-twisty" aria-label={row.open ? `Collapse ${name}` : `Expand ${name}`} aria-expanded={row.open} onClick={toggle}>
             {row.open ? '▾' : '▸'}
@@ -358,7 +358,7 @@ function RowView({ row, view, x, width, highlights, onToggle }: { row: Row; view
               data-testid="run-history-bar"
               data-bar-key={bar.key}
               data-span-id={of.id}
-              title={tooltipOf(of)}
+              title={tooltipOf(of, view.epics)}
               style={{ left: bar.left, width: bar.right - bar.left }}
               onClick={(event) => {
                 event.stopPropagation()

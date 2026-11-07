@@ -20,6 +20,7 @@ import { SubagentParse, TranscriptParse } from '../../src/shared/flight-recorder
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import type { RunView } from '../../src/shared/ipc/runs'
 import type { TranscriptEntry } from '../../src/shared/transcript/parse'
+import { markFilePath } from '../../src/main/workflow/marks'
 import { DEFAULT_PIPELINE } from '../../src/shared/workflow/pipeline'
 import { writeBigTranscript } from '../big-transcript'
 import { shapedSession, writeShapedSession } from './flight-recorder-shaped-transcript'
@@ -189,6 +190,69 @@ describe('the Runs of a Project', () => {
     const view = await recorder.view('p-1', id)
     expect(view.epics).toEqual(['alpha', 'beta', 'gamma'])
     expect(view.timeline.spans.filter((span) => span.kind === 'wave').map((span) => span.name)).toEqual(['Wave 1 · alpha', 'Wave 1 · beta'])
+  })
+
+  describe('a Run over a queue with Ticket 01 in two Epics reads each Ticket by its own Epic (worfy-polish ticket 62)', () => {
+    const at = (hhmm: string) => `2026-10-06T${hhmm}:00.000Z`
+    async function queueRun(data: string): Promise<string> {
+      const id = makeRunId(new Date(at('10:00')), 'fedcba')
+      const on = (epic: string, hhmm: string, kind: string, fields: Record<string, unknown> = {}) => ({ at: at(hhmm), run: id, project: 'p-1', epic, kind, ...fields })
+      await writeJournal(data, id, [
+        on('alpha', '10:00', 'run-started', { epics: ['alpha', 'beta'] }),
+        on('alpha', '10:01', 'wave-started', { wave: 1, tickets: ['01'] }),
+        on('alpha', '10:02', 'ticket-status', { ticket: '01', state: 'claimed' }),
+        on('alpha', '10:10', 'wave-finished', { wave: 1, tickets: ['01'] }),
+        on('alpha', '10:11', 'epic-finished', { outcome: 'done' }),
+        on('beta', '10:11', 'epic-started', { index: 2, of: 2 }),
+        on('beta', '10:12', 'wave-started', { wave: 1, tickets: ['01'] }),
+        on('beta', '10:13', 'ticket-status', { ticket: '01', state: 'claimed' }),
+        on('beta', '10:20', 'wave-finished', { wave: 1, tickets: ['01'] }),
+        on('beta', '10:21', 'run-stopped', { reason: 'tickets-done' }),
+      ])
+      return id
+    }
+    const ticketSpans = (view: RunView, ticket: string) => view.timeline.spans.filter((span) => span.links.ticket === ticket)
+
+    it('the Ticket of the second Epic gets the PR of the branch its own Branch: line names', async () => {
+      const data = await folder('data')
+      const id = await queueRun(data)
+      const asked: string[] = []
+      // alpha/01 keeps its default branch; beta/01 names its own.
+      const branches = async (_root: string, epic: string) => new Map([[1, epic === 'beta' ? 'beta/feature-x' : `${epic}/01`]])
+      const gh = async (_root: string, args: readonly string[]): Promise<string> => {
+        if (args[0] !== 'pr') return '[]'
+        const head = args[args.indexOf('--head') + 1]!
+        asked.push(head)
+        return head === 'beta/feature-x' ? JSON.stringify([{ number: 42, headRefName: head, state: 'OPEN', createdAt: at('10:15'), commits: [] }]) : '[]'
+      }
+      const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: data }, harnessHome: await folder('harness'), projectRoot: () => base, profile: async () => profileOf(), gh, running: () => false, git: noGit, branches })
+      const view = await recorder.view('p-1', id)
+      expect(asked.sort()).toEqual(['alpha/01', 'beta/feature-x'])
+      expect(ticketSpans(view, 'beta/01').some((span) => span.links.pr === 42)).toBe(true)
+      expect(ticketSpans(view, 'alpha/01').some((span) => span.links.pr === 42)).toBe(false)
+    })
+
+    it('the Ticket of the second Epic without a PR reads its own marks file, beta-01', async () => {
+      const data = await folder('data')
+      const id = await queueRun(data)
+      const harnessHome = await folder('harness')
+      // Both marks files are broken on purpose: the reader names each file it read in its warning, so the
+      // warnings say which file each Ticket read (a Ticket without a head shows no mark on the timeline).
+      const files = [markFilePath(harnessHome, 'worfy', 'alpha', 1), markFilePath(harnessHome, 'worfy', 'beta', 1)]
+      for (const file of files) {
+        await mkdir(join(file, '..'), { recursive: true })
+        await writeFile(file, 'not json')
+      }
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const recorder = new FlightRecorder({ env: { WORFY_DATA_DIR: data }, harnessHome, projectRoot: () => base, profile: async () => profileOf({ mode: 'silent' }), gh: async () => '[]', running: () => false, git: noGit })
+        await recorder.view('p-1', id)
+        const read = files.filter((file) => warn.mock.calls.some(([message]) => String(message).includes(`the marks of ${file} `)))
+        expect(read).toEqual(files)
+      } finally {
+        warn.mockRestore()
+      }
+    })
   })
 })
 

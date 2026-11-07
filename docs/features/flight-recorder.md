@@ -97,9 +97,10 @@ The rows, top to bottom:
 3. The tree: Run → Wave → Ticket → Stage → work. Work is an agent (implementer, verifier or other), a CI run, a gate run
    or a script. A Ticket that went through several Waves is one row, under the Wave it started in, with one part per
    Wave and the gap between them. In a run over a queue of Epics each Epic counts its Waves from 1, so a Wave is named
-   with its Epic, `Wave 1 · worfy-retry`, and an `i` mark on the run's row stands for the start of each next Epic
-   (`Epic 2/3: worfy-retry`) and for an Epic the run passed over (`Epic worfy-retry skipped: waits for the owner`, or
-   `runs elsewhere`).
+   with its Epic, `Wave 1 · worfy-retry`; two Epics may share a Ticket number, so a Ticket is named with its Epic too,
+   `Ticket worfy-retry/01`. An `i` mark on the run's row stands for the start of each next Epic (`Epic 2/3:
+   worfy-retry`) and for an Epic the run passed over (`Epic worfy-retry skipped: waits for the owner`, or `runs
+   elsewhere`).
 
 At first the run, its Waves and Tickets and the Waits lane are open. A row has `▸` or `▾`, a dot in the colour of its
 kind, its name, and its outcome in words when it is not `ok`. A collapsed row draws its children as thin bars under its
@@ -243,8 +244,9 @@ read on from where the last read stopped. A thread that grows does not make a li
 journal growing and a new answer of GitHub do, as for any run.
 
 **Which Ticket a piece of work is.** An agent's Ticket comes from its name (`impl-NN`, `verify-NN`), else from its
-description, branch or Ticket path in its prompt. An agent with no Ticket named, in the worktree of an agent of a
-Ticket, gets that Ticket; any other belongs to the run. A gate run belongs to a Ticket by the head of its PR, and
+description, branch or Ticket path in its prompt. In a run over a queue of Epics the Epic in the branch or the path
+picks the Ticket, and a number alone that two Epics share names neither. An agent with no Ticket named, in the
+worktree of an agent of a Ticket, gets that Ticket; any other belongs to the run. A gate run belongs to a Ticket by the head of its PR, and
 without a PR by its worktree.
 
 **Spans.** A span has a kind, a start, an end or none, an outcome, a reason, an attempt, links and the sources of its
