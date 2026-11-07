@@ -52,8 +52,11 @@ machine с доступом read-only команда неактивна.
   тоже.
 - Тот же Epic того же репозитория идёт или стартует на Linked machine либо в другом Project-е этой Machine. Под кнопкой
   появляется chip «running on <Machine>», а рядом кнопка **Start anyway**. Для очереди спрашивают о каждом её Epic-е, и
-  один Epic, который идёт в другом месте, даёт отказ всему старту; после **Run all accepted** этот отказ — только toast
-  ошибки, без chip и без Start anyway.
+  один Epic, который идёт в другом месте, даёт отказ всему старту. После **Run all accepted** вместо toast ошибки окно
+  остаётся открытым: `Runs elsewhere:` с причиной и красная **Start anyway** рядом со стартом. Она запускает ту же
+  очередь, в том же порядке и Run mode, без проверки для каждого её Epic-а. Другая отметка, порядок или режим убирают
+  причину и кнопку, и старт спрашивает снова. У `autopilot_start` агента такой кнопки нет: worfy запускает его очередь
+  после ответа, и отказ получает Session, которая просила.
 
 Старт с отказом не пишет journal и не держит экран включённым. «Start anyway» запускает run, хотя оба run-а будут брать
 одни и те же Ticket-ы. Другого пути мимо этого отказа нет, и он действует на весь run: об Epic-е, который добавили в его
@@ -122,14 +125,19 @@ Ticket-ы для владельца (`blocked` с `Waits: owner`, без ста�
 пропускается с `waits-owner`, и начинается следующий. Любая другая остановка или другие оставшиеся Ticket-ы
 останавливают весь run. Дойдя до следующего Epic-а, run снова спрашивает Linked machines; Epic, который идёт в другом
 месте, пропускается. Когда Epic-ов не осталось, run останавливается с причиной последнего, но сначала отдаёт ход gate
-queue ([Почему run останавливается](autopilot-faults.md#почему-run-останавливается)).
+queue ([Почему run останавливается](autopilot-faults.md#почему-run-останавливается)). Исключение одно: в последнем
+Epic-е остались только Ticket-ы для владельца. Он получает `epic-finished` `waits-owner`, как пропущенный, и run
+останавливается с `waits-owner` (`Epic 3/3: billing · stopped: waits for owner`), так что у одного и того же состояния
+Epic-а одна причина, где бы он ни стоял в очереди. Run по одному Epic-у в этом случае, как раньше, останавливается с
+`blocked-tickets`.
 
 Строка стоит на рамке Epic-а, по которому идёт run, а её tooltip перечисляет очередь: каждый Epic со своим статусом
 (`done`, `running`, `next`, `skipped: waits for the owner`, `skipped: runs on another
 Machine`). Пока идёт run, на рамке каждого другого Epic-а очереди под кнопкой стоит chip: `In queue 3/3` — у ещё не
 начатого, `Waits for owner` — у того, который run пропустил, потому что остались только Ticket-ы владельца, `Runs
 elsewhere` — у того, который он пропустил, потому что его вела другая Machine. У выполненного Epic-а и у Epic-а, по
-которому идёт run, chip-а нет.
+которому идёт run, chip-а нет. После остановки run-а chip-ы пропадают, кроме остановки с `waits-owner`: у последнего
+Epic-а под строкой остаётся `Waits for owner`.
 
 Очередь можно менять, пока идёт run, из меню «⋯» рамки Epic-а: **Add to queue** на Epic-е вне очереди ставит его в
 конец, **Remove from queue** на ещё не начатом Epic-е убирает его. Порядок очереди ничто не меняет. Между Wave-ами — пока
@@ -344,7 +352,7 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/mcp/browser-server.ts` | Что Session в Autopilot может делать с Browser. |
 | `src/main/ipc/card-api.ts` | Отказ `session.ask` от Card для unattended Session. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы; Start now и Cancel ожидающего run-а. |
-| `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | Окно Start Autopilot и его одна открытая просьба: от кнопки, от Run all accepted или от агента; старт очереди и toast её отказа. |
+| `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | Окно Start Autopilot и его одна открытая просьба: от кнопки, от Run all accepted или от агента; старт очереди, toast её отказа и Start anyway, когда её Epic идёт в другом месте. |
 | `src/shared/ipc/autopilot-prepare.ts`, `src/main/ipc/autopilot-prepare.ts`, `src/main/autopilot/prepare.ts` | `autopilot.prepare`: факты окна, только чтение, из источников просьбы `autopilot_start`; Wave-ы и прогноз очереди, один Epic за другим. |
 | `src/shared/autopilot/epic-queue.ts` | Правило очереди: следующий Epic, Epic, пропущенный ради владельца, или остановка run-а; не больше 10 Epic-ов. Чистые функции. |
 | `src/shared/workflow/accepted-epics.ts` | Принятые Epic-и для Run all accepted и `accepted`: дата принятия из `epic-status --json` и готовый Ticket. |
@@ -402,7 +410,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `orchestrator-busy` | Run ждёт занятый Orchestrator: `turn`, `queued` (сообщения в очереди) и `tasks`, в начале ожидания и при каждом изменении. |
 | `orchestrator-free` | Ожидание Orchestrator-а кончилось; run берёт его сейчас. |
 | `epic-started` | Run начинает следующий Epic своей очереди: `index` (с 1) и `of`. Эта строка и строки после неё несут этот Epic. У первого Epic-а такой строки нет. |
-| `epic-finished` | Epic очереди закончился, и run идёт дальше: `outcome` — `done`, `waits-owner` (с `tickets` владельца), `elsewhere` (не начат) или `removed` (убран, не начат). У Epic-а, на котором run останавливается, такой строки нет, как и у run-а по одному Epic-у. |
+| `epic-finished` | Epic очереди закончился, и run идёт дальше: `outcome` — `done`, `waits-owner` (с `tickets` владельца), `elsewhere` (не начат) или `removed` (убран, не начат). У Epic-а, на котором run останавливается, такой строки нет, кроме последнего Epic-а, ждущего владельца: `waits-owner`, затем `run-stopped` с `waits-owner`. Run по одному Epic-у таких строк не пишет. |
 | `queue-changed` | Очередь изменили: `added`, `removed`. Пишется сразу между Wave-ами, а для изменения, сделанного во время Wave, — после `wave-finished`. |
 | `harness-behind` | Harness в `main` новее: после `run-started` и перед `wave-started`, когда счётчик изменился. |
 | `forecast` | Epic forecast на старте, один раз, после `run-started` и `harness-behind`, перед первой `wave-started`: Run mode, оставшиеся Wave и Ticket-ы, образцы, `low` и `high` (p10 и p90 доли недели, `null` при числе образцов меньше 5), `fit` (сколько Wave помещается до сброса окна на 7 дней с учётом резерва; только когда у run-а есть рекомендация, в Budget-aware или в Start window с включённым бюджетом, иначе `null`), `week` (число окна на 7 дней на старте), p90 длительности Wave с числом её образцов и `window` в Start window. Journal-ы, которые не читаются, дают `samples: 0`; run продолжается. В run-е на Codex `samples`, `fit` и `week` относятся к самому длинному окну Codex и только к прошлым Wave-ам на Codex. |
@@ -423,7 +431,7 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `run-stopping` | Graceful Stop пришёл во время turn-а или task-ов. |
 | `gate-queue` | Run отправил «Process gate queue». |
 | `gate-queue-finished` | Turn «Process gate queue» закончился. Дальше идёт `run-stopped`. |
-| `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets`, а также для `user-force-stop` и `session-error` после первой Wave. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`; в run-е на Codex — доли самого длинного окна Codex), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
+| `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets` и `waits-owner`, а также для `user-force-stop` и `session-error` после первой Wave. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`; в run-е на Codex — доли самого длинного окна Codex), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
 | `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. Остановка по причине самого run-а, не Stop и не Force stop, отдаёт его сразу, без перезапуска: тогда `tasks` перечисляет фоновые задачи, которые идут дальше в Session человека. |
 | `tasks-killed` | Task-и, которых ждал run, закончились вместе с процессом, при выходе или Force stop. С причиной `start-now` — task-и Orchestrator-а, которые остановил Start now. |
 
@@ -467,13 +475,13 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `test/unit/autopilot-wait-line.test.ts` | Строка ожидающего run-а и остановленного run-а, чьи task-и ещё идут у человека. |
 | `test/contract/autopilot-prepare.test.ts` | `autopilot.prepare`: те же строки, что у просьбы, Orchestrator на Codex, занятый Orchestrator, Epic или Ticket, которого у Project-а нет. |
 | `test/unit/start-autopilot-modal.test.tsx` | Окно Start Autopilot: факты, Run mode по умолчанию, клавиши и фокус, Start when free, просьба агента и её обратный отсчёт. |
-| `test/unit/queue-list.test.tsx` | Очередь в окне: Run all accepted, отметки, перетаскивание, ⌥↑/⌥↓, прогноз отмеченных Epic-ов. |
+| `test/unit/queue-list.test.tsx` | Очередь в окне: Run all accepted, отметки, перетаскивание, ⌥↑/⌥↓, прогноз отмеченных Epic-ов, Start anyway после отказа из-за run-а в другом месте и её отсутствие у просьбы агента. |
 | `test/unit/start-now-modal.test.tsx` | Start now и Cancel в строке ожидающего run-а и окно «Start now?». |
-| `test/e2e/autopilot-start-modal.spec.ts` | Собранное приложение: кнопка открывает окно, Start Autopilot и Start when free, когда Orchestrator в turn-е. |
+| `test/e2e/autopilot-start-modal.spec.ts` | Собранное приложение: кнопка открывает окно, Start Autopilot и Start when free, когда Orchestrator в turn-е; отказ Run all accepted из-за Epic-а в другом Project-е, затем Start anyway; очередь, остановленная с `waits-owner` на последнем Epic-е. |
 | `test/e2e/autopilot-wait.spec.ts` | Собранное приложение: строка ожидания, Start now через его окно и Cancel. |
 | `test/unit/epic-queue.test.ts` | Правило очереди: каждый случай следующего Epic-а, Epic-а, пропущенного ради владельца, и остановки. |
 | `test/unit/accepted-epics.test.ts` | Какие Epic-и приняты и в каком порядке. |
-| `test/contract/autopilot-queue.test.ts` | Run над очередью на fake agent: следующий Epic, пропуски, остановки, `epic-started` и `epic-finished`, изменения между Wave-ами. |
+| `test/contract/autopilot-queue.test.ts` | Run над очередью на fake agent: следующий Epic, пропуски, остановки (`waits-owner` на последнем Epic-е), `epic-started` и `epic-finished`, изменения между Wave-ами, Start anyway очереди. |
 | `test/unit/autopilot-queue-line.test.ts` | Строка run-а над очередью (`Epic 2/3: …`), chip каждого статуса Epic-а очереди, очередь в tooltip и какие из Add to queue и Remove from queue предлагает «⋯». |
 | `test/e2e/autopilot-queue.spec.ts` | Собранное приложение: Run all accepted из «⋯», run над двумя Epic-ами (`Epic 1/2`), Add to queue во время Wave, внесённое в её конце (`Epic 1/3`), Remove from queue, который оставляет Epic не начатым, с `queue-changed` в journal. |
 | `test/e2e/linked-autopilot.spec.ts` | Два связанных приложения: отказ, Start anyway, Stop на двух экранах. |

@@ -133,7 +133,9 @@ import { hasRunWave, useRunWaveState } from './gates'
 //   Wave 1 · running". Its tooltip lists the queue, each Epic with its status (queueTitle).
 // - The frame of each other Epic of the queue has a chip under the button while the run goes on: "In queue 3/3"
 //   for one not started, "Waits for owner" for one the run passed with only the owner's Tickets left, "Runs
-//   elsewhere" for one another Machine ran (queueChip).
+//   elsewhere" for one another Machine ran (queueChip). A run that stopped on the last Epic of its queue because
+//   only the owner's Tickets are left ("Epic 3/3: billing · stopped: waits for owner") keeps "Waits for owner"
+//   under that Epic's line (worfy-autopilot-queue ticket 21).
 // - "⋯" has "Add to queue" on the frame of an Epic outside the queue, and "Remove from queue" on one not started,
 //   while the run goes on and no Stop was asked (`autopilot.queue`). Main makes the change at once between Waves
 //   and at the end of the Wave during one; the toast then says "applies after this Wave", and until the state

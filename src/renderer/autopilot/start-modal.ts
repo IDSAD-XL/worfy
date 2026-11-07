@@ -19,6 +19,14 @@
 // and main starts over exactly those (src/main/autopilot/chat-confirm.ts checks they are a part of the
 // queue asked for). An ask of one Epic answers no list.
 //
+// A start of "Run all accepted" refused because an Epic of the queue runs on another Machine or in another
+// Project of the same repository (`runningElsewhere`, worfy-autopilot-queue ticket 21) keeps the window open with
+// main's reason and "Start anyway", as the Autopilot line of one Epic offers it: that button starts the same
+// queue, in the same order and Run mode, with `override`, which lifts the check for every Epic of the queue
+// (owner's decision 2026-11-07). Every other refusal is the error toast, and the window closes. An agent's ask
+// gets no such button: main starts its queue after the answer, so a run elsewhere is the refusal the Session
+// gets; a start past another run is only ever a person's click in the window of "Run all accepted".
+//
 // "change in Modes" of the window (openOrchestratorModes) shows the Session view of the Project's
 // Orchestrator and opens the Modes menu under its input field (session/composer/Modes.tsx).
 import { create } from 'zustand'
@@ -34,6 +42,11 @@ import { invoke, readableReason } from '../ipc'
 import { openSession } from '../session/navigation'
 import { showToast } from '../toast/toasts'
 
+/** A start refused because a run of an Epic of the queue goes on elsewhere: main's words; the window offers "Start anyway". */
+export interface RunsElsewhere {
+  elsewhere: string
+}
+
 /** A start the window asks about. */
 export interface StartRequest {
   projectId: string
@@ -48,9 +61,12 @@ export interface StartRequest {
   /**
    * Starts the run in `mode` over `epics`: the Epics the person left ticked in the window, in its order
    * (`epics` of the request when the window shows no queue). Resolves to main's reason when the start was
-   * refused, undefined when it went (or waits for the Orchestrator).
+   * refused, undefined when it went (or waits for the Orchestrator); RunsElsewhere when an Epic runs elsewhere
+   * and the request has startAnyway.
    */
-  start(mode: RunMode, epics: readonly string[]): Promise<string | undefined>
+  start(mode: RunMode, epics: readonly string[]): Promise<string | RunsElsewhere | undefined>
+  /** "Start anyway" after RunsElsewhere: the same start past the check of other runs (`override`). Absent: no such button. */
+  startAnyway?(mode: RunMode, epics: readonly string[]): Promise<string | undefined>
   /** Told when the window closes without a start (Cancel, Esc, "change in Modes"); absent: nothing to tell. */
   cancel?(): void
 }
@@ -138,17 +154,24 @@ function refused(projectId: string, reason: string): string {
 }
 
 /**
- * Starts a run over `epics` of the Project, in order, in `mode`; resolves to main's reason when it was
- * refused (a toast says it too). The Autopilot line of the Epic frame learns the run from main's
- * `autopilot.changed`.
+ * Starts a run over `epics` of the Project, in order, in `mode`, past the check of other runs with `override`;
+ * resolves to main's reason when it was refused (a toast says it too), to RunsElsewhere — no toast, the window
+ * says it — when an Epic of the queue runs elsewhere. The Autopilot line of the Epic frame learns the run from
+ * main's `autopilot.changed`.
  */
-export async function startQueue(projectId: string, epics: readonly string[], mode: RunMode): Promise<string | undefined> {
+export async function startQueue(projectId: string, epics: readonly string[], mode: RunMode, override = false): Promise<string | RunsElsewhere | undefined> {
   const [epic] = epics
   if (epic === undefined) return 'No Epic is ticked'
-  const result = await invoke('autopilot.start', { projectId, epic, ...(epics.length > 1 ? { epics: [...epics] } : {}), mode })
+  const result = await invoke('autopilot.start', { projectId, epic, ...(epics.length > 1 ? { epics: [...epics] } : {}), mode, ...(override ? { override } : {}) })
   if (!result.ok) return refused(projectId, failureReason('autopilot.start', result.error))
-  if ('runningElsewhere' in result.value) return refused(projectId, result.value.runningElsewhere.message)
+  if ('runningElsewhere' in result.value) return { elsewhere: result.value.runningElsewhere.message }
   return undefined
+}
+
+/** "Start anyway" of the window: startQueue with `override`; main never answers it runningElsewhere, a toast would say so. */
+async function startQueueAnyway(projectId: string, epics: readonly string[], mode: RunMode): Promise<string | undefined> {
+  const result = await startQueue(projectId, epics, mode, true)
+  return typeof result === 'object' ? refused(projectId, result.elsewhere) : result
 }
 
 /** The toast of "Run all accepted" when no Epic is accepted with a ready Ticket. */
@@ -169,7 +192,13 @@ export function runAllAccepted(projectId: string, model: WorkflowModel): undefin
     showToast({ kind: 'info', key: `${NO_ACCEPTED_TOAST}:${projectId}`, testId: NO_ACCEPTED_TOAST, projectId, text: NO_ACCEPTED_TEXT })
     return undefined
   }
-  void askStart({ projectId, epics, from: 'accepted', start: (mode, chosen) => startQueue(projectId, chosen, mode) })
+  void askStart({
+    projectId,
+    epics,
+    from: 'accepted',
+    start: (mode, chosen) => startQueue(projectId, chosen, mode),
+    startAnyway: (mode, chosen) => startQueueAnyway(projectId, chosen, mode),
+  })
   return undefined
 }
 

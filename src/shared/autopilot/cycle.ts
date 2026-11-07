@@ -45,6 +45,9 @@ import { doneOnlyInBranch, readyWave } from '../workflow/waves'
  * Why a run ended; the `reason` of its `run-stopped` journal line. `start-cancelled` and
  * `start-refused` end a run that waited for its Orchestrator and never took it
  * (worfy-autopilot-queue ticket 07): Cancel, or a refusal of the checks made again when it was free.
+ * `waits-owner` is never a cycle's own: a Run over a queue of Epics stops with it when the rule of the
+ * queue (epic-queue.ts, epicOutcome) finds the last Epic waiting only for the owner (ticket 21); a Run
+ * of one Epic stops with `blocked-tickets` then, as before.
  */
 export const AUTOPILOT_STOP_REASONS = [
   'no-ready-wave',
@@ -67,6 +70,7 @@ export const AUTOPILOT_STOP_REASONS = [
   'app-quit',
   'start-cancelled',
   'start-refused',
+  'waits-owner',
 ] as const
 export type AutopilotStopReason = (typeof AUTOPILOT_STOP_REASONS)[number]
 
