@@ -65,13 +65,30 @@ describe('link/settings.json written by a newer build', () => {
     expect(settings.levelOf(MACHINE)).toBe('off')
     expect(warnings.join('\n')).toMatch(/version 3/)
 
-    // A change made in this build applies while it runs and is announced, but is not saved over the newer file.
+    // A change from Settings is refused with a text the user sees, not kept in memory until a restart.
     const events: boolean[] = []
     settings.on('changed', (value) => events.push(value.projectsAccess))
-    settings.set({ projectsAccess: true })
-    expect(events).toEqual([true])
-    expect(settings.get().projectsAccess).toBe(true)
+    const refusal = 'Link settings were written by a newer worfy build (file version 3); update worfy to change them'
+    expect(() => settings.set({ projectsAccess: true })).toThrow(refusal)
+    expect(() => settings.setLevel(MACHINE, 'read')).toThrow(refusal)
+    expect(() => settings.set({ keepAwake: false })).toThrow(refusal)
+    expect(() => settings.set({ tailscale: true })).toThrow(refusal)
+    expect(events).toEqual([])
+    expect(settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
+
+    // The service's own clearing of a level on link and unlink (service.ts) changes nothing and does not throw.
+    expect(settings.setLevel(OTHER, 'off')).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
+    expect(settings.set({ projectsAccess: false })).toEqual({ projectsAccess: false, machines: {}, keepAwake: true, tailscale: false })
+
     expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(readdirSync(dir)).toEqual(['settings.json'])
+  })
+
+  it('version 1 with keys this build does not know: rewritten as version 2 at once, and the keys stay', () => {
+    const dir = linkDir({ version: 1, projectsAccess: true, keepAwake: false, aNewSwitch: 'on' })
+    const settings = new LinkSettings(dir, { warn: () => undefined, linked: () => [MACHINE] })
+    expect(settings.get()).toEqual({ projectsAccess: true, machines: { [MACHINE]: 'all' }, keepAwake: false, tailscale: false })
+    expect(readJson(join(dir, 'settings.json'))).toEqual({ version: 2, projectsAccess: true, machines: { [MACHINE]: 'all' }, keepAwake: false, tailscale: false, aNewSwitch: 'on' })
     expect(readdirSync(dir)).toEqual(['settings.json'])
   })
 

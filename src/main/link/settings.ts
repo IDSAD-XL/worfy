@@ -22,7 +22,7 @@
 // previous copy on the same data folder). Keys this build does not know are kept and written back
 // with every change. A version later than 2 is not set aside and never rewritten: its access rules
 // may narrow what the fields this build knows say, so this build applies the defaults (access off)
-// and keeps the changes made while it runs in memory only. The newer build finds its file as it was.
+// and refuses every change with an error the Settings shows. The newer build finds its file as it was.
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -99,12 +99,10 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
   private unknown: Record<string, unknown> = {}
   /** The version of the file when a newer build wrote it: this build then never writes the file. */
   private readonly newerVersion: number | null = null
-  private readonly warn: (message: string) => void
 
   constructor(linkDir: string, options: LinkSettingsOptions = {}) {
     super()
     const warn = options.warn ?? ((message: string) => console.warn(message))
-    this.warn = warn
     this.file = join(linkDir, 'settings.json')
     let stored: z.output<typeof readSchema> | undefined
     try {
@@ -175,10 +173,11 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
   }
 
   private write(value: LinkSettingsValue): void {
-    if (this.newerVersion !== null) {
-      this.warn(`[link] ${this.file} is version ${this.newerVersion}, written by a newer worfy: the change applies until worfy quits and is not saved`)
-      return
-    }
+    // A change is refused rather than kept in memory: the user sees this text where Settings → Machines
+    // shows its errors, instead of a switch that is silently off again after a restart. Nothing is
+    // granted in this mode, so the service's own setLevel(id, 'off') on link and unlink changes
+    // nothing, writes nothing and never gets here.
+    if (this.newerVersion !== null) throw new Error(`Link settings were written by a newer worfy build (file version ${this.newerVersion}); update worfy to change them`)
     writeJsonFile(this.file, versionTwo, { ...this.unknown, version: 2, projectsAccess: value.projectsAccess, machines: { ...value.machines }, keepAwake: value.keepAwake, tailscale: value.tailscale })
   }
 }

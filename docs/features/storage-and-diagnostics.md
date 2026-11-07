@@ -83,8 +83,9 @@ Project is not in this Machine's list.
   write keeps them. In `limits.json` a window the older build updates gets its own new value, without the old value's
   unknown keys, and a source of a window it does not know is kept as written. A `link/settings.json` of a version later
   than 2 is not set aside either. Its rules may narrow what the known fields say, so the older build leaves access off
-  and uses the other defaults, and never writes that file. A change made there applies until worfy quits. The newer
-  build finds its file as it was. A file that does not parse as JSON is still set aside. The other state files drop keys
+  and uses the other defaults, and never writes that file. A change in Settings → Machines is refused there with "Link
+  settings were written by a newer worfy build (file version N); update worfy to change them". Linking and unlinking a
+  Machine still work. The newer build finds its file as it was. A file that does not parse as JSON is still set aside. The other state files drop keys
   they do not know.
 - **The calls are synchronous.** The files are small, a window position has to be saved inside a `close` handler, and two
   synchronous read-modify-write cycles cannot interleave in one process.
