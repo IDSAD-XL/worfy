@@ -182,6 +182,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // The Orchestrator modes of a Project (worfy-retry ticket 13): a read-only screen sees them in the Modes menu.
     'autoApproval.read',
     'autoContinue.read',
+    // What the Orchestrator waits for to be continued, for the countdown over its field (worfy-retry ticket 07).
+    'autoContinue.wait',
     'autopilot.state',
     // The estimate of a Wave's share of the week, read from the run journals (worfy-throughput ticket 40).
     'autopilot.estimate',
@@ -278,6 +280,9 @@ describe('the read-or-write mark of `project` channels', () => {
     // The Orchestrator modes (worfy-retry ticket 13): only full access changes them, on the Machine of the Project.
     'autoApproval.set',
     'autoContinue.set',
+    // The countdown's buttons (worfy-retry ticket 07): Retry now sends the continuation, Cancel ends the wait or the run.
+    'autoContinue.retryNow',
+    'autoContinue.cancel',
     'autopilot.forceStop',
     // Adding an Epic to a Run's queue or taking one out (worfy-autopilot-queue ticket 14) changes what the Run does.
     'autopilot.queue',

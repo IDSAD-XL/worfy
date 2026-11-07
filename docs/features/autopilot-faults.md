@@ -59,6 +59,14 @@ when an earlier Stop already made the run stopping; Force stop, the end of the S
 wait is read when the time comes: the wait is dropped and the run stops with `turn-error`. With Auto-continue off a turn
 with an API error stops the run with `turn-error`, as before.
 
+The Orchestrator's chat shows the wait as a line over its input field that counts down by the second
+([Sessions](sessions.md)): `API error 529 (overloaded) · retry 2 of 5 in 4:12` with **Retry now** and **Cancel**, and for a
+Limits wait `Limits: 7-day window · resumes 14:20 (in 2:13:05)` or `Limits: no reset time reported · next try in 27:40`
+with **Cancel** only. Retry now sends the continuation of the same retry at once, in the run's order, as its timer would
+(`resumed` in the journal); the timer and a second click send nothing more. Cancel ends the wait with nothing sent, and the
+run stops as it would have without Auto-continue: with `turn-error` during a retry wait, with `limits-timeout` during a
+Limits wait. A Cancel that comes after the continuation already went finds nothing to cancel, and the run goes on.
+
 #### Stopping
 
 **Stop autopilot** is graceful: the run sends no new Wave. A click before "Run wave" is sent keeps that Wave from going. A click
@@ -126,11 +134,11 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour, and none of their output files changed in it. |
-| `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), or Auto-continue was switched off during a wait for a reset more than 24 hours away. |
+| `limits-timeout` | The wait for the Limits would pass 24 hours (with Auto-continue on, only when no reset time is known), Auto-continue was switched off during a wait for a reset more than 24 hours away, or the wait was cancelled with Cancel in the Orchestrator's chat. |
 | `vendor-quota` | Codex refused a turn by its Limits, and no window is used up, so nothing will reset. Codex's error text is the message of the run's state (the status line's tooltip) and `message` of the `limits-hit` line. |
 | `window-too-short` | The Run mode is Start window, and the next Wave usually takes longer than the whole window. The tooltip names the Wave, its usual duration and the window. |
 | `interrupted` | A turn of the Wave was interrupted, or a person's turn was, leaving the Wave held in the queue. |
-| `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits, and was not retried (Auto-continue off, or a `retry-refused`). |
+| `turn-error` | A turn of the Wave ended with an error that is not a refusal by the Limits, and was not retried (Auto-continue off, a `retry-refused`, or the retry wait cancelled with Cancel in the Orchestrator's chat). |
 | `session-error` | The Orchestrator's Session failed, or, before a later Wave or the gate queue's turn, Codex no longer runs the Harness's hooks. |
 | `session-closed` | The Orchestrator's Session closed. |
 | `send-failed` | "Run wave" could not be sent. |
@@ -189,7 +197,7 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/unit/autopilot-resume-at.test.ts` | When a run continues after a refusal. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
-| `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait. |
+| `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait; the countdown's Retry now (one continuation, also after a double click and the timer) and Cancel (`turn-error`, `limits-timeout`, nothing sent; a Cancel queued behind the continuation finds nothing and the run goes on). |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |

@@ -725,3 +725,101 @@ describe('Autopilot continues after a temporary API error (worfy-retry ticket 04
     }
   })
 })
+
+// ── the countdown's buttons (worfy-retry ticket 07) ─────────────────────────
+
+describe("Retry now and Cancel of the countdown in the Orchestrator's chat, on a run (worfy-retry ticket 07)", () => {
+  it('Retry now: the continuation of the same retry goes at once, once, with its resumed; the timer sends nothing after it', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    expect(h.autopilot.continueWait(PROJECT)).toEqual({ kind: 'retry', attempt: 1, of: MAX_RETRIES, error: 'api-500', until: timer.at })
+
+    // The clock has not moved: a double click, long before the timer's time — the second click finds the
+    // wait already sent, in the run's order, and sends nothing.
+    expect(await Promise.all([h.autopilot.retryNow(PROJECT), h.autopilot.retryNow(PROJECT)])).toEqual([true, false])
+    expect(h.messages()).toEqual([WAVE_1, retryText({ attempt: 1, of: MAX_RETRIES, error: 'api-500', actions: [] })])
+    expect(timer.cancelled).toBe(true)
+    // The timer fires anyway: it sends nothing more for this wait.
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(continuations(h)).toHaveLength(1)
+    const kinds = await h.kinds()
+    expect(kinds.slice(0, kinds.indexOf('resumed') + 1).filter((kind) => kind !== 'ticket-status')).toEqual(['run-started', 'wave-started', 'turn-retry', 'resumed'])
+    expect(kinds.filter((kind) => kind === 'resumed')).toHaveLength(1)
+    await until(async () => (await retries(h)).length >= 2, 'the turn-retry of Wave 2')
+    expect(continuations(h)).toHaveLength(1)
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('Cancel of a retry: nothing is sent and the run stops with turn-error, as it would have without Auto-continue', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    expect(await h.autopilot.cancelContinue(PROJECT)).toBe(true)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'turn-error', wave: 1 })
+    expect(h.state().message).toMatch(/^API Error: 500 /u)
+    expect(h.autopilot.continueWait(PROJECT)).toBeNull()
+    clock = timer.at
+    timer.fire()
+    await tick()
+    expect(h.messages()).toEqual([WAVE_1])
+    expect((await h.journal()).find((event) => event.kind === 'run-stopped')).toMatchObject({ reason: 'turn-error' })
+    expect(await h.autopilot.cancelContinue(PROJECT)).toBe(false)
+    expect(await h.autopilot.retryNow(PROJECT)).toBe(false)
+  })
+
+  it('a Limits wait: the countdown sees its window; Retry now has nothing to send, Cancel stops the run with limits-timeout', async () => {
+    const h = harness({ script: 'autopilot-limits' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const wait = h.autopilot.continueWait(PROJECT)
+    expect(wait).toMatchObject({ kind: 'limits', until: h.state().resumesAt })
+    expect(await h.autopilot.retryNow(PROJECT)).toBe(false)
+    expect(await h.autopilot.cancelContinue(PROJECT)).toBe(true)
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'limits-timeout' })
+    expect(h.messages()).toEqual([WAVE_1])
+    expect(h.live()).toEqual([])
+  })
+
+  it('no run, or a run that waits for nothing: nothing to show, nothing to do', async () => {
+    const h = harness({ script: 'autopilot-limits' })
+    expect(h.autopilot.continueWait(PROJECT)).toBeNull()
+    expect(await h.autopilot.retryNow(PROJECT)).toBe(false)
+    expect(await h.autopilot.cancelContinue(PROJECT)).toBe(false)
+  })
+
+  it('Cancel queued behind Retry now: the continuation went, nothing waits — Cancel answers false, feeds the cycle nothing, the run goes on', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    // Both clicks reach the run's queue before either runs: Retry now first, Cancel right behind it.
+    expect(await Promise.all([h.autopilot.retryNow(PROJECT), h.autopilot.cancelContinue(PROJECT)])).toEqual([true, false])
+    expect(h.state().status).toBe('running')
+    expect(continuations(h)).toHaveLength(1)
+    // The run goes on: Wave 1's continuation ends, Wave 2 starts and fails again, with no run-stopped.
+    await until(async () => (await retries(h)).length >= 2, 'the turn-retry of Wave 2')
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toEqual([])
+    await h.autopilot.forceStop(PROJECT)
+  })
+
+  it('Cancel queued behind the timer: the timer sent the continuation, Cancel answers false and the run goes on', async () => {
+    const h = harness({ script: 'autopilot-retry-500' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await untilRetry(h)
+    const timer = h.live()[0]!
+    clock = timer.at
+    timer.fire()
+    expect(await h.autopilot.cancelContinue(PROJECT)).toBe(false)
+    expect(h.state().status).toBe('running')
+    expect(continuations(h)).toHaveLength(1)
+    await until(async () => (await retries(h)).length >= 2, 'the turn-retry of Wave 2')
+    expect((await h.journal()).filter((event) => event.kind === 'run-stopped')).toEqual([])
+    await h.autopilot.forceStop(PROJECT)
+  })
+})

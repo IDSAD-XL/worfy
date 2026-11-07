@@ -34,7 +34,9 @@
 // it, run.ts stillRefused); a continuation still refused waits again; redo when the owner asks for the
 // free read before each try (spec Q7 (a)).
 //
-// The wait of each Project (wait()) is what the countdown in the Orchestrator's chat shows (ticket 07).
+// The wait of each Project (wait()) is what the countdown in the Orchestrator's chat shows (ticket 07);
+// observeWaits() tells of each change, and its buttons are retryNow() (the continuation at once, as at the
+// timer) and cancel() (the wait ends, nothing is sent).
 //
 // shortcut: no keep-awake during a manual wait, a Mac that sleeps continues at its first wake after the
 // time (the wall-clock timer); redo when the owner wants a manual Limits wait to keep the Mac awake.
@@ -115,11 +117,22 @@ export class OrchestratorContinue {
   private readonly entries = new Map<string, Entry>()
   private readonly cleanups: (() => void)[] = []
   private readonly now: () => number
+  private readonly waitListeners = new Set<(projectId: string) => void>()
+  /** The wait of each Project as last told to the listeners of observeWaits, as JSON. */
+  private readonly told = new Map<string, string>()
 
   constructor(private readonly deps: OrchestratorContinueDeps) {
     this.now = deps.now ?? Date.now
-    this.cleanups.push(deps.observe((sessionId, event) => this.onEvent(sessionId, event)))
-    const unobserve = deps.observeSettings?.(() => this.settingsChanged())
+    this.cleanups.push(
+      deps.observe((sessionId, event) => {
+        this.onEvent(sessionId, event)
+        this.tell()
+      }),
+    )
+    const unobserve = deps.observeSettings?.(() => {
+      this.settingsChanged()
+      this.tell()
+    })
     if (unobserve !== undefined) this.cleanups.push(unobserve)
   }
 
@@ -144,6 +157,38 @@ export class OrchestratorContinue {
     if (entry.retry.until !== null && failed !== null && retry !== null) return { kind: 'retry', attempt: retry.attempt, of: retry.of, error: failed.error, until: entry.retry.until }
     if (entry.limits.until !== null) return { kind: 'limits', window: entry.limits.window, until: entry.limits.until }
     return null
+  }
+
+  /** Calls `listener` with a Project's id whenever what its Orchestrator waits for (wait()) changes; answers the unsubscribe. */
+  observeWaits(listener: (projectId: string) => void): () => void {
+    this.waitListeners.add(listener)
+    return () => void this.waitListeners.delete(listener)
+  }
+
+  /**
+   * Retry now (worfy-retry ticket 07): the continuation the Project waits to send after an API error goes
+   * at once, as at its timer — the same attempt, and the timer sends nothing after it. Answers whether a
+   * retry waited.
+   */
+  retryNow(projectId: string): boolean {
+    const entry = this.entries.get(projectId)
+    if (entry === undefined || entry.retry.until === null) return false
+    this.continueRetry(entry)
+    this.tell()
+    return true
+  }
+
+  /**
+   * Cancel (worfy-retry ticket 07): the Project's wait — a retry or the Limits — ends and nothing is sent;
+   * the next failure is the first of a new count. Answers whether anything waited.
+   */
+  cancel(projectId: string): boolean {
+    const entry = this.entries.get(projectId)
+    if (entry === undefined || !this.waiting(entry)) return false
+    this.drop(entry)
+    this.notice(entry, 'worfy: the wait was cancelled; nothing was sent')
+    this.tell()
+    return true
   }
 
   /** Cancels every wait and follows nothing more. */
@@ -250,7 +295,10 @@ export class OrchestratorContinue {
     }
     const decision = entry.retry.decide(failure, actions)
     if (decision.kind === 'retry' && failure.kind === 'transient') {
-      entry.retry.wait(decision, { error: failure.error, actions, message }, (id) => this.retryFired(entry, id))
+      entry.retry.wait(decision, { error: failure.error, actions, message }, (id) => {
+        this.retryFired(entry, id)
+        this.tell()
+      })
       this.notice(entry, `worfy: ${ERROR_WORDS[failure.error]}, retry ${decision.attempt} of ${decision.of} at ${clockText(entry.retry.until ?? this.now(), this.now())}`, () => this.waiting(entry))
       return
     }
@@ -277,13 +325,20 @@ export class OrchestratorContinue {
       this.notice(entry, `worfy: not continued: ${plan.reason}`)
       return
     }
-    const id = entry.limits.wait(plan.at, () => this.limitsFired(entry, id))
+    const id = entry.limits.wait(plan.at, () => {
+      this.limitsFired(entry, id)
+      this.tell()
+    })
     const at = clockText(plan.at, this.now())
     this.notice(entry, plan.kind === 'at' ? `worfy: waiting for the Limits, resumes ${at}` : `worfy: waiting for the Limits, no reset time reported, next try at ${at}`, () => this.waiting(entry))
   }
 
   private retryFired(entry: Entry, id: number): void {
-    if (!entry.retry.isCurrent(id)) return
+    if (entry.retry.isCurrent(id)) this.continueRetry(entry)
+  }
+
+  /** The retry the entry waits for goes now, if its Session is ready for it (ready). */
+  private continueRetry(entry: Entry): void {
     const session = this.ready(entry)
     if (session === null) return
     const retry = entry.retry.retry
@@ -345,6 +400,23 @@ export class OrchestratorContinue {
       if (!this.waiting(entry) || this.deps.enabled(entry.projectId)) continue
       this.drop(entry)
       this.notice(entry, 'worfy: Auto-continue is off; nothing was sent')
+    }
+  }
+
+  /** Tells the listeners of observeWaits of each Project whose wait is not what they were told last. */
+  private tell(): void {
+    if (this.waitListeners.size === 0) return
+    for (const projectId of this.entries.keys()) {
+      const wait = JSON.stringify(this.wait(projectId))
+      if ((this.told.get(projectId) ?? 'null') === wait) continue
+      this.told.set(projectId, wait)
+      for (const listener of this.waitListeners) {
+        try {
+          listener(projectId)
+        } catch (error) {
+          console.warn(`[orchestrator] ${projectId}: a listener of the wait failed`, error)
+        }
+      }
     }
   }
 
