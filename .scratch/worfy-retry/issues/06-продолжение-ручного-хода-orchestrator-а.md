@@ -33,15 +33,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 ## Готово, когда
 
 - [ ] Contract test: on, ручной ход 529, затем удачный — одно продолжение, строки в транскрипте; off — ничего не ушло.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
 - [ ] Contract test: человек написал во время ожидания — продолжения нет.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
 - [ ] Contract test: отказ Limits вне Run-а — ожидание сброса по stub-у, одно продолжение.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
 - [ ] Contract test: идёт Run — модуль ничего не шлёт; Run повторил один раз.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
 - [ ] Contract test: `git push` без результата — продолжения нет, строка «not retried».
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
@@ -105,7 +105,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 
 ### Итог раунда 2
 
-После ревью high (раунд 1, PR #1548); ветка перебазирована на `origin/main` 12349ec0c.
+После ревью high (раунд 1, PR #1548); ветка перебазирована на `origin/main` 2414734ed.
 
 - (1) Начало хода — не только `prompt`, но и переход Session в `busy` (ход, который Claude Code начал сам по
   task-notification, `prompt` не шлёт). Каждое начало сбрасывает вызовы прошлого хода (`TurnRetry.turnStarted`) и
