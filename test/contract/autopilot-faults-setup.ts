@@ -54,6 +54,7 @@ import { readWorkflow, type EpicStatusRunner } from '../../src/main/workflow/rea
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { parseJournal, type JournalEvent, type TicketStatusState } from '../../src/shared/autopilot/journal'
 import type { AutopilotState } from '../../src/shared/ipc/autopilot'
+import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { CLAUDE_CAPABILITIES, type Capabilities } from '../../src/shared/vendors/capabilities'
 import type { VendorId } from '../../src/shared/vendors/vendor'
@@ -126,6 +127,8 @@ export interface FaultRunOptions {
    * 15, 30, 60 minutes). Absent or false: no `retry` at all, the run as before worfy-retry.
    */
   autoContinue?: boolean
+  /** Gets each view the Orchestrators publish (the app gives it to Auto-continue of a manual turn, worfy-retry ticket 08). */
+  publish?: (view: OrchestratorView) => void
 }
 
 // ── the clock of the test ────────────────────────────────────────────────────
@@ -402,7 +405,7 @@ export function faultRun(options: FaultRunOptions = {}) {
     capabilities: (each) => Promise.resolve(capabilities[each]),
     harnessHooks: () => undefined,
     broadcast: () => undefined,
-    publish: () => undefined,
+    publish: (view) => options.publish?.(view),
   })
   const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
   const launcher = new ActionLauncher({

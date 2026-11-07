@@ -12,9 +12,11 @@
 // — the status after `API Error: `, the error `type` of the JSON body, or a fixed phrase —
 // never anywhere in the whole text, so a tool output quoting an error does not count. The shapes
 // are those of Claude Code 2.1.289 and of the older `API Error: <status> {json}` form the
-// fixtures use. Codex names the kind in `terminalReason` (its `codexErrorInfo` key, `errorKind`
-// in src/main/vendors/codex/items.ts); its error text does not count. Any shape not listed is
-// `other`: the run stops, as it did before this module.
+// fixtures use. Codex names the kind in `terminalReason` (its `codexErrorInfo` key, with `:<status>` when
+// Codex gives the HTTP status; `errorKind` in src/main/vendors/codex/items.ts); its error text does not
+// count. A 429 is `other` whatever the key: `responseTooManyFailedAttempts:429` means Codex already spent
+// its own retries on a rate limit, which a continuation does not cure (worfy-retry ticket 08). Any shape
+// not listed is `other`: the run stops, as it did before this module.
 
 export type TransientError = 'api-500' | 'api-502' | 'api-503' | 'api-504' | 'overloaded' | 'connection' | 'timeout' | 'stream'
 
@@ -126,7 +128,8 @@ export function turnFailureKind(end: TurnEndInput): TurnFailure {
     case 'claude':
       return claudeFailure(end.error)
     case 'codex': {
-      const kind = end.terminalReason === null ? undefined : CODEX_TRANSIENT.get(end.terminalReason)
+      const parts = /^(\w+)(?::(\d{3}))?$/.exec(end.terminalReason ?? '')
+      const kind = parts === null || parts[2] === '429' ? undefined : CODEX_TRANSIENT.get(parts[1] as string)
       return kind === undefined ? OTHER : transient(kind)
     }
     default:

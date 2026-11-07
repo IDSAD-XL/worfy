@@ -152,6 +152,18 @@ describe('turnFailureKind: Codex', () => {
     },
   )
 
+  it('reads the HTTP status after the kind (worfy-retry ticket 08): 429 is other, as Claude\'s API Error: 429 is; without a code and with 5xx as before', () => {
+    // Codex already spent its own retries on a rate limit: a continuation does not cure it.
+    expect(turnFailureKind(codex('responseTooManyFailedAttempts:429'))).toEqual({ kind: 'other' })
+    expect(turnFailureKind(codex('responseTooManyFailedAttempts'))).toEqual({ kind: 'transient', error: 'stream' })
+    expect(turnFailureKind(codex('responseTooManyFailedAttempts:500'))).toEqual({ kind: 'transient', error: 'stream' })
+    expect(turnFailureKind(codex('responseTooManyFailedAttempts:503'))).toEqual({ kind: 'transient', error: 'stream' })
+    expect(turnFailureKind(codex('httpConnectionFailed:503'))).toEqual({ kind: 'transient', error: 'connection' })
+    expect(turnFailureKind(codex('responseStreamDisconnected:429'))).toEqual({ kind: 'other' })
+    expect(turnFailureKind(codex('contextWindowExceeded:500'))).toEqual({ kind: 'other' })
+    expect(turnFailureKind(codex('serverOverloaded:5xx'))).toEqual({ kind: 'other' })
+  })
+
   it('reads a failed turn without a terminal reason as other', () => {
     expect(turnFailureKind(codex(null))).toEqual({ kind: 'other' })
   })

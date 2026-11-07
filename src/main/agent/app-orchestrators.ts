@@ -32,6 +32,7 @@ import { wallTimer } from '../autopilot/limits-wait'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
 import { appLimits } from './limits'
+import { refreshAppUsage } from './limits-usage'
 import { Orchestrators } from './orchestrator'
 import { OrchestratorContinue } from './orchestrator-continue'
 import { readTranscriptFacts, type TranscriptFacts } from './orchestrator-transcript'
@@ -134,6 +135,9 @@ export function sharedOrchestratorContinue(): OrchestratorContinue {
         return () => void store.off('changed', listener)
       },
       limits: () => appLimits().snapshot(),
+      // Codex: the windows read anew before a continuation after the Limits, as a run does (ipc/autopilot.ts).
+      windows: (vendor) => appLimits().windowsOf(vendor),
+      usage: { refresh: (olderThanMs, vendor) => refreshAppUsage(olderThanMs, vendor) },
       ...continuePauseSeam(process.env),
     })
     app.on('will-quit', () => made.stop())

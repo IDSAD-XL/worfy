@@ -1,0 +1,14 @@
+{"expect":"initialize","result":{"codexHome":"/fake/codex-home","platformFamily":"unix","platformOs":"macos","userAgent":"worfy-fake-app-server/0.166.0"}}
+{"expect":"initialized"}
+{"expect":"thread/start","result":{"approvalPolicy":"never","approvalsReviewer":"user","cwd":"/fake/project","model":"gpt-5.5-codex","modelProvider":"openai","reasoningEffort":null,"sandbox":{"type":"workspaceWrite"},"thread":{"id":"thr_fake_wave","sessionId":"ses_thr_fake_wave","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"notify":"thread/started","params":{"thread":{"id":"thr_fake_wave","sessionId":"ses_thr_fake_wave","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"expect":"turn/start","result":{"turn":{"id":"turn_wave_1","items":[],"status":"inProgress"}}}
+{"notify":"turn/started","params":{"threadId":"thr_fake_wave","turn":{"id":"turn_wave_1","items":[],"status":"inProgress","startedAt":1793000000}}}
+{"notify":"error","params":{"threadId":"thr_fake_wave","turnId":"turn_wave_1","willRetry":false,"error":{"message":"We're currently experiencing high demand, which may cause temporary errors.","codexErrorInfo":"serverOverloaded","additionalDetails":null}}}
+{"notify":"turn/completed","params":{"threadId":"thr_fake_wave","turn":{"id":"turn_wave_1","items":[],"status":"failed","startedAt":1793000000,"completedAt":1793000003,"durationMs":3000,"error":{"message":"We're currently experiencing high demand, which may cause temporary errors.","codexErrorInfo":"serverOverloaded","additionalDetails":null}}}}
+{"expect":"turn/start","result":{"turn":{"id":"turn_wave_2","items":[],"status":"inProgress"}}}
+{"notify":"turn/started","params":{"threadId":"thr_fake_wave","turn":{"id":"turn_wave_2","items":[],"status":"inProgress","startedAt":1793000000}}}
+{"notify":"item/started","params":{"threadId":"thr_fake_wave","turnId":"turn_wave_2","startedAtMs":1793000001000,"item":{"type":"agentMessage","id":"msg_wave_2","text":""}}}
+{"notify":"item/agentMessage/delta","params":{"threadId":"thr_fake_wave","turnId":"turn_wave_2","itemId":"msg_wave_2","delta":"Continued: the Wave goes on."}}
+{"notify":"item/completed","params":{"threadId":"thr_fake_wave","turnId":"turn_wave_2","completedAtMs":1793000002000,"item":{"type":"agentMessage","id":"msg_wave_2","text":"Continued: the Wave goes on."}}}
+{"notify":"turn/completed","params":{"threadId":"thr_fake_wave","turn":{"id":"turn_wave_2","items":[],"status":"completed","startedAt":1793000000,"completedAt":1793000003,"durationMs":3000}}}

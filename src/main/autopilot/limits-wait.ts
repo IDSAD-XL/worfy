@@ -20,7 +20,8 @@
 // A run on a Vendor other than Claude (Codex, worfy-multi-vendor ticket 38): a refusal without a
 // window that resets (`limit_reached` with `reason: 'quota'`) is a hit with `quota`, and the run
 // stops with `vendor-quota` rather than wait (resume-at.ts). When a wait for a window is over, the
-// run reads the Vendor's windows again (run.ts, AutopilotDeps.usage) before it sends the Orchestrator on.
+// run reads the Vendor's windows again (stillRefused, with run.ts's AutopilotDeps.usage) before it sends the
+// Orchestrator on; so does Auto-continue of a manual turn (src/main/agent/orchestrator-continue.ts, spec Q7 (a)).
 //
 // With Auto-continue on for the Project (worfy-retry ticket 05, spec Q8 (c)) a reset more than
 // MAX_WAIT_MS away is waited for (plan with `farReset`), and the Mac may sleep meanwhile: `keepAwake`
@@ -28,7 +29,8 @@
 // for run.ts to take keep-awake again. A Mac that sleeps through the reset continues at its first
 // wake after it (the wall-clock timer).
 import type { LimitsState, LimitWindow } from '../../shared/agent/limits'
-import { isLimitsMessage, MAX_WAIT_MS, resumeAt, type LimitsHit, type ResumePlan } from '../../shared/autopilot/resume-at'
+import { listsWindows } from '../../shared/autopilot/budget-window'
+import { isLimitsMessage, MAX_WAIT_MS, resumeAt, stillUsedUp, type LimitsHit, type ResumePlan } from '../../shared/autopilot/resume-at'
 import type { SessionLimitsStatus } from '../agent/limits'
 
 /** What the Orchestrator gets when the Limits have reset; continueText() adds the times of the pause. */
@@ -62,6 +64,11 @@ export function wallTimer(now: () => number = Date.now): (at: number, fire: () =
       handle = null
     }
   }
+}
+
+/** Reads the Limits anew: the app's LimitsRefresher.refreshIfOlder (refreshAppUsage). */
+export interface VendorUsage {
+  refresh(olderThanMs: number, vendor?: string): Promise<void>
 }
 
 export interface LimitsWaitDeps {
@@ -240,6 +247,26 @@ export class LimitsWait {
   /** The clock of the wait, in milliseconds. */
   clock(): number {
     return this.now()
+  }
+
+  /**
+   * After a wait on a Vendor other than Claude: its windows read anew (`usage.refresh` with the Vendor and
+   * age 0, a poll whatever is known — free, no model tokens), then judged as known. A window still used up
+   * with its reset ahead is the hit to wait for once more; null goes on — no window used up, or a read
+   * that failed and left windows whose resets have passed (the turn then shows whether it is refused).
+   * Claude reads nothing here: null. Without `usage` the windows known decide. `cutShort` ends the wait
+   * for the read at once (a run's Force stop or the quit).
+   */
+  async stillRefused(vendor: string, usage: VendorUsage | undefined, cutShort?: Promise<unknown>): Promise<LimitsHit | null> {
+    if (!listsWindows(vendor)) return null
+    if (usage !== undefined) {
+      try {
+        await (cutShort === undefined ? usage.refresh(0, vendor) : Promise.race([usage.refresh(0, vendor), cutShort]))
+      } catch (error) {
+        console.warn(`[limits] could not read the Limits of ${vendor} after the wait; the windows known decide`, error)
+      }
+    }
+    return stillUsedUp(this.windowsOf(vendor), this.clock())
   }
 
   /** Sends the message to the Session. */
