@@ -46,8 +46,10 @@ Source: решение владельца 2026-11-07, оценка идей PR #
       схема — ничего не потеряно и не отложено, следующая запись старой сборкой оставляет данные новой. Как минимум
       link settings и limits. До правки — красный.
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts` exit 0 (exit 1 before the fix on 42372355b, 3 of 5 red) · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/contract/link-settings-newer-build.test.ts test/contract/limits.test.ts` exit 0; mutants of the rework red (4 of 4) · mac - · 7ffe71d7b
 - [ ] Старая сборка сохраняет неизвестные ключи и поля, а не откладывает файл; файл не-JSON откладывается, как раньше.
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/unit/limits.test.ts test/contract/limits.test.ts test/unit/link-settings-tailscale.test.ts` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/contract/link-settings-newer-build.test.ts test/contract/limits.test.ts` exit 0 · mac - · 7ffe71d7b
 - [ ] Поведение при `version` новее известной выбрано и обосновано в «Итог».
   - evidence: commit pass · Keep a newer build's state files readable by an older one · - - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 - [ ] `docs/features/storage-and-diagnostics.md` и перевод говорят то, что делает код.
