@@ -84,7 +84,8 @@ Card's own origin, never that of the window. An address whose label matches no P
 
 **Three separate checks.** The protocol serves only files of the Card and sends the same headers on every answer: a
 Content-Security-Policy, `nosniff` and `no-store`. The main process decides which navigations a frame may make, and refuses
-new windows and web permissions. The worfy window accepts a Card's message only from the frame of that Card and with that
+new windows and web permissions. The window's own page stays on the app's address: a navigation it starts to any other
+address is cancelled, so a foreign page never gets the window's preload or the events sent to the window. The worfy window accepts a Card's message only from the frame of that Card and with that
 frame's origin. It drops any other message without an answer. The Card API section describes these messages.
 
 **Reloads come from a revision number.** The main process watches a Project's Cards from the first time one of them is asked
@@ -142,6 +143,7 @@ Card and makes a new iframe.
 - `test/e2e/card-runtime.spec.ts`: reload, isolation, CSP and zoom in the running app.
 - `test/e2e/card-drag.spec.ts`: drag, resize and pan across a Card's iframe.
 - `test/e2e/linked-cards.spec.ts`: a Card shown from a Linked machine.
+- `test/e2e/window-navigation.spec.ts`: the window's page stays on the app's address, a dropped link included.
 - `test/contract/trash.test.ts`: deleting and restoring a Card.
 
 ## Card API

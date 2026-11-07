@@ -571,8 +571,8 @@ describe('installWebPolicy for the page of a Browser', () => {
     vi.restoreAllMocks()
   })
 
-  // The frame rules of the window refuse only Card addresses (allowFrameNavigation of
-  // src/main/cards/protocol.ts): a main frame never goes to a Card, a Card frame never leaves its
+  // The frame rules of the window (allowFrameNavigation of src/main/cards/protocol.ts, and the app
+  // address for the main frame): a main frame never goes to a Card, a Card frame never leaves its
   // Card. The page of a Browser is not under them at all, so the same navigations pass there. (The
   // Browser partition has no handler of the Card protocol: such a page would not load.)
   it('puts the frame rules of the window and the Cards on the window, and none on the page of a Browser', () => {
@@ -584,6 +584,24 @@ describe('installWebPolicy for the page of a Browser', () => {
     expect(guest.navigate(true, 'http://127.0.0.1/page.html', 'https://example.com/')).toBe(true)
     expect(guest.navigate(true, 'https://example.com/', CARD)).toBe(true)
     expect(guest.navigate(false, CARD, 'https://example.com/')).toBe(true)
+  })
+
+  // audit-security-2026-11-07 ticket 02: the main frame of the app window goes only to the app's own
+  // address, the one isAppUrl accepts (the IPC sender check's matcher). A link dropped on the window
+  // or any other page-started navigation to a web page is refused: that page would get the preload
+  // and the events main sends the window. The app's own loads with another query or hash pass.
+  it('keeps the main frame of the app window on the app address, and leaves the page of a Browser free', () => {
+    const window = created('window')
+    for (const url of ['https://example.org', 'https://example.org/', 'http://127.0.0.1:5173/', 'file:///etc/passwd', 'about:blank', 'data:text/html,hi']) {
+      expect(window.navigate(true, APP_URL, url), url).toBe(false)
+    }
+    expect(window.navigate(true, APP_URL, APP_URL)).toBe(true)
+    expect(window.navigate(true, APP_URL, 'file:///app/out/renderer/index.html?machine=m1&project=p1#/canvas')).toBe(true)
+    expect(window.navigate(true, '', APP_URL)).toBe(true)
+
+    const guest = created('webview')
+    expect(guest.navigate(true, 'http://127.0.0.1/page.html', 'https://example.org')).toBe(true)
+    expect(guest.navigate(true, 'https://example.org/', 'http://127.0.0.1:3000/')).toBe(true)
   })
 
   // The owner's answer to question 5 of worfy-browser ticket 02 (ticket 10): a target="_blank" link
