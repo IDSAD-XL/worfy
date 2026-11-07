@@ -33,15 +33,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 ## Готово, когда
 
 - [ ] Contract test: on, ручной ход 529, затем удачный — одно продолжение, строки в транскрипте; off — ничего не ушло.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
 - [ ] Contract test: человек написал во время ожидания — продолжения нет.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
 - [ ] Contract test: отказ Limits вне Run-а — ожидание сброса по stub-у, одно продолжение.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
 - [ ] Contract test: идёт Run — модуль ничего не шлёт; Run повторил один раз.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
 - [ ] Contract test: `git push` без результата — продолжения нет, строка «not retried».
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
@@ -105,7 +105,7 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 
 ### Итог раунда 2
 
-После ревью high (раунд 1, PR #1548); ветка перебазирована на `origin/main` 2414734ed.
+После ревью high (раунд 1, PR #1548); ветка перебазирована на `origin/main` 668422efa.
 
 - (1) Начало хода — не только `prompt`, но и переход Session в `busy` (ход, который Claude Code начал сам по
   task-notification, `prompt` не шлёт). Каждое начало сбрасывает вызовы прошлого хода (`TurnRetry.turnStarted`) и
@@ -144,3 +144,19 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 - Мёртвый код: `entry.sent` удалён (своё продолжение снимает ожидание до отправки, его `prompt` ничего не находит).
   `retry.cancel()` в ветке отказа Limits оставлен: он нужен, когда во время ожидания повтора ход task-notification
   кончается отказом Limits — тогда ожидание одно, Limits.
+
+### Итог раунда 3
+
+После ревью medium (раунд 2, PR #1548): в коде дефектов нет, два пробела в test-ах закрыты, низкий пункт сделан.
+
+- Пробел 1: test на ход с запросом разрешения посреди хода (`busy` → `needs_permission` → `busy`). В этом ходе
+  `git push` без результата, потом ответ на запрос, потом 529. Повтора нет, строка «may or may not have run» есть.
+  Fixture `orchestrator-continue-permission-push.jsonl`. Мутант «каждый `busy` начинает ход» (без `!entry.inTurn`)
+  убит только этим test-ом.
+- Пробел 2: test на ход, который человек прервал (Stop/Esc), с текстом ошибки 529. Ничего не уходит, ожидания нет.
+  Fixture `orchestrator-continue-interrupted-overloaded.jsonl`. Мутант `interrupted: false` в `turnFailureKind` на пути
+  повтора убит только этим test-ом.
+- Низкий пункт: сообщение, которое человек поставил в очередь во время хода, уходит сразу после его конца, и его
+  `prompt` снимает ожидание раньше, чем уходит отложенная строка. Строка об ожидании теперь уходит, только если
+  ожидание к этому моменту ещё есть. Test «a message the person queued during the turn» и fixture
+  `orchestrator-continue-queued.jsonl`; мутант без этой проверки убит.

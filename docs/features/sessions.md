@@ -206,8 +206,9 @@ answers.
   off; nothing was sent` and `worfy: a turn is under way; nothing was sent, its end decides`. Times are local; a time on
   another day carries its date. These lines live only while the app runs: worfy does not write them into the transcript
   file, so after a restart they are gone.
-- A message of the person during the wait takes the continuation's place; a turn under way when the time comes (a
-  background task's notification) does too, and its end decides. Auto-continue turned off, the Session closed or the
+- A message of the person during the wait takes the continuation's place; a message queued during the turn goes
+  right after it, so no wait starts and no line about one shows. A turn under way when the time comes (a
+  background task's notification) takes its place too, and its end decides. Auto-continue turned off, the Session closed or the
   app quit cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries.
   Outside a run worfy does not keep the Mac awake for the wait: a Mac that sleeps through the time continues when it
   wakes. With Auto-continue off a turn outside a run stops on an API error or the Limits as before.
@@ -327,7 +328,9 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   `test/contract/permissions.test.ts`.
 - `test/contract/orchestrator-continue.test.ts`: Auto-continue of a manual turn of the Orchestrator — a 529 and one
   continuation with its lines, the switch off, a person's message during the wait, the switch turned off and the Session
-  closed during it, a push without its result, a refusal by the Limits, and an Autopilot run on the same Session.
+  closed during it, a push without its result (also across a permission answered mid-turn), a turn the person
+  interrupted, a message queued during the turn, a refusal by the Limits, two Projects, the app's wiring, and an
+  Autopilot run on the same Session.
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake
