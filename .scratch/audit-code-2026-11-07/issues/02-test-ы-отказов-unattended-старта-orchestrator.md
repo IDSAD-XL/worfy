@@ -1,7 +1,8 @@
 # 02 — Test-ы на отказы unattended-старта Orchestrator-а: Vendor без ответа о возможностях и занятая Session
 
 Type: task
-Status: open
+Status: done 2026-11-07T20:47Z
+PR: #1599
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Находки», находки test-gaps-1 и test-gaps-2
 
@@ -39,12 +40,15 @@ Source: [spec.md](../spec.md), раздел «Находки», находки t
       `test/contract/codex-orchestrator.test.ts:551`: `capabilities: () => Promise.reject(...)`, `setUnattended` бросает с
       текстом отказа. Test краснеет, если catch на `orchestrator.ts:533` вернёт `null` (проверено правкой и записано в PR).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/codex-orchestrator.test.ts` exit 0; catch mutant returning null: exit 1, only the new test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
+  - evidence: review pass · PR #1599 · - - · 90ca1a2c1a7ce8416710cf01d9279d5defb4f843
 - [ ] Три test-а «setUnattended refuses a turn / live tasks / queued messages» в
       `test/contract/orchestrator-relaunch.test.ts`: каждый ждёт точный текст своей константы. Каждый краснеет, если
       удалить свою строку `:365`, `:370` или `:371` (три правки, итог в PR).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/orchestrator-relaunch.test.ts` exit 0; deleting lines 365, 370, 371 one by one: exit 1 each, only its own test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
+  - evidence: review pass · PR #1599 · - - · 90ca1a2c1a7ce8416710cf01d9279d5defb4f843
 - [ ] Остальные test-ы обоих файлов зелёные.
   - evidence: gate pass · `gate fast` exit 0 · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42411868001/job/128522978655 · ci - · 90ca1a2c1a7ce8416710cf01d9279d5defb4f843
 
 ## Тесты
 
