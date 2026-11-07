@@ -1,11 +1,11 @@
 ---
 name: tickets-to-tasks
-description: Import the markdown tickets produced by /mattpocock-skills:to-tickets or /mattpocock-skills:wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /mattpocock-skills:to-tickets has published tickets, or when the user says "import tickets" (or the same words in the user's language), or asks why the task list is empty for an epic.
+description: Import the markdown tickets produced by /worfy:to-tickets or /worfy:wayfinder into native Claude Code Tasks, preserving their blocking edges so the task list enforces ordering. Use after /worfy:to-tickets has published tickets, or when the user says "import tickets" (or the same words in the user's language), or asks why the task list is empty for an epic.
 ---
 
 # Tickets -> native Tasks
 
-`/mattpocock-skills:to-tickets` writes markdown files. Native Tasks enforce ordering: a task with
+`/worfy:to-tickets` writes markdown files. Native Tasks enforce ordering: a task with
 unresolved `blockedBy` cannot be claimed. This skill moves the first into the
 second so nobody has to police the sequence by hand.
 
@@ -126,7 +126,7 @@ set. Say so instead of picking one arbitrarily.
 
 ## Rules
 
-- **Never edit the ticket files.** `/mattpocock-skills:to-tickets` owns them; this skill is a
+- **Never edit the ticket files.** `/worfy:to-tickets` owns them; this skill is a
   one-way import. Corrections belong in the tickets, then re-run the scan.
 - **Never write into the team repositories.** The map lives in the profile
   folder (`~/.claude/profiles/<name>/`). If `.scratch/` sits inside a clone, it

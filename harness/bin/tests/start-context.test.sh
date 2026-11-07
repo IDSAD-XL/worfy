@@ -209,12 +209,16 @@ echo "real texts, tokens of the Harness's own parts: $(field 'j.agents.map((a) =
 # start-context counts only SKILL.md and the agent's definition: a file next to SKILL.md costs nothing at
 # the start, so nothing but this check keeps a moved part from being lost. Every file next to a
 # SKILL.md must be named as `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/<file>` by that SKILL.md or by an agent
-# definition (agents/*.md), and every such name in them must be a file on disk.
+# definition (agents/*.md), and every such name in them must be a file on disk. The skills copied from
+# another author (skills/THIRD_PARTY.md, section "Copied skills") keep their upstream text, which links
+# its files relatively: the check skips them.
 SKILLS_DIR="${SKILLS_DIR:-$HARNESS/skills}"
 AGENTS_DIR="${AGENTS_DIR:-$HARNESS/agents}"
+THIRD_PARTY=" $(sed -n '/^## Copied skills$/,/^## [^C]/p' "$SKILLS_DIR/THIRD_PARTY.md" 2>/dev/null | grep -oE '`[a-z0-9-]+`' | tr -d '`' | tr '\n' ' ')"
 step_files=0
 for d in "$SKILLS_DIR"/*/; do
     d="${d%/}"; sk="$(basename "$d")"; [ -f "$d/SKILL.md" ] || continue
+    [[ "$THIRD_PARTY" == *" $sk "* ]] && continue
     for f in "$d"/*; do
         n="$(basename "$f")"; [ "$n" = SKILL.md ] && continue
         step_files=$((step_files + 1))

@@ -60,6 +60,12 @@ ALLOWED=(
     'bin/tests/skill-blocks.test.sh|tickets 02, 02'
     # A script of the tests' own fixture project.
     'bin/tests/shortcut-ledger.test.sh|scripts/make.sh'
+    # The upstream text of the skills copied from another author (skills/THIRD_PARTY.md): a URL path
+    # in an example, an example decision record, the skill's own template script and its map entry.
+    'skills/tdd/mocking.md|fetch(`/users/'
+    'skills/improve-codebase-architecture/SKILL.md|contradicts ADR-0007'
+    'skills/diagnosing-bugs/SKILL.md|`scripts/hitl-loop.template.sh`'
+    'evals/lib/coverage.json|"skills/diagnosing-bugs/scripts/hitl-loop.template.sh"'
     # Script files of the worfy repository named before the pattern was added; each is a known leak
     # to remove, kept here so that a new one is caught.
     'README.md|scripts/eval-harness.mjs'

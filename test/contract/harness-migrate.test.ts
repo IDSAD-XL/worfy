@@ -113,7 +113,10 @@ describe('the plan of the form', () => {
     expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS].sort())
     // connect-project came with the plugin (worfy-harness ticket 24), max-review with worfy-review ticket 07:
     // gate-queue with worfy-windows ticket 17: the old Harness never had them, so the migration plan does not offer to remove them.
-    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project', 'gate-queue', 'max-review'].sort())
+    // Nor does it offer the skills copied from mattpocock-skills 1.3.1 with their licence and attribution
+    // (worfy-skills ticket 01): a user's own skill of the same name in ~/.claude/skills stays.
+    const copied = ['code-review', 'codebase-design', 'diagnosing-bugs', 'domain-modeling', 'grill-with-docs', 'improve-codebase-architecture', 'prototype', 'research', 'tdd', 'to-spec', 'to-tickets', 'wayfinder', 'grill-me', 'grilling', 'handoff', 'teach', 'to-questionnaire', 'wait-what', 'writing-for-agents', 'THIRD_PARTY.md', 'LICENSE.mattpocock-skills']
+    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project', 'gate-queue', 'max-review', ...copied].sort())
   })
 
   it('names the ten hook records of the old Harness, the Harness files, the qmd group, the state and three Profiles — and nothing personal', () => {

@@ -47,7 +47,9 @@ without that block, ask the user to run that one command and paste its output.
    `workspace` scripts.
 2. **Workflow files already there.** `.scratch/` (epics, tickets, their `## …` section listing the
    files to edit — `tickets.trail_section`), `HANDOFF.md`, `docs/adr/`, `CONTEXT.md`, `CLAUDE.md`,
-   `AGENTS.md`. Their language is `language.docs`.
+   `AGENTS.md`. Their language is `language.docs`. Also `docs/agents/issue-tracker.md`, if there
+   is one: an earlier skills setup wrote it, and it says where that setup kept issues (local
+   files, GitHub or GitLab).
 3. **Branch and remote** — from the facts, not from git: `defaultBranch` gives `worktree.base`
    (`origin/<defaultBranch>` when there is an `origin`), `origin` decides `workflow.finish`.
 
@@ -81,17 +83,35 @@ The profile name: the repository folder name in lower case (the folder above the
 several), letters, digits, dots, dashes and underscores. Every `commands.*` the project lacks is
 `null`, never a guess; `commands.verify` joins lint, typecheck and test with `&&`.
 
+## Tracker and glossary of the skills
+
+The planning skills of the plugin (`/worfy:wayfinder`, `/worfy:to-spec`, `/worfy:to-tickets`,
+`/worfy:code-review`) have one tracker: the ticket folder `tickets.root` of this profile, read
+through `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations". Their glossary is
+the file `docs.context` of the profile. The draft sets both, and the summary to the user names them:
+"Tracker for the skills: `<tickets.root>`; glossary: `<docs.context.path>`" (`none` for a `null`
+glossary).
+
+If `docs/agents/issue-tracker.md` names GitHub or GitLab, the summary adds: "Found
+`docs/agents/issue-tracker.md` with <GitHub|GitLab>: the worfy skills work only with the ticket
+folder `<tickets.root>`, not with that tracker." Leave the file and the `CLAUDE.md` or `AGENTS.md`
+block that points to it as they are: nothing is written into the project's repository for the
+skills — no `CLAUDE.md` or `AGENTS.md` block, no `docs/agents/`.
+
 ## With `--draft-only` (worfy)
 
 Return the draft as the structured output and stop. Do not call `project-connect`, do not ask
-questions: worfy shows the draft in a form, the person edits it there, and worfy writes it. For a
+questions: worfy shows the draft in a form, the person edits it there, and worfy writes it. The
+lines of "Tracker and glossary of the skills" go into `rules` as facts, with `docs/agents/issue-tracker.md`
+in `## Sources` when the GitHub or GitLab line is there. For a
 Silent draft worfy sets `attribution` to `"off"` itself before the form, whatever the draft says,
 and the person changes it in the form.
 
 ## Without `--draft-only` (a terminal)
 
 1. Show the draft: the profile fields that matter (name, mode, Workflow folder, commands, gate
-   scripts, finish), `rules.md`, the gate entries.
+   scripts, finish), the tracker and glossary lines of "Tracker and glossary of the skills",
+   `rules.md`, the gate entries.
 2. Check it, nothing is written:
    `"${CLAUDE_PLUGIN_ROOT}/bin/project-connect" --check <<'JSON' … JSON` — exit 1 names each
    problem with its field (`profile.name: the name is taken`); fix them with the user.
