@@ -13,8 +13,8 @@ Ticket-ы [01](../worfy-autopilot-queue/issues/01-destination-и-масштаб.
 [CONTEXT.md](../../CONTEXT.md), термины Run, Span, Wait, Session, Subagent, Orchestrator, Machine, Linked machine;
 ADR [0002](../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md), [0092](../../docs/adr/0092-run-history.md).
-Ticket-ы: Epic `worfy-work-track`, 12 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
-`Source:`, как у worfy-retry. Спутник — spec [worfy-autopilot-queue](../worfy-autopilot-queue/spec.md) той же карты;
+Ticket-ы: Epic `worfy-work-track`, 13 Ticket-ов, нумерация с `01` (13 добавлен 2026-11-07). Шапка — `Type:` /
+`Status:` / `Blocked by:` / `Source:`, как у worfy-retry. Спутник — spec [worfy-autopilot-queue](../worfy-autopilot-queue/spec.md) той же карты;
 код не пересекается, раздаются параллельно; общая только документация (`CONTEXT.md`,
 `docs/features/(ru/)flight-recorder.md`): Ticket 11 здесь — после merge autopilot-queue 19.
 
@@ -180,7 +180,9 @@ Run-а — эвристика: по worktree Subagent-а (`canonicalWorktree`, `
 - **09 — Вид Work track: переключатель, период, дорожки, плотность.** Blocked by: 08.
 - **10 — Сводка периода и панель Span-а.** Blocked by: 09.
 - **11 — Документация.** Blocked by: 09, 10.
-- **12 — Приёмка с владельцем.** Blocked by: 01–11.
+- **12 — Приёмка с владельцем.** Blocked by: 01–11, 13.
+- **13 — CI run-ы, смены статуса Ticket-ов и пробелы GitHub/git на экране.** Blocked by: 11. Добавлен 2026-11-07:
+  найден при написании 11 (PR #1553).
 
 ## Волны
 
@@ -200,14 +202,16 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 09 | `src/renderer/flight-recorder/RunsView.tsx`, `src/renderer/main.tsx`, `src/renderer/work-track/WorkTrackView.tsx`, `src/renderer/work-track/Lanes.tsx`, `src/renderer/work-track/MonthGrid.tsx`, `src/renderer/work-track/store.ts`, `src/renderer/work-track/work-track.css`, `test/unit/work-track-view.test.tsx`, `test/e2e/work-track.spec.ts` | 4 |
 | 10 | `src/renderer/work-track/WorkTrackView.tsx`, `src/renderer/work-track/SummaryRow.tsx`, `src/renderer/work-track/SpanPanel.tsx`, `src/renderer/work-track/work-track.css`, `test/unit/work-track-panel.test.tsx`, `test/e2e/work-track.spec.ts` | 5 |
 | 11 | `docs/features/work-track.md`, `docs/features/ru/work-track.md`, `docs/features/flight-recorder.md`, `docs/features/ru/flight-recorder.md`, `CONTEXT.md` | 6 |
-| 12 | `.scratch/worfy-work-track/spec.md` | 7 |
+| 13 | `src/shared/work-track/lanes.ts`, `src/renderer/work-track/Lanes.tsx`, `src/renderer/work-track/SpanPanel.tsx`, `src/renderer/work-track/work-track.css`, `src/renderer/palette/commands.ts`, `src/renderer/flight-recorder/RunsView.tsx`, `src/renderer/flight-recorder/open.ts`, `test/unit/work-track-lanes.test.ts`, `test/unit/work-track-view.test.tsx`, `test/unit/work-track-panel.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/e2e/work-track.spec.ts`, `docs/features/work-track.md`, `docs/features/ru/work-track.md` | 7 |
+| 12 | `.scratch/worfy-work-track/spec.md` | 8 |
 
 - **Wave 1 — 01, 02, 03, 04.** Две правки Harness-а, шаг владельца и чистая модель — без общих файлов. Идёт
   параллельно с Wave 1 worfy-autopilot-queue (07, 12, 13), после merge worfy-retry 05 и 14: общих файлов в «Где в
   коде» нет (решение владельца 2026-11-06).
 - **Wave 2 — 05, 06, 07.** Три reader-а над моделью 04, у каждого свои файлы.
 - **Wave 3 — 08.** Сервис ждёт reader-ы и новые сроки Harness-а.
-- **Wave 4 — 09. Wave 5 — 10** (общий `WorkTrackView.tsx`). **Wave 6 — 11. Wave 7 — 12**, владелец.
+- **Wave 4 — 09. Wave 5 — 10** (общий `WorkTrackView.tsx`). **Wave 6 — 11. Wave 7 — 13** (общая с 11 страница
+  `docs/features/(ru/)work-track.md`). **Wave 8 — 12**, владелец.
 
 Имена новых файлов — предложение; implementer может назвать иначе, не задевая чужих Ticket-ов своей Wave. С Epic-ом
 `worfy-autopilot-queue` код не пересекается (его Ticket 18 правит `RunHistoryView.tsx`, этот Epic — только новый
