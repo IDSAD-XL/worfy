@@ -206,6 +206,14 @@ _Avoid_: provider, backend, LLM, «модель» в значении Vendor
 Главная Session Project, из которой расходится работа; закреплена на Canvas.
 _Avoid_: оркестратор, composer, главный чат, Morphy
 
+**Product Session**:
+Вид Session для продуктового мышления — советник, который предлагает идеи, спорит с планом и пишет черновики Epic-ов. Код не меняет, Ticket-ы не берёт, Autopilot не запускает; решает Product owner (решение владельца 2026-11-07, карта [worfy-product](.scratch/worfy-product/map.md)).
+_Avoid_: продуктовый режим, product mode, режим советника (слово «режим» уже занято: Run mode, Full mode, Silent mode, Eco mode, Orchestrator modes, Shadow mode)
+
+**Mind map**:
+Живая схема Product Session: узлы Идея, Вопрос, Решение и Возражение и связи «из чего выросло» между ними. Это не «карта» поиска пути (wayfinder) с Ticket-ами-вопросами (решение владельца 2026-11-07, карта [worfy-product](.scratch/worfy-product/map.md)).
+_Avoid_: карта, mindmap, диаграмма решений
+
 **Subagent**:
 Агент, которого Session запустила для части работы (например, scout, implementer, reviewer); у него свой транскрипт и итог, и он принадлежит запустившей его Session.
 _Avoid_: субагент, воркер, teammate
@@ -335,6 +343,7 @@ _Avoid_: «гарантия», health check
 - **Project** содержит много **Epic**-ов; **Epic** — много **Ticket**-ов; **Ticket** может блокироваться другими Ticket-ами того же Epic.
 - У **Session** или **Subagent** не более одного **Binding** — к Ticket или Epic; у **Ticket** может быть несколько Binding-ов (реализация, ревью, доработка). Binding Orchestrator-а, ведущего **Wave**, — к Epic, а Binding-и его implementer-ов и reviewer-ов — к их Ticket-ам.
 - **Session** запускает **Subagent**-ов; **Subagent** может запускать своих.
+- **Product Session** пишет только продуктовые документы и черновики **Epic**-ов; черновик становится **Epic**-ом только после того, как **Product owner** принял его spec.
 - У **Project** ровно один **Orchestrator**.
 - У **Project** ровно один **Profile**; **Harness** один на **Machine** и ведёт работу каждого Project по его **Profile**.
 - **User personalization** одна у пользователя на **Machine** и действует во всех его **Project**-ах; **Profile** задаёт языки команды и документов Project-а, **User personalization** — язык отчётов и личные правила.
