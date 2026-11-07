@@ -1,7 +1,8 @@
 # 03 — Формат папки темы и файла Mind map, ADR
 
 Type: task
-Status: open
+Status: done 2026-11-07T23:32Z
+PR: #1607
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 4, 5; «Как работает» → «Папка темы и файл Mind map»; «Вопросы владельцу», Q1, Q4, Q6, Q8; карта [worfy-product](../../worfy-product/map.md), решение 09 (Q2, Q3), «Not yet specified» (формат `docs/product/` и файла Mind map)
 
@@ -36,19 +37,24 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] Unit test схемы: верный файл читается; каждая ошибка из п. 1 — свой случай с id узла в тексте.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
+  - evidence: review pass · PR #1607 · - - · dedc6c18f1a66b73c605e3704496bcf7b8ad1612
 - [ ] Test `topic.ts` на fixture-теме: `map.md`, два Ticket-а карты, `mind-map.json` с узлом `from: "ticket:02"` — тема
       собрана; битый JSON — тема с ошибкой, без исключения.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
+  - evidence: review pass · PR #1607 · - - · dedc6c18f1a66b73c605e3704496bcf7b8ad1612
 - [ ] Test путей: Full mode и Silent mode дают разные папки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
+  - evidence: review pass · PR #1607 · - - · dedc6c18f1a66b73c605e3704496bcf7b8ad1612
 - [ ] ADR добавлен, ссылка на него — в шапке `src/shared/product/mind-map.ts`.
   - evidence: commit pass · feat(product): topic folder and mind-map.json format with one check (ADR-0101) · - - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
   - evidence: commit pass · fix(product): replaces only on a decision, no replaces cycles, canonical ticket refs · - - · 496a3f004d1188b6e5a34a21b002aa3008beef46
+  - evidence: review pass · PR #1607 · - - · dedc6c18f1a66b73c605e3704496bcf7b8ad1612
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
   - evidence: gate pass · `gate fast` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42422385785/job/128562384957 · ci - · dedc6c18f1a66b73c605e3704496bcf7b8ad1612
 
 ## Тесты
 
