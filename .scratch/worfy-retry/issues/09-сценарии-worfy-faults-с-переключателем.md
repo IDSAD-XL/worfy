@@ -35,7 +35,9 @@ Source: [spec.md](../spec.md), «Совместимость с worfy-faults»; [
 - [ ] Каждый новый случай И4 ловит свой испорченный fixture — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-invariants.test.ts` exit 0 · mac - · 9f6a469181328c546051c4b8134d6284481e3279
 - [ ] Файл contract test-ов — не дольше 20 с по логу `linux-tests` (предел worfy-faults).
+  - evidence: test-run pass · CI job `linux-tests (3/4)` of run 42324104775: test/contract/autopilot-faults-retry.test.ts 6 tests in 1043 ms, exit 0 · linux - · a3e3ac88f78bc8502ba51fca4ea0441975ade0e2
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: test-run pass · `ci-ok` of run 42324104775 (lint, typecheck, test on Linux and Windows) exit 0; the PR diff has no file under src/ · linux - · a3e3ac88f78bc8502ba51fca4ea0441975ade0e2
 
 ## Тесты
 
@@ -98,5 +100,6 @@ Source: [spec.md](../spec.md), «Совместимость с worfy-faults»; [
     + 2 мин, одно продолжение Limits, `resumed`, `no-ready-wave`; `checkRecovery` пустой.
 - Сначала падал: до правила И4 три сценария сбоев API давали `I4: no session-error matches …` (`turn-retry` правило
   не знало), три других проходили.
-- Время: файл contract test-ов — около 2 с локально (5 прогонов подряд, exit 0); лог `linux-tests` — в PR.
+- Время: файл contract test-ов — 1043 мс в `linux-tests (3/4)` CI run 42324104775 (PR #1547), предел 20 с;
+  локально — около 2,5 с на запуск вместе с unit test-ом, 5 запусков подряд, все exit 0.
 - `src/` не изменён.
