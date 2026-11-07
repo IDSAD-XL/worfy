@@ -33,15 +33,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 ## Готово, когда
 
 - [ ] Contract test: on, ручной ход 529, затем удачный — одно продолжение, строки в транскрипте; off — ничего не ушло.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
 - [ ] Contract test: человек написал во время ожидания — продолжения нет.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
 - [ ] Contract test: отказ Limits вне Run-а — ожидание сброса по stub-у, одно продолжение.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
 - [ ] Contract test: идёт Run — модуль ничего не шлёт; Run повторил один раз.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
 - [ ] Contract test: `git push` без результата — продолжения нет, строка «not retried».
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 74f513105
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · be425eaac
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
