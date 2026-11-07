@@ -93,3 +93,71 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 Только читать: `src/main/workflow/profile.ts`, `src/main/harness/migrate/plan.ts` и `profiles.ts` (список `retro` там —
 имена skills старого Harness для переноса из `~/.claude/skills`, он не меняется), `test/contract/harness-migrate.test.ts`,
 `test/fixtures/claude-home-legacy/` (старый Harness), `docs/features/` (Ticket 04).
+
+## Итог
+
+Ветка `worfy-skills/02`.
+
+### Что убрано
+
+- `harness/hooks/session-end.mjs` удалён; в `hooks.json` у `SessionEnd` осталась одна запись —
+  `bin/worktree-lock release`. Описание `hooks.json`: «session bookkeeping» → «the project's context at session start».
+- `session-start.mjs`: п. 4 (напоминание о `/retro`) и чтение `session.retro_reminder_after` убраны. Profile без
+  `inject_rules`, в Full mode и с attribution on — пустой вывод, даже с этим полем.
+- `hook-stdin.mjs`: строка `session-end.mjs` в `FIRST_BYTE_MS` и её описание убраны.
+- Свой `retro` worfy (`harness/skills/retro/SKILL.md`) и `test/contract/harness-retro-skill.test.ts` удалены.
+- `HANDOFF.md`: строка про первый `retro` на настоящем сбое убрана.
+- `harness/profiles/README.md`: поле `session.retro_reminder_after` — «removed; ignored if present», `state/` без
+  `pending-retro.log`, `retro` убран из читателей `language.docs` и `lessons` (`retro` Matt Pocock их не читает).
+
+### `retro` Matt Pocock
+
+Скопирован из установленной копии 1.3.1 (`skills/engineering/retro/`): `SKILL.md` и `agents/openai.yaml`.
+Правки — только две ссылки на `writing-for-agents` → `worfy:writing-for-agents` (`SKILL.md:11` — вызов Skill tool,
+`:44` — «the … skill»). В spec названа только строка 11; строка 44 — та же ссылка, test Ticket-а 01 («names a skill …
+only with the worfy: prefix») её ловит.
+
+| Файл | 1.3.1 | копия | |
+| --- | --- | --- | --- |
+| `retro/SKILL.md` | `33fbc28568e3` | `9947999f3554` | правка ссылок |
+| `retro/agents/openai.yaml` | `cb6fb9d7e6b4` | `cb6fb9d7e6b4` | совпадает |
+
+`THIRD_PARTY.md`: 20 скопированных skills, `retro` в списке engineering, две строки в «Reference edits».
+`harness-third-party-skills.test.ts`: `retro` в `UPSTREAM`, `EDITED`, `MANUAL_ONLY` (`true`), убран из `NOT_TAKEN`.
+Проверка вызовов Skill tool теперь читает и форму `Skill tool with \`name\`` (так пишет `retro`), не только имя в кавычках.
+`coverage.json`: обе строки `retro` — «No case yet: the cases of the copied skills come in a later change.»
+
+### Test-ы
+
+- Сначала красный (на старых hook-ах, test-ы уже новые): `session-hooks.test.sh` — exit 1, `FAIL retro_reminder_after:
+  SessionEnd hooks (2, exit codes: 0 0) or a pending-retro.log was written`, `FAIL hooks/session-end.mjs is still there`,
+  `FAIL suite repo: reminder from an old log`; `rules-hooks.test.sh` — exit 1 (`hooks.json differs`); contract — 10 красных:
+  `harness-codex-hooks` (SessionEnd пишет лог), `codex-parity` строка 8, `harness-hook-stdin` (`FIRST_BYTE_MS`),
+  `harness-third-party-skills` (`retro` не скопирован).
+- Новые случаи: Profile с `session.retro_reminder_after` и без `inject_rules` — SessionStart пусто, exit 0; каждый
+  `SessionEnd` из `hooks.json` — exit 0, `pending-retro.log` не создан (`session-hooks.test.sh`, Claude Code); то же под
+  Codex (`harness-codex-hooks.test.ts`, `codex-parity.test.ts` строка 8); старый `pending-retro.log` из 3 строк не даёт
+  напоминания и остаётся как был.
+- `workflow-profile.test.ts`: Profile с полем — настоящий `bin/profile` (копия `harness/` в Harness home test-а) отвечает
+  `--field session.retro_reminder_after` и `--json` с exit 0; `readResolvedProfile`, `readPipelineProfile`,
+  `readMcpAllowlist`, `readGithubAccount` приложения читают его без ошибки; `bin/project-connect --schema-only` пропускает
+  draft с полем (exit 0, `ok: true`) и ничего не пишет. Эти два случая зелёные и на `main`: поле там уже никто не
+  проверял, test это закрепляет.
+
+### Отступления от Ticket-а
+
+- `docs/features/skills-agents-and-hooks.md` (английская страница) поправлен здесь, а не в Ticket-е 04: `pnpm lint`
+  (`check-feature-docs`) красный, пока страница называет удалённые `session-end.mjs` и `harness-retro-skill.test.ts`.
+  Поправлены только строки об удалённом: строка `retro` в таблице skills, test в «Main tests», строка `SessionEnd`
+  `session-end.mjs`, список hook-ов, которые не ломают Session, строка напоминания, раздел «Implementation».
+  Перевод `ru/` и `harness/README.md` — Ticket 04.
+- `src/main/harness/migrate/plan.ts` (в Ticket-е — «только читать») поправлен: список `RETIRED_HOOKS = ['session-end.sh']`.
+  Перенос старого Harness из `~/.claude` узнаёт файл Harness по одноимённому файлу plugin-а (`hooks/<имя>.sh` ↔
+  `hooks/<имя>.mjs`). Без `session-end.mjs` в plugin-е перенос оставлял бы старый `~/.claude/hooks/session-end.sh` и его
+  запись `SessionEnd` в `settings.json` — он и дальше писал бы `pending-retro.log` после переноса. Это поймали 4 случая
+  `test/contract/harness-migrate.test.ts` (красные в полном `pnpm test`); с правкой они зелёные без изменений в test-е.
+  Список `HARNESS_SKILLS` (`retro`) не тронут.
+- `harness/profiles/README.md` пишет «removed; ignored if present» без «in worfy-skills 02»: test нейтральности plugin-а
+  (`plugin-neutral.test.sh`, ADR-0074) запрещает номера Ticket-ов worfy в тексте `harness/`.
+
+Файлы `state/pending-retro.log` на машинах не тронуты.

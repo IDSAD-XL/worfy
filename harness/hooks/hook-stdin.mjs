@@ -21,14 +21,11 @@
  *     exactly what this reader is for.
  *   - session-start.mjs (15 s) and gh-token-env.mjs (10 s): 5 s; then bin/profile, and gh for
  *     gh-token-env, take well under a second.
- *   - session-end.mjs (10 s; on Codex 3 s at most): 1 s; the bin/profile call gets what is left of its
- *     2 s on Codex (CODEX_PROFILE_MS there), so the hook ends inside the 3 s.
  */
 export const FIRST_BYTE_MS = {
     "stop.mjs": 30_000,
     "session-start.mjs": 5_000,
     "gh-token-env.mjs": 5_000,
-    "session-end.mjs": 1_000,
 }
 
 /** `defaultMs`, or the variable `name` when it is a positive whole number below it: a test may shorten the wait, never lengthen it. */

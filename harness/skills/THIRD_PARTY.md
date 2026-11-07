@@ -1,6 +1,6 @@
 # Third-party skills
 
-Nineteen folders of `skills/` are a copy of Matt Pocock's skills, not skills written for worfy.
+Twenty folders of `skills/` are a copy of Matt Pocock's skills, not skills written for worfy.
 
 ## Source
 
@@ -18,10 +18,13 @@ flat under `skills/<name>/`, with the upstream name. Upstream keeps them in `ski
 `skills/productivity/`:
 
 - engineering: `code-review`, `codebase-design`, `diagnosing-bugs`, `domain-modeling`,
-  `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `research`, `tdd`, `to-spec`,
-  `to-tickets`, `wayfinder`;
+  `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `research`, `retro`, `tdd`,
+  `to-spec`, `to-tickets`, `wayfinder`;
 - productivity: `grill-me`, `grilling`, `handoff`, `teach`, `to-questionnaire`, `wait-what`,
   `writing-for-agents`.
+
+`retro` took the folder of worfy's own skill of that name, which is gone, together with the
+reminder about it.
 
 The skill-folder check of `bin/tests/start-context.test.sh` reads the names of this section to leave
 these folders alone: upstream links the files of a skill relatively, not through the plugin root.
@@ -60,6 +63,8 @@ upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in
 | `skills/improve-codebase-architecture/SKILL.md` | 64 | Skill tool: `"worfy:grilling"` |
 | `skills/improve-codebase-architecture/SKILL.md` | 66 | Skill tool: `"worfy:domain-modeling"` |
 | `skills/improve-codebase-architecture/HTML-REPORT.md` | 42, 108, 123 | `/worfy:codebase-design` |
+| `skills/retro/SKILL.md` | 11 | Skill tool: `worfy:writing-for-agents` |
+| `skills/retro/SKILL.md` | 44 | the `worfy:writing-for-agents` skill |
 | `skills/tdd/SKILL.md` | 26 | Skill tool: `"worfy:codebase-design"` |
 | `skills/tdd/SKILL.md` | 38 | the `worfy:code-review` skill |
 | `skills/teach/SKILL.md` | 12 | `/worfy:teach` |

@@ -7,9 +7,10 @@
 //   - PreToolUse denies apply_patch to worfy-reviewer and worfy-scout by agent_type and lets
 //     worfy-implementer and the main agent edit; a reviewer's shell command goes through the same rules
 //     as under Claude Code; an agent of the Harness opens no interactive shell (write_stdin passes no hook);
-//   - SessionEnd ends inside Codex's 3 s even when its one waiting step hangs.
+//   - SessionEnd runs only the lock release, ends inside Codex's 3 s, and writes no retrospective log for
+//     a profile that still carries session.retro_reminder_after (worfy-skills 02 removed session-end.mjs).
 // And under Claude Code nothing changes: its Stop input runs no gate, its SubagentStop does nothing.
-// Only the hooks of stop.mjs, guard.mjs, session-end.mjs and the lock release are run: the others
+// Only the hooks of stop.mjs, guard.mjs and the lock release are run, and any hook of SessionEnd: the others
 // (qmd-refresh, the SessionStart ones) read the machine's own setup and are none of these guarantees.
 import { execFileSync, spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -53,7 +54,7 @@ beforeAll(async () => {
   approvePluginHooks(codexHome)
   const loaded = loadHooks(codexHome)
   expect(loaded.warnings).toEqual([])
-  handlers = loaded.handlers.filter((handler) => /hooks\/(stop|guard|session-end)\.mjs|worktree-lock" release/.test(handler.declared.command ?? ''))
+  handlers = loaded.handlers.filter((handler) => handler.event === 'SessionEnd' || /hooks\/(stop|guard)\.mjs|worktree-lock" release/.test(handler.declared.command ?? ''))
 })
 
 afterAll(() => removeTestTree(root))
@@ -438,34 +439,24 @@ describe('read-only reviewer and scout, the guards with the matchers of Codex', 
 })
 
 describe('the end of a Session on Codex', () => {
-  it('records the Session for /retro when the profile answers, and the lock release hook completes as well', async () => {
+  // A profile that still carries session.retro_reminder_after, the field worfy-skills 02 removed: SessionEnd
+  // runs the lock release alone, ends inside Codex's 3 s, and nothing writes the profile's pending-retro.log.
+  it('runs only the lock release, inside the 3 s of Codex, and writes no pending-retro.log for a profile with session.retro_reminder_after', async () => {
     const { work, dir } = project()
     const profileDir = join(dir, 'profile')
     mkdirSync(profileDir)
     const fast = join(dir, 'fast-profile.mjs')
     writeFileSync(fast, `process.stdout.write(${JSON.stringify(JSON.stringify({ session: { retro_reminder_after: 3 }, _resolved: { dir: profileDir } }))})\n`)
     vi.stubEnv('CLAUDE_PROFILE_BIN', fast)
-    const input = hookInput('SessionEnd', { sessionId: 'ses-1', transcriptPath: join(dir, 'sessions', 'rollout-2026-11-03T07-11-41-ses-1.jsonl'), cwd: work })
-    const end = await runHooks(handlers, 'SessionEnd', { input, matchValue: 'other', cwd: work })
-    expect(end.runs.map((run) => run.status)).toEqual(['completed', 'completed'])
-    const recordedLines = readFileSync(join(profileDir, 'state', 'pending-retro.log'), 'utf8').split('\n')
-    expect(recordedLines).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t/), ''])
-    expect(recordedLines[0]?.split('\t')[1]).toBe(work)
-  }, RUN_MS)
-
-  it('ends inside the 3 s of Codex even when the profile call hangs', async () => {
-    const { work, dir } = project()
-    const slow = join(dir, 'slow-profile.mjs')
-    writeFileSync(slow, 'setTimeout(() => process.stdout.write("{}"), 10000)\n')
-    vi.stubEnv('CLAUDE_PROFILE_BIN', slow)
+    expect(handlers.filter((handler) => handler.event === 'SessionEnd').map((handler) => handler.declared.command)).toEqual([
+      'node "${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock" release',
+    ])
     const input = hookInput('SessionEnd', { sessionId: 'ses-1', transcriptPath: join(dir, 'sessions', 'rollout-2026-11-03T07-11-41-ses-1.jsonl'), cwd: work })
     const started = Date.now()
     const end = await runHooks(handlers, 'SessionEnd', { input, matchValue: 'other', cwd: work })
-    expect(end.runs.map((run) => [run.status, run.entries])).toEqual([
-      ['completed', []],
-      ['completed', []],
-    ])
+    expect(end.runs.map((run) => [run.status, run.entries])).toEqual([['completed', []]])
     expect(Date.now() - started).toBeLessThan(3000)
+    expect(existsSync(join(profileDir, 'state', 'pending-retro.log'))).toBe(false)
   }, RUN_MS)
 })
 

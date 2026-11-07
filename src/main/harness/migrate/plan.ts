@@ -22,6 +22,12 @@ export { splitCommand }
 /** Q19: the agents and skills of the old Harness. */
 export const HARNESS_AGENTS = ['implementer.md', 'reviewer.md', 'scout.md'] as const
 export const HARNESS_SKILLS = ['epic-wave', 'ship-ticket', 'retro', 'qmd', 'overnight-fix-loop', 'continuous-audit', 'tickets-to-tasks'] as const
+/**
+ * Hooks of the old Harness that the plugin no longer carries under any name: the move still removes them
+ * and their hook records. session-end.sh wrote the log of the /retro reminder, which the plugin dropped
+ * (epic worfy-skills, ticket 02).
+ */
+export const RETIRED_HOOKS = ['session-end.sh'] as const
 /** Q19: bin/ of ~/.claude is the Harness's except these. */
 export const PERSONAL_BIN = ['telegram-mcp', 'auction-staging-db-mcp', 'agent-time-split'] as const
 /** Q15: the qmd scripts; they go or stay with the qmd hook and the qmd record of .claude.json. */
@@ -310,8 +316,11 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
       if (dir === 'bin' && ((PERSONAL_BIN as readonly string[]).includes(name) || (QMD_BINS as readonly string[]).includes(name))) continue
       const rel = join(dir, name)
       // The plugin's hooks are Node scripts now: an old hooks/<name>.sh is the plugin's hooks/<name>.mjs.
+      // A retired hook counts as the plugin's: the Harness file goes, with nothing in its place.
       const inPlugin =
-        existsSync(join(pluginDir, dir, name)) || (dir === 'hooks' && name.endsWith('.sh') && existsSync(join(pluginDir, dir, `${name.slice(0, -3)}.mjs`)))
+        existsSync(join(pluginDir, dir, name)) ||
+        (dir === 'hooks' && name.endsWith('.sh') && existsSync(join(pluginDir, dir, `${name.slice(0, -3)}.mjs`))) ||
+        (dir === 'hooks' && (RETIRED_HOOKS as readonly string[]).includes(name))
       const harness =
         dir === 'agents' ? (HARNESS_AGENTS as readonly string[]).includes(name) : dir === 'skills' ? (HARNESS_SKILLS as readonly string[]).includes(name) : true
       if (!inPlugin && !harness) continue

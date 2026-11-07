@@ -1,5 +1,5 @@
 {
-  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, session bookkeeping, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh; on Codex the same file, where stop.mjs runs the gate on Stop and SubagentStop and guard.mjs also sees apply_patch",
+  "description": "worfy Harness hooks: rules for sessions and subagents, the quality gate, worktree locks, the project's context at session start, GH_TOKEN of the project's GitHub account, the Bash guard and the qmd index refresh; on Codex the same file, where stop.mjs runs the gate on Stop and SubagentStop and guard.mjs also sees apply_patch",
   "hooks": {
     "SessionStart": [
       {
@@ -122,15 +122,6 @@
       }
     ],
     "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end.mjs\"",
-            "timeout": 10
-          }
-        ]
-      },
       {
         "hooks": [
           {

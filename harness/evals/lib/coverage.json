@@ -12,7 +12,6 @@
     "status-block": ["hooks/rules/orchestrator.md", "hooks/hooks.json", "hooks/inject-rules.mjs"]
   },
   "uncovered": {
-    "skills/retro/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/qmd/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/continuous-audit/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/overnight-fix-loop/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
@@ -62,6 +61,8 @@
     "skills/prototype/agents/openai.yaml": "No case yet: the cases of the copied skills come in a later change.",
     "skills/research/SKILL.md": "No case yet: the cases of the copied skills come in a later change.",
     "skills/research/agents/openai.yaml": "No case yet: the cases of the copied skills come in a later change.",
+    "skills/retro/SKILL.md": "No case yet: the cases of the copied skills come in a later change.",
+    "skills/retro/agents/openai.yaml": "No case yet: the cases of the copied skills come in a later change.",
     "skills/tdd/SKILL.md": "No case yet: the cases of the copied skills come in a later change.",
     "skills/tdd/agents/openai.yaml": "No case yet: the cases of the copied skills come in a later change.",
     "skills/tdd/mocking.md": "No case yet: the cases of the copied skills come in a later change.",

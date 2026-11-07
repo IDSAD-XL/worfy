@@ -18,7 +18,7 @@ A skill is a procedure in Markdown that an agent follows. worfy's actions, Autop
 | `connect-project` | `/worfy:connect-project <folder> <full\|silent>`, or the draft of "Add project" | Reads the code, drafts a Profile, its rules and registry entries, and writes them after confirmation |
 | `gate-queue` | `/worfy:gate-queue`, on the Machine whose Profile serves the queue | See [the cross-machine gate queue](gate-and-github.md) |
 | `max-review` | On request, or for a Ticket marked as risky | Two lenses over a whole branch, optionally on two models, a synthesis and sceptic agents. Edits and merges nothing |
-| `retro` | The end of a Ticket, an Epic or a debugging session | Records what generalizes where the Profile keeps lessons |
+| `retro` | `/worfy:retro`, by hand only | Matt Pocock's retrospective, copied unchanged but for its references (`harness/skills/THIRD_PARTY.md`): suggests changes to the agent's environment and writes nothing |
 | `qmd` | Before planning, or for "why was it decided so" | The rules of searching decisions and lessons |
 | `continuous-audit` | "audit", or a scheduled run | An audit Epic of findings. A finding stays a claim until a second agent has reproduced it |
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
@@ -97,7 +97,7 @@ says what branches, commits and PR texts may not carry.
 Main tests: `harness/bin/tests/epic-wave-ship-ticket.test.sh`, `harness/bin/tests/skill-blocks.test.sh`,
 `harness/bin/tests/review-depth.test.sh`, `harness/bin/tests/max-review.test.sh`,
 `harness/bin/tests/gate-queue.test.sh`, `harness/bin/tests/silent-mode.test.sh`,
-`harness/bin/tests/skills-allowed.test.sh` and `test/contract/harness-retro-skill.test.ts`. Evals check `epic-wave` and
+`harness/bin/tests/skills-allowed.test.sh` and `test/contract/harness-third-party-skills.test.ts`. Evals check `epic-wave` and
 `ship-ticket` by behaviour.
 
 ## Agents
@@ -193,10 +193,9 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SubagentStop` | `stop.mjs` | 900 | Does nothing under Claude Code. On Codex it runs the Gate and holds a Subagent's turn the same way |
 | `Stop` | `worktree-lock beat` | 5 | Marks the Session alive |
 | `Stop` | `qmd-refresh --quiet` | 15 | Updates the index in the background if a main branch moved or a memory or lessons file is newer than the last update. When qmd cannot run (no qmd, a node too old for it), it exits 0, runs no update, and writes the reason to the log at most once a day |
-| `SessionEnd` | `session-end.mjs` | 10 | Notes a Session without a retrospective |
 | `SessionEnd` | `worktree-lock release` | 5 | Unregisters |
 
-**A broken hook does not break a Session.** A failure inside `inject-rules.mjs`, `session-start.mjs`, `session-end.mjs`,
+**A broken hook does not break a Session.** A failure inside `inject-rules.mjs`, `session-start.mjs`,
 `gh-token-env.mjs` or `stop.mjs` is one line on stderr and code 0, and the worktree lock fails silently. The Gate gives
 its verdict by exit code, and `stop.mjs` holds a turn with code 2. The guard exits 0 and refuses through its answer.
 
@@ -214,7 +213,6 @@ nothing:
 | Where the workflow files live, and that branches, commits and PRs carry no trace of the workflow | Silent mode |
 | That commits and PRs carry no Claude attribution lines | `attribution: off` |
 | The Project's rules without their section of sources, the lessons index when lessons live in the Profile, the map of the active Epic | `session.inject_rules: true` |
-| A reminder about `/retro` | `session.retro_reminder_after`, once that many Sessions ended since the last `/retro` |
 
 Each section is at most 20,000 bytes by default. A longer one is cut at a line end, with a last line that names the full
 text.
@@ -261,8 +259,8 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 
 - `harness/hooks/hooks.json` wires every hook, through the plugin root.
 - `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md` and `harness/hooks/rules/common.md`.
-- `harness/hooks/session-start.mjs` and `harness/hooks/session-end.mjs`, which ask `bin/profile` for the Project. The
-  retrospective log is `state/pending-retro.log` of the Profile.
+- `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field
+  `session.retro_reminder_after`: it is ignored, and a `state/pending-retro.log` left from then is not read.
 - `harness/hooks/gh-token-env.mjs`, `harness/hooks/guard.mjs` (with `harness/bin/silent-check`) and
   `harness/bin/worktree-lock`, whose registry is `worktree-sessions/` in the Harness home.
 - `harness/hooks/stop.mjs`, `harness/hooks/gate.mjs`, `harness/hooks/gate.sh` and the modules next to them: see the
