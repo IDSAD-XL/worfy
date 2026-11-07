@@ -193,3 +193,45 @@ merged would hide the ticket from the work list forever.
 Not merged into `main` and with activity in the last 14 days (`--days`). A branch is not a unit of
 display: the unit of display is a ticket, and branches become its marks. Otherwise one ticket of
 the `deepening/NN` family collects sixty identical chips.
+
+## Wayfinding operations
+
+The tracker of the planning skills — `worfy:wayfinder`, `worfy:to-spec`, `worfy:to-tickets`,
+`worfy:code-review` — is the ticket folder of the project's profile, in the language of this file.
+Their text speaks of a generic issue tracker: issues, labels, `resolved`, `GLOSSARY.md`. Read those
+words through this section; there is no other tracker, and nothing is written into `CLAUDE.md`,
+`AGENTS.md` or `docs/agents/` of the project. `${CLAUDE_PLUGIN_ROOT}` below is the plugin root, the
+folder that holds this file's `bin/`.
+
+- **Tracker**: the tickets root — `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`;
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints its absolute path (the Workflow folder in Silent
+  mode). A project without a profile has no tracker yet: suggest `/worfy:connect-project`.
+- **Spec**: `<tickets root>/<epic>/spec.md`, the epic being a new folder named by the effort.
+  "Publish to the issue tracker" means write that file.
+- **Map**: `<tickets root>/<epic>/map.md` — the Destination, Notes, Decisions-so-far and Not yet
+  specified body of the map. A map is not labelled: `epic-status` sees the file and shows the epic's
+  Stage as `/wayfinder`.
+- **Ticket of the map**: `<tickets root>/<epic>/issues/NN-slug.md`, numbered from `01`, with the
+  header of this file (`Type:`, `Status:`, `Blocked by:`, `Source:`) and the question in the body.
+  The ticket type is the `Type:` line — `research`, `prototype`, `grilling` or `task` — in place of a
+  `wayfinder:<type>` label; a ticket that `worfy:to-tickets` or `worfy:to-spec` writes has
+  `Type: task`. A new ticket is `Status: open`.
+- **Blocking**: the `Blocked by: NN, NN` line, parsed as **Blocked by** above.
+- **Frontier**: the **Unblocked** tickets of the epic in `open` state, first by number wins:
+  `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` lists them (`--json` for every field).
+- **Claim**: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>` before any work; it writes the
+  Status line, which no one edits by hand. The claim is the Status line, not an assignee.
+- **Resolve**: write the answer under an `## Answer` heading of the ticket, then
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN>` — the word is `done`, not `resolved` or
+  closed — then append the context pointer (gist and link) to Decisions-so-far in `map.md`. A ticket
+  ruled out of scope is resolved the same way, its answer saying so.
+- **Comments**: append to the ticket file under a `## Comments` heading.
+- **Labels**: none. worfy tickets carry no labels: no triage labels (`needs-triage`,
+  `ready-for-agent`, …) and no `wayfinder:` labels. An instruction to apply a triage label is
+  ignored, and its word never goes into the Status line, which holds only `open`, `claimed`,
+  `blocked` or `done`: `ticket migrate` would read an unknown word there as a refusal or fold it
+  into another state. A ticket waiting for an agent is simply `open` and **Unblocked**.
+- **Glossary**: the file `docs.context` of the profile
+  (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field docs.context.path`) is the glossary a skill calls
+  `GLOSSARY.md`; ADRs live in `docs.adr_dir`. A profile without `docs.context` has no glossary yet:
+  create one only when the user agrees, and name it in the profile through `/worfy:connect-project`.
