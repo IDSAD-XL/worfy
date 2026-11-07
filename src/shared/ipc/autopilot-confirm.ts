@@ -9,7 +9,9 @@
 // asked.
 //
 // An ask for a queue of Epics (worfy-autopilot-queue ticket 15) carries `epics` besides `epic`, its
-// first; the window's view of the queue is ticket 16.
+// first. The window shows that queue in its "Queue" view (ticket 16), where the person may untick Epics
+// and reorder them: the answer then carries the ticked Epics in their order (`epics`), and main starts
+// over exactly those, once it has checked that they are a part of the queue asked for (chat-confirm.ts).
 import { z } from 'zod'
 import { MAX_QUEUE_EPICS } from '../autopilot/epic-queue'
 import { RUN_MODES } from '../autopilot/run-mode'
@@ -52,10 +54,16 @@ export const autopilotConfirmClose = eventChannel('autopilot.confirm.close', z.o
 export const AUTOPILOT_CONFIRM_ANSWERS = [...RUN_MODES, 'cancel', 'occupied'] as const
 export type AutopilotConfirmAnswer = (typeof AUTOPILOT_CONFIRM_ANSWERS)[number]
 
-/** The window's answer to ask `id`. Refused for a window main did not ask; an ask that is over takes it and changes nothing. */
+/**
+ * The window's answer to ask `id`. Refused for a window main did not ask; an ask that is over takes it
+ * and changes nothing. `epics` (with a Run mode, for an ask of a queue): the Epics the person left
+ * ticked, in the order of the window; absent, the queue as asked. Main refuses the start when they are
+ * not a part of that queue — none, one named twice, or one not asked for — so the bounds here are only
+ * those of a queue.
+ */
 export const autopilotConfirmAnswer = invokeChannel(
   'autopilot.confirm.answer',
-  z.object({ id: z.string().min(1).max(100), answer: z.enum(AUTOPILOT_CONFIRM_ANSWERS) }),
+  z.object({ id: z.string().min(1).max(100), answer: z.enum(AUTOPILOT_CONFIRM_ANSWERS), epics: z.array(epicNameSchema).max(MAX_QUEUE_EPICS).optional() }),
   z.void(),
   'local',
 )

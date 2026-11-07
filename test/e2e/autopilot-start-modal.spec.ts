@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { EPIC, messages, PROJECT, prepareWorld } from './autopilot-world'
+import { EPIC, journals, messages, PROJECT, prepareWorld, type World } from './autopilot-world'
 import { startWindow } from './autopilot-start'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
@@ -22,6 +22,13 @@ import { launchApp } from './helpers'
 // view. The fake agent calls no MCP tool, so the test calls the tool as the Orchestrator's canvas server
 // answers it, in main (`globalThis.worfyCanvasTool` under WORFY_AGENT=fake, src/main/ipc/autopilot-confirm.ts);
 // the call waits for the person's answer in the window, as Claude Code's would.
+//
+// "Run all accepted" of the Command palette (worfy-autopilot-queue ticket 16) opens the window in its
+// "Queue" view over the Project's accepted Epics: here the stub's epic-status answer says three Epics are
+// accepted, each with a ready Ticket. The person unticks one and drags another to the top; the run starts
+// over the ticked Epics in that order (`epics` of `run-started` in the run journal). An agent's
+// `autopilot_start` with the same three Epics opens that view under "Asked by …": the person changes the
+// queue there too, and the run starts over exactly the Epics the window answered.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -208,6 +215,144 @@ test("an agent's autopilot_start asks in the window with the Session that asks: 
     expect(answer.content[0]?.text).toBe(`Autopilot started Epic ${EPIC}.`)
     await expect(frame.getByTestId('autopilot-status')).toHaveText('Wave 1 · running')
     await expect.poll(() => messages(world.log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The accepted Epics of the queue test, oldest acceptance first: the fixture's Epic and two more with one ready Ticket each. */
+const ACCEPTED = [
+  { epic: EPIC, accepted: '2026-11-04' },
+  { epic: 'checkout', accepted: '2026-11-05' },
+  { epic: 'search', accepted: '2026-11-06' },
+] as const
+
+/** The stub's epic-status answer with ACCEPTED: each Epic's spec accepted by the owner on its day. */
+function acceptEpics(world: World): void {
+  const answer = join(world.claudeHome, 'epic-status.json')
+  const model = JSON.parse(readFileSync(answer, 'utf8')) as { epics: unknown[]; tickets: unknown[] }
+  model.epics = ACCEPTED.map(({ epic, accepted }) => ({ epic, hasSpec: true, hasMap: false, specStatus: `принят владельцем ${accepted}`, acceptedAt: accepted }))
+  for (const { epic } of ACCEPTED.slice(1)) {
+    model.tickets.push({ epic, num: 1, slug: 'ticket-1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true })
+  }
+  writeFileSync(answer, JSON.stringify(model))
+}
+
+/** The `epics` of the `run-started` line of the only run journal; undefined before there is one. */
+function startedEpics(dataDir: string): string[] | undefined {
+  const [text] = journals(dataDir)
+  if (text === undefined) return undefined
+  const events = text
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { kind: string; epics?: string[] })
+  return events.find((event) => event.kind === 'run-started')?.epics
+}
+
+test('"Run all accepted" opens the window over the accepted Epics; the run starts over the ticked ones in the order left there', async () => {
+  const world = prepareWorld(scratch)
+  acceptEpics(world)
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect(window.locator('[data-testid="epic-frame"][data-epic="search"]')).toBeVisible()
+
+    // The Command palette: "Run all accepted".
+    await window.keyboard.press('ControlOrMeta+k')
+    const palette = window.getByTestId('command-palette')
+    await expect(palette).toBeVisible()
+    await window.getByTestId('palette-input').fill('run all accepted')
+    const option = palette.locator('[data-testid="palette-option"][data-command="run-all-accepted"]')
+    await expect(option).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    await expect(palette).toBeHidden()
+
+    // The window in its Queue view: the three Epics, oldest acceptance first.
+    const dialog = startWindow(window)
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('data-from', 'accepted')
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-modes')).not.toContainText('…')
+    const heading = dialog.getByRole('heading', { level: 2 })
+    await expect(heading).toHaveText('Start Autopilot · 3 Epics, 4 Waves')
+    await expect(dialog.getByTestId('start-autopilot-accepted')).toHaveText('3 Epics are accepted and waiting. Autopilot runs them one after another.')
+    const rows = dialog.getByTestId('start-autopilot-queue-row')
+    const order = () => rows.evaluateAll((each) => each.map((row) => row.getAttribute('data-epic')))
+    expect(await order()).toEqual(ACCEPTED.map(({ epic }) => epic))
+    await expect(rows.nth(0)).toContainText('2 Waves')
+    await expect(rows.nth(0)).toContainText('accepted Nov 4')
+    await expect(rows.nth(2)).toContainText('accepted Nov 6')
+    await captureScreenshot(dialog, 'start-window-queue')
+
+    // Untick the second; swap the first and the third — the third dragged to the top with the mouse, then
+    // the first moved down with ⌥↓: the queue is search, then demo.
+    await dialog.getByRole('checkbox', { name: 'Include checkout' }).uncheck()
+    await expect(rows.nth(1)).toHaveAttribute('data-on', 'false')
+    await expect(heading).toHaveText('Start Autopilot · 2 Epics, 3 Waves')
+    await rows.nth(2).dragTo(rows.nth(0))
+    await expect.poll(order).toEqual(['search', EPIC, 'checkout'])
+    const grip = dialog.getByRole('button', { name: `Reorder ${EPIC}` })
+    await grip.focus()
+    await window.keyboard.press('Alt+ArrowDown')
+    await expect.poll(order).toEqual(['search', 'checkout', EPIC])
+    await expect(grip).toBeFocused()
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    expect(journalsOf(world.dataDir)).toEqual([])
+
+    // The start: run-started names the ticked Epics in the new order, without the unticked one.
+    await dialog.getByTestId('start-autopilot-start').click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => startedEpics(world.dataDir)).toEqual(['search', EPIC])
+    expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+test("an agent's ask for a queue: the person unticks and reorders it in the window, and the run starts over exactly those Epics", async () => {
+  const world = prepareWorld(scratch)
+  acceptEpics(world)
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect.poll(() => app.evaluate(() => typeof (globalThis as { worfyCanvasTool?: unknown }).worfyCanvasTool)).toBe('function')
+    const view = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value?: { sessionId: string | null } }
+    const sessionId = view.value?.sessionId ?? null
+    expect(sessionId).not.toBeNull()
+
+    const started = agentCalls(launched, sessionId!, { epics: ACCEPTED.map(({ epic }) => epic) })
+    const dialog = startWindow(window)
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('data-from', 'agent')
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-asked')).toContainText(`Asked by Session "${sessionId!.slice(0, 8)}" in a chat`)
+    const rows = dialog.getByTestId('start-autopilot-queue-row')
+    const order = () => rows.evaluateAll((each) => each.map((row) => row.getAttribute('data-epic')))
+    expect(await order()).toEqual(ACCEPTED.map(({ epic }) => epic))
+
+    // Untick checkout; search up two places with ⌥↑: the queue is search, then demo.
+    await dialog.getByRole('checkbox', { name: 'Include checkout' }).uncheck()
+    const grip = dialog.getByRole('button', { name: 'Reorder search' })
+    await grip.focus()
+    await window.keyboard.press('Alt+ArrowUp')
+    await window.keyboard.press('Alt+ArrowUp')
+    await expect.poll(order).toEqual(['search', EPIC, 'checkout'])
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Start Autopilot · 2 Epics, 3 Waves')
+
+    // The answer carries the ticked Epics in their order; main starts over exactly those.
+    await dialog.getByTestId('start-autopilot-start').click()
+    await expect(dialog).toHaveCount(0)
+    const answer = await started
+    expect(answer.isError ?? false).toBe(false)
+    expect(answer.content[0]?.text).toBe(`Autopilot started a queue of 2 Epics: search, ${EPIC}.`)
+    await expect.poll(() => startedEpics(world.dataDir)).toEqual(['search', EPIC])
     expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
   } finally {
     await launched.close()

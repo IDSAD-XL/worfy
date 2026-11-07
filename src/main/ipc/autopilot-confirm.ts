@@ -42,7 +42,7 @@ export function exposeCanvasToolToFakeAgent(env: NodeJS.ProcessEnv = process.env
 
 /** The handler over `asks`; tests pass their own. */
 export function autopilotConfirmHandlers(asks: () => WindowAsks = sharedWindowAsks): HandlerModule {
-  return [defineHandler(autopilotConfirmAnswer, ({ id, answer }, { event }) => asks().answer(id, answer, event.sender.id))]
+  return [defineHandler(autopilotConfirmAnswer, ({ id, answer, epics }, { event }) => asks().answer(id, answer, event.sender.id, epics))]
 }
 
 exposeCanvasToolToFakeAgent()

@@ -30,6 +30,17 @@ button. The main button is **Start Autopilot**, or **Start when free** while the
 says what keeps it busy. The window closes once main answers; a refusal is the toast and the button's tooltip, as
 below. **Start anyway** starts at once, in the default mode, without the window.
 
+**Run all accepted** in the Command palette opens the same window over a queue: every Epic of the Project whose spec
+the owner accepted and that has a ready Ticket, oldest acceptance first (at most 10). Its title counts the ticked Epics
+and their Waves, `Start Autopilot · 3 Epics, 6 Waves`, and under it `3 Epics are accepted and waiting. Autopilot runs
+them one after another.` Instead of the Epic and its Tickets the window lists the queue
+(`src/renderer/autopilot/QueueList.tsx`): per Epic a tick, its place among the ticked, its name, its Waves left and
+`accepted <date>`. Untick an Epic to drop it; drag a row, or press ⌥↑/⌥↓ (Alt+↑/↓ on Windows) on its grip, to move it.
+Each change asks `autopilot.prepare` again for the ticked Epics in their order, so the forecast is theirs. With nothing
+ticked the forecast says `No Epic is ticked` and the main button is inactive. The start goes with the ticked Epics in
+the order of the list. With no accepted Epic that has a ready Ticket, a toast says `No accepted Epic has a ready Ticket`
+and no window opens. On a read-only screen of a Linked machine the command is inactive.
+
 A start is refused in these cases. The reason shows in the button's tooltip and in an error toast:
 
 - The Project already has a run. A Project has at most one run at a time.
@@ -105,9 +116,13 @@ read as a command.
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. For several Epics
 one after another it gives `epics` (1 to 10, each once) instead of `epic`; both fields, neither, an Epic named twice, or
 `tickets` with more than one Epic is a form error before any ask. The ask then carries the queue (`epics` on
-`autopilot.confirm.ask`, when it has more than one Epic), and the start goes with the queue. The window itself still
-names only the first Epic of the queue and shows that Epic's forecast, so the agent tells the person the whole queue in
-the chat first, and the person confirms the queue as the agent stated it. worfy then asks the
+`autopilot.confirm.ask`, when it has more than one Epic). The window shows such a queue in the same list as **Run all
+accepted**, in the order the Session asked, with ticks and grips: the person may untick Epics and reorder them, and the
+forecast follows the ticked ones. With nothing ticked the start is inactive. The answer then carries the ticked Epics
+in their order (`epics` on `autopilot.confirm.answer`), and the run starts over exactly those. Main takes that list
+only when it is a part of the queue asked for: an empty list, an Epic named twice or an Epic the Session did not ask for
+is refused, nothing starts, and the agent is told why. An answer without a list (an ask of one Epic) starts the queue as
+asked. worfy asks the
 user in the same **Start Autopilot** window as the button, in its "Agent asks" view: under the title it says
 `Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` and counts down 10 minutes;
 the last minute is in the blocked colours. The facts, the Modes and the Run mode are as for the button, and the
@@ -620,6 +635,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/ipc/card-api.ts` | The refusal of a Card's `session.ask` to an unattended Session. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips; Start now and Cancel of a waiting run. |
 | `src/renderer/autopilot/StartNowModal.tsx` | The "Start now?" window: what Start now stops and what stays. |
+| `src/renderer/autopilot/QueueList.tsx` | The queue of Epics in the Start Autopilot window: tick, drag, ⌥↑/⌥↓, Waves and acceptance date per Epic. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
 | `scripts/install-stable.mjs` | `pnpm install:stable`: the Stable copy. |
 

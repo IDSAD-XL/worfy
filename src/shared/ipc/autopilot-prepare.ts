@@ -37,7 +37,7 @@ export const autopilotPrepareAnswerSchema = z.object({
       tickets: z.array(ticketNumSchema),
       /** How many Waves are left of them (remainingWaves). */
       waves: z.number().int().nonnegative(),
-      /** When the owner accepted the Epic's spec, YYYY-MM-DD; null until worfy-autopilot-queue ticket 16 reads it. */
+      /** When the owner accepted the Epic's spec, YYYY-MM-DD (`acceptedAt` of epic-status --json); null when the spec is not accepted. */
       accepted: z.string().nullable(),
     }),
   ),
