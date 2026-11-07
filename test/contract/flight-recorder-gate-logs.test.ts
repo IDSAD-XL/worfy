@@ -348,7 +348,9 @@ describe('verdicts without a PR', () => {
   const merges = async (ticket: string) => (await readLocalVerdicts({ repo, tickets: one(ticket) })).ticketEvents.filter((event) => event.event === 'merge')
 
   beforeEach(() => {
-    writeFileSync(join(dir, 'gitconfig'), '')
+    // No auto maintenance: a merge or commit may start it detached (git 2.56 on the runners), and its
+    // .git/objects/maintenance.lock comes and goes while treeState reads the repository (#1510).
+    writeFileSync(join(dir, 'gitconfig'), '[maintenance]\n\tauto = false\n')
     repo = join(dir, 'repo')
     mkdirSync(repo)
     git(T('09:00'), 'init', '-q', '-b', 'main')

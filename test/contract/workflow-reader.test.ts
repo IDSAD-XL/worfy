@@ -211,8 +211,10 @@ function ticketText(num: number, status: string, blocked: string, files: string[
   return [`# ${nn} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Что делаем', '', 'text', '', ...section].join('\n')
 }
 
+// No auto maintenance: git 2.56 may start it detached after a commit or merge, and its
+// .git/objects/maintenance.lock comes and goes while a test compares the repository's files (#1510).
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } })
+  return execFileSync('git', ['-c', 'maintenance.auto=false', ...args], { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } })
 }
 
 /** A repository with Epic `demo` (Tickets 01–04) committed on main. */

@@ -58,6 +58,24 @@ async function eventually(check: () => boolean, what: string): Promise<void> {
   }
 }
 
+/**
+ * Whether the system still runs the process. close() settles on the system's word (waitForExit asks
+ * it every 50 ms); Node's `exit` event, which sets exitCode, can come seconds later on Windows, so
+ * hasExited() right after close() fails there (CI run 42288755059).
+ */
+function systemRuns(child: ChildProcess): boolean {
+  try {
+    process.kill(child.pid as number, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+/** Node's own `exit` event for the process, which sets its exitCode; at once if it came. */
+const nodeExit = (child: ChildProcess): Promise<void> =>
+  hasExited(child) ? Promise.resolve() : new Promise((resolve) => child.once('exit', () => resolve()))
+
 function tempRoot(): string {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-app-server-'))
   roots.push(root)
@@ -244,7 +262,8 @@ describe('CodexAppServer: the start', () => {
     expect(children).toHaveLength(1)
     const [child] = children as [ChildProcess]
     // Gone once start() rejects, and on its own: stdin was closed, no SIGKILL was needed.
-    expect(hasExited(child)).toBe(true)
+    expect(systemRuns(child)).toBe(false)
+    await nodeExit(child)
     expect(child.exitCode).toBe(0)
   })
 
@@ -294,7 +313,8 @@ describe('CodexAppServer: a crash and the close', () => {
     const closing = server.close()
     expect(hasExited(server.process)).toBe(false)
     await closing
-    expect(hasExited(server.process)).toBe(true)
+    expect(systemRuns(server.process)).toBe(false)
+    await nodeExit(server.process)
     expect(server.process.exitCode).toBe(0)
     expect(((await waiting) as Error).message).toBe('the Codex app-server was closed')
     // A second close waits for the same exit.
@@ -305,7 +325,7 @@ describe('CodexAppServer: a crash and the close', () => {
     const { server, warnings } = await start('turn', { WORFY_TEST_LINGER: '1' })
     const began = Date.now()
     await server.close(200)
-    expect(hasExited(server.process)).toBe(true)
+    expect(systemRuns(server.process)).toBe(false)
     expect(Date.now() - began).toBeGreaterThanOrEqual(190)
     expect(warnings).toEqual([expect.stringMatching(/did not exit 200 ms after its stdin was closed; sending SIGKILL$/)])
   })
