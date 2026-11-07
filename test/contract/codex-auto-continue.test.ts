@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LimitsRefresher } from '../../src/main/agent/limits-usage'
 import { clockText, OrchestratorContinue } from '../../src/main/agent/orchestrator-continue'
 import { hasExited } from '../../src/main/agent/session/process'
-import { CONTINUE_TEXT } from '../../src/main/autopilot/limits-wait'
+import { CONTINUE_TEXT, type VendorUsage } from '../../src/main/autopilot/limits-wait'
 import { codexAskStarter, type StartCodex } from '../../src/main/vendors/codex/account'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexLimitsPart } from '../../src/main/vendors/codex/limits'
@@ -146,14 +146,19 @@ afterEach(async () => {
  * a manual turn following it as app-orchestrators.ts wires it: the Orchestrators' views, the Limits of the
  * test's LimitsTracker, and the windows read anew through a LimitsRefresher whose Codex poll starts the fake
  * app-server on the next of `pollScripts` (codexLimitsPart.poll: account/read, account/rateLimits/read).
- * A person's message starts the turn.
+ * A person's message starts the turn. `options.scripts`: the scripts of the app-servers started after the
+ * first (a New conversation); `options.usage`: the read of the windows the module gets in place of the real one.
+ * The switch is on until `switchOff()`, which tells the module as the settings store's `changed` does.
  */
-async function manualTurn(script: string, pollScripts: readonly string[] = []) {
+async function manualTurn(script: string, options: { polls?: readonly string[]; scripts?: readonly string[]; usage?: VendorUsage } = {}) {
+  const pollScripts = options.polls ?? []
   let continuer: OrchestratorContinue | null = null
   let sessionId: string | null = null
+  let on = true
+  const settingsListeners: (() => void)[] = []
   const h = faultRun({
     vendor: 'codex',
-    codexScripts: [script],
+    codexScripts: [script, ...(options.scripts ?? [])],
     publish: (view) => {
       if (view.sessionId !== null) sessionId = view.sessionId
       continuer?.view(view)
@@ -186,10 +191,14 @@ async function manualTurn(script: string, pollScripts: readonly string[] = []) {
   continuer = new OrchestratorContinue({
     observe: (sink) => h.registry.observe(sink),
     session: (id) => h.registry.get(id),
-    enabled: (projectId) => projectId === PROJECT,
+    enabled: (projectId) => projectId === PROJECT && on,
+    observeSettings: (listener) => {
+      settingsListeners.push(listener)
+      return () => undefined
+    },
     limits: () => h.tracker.snapshot(),
     windows: (vendor) => h.tracker.windowsOf(vendor),
-    usage: {
+    usage: options.usage ?? {
       refresh: (olderThanMs, vendor) => {
         refreshes.push(vendor)
         return refresher.refreshIfOlder(olderThanMs, vendor)
@@ -211,7 +220,53 @@ async function manualTurn(script: string, pollScripts: readonly string[] = []) {
   const ours = (id: string): boolean => id === sessionId || id === view.sessionId
   const notices = (): string[] => events.flatMap(({ sessionId: id, event }) => (ours(id) && event.type === 'notice' && event.kind === 'notification' && event.text.startsWith('worfy:') ? [event.text] : []))
   const results = (): boolean[] => events.flatMap(({ sessionId: id, event }) => (ours(id) && event.type === 'result' ? [event.isError] : []))
-  return { h, continuer, notices, results, pollsDone, refreshes }
+  const switchOff = (): void => {
+    on = false
+    for (const listener of settingsListeners) listener()
+  }
+  /** worfy's lines in any Session's transcript, the old conversation's and the new one's. */
+  const anyNotices = (): string[] => events.flatMap(({ event }) => (event.type === 'notice' && event.kind === 'notification' && event.text.startsWith('worfy:') ? [event.text] : []))
+  return { h, continuer, notices, anyNotices, results, pollsDone, refreshes, session, switchOff }
+}
+
+/**
+ * A read of Codex's windows that does not answer until the test says: `open()` resolves it with nothing
+ * read (the windows known decide), `fail()` rejects it.
+ */
+function heldRead() {
+  const calls: (string | undefined)[] = []
+  let resolve: (() => void) | null = null
+  let reject: ((error: Error) => void) | null = null
+  const usage: VendorUsage = {
+    refresh: (_olderThanMs, vendor) => {
+      calls.push(vendor)
+      return new Promise<void>((done, failed) => {
+        resolve = done
+        reject = failed
+      })
+    },
+  }
+  return {
+    usage,
+    calls,
+    open: (): void => resolve?.(),
+    fail: (): void => reject?.(new Error('no answer from Codex')),
+  }
+}
+
+/** Collects the unhandled rejections while `body` runs, and answers them. */
+async function unhandledDuring(body: () => Promise<void>): Promise<unknown[]> {
+  const found: unknown[] = []
+  const listener = (reason: unknown): void => void found.push(reason)
+  process.on('unhandledRejection', listener)
+  try {
+    await body()
+    // An unhandled rejection is reported after the microtasks of its turn: give it a turn of the event loop.
+    await new Promise((done) => setTimeout(done, 50))
+  } finally {
+    process.off('unhandledRejection', listener)
+  }
+  return found
 }
 
 const tick = (wait = 100): Promise<void> => new Promise((done) => setTimeout(done, wait))
@@ -269,16 +324,20 @@ describe('Auto-continue of a manual turn of a Codex Orchestrator (worfy-retry ti
   })
 
   it('the Limits refuse by the 5-hour window: at its reset the windows are read anew (spec Q7 (a)); still used up — nothing goes and the wait goes on; open — one continuation', async () => {
-    const { h, continuer, notices, results, pollsDone, refreshes } = await manualTurn('auto-continue-limits-window', ['auto-continue-limits-poll-used-up', 'account-plus'])
+    const { h, continuer, notices, results, pollsDone, refreshes } = await manualTurn('auto-continue-limits-window', { polls: ['auto-continue-limits-poll-used-up', 'account-plus'] })
     const first = LIMITS_RESET_MS + RESUME_MARGIN_MS
     await until(() => continuer.wait(PROJECT) !== null, 'the wait for the reset')
     expect(continuer.wait(PROJECT)).toEqual({ kind: 'limits', window: 'primary', until: first })
     expect(results()).toEqual([true])
+    // The countdown in the chat (worfy-retry ticket 07) is told of each wait, also of the one the read starts.
+    const told: (number | null)[] = []
+    continuer.observeWaits(() => told.push(continuer.wait(PROJECT)?.until ?? null))
 
     // The reset: the read says the window is still used up, with a new reset an hour later.
     h.clock.advanceTo(first)
     const second = LIMITS_RESET_MS + 3_600_000 + RESUME_MARGIN_MS
     await until(() => continuer.wait(PROJECT)?.until === second, 'the second wait')
+    await until(() => told.includes(second), 'the countdown told of the second wait')
     expect(pollsDone).toEqual(['auto-continue-limits-poll-used-up'])
     expect(refreshes).toEqual(['codex'])
     expect(h.messages()).toEqual([PERSON])
@@ -298,5 +357,126 @@ describe('Auto-continue of a manual turn of a Codex Orchestrator (worfy-retry ti
     expect(continuer.wait(PROJECT)).toBeNull()
     expect(h.clock.pending()).toEqual([])
     await until(() => polls.every((child) => hasExited(child)), 'every poll\'s app-server to exit')
+  })
+})
+
+/** What a person writes during the read of the windows. */
+const SECOND = 'Check the open PRs first.'
+/** The line of the first wait for the Limits (the reset of the 5-hour window, then the margin). */
+const FIRST_WAIT_LINE = `worfy: waiting for the Limits, resumes ${clockText(LIMITS_RESET_MS + RESUME_MARGIN_MS, START_MS)}`
+
+/**
+ * The read of the windows at the reset does not answer until the test says. Whatever ends the wait while
+ * it is read (a person's message, the switch, a New conversation, the quit) wins: the read answering after
+ * it — even "the window is open" — sends nothing (orchestrator-continue.ts limitsFired, isCurrent after the read).
+ */
+describe('Auto-continue of a manual turn on Codex: the wait ended during the read of the windows (worfy-retry ticket 08)', () => {
+  /** The manual turn refused by the 5-hour window, its wait over, the read of the windows asked and held. */
+  async function heldAtReset(options: { scripts?: readonly string[] } = {}) {
+    const read = heldRead()
+    const turn = await manualTurn('auto-continue-limits-window', { ...options, usage: read.usage })
+    await until(() => turn.continuer.wait(PROJECT) !== null, 'the wait for the reset')
+    turn.h.clock.advanceTo(LIMITS_RESET_MS + RESUME_MARGIN_MS)
+    await until(() => read.calls.length === 1, 'the read of the windows at the reset')
+    expect(read.calls).toEqual(['codex'])
+    return { ...turn, read }
+  }
+
+  it("a person's message during the read takes the continuation's place: the read then finds the window open, and nothing more goes", async () => {
+    const { h, continuer, notices, results, session, read } = await heldAtReset()
+    session().send(SECOND)
+    await until(() => results().length === 2, "the person's turn")
+    await until(() => session().state === 'idle', 'the Orchestrator to be idle after it')
+    read.open()
+    await tick(200)
+    expect(h.messages()).toEqual([PERSON, SECOND])
+    expect(notices()).toEqual([FIRST_WAIT_LINE])
+    expect(continuer.wait(PROJECT)).toBeNull()
+  })
+
+  it('Auto-continue switched off during the read: one line says so, and the read answering after it sends nothing and says nothing more', async () => {
+    const { h, continuer, notices, read, switchOff } = await heldAtReset()
+    switchOff()
+    await until(() => notices().length === 2, 'the line of the switch')
+    read.open()
+    await tick(200)
+    expect(h.messages()).toEqual([PERSON])
+    expect(notices()).toEqual([FIRST_WAIT_LINE, 'worfy: Auto-continue is off; nothing was sent'])
+    expect(continuer.wait(PROJECT)).toBeNull()
+  })
+
+  it("New conversation during the read: the old Session's wait ends with it, and the new conversation gets no continuation", async () => {
+    const { h, continuer, anyNotices, session, read } = await heldAtReset({ scripts: ['turn'] })
+    const old = session().id
+    const view = await h.orchestrators.newConversation(PROJECT)
+    expect(view.sessionId).not.toBe(old)
+    await until(() => h.registry.get(view.sessionId!).state === 'idle', 'the new conversation to be idle')
+    read.open()
+    await tick(200)
+    expect(h.messages()).toEqual([PERSON])
+    expect(anyNotices()).toEqual([FIRST_WAIT_LINE])
+    expect(continuer.wait(PROJECT)).toBeNull()
+  })
+
+  it('the app quits during the read (the module stops): the read answering after it sends nothing', async () => {
+    const { h, continuer, notices, session, read } = await heldAtReset()
+    continuer.stop()
+    read.open()
+    await tick(200)
+    expect(session().state).toBe('idle')
+    expect(h.messages()).toEqual([PERSON])
+    expect(notices()).toEqual([FIRST_WAIT_LINE])
+  })
+})
+
+/**
+ * The read of the windows at the reset fails (no answer from Codex): the windows known decide, as the
+ * comment of LimitsWait.stillRefused says, and the failure reaches no one as an unhandled rejection.
+ */
+describe('Auto-continue of a manual turn on Codex: the read of the windows fails (worfy-retry ticket 08)', () => {
+  it("the windows known have reset: one continuation goes, with no unhandled rejection", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const read = heldRead()
+    const { h, continuer, notices, results } = await manualTurn('auto-continue-limits-window', { usage: read.usage })
+    const unhandled = await unhandledDuring(async () => {
+      await until(() => continuer.wait(PROJECT) !== null, 'the wait for the reset')
+      h.clock.advanceTo(LIMITS_RESET_MS + RESUME_MARGIN_MS)
+      await until(() => read.calls.length === 1, 'the read of the windows at the reset')
+      read.fail()
+      await until(() => results().length === 2, 'the turn of the continuation')
+    })
+    expect(unhandled).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read the Limits of codex after the wait'), expect.any(Error))
+    expect(h.messages()).toHaveLength(2)
+    expect(h.messages()[1]!.startsWith(CONTINUE_TEXT)).toBe(true)
+    expect(notices()).toEqual([FIRST_WAIT_LINE, 'worfy: sent "continue" after the Limits wait'])
+    expect(continuer.wait(PROJECT)).toBeNull()
+    warn.mockRestore()
+  })
+
+  it('the windows known are still used up (a later reset known before the read): the wait goes on to it, nothing sent, no unhandled rejection', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const read = heldRead()
+    const { h, continuer, notices } = await manualTurn('auto-continue-limits-window', { usage: read.usage })
+    const first = LIMITS_RESET_MS + RESUME_MARGIN_MS
+    const second = LIMITS_RESET_MS + 3_600_000 + RESUME_MARGIN_MS
+    const unhandled = await unhandledDuring(async () => {
+      await until(() => continuer.wait(PROJECT) !== null, 'the wait for the reset')
+      // The app's poll learnt meanwhile that the 5-hour window, used up, resets an hour later than the refusal said.
+      h.tracker.setWindows('codex', [
+        { vendor: 'codex', id: 'primary', label: '5h', usedPercent: 100, windowMinutes: 300, resetsAt: LIMITS_RESET_MS / 1000 + 3600, state: 'reached', receivedAt: START_MS, source: 'read' },
+        { vendor: 'codex', id: 'secondary', label: 'weekly', usedPercent: 40, windowMinutes: 10080, resetsAt: LIMITS_RESET_MS / 1000 + 86_400, state: 'ok', receivedAt: START_MS, source: 'read' },
+      ])
+      h.clock.advanceTo(first)
+      await until(() => read.calls.length === 1, 'the read of the windows at the reset')
+      read.fail()
+      await until(() => continuer.wait(PROJECT)?.until === second, 'the second wait')
+    })
+    expect(unhandled).toEqual([])
+    expect(h.messages()).toEqual([PERSON])
+    expect(h.clock.pending().map((timer) => timer.at)).toEqual([second])
+    await until(() => notices().length === 2, 'the line of the second wait')
+    expect(notices()).toEqual([FIRST_WAIT_LINE, `worfy: waiting for the Limits, resumes ${clockText(second, first)}`])
+    warn.mockRestore()
   })
 })

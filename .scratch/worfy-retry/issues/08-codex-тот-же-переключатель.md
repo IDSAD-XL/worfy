@@ -39,19 +39,12 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 ## Готово, когда
 
 - [ ] Contract test: Codex, `serverOverloaded`, затем удачный — `turn-retry`, `resumed`, одно продолжение.
-  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: `willRetry: true` — worfy ничего не шлёт, `turn-retry` нет.
-  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: квота без сброса — остановка с причиной, ожидания нет.
-  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Unit test: `responseTooManyFailedAttempts` с `httpStatusCode` 429 → `other`; без кода и с 5xx — как сейчас.
-  - evidence: gate pass · `gate fast` (pnpm test: test/unit/turn-failure.test.ts, test/unit/codex-items.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: ход Codex с `collabAgentToolCall` без результата, затем `serverOverloaded` → `retry-refused` `in-flight`.
-  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Новые скрипты проходят проверку схемы `codex-fake.test.ts`.
-  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-fake.test.ts, test/contract/codex-compat.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 
 ## Тесты
 
@@ -99,6 +92,16 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
   синхронный: окна не читаются. `shortcut:` про это в `orchestrator-continue.ts` убран.
 - Новые скрипты: `auto-continue-server-overloaded`, `-will-retry`, `-quota`, `-collab-in-flight`, `-limits-window`,
   `-limits-poll-used-up`; все проходят схему `codex-fake.test.ts` и формы записей `codex-compat.test.ts`.
+
+- **Раунд ревью 1 (mutation testing).** Добавлены test-ы на чтение окон перед продолжением ручного хода, каждый
+  проверен своим мутантом. Чтение окон держится, пока test его не отпустит; за это время человек пишет, выключают
+  Auto-continue, открывают New conversation или приложение выходит. После этого чтение отвечает «окно открыто», и
+  ничего не уходит (`test/contract/codex-auto-continue.test.ts`, мутант без `isCurrent` после чтения). Чтение
+  падает: решают известные окна, unhandled rejection нет; для ручного хода и для Run-а
+  (`codex-auto-continue.test.ts`, `codex-orchestrator.test.ts`, мутант, где `stillRefused` пробрасывает ошибку).
+  Проводка `windows` и `usage` в `sharedOrchestratorContinue` проверена (`test/contract/app-orchestrators-continue.test.ts`).
+  `LimitsWait.stillRefused` с `cutShort` проверен unit test-ом (`test/unit/limits-wait-still-refused.test.ts`).
+  Код не менялся: ни один новый test дефекта не показал.
 
 Решено без владельца:
 
