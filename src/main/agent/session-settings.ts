@@ -22,6 +22,7 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 import { readSettings, sessionSettingsSchema, type SessionSettings, type SettingsChange } from '../../shared/agent/settings'
+import type { SessionKind } from '../../shared/ipc/sessions'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import type { LaunchApproval } from './auto-approve/run-approval'
 
@@ -37,6 +38,11 @@ export interface SessionLaunch {
    * Absent — any other Session.
    */
   orchestrator?: boolean
+  /**
+   * The SessionKind of the Session on a Session Node (worfy-product-session ticket 01), from the Node's
+   * data on every start of it. Absent — a plain Session.
+   */
+  kind?: SessionKind
   /**
    * The approval policy of an unattended Session (worfy-auto-approve ticket 04): the mode and the
    * decisions of the Autopilot run that owns the Session, and the environment its agent starts with.

@@ -240,6 +240,36 @@ describe('the Vendor of a Session Node', () => {
   })
 })
 
+describe('the Vendor of a Product Session (worfy-product-session ticket 01)', () => {
+  it('kind product with Vendor codex is refused with the reason before any Node is made or any Vendor asked', async () => {
+    const vendorRefusal = vi.fn(() => Promise.resolve(null))
+    const h = harness({ vendorRefusal })
+    await expect(h.sessions.open(PROJECT, 'codex', 'product')).rejects.toThrow(/^Product Session runs on Claude Code only$/)
+    expect(h.nodes()).toEqual([])
+    expect(h.asked).toEqual([])
+    expect(vendorRefusal).not.toHaveBeenCalled()
+  })
+
+  it('kind product without a Vendor runs on Claude Code even when the Project\'s defaultVendor is codex', async () => {
+    savedSettings({ ...defaultProjectSettings('plugin'), defaultVendor: 'codex' })
+    const h = harness()
+    const created = await h.sessions.open(PROJECT, undefined, 'product')
+    expect(created).toMatchObject({ vendor: 'claude', kind: 'product' })
+    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'product' })
+    expect(h.asked).toEqual(['claude'])
+    await h.until(created.nodeId, 'idle')
+    expect(h.codexLog()).toEqual([])
+  })
+
+  it('a saved Node of kind product on Codex is refused on Start, and nothing starts', async () => {
+    savedLayout([{ id: 'odd', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'codex', kind: 'product', sessionId: THREAD } }])
+    const h = harness({ codexThreads: [{ sessionId: THREAD, cwd: repo }] })
+    await expect(h.sessions.start(PROJECT, 'odd')).rejects.toThrow('The Session of odd cannot start: Product Session runs on Claude Code only')
+    expect(h.asked).toEqual([])
+    expect(h.node('odd').data).toStrictEqual({ origin: 'worfy', vendor: 'codex', kind: 'product', sessionId: THREAD })
+  })
+})
+
 describe('the sign-in check of New session', () => {
   const signedIn = (yes: boolean): AccountConnection[] => [{ provider: 'openai', signedIn: yes, email: null, plan: null }]
 

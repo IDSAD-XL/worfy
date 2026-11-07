@@ -4,18 +4,33 @@
 // conversation is one Node: a new conversation is a new Node, the old one stays.
 //
 // The Node's `data` in the Layout keeps identifiers only (ADR-0010): `origin: 'worfy'`, the Vendor
-// whose agent runs the Session (worfy-multi-vendor ticket 23) and, once the agent has reported it,
+// whose agent runs the Session (worfy-multi-vendor ticket 23), the kind of a Session that is not a
+// plain one (a Product Session, worfy-product-session ticket 01) and, once the agent has reported it,
 // the Vendor's session id. Everything else the Node shows comes from the
 // live Session (its view, below, kept in memory by main) or from the transcript. Run by
 // src/main/agent/node-sessions.ts, handled in src/main/ipc/sessions.ts (ADR-0006). The events of
 // these Sessions go to every window on `agent.event`, and the `agent.*` channels take their ids.
 import { z } from 'zod'
 import { sessionState } from '../agent/events'
-import { vendorIdSchema } from '../vendors/vendor'
+import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 import { eventChannel, invokeChannel } from './channels'
 
 /** The `kind` of a Session Node in the Layout (the read-only ones of ticket 14 too). */
 export const SESSION_NODE_KIND = 'session'
+
+/**
+ * The kinds of Session besides a plain one (worfy-product-session ticket 01): `product` — a Product
+ * Session, the Product owner's advisor. A Session without a kind is a plain one. The kind lives in the
+ * Session Node's data, not in the Node's own `kind`: the Node stays a Session Node on the Canvas.
+ */
+export const SESSION_KINDS = ['product'] as const
+export const sessionKindSchema = z.enum(SESSION_KINDS)
+export type SessionKind = z.output<typeof sessionKindSchema>
+
+/** The one Vendor a Product Session runs on (the spec of Epic worfy-product-session: Claude Code only, Codex later). */
+export const PRODUCT_SESSION_VENDOR: VendorId = 'claude'
+/** What a Product Session of any other Vendor is refused with. */
+export const PRODUCT_SESSION_VENDOR_MESSAGE = 'Product Session runs on Claude Code only'
 /**
  * What a Session Node worfy runs keeps in `data`, as main writes it (src/main/agent/node-sessions.ts):
  * identifiers only (ADR-0010) — the Vendor and the Vendor's session id, once the agent has reported
@@ -29,6 +44,12 @@ export const worfySessionNodeDataSchema = z.object({
    * is, and main refuses to start the Node.
    */
   vendor: z.string().min(1).optional(),
+  /**
+   * The SessionKind; absent on a plain Session and on a Node saved before worfy-product-session ticket
+   * 01. Like `vendor`, a value this build does not know (a later worfy's kind) is kept as it is, and
+   * main refuses to start the Node.
+   */
+  kind: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
 })
 export type WorfySessionNodeData = z.output<typeof worfySessionNodeDataSchema>
@@ -71,6 +92,8 @@ export const sessionNodeViewSchema = z.object({
   nodeId,
   /** The Vendor whose agent runs the Session; Claude Code in a view of a build from before worfy-multi-vendor ticket 23. */
   vendor: vendorIdSchema.default('claude'),
+  /** The SessionKind; absent on a plain Session. */
+  kind: sessionKindSchema.optional(),
   /** The live Session's id for the `agent.*` channels: temporary until Claude Code reports its own. */
   sessionId: z.string().min(1),
   /** The SDK session: the one resumed, or the one Claude Code reported; null for a new one before its first turn. */
@@ -91,9 +114,17 @@ export type SessionNodeView = z.output<typeof sessionNodeViewSchema>
  * A new live Session Node with a new Session in the Project's root, on the agent of `vendor`, or of the
  * Project's `defaultVendor` without it. A Vendor this build does not run, or one nobody is signed in
  * to, is refused with the reason; so is a VendorId of a later build, which is why `vendor` is any
- * short string here rather than a VendorId.
+ * short string here rather than a VendorId. With `kind` the Session is of that SessionKind: a Product
+ * Session runs on PRODUCT_SESSION_VENDOR whatever the Project's `defaultVendor`, and any other `vendor`
+ * is refused with PRODUCT_SESSION_VENDOR_MESSAGE.
  */
-export const sessionsNew = invokeChannel('sessions.new', z.object({ projectId, vendor: z.string().min(1).max(64).optional() }), sessionNodeViewSchema, 'project', 'write')
+export const sessionsNew = invokeChannel(
+  'sessions.new',
+  z.object({ projectId, vendor: z.string().min(1).max(64).optional(), kind: sessionKindSchema.optional() }),
+  sessionNodeViewSchema,
+  'project',
+  'write',
+)
 
 /**
  * What the Vendor picker of "New session" offers (worfy-multi-vendor ticket 24): the Vendors in the

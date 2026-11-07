@@ -10,7 +10,7 @@ import { defineHandler, type HandlerModule } from './index'
 /** The handlers over a set of Node Sessions; tests pass their own. */
 export function sessionsHandlers(sessions: () => Pick<NodeSessions, 'open' | 'vendors' | 'start' | 'resume' | 'resumable' | 'list' | 'close'>): HandlerModule {
   return [
-    defineHandler(sessionsNew, ({ projectId, vendor }) => sessions().open(projectId, vendor)),
+    defineHandler(sessionsNew, ({ projectId, vendor, kind }) => sessions().open(projectId, vendor, kind)),
     defineHandler(sessionsVendors, ({ projectId }) => sessions().vendors(projectId)),
     defineHandler(sessionsStart, ({ projectId, nodeId }) => sessions().start(projectId, nodeId)),
     defineHandler(sessionsResume, ({ projectId, sessionId }) => sessions().resume(projectId, sessionId)),
