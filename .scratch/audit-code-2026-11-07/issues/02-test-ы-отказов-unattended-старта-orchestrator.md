@@ -38,10 +38,13 @@ Source: [spec.md](../spec.md), раздел «Находки», находки t
 - [ ] Test «refuses an unattended start when the capabilities of the Vendor cannot be read» рядом с
       `test/contract/codex-orchestrator.test.ts:551`: `capabilities: () => Promise.reject(...)`, `setUnattended` бросает с
       текстом отказа. Test краснеет, если catch на `orchestrator.ts:533` вернёт `null` (проверено правкой и записано в PR).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/codex-orchestrator.test.ts` exit 0; catch mutant returning null: exit 1, only the new test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 - [ ] Три test-а «setUnattended refuses a turn / live tasks / queued messages» в
       `test/contract/orchestrator-relaunch.test.ts`: каждый ждёт точный текст своей константы. Каждый краснеет, если
       удалить свою строку `:365`, `:370` или `:371` (три правки, итог в PR).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/orchestrator-relaunch.test.ts` exit 0; deleting lines 365, 370, 371 one by one: exit 1 each, only its own test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 - [ ] Остальные test-ы обоих файлов зелёные.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 
 ## Тесты
 
@@ -53,3 +56,20 @@ Source: [spec.md](../spec.md), раздел «Находки», находки t
 - `src/main/agent/orchestrator.ts` — `setUnattended` (с `:332`, ветка unattended `:360-372`), `unattendedRefusal` (`:527-550`), `busy()` (`:463`).
 - `test/contract/codex-orchestrator.test.ts` — test отказа hooks (`:551`), stub-ы capabilities (`:301`, `:562`).
 - `test/contract/orchestrator-relaunch.test.ts` — test-ы перезапуска Orchestrator-а.
+
+## Итог
+
+Код `src/main/agent/orchestrator.ts` не менялся, добавлены только test-ы.
+
+- `test/contract/codex-orchestrator.test.ts`: «refuses an unattended start when the capabilities of the Vendor cannot be read, and opens no Session».
+  `capabilities` отклоняется, `unattendedRefusal` и `setUnattended` отвечают «Autopilot did not start: worfy could not read what Codex can do.»,
+  Orchestrator остаётся attended, процесс Codex не стартует.
+- `test/contract/orchestrator-relaunch.test.ts`, новый `describe` «setUnattended refuses an attended Orchestrator that is busy, and starts nothing»:
+  три test-а ждут точные `ORCHESTRATOR_IN_TURN`, `ORCHESTRATOR_HAS_TASKS`, `ORCHESTRATOR_HAS_QUEUE`; после отказа та же Session
+  attended, новых процессов нет, очередь и task на месте.
+- Правка guard-а и красный test (по одной правке, код восстановлен `git checkout`; run — `node scripts/vitest-electron.mjs <файл>`):
+  - catch на `:535` возвращает `null` — `codex-orchestrator.test.ts`: exit 1, красный только новый test;
+  - удалена строка `:365` (IN_TURN) — `orchestrator-relaunch.test.ts`: exit 1, красный только «refuses a start while the Orchestrator is in a turn»;
+  - удалена строка `:370` (HAS_TASKS) — exit 1, красный только «… has live background tasks»;
+  - удалена строка `:371` (HAS_QUEUE) — exit 1, красный только «… messages wait in the Orchestrator's queue».
+- Остальные test-ы обоих файлов зелёные; все test-ы Orchestrator-а (orchestrator*, codex-orchestrator, app-orchestrators*, autopilot-wait*): 10 файлов, 163 test-а, exit 0.
