@@ -143,6 +143,10 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 
 The tooltip of the status line gives the error in words when there is one.
 
+In a run over a queue of Epics, `no-ready-wave`, `blocked-tickets` and `tickets-done` may end only the Epic, and the run
+goes on to the next one ([Autopilot, a run over a queue of Epics](autopilot.md#during-a-run)); the table names how
+the run itself stopped.
+
 After any stop, a toast says how the run ended, with **Open history**, and **History** stands right of the status line
 until the next run starts. Both open the run in Run history, which the [Flight Recorder](flight-recorder.md) page describes.
 
