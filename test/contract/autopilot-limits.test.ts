@@ -1248,7 +1248,9 @@ describe('the Run mode at the boundary of a Wave (worfy-resource-planner ticket 
     clock = resumes
     h.tracker.record([{ window: 'five_hour', state: five(0, clock, fiveReset + 5 * 3600) }])
     h.live()[0]!.fire()
-    await until(async () => (await h.kinds()).length === 7, 'the wait for the Start window')
+    // The state says start-window only after both journal lines are written; a journal line can be
+    // read before its append is done, and the state follows only then.
+    await until(() => h.state().waitingFor === 'start-window', 'the wait for the Start window')
     expect(await h.kinds()).toEqual(['run-started', 'forecast', 'budget-stop', 'waiting-until', 'resumed', 'start-window', 'waiting-until'])
     expect((await h.journal())[5]).toMatchObject({ kind: 'start-window', reason: 'outside', until: iso(oct5(23)) })
     expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'start-window', windowReason: 'outside', resumesAt: oct5(23) })
