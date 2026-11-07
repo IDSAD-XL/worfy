@@ -1,7 +1,8 @@
 # 20 — Деление страницы Autopilot: Fault scenarios и восстановление на своей странице
 
 Type: task
-Status: claimed 2026-11-07T06:06Z
+Status: done 2026-11-07T06:32Z
+PR: #1564
 Blocked by: —
 Source: «Как устроено» [spec.md](../spec.md) (страница больше примерно 400 строк делится на две), решение владельца 2026-10-30, Q9; решение владельца 2026-11-05 (деление после приёмки worfy-faults); Epic [worfy-faults](../../worfy-faults/spec.md), Q6; [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
@@ -36,14 +37,19 @@ Source: «Как устроено» [spec.md](../spec.md) (страница бо
 
 - [ ] `docs/features/autopilot.md` и `docs/features/autopilot-faults.md` — каждая не больше примерно 400 строк; что
       перенесено и почему — в `## Итог`.
+  - evidence: review pass · PR #1564 · - - · 4a5ee8e5dbbc1c703ab377ba13f9ec98804b9512
 - [x] Перевод обеих страниц в `docs/features/ru/` с шапкой.
   - evidence: commit pass · docs(features): move Autopilot waits, stops and Fault scenarios to their own page (worfy-feature-docs 20) · - - · 547d8c402549315ecff890b802d34211a49e25b4
+  - evidence: review pass · PR #1564 · - - · 4a5ee8e5dbbc1c703ab377ba13f9ec98804b9512
 - [x] Индекс на обоих языках называет новую страницу; ни одна ссылка `docs/` на перенесённый раздел не ведёт в пустоту.
   - evidence: commit pass · docs(features): move Autopilot waits, stops and Fault scenarios to their own page (worfy-feature-docs 20) · - - · 547d8c402549315ecff890b802d34211a49e25b4
+  - evidence: review pass · PR #1564 · - - · 4a5ee8e5dbbc1c703ab377ba13f9ec98804b9512
 - [ ] `node scripts/check-feature-docs.mjs` и `pnpm lint` — exit 0; `ci-ok` зелёный. Gate full не нужен: код не меняется.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs && pnpm lint` exit 0 · mac - · 547d8c402549315ecff890b802d34211a49e25b4
   - evidence: gate pass · `gate fast` exit 0 · mac - · 547d8c402549315ecff890b802d34211a49e25b4
+  - evidence: review pass · PR #1564 · - - · 4a5ee8e5dbbc1c703ab377ba13f9ec98804b9512
 - [ ] Review: один агент уровня `low` проверяет, что утверждения перенесены без изменений и ссылки живые.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42347013933/job/128327495126 · ci - · 4a5ee8e5dbbc1c703ab377ba13f9ec98804b9512
 
 ## Тесты
 
