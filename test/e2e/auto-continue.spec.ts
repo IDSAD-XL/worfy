@@ -189,7 +189,7 @@ test('the countdown of a retry after a 529: the line counts down over the field,
     await expect(text).toHaveText(/^API error 529 \(overloaded\) · retry 1 of 5 in [01]:\d\d$/u)
     // By the second: the text changes while the line waits.
     const first = await text.textContent()
-    await expect(text).not.toHaveText(first ?? '', { timeout: 5000 })
+    await expect(text).not.toHaveText(first ?? '', { timeout: ms(5000) })
     await expect(line.getByRole('button', { name: 'Retry now' })).toBeVisible()
     await expect(line.getByRole('button', { name: 'Cancel' })).toBeVisible()
     // The line stands over the field, not on it, and covers none of the transcript.
