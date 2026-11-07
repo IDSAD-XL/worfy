@@ -24,7 +24,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 2. [`worfy-windows` 16](#worfy-windows-16) — ПК.
 3. [`worfy-evidence` 09](#worfy-evidence-09) — принят 2026-11-07. ([`worfy-faults` 08](#worfy-faults-08) — принят 2026-11-06.)
 4. [`worfy-auto-approve` 11](#worfy-auto-approve-11) — ещё не готово: ждёт Ticket-ов 05, 08, 10, 13, 14.
-5. [`worfy-retry` 11](#worfy-retry-11) — ещё не готово: ждёт Ticket-ов 05–10, 14.
+5. [`worfy-retry` 11](#worfy-retry-11) — принят 2026-11-07.
 6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — ещё не готово: ждёт Ticket-ов 07–19.
 7. [`worfy-work-track` 12](#worfy-work-track-12) — ещё не готово: ждёт Ticket-ов 01–11 (03 — твой шаг, в
    [ручных проверках](#ручные-проверки-вне-приёмок)).
@@ -162,7 +162,7 @@ Mac:
 
 ## worfy-retry 11
 
-Ещё не готово: ждёт Ticket-ов 05, 06, 07, 08, 09, 10, 14 ([Ticket](worfy-retry/issues/11-приёмка-с-владельцем.md)).
+Принят 2026-11-07 — «Итог» [Ticket-а](worfy-retry/issues/11-приёмка-с-владельцем.md#итог).
 
 - **Где:** Mac Stable со всеми Ticket-ами Epic-а; ПК как Linked machine, если включён.
 - **Время:** Mac ~5 мин, ПК ~5 мин.
