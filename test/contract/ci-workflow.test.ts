@@ -13,7 +13,6 @@ import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { atOnce, fileEnds, HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, SHELL_TESTS_AT_ONCE, startOrder, UNMEASURED_SECONDS, type Part } from '../harness-shell-tests'
 import { gitBash } from '../git-bash'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -22,13 +21,14 @@ const REPO = join(__dirname, '..', '..')
 const WORKFLOW = join(REPO, '.github', 'workflows', 'ci.yml')
 const SCOPE = join(REPO, 'scripts', 'ci-scope.mjs')
 const OK = join(REPO, 'scripts', 'ci-ok.mjs')
-const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, globRegExp, isMacosPath } = (await import(pathToFileURL(SCOPE).href)) as {
+const { workflowParts, E2E_SHARDS, MACOS_PATHS, MACOS_TESTS_CHECKED_OTHERWISE, MACOS_NAME, globRegExp, isAppPath, isMacosPath } = (await import(pathToFileURL(SCOPE).href)) as {
   workflowParts: (text: string) => { parts: Map<string, string[]>; anchored: boolean }
   E2E_SHARDS: Record<'macos-e2e' | 'windows-e2e', number>
   MACOS_PATHS: Array<{ paths: string[]; why: string }>
   MACOS_TESTS_CHECKED_OTHERWISE: Record<string, string>
   MACOS_NAME: RegExp
   globRegExp: (glob: string) => RegExp
+  isAppPath: (path: string) => boolean
   isMacosPath: (path: string, darwin: string[]) => boolean
 }
 
@@ -1346,7 +1346,7 @@ describe('scripts/ci-scope.mjs', () => {
     expect(pr.expect?.['macos-e2e']).toBe(true)
   })
 
-  quarantined('ci-scope-e2e-imports-run-macos-e2e')('every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e', () => {
+  it('every file outside test/e2e that the e2e tests import makes a pull request run macos-e2e', () => {
     const e2e = join(REPO, 'test', 'e2e')
     const imported = new Set<string>()
     for (const name of readdirSync(e2e, { recursive: true, encoding: 'utf8' })) {
@@ -1357,10 +1357,14 @@ describe('scripts/ci-scope.mjs', () => {
       }
     }
     expect(imported.size).toBeGreaterThan(3)
-    for (const path of imported) {
-      commitOnBase([path])
-      expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], path).toBe(true)
-    }
+    // Every import is an app path, read in this process. A run of the script for each of them (45 on
+    // 65ff2437e), each with its git processes, ran past 45 s under the load of a full run on Windows
+    // (worfy-polish 41); the script itself runs once, on a pull request that changes an import
+    // outside src/, the folder the tests above already change.
+    expect([...imported].filter((path) => !isAppPath(path))).toEqual([])
+    const helper = [...imported].sort().find((path) => !path.startsWith('src/')) ?? ''
+    commitOnBase([helper])
+    expect(scope({ EVENT: 'pull_request', BASE: base }).expect?.['macos-e2e'], helper).toBe(true)
   })
 
   /**

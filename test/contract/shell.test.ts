@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectLayout } from '../../src/main/workflow/folder'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 
 const PROJECT_ID = 'repo-00000001'
@@ -465,21 +464,27 @@ describe('shell.openInEditor opens documents and asks about anything else', () =
     expect(shown()).toStrictEqual([])
   })
 
-  // The win32 case is in quarantine on Windows (test/quarantine/shell-launcher-kinds-win32.json).
+  // The handler asks about a file exactly when isDocument says it is not a document, so every kind
+  // goes through isDocument, in this process, and one kind in both letter cases goes through the
+  // handler and its box. Every call of the handler starts `git worktree list`: one call per file,
+  // 124 on win32, ran past 45 s under the load of a full run on Windows (worfy-polish 41).
   const launcherKinds = (platform: keyof typeof LAUNCHERS) => async () => {
     const files = LAUNCHERS[platform].flatMap((kind) => [projectFile(`kinds/x${kind}`), projectFile(`kinds/Y${kind.toUpperCase()}`)])
+    const { isDocument } = await import('../../src/main/ipc/shell')
+    for (const path of files) expect(await isDocument(path, { platform }), path).toBe(false)
+    const [lower, upper] = files
     await asPlatform(platform, async () => {
-      for (const path of files) expect(outcome(await open(path)), path).toBe('cancelled')
+      for (const path of [lower!, upper!]) expect(outcome(await open(path)), path).toBe('cancelled')
       answer(SHOW)
-      expect(await open(files[0]!)).toStrictEqual({ ok: true, value: { path: files[0], outcome: 'revealed', revealedIn: REVEALED_IN[platform] } })
+      expect(await open(lower!)).toStrictEqual({ ok: true, value: { path: lower, outcome: 'revealed', revealedIn: REVEALED_IN[platform] } })
     })
-    expect(boxes()).toHaveLength(files.length + 1)
+    expect(boxes()).toHaveLength(3)
     expect(boxes().every(([, options]) => options.buttons![1] === SHOW_LABEL[platform])).toBe(true)
     expect(opened()).toStrictEqual([])
-    expect(shown()).toStrictEqual([files[0]])
+    expect(shown()).toStrictEqual([lower])
   }
   it('on darwin asks about every known launcher kind, in either letter case', launcherKinds('darwin'))
-  quarantined('shell-launcher-kinds-win32')('on win32 asks about every known launcher kind, in either letter case', launcherKinds('win32'))
+  it('on win32 asks about every known launcher kind, in either letter case', launcherKinds('win32'))
   it('on linux asks about every known launcher kind, in either letter case', launcherKinds('linux'))
 
   it('asks about a file of an unknown kind and one without an extension, whatever its bits', async () => {
