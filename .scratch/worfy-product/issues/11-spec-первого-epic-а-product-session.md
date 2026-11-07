@@ -1,7 +1,8 @@
 # 11 — Spec первого Epic-а Product Session
 
 Type: task
-Status: claimed 2026-11-07T20:19Z
+Status: done 2026-11-07T22:00Z
+PR: #1593
 Blocked by: 10, Epic `worfy-skills`
 Source: [map.md](../map.md), Destination
 
