@@ -1,10 +1,11 @@
 # Autopilot
 
-> Перевод [английской версии](../autopilot.md), commit `19f1660c`.
+> Перевод [английской версии](../autopilot.md), commit `same-pr`.
 
 Autopilot ведёт Wave-ы одного Epic-а одну за другой, без человека у Orchestrator-а. Он отправляет Wave, ждёт её конца,
 отправляет следующую готовую Wave и останавливается, когда готовой Wave нет или что-то пошло не так. Один такой проход
-по Epic-у называется **run**. Если термины незнакомы, начните с [Concepts](concepts.md).
+по Epic-у или по очереди Epic-ов, одного за другим, называется **run**. Если термины незнакомы, начните с
+[Concepts](concepts.md).
 
 ## Autopilot
 
@@ -30,7 +31,19 @@ Budget-aware или Start window; режим по умолчанию из Settin
 Orchestrator занят — **Start when free**; окно тогда говорит, чем он занят. Окно закрывается, как только main ответил;
 отказ — это toast и tooltip кнопки, как сказано ниже. **Start anyway** стартует сразу, в режиме по умолчанию, без окна.
 
-Старт получает отказ, с причиной на кнопке, в таких случаях:
+**Run all accepted** в Command palette, а также в меню «⋯» рамки Epic-а, пока у Project-а нет run-а, открывает то же окно
+над очередью: все Epic-и Project-а, чей spec принят владельцем и у которых есть готовый Ticket, от самого раннего
+принятия (не больше 10). Заголовок окна считает отмеченные Epic-и и их Wave-ы, `Start Autopilot · 3 Epics, 6 Waves`, а под
+ним стоит `3 Epics are accepted and waiting. Autopilot runs them one after another.` Вместо Epic-а и его Ticket-ов окно
+показывает очередь (`src/renderer/autopilot/QueueList.tsx`): у каждого Epic-а — отметка, его место среди отмеченных, имя,
+сколько Wave осталось и `accepted <date>`. Снимите отметку, чтобы убрать Epic; перетащите строку или нажмите ⌥↑/⌥↓
+(Alt+↑/↓ на Windows) на её grip, чтобы её передвинуть. Каждое изменение заново спрашивает `autopilot.prepare` об
+отмеченных Epic-ах в их порядке, поэтому прогноз считается для них. Если ничего не отмечено, прогноз говорит
+`No Epic is ticked`, а главная кнопка неактивна. Старт идёт с отмеченными Epic-ами в порядке списка. Если принятого Epic-а
+с готовым Ticket-ом нет, toast говорит `No accepted Epic has a ready Ticket`, и окно не открывается. На экране Linked
+machine с доступом read-only команда неактивна.
+
+Старт получает отказ в таких случаях. Причина видна в tooltip кнопки и в toast ошибки:
 
 - У Project-а уже есть run. У Project-а не больше одного run-а одновременно.
 - Шаблон «Run wave» пуст или в нём нет `{tickets}`.
@@ -38,12 +51,14 @@ Orchestrator занят — **Start when free**; окно тогда говор�
 - Project — это собственный репозиторий worfy, а сборка development. Считается любой checkout этого репозитория, worktree
   тоже.
 - Тот же Epic того же репозитория идёт или стартует на Linked machine либо в другом Project-е этой Machine. Под кнопкой
-  появляется chip «running on <Machine>», а рядом кнопка **Start anyway**.
+  появляется chip «running on <Machine>», а рядом кнопка **Start anyway**. Для очереди спрашивают о каждом её Epic-е, и
+  один Epic, который идёт в другом месте, даёт отказ всему старту; после **Run all accepted** этот отказ — только toast
+  ошибки, без chip и без Start anyway.
 
 Старт с отказом не пишет journal и не держит экран включённым. «Start anyway» запускает run, хотя оба run-а будут брать
-одни и те же Ticket-ы. Другого пути мимо этого отказа нет. Linked machine, которая не подключена или не ответила за
-3 секунды, старт не блокирует: chip «on <Machine>» называет её в своём tooltip. Project без remote `origin` никого не
-спрашивает.
+одни и те же Ticket-ы. Другого пути мимо этого отказа нет, и он действует на весь run: об Epic-е, который добавили в его
+очередь позже, тоже не спрашивают. Linked machine, которая не подключена или не ответила за 3 секунды, старт не
+блокирует: chip «on <Machine>» называет её в своём tooltip. Project без remote `origin` никого не спрашивает.
 
 **Пока Orchestrator занят** — в turn-е, с живыми background task-ами или с сообщениями в очереди — старт не получает
 отказ. Run начинается сразу, его journal открывается строками `run-started` и `orchestrator-busy`, а строка состояния говорит
@@ -62,7 +77,7 @@ background task-и Orchestrator-а, пишет их в journal как `tasks-kil
 без подтверждения, как Stop, и toast говорит `Autopilot cancelled; the Orchestrator was not touched`. **Start now**
 сначала открывает маленькое окно **Start now?** (`src/renderer/autopilot/StartNowModal.tsx`):
 `Autopilot <Epic> starts right away. This stops:`, затем `✕ the running turn`, пока идёт turn,
-`✕ 3 background tasks: <имена>` и `✓ 2 queued messages stay in the queue`. Пока окно открыто, список следует за тем, чем
+`✕ 3 background tasks: <names>` и `✓ 2 queued messages stay in the queue`. Пока окно открыто, список следует за тем, чем
 занят Orchestrator, а когда run перестаёт ждать, окно закрывается само. Фокус — на **Cancel**, Esc — это Cancel: run
 ждёт дальше. Красная **Interrupt and start** вызывает `autopilot.startNow`. Toast затем говорит, что остановлено, как это
 перечисляло окно: `Turn interrupted, 3 background tasks stopped · Autopilot started`. `start-refused` в этот момент —
@@ -94,22 +109,26 @@ toast ошибки с причиной.
 которое не является Epic-ом Project-а, аргумент вроде `depth medium` или сообщение с вложениями. Toast говорит, чем
 кончилась команда: «Autopilot started on Epic X» («Autopilot started on a queue of 2 Epics: A, B» для очереди) или отказ.
 Пока у Project-а идёт run, отказ такой: «Autopilot is already running Epic X. Stop it first, or add Epics to its queue
-with "Add to queue…" in the ⋯ menu.»; команда никогда не добавляет Epic в идущую очередь. Команда с отказом не пишет journal, и идущий run не считает её вмешательством человека.
-Сообщение, отправленное сразу после команды, ждёт её ответа, поэтому попадает в run, который запустила эта команда, и run
-пишет его в journal как вмешательство человека. Если Orchestrator занят, в том числе когда команду набрали в его собственной
-Session во время turn-а, run ждёт его, как сказано в «Пока Orchestrator занят», а toast говорит «Autopilot waits for the
-Orchestrator and starts when it is free». Wave-ы, которые
-Autopilot отправляет Orchestrator-у, никогда не читаются как команда.
+with "Add to queue…" in the ⋯ menu.»; команда никогда не добавляет Epic в идущую очередь. Команда с отказом не пишет
+journal, и идущий run не считает её вмешательством человека. Сообщение, отправленное сразу после команды, ждёт её ответа,
+поэтому попадает в run, который запустила эта команда, и run пишет его в journal как вмешательство человека. Если
+Orchestrator занят, в том числе когда команду набрали в его собственной Session во время turn-а, run ждёт его, как сказано
+в «Пока Orchestrator занят», а toast говорит «Autopilot waits for the Orchestrator and starts when it is free». Wave-ы,
+которые Autopilot отправляет Orchestrator-у, никогда не читаются как команда.
 
 **Из чата, через агента.** Когда пользователь словами просит Session запустить на autopilot Epic или часть его Ticket-ов,
 агент вызывает canvas-инструмент `autopilot_start` с Epic-ом и, если Ticket-ы названы, их номерами. Для нескольких Epic-ов
 подряд он передаёт `epics` (от 1 до 10, каждый один раз) вместо `epic`; оба поля, ни одного, Epic, названный дважды, или
 `tickets` при нескольких Epic-ах — ошибка формы до всякой просьбы. Тогда просьба несёт очередь (`epics` в
-`autopilot.confirm.ask`, если в ней больше одного Epic-а), а старт идёт с очередью. Само окно пока называет только
-первый Epic очереди и показывает прогноз этого Epic-а, поэтому агент сначала называет всю очередь в чате, и человек
-подтверждает очередь такой, какой её назвал агент. Тогда worfy спрашивает
+`autopilot.confirm.ask`, если в ней больше одного Epic-а). Окно показывает такую очередь в том же списке, что и **Run all
+accepted**, в порядке, в котором просила Session, с отметками и grip-ами: человек может снять отметку с Epic-ов и поменять
+их порядок, а прогноз следует за отмеченными. Если ничего не отмечено, старт неактивен. Ответ тогда несёт отмеченные
+Epic-и в их порядке (`epics` в `autopilot.confirm.answer`), и run стартует ровно по ним. Main принимает этот список,
+только когда он — часть очереди, о которой просили: пустой список, Epic, названный дважды, или Epic, о котором Session не
+просила, получают отказ, ничего не стартует, и агенту говорят почему. Ответ без списка (просьба об одном Epic-е)
+запускает очередь такой, какой о ней просили. worfy спрашивает
 пользователя в том же окне **Start Autopilot**, что и кнопка, в его виде «Agent asks»: под заголовком —
-`Asked by Session "<первые 8 символов id Session>" in a chat · answer within 9:59` и обратный отсчёт 10 минут;
+`Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` и обратный отсчёт 10 минут;
 последняя минута — цветом блокировки. Факты, Modes и Run mode — как у кнопки, и человек выбирает там Run mode этого
 одного run-а. Фокус — на **Cancel**, Esc — Cancel, ⌘↩ (Ctrl+Enter на Windows) — **Start Autopilot**. Строки прогноза
 приводит страница [Run planning](run-planning.md). Окно открывается в одном окне Machine Project-а, то есть Machine, на
@@ -121,11 +140,13 @@ Autopilot отправляет Orchestrator-у, никогда не читают
 «change in Modes» — тоже отказ; окно, закрытое за это время, отвечает, что открытого окна worfy нет. Защиты от клика
 агента по окну нет. Системного окна сообщения для этого инструмента main больше не показывает. **Start Autopilot**
 запускает тот же run, что и кнопка Autopilot, в выбранном режиме, по названным Ticket-ам, если они есть. Команда,
-набранная в чате, всегда стартует в режиме по умолчанию. Если Orchestrator занят, в том числе когда спрашивающая Session — сам Orchestrator в своём turn-е,
-run ждёт его, как сказано в «Пока Orchestrator занят», а агент получает «Autopilot waits for the Orchestrator and starts
-when it is free». Без просьбы в окне инструмент отказывает:
+набранная в чате, всегда стартует в режиме по умолчанию. Если Orchestrator занят, в том числе когда спрашивающая
+Session — сам Orchestrator в своём turn-е, run ждёт его, как сказано в «Пока Orchestrator занят», а агент получает
+«Autopilot waits for the Orchestrator and starts when it is free». Без просьбы в окне инструмент отказывает:
 
-- Session, которая работает unattended, например Orchestrator во время run-а: подтвердить некому;
+- Session, которая работает unattended, например Orchestrator во время run-а: подтвердить некому. Orchestrator
+  остановленного run-а, который ещё ждёт конца своего turn-а или background task-ов, отказа не получает: ему открывается
+  окно;
 - Session, которую worfy не может найти;
 - Project, у которого идёт run: тот же отказ, что у команды, с подсказкой остановить run или взять «Add to queue…»;
   инструмент никогда не добавляет Epic в идущую очередь, и в journal ничего не попадает;
@@ -146,9 +167,10 @@ when it is free». Без просьбы в окне инструмент отк
 |---|---|
 | `starting` | Run начался, Wave ещё не ушла. |
 | `waiting for the Orchestrator · 4 min` | Run начался и ждёт, пока у Orchestrator-а кончатся turn, очередь и background task-и. В первую минуту — без минут. Рядом — **Start now** и **Cancel**. |
-| `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1, это не номер Wave в плане Epic-а. |
+| `Wave 2 · running` | Run отправил вторую Wave. Wave считаются внутри run-а с 1 и снова с 1 для каждого Epic-а очереди; это не номер Wave в плане Epic-а. |
 | `Wave 2 · 4 background tasks` | То же, и у Orchestrator-а четыре живых background task-а. |
 | `waiting for limits · resumes 14:20` | Limits отказали turn-у. Run продолжит в это время. |
+| `API error · retry 2/5 · 14:20` | Turn закончился временной ошибкой API, и Auto-continue включён: второй повтор из пяти уходит в это время. |
 | `today's share used · resumes 00:00` | Бюджет остановил следующую Wave. |
 | `5-hour limits full · resumes 02:12` | Бюджет остановил следующую Wave: доля дня осталась, окно на 5 часов заполнено. |
 | `outside start window · resumes 23:00` | Run mode — Start window, и окно не открыто. Run продолжит, когда оно откроется. |
@@ -156,14 +178,57 @@ when it is free». Без просьбы в окне инструмент отк
 | `stopping · 2 tickets in work` | Пришёл Stop. Два Ticket-а текущей Wave в работе. Если таких нет, строка говорит `stopping`. |
 | `stopped: no ready wave` | Run окончен, с причиной (см. [Почему run останавливается](autopilot-faults.md#почему-run-останавливается)). |
 | `stopped: turn error · 2 background tasks still run` | Run окончен и сразу отдал Orchestrator человеку; две его фоновые задачи ещё идут там. |
+| `Epic 2/3: checkout · Wave 1 · running` | Run над очередью из трёх Epic-ов идёт по второму, `checkout`. Любая строка выше получает такое начало, когда в очереди больше одного Epic-а, и после остановки тоже. |
+
+**Run над очередью Epic-ов** проходит её по порядку, по одному Epic-у за раз, в одном Run mode; названные Ticket-ы
+бывают только у очереди из одного Epic-а. Когда у Epic-а не осталось Wave (`no-ready-wave`, `blocked-tickets`,
+`tickets-done`), решает свежее чтение. Все Ticket-ы в checkout-е выполнены: начинается следующий Epic. Остались только
+Ticket-ы для владельца (`blocked` с `Waits: owner`, без статуса или заблокированные только такими Ticket-ами): Epic
+пропускается с `waits-owner`, и начинается следующий. Любая другая остановка или другие оставшиеся Ticket-ы
+останавливают весь run. Дойдя до следующего Epic-а, run снова спрашивает Linked machines; Epic, который идёт в другом
+месте, пропускается. Когда Epic-ов не осталось, run останавливается с причиной последнего, но сначала отдаёт ход gate
+queue ([Почему run останавливается](autopilot-faults.md#почему-run-останавливается)).
+
+Строка стоит на рамке Epic-а, по которому идёт run, а её tooltip перечисляет очередь: каждый Epic со своим статусом
+(`done`, `running`, `next`, `skipped: waits for the owner`, `skipped: runs on another
+Machine`). Пока идёт run, на рамке каждого другого Epic-а очереди под кнопкой стоит chip: `In queue 3/3` — у ещё не
+начатого, `Waits for owner` — у того, который run пропустил, потому что остались только Ticket-ы владельца, `Runs
+elsewhere` — у того, который он пропустил, потому что его вела другая Machine. У выполненного Epic-а и у Epic-а, по
+которому идёт run, chip-а нет.
+
+Очередь можно менять, пока идёт run, из меню «⋯» рамки Epic-а: **Add to queue** на Epic-е вне очереди ставит его в
+конец, **Remove from queue** на ещё не начатом Epic-е убирает его. Порядок очереди ничто не меняет. Между Wave-ами — пока
+run ждёт свой Orchestrator, бюджет или Start window — изменение вносится сразу. Во время Wave оно вносится в конце Wave:
+toast говорит `Added search to the queue · applies after this
+Wave`, а до тех пор на рамке стоит chip `Joins after this Wave` или `Leaves after this Wave`. **Remove from queue** на
+Epic-е, который ждёт входа в очередь, отменяет его добавление. Внесённое изменение пишет в journal `queue-changed`, а
+каждый убранный Epic — `epic-finished` с `removed`; такой Epic никогда не стартует. Изменение, которое ещё не внесено,
+когда run останавливается, отбрасывается. Этих пунктов нет после того, как попросили Stop, и они неактивны на экране
+read-only. Отказ (в очереди уже 10 Epic-ов, Epic не из этого Project-а, run по названным Ticket-ам) — это toast ошибки и
+tooltip «⋯». Идущую очередь меняет только человек: команда в чате и инструмент `autopilot_start` получают отказ, пока
+идёт run.
 
 Пока идёт run:
 
-- Orchestrator работает **unattended**. Он идёт в режиме `bypassPermissions`, какой бы режим ни был сохранён в Node. В
-  смене режима разрешений отказано. Когда run кончается, Node получает свои настройки обратно.
-- Запрос разрешения, вопрос с вариантами ответа и `session.ask` от Card сразу получают отказ: отвечать некому. Каждый
-  отказ идёт в journal. Если Claude Code назвал причину запроса разрешения, модель получает эту причину и может изменить
-  команду.
+- Orchestrator работает **unattended**. Он идёт в режиме `bypassPermissions`, какой бы режим ни был сохранён в Node; на
+  Orchestrator-е Codex это preset «Full access» (sandbox `danger-full-access`, approvals `never`). В смене режима
+  разрешений отказано. Когда run кончается, Node получает свои настройки обратно. Run ведёт Session Orchestrator-а и
+  читает её события одинаково на любом Vendor-е. Codex выключает hook-и Harness после каждой установки или обновления
+  Harness, пока вы их не одобрите, а без них gate и guard-ы workflow не действуют. Поэтому перед каждым стартом run-а на
+  Orchestrator-е Codex, а также перед каждой следующей Wave и перед turn-ом gate queue worfy спрашивает Codex
+  (`hooks/list`), одобрены ли hook-и plugin-а `worfy`: каждый hook, который его `hooks.json` объявляет на событии,
+  которое запускает Codex, должен быть в списке, включён и одобрен. Пока это не так или Codex не отвечает, run получает
+  отказ «The Harness hooks are not approved in Codex. Approve them in /hooks and start again.»; перед следующей Wave
+  новая Session не стартует, и run останавливается с этой причиной в journal (`session-error`). Чтобы их одобрить,
+  запустите Codex этой сборки в терминале, наберите `/hooks` и одобрите hook-и plugin-а `worfy`; шаг ниже показывает
+  команду для копирования, потому что этого Codex нет в PATH ([Harness, In Codex](harness.md#in-codex)). После установки
+  или обновления в Codex toolbar показывает шаг «Approve the Harness hooks in Codex» с этими инструкциями и кнопкой
+  «Check again» в окнах, открытых в этот момент (окно, открытое позже, его не показывает). Пока проверка не найдёт их
+  одобренными, пункт Harness говорит «Codex: approve hooks», и клик снова открывает шаг. Run на Claude Code не
+  проверяется.
+- Запрос разрешения, вопрос с вариантами ответа и `session.ask` от Card сразу получают отказ: отвечать некому. Approval,
+  о котором Codex всё же спрашивает, получает `decline`. Каждый отказ идёт в journal. Если Claude Code назвал причину
+  запроса разрешения, модель получает эту причину и может изменить команду.
 - Auto-approval mode Project-а меняет судьбу запроса разрешения на обоих Vendor-ах. Mode читается при каждом запросе,
   поэтому переключение действует со следующего. Off: как выше. Shadow: approval policy оценивает запрос, journal получает
   строку `auto-approval` с тем, что policy сделала бы (`would-allow`, `would-deny`, `would-park`), и rule, а модель
@@ -176,34 +241,51 @@ when it is free». Без просьбы в окне инструмент отк
   это ответ агенту. Без ответа за 60 минут, или когда run останавливается, запрос получает отказ с hint-ом. Пока run
   останавливается, запрос не уходит в park, а сразу получает отказ. Запрос в park не даёт считать его background task
   зависшим. Journal получает `park`, когда запрос уходит в park, затем `park-answered` или `park-expired`.
-
+  Когда run окончен, чат Orchestrator-а получает одну строку, которая считает решения run-а. Она приходит при остановке,
+  когда ничего не осталось идти, а также когда run отдаёт Orchestrator человеку, пока его turn или background task-и ещё
+  идут ([после любой другой остановки](autopilot-faults.md#после-любой-другой-остановки)): их более поздние запросы идут
+  к человеку, а не к policy. После Stop autopilot, когда turn или task-и ещё идут, и когда возврат не смог изменить
+  Session, строка приходит, как только turn и background task-и run-а закончились и Orchestrator вернулся, приложение
+  закрылось или следующий run забрал Session. Запрос этих task-ов после такой остановки оценивает policy run-а, он
+  пишется в journal, как во время run-а, и строка его считает; как только следующий run открыл свою policy, запросы
+  оценивает она, и они принадлежат следующему run-у. Строка выглядит как `Auto-approval: allowed 3,
+  denied 1, parked 0` для On и `Shadow: would allow 2, would deny 1, would park 0` для Shadow, с добавкой `hard-denied N`,
+  если был hard deny, и обе, сначала On, если mode переключили во время run-а. Конец park второй раз не считается. Run
+  без решений строки не получает. Run history перечисляет решения
+  ([Flight Recorder](flight-recorder.md#блок-auto-approval)).
   На Orchestrator-е Codex запрос — это approval Codex-а для команды или изменения файла, а ответ — `accept` или
-  `decline`. В ответе Codex-а нет текста, поэтому hint rule доходит только до journal. Команда оценивается в папке, которую
-  Codex для неё назвал. Codex оборачивает каждую команду в login shell (`/bin/zsh -lc '<script>'`). Ровно эта форма —
-  одно слово скрипта в кавычках и ничего после него — оценивается как `zsh -c '<script>'` (login profile принадлежит
-  владельцу и лежит вне всех root-ов); любая другая обёртка не одобряется. `shell_environment_policy` Codex-а может
-  не передать переменные в shell команды, поэтому worfy закрепляет домашнюю папку и переменные run-а (`TMPDIR` и его
-  git-окружение) в shell каждой команды thread-а (`shell_environment_policy.set`). Только у них есть известное значение,
-  когда запрос оценивается: команда, которая использует любую другую переменную, в том числе секрет, не одобряется, и
-  значение такой переменной не попадает в journal. Изменение файла оценивается по каждому пути, который оно пишет, включая
-  новый путь при rename и его `grantRoot`. Запрос с `grantRoot` (запись в папку до конца Session) policy не принимает
-  никогда; ввод в идущую команду и запрос доступа к сети уходят в park; ответа «accept for this Session» нет никогда.
-  Запрос Codex-а в park ждёт на card так же, как у Claude Code, с Accept, Decline и «Decline and stop the turn»; card
-  показывает и причину Codex-а, а для доступа к сети — host. Изменение файла с `grantRoot` в park не предлагает
-  Accept: Codex принял бы его как запись в эту папку до конца Session, а агент может спросить снова о каждом файле.
-  Выбор владельца — ответ Codex-у, park без выбора заканчивается `decline`. Запрос, который Codex отозвал или который
-  Interrupt отменил, пока его оценивают, на Codex не получает строки journal и не уходит в park; на Claude Code строку
-  получает каждый оценённый запрос. Unattended Codex работает в Full access, поэтому пока ни о чём не спрашивает.
-
-  Каждый запрос оценивается в окружении, с которым стартовал процесс агента: во всём окружении его shell. Поэтому
-  `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` или переменная `GIT_` в нём делают не одобренной команду, которую они
-  меняют. Git читается заново при каждом запросе, который пишет файл или запускает git: в root Project-а и, если у
-  worktree может быть свой config (`git config --worktree`, `includeIf`), в checkout-е, где идёт каждая команда git, и в
-  каждом worktree Wave. Так видны hook или программа, которые агент с тех пор записал в config git. Если ref-ы
-  хранятся в reftable, ветка по умолчанию тоже читается у git. Если git выдаёт config, но не называет папки git
-  (ключ-путь без значения, например `core.excludesFile`), они читаются из папки или файла `.git` и его `commondir`, и
-  только когда git выдал config этого репозитория; иначе факты считаются неизвестными, и ни запись, ни команда git не
-  одобряются. Запись в config-файл, который называет окружение
+  `decline`: в ответе Codex-а нет текста, поэтому hint rule доходит только до journal. Команда оценивается в папке,
+  которую Codex для неё назвал. Codex оборачивает каждую команду в login shell (`/bin/zsh -lc '<script>'`). Обёртка из
+  `zsh`, `bash` или `sh` — по имени или из `/bin`, `/usr/bin`, `/usr/local/bin` или `/opt/homebrew/bin` — с `-lc` или
+  `-c` и одним словом скрипта в кавычках, после которого ничего нет (в одинарных кавычках или в двойных, где каждый `$` и
+  обратная кавычка экранированы), оценивается как `<shell> -c '<script>'` (login profile принадлежит владельцу и лежит вне
+  всех root-ов); любая другая обёртка не одобряется. `shell_environment_policy` Codex-а может не передать переменные в
+  shell команды. worfy закрепляет домашнюю папку и переменные run-а (`TMPDIR` и его git-окружение) в shell каждой команды
+  thread-а (`shell_environment_policy.set`), но Codex применяет `include_only` владельца после этих закреплений, поэтому
+  всё равно может отбросить любую из них. Когда запрос Codex-а оценивается, ни у одной переменной нет известного
+  значения: команда, которая использует переменную — в том числе `TMPDIR`, `HOME`, `USERPROFILE` или секрет, — или
+  создаёт папку через `mktemp -d` не на macOS, не одобряется, и значение переменной не попадает в journal. `~` в начале
+  слова по-прежнему оценивается как `HOME`, с которым стартовал app-server, а bash, zsh и Git Bash без `HOME` берут
+  домашнюю папку из базы пользователей системы: считается, что это одна и та же папка (на Windows с собственным `HOME`,
+  например `D:\home`, они могут различаться). Git на Codex оценивается как git без git-окружения run-а, поэтому policy
+  там не одобряет ни одной команды git и отправляет в park те, которые на Claude Code разрешила бы. Изменение файла
+  оценивается по каждому пути, который оно пишет, включая новый путь при rename и его `grantRoot`. Запрос с `grantRoot`
+  (запись в папку до конца Session) policy не принимает никогда; ввод в идущую команду и запрос доступа к сети уходят в
+  park; ответа «accept for this Session» нет никогда. Запрос Codex-а в park ждёт на card так же, как у Claude Code, с
+  Accept, Decline и «Decline and stop the turn»; card показывает и причину Codex-а, а для доступа к сети — host.
+  Изменение файла с `grantRoot` в park не предлагает Accept: Codex принял бы его как запись в эту папку до конца Session,
+  а агент может спросить снова о каждом файле. Выбор владельца — ответ Codex-у, park без выбора заканчивается
+  `decline`. Запрос, который Codex отозвал или который Interrupt отменил, пока его оценивают, на Codex не получает строки
+  journal и не уходит в park; на Claude Code строку получает каждый оценённый запрос. Unattended Codex работает в Full
+  access, поэтому пока ни о чём не спрашивает. Каждый запрос оценивается в окружении, с которым стартовал процесс
+  агента: во всём окружении его shell. Поэтому `CDPATH`, `BASH_ENV`, `ZDOTDIR`, `ENV`, `IFS` или переменная `GIT_` в нём
+  делают не одобренной команду, которую они меняют. Git читается заново при каждом запросе, который пишет файл или
+  запускает git: в root Project-а и, если у worktree может быть свой config (`git config --worktree`, `includeIf`), в
+  checkout-е, где идёт каждая команда git, и в каждом worktree Wave. Так видны hook или программа, которые агент с тех
+  пор записал в config git. Если ref-ы хранятся в reftable, ветка по умолчанию тоже читается у git. Если git выдаёт
+  config, но не называет папки git (ключ-путь без значения, например `core.excludesFile`), они читаются из папки или
+  файла `.git` и его `commondir`, и только когда git выдал config этого репозитория; иначе факты считаются
+  неизвестными, и ни запись, ни команда git не одобряются. Запись в config-файл, который называет окружение
   (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `XDG_CONFIG_HOME/git/config`), даже пустой, не одобряется никогда, как
   запись в `.git/config`. Запрос, который только читает и не запускает git, git не читает. Git в worktree, чей файл
   `.git` или `commondir` называет другую папку git, а не папку Project-а, или не читается, оценивается как git с
@@ -217,10 +299,11 @@ when it is free». Без просьбы в окне инструмент отк
   или программы в config. Сами hook-и и фильтры это не останавливает: пока они есть, policy одобряет git только для
   чтения ref-ов и объектов. Агент, процесс которого стартовал без этого окружения (в Off или до того, как в
   репозитории появился hook), не получает одобрения ни на один git. На macOS `mktemp -d` не смотрит на `TMPDIR`, и
-  папка, которую он создаёт, лежит вне всех root-ов; `mkdir -p "$TMPDIR/<name>"` одобряется, и hint отказа в домашней
-  папке называет эту форму. В Off агент стартует как раньше, без того и другого. Папка удаляется, когда run
-  кончается; у run-а, который не смог запустить свою policy, её нет. Session, которую забрал другой run, сохраняет
-  свою папку, как и после падения или выхода из приложения; такие папки удаляются при следующем запуске worfy.
+  папка, которую он создаёт, лежит вне всех root-ов; `mkdir -p "$TMPDIR/<name>"` одобряется (кроме Codex, где ни у
+  одной переменной нет известного значения), и hint отказа в домашней папке называет эту форму. В Off агент стартует
+  как раньше, без того и другого. Папка удаляется, когда run кончается; у run-а, который не смог запустить свою policy,
+  её нет. Session, которую забрал другой run, сохраняет свою папку, как и после падения или выхода из приложения; такие
+  папки удаляются при следующем запуске worfy.
 - «Run wave» и «Process gate queue» вручную и «New conversation» у Orchestrator-а получают отказ.
 - Человек по-прежнему может написать Orchestrator-у. То, что человек делает с его Session через worfy, идёт в journal как
   `human-input`: сообщение, сообщение от Card, Interrupt, «Send queued», удаление сообщения из очереди, смена настроек, в
@@ -276,7 +359,7 @@ Policy видит только те запросы, которые агент з
 раньше получало «нет». Решение и его причины записаны в [ADR-0098](../../adr/0098-approval-policy.md).
 
 Где смотреть решения: Run history показывает их в блоке Auto-approval, со счётчиками, а в Shadow — с решениями Shadow
-всех run-ов Project-а ([Flight Recorder](../flight-recorder.md#the-auto-approval-block)). Когда run окончен, чат
+Project-а, накопленными до сих пор ([Flight Recorder](flight-recorder.md#блок-auto-approval)). Когда run окончен, чат
 Orchestrator-а получает одну строку: `Auto-approval: allowed 3, denied 1, parked 0` или `Shadow: would allow 2, would
 deny 1, would park 0`. Переключить Shadow на On может только владелец: сам worfy mode не меняет.
 
@@ -313,6 +396,13 @@ prompt ещё и велит Orchestrator-у выполнить `wave-brief <epic
 каждой Wave, но никогда внутри неё, режим решает, начать следующую Wave сейчас или ждать: дневного бюджета Limits или
 Start window. Отказ Limits внутри Wave в любом режиме остаётся жёстким пределом. Режимы, Start window, бюджет и Epic
 forecast описаны на странице [Run planning](run-planning.md#run-mode-and-epic-forecast).
+
+Run на Orchestrator-е Codex взвешивает бюджет по окнам Codex. Самое длинное окно занимает место окна на 7 дней. Каждое
+более короткое окно занимает место окна на 5 часов: пока оно заполнено, следующая Wave ждёт его сброса. Оценка Wave и
+прогноз в journal берут образцы только из прошлых run-ов на Codex. Codex сообщает только целые проценты, поэтому оценке
+нужно 5 таких Wave, а не 3. Tooltip кнопки Autopilot и диалог `autopilot_start` Project-а, чей Orchestrator работает на
+Codex, показывают прогноз по тем же образцам Codex и живым окнам Codex и говорят, что диапазон широкий, потому что Codex
+сообщает только целые проценты.
 
 #### Ожидания, остановки и восстановление
 
@@ -379,7 +469,13 @@ Limits: [Autopilot faults and recovery](autopilot-faults.md#how-it-works).
 среди run-ов этой Machine раньше, чем спрашивает. Поэтому, пока обе Machine отвечают, два одновременных старта одного
 ключа могут оба получить отказ, но оба не пойдут. Machine, которая не подключена или не ответила за 3 секунды, считается
 `unasked`, и тогда оба run-а могут идти. Вопрос идёт независимо от того, включён ли доступ для Linked machines: ответ
-несёт только Epic и ключ каждого run-а.
+несёт только Epic и ключ каждого run-а. Очередь спрашивает обо всех своих Epic-ах на старте и о каждом следующем Epic-е
+ещё раз, когда run до него доходит: другой run мог за это время стартовать.
+
+**Очередь в одном run-е.** Run по нескольким Epic-ам — всё равно один run: один journal, один Run mode, один
+Orchestrator, взятый один раз. Правило, которое переводит его к следующему Epic-у, — чистая функция причины остановки и
+Ticket-ов Epic-а ([ADR-0100](../../adr/0100-run-epic-queue.md)). Очередь, о которой просил агент, в окне можно сократить
+или переставить, но не расширить: main отказывает Epic-у, о котором Session не просила.
 
 **worfy над самим собой.** Агенты Wave над worfy пересобирают приложение, поэтому development-сборка там получает отказ.
 Harness в работающей сборке не меняется во время run-а. worfy только показывает, что он отстал, а Stable copy
@@ -413,7 +509,11 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/actions/launch.ts` | `autopilotWave`, `autopilotRefusal`, `autopilotGateQueue`: текст из шаблона, отправленный Orchestrator-у. |
 | `src/shared/actions/render-template.ts` | `runWaveState`: решение и текст, общие с кнопкой. |
 | `src/shared/workflow/waves.ts` | `readyWave`: готовая Wave и пропущенные Ticket-ы. |
-| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession` и отказы из-за turn-а, task-ов или очереди. `busy` — чем занят Orchestrator; `takeNow` — Start now. |
+| `src/main/agent/orchestrator.ts` | `setUnattended`, `giveBackNow`, `newUnattendedSession` и отказы из-за turn-а, task-ов или очереди. `busy` — чем занят Orchestrator; `takeNow` — Start now. `runsOn` — Vendor, на котором идёт run; `unattendedRefusal` — отказ Vendor-а, на котором Harness не действует. |
+| `src/main/agent/app-orchestrators.ts` | Vendor Orchestrator-а, `defaultVendor` Project-а, который читается при старте Orchestrator-а. |
+| `src/shared/autopilot/budget-window.ts` | Какое окно Limits читает бюджет run-а: окна Claude Code на 7 дней и на 5 часов или окна Codex по длине. Чистые функции. |
+| `src/main/vendors/codex/harness-hooks.ts` | Одобрены ли hook-и Harness в Codex (`hooks/list`), и отказ run-у на Codex, пока они не одобрены. |
+| `src/renderer/harness/CodexHooksStep.tsx` | Шаг «Approve the Harness hooks in Codex» с «Check again». |
 | `src/main/agent/session-settings.ts` | Запуск Session и принудительный режим разрешений. |
 | `src/main/agent/permissions.ts` | `unattendedCanUseTool`: отказ на каждый запрос. |
 | `src/main/agent/session.ts` | `halt` для Force stop, `refuseDialog`. |
@@ -426,7 +526,12 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 | `src/main/mcp/browser-server.ts` | Что Session в Autopilot может делать с Browser. |
 | `src/main/ipc/card-api.ts` | Отказ `session.ask` от Card для unattended Session. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | Кнопка, меню «⋯», строка состояния и chip-ы; Start now и Cancel ожидающего run-а. |
+| `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | Окно Start Autopilot и его одна открытая просьба: от кнопки, от Run all accepted или от агента; старт очереди и toast её отказа. |
+| `src/shared/ipc/autopilot-prepare.ts`, `src/main/ipc/autopilot-prepare.ts`, `src/main/autopilot/prepare.ts` | `autopilot.prepare`: факты окна, только чтение, из источников просьбы `autopilot_start`; Wave-ы и прогноз очереди, один Epic за другим. |
+| `src/shared/autopilot/epic-queue.ts` | Правило очереди: следующий Epic, Epic, пропущенный ради владельца, или остановка run-а; не больше 10 Epic-ов. Чистые функции. |
+| `src/shared/workflow/accepted-epics.ts` | Принятые Epic-и для Run all accepted и `accepted`: дата принятия из `epic-status --json` и готовый Ticket. |
 | `src/renderer/autopilot/StartNowModal.tsx` | Окно «Start now?»: что Start now остановит и что останется. |
+| `src/renderer/autopilot/QueueList.tsx` | Очередь Epic-ов в окне Start Autopilot: отметка, перетаскивание, ⌥↑/⌥↓, Wave-ы и дата принятия у каждого Epic-а. |
 | `src/renderer/settings/AutopilotSection.tsx` | Settings → Autopilot. |
 | `scripts/install-stable.mjs` | `pnpm install:stable`: Stable copy. |
 
@@ -437,8 +542,9 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 
 #### Поток данных
 
-1. Кнопка вызывает `autopilot.start`. `Autopilot.start` выполняет проверки по порядку: у Project-а нет run-а, отказ для
-   собственного репозитория и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machines.
+1. Кнопка открывает окно Start Autopilot, которое читает свои факты по `autopilot.prepare`; его старт вызывает
+   `autopilot.start`, с `epics` для очереди. `Autopilot.start` выполняет проверки по порядку: у Project-а нет run-а,
+   отказ для собственного репозитория и шаблон, workflow и Epic, затем ключ origin и вопрос к Linked machines.
 2. Run открывает journal (`run-started`). Пока `Orchestrators.busy` сообщает turn, сообщения в очереди или живые task-и,
    run ждёт (`orchestrator-busy`); освободился — пишет `orchestrator-free` и выполняет проверки заново. `setUnattended`
    заново запускает Session Orchestrator-а как unattended, продолжая её SDK session, или отказывает. Затем run пишет
@@ -466,22 +572,28 @@ Ticket-а ([ADR-0046](../../adr/0046-autopilot-narrow-round-without-owner.md)). 
 `~/Library/Application Support/worfy`, development-сборки — `~/Library/Application Support/worfy-dev`, а
 `WORFY_DATA_DIR` заменяет обе. Вне её ничего не пишется ([ADR-0005](../../adr/0005-worfy-own-state-inventory.md)). Id
 run-а — время старта в UTC и шесть шестнадцатеричных цифр, поэтому имена файлов сортируются по времени старта. В каждой
-строке есть `at`, `run`, `project`, `epic` и `kind`. Читатель пропускает и считает строку, которую не может прочитать.
+строке есть `at`, `run`, `project`, `epic` (Epic, по которому идёт run) и `kind`. Читатель пропускает и считает строку,
+которую не может прочитать.
 
 | Kind | Когда пишется |
 |---|---|
-| `run-started` | Run начался. Есть `origin`, а также `override` или `unasked`, когда они применимы. `by` говорит, кто его запустил: `button`, `command` или `tool`. `tickets` называет Ticket-ы run-а по названным Ticket-ам. `mode` — Run mode: `fastest`, `budget-aware` или `start-window`. `autoApproval` — Auto-approval mode на старте, `shadow` или `on`, либо `off`, если policy не смогла запуститься и run шёл как при Off; строка без него — run при Off. |
+| `run-started` | Run начался. Есть `origin`, а также `override` или `unasked`, когда они применимы. `by` говорит, кто его запустил: `button`, `command` или `tool`. `tickets` называет Ticket-ы run-а по названным Ticket-ам. `epics` перечисляет очередь по порядку, только когда в ней больше одного Epic-а. `mode` — Run mode: `fastest`, `budget-aware` или `start-window`. `vendor` — Vendor Orchestrator-а, `claude` или `codex`; строка без него — run на Claude Code. `autoApproval` — Auto-approval mode на старте, `shadow` или `on`, либо `off`, если policy не смогла запуститься и run шёл как при Off; строка без него — run при Off. |
 | `orchestrator-busy` | Run ждёт занятый Orchestrator: `turn`, `queued` (сообщения в очереди) и `tasks`, в начале ожидания и при каждом изменении. |
 | `orchestrator-free` | Ожидание Orchestrator-а кончилось; run берёт его сейчас. |
+| `epic-started` | Run начинает следующий Epic своей очереди: `index` (с 1) и `of`. Эта строка и строки после неё несут этот Epic. У первого Epic-а такой строки нет. |
+| `epic-finished` | Epic очереди закончился, и run идёт дальше: `outcome` — `done`, `waits-owner` (с `tickets` владельца), `elsewhere` (не начат) или `removed` (убран, не начат). У Epic-а, на котором run останавливается, такой строки нет, как и у run-а по одному Epic-у. |
+| `queue-changed` | Очередь изменили: `added`, `removed`. Пишется сразу между Wave-ами, а для изменения, сделанного во время Wave, — после `wave-finished`. |
 | `harness-behind` | Harness в `main` новее: после `run-started` и перед `wave-started`, когда счётчик изменился. |
-| `forecast` | Epic forecast на старте, один раз, после `run-started` и `harness-behind`, перед первой `wave-started`: Run mode, оставшиеся Wave и Ticket-ы, образцы, `low` и `high` (p10 и p90 доли недели, `null` при числе образцов меньше 5), `fit` (сколько Wave помещается до сброса окна на 7 дней с учётом резерва; только когда у run-а есть рекомендация, в Budget-aware или в Start window с включённым бюджетом, иначе `null`), `week` (число окна на 7 дней на старте), p90 длительности Wave с числом её образцов и `window` в Start window. Journal-ы, которые не читаются, дают `samples: 0`; run продолжается. |
-| `wave-started`, `wave-finished` | Wave ушла или окончена. В `wave-started` есть отправленный текст, пропущенные Ticket-ы и `session` — id SDK session Orchestrator-а, в которую ушла Wave (имя её transcript-а). В обеих может быть `limits`. |
+| `forecast` | Epic forecast на старте, один раз, после `run-started` и `harness-behind`, перед первой `wave-started`: Run mode, оставшиеся Wave и Ticket-ы, образцы, `low` и `high` (p10 и p90 доли недели, `null` при числе образцов меньше 5), `fit` (сколько Wave помещается до сброса окна на 7 дней с учётом резерва; только когда у run-а есть рекомендация, в Budget-aware или в Start window с включённым бюджетом, иначе `null`), `week` (число окна на 7 дней на старте), p90 длительности Wave с числом её образцов и `window` в Start window. Journal-ы, которые не читаются, дают `samples: 0`; run продолжается. В run-е на Codex `samples`, `fit` и `week` относятся к самому длинному окну Codex и только к прошлым Wave-ам на Codex. |
+| `wave-started`, `wave-finished` | Wave ушла или окончена. В `wave-started` есть отправленный текст, пропущенные Ticket-ы и `session` — id SDK session Orchestrator-а, в которую ушла Wave (имя её transcript-а). В обеих может быть `limits`: `{five_hour, seven_day}` в run-е на Claude Code, `{windows}` с окнами Codex в run-е на Codex. |
 | `ticket-status` | `Status:` Ticket-а Epic-а этого run-а изменился во время run-а: это видно по изменению, о котором сообщил watch workflow, или при последнем чтении прямо перед `run-stopped` (не при Force stop). Ticket, чей файл появился во время run-а, получает статус, с которым его увидели впервые. Есть `state` (`claimed`, `blocked`, `done`, `open`), а также `statusAt`, `reason` и `waits`, когда у Ticket-а есть такие строки ([ADR-0092](../../adr/0092-run-history.md)). |
 | `narrow-round` | Состояние узкого круга исправления в PR Ticket-а Wave, один раз на Ticket и исход. |
 | `start-window` | Start window задержал следующую Wave: `reason` — `outside` или `wave-too-long`. Дальше идёт `waiting-until`. |
 | `budget-stop` | Бюджет остановил следующую Wave. Дальше идёт `waiting-until`. |
-| `limits-hit` | Limits отказали turn-у. |
-| `waiting-until`, `resumed` | Ожидание началось или кончилось. |
+| `limits-hit` | Limits отказали turn-у. Отказ Codex-а, при котором ни одно окно не израсходовано, имеет `reason: "quota"` и `message`, и дальше идёт `run-stopped` с `vendor-quota`. |
+| `waiting-until`, `resumed` | Ожидание началось или кончилось. `resumed` идёт ещё и после `turn-retry`, когда продолжение ушло или когда turn заканчивает ожидание. |
+| `turn-retry` | Turn закончился временной ошибкой API, и Auto-continue включён. Есть `attempt` и `of` (1 из 5 …), `error` (`api-500`, `overloaded`, `connection`, …), `message` (первые 300 символов текста ошибки) и `until` — когда уходит продолжение. |
+| `retry-refused` | Auto-continue включён, а turn с ошибкой не повторяется. `reason` — `not-transient`, `in-flight` или `cap`; при `in-flight` в `actions` есть каждый вызов без результата (`git push origin main`): команда shell-вызова, как её написала модель, сводка worfy для другого инструмента, секреты заменены на `***`, как в `auto-approval` (`--token ***`). Дальше идут `session-error` и `run-stopped` с `turn-error`. |
 | `session-error` | Session упала. |
 | `refused-dialog` | Unattended Session отказала запросу. Есть Subagent и причина, если они известны, и никогда нет команды. Домашняя папка пишется как `~`. |
 | `auto-approval` | Approval policy оценила запрос разрешения в Shadow или On. Есть Session, Subagent, если он известен, Vendor, `mode`, `outcome`, `rule`, инструмент, `targets` и, для команды shell, `command`, обрезанная до 200 символов, с секретами, заменёнными на `***`: значения переменных, опций и ключей JSON с именем секрета, пароли в URL, после `-u` у curl, `-p` у mysql, docker login и sshpass, `password` из `.netrc`, заголовки с именем секрета и известные формы token-ов. Несколько команд, которые только похожи на них, сохраняют свой текст: `sort --key=2`, сообщение `git commit -m "auth: …"`, слово поиска без кавычек или шаблон grep и rg в кавычках из одних букв (`grep -rn password src/`, `rg "apiKey: string"`) и числовой `docker run -u 1000:1000` до имени образа. В каждом из `targets` секреты заменяются так же (`touch <worktree>/ghp_…` даёт target `<worktree>/***`). Домашняя папка пишется как `~`. |
@@ -490,8 +602,8 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `run-stopping` | Graceful Stop пришёл во время turn-а или task-ов. |
 | `gate-queue` | Run отправил «Process gate queue». |
 | `gate-queue-finished` | Turn «Process gate queue» закончился. Дальше идёт `run-stopped`. |
-| `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets` и `user-force-stop`. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
-| `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. Остановка по причине самого Run-а, не Stop и не Force stop, отдаёт его сразу, без перезапуска: тогда `tasks` перечисляет фоновые задачи, которые идут дальше в Session человека. |
+| `run-stopped` | Run окончен, с причиной. `tickets` — для `blocked-tickets`, а также для `user-force-stop` и `session-error` после первой Wave. `lastText` — для остановки из-за отсутствия Wave. `actual` — когда хотя бы одна Wave окончена, в том числе при Force stop и выходе: рост доли окна на 7 дней за Wave run-а (`share`; в run-е на Codex — доли самого длинного окна Codex), оконченные Wave (`waves`) и сколько из них учтено (`counted`; Wave с устаревшим числом или со сбросом недели внутри не учитывается). |
+| `orchestrator-returned` | Orchestrator снова Session человека, после остановки, которой пришлось ждать, или после Force stop. Остановка по причине самого run-а, не Stop и не Force stop, отдаёт его сразу, без перезапуска: тогда `tasks` перечисляет фоновые задачи, которые идут дальше в Session человека. |
 | `tasks-killed` | Task-и, которых ждал run, закончились вместе с процессом, при выходе или Force stop. С причиной `start-now` — task-и Orchestrator-а, которые остановил Start now. |
 
 #### Windows
@@ -538,12 +650,28 @@ run-а — время старта в UTC и шесть шестнадцатер
 | `test/unit/auto-approve-park.test.ts` | Park: ожидание на gate, предел 60 минут, остановка run-а (в том числе пока запрос идёт к gate), notification. |
 | `test/unit/auto-approve-summary.test.ts` | Решения run-а в его journal, их счётчики для Run history и строка в чате Orchestrator-а в конце run-а. |
 | `test/contract/auto-approve-claude.test.ts` | Auto-approval unattended Session Claude Code: Off без изменений байт в байт, Shadow, On, переключение во время run-а, окружение run-а, policy, которая не стартует или бросает исключение, запрос background task-а в park, Stop во время park. |
-| `test/contract/auto-approve-codex.test.ts` | То же на Codex поверх fake app-server: Off, Shadow, On, переменные, закреплённые в shell Codex-а, обёртка login shell, запрос, закрытый во время оценки, park и его концы, изменение файла с `grantRoot`. |
+| `test/contract/auto-approve-codex.test.ts` | То же на Codex поверх fake app-server: Off, Shadow, On, переменные, закреплённые в shell Codex-а, и `include_only` владельца, который может их отбросить, обёртка login shell, запрос, закрытый во время оценки, park и его концы, изменение файла с `grantRoot`. |
 | `test/contract/auto-approve-setting.test.ts` | Mode в `app-settings.json`: по Project-ам, мусор читается как Off, запись только через свой канал, правка, сделанная вне worfy, Linked machine, debugging port и inspector. |
 | `test/e2e/auto-approve.spec.ts` | Собранное приложение под debugging port Playwright: меню Modes показывает действующий Off с причиной, сохранённый mode читается на старте, ничего не пишется. |
+| `test/contract/codex-orchestrator.test.ts` | Run на Orchestrator-е Codex поверх fake app-server: Full access, отказ, пока hook-и не одобрены, перед следующей Wave и перед gate queue, ожидание окна Codex, `vendor-quota`, бюджет по окнам Codex. |
+| `test/unit/autopilot-vendor-limits.test.ts` | Окно бюджета Codex, его образцы и прогноз, обе формы `limits` в journal. |
 | `test/contract/autopilot-journal.test.ts` | Файлы journal, строка, дописанная снаружи, отсутствие записи вне папки данных. |
 | `test/contract/autopilot-wiring.test.ts` | Связка новой session на Wave в `sharedAutopilot`. |
 | `test/e2e/autopilot.spec.ts` | Собранное приложение: run, ожидание Limits, бюджет, background task-и, Force stop, узкий круг исправления. |
+| `test/contract/autopilot-wait.test.ts` | Run, принятый, пока Orchestrator занят: ожидание его turn-а, очереди и task-ов, повторные проверки, Start now, Cancel. |
+| `test/unit/autopilot-wait-line.test.ts` | Строка ожидающего run-а и остановленного run-а, чьи task-и ещё идут у человека. |
+| `test/unit/autopilot-chat-start.test.ts` | `startFromChat` для команды и инструмента: проверки, отказ, пока идёт run, ответ run-а, который ждёт. |
+| `test/contract/autopilot-prepare.test.ts` | `autopilot.prepare`: те же строки, что у просьбы, Orchestrator на Codex, занятый Orchestrator, Epic или Ticket, которого у Project-а нет. |
+| `test/unit/start-autopilot-modal.test.tsx` | Окно Start Autopilot: факты, Run mode по умолчанию, клавиши и фокус, Start when free, просьба агента и её обратный отсчёт. |
+| `test/unit/queue-list.test.tsx` | Очередь в окне: Run all accepted, отметки, перетаскивание, ⌥↑/⌥↓, прогноз отмеченных Epic-ов. |
+| `test/unit/start-now-modal.test.tsx` | Start now и Cancel в строке ожидающего run-а и окно «Start now?». |
+| `test/e2e/autopilot-start-modal.spec.ts` | Собранное приложение: кнопка открывает окно, Start Autopilot и Start when free, когда Orchestrator в turn-е. |
+| `test/e2e/autopilot-wait.spec.ts` | Собранное приложение: строка ожидания, Start now через его окно и Cancel. |
+| `test/unit/epic-queue.test.ts` | Правило очереди: каждый случай следующего Epic-а, Epic-а, пропущенного ради владельца, и остановки. |
+| `test/unit/accepted-epics.test.ts` | Какие Epic-и приняты и в каком порядке. |
+| `test/contract/autopilot-queue.test.ts` | Run над очередью на fake agent: следующий Epic, пропуски, остановки, `epic-started` и `epic-finished`, изменения между Wave-ами. |
+| `test/unit/autopilot-queue-line.test.ts` | Строка run-а над очередью (`Epic 2/3: …`), chip каждого статуса Epic-а очереди, очередь в tooltip и какие из Add to queue и Remove from queue предлагает «⋯». |
+| `test/e2e/autopilot-queue.spec.ts` | Собранное приложение: Run all accepted из «⋯», run над двумя Epic-ами (`Epic 1/2`), Add to queue во время Wave, внесённое в её конце (`Epic 1/3`), Remove from queue, который оставляет Epic не начатым, с `queue-changed` в journal. |
 | `test/e2e/linked-autopilot.spec.ts` | Два связанных приложения: отказ, Start anyway, Stop на двух экранах. |
 | `test/e2e/browser-autopilot.spec.ts` | Что Session run-а может делать с Browser. |
 

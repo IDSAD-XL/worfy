@@ -101,7 +101,7 @@ _Avoid_: воркфлоу (как имя списка), процесс, board
 _Avoid_: ночной режим, автономный прогон
 
 **Run**:
-Один запуск Autopilot: от старта до остановки ведёт Wave-ы одного Epic-а или очереди Epic-ов по порядку, сколько бы раз он ни ждал занятого Orchestrator-а, Limits или сна Machine. Run начинается с нажатия, даже если Orchestrator занят: тогда он сначала ждёт его (Wait `orchestrator-busy`); Start now берёт Orchestrator сразу, останавливая его turn и background tasks (пока только канал main `autopilot.startNow`, кнопки в окне нет). Запуск один и тот же, чем бы его ни начали: кнопкой Autopilot, командой в чате или просьбой словами («запусти на автопилоте», «работай автономно»). Run ведёт весь Epic, очередь Epic-ов или только названные при запуске Ticket-ы одного Epic-а. У Run свой id и свой журнал событий на той Machine, где он шёл; Wave внутри Run — это раунд раздачи с номером внутри этого Run, а не номер Wave из таблицы плана.
+Один запуск Autopilot: от старта до остановки ведёт Wave-ы одного Epic-а или очереди Epic-ов по порядку, сколько бы раз он ни ждал занятого Orchestrator-а, Limits или сна Machine. Run начинается со старта — кнопкой Start Autopilot или Start when free в окне запуска, командой в чате, — даже если Orchestrator занят: тогда он сначала ждёт его (Wait `orchestrator-busy`); Start now берёт Orchestrator сразу, останавливая его turn и background tasks (кнопка Start now в строке Autopilot, после окна «Start now?»). Запуск один и тот же, чем бы его ни начали: кнопкой Autopilot, «Run all accepted», командой в чате или просьбой словами («запусти на автопилоте», «работай автономно»). Run ведёт весь Epic, очередь Epic-ов или только названные при запуске Ticket-ы одного Epic-а. У Run свой id и свой журнал событий на той Machine, где он шёл; Wave внутри Run — это раунд раздачи с номером внутри этого Run (в очереди — внутри своего Epic-а, с 1), а не номер Wave из таблицы плана.
 _Avoid_: прогон, сессия Autopilot, trace
 
 **Run mode**:
@@ -121,7 +121,7 @@ _Avoid_: estimate (как имя прогноза на весь Epic: так в 
 _Avoid_: этап, шаг (как имя), event
 
 **Wait**:
-Span, в котором работа стоит по внешней причине с ожидаемым концом: Limits, Start window (окно запуска), сон Machine, другая Machine, человек, занятый Orchestrator (`orchestrator-busy`), очередь, background tasks. Wait всегда несёт свою причину. Блокировка Ticket-а — не Wait, а пометка на нём.
+Span, в котором работа стоит по внешней причине с ожидаемым концом: Limits, Start window (окно запуска), сон Machine, другая Machine, человек, занятый Orchestrator (`orchestrator-busy`), повтор turn-а после временной ошибки API, очередь, background tasks. Wait всегда несёт свою причину. Блокировка Ticket-а — не Wait, а пометка на нём.
 _Avoid_: простой, пауза, idle
 
 **Run history**:

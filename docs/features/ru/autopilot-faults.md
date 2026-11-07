@@ -147,6 +147,10 @@ Orchestrator остаётся unattended, экран остаётся включ
 
 Tooltip строки состояния называет ошибку словами, когда она есть.
 
+В run-е над очередью Epic-ов `no-ready-wave`, `blocked-tickets` и `tickets-done` могут закончить только Epic, и run идёт
+к следующему ([Autopilot, run над очередью Epic-ов](autopilot.md#во-время-run-а)); таблица называет, чем остановился сам
+run.
+
 После любой остановки toast говорит, чем кончился run, с кнопкой **Open history**, а справа от строки состояния до старта
 следующего run-а стоит **History**. Обе открывают run в Run history, которую описывает страница
 [Flight Recorder](flight-recorder.md).

@@ -1,5 +1,8 @@
 {
-  "sources": [{ "page": "docs/features/autopilot.md", "sha": "ee30655f" }],
+  "sources": [
+    { "page": "docs/features/autopilot.md", "sha": "cb75f5a9" },
+    { "page": "docs/features/autopilot-faults.md", "sha": "cb75f5a9" }
+  ],
   "files": [
     "src/main/autopilot/run.ts",
     "src/shared/autopilot/cycle.ts",
@@ -9,6 +12,8 @@
     "src/shared/autopilot/budget.ts",
     "src/main/autopilot/journal.ts",
     "src/renderer/canvas/actions/AutopilotAction.tsx",
-    "src/main/autopilot/chat-start.ts"
+    "src/main/autopilot/chat-start.ts",
+    "src/renderer/autopilot/StartAutopilotModal.tsx",
+    "src/shared/autopilot/epic-queue.ts"
   ]
 }
