@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, EDGE_ROOM, innerSize, launchApp, roomToEdges, type LaunchedApp } from './helpers'
+import { WHOLLY_IN_VIEW } from './px'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
 
@@ -168,7 +169,7 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     expect(await nodeIn(window, FRAME)).toMatchObject({ x: saved.x, y: saved.y })
 
     // The collapse button, then ⌘Z: the frame is open again.
-    await expect(collapse, 'the Collapse button is inside the window').toBeInViewport({ ratio: 1 })
+    await expect(collapse, 'the Collapse button is inside the window').toBeInViewport(WHOLLY_IN_VIEW)
     expect(await roomToEdges(window, collapse), 'the Collapse button keeps its distance from the edges of the page').toBeGreaterThanOrEqual(EDGE_ROOM)
     await collapse.click()
     await expect(frame).toHaveAttribute('data-collapsed', 'true')

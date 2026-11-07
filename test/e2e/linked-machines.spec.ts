@@ -38,6 +38,7 @@ import {
 } from './helpers'
 import { expectBorderedChipsFit } from './chip-fit'
 import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
+import { WHOLLY_IN_VIEW } from './px'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { ms } from '../time-scale'
@@ -843,7 +844,7 @@ test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Auto
     const termA = a.window.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
     const termB = bWindow.locator('.react-flow__node[data-id="term"]').getByTestId('terminal-node')
     await expect(termA).toHaveAttribute('data-state', 'running', { timeout: ms(15_000) })
-    await expect(termA.getByTestId('terminal-screen')).toBeInViewport({ ratio: 1 })
+    await expect(termA.getByTestId('terminal-screen')).toBeInViewport(WHOLLY_IN_VIEW)
     await termA.getByTestId('terminal-screen').click()
     await a.window.keyboard.type('echo from""-a-$((6*7))')
     await a.window.keyboard.press('Enter')

@@ -7,6 +7,7 @@ import { EPIC, journals, messages, PROJECT, prepareWorld, releaseTurn, setStatus
 import { startWindow } from './autopilot-start'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
+import { WHOLLY_IN_VIEW } from './px'
 
 // A run over a queue of Epics in the built app (worfy-autopilot-queue ticket 17) on the fake agent
 // (autopilot-queue-held: each Wave's turn holds until the test releases it), in a Project of a temporary folder
@@ -75,7 +76,7 @@ const frameOf = (window: Page, epic: string): Locator => window.locator(`[data-t
 async function headerInView(window: Page, epic: string): Promise<Locator> {
   await window.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`).click()
   const header = frameOf(window, epic).locator('header.w-epic__header')
-  await expect(header).toBeInViewport({ ratio: 1 })
+  await expect(header).toBeInViewport(WHOLLY_IN_VIEW)
   return header
 }
 
