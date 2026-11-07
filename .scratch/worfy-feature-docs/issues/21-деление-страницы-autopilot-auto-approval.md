@@ -1,7 +1,8 @@
 # 21 — Деление страницы Autopilot: Auto-approval на своей странице
 
 Type: task
-Status: claimed 2026-11-07T07:31Z
+Status: done 2026-11-07T08:12Z
+PR: #1569
 Blocked by: —
 Source: решение владельца 2026-11-07, Q1 («да»: вынести Auto-approval со страницы Autopilot); Ticket [20](20-деление-страницы-autopilot.md) (его `## Итог` назвал кандидатов на следующее деление); «Как устроено» [spec.md](../spec.md) и решение владельца 2026-10-30, Q9 (страница больше примерно 400 строк делится на две); [ADR-0088](../../../docs/adr/0088-feature-pages-in-english.md) (английский как основной язык Feature page)
 
@@ -38,16 +39,21 @@ Source: решение владельца 2026-11-07, Q1 («да»: вынест
 - [ ] `docs/features/autopilot.md` не больше примерно 400 строк или в `## Итог` сказано, почему остальное не вынесено;
       размеры всех страниц до и после — в `## Итог`.
   - evidence: commit pass · docs(features): move Auto-approval and the start from a chat off the Autopilot page (worfy-feature-docs 21) · - - · 05c4b6378
+  - evidence: review pass · PR #1569 · - - · 923bef85334f2725190a9bc7e6c0e73388edc9a1
 - [ ] Перевод новых страниц в `docs/features/ru/` с шапкой; из `docs/features/ru/autopilot.md` ушла та же часть.
   - evidence: commit pass · docs(features): move Auto-approval and the start from a chat off the Autopilot page (worfy-feature-docs 21) · - - · 05c4b6378
+  - evidence: review pass · PR #1569 · - - · 923bef85334f2725190a9bc7e6c0e73388edc9a1
 - [ ] Индекс на обоих языках называет новые страницы; ни одна ссылка на перенесённый раздел не ведёт в пустоту
       (якоря проверены скриптом).
   - evidence: commit pass · docs(features): move Auto-approval and the start from a chat off the Autopilot page (worfy-feature-docs 21) · - - · 05c4b6378
+  - evidence: review pass · PR #1569 · - - · 923bef85334f2725190a9bc7e6c0e73388edc9a1
 - [ ] `node scripts/check-feature-docs.mjs`, `node scripts/check-handoff.mjs`, `pnpm lint`, `pnpm typecheck`, `pnpm test` —
       exit 0; gate fast зелёный; `ci-ok` зелёный. Gate full не нужен: код не меняется.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs && node scripts/check-handoff.mjs && pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 05c4b6378
   - evidence: gate pass · `gate fast` exit 0 · mac - · 05c4b6378
+  - evidence: review pass · PR #1569 · - - · 923bef85334f2725190a9bc7e6c0e73388edc9a1
 - [ ] Review: один агент уровня `low` проверяет, что утверждения перенесены без изменений и ссылки живые.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42352740577/job/128348295805 · ci - · 923bef85334f2725190a9bc7e6c0e73388edc9a1
 
 ## Тесты
 
