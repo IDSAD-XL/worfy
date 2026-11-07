@@ -1,7 +1,8 @@
 # 06 — Продолжение ручного хода Orchestrator-а вне Run-а: ошибка API и отказ Limits
 
 Type: task
-Status: open
+Status: done 2026-11-07T05:29Z
+PR: #1548
 Blocked by: 03, 04, 05
 Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 5; «Как работает» → «Где живёт»; «Риски», п. 6; «Вопросы владельцу», Q5
 
@@ -34,15 +35,22 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 
 - [ ] Contract test: on, ручной ход 529, затем удачный — одно продолжение, строки в транскрипте; off — ничего не ушло.
   - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 - [ ] Contract test: человек написал во время ожидания — продолжения нет.
   - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 - [ ] Contract test: отказ Limits вне Run-а — ожидание сброса по stub-у, одно продолжение.
   - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 - [ ] Contract test: идёт Run — модуль ничего не шлёт; Run повторил один раз.
   - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 - [ ] Contract test: `git push` без результата — продолжения нет, строка «not retried».
   - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · f7d8dc545
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
+  - evidence: review pass · PR #1548 · - - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42340505406 · ci - · ae5a370c8bb2cd3774fada1a2c32040674458a8a
 
 ## Тесты
 
