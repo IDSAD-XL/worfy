@@ -11,6 +11,12 @@
 // of the Node, and Claude Code for a Node saved without one. A Vendor this build does not run, or one
 // nobody is signed in to, is refused with the reason before a Node is made.
 //
+// A Session may be of a kind (worfy-product-session ticket 01): "New session" of kind `product` makes
+// a Product Session, whose Node keeps the kind in its data next to the Vendor. Every start of the Node
+// (Start, Resume, after a restart) launches it with that kind (SessionLaunch.kind). A Product Session
+// runs on Claude Code only: another Vendor is refused before a Node is made, and a saved Node of a
+// kind this build does not know, or of a Product Session on another Vendor, is refused before it starts.
+//
 // The model, effort and permission mode picked on a Node are kept like the Orchestrator's
 // (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
 // them under the Node id, and every start of the Node — New session, Start, Resume, after a restart
@@ -25,8 +31,12 @@ import { signInHint, UNNAMED_VENDOR, VENDOR_IDS, vendorIdSchema, type VendorId }
 import {
   LIVE_SESSION_HEIGHT,
   LIVE_SESSION_WIDTH,
+  PRODUCT_SESSION_VENDOR,
+  PRODUCT_SESSION_VENDOR_MESSAGE,
   SESSION_NODE_KIND,
+  sessionKindSchema,
   type ResumeVerdict,
+  type SessionKind,
   type SessionNodeView,
   type SessionVendors,
   type WorfySessionNodeData,
@@ -37,6 +47,7 @@ import { placeDownFrom, placeNewNode } from '../layout/place'
 import type { AccountPart } from '../vendors/account'
 import { closeRefusal, resumeVerdict } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
+import { ATTENDED, type SessionLaunch } from './session-settings'
 
 export interface NodeSessionsDeps {
   layout: {
@@ -103,12 +114,35 @@ function knownVendor(name: string): VendorId {
   return parsed.data
 }
 
-/** The Vendor of the Session on `node`; throws for one this build does not run (a later worfy's). */
-function vendorOf(node: LayoutNode): VendorId {
-  const saved: unknown = node.data.vendor
-  if (saved === undefined) return UNNAMED_VENDOR
+/** The Vendor a Session of `kind` must run on; undefined when any Vendor may run it. */
+const kindVendor = (kind: SessionKind | undefined): VendorId | undefined => (kind === 'product' ? PRODUCT_SESSION_VENDOR : undefined)
+
+/** Why a Session of `kind` cannot run on `vendor`, or null when it can. */
+function kindRefusal(kind: SessionKind | undefined, vendor: VendorId): string | null {
+  const only = kindVendor(kind)
+  return only === undefined || only === vendor ? null : PRODUCT_SESSION_VENDOR_MESSAGE
+}
+
+/** `name` as a SessionKind this build runs; throws with the reason for any other. */
+function knownKind(name: string): SessionKind {
+  const parsed = sessionKindSchema.safeParse(name)
+  if (!parsed.success) throw new Error(`${name} is not a kind of Session this build of worfy runs`)
+  return parsed.data
+}
+
+/**
+ * The Vendor and the kind of the Session on `node`. Throws, naming the Node, for a Vendor or a kind this
+ * build does not run (a later worfy's) and for a kind its Vendor cannot run.
+ */
+function launchOf(node: LayoutNode): { vendor: VendorId; kind: SessionKind | undefined } {
+  const savedVendor: unknown = node.data.vendor
+  const savedKind: unknown = isWorfyNode(node) ? node.data.kind : undefined
   try {
-    return knownVendor(String(saved))
+    const vendor = savedVendor === undefined ? UNNAMED_VENDOR : knownVendor(String(savedVendor))
+    const kind = savedKind === undefined ? undefined : knownKind(String(savedKind))
+    const refusal = kindRefusal(kind, vendor)
+    if (refusal !== null) throw new Error(refusal)
+    return { vendor, kind }
   } catch (error) {
     throw new Error(`The Session of ${node.id} cannot start: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
   }
@@ -160,15 +194,16 @@ export class NodeSessions {
 
   /**
    * "New session": a new Node with a new Session of `vendor`, or of the Project's `defaultVendor`
-   * without it. Refused with the reason, before any Node is made, for a Vendor this build does not
-   * run and for one that cannot start a Session now (vendorRefusal).
+   * without it; of `kind` when given, and then on the Vendor that kind runs on without a `vendor`.
+   * Refused with the reason, before any Node is made, for a Vendor this build does not run, for one
+   * the kind cannot run on, and for one that cannot start a Session now (vendorRefusal).
    */
-  async open(projectId: string, vendor?: string): Promise<SessionNodeView> {
+  async open(projectId: string, vendor?: string, kind?: SessionKind): Promise<SessionNodeView> {
     this.deps.projectPath(projectId)
-    const id = vendor === undefined ? this.defaultVendor(projectId) : knownVendor(vendor)
-    const refusal = (await this.deps.vendorRefusal?.(id)) ?? null
+    const id = vendor === undefined ? (kindVendor(kind) ?? this.defaultVendor(projectId)) : knownVendor(vendor)
+    const refusal = kindRefusal(kind, id) ?? (await this.deps.vendorRefusal?.(id)) ?? null
     if (refusal !== null) throw new Error(refusal)
-    return this.create(projectId, undefined, id)
+    return this.create(projectId, undefined, id, kind)
   }
 
   /**
@@ -188,9 +223,9 @@ export class NodeSessions {
    * A new Node, placed where it covers no other, with a new Session of `vendor` (the Project's
    * `defaultVendor` by default) in the Project's root. With `near` ("Ship ticket", worfy-daily ticket
    * 28) the Node goes on the first clear spot at `near.x`, from `near.y` down; without it, where every
-   * Node main makes goes (`placeNewNode`).
+   * Node main makes goes (`placeNewNode`). With `kind`, the Node's data keeps it.
    */
-  create(projectId: string, near?: { x: number; y: number }, vendor: VendorId = this.defaultVendor(projectId)): SessionNodeView {
+  create(projectId: string, near?: { x: number; y: number }, vendor: VendorId = this.defaultVendor(projectId), kind?: SessionKind): SessionNodeView {
     const root = this.deps.projectPath(projectId)
     const { layout } = this.deps.layout.get(projectId)
     const size = { w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT }
@@ -198,11 +233,18 @@ export class NodeSessions {
     const before = new Set(layout.nodes.map((node) => node.id))
     const after = this.deps.layout.apply(projectId, {
       op: 'create',
-      node: { kind: SESSION_NODE_KIND, x, y, w: LIVE_SESSION_WIDTH, h: LIVE_SESSION_HEIGHT, data: { origin: 'worfy', vendor } satisfies WorfySessionNodeData },
+      node: {
+        kind: SESSION_NODE_KIND,
+        x,
+        y,
+        w: LIVE_SESSION_WIDTH,
+        h: LIVE_SESSION_HEIGHT,
+        data: { origin: 'worfy', vendor, ...(kind === undefined ? {} : { kind }) } satisfies WorfySessionNodeData,
+      },
     })
     const created = after.layout.nodes.find((node) => !before.has(node.id))
     if (!created) throw new Error(`the Session Node of ${projectId} was not created`)
-    return this.launch(projectId, created.id, root, undefined, vendor)
+    return this.launch(projectId, created.id, root, undefined, vendor, kind)
   }
 
   /** Starts the Session behind a worfy Node that runs none: its saved session resumed, or a new one. */
@@ -212,15 +254,15 @@ export class NodeSessions {
     const root = this.deps.projectPath(projectId)
     const node = this.deps.layout.get(projectId).layout.nodes.find((each) => each.id === nodeId)
     if (!node || !isWorfyNode(node)) throw new Error(`${nodeId} is not a Session Node of worfy`)
-    const vendor = vendorOf(node)
+    const { vendor, kind } = launchOf(node)
     const saved = node.data.sessionId
-    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined, vendor)
-    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved, vendor))
+    if (typeof saved !== 'string' || saved === '') return this.launch(projectId, nodeId, root, undefined, vendor, kind)
+    return this.once([`node:${nodeId}`, `session:${saved}`], () => this.resumeOn(projectId, root, node, saved, vendor, kind))
   }
 
   /**
-   * Continues a finished Session on the Session Node that names it, on that Node's Vendor, or on a new
-   * Node: a Session no Node names is one of the Claude home's.
+   * Continues a finished Session on the Session Node that names it, on that Node's Vendor and of its
+   * kind, or on a new Node: a Session no Node names is one of the Claude home's.
    */
   async resume(projectId: string, sessionId: string): Promise<SessionNodeView> {
     const root = this.deps.projectPath(projectId)
@@ -229,8 +271,8 @@ export class NodeSessions {
       const running = this.running(node.id)
       if (running) return running
     }
-    const vendor = node ? vendorOf(node) : UNNAMED_VENDOR
-    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId, vendor))
+    const { vendor, kind } = node ? launchOf(node) : { vendor: UNNAMED_VENDOR, kind: undefined }
+    return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId, vendor, kind))
   }
 
   /**
@@ -303,7 +345,7 @@ export class NodeSessions {
     return promise
   }
 
-  private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string, vendor: VendorId): Promise<SessionNodeView> {
+  private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string, vendor: VendorId, kind: SessionKind | undefined): Promise<SessionNodeView> {
     // `local` for any caller: a resume needs the access to write, which gives a Linked machine a
     // Terminal in the Project as well (ADR-0052), so a strict read would guard nothing.
     const projectRoot = { path: root, local: true }
@@ -317,7 +359,7 @@ export class NodeSessions {
       isDirectory: this.deps.isDirectory,
     })
     if (!verdict.resumable) throw new Error(verdict.label)
-    return this.launch(projectId, this.liveNode(projectId, node, sessionId, vendor), verdict.cwd, sessionId, vendor)
+    return this.launch(projectId, this.liveNode(projectId, node, sessionId, vendor), verdict.cwd, sessionId, vendor, kind)
   }
 
   /**
@@ -372,13 +414,16 @@ export class NodeSessions {
     return layout.nodes.find((each) => each.id === id)
   }
 
-  private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined, vendor: VendorId): SessionNodeView {
+  private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined, vendor: VendorId, kind?: SessionKind): SessionNodeView {
     const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null, settings: this.savedSettings(projectId, nodeId) }
     this.runs.set(nodeId, run)
     // The registry reports `starting` before start() returns: the view must exist by then.
-    this.setView({ projectId, nodeId, vendor, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
+    const ofKind = kind === undefined ? {} : { kind }
+    this.setView({ projectId, nodeId, vendor, ...ofKind, sessionId: `starting-${nodeId}`, sdkSessionId: resume ?? null, state: 'starting', error: null, cwd, model: null })
+    // A plain Session keeps the registry's default launch (attended); one of a kind is attended too.
+    const launch: SessionLaunch | undefined = kind === undefined ? undefined : { ...ATTENDED, kind }
     try {
-      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings, undefined, undefined, vendor)
+      run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings, launch, undefined, vendor)
     } catch (error) {
       this.runs.delete(nodeId)
       // Closed, not `error`: no Session runs, so the Node can be removed or started again.

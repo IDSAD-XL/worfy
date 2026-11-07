@@ -22,7 +22,7 @@ import type { AgentEventEnvelope } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
-import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, type SessionNodeView } from '../../src/shared/ipc/sessions'
+import { LIVE_SESSION_HEIGHT, LIVE_SESSION_WIDTH, worfySessionNodeDataSchema, type SessionNodeView } from '../../src/shared/ipc/sessions'
 import { isArchived, type LayoutNode } from '../../src/shared/layout/types'
 import { APP_URL } from '../app-url'
 import { ms } from '../time-scale'
@@ -464,6 +464,76 @@ describe('the picks of a Session Node (worfy-daily ticket 23)', () => {
   })
 })
 
+describe('the kind of a Session (worfy-product-session ticket 01)', () => {
+  /** The SessionLaunch of each registry.start, in order. */
+  const launches = (start: { mock: { calls: unknown[][] } }): unknown[] => start.mock.calls.map((call) => call[4])
+
+  it('New session of kind product makes a Node whose data and view carry the kind, and launches the Session with it', async () => {
+    const h = harness()
+    const start = vi.spyOn(h.registry, 'start')
+    const created = await h.sessions.open(PROJECT, undefined, 'product')
+    expect(created).toMatchObject({ kind: 'product', vendor: 'claude' })
+    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'product' })
+    expect(launches(start)).toStrictEqual([{ unattended: false, kind: 'product' }])
+    await h.until(created.nodeId, 'idle')
+    expect(h.view(created.nodeId).kind).toBe('product')
+
+    // The SDK session id the agent reports joins the data; the kind stays.
+    h.registry.get(h.view(created.nodeId).sessionId).send('hello')
+    await vi.waitFor(() => expect(h.node(created.nodeId).data).toMatchObject({ kind: 'product', sessionId: expect.any(String) as string }))
+    await h.until(created.nodeId, 'idle')
+  })
+
+  it('a Node of kind product resumes after a restart with the same kind in its SessionLaunch', async () => {
+    savedLayout([{ id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: FINISHED } }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    const start = vi.spyOn(h.registry, 'start')
+    const started = await h.sessions.start(PROJECT, 'product-1')
+    expect(started).toMatchObject({ nodeId: 'product-1', kind: 'product', sdkSessionId: FINISHED })
+    expect(h.requests).toMatchObject([{ resume: FINISHED, cwd: repo }])
+    expect(launches(start)).toStrictEqual([{ unattended: false, kind: 'product' }])
+    await h.until('product-1', 'idle')
+    h.sessions.close('product-1')
+
+    // Resume by the Session's id lands on the same Node, with the same kind.
+    await h.until('product-1', 'closed')
+    const resumed = await h.sessions.resume(PROJECT, FINISHED)
+    expect(resumed).toMatchObject({ nodeId: 'product-1', kind: 'product' })
+    expect(launches(start)).toStrictEqual([
+      { unattended: false, kind: 'product' },
+      { unattended: false, kind: 'product' },
+    ])
+    expect(h.node('product-1').data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: FINISHED })
+  })
+
+  it('a Node without a kind is created and resumed as before: no kind in its data, view or launch', async () => {
+    savedLayout([{ id: 'old', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', sessionId: FINISHED } }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    const start = vi.spyOn(h.registry, 'start')
+    const resumed = await h.sessions.start(PROJECT, 'old')
+    expect(resumed).not.toHaveProperty('kind')
+    expect(h.node('old').data).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+
+    const created = await h.sessions.open(PROJECT)
+    expect(created).not.toHaveProperty('kind')
+    expect(h.node(created.nodeId).data).toStrictEqual({ origin: 'worfy', vendor: 'claude' })
+    expect(launches(start)).toStrictEqual([undefined, undefined])
+    // The data of a Node of an older build reads as before.
+    expect(worfySessionNodeDataSchema.parse({ origin: 'worfy', sessionId: FINISHED })).toStrictEqual({ origin: 'worfy', sessionId: FINISHED })
+  })
+
+  it('a kind this build does not know (a later worfy\'s) is kept in the Node, and main refuses to start it', async () => {
+    savedLayout([{ id: 'later', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'mentor', sessionId: FINISHED } }])
+    const h = harness({ claude: { live: [], history: [{ sessionId: FINISHED, cwd: repo }] } })
+    await expect(h.sessions.start(PROJECT, 'later')).rejects.toThrow('The Session of later cannot start: mentor is not a kind of Session this build of worfy runs')
+    await expect(h.sessions.resume(PROJECT, FINISHED)).rejects.toThrow('The Session of later cannot start: mentor is not a kind of Session this build of worfy runs')
+    expect(h.requests).toEqual([])
+    expect(h.node('later').data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'mentor', sessionId: FINISHED })
+    // The renderer still reads it as worfy's own Session Node, the kind as saved.
+    expect(worfySessionNodeDataSchema.parse(h.node('later').data)).toMatchObject({ kind: 'mentor' })
+  })
+})
+
 describe('Close', () => {
   it('is refused during a turn and allowed after Interrupt; the Node stays and shows the Session closed', async () => {
     const h = harness({ script: 'interrupt' })
@@ -608,6 +678,7 @@ describe('sessions.* channels', () => {
   it.each([
     ['sessions.new', { projectId: 7 }, 'open'],
     ['sessions.new', { projectId: PROJECT, vendor: '' }, 'open'],
+    ['sessions.new', { projectId: PROJECT, kind: 'mentor' }, 'open'],
     ['sessions.start', { projectId: PROJECT, nodeId: '' }, 'start'],
     ['sessions.resume', { projectId: PROJECT, sessionId: '../../etc/passwd' }, 'resume'],
     ['sessions.resume', { projectId: PROJECT, sessionId: 42 }, 'resume'],
@@ -625,9 +696,12 @@ describe('sessions.* channels', () => {
   it('passes only the declared input and answers only the declared keys', async () => {
     const { call, spies } = await channels()
     expect(await call('sessions.new', { projectId: PROJECT, admin: true })).toStrictEqual({ ok: true, value: view })
-    expect(spies.open).toHaveBeenCalledWith(PROJECT, undefined)
+    expect(spies.open).toHaveBeenCalledWith(PROJECT, undefined, undefined)
     expect(await call('sessions.new', { projectId: PROJECT, vendor: 'codex' })).toStrictEqual({ ok: true, value: view })
-    expect(spies.open).toHaveBeenLastCalledWith(PROJECT, 'codex')
+    expect(spies.open).toHaveBeenLastCalledWith(PROJECT, 'codex', undefined)
+    // The kind of a Product Session reaches NodeSessions.open (worfy-product-session ticket 01).
+    expect(await call('sessions.new', { projectId: PROJECT, kind: 'product' })).toStrictEqual({ ok: true, value: view })
+    expect(spies.open).toHaveBeenLastCalledWith(PROJECT, undefined, 'product')
     expect(await call('sessions.start', { projectId: PROJECT, nodeId: 'node-1', resume: 'x' })).toStrictEqual({ ok: true, value: view })
     expect(spies.start).toHaveBeenCalledWith(PROJECT, 'node-1')
     expect(await call('sessions.resume', { projectId: PROJECT, sessionId: FINISHED, cwd: '/elsewhere' })).toStrictEqual({ ok: true, value: view })
@@ -639,6 +713,13 @@ describe('sessions.* channels', () => {
     expect(await call('sessions.views', { projectId: PROJECT })).toStrictEqual({ ok: true, value: { views: [view] } })
     expect(await call('sessions.close', { nodeId: 'node-1', force: true })).toStrictEqual({ ok: true, value: undefined })
     expect(spies.close).toHaveBeenCalledWith('node-1')
+  })
+
+  it('answers the kind of a Product Session\'s view', async () => {
+    const product = { ...view, kind: 'product' }
+    const { call } = await channels({ view: product })
+    expect(await call('sessions.new', { projectId: PROJECT, kind: 'product' })).toStrictEqual({ ok: true, value: product })
+    expect(await call('sessions.views', { projectId: PROJECT })).toStrictEqual({ ok: true, value: { views: [product] } })
   })
 
   it('refuses an answer outside the contract', async () => {

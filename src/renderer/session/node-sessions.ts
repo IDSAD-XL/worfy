@@ -1,6 +1,7 @@
 // main's view of each Session worfy runs on a Session Node (src/shared/ipc/sessions.ts,
 // SessionNodeView) in the renderer, by Node: asked for once per Project with `sessions.views`, then
-// followed on `sessions.changed`. One subscription serves every Node and the Session view.
+// followed on `sessions.changed`. One subscription serves every Node and the Session view. A view
+// carries the Session's kind, `product` for a Product Session (worfy-product-session ticket 01).
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
