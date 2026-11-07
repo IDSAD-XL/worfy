@@ -34,8 +34,11 @@ macOS и Windows — PR ждёт Windows verdict.
 ## Готово, когда
 
 - [ ] В «Итог» — список по каждой пропущенной версии 44.x: исправления безопасности и breaking changes.
+  - evidence: commit pass · docs: polish 64 result — release notes of Electron 44.6.0 to 44.10.2 · - - · a69fcc374
 - [ ] `package.json` и `pnpm-lock.yaml` — на последнем patch-е линии 44; номер записан в «Итог».
+  - evidence: commit pass · Raise Electron from 44.5.1 to 44.10.2, the last patch of line 44 · - - · f7207d233
 - [ ] `node scripts/check-fuses.mjs` на собранном приложении — exit 0.
+  - evidence: test-run pass · `pnpm test:package` exit 0 (ends with node scripts/check-fuses.mjs) · mac - · f7207d233
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:e2e`, `pnpm test:package` на Mac — exit 0; `ci-ok` на PR
       зелёный.
 - [ ] Windows verdict получен до merge.
