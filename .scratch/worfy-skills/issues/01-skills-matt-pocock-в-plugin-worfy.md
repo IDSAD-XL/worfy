@@ -48,15 +48,22 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] 19 skills лежат в `harness/skills/`; для каждого файла хэш совпадает с 1.3.1, кроме файлов из списка правок
       `THIRD_PARTY.md` — таблица хэшей в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] `THIRD_PARTY.md` и `LICENSE.mattpocock-skills` есть; текст `LICENSE` совпадает с копией 1.3.1 байт в байт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] Contract test: в `harness/` нет `mattpocock-skills`, `setup-matt-pocock-skills`, `ask-matt` (кроме
       `THIRD_PARTY.md`); каждый вызов Skill tool по имени в `harness/skills/` — `worfy:<имя>` существующего skill-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] Contract test: у каждого `SKILL.md` из копии `name` в frontmatter совпадает с именем папки; `disable-model-invocation`
       такой же, как у 1.3.1.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] Раздел `## Wayfinding operations` в `TICKETS.md`; `bash harness/bin/tests/skill-blocks.test.sh` и
       `node scripts/eval-harness.mjs --dry-run --changed origin/main` — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` exit 0, `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] `node scripts/check-cyrillic.mjs` — exit 0 (тексты plugin-а английские).
+  - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0, `gate fast` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
 
 ## Тесты
 
