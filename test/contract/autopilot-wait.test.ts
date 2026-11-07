@@ -432,7 +432,9 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     writeFileSync(join(scriptsDir, 'autopilot-waves-held.jsonl'), `${[...lines.slice(0, 2), '{"fake":"wait_release","name":"wave"}', ...lines.slice(2)].join('\n')}\n`)
     const h = harness({ unattended: 'autopilot-waves-held' })
     expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'running' })
-    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy', 'the Wave\'s turn')
+    // The run writes `wave-started` only after "Run wave" has gone and its send has come back, a few awaits after the
+    // message reached the Session: the journal is read once the line is there, so the Wave is fully started.
+    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy' && (await h.kinds()).includes('wave-started'), 'the Wave\'s turn')
     const requests = h.requests.length
     const before = await h.kinds()
     expect(await h.autopilot.startNow(PROJECT)).toMatchObject({ status: 'running' })

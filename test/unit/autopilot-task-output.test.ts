@@ -65,26 +65,41 @@ describe('taskOutputFiles', () => {
 })
 
 describe('the cost grows with the text, not with its square (it runs on the main thread for every tool result)', () => {
-  // A generous bound, far above the linear cost (a few ms) and far below the quadratic one (seconds): not a tuned timeout.
-  const BOUND_MS = 100
+  /** How long one scan of `text` takes, in ms. */
+  function took(text: string): number {
+    const started = performance.now()
+    taskOutputFiles(text)
+    return performance.now() - started
+  }
 
+  // A regular expression that backtracks over a long word costs seconds (the first scan, commit 792968f57, took 18 s
+  // on this text under Node 24); a linear scan takes well under a millisecond, and the Node of Electron 44 runs both
+  // that fast. The bound is in seconds, far from either: the fastest of three scans, as load only adds time.
   it('a 200 000-character word before a path', () => {
     const text = `Output is being written to: ${'x'.repeat(200_000)} /tmp/s/tasks/long.output.`
-    const started = performance.now()
-    const found = taskOutputFiles(text)
-    const took = performance.now() - started
-    expect(found).toEqual(new Map([['long', '/tmp/s/tasks/long.output']]))
-    expect(took).toBeLessThan(BOUND_MS)
+    expect(taskOutputFiles(text)).toEqual(new Map([['long', '/tmp/s/tasks/long.output']]))
+    expect(Math.min(took(text), took(text), took(text))).toBeLessThan(1_000)
   })
 
-  it('5000 paths on one line', () => {
-    const text = Array.from({ length: 5000 }, (_, index) => `/tmp/s/tasks/t${index}.output`).join(' ')
-    const started = performance.now()
-    const found = taskOutputFiles(text)
-    const took = performance.now() - started
-    expect(found.size).toBe(5000)
-    expect(found.get('t4999')).toBe('/tmp/s/tasks/t4999.output')
-    expect(took).toBeLessThan(BOUND_MS)
+  // Not a time against a bound, which load on the machine moves (a full local test run made 7 ms into 134 ms): the
+  // growth of the time when the line grows 16 times, scans of both lines taken side by side. A linear scan grows about
+  // 16 times; the first scan, which looked back to the start of the line for every path, grew about 265 times in the
+  // Node of Electron 44 (3.1 ms for 500 paths, 820 ms for 8000). The limit sits between the two, 64 times: load slows
+  // both lines alike, and each line's fastest of up to five tries leaves out a pause that hit one try.
+  it('16 times more paths on one line cost less than 64 times more', () => {
+    const line = (count: number) => Array.from({ length: count }, (_, index) => `/tmp/s/tasks/t${index}.output`).join(' ')
+    const short = line(500)
+    const long = line(8000)
+    const found = taskOutputFiles(long)
+    expect(found.size).toBe(8000)
+    expect(found.get('t7999')).toBe('/tmp/s/tasks/t7999.output')
+    let fastestShort = Number.POSITIVE_INFINITY
+    let fastestLong = Number.POSITIVE_INFINITY
+    for (let attempt = 0; attempt < 5 && !(fastestLong / fastestShort < 64); attempt += 1) {
+      fastestShort = Math.min(fastestShort, took(short))
+      fastestLong = Math.min(fastestLong, took(long))
+    }
+    expect(fastestLong / fastestShort).toBeLessThan(64)
   })
 })
 
