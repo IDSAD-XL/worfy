@@ -1,7 +1,8 @@
 # 66 — Flaky test-ы CI Linux и macOS за неделю
 
 Type: bug
-Status: claimed 2026-11-07T22:28Z
+Status: done 2026-11-07T23:54Z
+PR: #1617
 Blocked by: —
 Source: история CI 2026-11-01…11-07 (`ci.yml`): все 414 завершённых run-ов `main` с 2026-11-01 и 305 из 617 run-ов PR
 (с 2026-11-04 22:37). Остальные run-ы PR и job-ы 42 run-ов из этих 305 не прочитаны: GitHub ответил «API rate limit
