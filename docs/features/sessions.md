@@ -189,19 +189,28 @@ answers.
   once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run
   reads it before each retry after a temporary API error ([Autopilot, Retry after an API error](autopilot.md#retry-after-an-api-error)).
 - With Auto-continue on, a turn of the Orchestrator outside a run that ends with a temporary API error (500, 502, 503,
-  504, 529, a lost connection) is continued the same way: after 1, 5, 15, 30 and 60 minutes (±20 %), five in a row at
-  most, worfy sends the Orchestrator a new message that asks it to continue and names what the failed turn already did
-  outside the Session — never the person's message again. A call that reaches outside and has no result (a `git push`
-  cut off) is not retried. A refusal by the Limits waits for the reset of the window the Vendor reported, plus 2
-  minutes (without a reset time, a new try every 30 minutes), then sends the continuation a run sends after the Limits.
-  Each step is a line of worfy's own in the transcript, which the model does not get: `worfy: API error 529, retry 2 of
-  5 at 14:20`, `worfy: sent "continue" (retry 2 of 5)`, ``worfy: not retried: `git push origin main` may or may not have
-  run``, `worfy: waiting for the Limits, resumes 14:20`; a time on another day carries its date. These lines live only
-  while the app runs: worfy does not write them into the transcript file, so after a restart they are gone. A message
-  of the person during the wait takes the continuation's place; a turn under way when the time comes (a background
-  task's notification) does too, and its end decides. Auto-continue turned off, the Session closed or the app quit
-  cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries. With
-  Auto-continue off a turn outside a run stops on an API error or the Limits as before.
+  504, 529, a lost connection, a timed-out request, a broken response stream) is continued the same way as in a run:
+  after 1, 5, 15, 30 and 60 minutes (±20 %), five in a row at most, worfy sends the Orchestrator a new message that asks
+  it to continue and names what the failed turn already did outside the Session — never the person's message again.
+  A call that reaches outside and has no result (a `git push` cut off) is not retried. Each turn is judged by its own
+  calls and its own Limits status, a turn a background task's notification starts too. A refusal by the Limits waits
+  for the reset of the window the Vendor reported, plus 2 minutes, however far away; without a reset time it tries
+  again every 30 minutes, for 24 hours at most. Then it sends the continuation a run sends after the Limits. On Codex
+  the windows are not read again before that continuation, as a run does: one still refused waits again. A turn the
+  person interrupted is never continued.
+- Each step is a line of worfy's own in the transcript, below the row it tells of; the model does not get it:
+  `worfy: API error 529, retry 2 of 5 at 14:20`, `worfy: sent "continue" (retry 2 of 5)`, ``worfy: not retried: `git
+  push origin main` may or may not have run``, `worfy: not retried: gave up after 5 retries`, `worfy: waiting for the
+  Limits, resumes 14:20` (without a reset time `…, no reset time reported, next try at 14:20`), `worfy: sent "continue"
+  after the Limits wait`, `worfy: not continued: …` (a quota, or no reset time for 24 hours), `worfy: Auto-continue is
+  off; nothing was sent` and `worfy: a turn is under way; nothing was sent, its end decides`. Times are local; a time on
+  another day carries its date. These lines live only while the app runs: worfy does not write them into the transcript
+  file, so after a restart they are gone.
+- A message of the person during the wait takes the continuation's place; a turn under way when the time comes (a
+  background task's notification) does too, and its end decides. Auto-continue turned off, the Session closed or the
+  app quit cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries.
+  Outside a run worfy does not keep the Mac awake for the wait: a Mac that sleeps through the time continues when it
+  wakes. With Auto-continue off a turn outside a run stops on an API error or the Limits as before.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission

@@ -14,16 +14,25 @@
 // The original message is never sent again: the continuation is a new message in the same Session.
 //
 // It stays silent while a run owns the Session (it runs unattended): the run answers then (spec, risk 6).
-// A message of a person during the wait (a `prompt` that is not worfy's own continuation) takes the
-// continuation's place: the wait ends, and that turn's end decides. A turn under way when the timer fires
-// (a background task's task-notification) does the same. The switch turned off, the Session closed or
-// the app quit (the registry closes every Session) cancel the wait; nothing goes out.
+// A message of a person during the wait (a `prompt`; worfy's own continuation has ended its wait before it
+// goes) takes the continuation's place: the wait ends, and that turn's end decides. A turn under way when
+// the timer fires (a background task's task-notification) does the same. The switch turned off, the
+// Session closed or the app quit cancel the wait; nothing goes out.
+//
+// A turn starts with the Session going `busy`, or with its `prompt` just before: a turn Claude Code starts
+// itself (a task-notification) has no `prompt`. Each start drops the calls and the Limits news of the turn
+// before, so a later turn is judged by its own calls and its own Limits status only.
 //
 // What it does is told in the Orchestrator's transcript as worfy's own `notice` lines, which the model
 // does not get: «worfy: API error 529, retry 2 of 5 at 14:20», «worfy: sent "continue" (retry 2 of 5)»,
 // «worfy: not retried: `git push …` may or may not have run», «worfy: waiting for the Limits, resumes
-// 14:20». A notice lives in the live Session's events only: worfy writes nothing into Claude Code's
-// transcript (ADR-0005), so after a restart of the app the lines are gone (the ticket's result section says so).
+// 14:20». A line goes after the event it tells of has reached the windows (the registry tells its
+// observers first, the window's sink after them). A notice lives in the live Session's events only: worfy
+// writes nothing into Claude Code's transcript (ADR-0005), so after a restart of the app the lines are gone.
+//
+// shortcut: on Codex the windows are not read again before a continuation after the Limits (the run does
+// it, run.ts stillRefused); a continuation still refused waits again; redo when the owner asks for the
+// free read before each try (spec Q7 (a)).
 //
 // The wait of each Project (wait()) is what the countdown in the Orchestrator's chat shows (ticket 07).
 //
@@ -75,8 +84,8 @@ interface Entry {
   retry: TurnRetry
   limits: LimitsWait
   unwatch: () => void
-  /** worfy's continuation until its `prompt` comes back; a `prompt` of another text is a person's. */
-  sent: string | null
+  /** A turn of the Session goes on: it started (`prompt` or `busy`) and has not ended. */
+  inTurn: boolean
 }
 
 /** The temporary error in the words of a transcript line. */
@@ -162,7 +171,7 @@ export class OrchestratorContinue {
       send,
       ...timing,
     })
-    const entry: Entry = { projectId, sessionId, vendor, retry, limits, unwatch: () => undefined, sent: null }
+    const entry: Entry = { projectId, sessionId, vendor, retry, limits, unwatch: () => undefined, inTurn: false }
     entry.unwatch = limits.watch((id) => id === entry.sessionId)
     return entry
   }
@@ -177,28 +186,30 @@ export class OrchestratorContinue {
     const entry = this.entryOf(sessionId)
     if (entry === null) return
     if (event.type === 'state' && event.state === 'closed') {
+      entry.inTurn = false
       this.drop(entry)
       return
     }
     // A run owns the Session: it answers the Session's errors itself, and nothing of this module waits.
-    if (this.owned(entry)) {
-      this.drop(entry)
-      return
-    }
+    // The turns and their calls are still followed: a run that gives the Session back during a turn
+    // leaves that turn's end to this module, with the calls the turn made while the run had it.
+    const owned = this.owned(entry)
+    if (owned) this.drop(entry)
     switch (event.type) {
       case 'prompt':
-        entry.retry.turnStarted()
-        entry.limits.turnStarted()
-        if (entry.sent !== null && event.text === entry.sent) {
-          entry.sent = null
-          return
-        }
-        // A person's message: its turn is the continuation, and its end decides.
+        // worfy's own continuation has ended its wait before it went: a prompt that finds one is a
+        // person's, whose turn takes the continuation's place, and its end decides.
+        this.turnStarted(entry)
         entry.retry.cancel()
         entry.limits.cancel()
         return
+      case 'state':
+        if (event.state === 'busy' && !entry.inTurn) this.turnStarted(entry)
+        else if (event.state === 'idle' || event.state === 'error' || event.state === 'starting') entry.inTurn = false
+        return
       case 'result':
-        this.turnEnded(entry, event)
+        entry.inTurn = false
+        if (!owned) this.turnEnded(entry, event)
         return
       case 'tool_use':
       case 'tool_result':
@@ -207,6 +218,13 @@ export class OrchestratorContinue {
       default:
         return
     }
+  }
+
+  /** A turn of the Session began: the calls and the Limits news of the turn before are no longer its. */
+  private turnStarted(entry: Entry): void {
+    entry.inTurn = true
+    entry.retry.turnStarted()
+    entry.limits.turnStarted()
   }
 
   /** The end of a manual turn: with the switch on, a temporary error or a refusal waits for its continuation. */
@@ -305,18 +323,17 @@ export class OrchestratorContinue {
     if (session.state !== 'idle') {
       entry.retry.cancel()
       entry.limits.cancel()
+      this.notice(entry, 'worfy: a turn is under way; nothing was sent, its end decides')
       return null
     }
     return session
   }
 
   private send(entry: Entry, session: ReturnType<OrchestratorContinueDeps['session']>, text: string): boolean {
-    entry.sent = text
     try {
       session.send(text)
       return true
     } catch (error) {
-      entry.sent = null
       console.warn(`[orchestrator] ${entry.projectId}: could not send the continuation`, error)
       return false
     }
@@ -348,15 +365,21 @@ export class OrchestratorContinue {
   private drop(entry: Entry): void {
     entry.retry.passed()
     entry.limits.passed()
-    entry.sent = null
   }
 
-  /** A line of worfy's in the Orchestrator's transcript; the model does not get it. */
+  /**
+   * A line of worfy's in the Orchestrator's transcript; the model does not get it. It goes once the
+   * event being handled has reached the windows too: the registry tells the observers before the sink,
+   * and a line sent at once would stand above the error row it tells of.
+   */
   private notice(entry: Entry, text: string): void {
-    try {
-      this.deps.session(entry.sessionId).notice(text)
-    } catch {
-      // The Session is gone: there is no one to tell.
-    }
+    const sessionId = entry.sessionId
+    queueMicrotask(() => {
+      try {
+        this.deps.session(sessionId).notice(text)
+      } catch {
+        // The Session is gone: there is no one to tell.
+      }
+    })
   }
 }
