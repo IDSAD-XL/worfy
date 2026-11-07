@@ -28,11 +28,12 @@ const WAIT_WORDS: Readonly<Record<WaitCause, string>> = {
   'orchestrator-busy': 'Orchestrator busy',
 }
 
-// The stops of a Run that waited for its Orchestrator (worfy-autopilot-queue tickets 07, 18) in words; the
-// other stop reasons are shown as the Journal writes them.
+// The stops of a Run that waited for its Orchestrator (worfy-autopilot-queue tickets 07, 18), and of a queue whose
+// last Epic waits for the owner (ticket 21), in words; the other stop reasons are shown as the Journal writes them.
 const STOP_WORDS: Readonly<Record<string, string>> = {
   'start-cancelled': 'start-cancelled: cancelled while it waited for the Orchestrator',
   'start-refused': 'start-refused: refused once the Orchestrator was free',
+  'waits-owner': 'waits-owner: the last Epic of the queue waits for the owner',
 }
 
 /** A stop reason of `run-stopped` as the header and the detail panel write it. */

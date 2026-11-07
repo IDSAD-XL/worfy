@@ -176,7 +176,9 @@
 //   — the Epic's last statuses and narrow rounds, `epic-finished` with `done` or `waits-owner`, then the
 //   next Epic with `epic-started` (`index` from 1, `of`); `stop` — the whole run stops as before. With
 //   no Epic left, or after a Stop, a Force stop or the quit, the run stops with the reason of the Epic it
-//   was on (the gate queue's turn first, as for one Epic). Every Epic of the queue is asked at the start
+//   was on (the gate queue's turn first, as for one Epic) — but for a last Epic that waits only for the
+//   owner: it gets `epic-finished` `waits-owner` too, and the run stops with `waits-owner` (ticket 21; a
+//   run of one Epic stops with `blocked-tickets` then, as before). Every Epic of the queue is asked at the start
 //   whether it runs elsewhere (one refusal, past which only "Start anyway" goes), and each later one again
 //   when it is reached: running elsewhere then, it ends with `epic-finished` `elsewhere`, unless the start
 //   went with "Start anyway", and the run goes on. A run of one Epic writes neither line, and run-started
@@ -1510,27 +1512,34 @@ export class Autopilot {
 
   /**
    * The cycle of the Epic the run is on has stopped with `effect` (worfy-autopilot-queue ticket 14). Unless a Stop,
-   * a Force stop or the quit has come, and while an Epic of the queue is left, the rule of the queue judges the stop
-   * on a fresh read (epicOutcome). `next`: the Epic's last narrow
-   * rounds and statuses, `epic-finished` with its outcome, and the next Epic begins (beginEpic). Answers whether
-   * the run goes on; false — no Epic left, the rule says stop, the workflow cannot be read — and the run stops
-   * with `effect` as for one Epic.
+   * a Force stop or the quit has come, in a run over a queue the rule of the queue judges the stop on a fresh read
+   * (epicOutcome). `next`: the Epic's last narrow rounds and statuses, `epic-finished` with its outcome, and the
+   * next Epic begins (beginEpic). Answers true when the run goes on, else the stop it ends with: `effect` as for one
+   * Epic — the rule says stop, the workflow cannot be read, the last Epic is done — or `waits-owner` with the
+   * owner's Tickets when the Epic it stays on waits only for the owner (ticket 21): the last of the queue, or one
+   * after which no Epic begins. A run of one Epic asks no rule: its Epic waiting for the owner is `blocked-tickets`.
    */
-  private async moveOn(run: Run, effect: { reason: AutopilotStopReason }): Promise<boolean> {
-    if (run.stopRequested || run.rushed || this.quitting) return false
-    if (nextEpic(run.queue, run.index, run.outcomes) === null) return false
+  private async moveOn(run: Run, effect: { reason: AutopilotStopReason; tickets?: number[] }): Promise<true | { reason: AutopilotStopReason; tickets?: number[] }> {
+    if (run.stopRequested || run.rushed || this.quitting) return effect
+    const last = nextEpic(run.queue, run.index, run.outcomes) === null
+    if (last && run.queue.length < 2) return effect
     const model = await this.freshModel(run)
     if (typeof model === 'string') {
       console.warn(`[autopilot] ${run.projectId}: the queue stops: ${model}`)
-      return false
+      return effect
     }
     const outcome = epicOutcome(effect.reason, model.tickets, run.epic)
-    if (outcome.kind === 'stop') return false
+    if (outcome.kind === 'stop') return effect
+    // The last Epic done: the run stops with its cycle's reason, as before ticket 21.
+    if (last && outcome.outcome === 'done') return effect
     await this.journalNarrow(run, await this.lastPrs(run))
     for (const fields of statusChanges(run, model.tickets)) await this.write(run, fields)
     run.outcomes.set(run.epic, outcome.outcome)
     await this.write(run, { kind: 'epic-finished', outcome: outcome.outcome, ...(outcome.outcome === 'waits-owner' ? { tickets: outcome.tickets.map(ticketNumber) } : {}) })
-    return this.beginEpic(run, model)
+    if (!last && (await this.beginEpic(run, model))) return true
+    // No Epic begun after it: a Stop came meanwhile, or every Epic left runs elsewhere.
+    if (outcome.outcome !== 'waits-owner' || run.stopRequested || run.rushed || this.quitting) return effect
+    return { reason: 'waits-owner', tickets: outcome.tickets }
   }
 
   /**
@@ -2019,18 +2028,26 @@ export class Autopilot {
           run.message = effect.message
           await this.write(run, { kind: 'session-error', session: run.session?.id ?? null, message: effect.message })
           break
-        case 'stopped':
-          if (run.gateQueue !== null) await this.endGateQueue(run, effect)
-          else if (await this.moveOn(run, effect)) break
-          else if (!(await this.gateQueueTurn(run, effect))) await this.end(run, effect.reason, effect.tickets)
+        case 'stopped': {
+          if (run.gateQueue !== null) {
+            await this.endGateQueue(run, effect)
+            break
+          }
+          const stop = await this.moveOn(run, effect)
+          if (stop === true) break
+          // The last Epic of the queue waits for the owner: the state says the run's reason, not its cycle's.
+          if (stop.reason !== effect.reason) run.cycle = { ...run.cycle, reason: stop.reason }
+          if (!(await this.gateQueueTurn(run, stop))) await this.end(run, stop.reason, stop.tickets)
           break
+        }
       }
     }
     if (run.cycle.phase !== 'stopped') this.publish(run.projectId)
   }
 
   /**
-   * The run has no Wave to send (`no-ready-wave`, `blocked-tickets`): on the machine with `serve`
+   * The run has no Wave to send (`no-ready-wave`, `blocked-tickets`, and `waits-owner` of the queue's last Epic,
+   * worfy-autopilot-queue ticket 21): on the machine with `serve`
    * the Orchestrator first gets "Process gate queue", once per run, and `gate-queue` goes to the
    * journal (worfy-windows ticket 17). Its turn is followed as a Wave's without Tickets: the end of
    * the turn, background tasks, a Limits wait, a graceful Stop. Not after a Stop or on quit. Answers
@@ -2038,7 +2055,7 @@ export class Autopilot {
    */
   private async gateQueueTurn(run: Run, effect: { reason: AutopilotStopReason; tickets?: number[] }): Promise<boolean> {
     const gateQueue = this.deps.waves.autopilotGateQueue
-    if (effect.reason !== 'no-ready-wave' && effect.reason !== 'blocked-tickets') return false
+    if (effect.reason !== 'no-ready-wave' && effect.reason !== 'blocked-tickets' && effect.reason !== 'waits-owner') return false
     if (gateQueue === undefined) return false
     const text = await gateQueue.call(this.deps.waves, run.projectId)
     // A Stop, a Force stop or the quit before the step, or while the role and the template were read.
@@ -2852,7 +2869,7 @@ export class Autopilot {
   /**
    * The run is over: its reason in the journal, keep-awake released, the Orchestrator given back.
    * A stop for want of a Wave, and `tickets-done`, carry the Orchestrator's last answer in the Wave (ADR-0033), and
-   * `blocked-tickets` the Tickets it stopped on.
+   * `blocked-tickets` and `waits-owner` the Tickets it stopped on.
    */
   private async end(run: Run, reason: AutopilotStopReason, tickets?: number[]): Promise<void> {
     // The narrow round's last states before the end: a Ticket blocked on `NARROW: REJECTED` is
@@ -2868,7 +2885,7 @@ export class Autopilot {
       for (const fields of statusChanges(run, tickets)) await this.write(run, fields)
     }
     const live = this.liveTasks(run)
-    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' || reason === 'tickets-done' ? run.lastText : null
+    const lastText = reason === 'no-progress' || reason === 'no-ready-wave' || reason === 'blocked-tickets' || reason === 'waits-owner' || reason === 'tickets-done' ? run.lastText : null
     await this.write(run, {
       kind: 'run-stopped',
       reason,

@@ -52,8 +52,11 @@ A start is refused in these cases. The reason shows in the button's tooltip and 
   worktrees included.
 - The same Epic of the same repository runs, or is starting, on a Linked machine or in another Project of this Machine.
   A chip "running on <Machine>" appears under the button, with a **Start anyway** button beside it. For a queue every
-  Epic of it is asked about, and one running elsewhere refuses the whole start; after **Run all accepted** that refusal is
-  an error toast only, with no chip and no Start anyway.
+  Epic of it is asked about, and one running elsewhere refuses the whole start. After **Run all accepted** the window
+  stays open instead of an error toast: `Runs elsewhere:` with the reason, and a red **Start anyway** beside the start.
+  It starts the same queue, in the same order and Run mode, past the check for every Epic of it. Another tick, order or
+  mode takes the reason and the button away, and the start asks again. An agent's `autopilot_start` gets no such button:
+  worfy starts its queue after the answer, and the Session that asked gets the refusal.
 
 A refused start writes no journal and does not keep the display on. "Start anyway" starts the run even though both runs
 will take the same Tickets. It is the only way past that refusal, and it holds for the whole run: an Epic added to
@@ -123,13 +126,17 @@ decides. Every Ticket done in the checkout: the next Epic begins. Only Tickets f
 `Waits: owner`, no status, or blocked only by such Tickets): the Epic is passed with `waits-owner`, and the next one
 begins. Any other stop, or other Tickets left, stops the whole run. When the run reaches the next Epic it asks the
 Linked machines again; an Epic running elsewhere is passed. With no Epic left the run stops with the reason of the last
-one, the gate queue's turn first ([Why a run stops](autopilot-faults.md#why-a-run-stops)).
+one, the gate queue's turn first ([Why a run stops](autopilot-faults.md#why-a-run-stops)). The one exception is a last
+Epic with only Tickets for the owner left: it gets `epic-finished` `waits-owner` as a passed one does, and the run stops
+with `waits-owner` (`Epic 3/3: billing · stopped: waits for owner`), so the same state of an Epic has one reason
+wherever it stands in the queue. A run of one Epic stops with `blocked-tickets` then, as before.
 
 The line stands on the frame of the Epic the run is on, and its tooltip lists the
 queue: each Epic with its status (`done`, `running`, `next`, `skipped: waits for the owner`, `skipped: runs on another
 Machine`). While the run goes on, the frame of every other Epic of the queue has a chip under its button: `In queue 3/3`
 for one not started yet, `Waits for owner` for one the run passed because only the owner's Tickets were left, `Runs
-elsewhere` for one it passed because another Machine ran it. A done Epic and the Epic the run is on have no chip.
+elsewhere` for one it passed because another Machine ran it. A done Epic and the Epic the run is on have no chip. Once
+the run stops the chips go, but for a stop with `waits-owner`: the last Epic keeps `Waits for owner` under its line.
 
 The queue can change while the run goes on, from the "⋯" menu of an Epic frame: **Add to queue** on an Epic outside the
 queue puts it at the end, **Remove from queue** on an Epic not started yet takes it out. Nothing reorders the queue.
@@ -339,7 +346,7 @@ same PR tracker as the PR badges. The tracker limits `gh` for both together: one
 | `src/main/mcp/browser-server.ts` | What a Session in Autopilot may do with a Browser. |
 | `src/main/ipc/card-api.ts` | The refusal of a Card's `session.ask` to an unattended Session. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | The button, the "⋯" menu, the status line and the chips; Start now and Cancel of a waiting run. |
-| `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | The Start Autopilot window and its one open ask: the button's, Run all accepted's or the agent's; the start of a queue and its refusal toast. |
+| `src/renderer/autopilot/StartAutopilotModal.tsx`, `src/renderer/autopilot/start-modal.ts` | The Start Autopilot window and its one open ask: the button's, Run all accepted's or the agent's; the start of a queue, its refusal toast, and Start anyway when an Epic of it runs elsewhere. |
 | `src/shared/ipc/autopilot-prepare.ts`, `src/main/ipc/autopilot-prepare.ts`, `src/main/autopilot/prepare.ts` | `autopilot.prepare`: the facts of the window, read only, from the sources of the `autopilot_start` ask; a queue's Waves and forecast one Epic after another. |
 | `src/shared/autopilot/epic-queue.ts` | The rule of the queue: the next Epic, the Epic passed for the owner, or the stop of the run; at most 10 Epics. Pure. |
 | `src/shared/workflow/accepted-epics.ts` | The accepted Epics for Run all accepted and `accepted`: an acceptance date from `epic-status --json` and a ready Ticket. |
@@ -398,7 +405,7 @@ it cannot read.
 | `orchestrator-busy` | The run waits for the busy Orchestrator: `turn`, `queued` (messages in its queue) and `tasks`, at the start of the wait and on each change. |
 | `orchestrator-free` | The wait for the Orchestrator ended; the run takes it now. |
 | `epic-started` | The run begins the next Epic of its queue: `index` (from 1) and `of`. The line and the lines after it carry that Epic. The first Epic has none. |
-| `epic-finished` | An Epic of the queue ended and the run goes on: `outcome` is `done`, `waits-owner` (with the owner's `tickets`), `elsewhere` (not begun) or `removed` (taken out, not begun). The Epic the run stops on has none, and so has a run of one Epic. |
+| `epic-finished` | An Epic of the queue ended and the run goes on: `outcome` is `done`, `waits-owner` (with the owner's `tickets`), `elsewhere` (not begun) or `removed` (taken out, not begun). The Epic the run stops on has none, but for a last Epic that waits for the owner: `waits-owner`, then `run-stopped` with `waits-owner`. A run of one Epic writes none. |
 | `queue-changed` | The queue was edited: `added`, `removed`. Written at once between Waves, after `wave-finished` for an edit made during a Wave. |
 | `harness-behind` | The Harness in `main` is newer: after `run-started`, and before a `wave-started` when the count changed. |
 | `forecast` | The Epic forecast at the start, once, after `run-started` and `harness-behind`, before the first `wave-started`: the Run mode, the Waves and Tickets left, the samples, `low` and `high` (p10 and p90 of the share of the week, `null` under 5 samples), `fit` (how many Waves fit before the 7-day reset with the reserve; only when the Run has a recommendation, in Budget-aware or in Start window with the budget on, else `null`), `week` (the 7-day number at the start), the p90 of a Wave's duration with its sample count, and `window` in Start window. Journals that cannot be read give `samples: 0`; the run goes on. In a run on Codex, `samples`, `fit` and `week` are of the longest Codex window and of earlier Codex Waves only. |
@@ -419,7 +426,7 @@ it cannot read.
 | `run-stopping` | A graceful Stop came during a turn or tasks. |
 | `gate-queue` | The run sent "Process gate queue". |
 | `gate-queue-finished` | The turn of "Process gate queue" ended. `run-stopped` follows. |
-| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets`, and for `user-force-stop` and `session-error` after the first Wave. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
+| `run-stopped` | The run ended, with its reason. `tickets` for `blocked-tickets` and `waits-owner`, and for `user-force-stop` and `session-error` after the first Wave. `lastText` for a stop for want of a Wave. `actual` once a Wave has finished, on a Force stop and a quit too: the growth of the 7-day share over the run's Waves (`share`; in a run on Codex, of the longest Codex window), the Waves finished (`waves`) and how many of them counted (`counted`; a Wave with a stale number or a week reset inside does not). |
 | `orchestrator-returned` | The Orchestrator is a person's Session again, after a stop that had to wait, or after a Force stop. A stop for a reason of the run itself, not Stop or Force stop, gives it back at once, without a restart: `tasks` then lists the background tasks that go on in the person's Session. |
 | `tasks-killed` | Tasks the run waited for ended with the process, on a quit or a Force stop. With the reason `start-now`: the tasks of the Orchestrator that Start now stopped. |
 
@@ -463,13 +470,13 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/unit/autopilot-wait-line.test.ts` | The line of a waiting run, and of a stopped run whose tasks still run at the person's. |
 | `test/contract/autopilot-prepare.test.ts` | `autopilot.prepare`: the same lines as the ask, a Codex Orchestrator, a busy one, an Epic or Ticket the Project does not have. |
 | `test/unit/start-autopilot-modal.test.tsx` | The Start Autopilot window: the facts, the default Run mode, the keys and the focus, Start when free, the agent's ask and its countdown. |
-| `test/unit/queue-list.test.tsx` | The queue in the window: Run all accepted, ticks, drag, ⌥↑/⌥↓, the forecast of the ticked Epics. |
+| `test/unit/queue-list.test.tsx` | The queue in the window: Run all accepted, ticks, drag, ⌥↑/⌥↓, the forecast of the ticked Epics, Start anyway after a refusal for a run elsewhere, none for an agent's ask. |
 | `test/unit/start-now-modal.test.tsx` | Start now and Cancel in the line of a waiting run, and the "Start now?" window. |
-| `test/e2e/autopilot-start-modal.spec.ts` | The built app: the button opens the window, Start Autopilot, and Start when free with the Orchestrator in a turn. |
+| `test/e2e/autopilot-start-modal.spec.ts` | The built app: the button opens the window, Start Autopilot, and Start when free with the Orchestrator in a turn; Run all accepted refused for an Epic in another Project, then Start anyway; a queue stopped with `waits-owner` on its last Epic. |
 | `test/e2e/autopilot-wait.spec.ts` | The built app: the waiting line, Start now through its window, and Cancel. |
 | `test/unit/epic-queue.test.ts` | The rule of the queue: every case of next Epic, Epic passed for the owner and stop. |
 | `test/unit/accepted-epics.test.ts` | Which Epics are accepted, and in what order. |
-| `test/contract/autopilot-queue.test.ts` | A run over a queue on the fake agent: the next Epic, the passes, the stops, `epic-started` and `epic-finished`, edits between Waves. |
+| `test/contract/autopilot-queue.test.ts` | A run over a queue on the fake agent: the next Epic, the passes, the stops (`waits-owner` on the last Epic), `epic-started` and `epic-finished`, edits between Waves, Start anyway of a queue. |
 | `test/unit/autopilot-queue-line.test.ts` | The line of a run over a queue (`Epic 2/3: …`), the chip of each status of an Epic of the queue, the queue in the tooltip, and which of Add to queue and Remove from queue "⋯" offers. |
 | `test/e2e/autopilot-queue.spec.ts` | The built app: Run all accepted from "⋯", a run over two Epics (`Epic 1/2`), Add to queue during a Wave made at its end (`Epic 1/3`), Remove from queue leaving the Epic unstarted with `queue-changed` in the journal. |
 | `test/e2e/linked-autopilot.spec.ts` | Two linked apps: the refusal, Start anyway, Stop pressed on two screens. |

@@ -136,6 +136,7 @@ keep running. They become the new run's tasks, and the old run's journal gets no
 | `no-ready-wave` | Nothing is ready, and no `blocked` or status-less Ticket has all its blockers done. A run that finished the Epic ends this way. |
 | `tickets-done` | A run over named Tickets ended: every one of them is done in the checkout. Such a run takes only the ready Tickets of its list into each Wave. The button always runs the whole Epic, so a run it starts never ends this way. |
 | `blocked-tickets` | Nothing open is ready, and some `blocked` or status-less Tickets have all their blockers done. In a run over named Tickets, only Tickets of the list count. |
+| `waits-owner` | A run over a queue of Epics reached its last Epic, and only Tickets for the owner are left in it (`blocked` with `Waits: owner`, no status, or blocked only by such Tickets). The line says `stopped: waits for owner`; `tickets` names them. A run of one Epic stops with `blocked-tickets` then. |
 | `no-progress` | The next ready Wave is the same set of Tickets as the one just finished. |
 | `wave-unfinished` | A Ticket of the Wave stayed in work past the 10 minutes after the turn. |
 | `background-stalled` | Background tasks gave no event for an hour, and none of their output files changed in it. |
@@ -163,7 +164,7 @@ the run itself stopped.
 After any stop, a toast says how the run ended, with **Open history**, and **History** stands right of the status line
 until the next run starts. Both open the run in Run history, which the [Flight Recorder](flight-recorder.md) page describes.
 
-On a Machine with the role `serve` of the cross-machine gate, before stopping with `no-ready-wave` or `blocked-tickets` the
+On a Machine with the role `serve` of the cross-machine gate, before stopping with `no-ready-wave`, `blocked-tickets` or `waits-owner` the
 run sends the Orchestrator the "Process gate queue" template, once per run. It follows that turn as a Wave's and then stops
 with the reason it had, even if the turn made a Ticket ready. A Stop before it skips it.
 

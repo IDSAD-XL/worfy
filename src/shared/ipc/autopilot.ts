@@ -295,7 +295,8 @@ export interface StatusLineOptions {
  * worfy-resource-planner ticket 05), `API error · retry 2/5 · 14:20` (the continuation after a
  * temporary API error, worfy-retry ticket 04), `waiting for the Orchestrator · 4 min` (a run accepted
  * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
- * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: turn error · 3 background
+ * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: waits for owner` (the last
+ * Epic of a queue waits only for the owner, worfy-autopilot-queue ticket 21), `stopped: turn error · 3 background
  * tasks still run` (the tasks that live on in the Session a stopped run gave back to a person, worfy-autopilot-queue ticket 08).
  * A run over a queue of more than one Epic puts the place of its Epic first: `Epic 2/3: checkout · Wave 1 · running`
  * (worfy-autopilot-queue ticket 17), also while it waits and after it stopped.
@@ -351,7 +352,7 @@ function runLine(
     return `${what} · resumes ${at(state.resumesAt)}`
   }
   if (state.reason === null) return null
-  const stopped = `stopped: ${state.reason.replaceAll('-', ' ')}`
+  const stopped = `stopped: ${state.reason === 'waits-owner' ? 'waits for owner' : state.reason.replaceAll('-', ' ')}`
   // Tasks that live on in the Session the run gave back to a person as it runs (worfy-autopilot-queue ticket 08).
   const tasks = state.backgroundTasks ?? 0
   return tasks > 0 ? `${stopped} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'} still run${tasks === 1 ? 's' : ''}` : stopped
@@ -367,7 +368,7 @@ export interface QueueEdits {
   remove: readonly string[]
 }
 
-type QueueView = Pick<AutopilotState, 'status' | 'epic'> & Partial<Pick<AutopilotState, 'queue' | 'index' | 'stopping'>>
+type QueueView = Pick<AutopilotState, 'status' | 'epic'> & Partial<Pick<AutopilotState, 'queue' | 'index' | 'stopping' | 'reason'>>
 
 /** A chip on the frame of an Epic of a run's queue: its text, its colour (a `w-chip--<tone>` class) and its tooltip. */
 export interface QueueChip {
@@ -385,6 +386,9 @@ const QUEUE_STATUS_WORDS: Record<QueueEpicStatus, string> = {
   elsewhere: 'skipped: runs on another Machine',
 }
 
+/** The chip of an Epic of the queue where only Tickets for the owner are left. */
+const waitsForOwner = (epic: string, did: 'passed' | 'stopped on'): QueueChip => ({ label: 'Waits for owner', tone: 'blocked', title: `Autopilot ${did} ${epic}: only Tickets for the owner are left` })
+
 /** The words of an edit that waits for the end of the Wave, in that tooltip. */
 const JOINS = 'joins after this Wave'
 const LEAVES = 'leaves after this Wave'
@@ -394,10 +398,15 @@ const LEAVES = 'leaves after this Wave'
  * for one not started, `Waits for owner` for one passed with only the owner's Tickets left, `Runs elsewhere` for
  * one passed because another Machine ran it; `Joins after this Wave` and `Leaves after this Wave` for an edit
  * that waits. None for the Epic the run is on (its frame has the line), a done one (its frame is on the done
- * shelf), an Epic outside the queue, and once the run has stopped.
+ * shelf), an Epic outside the queue, and once the run has stopped — but for the Epic a run stopped on with
+ * `waits-owner` (the last of its queue, worfy-autopilot-queue ticket 21): `Waits for owner` under its line.
  */
 export function queueChip(state: QueueView, epic: string, edits: QueueEdits): QueueChip | null {
-  if (state.status === 'stopped' || state.queue === undefined) return null
+  if (state.queue === undefined) return null
+  if (state.status === 'stopped') {
+    const stoppedOn = state.reason === 'waits-owner' && state.epic === epic && state.queue.some((each) => each.epic === epic && each.status === 'waits-owner')
+    return stoppedOn ? waitsForOwner(epic, 'stopped on') : null
+  }
   if (edits.add.includes(epic)) return { label: 'Joins after this Wave', tone: 'open', title: `Autopilot adds ${epic} to the end of its queue once the Wave in work ends` }
   const at = state.queue.findIndex((each) => each.epic === epic)
   if (at === -1) return null
@@ -407,7 +416,7 @@ export function queueChip(state: QueueView, epic: string, edits: QueueEdits): Qu
     case 'next':
       return { label: `In queue ${at + 1}/${of}`, tone: 'open', title: `Autopilot runs ${epic} after ${state.epic ?? ''}: ${at + 1} of ${of} in its queue` }
     case 'waits-owner':
-      return { label: 'Waits for owner', tone: 'blocked', title: `Autopilot passed ${epic}: only Tickets for the owner are left` }
+      return waitsForOwner(epic, 'passed')
     case 'elsewhere':
       return { label: 'Runs elsewhere', tone: 'stopped', title: `Autopilot passed ${epic}: another Machine ran it` }
     default:

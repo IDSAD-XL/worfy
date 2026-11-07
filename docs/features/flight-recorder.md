@@ -54,7 +54,8 @@ says `Epic filter: <epic>`. Then the facts of the chosen run:
 - how it stopped: `running`, `stopped: <reason>`, or `no stop in the Journal` when the journal just ends. A stop for a
   block or a failure is in the problem colour. A run that waited for its Orchestrator says it in words:
   `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the Orchestrator was
-  free`;
+  free`; so does a queue whose last Epic waits for the owner: `waits-owner: the last Epic of the queue waits for the
+  owner`, a block;
 - the number of Waves, and the Tickets `done`, `blocked` and `cut-off`. `blocked` and `cut-off` are counted only once
   the run has stopped: while it goes on, a Ticket that is not done, a blocked one included, counts as `not done yet`.
   After the stop, Tickets that are none of these three count as `stopped`;

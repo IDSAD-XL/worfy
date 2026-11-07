@@ -377,6 +377,77 @@ describe('a Run over a queue of Epics on the fake agent', () => {
     ])
   })
 
+  it('the last Epic of the queue where only a Ticket that waits for the owner is left: epic-finished waits-owner with it, then run-stopped waits-owner (ticket 21)', async () => {
+    writeEpic('alpha')
+    writeEpic('beta', [
+      { num: 1, status: 'open' },
+      { num: 2, status: 'blocked — 2026-11-07', waits: 'owner' },
+    ])
+    const h = harness()
+    await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await h.stopped()
+    expect(await h.story()).toEqual([
+      ['run-started', 'alpha', ['alpha', 'beta']],
+      ['wave-started', 'alpha', '01,02'],
+      ['wave-finished', 'alpha', '01,02'],
+      ['epic-finished', 'alpha', 'done'],
+      ['epic-started', 'beta', '2/2'],
+      ['wave-started', 'beta', '01'],
+      ['wave-finished', 'beta', '01'],
+      ['epic-finished', 'beta', 'waits-owner 02'],
+      ['run-stopped', 'beta', 'waits-owner'],
+    ])
+    // A stop for want of a Wave carries the Orchestrator's last answer of the Wave, as blocked-tickets does (ADR-0033).
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'waits-owner', tickets: ['02'], lastText: 'Wave of the queue done.' })
+    expect(h.autopilot.state(PROJECT)).toMatchObject({
+      status: 'stopped',
+      reason: 'waits-owner',
+      epic: 'beta',
+      index: 1,
+      queue: [
+        { epic: 'alpha', status: 'done' },
+        { epic: 'beta', status: 'waits-owner' },
+      ],
+    })
+  })
+
+  it('on the machine with serve, the last Epic that waits for the owner gets the gate queue\'s turn first, as blocked-tickets does', async () => {
+    writeEpic('alpha')
+    writeEpic('beta', [
+      { num: 1, status: 'open' },
+      { num: 2, status: 'blocked — 2026-11-07', waits: 'owner' },
+    ])
+    const h = harness({ gateQueue: '/worfy:gate-queue' })
+    await h.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await h.stopped()
+    expect((await h.story()).slice(-4)).toEqual([
+      ['epic-finished', 'beta', 'waits-owner 02'],
+      ['gate-queue', 'beta', null],
+      ['gate-queue-finished', 'beta', null],
+      ['run-stopped', 'beta', 'waits-owner'],
+    ])
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'waits-owner', tickets: ['02'] })
+    expect(h.gateCalls).toEqual([PROJECT])
+    expect(h.autopilot.state(PROJECT).reason).toBe('waits-owner')
+  })
+
+  it('a Run of one Epic whose Ticket waits for the owner stops with blocked-tickets, as before: no epic-finished (ticket 21)', async () => {
+    writeEpic('alpha', [
+      { num: 1, status: 'open' },
+      { num: 2, status: 'blocked — 2026-11-07', waits: 'owner' },
+    ])
+    const h = harness()
+    await h.autopilot.start(PROJECT, 'alpha')
+    await h.stopped()
+    expect(await h.story()).toEqual([
+      ['run-started', 'alpha', null],
+      ['wave-started', 'alpha', '01'],
+      ['wave-finished', 'alpha', '01'],
+      ['run-stopped', 'alpha', 'blocked-tickets'],
+    ])
+    expect(h.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
+  })
+
   it('no-progress in the first Epic stops the whole Run: no epic-finished, the second Epic is not begun', async () => {
     writeEpic('alpha')
     writeEpic('beta')
@@ -790,6 +861,28 @@ describe('the queue of a run over stand-ins', () => {
     expect(await s.autopilot.startCheck(PROJECT, 'alpha', { epics: ['alpha', 'gamma'] })).toBeNull()
   })
 
+  it('"Start anyway" of a queue whose second Epic runs in another Project: the Run goes through both Epics, run-started with override, no epic-finished elsewhere (ticket 21)', async () => {
+    const OTHER = 'other-00000001'
+    const s = stand({ overrides: { origin: () => Promise.resolve(ORIGIN) } })
+    // The other Project's run of beta waits for its busy Orchestrator the whole test: it sends no Wave.
+    s.deps.orchestrators.busy = (projectId) => (projectId === OTHER ? { turn: true, queued: 0, tasks: [] } : null)
+    expect(await s.autopilot.start(OTHER, 'beta')).toMatchObject({ waitingFor: 'orchestrator' })
+    const refused = await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] }).catch((error: unknown) => error)
+    expect(refused).toBeInstanceOf(RunningElsewhere)
+    expect(refused).toMatchObject({ epic: 'beta', machine: `this Machine (Project ${OTHER})` })
+    expect(s.autopilot.running(PROJECT)).toBe(false)
+
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'], override: true })
+    await s.stopped()
+    expect(s.out.waves.map((wave) => wave.epic)).toEqual(['alpha', 'beta'])
+    const lines = s.out.lines.map(({ fields }) => fields)
+    // run-started of each run is its journal's start; the other Project's comes first.
+    expect(s.out.starts.at(-1)).toMatchObject({ project: PROJECT, epic: 'alpha', epics: ['alpha', 'beta'], override: true })
+    expect(lines.filter((fields) => fields.kind === 'epic-finished')).toEqual([{ kind: 'epic-finished', outcome: 'done' }])
+    expect(s.said().filter((line) => line.startsWith('epic-') || line.startsWith('run-stopped'))).toEqual(['epic-finished alpha done', 'epic-started beta 2/2', 'run-stopped beta no-ready-wave'])
+    expect(s.autopilot.state(OTHER)).toMatchObject({ epic: 'beta', waitingFor: 'orchestrator' })
+  })
+
   it('the forecast counts the Waves of every Epic of the queue', async () => {
     const s = stand({ hold: true, overrides: { budget: { settings: () => ({ enabled: false, reserve: 0.1 }), runs: () => Promise.resolve([]) } } })
     s.out.tickets.push(t('beta', 2, 'open', { blockedRaw: '01', blockedNums: [1] }))
@@ -981,6 +1074,45 @@ describe('the queue of a run over stand-ins', () => {
     await s.stopped()
     expect(s.out.waves.map((wave) => wave.epic)).toEqual(['alpha'])
     expect(s.said().slice(-2)).toEqual(['epic-finished alpha done', 'run-stopped alpha no-ready-wave'])
+  })
+
+  /**
+   * A queue of alpha and beta whose beta keeps a Ticket for the owner after its Wave; a Stop is clicked during the
+   * `nth` read of the workflow after beta's Wave started (1: the read after the turn, which judges the Wave; 2: the
+   * read of the rule of the queue).
+   */
+  async function stopAtBetaRead(nth: number) {
+    const s = stand({ epics: ['alpha', 'beta'] })
+    s.out.tickets = [t('alpha', 1), t('beta', 1), t('beta', 2, 'blocked', { waits: 'owner' })]
+    const read = s.deps.workflow
+    let after = 0
+    s.deps.workflow = (root) => {
+      if (s.out.waves.some((wave) => wave.epic === 'beta')) {
+        after += 1
+        if (after === nth) void s.autopilot.stop(PROJECT)
+      }
+      return read(root)
+    }
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await s.stopped()
+    return s
+  }
+
+  it('a Stop clicked during the rule\'s read of the last Epic that waits for the owner: the Run stops with its cycle\'s reason, not waits-owner (ticket 21)', async () => {
+    const s = await stopAtBetaRead(2)
+    expect(s.said().filter((line) => line.startsWith('epic-') || line.startsWith('run-stopped'))).toEqual([
+      'epic-finished alpha done',
+      'epic-started beta 2/2',
+      'epic-finished beta waits-owner',
+      'run-stopped beta blocked-tickets',
+    ])
+    expect(s.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
+  })
+
+  it('a Stop clicked during the read that judges the last Epic\'s Wave: no epic-finished for it, the Run stops with its cycle\'s reason (ticket 21)', async () => {
+    const s = await stopAtBetaRead(1)
+    expect(s.said().filter((line) => line.startsWith('epic-') || line.startsWith('run-stopped'))).toEqual(['epic-finished alpha done', 'epic-started beta 2/2', 'run-stopped beta blocked-tickets'])
+    expect(s.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
   })
 
   it('the workflow cannot be read when the Epic\'s cycle stops: the Run stops with its reason, the next Epic is not begun', async () => {

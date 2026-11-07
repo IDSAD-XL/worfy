@@ -375,6 +375,12 @@ describe('parseJournal', () => {
     expect(JSON.stringify(parsed.events)).not.toContain('why')
   })
 
+  it('reads the stop of a queue whose last Epic waits for the owner (worfy-autopilot-queue ticket 21) as it reads blocked-tickets', () => {
+    const finished = { ...base, at: at(5), kind: 'epic-finished', outcome: 'waits-owner', tickets: ['02'] }
+    const stop = { ...stopped, reason: 'waits-owner', tickets: ['02'], lastText: 'Ticket 02 ждёт владельца.' }
+    expect(parseJournal(line(finished) + line(stop))).toEqual({ events: [finished, stop], skipped: 0 })
+  })
+
   it('clips the last answer to LAST_TEXT_MAX units without cutting a surrogate pair', () => {
     expect(clipLastText('short')).toBe('short')
     expect(clipLastText('a'.repeat(LAST_TEXT_MAX + 5))).toBe('a'.repeat(LAST_TEXT_MAX))

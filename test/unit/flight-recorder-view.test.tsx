@@ -354,6 +354,12 @@ describe('a Run over a queue of Epics and a Run that waited for its Orchestrator
     await show('p-1', [smallItem({ reason: 'start-refused' })], { [SMALL_RUN]: stoppedBy('start-refused', 'failed') })
     expect(screen.getByTestId('run-history-reason').textContent).toBe('stopped: start-refused: refused once the Orchestrator was free')
   })
+
+  it('says in words that a queue stopped on its last Epic, which waits for the owner (worfy-autopilot-queue ticket 21)', async () => {
+    const facts = smallFacts({ run: { id: SMALL_RUN, startedAt: T('10:00'), stoppedAt: T('10:05'), live: false, outcome: 'blocked', reason: 'waits-owner' }, waves: [], ticketEvents: [], work: [], waits: [] })
+    await show('p-1', [smallItem({ reason: 'waits-owner' })], { [SMALL_RUN]: viewOf(facts) })
+    expect(screen.getByTestId('run-history-reason').textContent).toBe('stopped: waits-owner: the last Epic of the queue waits for the owner')
+  })
 })
 
 // ── worfy-resource-planner ticket 11: the Run mode, the Epic forecast and the actual share in the header ──
