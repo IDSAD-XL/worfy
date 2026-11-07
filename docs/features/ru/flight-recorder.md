@@ -5,7 +5,8 @@
 Flight Recorder показывает на одной оси времени, что происходило за один run Autopilot-а: его Wave-ы, Ticket-ы, Stage-ы,
 агентов, CI run-ы, gate run-ы, повторы, ожидания и блокировки, а над ними — на что ушло больше всего времени. Экран
 называется **Run history**. Он читает journal run-а и источники, в которых подробности уже лежат, и ничего своего не
-хранит. Сам run описан на странице [Autopilot](autopilot.md). Если термины незнакомы, начните с [Concepts](concepts.md).
+хранит. Сам run описан на странице [Autopilot](autopilot.md). Та же вкладка **Runs** содержит
+[Work track](work-track.md) — всю работу Project-а за Day, Week или Month. Если термины незнакомы, начните с [Concepts](concepts.md).
 
 ## Run history
 
@@ -34,18 +35,27 @@ Run history занимает всю главную область окна вм�
   не рисует кнопку Autopilot, но всё равно имеет «⋯» с этим единственным пунктом, когда у него есть прошлые run-ы.
 - **Open Run history** в Command palette: экран на самом новом run-е активного Project-а.
 
+Над экраном стоит переключатель `Run history | Work track` вкладки Runs ([Work track](work-track.md)). Project
+показывает Run history, пока для него не выбран Work track. Тогда, пока приложение работает, вкладка и **Open Run
+history** в Command palette показывают для этого Project-а Work track. Toast остановки, **History**, **Run history** в
+«⋯» и **Open Run** панели Work track называют run или Epic, поэтому всегда показывают Run history.
+
 **Esc** возвращает на Canvas, если только его не забирает диалог, меню или текстовое поле. Выбор другого Project-а в
 боковой панели тоже возвращает на Canvas.
 
 #### Заголовок
 
 В заголовке есть выбор run-ов Project-а, самые новые первыми, каждый — как местное время его старта и Epic, с `live` у
-run-а, который ещё идёт. При открытии из меню Epic-а в списке только run-ы этого Epic-а, а chip говорит
-`Epic filter: <epic>`. Затем идут факты выбранного run-а:
+run-а, который ещё идёт. Run по очереди Epic-ов называет их по порядку, `worfy-faults → worfy-retry → worfy-guide`, не
+больше трёх, а остальные — `+N`. При открытии из меню Epic-а в списке run-ы, в чьей очереди есть этот Epic, а chip
+говорит `Epic filter: <epic>`. Затем идут факты выбранного run-а:
 
-- Epic, старт и конец (`now`, пока run идёт) по местному времени и длительность;
+- Epic (`Epics` и очередь для run-а по нескольким Epic-ам, все они — в tooltip), старт и конец (`now`, пока run идёт)
+  по местному времени и длительность;
 - как он остановился: `running`, `stopped: <reason>` или `no stop in the Journal`, когда journal просто обрывается.
-  Остановка из-за блокировки или сбоя показана цветом проблемы;
+  Остановка из-за блокировки или сбоя показана цветом проблемы. Run, который ждал своего Orchestrator-а, говорит это
+  словами: `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the
+  Orchestrator was free`;
 - число Wave и Ticket-ы `done`, `blocked` и `cut-off`. `blocked` и `cut-off` считаются только после остановки run-а:
   пока он идёт, Ticket, который не `done`, в том числе заблокированный, считается `not done yet`. После остановки
   Ticket-ы, не попавшие ни в одну из этих трёх групп, считаются `stopped`;
@@ -83,14 +93,23 @@ run-а, который ещё идёт. При открытии из меню Ep
 Строки, сверху вниз:
 
 1. Дорожка **Waits**: ожидания run-а, по полосе на каждое, названные по причине: `Limits`, `Limits budget`, `Start window`,
-   `Background tasks`, `Gate queue` или `Other Machine`. Tooltip полосы `Start window` называет её причину:
+   `Background tasks`, `Gate queue`, `Other Machine`, `Retry after an API error` (от `turn-retry` до `resumed` или до
+   `limits-hit`, который его сменяет) или `Orchestrator busy` (run, принятый, пока Orchestrator был занят, от
+   `orchestrator-busy` до `orchestrator-free` или до остановки run-а, отменённого во время ожидания; его причина —
+   `turn`, `N queued` и task-и Orchestrator-а по имени). Tooltip полосы `Start window` называет её причину:
    `outside, until <time>` или `wave-too-long, until <time>`, когда следующая Wave не закончилась бы внутри окна.
    Время `until` у ожидания — местное, как и остальное время на экране, в tooltip и в панели деталей.
 2. Дорожка **Orchestrator**: turn-ы Orchestrator-а. Turn связан с Ticket-ами, которых он касался, и не вложен в них.
-   Отметка `i` стоит за каждый отклонённый диалог и за каждый раз, когда вмешался человек.
+   Отметка `i` стоит за каждый отклонённый диалог и за каждый раз, когда вмешался человек, в том числе за `Start now`
+   ждущего run-а. Запрос, на который approval policy ответила в Shadow или On, — это строка `auto-approval`, а не
+   отклонённый диалог, и отметки у него нет.
 3. Дерево: Run → Wave → Ticket → Stage → работа. Работа — это агент (implementer, verifier или другой), CI run, gate run
    или скрипт. Ticket, который прошёл через несколько Wave, — одна строка под Wave, в которой он начался, с одной частью
-   на каждую Wave и промежутком между ними.
+   на каждую Wave и промежутком между ними. В run-е по очереди Epic-ов каждый Epic считает свои Wave-ы с 1, поэтому
+   Wave называется вместе со своим Epic-ом, `Wave 1 · worfy-retry`; у двух Epic-ов может быть один номер Ticket-а,
+   поэтому и Ticket называется вместе с Epic-ом, `Ticket worfy-retry/01`. Отметка `i` в строке run-а стоит за старт
+   каждого следующего Epic-а (`Epic 2/3: worfy-retry`) и за Epic, который run пропустил (`Epic worfy-retry skipped:
+   waits for the owner` или `runs elsewhere`).
 
 Сначала открыты run, его Wave-ы и Ticket-ы и дорожка Waits. У строки есть `▸` или `▾`, точка цвета её вида, её имя и её
 исход словами, когда он не `ok`. Свёрнутая строка рисует своих детей тонкими полосами под своей полосой. Подпись полосы
@@ -139,13 +158,29 @@ run-а, который ещё идёт. При открытии из меню Ep
   и что ограничивает источник, например gate run, на который целиком ответил зелёный кэш и который поэтому не оставляет
   log-а.
 
+#### Блок Auto-approval
+
+Под панелью подробностей, что бы ни было выбрано, run с решениями Auto-approval показывает блок **Auto-approval**. У
+run-а без них (Off или ни одного запроса) блока нет. В блоке:
+
+- счётчики каждого режима, в котором у run-а есть решения: `On: allow · deny · park · hard-deny`, а для Shadow —
+  `would-allow · would-deny · would-park · hard-deny`. Запрос, чей park закончился (`park-answered`, `park-expired`),
+  есть в списке, но второй раз не считается;
+- при решении Shadow в run-е — `Shadow: N decisions so far`: решения Shadow всех run-ов Project-а, чтобы владелец мог
+  понять, когда список `would-allow` достаточно длинный, чтобы переключиться на On;
+- список строк `auto-approval` run-а в порядке journal, в том числе тех, что после остановки: время, исход, rule, tool
+  с Subagent-ом, который спрашивал, цели и команда. Команда и цели — такие, какими их хранит journal, сокращённые и с
+  секретами в виде `***`; ничего не читается заново.
+
+Когда список длинный, блок прокручивается сам по себе. Linked machine видит такой же блок.
+
 #### Живой run
 
 Экран может быть открыт, пока run идёт. Шкала времени следует за ним: она вычисляется заново не чаще раза в 5 секунд,
-когда вырос journal или transcript, а GitHub спрашивается не чаще раза в минуту. Линия отмечает текущий момент, span,
-который ещё идёт, тянется до неё со словом `running`, а агент, чьего transcript-а ещё нет, говорит
-`transcript not found yet`. Когда run на экране останавливается, заголовок и список говорят об этом при следующем
-изменении.
+когда вырос journal или transcript (run на Codex: см. [Run на Codex](#how-it-works)), а GitHub спрашивается не чаще
+раза в минуту. Линия отмечает текущий момент, span, который ещё идёт, тянется до неё со словом `running`, а агент, чьего
+transcript-а ещё нет, говорит `transcript not found yet`. Когда run на экране останавливается, заголовок и список
+говорят об этом при следующем изменении.
 
 Если повторное вычисление не удалось, notice говорит «The timeline stopped following the Run» и называет причину. Шкала
 времени на экране остаётся последней вычисленной. Повторное открытие run-а делает новую попытку.
@@ -164,7 +199,7 @@ Run history не хранит копий. Run живёт, пока живут е
 | Источник | Хранится |
 |---|---|
 | Journal Autopilot-а | worfy никогда его не чистит, поэтому каркас каждого run-а остаётся: его Wave-ы, ожидания, статусы Ticket-ов и остановка. |
-| Transcript-ы | Пока их хранит Claude Code: `cleanupPeriodDays` в его настройках, по умолчанию 30 дней. |
+| Transcript-ы | Пока их хранит Claude Code: `cleanupPeriodDays` в его настройках, по умолчанию 30 дней. Текущий Month в [Work track](work-track.md) уходит назад не больше чем на 31 день, поэтому значение 35 или больше сохраняет его целиком; более раннему Month нужно больше. |
 | Gate log-и | Запись каждого gate run-а (`timings.json`) — 31 день. Папка run-а, потерявшая запись, тоже помечается. |
 | GitHub | Не чистится. |
 
@@ -189,8 +224,8 @@ commit-ы находятся по ветке Ticket-а и по sha; в них н
 
 | Источник | Даёт |
 |---|---|
-| Journal Autopilot-а | Run и его Wave-ы, ожидания Limits, budget, background task-ов и gate queue, статусы Ticket-ов (`ticket-status`), узкий круг исправления, ошибки Session, отклонённые диалоги, действия человека, остановку. |
-| Transcript Orchestrator-а | Его turn-ы, вызовы `Agent` и вызовы `SendMessage`, которые возобновляют агента, task-notification-ы. |
+| Journal Autopilot-а | Run и его Wave-ы, ожидания Limits, budget, background task-ов и gate queue, повтора после ошибки API и занятого Orchestrator-а, Epic-и очереди и их старты, статусы Ticket-ов (`ticket-status`), узкий круг исправления, ошибки Session, отклонённые диалоги, действия человека, остановку. |
+| Transcript Orchestrator-а | Его turn-ы, вызовы `Agent` и вызовы `SendMessage`, которые возобновляют агента, task-notification-ы. На Codex: запуски агентов, `send_message` и `followup_task`, а также концы Subagent-ов. |
 | Transcript-ы Subagent-ов | Старт, конец и исход каждого агента. |
 | GitHub | Открытие PR и его новые head-ы, CI run-ы и их повторы, комментарии с вердиктами, отметки агентов на head, merge и label cross-machine gate (ожидание `Other Machine`). |
 | Gate log-и | Каждый gate run: его время, исход, head, worktree и шаги. |
@@ -208,10 +243,22 @@ Journal — это каркас. Две его строки существуют
 которого больше нет, дают подпись `transcript deleted`. Transcript принадлежит Project-у, когда папка, которую называют
 его записи, лежит в корне Project-а; имя папки самого transcript-а здесь не решает.
 
+**Run на Codex.** Когда `run-started.vendor` равен `codex`, transcript-ы читаются через историю драйвера Codex, а не из
+домашней папки Claude: `wave-started.session` называет thread Codex-а у Orchestrator-а, и собственный thread каждого
+Subagent-а тоже читается. Span агента начинается, когда агента запускают (`spawn_agent`), и кончается, когда его thread
+сообщает, что он закончил. `send_message` или `followup_task` агенту, который уже закончил, начинает его следующий span
+(`#2`). Агент Codex-а может называться `impl_NN`; такое имя называет его Ticket так же, как `impl-NN`. Wave, чей thread
+Codex не может прочитать, даёт `transcript deleted`. Journal без `vendor` — это run Claude. Каждое чтение thread-а может
+запустить процесс Codex, по одному thread-у за раз. Thread-ы run-а на Codex читаются целиком при каждом повторном
+вычислении, потому что историю Codex пока не дочитывают с места, где остановилось прошлое чтение. Рост thread-а не
+заставляет живой run на Codex вычисляться заново; это делают рост его journal и новый ответ GitHub, как для любого
+run-а.
+
 **Какому Ticket-у принадлежит работа.** Ticket агента берётся из его имени (`impl-NN`, `verify-NN`), иначе из его
-описания, ветки или пути Ticket-а в его prompt. Агент без названного Ticket-а, работающий в worktree агента какого-то
-Ticket-а, получает этот Ticket; любой другой принадлежит run-у. Gate run принадлежит Ticket-у по head его PR, а без
-PR — по своему worktree.
+описания, ветки или пути Ticket-а в его prompt. В run-е по очереди Epic-ов Ticket выбирает Epic в ветке или в пути, а
+одинокий номер, общий для двух Epic-ов, не называет ни один из них. Агент без названного Ticket-а, работающий в worktree
+агента какого-то Ticket-а, получает этот Ticket; любой другой принадлежит run-у. Gate run принадлежит Ticket-у по head
+его PR, а без PR — по своему worktree.
 
 **Span-ы.** У span-а есть вид, старт, конец или его отсутствие, исход, причина, попытка, ссылки и источники его старта
 и конца. Виды фиксированы: run, wave, ticket, stage, agent, ci, gate, script, wait и orchestrator turn. Ожидание,
@@ -233,8 +280,9 @@ Ticket-а вычисляется по фактам, известным к это
 
 **Живая шкала времени.** Пока окно держит открытым живой run, main каждые 5 секунд смотрит, вырос ли journal или
 прочитанный им transcript, и вычисляет заново только тогда. Transcript-ы дочитываются с места, где остановилось
-прошлое чтение, и разбор каждого файла берёт только новые строки. GitHub хранит свой ответ минуту, как это делают
-badge-и PR. Оконченный run читается целиком, один раз на вычисление, и нигде не хранится.
+прошлое чтение, и разбор каждого файла берёт только новые строки. Thread-ы run-а на Codex так не читаются: см. «Run на
+Codex» в разделе How it works. GitHub хранит свой ответ минуту, как это делают badge-и PR. Оконченный run читается
+целиком, один раз на вычисление, и нигде не хранится.
 
 ### Implementation
 
@@ -251,17 +299,20 @@ badge-и PR. Оконченный run читается целиком, один 
 | `src/shared/flight-recorder/from-gate.ts` | Факты gate log-а и commit-ов `gate:`. |
 | `src/shared/flight-recorder/journal-walk.mjs`, `src/shared/flight-recorder/pr-facts.mjs` | Разбор journal и PR, общий со `scripts/critical-path.mjs`; простые модули с объявлениями типов. |
 | `src/main/flight-recorder/service.ts` | Сервис: run-ы Project-а, шкала времени одного run-а из всех reader-ов, живое повторное вычисление и Retry. |
-| `src/main/flight-recorder/transcripts.ts` | Находит и читает transcript-ы Orchestrator-а и Subagent-ов run-а. |
+| `src/main/flight-recorder/transcripts.ts` | Находит и читает transcript-ы Orchestrator-а и Subagent-ов run-а; для run-а на Codex — его thread-ы через часть драйвера Codex, отвечающую за историю. |
+| `src/main/vendors/codex/history.ts` | Thread Codex-а в виде записей transcript-а, со стартами и концами Subagent-ов как событиями `subagent`. |
 | `src/main/flight-recorder/github.ts` | Спрашивает `gh`, не чаще раза в минуту, и страницу репозитория по remote `origin`. |
 | `src/main/flight-recorder/gate-logs.ts` | Читает gate log-и в домашней папке Harness. |
 | `src/main/flight-recorder/local-verdicts.ts` | Файл отметок и git для Ticket-ов без PR. |
 | `src/main/flight-recorder/worktree-path.ts` | Единая форма пути worktree, которую передаёт каждый reader. |
 | `src/main/ipc/runs.ts`, `src/shared/ipc/runs.ts` | Каналы IPC `runs` и форма view run-а. |
+| `src/renderer/flight-recorder/RunsView.tsx` | Вкладка Runs: переключатель `Run history \| Work track`; Run history остаётся смонтированным, скрытым, под Work track. |
 | `src/renderer/flight-recorder/RunHistoryView.tsx` | Экран: заголовок, notice-ы, сводка, шкала времени, панель; Esc. |
 | `src/renderer/flight-recorder/Timeline.tsx` | Элементы управления, ось и мини-карта, масштаб, строки и полосы. |
 | `src/renderer/flight-recorder/label-layout.ts` | Куда ставится подпись полосы. Чистые функции. |
 | `src/renderer/flight-recorder/filter.ts` | Фильтр, Problems only, что подсвечивает выбор. Чистые функции. |
-| `src/renderer/flight-recorder/DetailPanel.tsx` | Панель подробностей, notice GitHub и Retry. |
+| `src/renderer/flight-recorder/DetailPanel.tsx` | Панель подробностей, notice GitHub и Retry, блок Auto-approval. |
+| `src/shared/autopilot/auto-approval-summary.ts` | Счётчики решений Auto-approval run-а и строка в чате Orchestrator-а в конце run-а. Чистые функции. |
 | `src/renderer/flight-recorder/SummaryStrip.tsx` | Сводка. |
 | `src/renderer/flight-recorder/store.ts` | Состояние экрана и строки дерева. |
 | `src/renderer/flight-recorder/stop-toast.ts` | Toast остановки. |
@@ -277,7 +328,9 @@ badge-и PR. Оконченный run читается целиком, один 
    `runs.open` о выбранном.
 2. Сервис читает journal run-а из папки данных, затем transcript-ы, GitHub (только для Project-ов, чьи Ticket-ы
    кончаются PR), gate log-и, а для Ticket-ов без PR — файл отметок и git. Каждый reader передаёт факты;
-   `buildTimeline` делает из них span-ы, а `summarize` — сводку.
+   `buildTimeline` делает из них span-ы, а `summarize` — сводку. Строки `auto-approval` run-а попадают во view как
+   есть; если среди них есть строка в Shadow, сервис ещё читает каждый journal Project-а ради
+   `Shadow: N decisions so far`.
 3. Пока run живой и окно его держит, сервис вычисляет заново при росте его файлов и шлёт `runs.changed`. `runs.close`
    отпускает run, когда окно показывает другой run или уходит из view.
 4. `runs.retry` сразу спрашивает GitHub и отвечает новой шкалой времени.
@@ -303,10 +356,14 @@ badge-и PR. Оконченный run читается целиком, один 
 | `test/unit/flight-recorder-journal.test.ts`, `test/unit/flight-recorder-transcript.test.ts`, `test/unit/flight-recorder-github.test.ts`, `test/unit/flight-recorder-gate.test.ts` | Факты каждого источника. |
 | `test/unit/flight-recorder-sources.test.ts` | Разбор, общий со `scripts/critical-path.mjs`. |
 | `test/unit/flight-recorder-view.test.tsx`, `test/unit/flight-recorder-detail.test.tsx` | Экран над ночным run-ом: заголовок, сводку, `#N`, блокировки, панель. |
+| `test/unit/flight-recorder-reason-words.test.tsx` | `until` в причине ожидания по местному времени, в фиксированном часовом поясе и в день перевода часов. |
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | Фильтр и Problems only; место подписей. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | Toast остановки: один на run, последний на Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | «History», «Run history» в «⋯», «Open Run history». |
-| `test/contract/flight-recorder-service.test.ts` | Сервис над всеми reader-ами, живое повторное вычисление, Retry. |
-| `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | Reader-ы в main. |
+| `test/unit/toolbar-runs.test.tsx` | Вкладку **Runs**: четыре вкладки, Project, который она передаёт, выбранность на экране, неактивность без Project-а. |
+| `test/unit/work-track-view.test.tsx` | Переключатель `Run history \| Work track`, который запоминается для каждого Project-а. |
+| `test/contract/flight-recorder-service.test.ts` | Сервис над всеми reader-ами, живое повторное вычисление, Retry, решения Auto-approval run-а и решения Shadow Project-а на данный момент. |
+| `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | Reader-ы в main. Test transcript-ов ещё читает run на Codex из поддельного app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |
+| `test/unit/auto-approve-summary.test.ts` | Решения Auto-approval из journal, их счётчики, схема view, которая их сохраняет, и строка в чате в конце run-а. |
 | `test/contract/runs-ipc.test.ts` | Каналы `runs`. |
 | `test/e2e/flight-recorder.spec.ts`, `test/e2e/flight-recorder-detail.spec.ts` | Собранное приложение: экран, подписи, которые не пересекают ни одной полосы, панель, Retry, Problems only. |

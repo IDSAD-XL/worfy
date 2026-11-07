@@ -6,8 +6,8 @@
 // strip — until the Session is expanded, then a lane per Subagent, nested under the Subagent that
 // started it; the lane «Gate runs» last. «by Epic»: a lane per Epic holding the work (Waves, turns,
 // Subagents) of that Epic, the longest first, «—» for work with no Epic last, then «Gate runs».
-// PRs, CI runs and Ticket status changes are on no lane (offLaneSpans): the screen marks them on the
-// axis and in the side panel.
+// PRs, CI runs and Ticket status changes are on no lane (offLaneSpans): the screen marks only merged PRs,
+// as diamonds on the axis that open the side panel; CI runs and status changes are not drawn.
 //
 // Every span is cut to the period; a fact with no end lasts until `now`. The Epic of a fact with
 // none is the Epic of its parent chain (a Subagent inside a Wave takes the Wave's); with none there
