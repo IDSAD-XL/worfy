@@ -292,6 +292,9 @@ describe('going attended while a turn runs gives the Session back as it runs, wi
     await vi.waitFor(() => expect(session.state).toBe('error'))
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
 
+    // The fake agent's exit line ends its query, not the stub process behind it; Claude Code's own
+    // exit ends both. Ended here: the next process waits for the one before it (ADR-0064).
+    await h.stub.stopAll()
     // The Session's next process is the person's Orchestrator, in the Node's mode.
     session.send('one more')
     await vi.waitFor(() => expect(h.requests).toHaveLength(3))

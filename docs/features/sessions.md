@@ -62,7 +62,9 @@ Orchestrator, whose queue moves to the new process when Autopilot gives it back.
 the queue, cancels open permission requests and questions, and asks Claude Code to stop the turn.
 
 **A crash.** The Session goes to `error`. The queue is held, open requests are cancelled and the background tasks are
-forgotten. The next message starts a new process that continues the same conversation.
+forgotten. The next message starts a new process that continues the same conversation. If the old process still runs,
+the new one starts only after it exits, or after the SIGKILL that worfy sends it 7.5 seconds after the message; the
+message waits for the new process.
 
 **Closing.** The user cannot close a Session in `busy`: "The Session is in a turn: Interrupt it before closing". Closing a live
 Session Node's Session keeps the Node, and the Node then offers Resume. A message sent to such a Node resumes it first, and
