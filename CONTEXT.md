@@ -68,8 +68,12 @@ _Avoid_: кластер, группа (как синоним Family)
 Набор Ticket-ов под одну цель; живёт в папке `.scratch/<epic>/` Workflow folder Project-а.
 _Avoid_: эпик, milestone, проект
 
+**Product owner**:
+Человек, который ведёт продукт целиком — что строить, для кого и зачем — и строит его с worfy. «Разработчик» — одна из ролей, которые Product owner берёт на себя (решение владельца 2026-11-07, карта [worfy-product](.scratch/worfy-product/map.md)).
+_Avoid_: разработчик (как синоним Product owner), владелец продукта, PO
+
 **Feature**:
-Возможность продукта, которой пользуется разработчик: Canvas, Terminal, Autopilot. Живёт дольше любого Epic-а; один Feature меняют несколько Epic-ов, поэтому Epic и Feature — разные вещи.
+Возможность продукта, которой пользуется Product owner: Canvas, Terminal, Autopilot. Живёт дольше любого Epic-а; один Feature меняют несколько Epic-ов, поэтому Epic и Feature — разные вещи.
 _Avoid_: фича, функция, capability
 
 **Feature page**:
