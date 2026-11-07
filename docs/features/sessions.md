@@ -212,6 +212,16 @@ answers.
   app quit cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries.
   Outside a run worfy does not keep the Mac awake for the wait: a Mac that sleeps through the time continues when it
   wakes. With Auto-continue off a turn outside a run stops on an API error or the Limits as before.
+- While the Orchestrator waits to be continued — by its Autopilot run when one waits, else after a manual turn — a line over
+  its input field counts down by the second: `API error 529 (overloaded) · retry 2 of 5 in 4:12` with **Retry now** and
+  **Cancel**, `Limits: 7-day window · resumes 14:20 (in 2:13:05)` or `Limits: no reset time reported · next try in 27:40`
+  with **Cancel** only. The window is named by the label the Vendor's window has (`5-hour`, `7-day`, Codex's own); the time
+  is local, with its date on another day. Retry now sends the continuation of the same retry at once, and its timer sends
+  nothing after it. Cancel ends the wait and nothing is sent, also when its time passes: a manual turn stays as it ended,
+  with the line `worfy: the wait was cancelled; nothing was sent`; a run stops as it would have without Auto-continue
+  ([Autopilot faults and recovery, Retry after an API error](autopilot-faults.md#retry-after-an-api-error)). A regular
+  Session has no such line. On a
+  read-only window the buttons show and do nothing.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
@@ -308,7 +318,7 @@ for a process also asks the system.
 | Modes menu | `src/renderer/session/composer/Modes.tsx` |
 | Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
 | Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
-| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts`, `src/main/agent/orchestrator-continue.ts` (manual turns) |
+| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts`, `src/main/agent/orchestrator-continue.ts` (manual turns), `src/renderer/session/composer/ContinueCountdown.tsx` (the countdown) |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
@@ -329,8 +339,13 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 - `test/contract/orchestrator-continue.test.ts`: Auto-continue of a manual turn of the Orchestrator — a 529 and one
   continuation with its lines, the switch off, a person's message during the wait, the switch turned off and the Session
   closed during it, a push without its result (also across a permission answered mid-turn), a turn the person
-  interrupted, a message queued during the turn, a refusal by the Limits, two Projects, the app's wiring, and an
-  Autopilot run on the same Session.
+  interrupted, a message queued during the turn, a refusal by the Limits, two Projects, the app's wiring, an
+  Autopilot run on the same Session, and the countdown's Retry now (one continuation, also after a double click and the
+  timer) and Cancel (nothing sent, also when the timer fires).
+- `test/contract/auto-continue-setting.test.ts`: the countdown's channels — the run's wait before a manual one, the
+  window's label, Retry now and Cancel to whoever waits, read-only access; `test/unit/continue-countdown.test.tsx`: the
+  three kinds of line and the format of the countdown; `test/e2e/auto-continue.spec.ts`: the line after a 529, Retry now
+  and Cancel in the built app.
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake
