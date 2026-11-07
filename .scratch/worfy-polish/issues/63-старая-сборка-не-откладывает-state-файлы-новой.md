@@ -45,11 +45,17 @@ Source: решение владельца 2026-11-07, оценка идей PR #
 - [ ] Test: файлы, записанные новой схемой (неизвестные ключи, новые поля, `version` новее известной), читает старая
       схема — ничего не потеряно и не отложено, следующая запись старой сборкой оставляет данные новой. Как минимум
       link settings и limits. До правки — красный.
+  - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts` exit 0 (exit 1 before the fix on 42372355b, 3 of 5 red) · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 - [ ] Старая сборка сохраняет неизвестные ключи и поля, а не откладывает файл; файл не-JSON откладывается, как раньше.
+  - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/unit/limits.test.ts test/contract/limits.test.ts test/unit/link-settings-tailscale.test.ts` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 - [ ] Поведение при `version` новее известной выбрано и обосновано в «Итог».
+  - evidence: commit pass · Keep a newer build's state files readable by an older one · - - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 - [ ] `docs/features/storage-and-diagnostics.md` и перевод говорят то, что делает код.
+  - evidence: commit pass · Keep a newer build's state files readable by an older one · - - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 - [ ] Все unit и contract test-ы `src/main/storage/`, `src/main/link/`, `src/main/agent/limits.ts`, `pnpm typecheck`,
       `pnpm lint`, gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
 
 ## Где в коде
 
