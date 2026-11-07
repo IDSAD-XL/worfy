@@ -27,14 +27,14 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 1. **Копия.** 19 skills из таблицы «Берём» spec-а, кроме `retro` (Ticket 02), — в `harness/skills/<имя>/`, со всеми
    файлами папки (`SKILL.md`, соседние `.md`, `agents/openai.yaml`, `scripts/`, `template.sh`). Источник —
    установленная копия 1.3.1 или upstream на commit-е `49dd158d1076134a641b33efb035946536778336`; копия только
-   читается. Если владелец ответил на Q1–Q4 «взять», те skills копируются так же (у `pr` и `wizard` дописывается
-   `disable-model-invocation: true`).
+   читается. `pr`, `wizard`, `triage`, `implement`, `implement-spec` не копируются (Q1–Q4, подтверждено владельцем
+   2026-11-07).
 2. **Авторство.** `harness/skills/THIRD_PARTY.md` (английский): upstream, версия, commit, MIT, автор, список skills,
    список правок ссылок по файлам, правило «синхронизации нет, новая версия — отдельный PR по слову владельца».
    `harness/skills/LICENSE.mattpocock-skills` — текст `LICENSE` копии без изменений.
 3. **Ссылки.** Каждый вызов Skill tool по имени — `worfy:<имя>`; `/setup-matt-pocock-skills` →
    `/worfy:connect-project`; `/codebase-design`, `/teach` и подобные — `/worfy:<имя>`. Строка «The issue tracker should
-   have been provided to you…» — на текст из spec, «Где skills находят tracker» (после ответа на Q6).
+   have been provided to you…» — на текст из spec, «Где skills находят tracker» (Q6, подтверждено владельцем 2026-11-07).
 4. **`harness/bin/TICKETS.md`** — раздел `## Wayfinding operations`: map, Ticket карты, `Type:`, `Blocked by`,
    frontier, claim и resolve через `bin/ticket`, нет меток триажа, glossary — `docs.context` Profile-а.
 5. **`connect-project`** — шаг, который называет в отчёте tracker (`tickets.root`) и glossary (`docs.context`), и

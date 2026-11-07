@@ -1,6 +1,7 @@
 # worfy-skills: skills Matt Pocock — внутри plugin-а worfy
 
-Status: черновик — ждёт приёмки владельцем
+Status: принят владельцем 2026-11-07 («все да»): Q1–Q6 — по рекомендации; к Q5 владелец добавил запись
+worfy о своих установках с этой версии.
 Source: решения владельца 2026-11-07 (п. 1–7 ниже: что берём, конфликт имени `retro`, `code-review`, старые установки,
 заморозка на 1.3.1, перекрёстные ссылки, проверки); [ADR-0059](../../docs/adr/0059-installer-installs-plugin-dependencies.md)
 (установщик ставит зависимости plugin-а), [ADR-0047](../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md), п. 5
@@ -38,7 +39,7 @@ Matt Pocock.
    Не берём: `misc/*`, `in-progress/*`, `ask-matt`, `setup-matt-pocock-skills`. Работа
    `setup-matt-pocock-skills` (где проект держит Ticket-ы и как в нём идёт wayfinding) переходит в skill
    `connect-project` worfy. Skill, который не подходит по содержанию, назван ниже с рекомендацией и пометкой
-   «подтвердить».
+   «подтверждено владельцем 2026-11-07».
 2. **Конфликт имени `retro`.** Свой `retro` worfy ни разу не вызывался ни в одном транскрипте. Он уходит вместе с
    напоминанием: часть hook-ов SessionEnd и SessionStart (`harness/hooks/session-end.mjs`, `session-start.mjs`, их
    test-ы) и поле Profile `session.retro_reminder_after` (контракт `harness/profiles/README.md` и код Profile в
@@ -106,17 +107,16 @@ skills на один уровень вглубь. Папка `agents/` (файл
 
 Папка `deprecated/` содержит только `README.md` — skills там нет.
 
-**Не берём — по содержанию, рекомендация («подтвердить»).**
+**Не берём — по содержанию, рекомендация («подтверждено владельцем 2026-11-07»).**
 
 | Skill | Почему не подходит |
 | --- | --- |
-| `pr` | Модель вызывает его на каждом теле PR («Use when writing a PR body»). Его шаблон (Summary / Evidence / Merge Danger) спорит с форматом PR skill-а `ship-ticket`, с языком `language.team` Profile-а и с Silent mode, где PR не несёт следов workflow. Раздел Summary — почти дословная копия skill-а `show-me` третьего автора (`CREDITS.md`); его лицензию в копии мы не проверили. **Подтвердить: не брать.** |
-| `wizard` | Модель вызывает его сама. Он пишет bash-скрипт, который кладёт секреты в `.env` и в `gh secret`. Скрипты worfy — Node (ADR-0055), должны работать на Windows (ADR-0054); запись секретов агентом — вне правил Harness. **Подтвердить: не брать.** |
-| `triage` | Пишет роли триажа (`needs-triage`, `ready-for-agent`, …) в строку `Status:` и ждёт словаря меток от `setup-matt-pocock-skills`. У worfy строку `Status:` пишет только `bin/ticket`, слова — `open`, `claimed`, `blocked`, `done`; чужое слово `epic-status` читает как «old header» (TICKETS.md). **Подтвердить: не брать.** |
-| `implement`, `implement-spec` | Свой конвейер: Subagent-ы implementer-а, integration branch, `code-review` в конце — без gate, Evidence и правил merge Profile-а. Ту же работу в worfy делают `epic-wave` и `ship-ticket`; два пути к одному результату путают и человека, и модель. **Подтвердить: не брать.** |
+| `pr` | Модель вызывает его на каждом теле PR («Use when writing a PR body»). Его шаблон (Summary / Evidence / Merge Danger) спорит с форматом PR skill-а `ship-ticket`, с языком `language.team` Profile-а и с Silent mode, где PR не несёт следов workflow. Раздел Summary — почти дословная копия skill-а `show-me` третьего автора (`CREDITS.md`); его лицензию в копии мы не проверили. **Не брать — подтверждено владельцем 2026-11-07.** |
+| `wizard` | Модель вызывает его сама. Он пишет bash-скрипт, который кладёт секреты в `.env` и в `gh secret`. Скрипты worfy — Node (ADR-0055), должны работать на Windows (ADR-0054); запись секретов агентом — вне правил Harness. **Не брать — подтверждено владельцем 2026-11-07.** |
+| `triage` | Пишет роли триажа (`needs-triage`, `ready-for-agent`, …) в строку `Status:` и ждёт словаря меток от `setup-matt-pocock-skills`. У worfy строку `Status:` пишет только `bin/ticket`, слова — `open`, `claimed`, `blocked`, `done`; чужое слово `epic-status` читает как «old header» (TICKETS.md). **Не брать — подтверждено владельцем 2026-11-07.** |
+| `implement`, `implement-spec` | Свой конвейер: Subagent-ы implementer-а, integration branch, `code-review` в конце — без gate, Evidence и правил merge Profile-а. Ту же работу в worfy делают `epic-wave` и `ship-ticket`; два пути к одному результату путают и человека, и модель. **Не брать — подтверждено владельцем 2026-11-07.** |
 
-Если владелец решит взять какой-то из пяти, Ticket 01 копирует его так же, как остальные: только ручной вызов
-(`disable-model-invocation: true` у `pr` и `wizard` дописывается — это единственная правка поведения).
+Владелец 2026-11-07 подтвердил: ни один из пяти не берём (Q1–Q4).
 
 ## Как работает
 
@@ -137,7 +137,7 @@ skills на один уровень вглубь. Папка `agents/` (файл
   строки 77–79, 111, 115); `"codebase-design"`, `"grilling"`, `"domain-modeling"` (`improve-codebase-architecture`,
   13, 64, 66, 71); `"grilling"`, `"domain-modeling"` (`grill-with-docs`, 7); `"grilling"` (`grill-me`, 7);
   `"codebase-design"` (`tdd`, 26); `` `writing-for-agents` `` (`retro`, 11). Каждое имя становится `worfy:<имя>`.
-  Вызовы из `triage`, `implement` и `implement-spec` уходят вместе с ними, если владелец подтвердит, что их не берём.
+  Вызовы из `triage`, `implement` и `implement-spec` уходят вместе с ними: их не берём (подтверждено владельцем 2026-11-07, Q3, Q4).
 - **`/setup-matt-pocock-skills`** — `code-review` (13), `to-spec` (9), `to-tickets` (11, 60), `wayfinder` (25);
   ещё `triage` (43) и `implement-spec` (9). Становится `/worfy:connect-project`.
 - **Ссылки вида `/codebase-design`** в `improve-codebase-architecture/SKILL.md` (54) и `HTML-REPORT.md` (42, 108, 123),
@@ -150,7 +150,7 @@ skills на один уровень вглубь. Папка `agents/` (файл
 Test Ticket-а 01 повторяет этот grep над `harness/skills/` и падает на любой ссылке `mattpocock`,
 `setup-matt-pocock-skills`, `ask-matt` и на вызове Skill tool с именем без `worfy:`.
 
-### Где skills находят tracker (Ticket 01, «подтвердить»)
+### Где skills находят tracker (Ticket 01, «подтверждено владельцем 2026-11-07»)
 
 `setup-matt-pocock-skills` пишет в репозиторий проекта блок `## Agent skills` в `CLAUDE.md` или `AGENTS.md` и папку
 `docs/agents/`. worfy так не делает: в Silent mode следов workflow в репозитории нет, а tracker у worfy один — папка
@@ -165,7 +165,7 @@ Profile-а worfy: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; ф
 файл `docs.context` Profile-а вместо `GLOSSARY.md`. `connect-project` в отчёте называет найденный tracker и glossary,
 а если в проекте уже есть `docs/agents/issue-tracker.md` от `setup-matt-pocock-skills` с GitHub или GitLab, говорит,
 что skills worfy работают только с папкой Ticket-ов. Файлов в репозиторий проекта `connect-project` не пишет.
-**Подтвердить.**
+**Подтверждено владельцем 2026-11-07 (Q6).**
 
 ### Уход `retro` worfy (Ticket 02)
 
@@ -196,7 +196,7 @@ Profile-а worfy: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; ф
 - `scripts/eval-harness.mjs` копирует Harness «без dependencies» (`:13-15`, `:371`) — комментарий и строка вывода
   меняются: зависимости больше нет, копия остаётся (её правит `HARNESS_DIR`).
 
-### Удаление plugin-а, поставленного worfy (Ticket 03, «подтвердить»)
+### Удаление plugin-а, поставленного worfy (Ticket 03, «подтверждено владельцем 2026-11-07»)
 
 **Записывает ли worfy, кто поставил plugin, — нет.** Проверено по коду:
 
@@ -211,10 +211,12 @@ worfy ставил зависимость только в одном месте 
 пользователь поставил сам до worfy, worfy не трогал — он уже был в `plugin list`. На Mac владельца так и есть:
 `mattpocock-skills` поставлен за два месяца до `worfy` — по правилу ниже он остаётся.
 
-**Рекомендация (б):**
+**Рекомендация (б) — подтверждено владельцем 2026-11-07 (Q5), с записью (а) в придачу:**
 
-- (а) Маркер «поставил worfy» с этой версии — не помогает: этот же Ticket убирает установку зависимости, новых
-  установок не будет, а старые маркера не имеют.
+- (а) Маркер «поставил worfy» с этой версии. Для `mattpocock-skills` он не помогает: этот же Ticket убирает установку
+  зависимости, а старые установки маркера не имеют. Владелец 2026-11-07 его всё же принял: с этой версии worfy
+  записывает каждую свою установку plugin-а зависимости (id, Vendor, время) в папке данных worfy; правило удаления
+  сначала смотрит эту запись, а окно времени (б) — для установок без записи.
 - **(б) Окно времени по записи Claude Code — рекомендую.** Plugin `mattpocock-skills@claude-plugins-official` удаляется
   (`claude plugin uninstall … --scope user`), если его `installedAt` не раньше чем за 10 минут до `installedAt` у
   `worfy@worfy-harness` и не позже его. Иначе — остаётся. Случай, когда worfy доставил зависимость позже (Retry после
@@ -235,7 +237,7 @@ worfy ставил зависимость только в одном месте 
 
 **Codex.** Своей даты установки plugin-а в записи worfy нет, а читает ли worfy дату у Codex — не проверено. Рекомендую:
 правило (б), если Codex отдаёт время установки; иначе plugin в Codex остаётся. Команду удаления Ticket берёт из
-документации и протокола Codex в репозитории, настоящий Codex не запускает. **Подтвердить (б) и вариант для Codex.**
+документации и протокола Codex в репозитории, настоящий Codex не запускает. **Подтверждено владельцем 2026-11-07 (Q5): (б) и Codex без времени установки не трогать.**
 
 ### Документация, ADR, eval-ы (Ticket-ы 04, 05)
 
@@ -351,17 +353,20 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 ## Вопросы владельцу
 
-Рекомендация — первой. Пункты помечены «подтвердить» и в тексте выше.
+Владелец 2026-11-07 («все да») принял рекомендацию по каждому вопросу; пометки в тексте выше —
+«подтверждено владельцем 2026-11-07».
 
-1. **Q1. `pr`** — (а) не брать; (б) взять только ручным вызовом. **Рекомендую (а).**
-2. **Q2. `wizard`** — (а) не брать; (б) взять только ручным вызовом. **Рекомендую (а).**
-3. **Q3. `triage`** — (а) не брать; (б) взять и научить писать `Status:` словами worfy. **Рекомендую (а).**
-4. **Q4. `implement` и `implement-spec`** — (а) не брать; (б) взять. **Рекомендую (а).**
+1. **Q1. `pr`** — (а) не брать; (б) взять только ручным вызовом. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
+2. **Q2. `wizard`** — (а) не брать; (б) взять только ручным вызовом. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
+3. **Q3. `triage`** — (а) не брать; (б) взять и научить писать `Status:` словами worfy. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
+4. **Q4. `implement` и `implement-spec`** — (а) не брать; (б) взять. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 5. **Q5. Кто поставил `mattpocock-skills`** — (б) окно 10 минут по `installedAt`; (в) спросить в окне; (г) не удалять.
    **Рекомендую (б).** Codex — (б), если Codex отдаёт время установки, иначе не удалять.
+   **Подтверждено владельцем 2026-11-07: (б), Codex без времени установки не трогать; плюс запись worfy о своих
+   установках с этой версии.**
 6. **Q6. Где skills находят tracker** — (а) раздел «Wayfinding operations» в `harness/bin/TICKETS.md` и
    `tickets.root` Profile-а, `connect-project` ничего не пишет в репозиторий проекта; (б) `connect-project` пишет блок
-   `## Agent skills` в `CLAUDE.md` проекта, как `setup-matt-pocock-skills`. **Рекомендую (а).**
+   `## Agent skills` в `CLAUDE.md` проекта, как `setup-matt-pocock-skills`. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 
 ## Готово, когда
 

@@ -33,7 +33,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
    `pnpm eval:harness -- --dry-run --max-cost-usd 30 --case 'skill-*'` — план и бюджет в «Итог»; затем тот же вызов без
    `--dry-run`. Строки расхода по каждому вызову — в «Итог».
 4. **Stable copy владельца** после merge 01–03 и Update: в списке slash-команд есть `/worfy:grilling` и
-   `/worfy:code-review`; plugin `mattpocock-skills`, который владелец поставил сам до worfy, на месте (правило Q5).
+   `/worfy:code-review`; plugin `mattpocock-skills`, который владелец поставил сам до worfy, на месте (правило Q5, подтверждено владельцем 2026-11-07).
 
 ## Готово, когда
 

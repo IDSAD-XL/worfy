@@ -39,13 +39,17 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 2. `plugin.json` — без `dependencies`. Механизм ADR-0059 в коде остаётся; test-ы, которым нужна зависимость, берут
    fixture-копию Harness с одной зависимостью нейтрального имени.
 3. **`src/main/harness/dependency-cleanup.ts`** (новый): после того как Harness этой версии встал (установка после
-   Update и Update Harness из toolbar), по правилу Q5 решает, удалять ли `mattpocock-skills@claude-plugins-official`, и
-   зовёт `claude plugin uninstall … --scope user`. Правило по ответу владельца на Q5; рекомендация — окно 10 минут по
-   `installedAt` (spec). Нет даты, дата не читается, plugin не в списке — ничего не делать. Ошибка удаления — строка в
+   Update и Update Harness из toolbar), по правилу Q5 (подтверждено владельцем 2026-11-07) решает, удалять ли `mattpocock-skills@claude-plugins-official`, и
+   зовёт `claude plugin uninstall … --scope user`. Сначала — запись worfy о своей установке (шаг 4),
+   без неё — окно 10 минут по `installedAt` (spec). Нет даты, дата не читается, plugin не в списке — ничего не делать. Ошибка удаления — строка в
    итоге, Harness остаётся установленным. Marketplace не трогать. Канал — `local` (ADR-0052, п. 6).
-4. Итог Update Harness называет удалённый plugin и команду, чтобы вернуть его.
-5. Codex — по ответу на Q5 и итогу шага 1: то же правило, если есть время установки; иначе plugin остаётся.
-6. `scripts/eval-harness.mjs` — комментарий и строка вывода про копию «без dependencies»; `src/shared/agent/subagent-type.ts:21`
+4. **Запись своих установок** (Q5, добавлено владельцем 2026-11-07): с этой версии каждая установка plugin-а
+   зависимости, которую сделал worfy (Claude Code и Codex), записывается в папку данных worfy — id, Vendor, время —
+   рядом с `harness-codex.json`. Механизм ADR-0059 остаётся, так что запись нужна для будущих зависимостей.
+5. Итог Update Harness называет удалённый plugin и команду, чтобы вернуть его.
+6. Codex — по Q5 (подтверждено владельцем 2026-11-07) и итогу шага 1: то же правило, если есть время установки или
+   запись worfy; иначе plugin остаётся.
+7. `scripts/eval-harness.mjs` — комментарий и строка вывода про копию «без dependencies»; `src/shared/agent/subagent-type.ts:21`
    — пример чужого plugin-а нейтральным именем.
 
 ## Готово, когда
@@ -60,7 +64,9 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
       одной команды удаления.
 - [ ] Test: `uninstall` упал — Harness `installed`, в итоге строка с хвостом stderr; повтор на следующем Update.
 - [ ] Test: Linked machine удаление не запускает.
-- [ ] Test Codex: fake Codex с временным `CODEX_HOME` — поведение по ответу на Q5.
+- [ ] Test Codex: fake Codex с временным `CODEX_HOME` — без времени установки и без записи worfy plugin остаётся.
+- [ ] Test: установка зависимости из fixture-копии пишет запись worfy (Claude Code и Codex); plugin с записью worfy
+      удаляется без окна времени, запись без plugin-а в списке — ничего.
 - [ ] Contract и e2e установщика зелёные на fixture-копии с зависимостью; `test/contract/harness-plugin.test.ts`
       проверяет, что у настоящего `plugin.json` зависимостей нет.
 - [ ] Windows: contract-test-ы установщика и `test/e2e/harness-install.spec.ts` — exit 0.
