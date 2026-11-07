@@ -1,7 +1,8 @@
 # 07 — Обратный отсчёт в чате Orchestrator-а: Retry now и Cancel
 
 Type: task
-Status: open
+Status: done 2026-11-07T08:05Z
+PR: #1563
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Что видит владелец», п. 2; «Как работает» → «Где живёт» (состояние ожидания)
 
@@ -30,17 +31,21 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2; «
 - [ ] Unit test: три вида строки и формат отсчёта; `null` — строки нет; обычная Session — строки нет.
   - evidence: test-run pass · `pnpm test test/unit/continue-countdown.test.tsx` exit 0 · mac - · 2d95828be03e258f4e28d8665c9ef6e568c42841
   - evidence: test-run pass · `pnpm test test/unit/continue-countdown.test.tsx` exit 0 · mac - · b1183867d
+  - evidence: review pass · PR #1563 · - - · 79e0fd51c5898837141027e8cb7c317507abe7ae
 - [ ] E2e: on, fake agent отдаёт 529 — строка с отсчётом видна; `Retry now` — продолжение ушло; второй сценарий —
       `Cancel`, продолжения нет. Пауза задана seam-ом test-а (секунды, не минуты).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts` exit 0 · mac dev · 444c1c307
   - evidence: test-run pass · `pnpm test:e2e test/e2e/auto-continue.spec.ts` exit 0 · mac dev · b1183867d
+  - evidence: review pass · PR #1563 · - - · 79e0fd51c5898837141027e8cb7c317507abe7ae
 - [ ] Снимки строки в светлой и тёмной теме.
   - evidence: screenshot pass · `../evidence/07-countdown-retry-light.png` · mac dev · 444c1c307 · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/07-countdown-retry-dark.png` · mac dev · 444c1c307 · scrub: 2026-11-07
+  - evidence: review pass · PR #1563 · - - · 79e0fd51c5898837141027e8cb7c317507abe7ae
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 13baf9023
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 13baf9023
   - evidence: gate pass · `gate fast` exit 0 · mac - · b1183867d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42352212794/job/128347634171 · ci - · 79e0fd51c5898837141027e8cb7c317507abe7ae
 
 ## Тесты
 
