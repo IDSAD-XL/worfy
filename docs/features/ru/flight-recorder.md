@@ -56,7 +56,8 @@ run-а, который ещё идёт. Run по очереди Epic-ов наз
 - как он остановился: `running`, `stopped: <reason>` или `no stop in the Journal`, когда journal просто обрывается.
   Остановка из-за блокировки или сбоя показана цветом проблемы. Run, который ждал своего Orchestrator-а, говорит это
   словами: `start-cancelled: cancelled while it waited for the Orchestrator`, `start-refused: refused once the
-  Orchestrator was free`;
+  Orchestrator was free`; так же и очередь, последний Epic которой ждёт владельца: `waits-owner: the last Epic of the
+  queue waits for the owner`, это блокировка;
 - число Wave и Ticket-ы `done`, `blocked` и `cut-off`. `blocked` и `cut-off` считаются только после остановки run-а:
   пока он идёт, Ticket, который не `done`, в том числе заблокированный, считается `not done yet`. После остановки
   Ticket-ы, не попавшие ни в одну из этих трёх групп, считаются `stopped`;

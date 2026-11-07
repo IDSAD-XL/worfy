@@ -34,6 +34,12 @@
 //   they change, so the forecast is theirs; the last facts stay on screen while the next are read. Nothing
 //   ticked: the start is off. The start goes with the ticked Epics in the order of the list — for an
 //   agent's ask, as the answer to main, which starts over exactly those.
+// - "Start anyway" (worfy-autopilot-queue ticket 21): a start of "Run all accepted" that main refuses because an
+//   Epic of the queue runs on another Machine or in another Project (`runningElsewhere`) keeps the window open:
+//   main's reason in the blocked colours, and "Start anyway" in red beside the start. It starts the queue and
+//   Run mode refused, with `override`, and the window closes on main's answer. Another tick, order or mode
+//   takes the reason and the button away: the plain start of the new queue asks again. An agent's ask has no
+//   such button (start-modal.ts).
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ticketNumber } from '../../shared/actions/render-template'
@@ -329,6 +335,8 @@ function StartWindow({ open }: { open: OpenStart }) {
   const [picked, setPicked] = useState<RunMode | null>(null)
   const mode = picked ?? defaultMode
   const [starting, setStarting] = useState(false)
+  // The start refused for a run elsewhere: main's words, and the queue and mode it was asked with.
+  const [refusedElsewhere, setRefusedElsewhere] = useState<{ text: string; mode: RunMode; epics: readonly string[] } | null>(null)
   const frame = useRef<HTMLDivElement>(null)
   const cancelButton = useRef<HTMLButtonElement>(null)
   const titleId = useId()
@@ -340,19 +348,31 @@ function StartWindow({ open }: { open: OpenStart }) {
   const off = starting || timeUp
   const empty = ticked.length === 0
   const tickedWaves = ticked.map((epic) => known[epic]?.waves)
+  // "Start anyway" stands for the queue and mode refused only.
+  const elsewhere = refusedElsewhere !== null && refusedElsewhere.mode === mode && refusedElsewhere.epics.join('\n') === ticked.join('\n') ? refusedElsewhere : null
 
   const cancel = (): void => {
     if (off) return
     open.cancel?.()
     open.settle(undefined)
   }
+  const failed = (error: unknown): void => open.settle(error instanceof Error ? error.message : String(error))
   const start = (): void => {
     if (off || empty) return
     setStarting(true)
-    void open.start(mode, ticked).then(
-      (reason) => open.settle(reason),
-      (error: unknown) => open.settle(error instanceof Error ? error.message : String(error)),
-    )
+    void open.start(mode, ticked).then((result) => {
+      if (typeof result !== 'object' || open.startAnyway === undefined) {
+        open.settle(typeof result === 'object' ? result.elsewhere : result)
+        return
+      }
+      setRefusedElsewhere({ text: result.elsewhere, mode, epics: ticked })
+      setStarting(false)
+    }, failed)
+  }
+  const startAnyway = (): void => {
+    if (off || elsewhere === null || open.startAnyway === undefined) return
+    setStarting(true)
+    void open.startAnyway(elsewhere.mode, elsewhere.epics).then((reason) => open.settle(reason), failed)
   }
   const changeModes = (): void => {
     if (off) return
@@ -464,6 +484,14 @@ function StartWindow({ open }: { open: OpenStart }) {
               )}
             </div>
           )}
+          {elsewhere === null ? null : (
+            <div className="w-apstart__notice" role="alert" data-testid="start-autopilot-elsewhere">
+              <p>
+                <span className="w-apstart__notice-title">Runs elsewhere:</span> {elsewhere.text}
+              </p>
+              <p className="w-apstart__notice-sub">&quot;Start anyway&quot; starts this queue here too, for every Epic of it: both runs take the same Tickets.</p>
+            </div>
+          )}
           {facts.kind === 'failed' ? (
             <p className="w-apstart__error" role="alert" data-testid="start-autopilot-error">
               Could not read the facts of this start: {facts.reason}
@@ -513,6 +541,18 @@ function StartWindow({ open }: { open: OpenStart }) {
           <button ref={cancelButton} type="button" className="w-apstart__button" data-testid="start-autopilot-cancel" disabled={off} onClick={cancel}>
             Cancel
           </button>
+          {elsewhere === null ? null : (
+            <button
+              type="button"
+              className="w-apstart__button w-apstart__button--danger"
+              data-testid="start-autopilot-anyway"
+              title="Start Autopilot over this queue here although another run has an Epic of it: both runs take the same Tickets"
+              disabled={off}
+              onClick={startAnyway}
+            >
+              Start anyway
+            </button>
+          )}
           <button
             type="button"
             className="w-apstart__button w-apstart__button--primary"

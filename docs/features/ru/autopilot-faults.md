@@ -141,6 +141,7 @@ Orchestrator остаётся unattended, экран остаётся включ
 | `no-ready-wave` | Ничего не готово, и ни у одного Ticket-а в `blocked` или без статуса не закрыты все блокеры. Так заканчивается run, который завершил Epic. |
 | `tickets-done` | Run по названным Ticket-ам окончен: каждый из них в `done` в checkout. Такой run берёт в каждую Wave только готовые Ticket-ы своего списка. Кнопка всегда запускает весь Epic, поэтому запущенный ею run так никогда не заканчивается. |
 | `blocked-tickets` | Ничего открытого не готово, а у Ticket-ов в `blocked` или без статуса все блокеры закрыты. В run-е по названным Ticket-ам считаются только Ticket-ы списка. |
+| `waits-owner` | Run над очередью Epic-ов дошёл до последнего Epic-а, и в нём остались только Ticket-ы для владельца (`blocked` с `Waits: owner`, без статуса или заблокированные только такими Ticket-ами). Строка говорит `stopped: waits for owner`; `tickets` их называет. Run по одному Epic-у в этом случае останавливается с `blocked-tickets`. |
 | `no-progress` | Следующая готовая Wave — тот же набор Ticket-ов, что и только что оконченная. |
 | `wave-unfinished` | Ticket Wave остался в работе дольше 10 минут после turn-а. |
 | `background-stalled` | Background task-и не дали ни одного события за час, и ни один их output file за это время не изменился. |
@@ -169,7 +170,7 @@ run.
 следующего run-а стоит **History**. Обе открывают run в Run history, которую описывает страница
 [Flight Recorder](flight-recorder.md).
 
-На Machine с ролью `serve` межмашинного gate перед остановкой с `no-ready-wave` или `blocked-tickets` run отправляет
+На Machine с ролью `serve` межмашинного gate перед остановкой с `no-ready-wave`, `blocked-tickets` или `waits-owner` run отправляет
 Orchestrator-у шаблон «Process gate queue», один раз за run. Он следит за этим turn-ом как за turn-ом Wave, а затем
 останавливается с той же причиной, даже если turn сделал какой-то Ticket готовым. Stop до этого момента отменяет шаг.
 

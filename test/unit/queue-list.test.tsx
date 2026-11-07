@@ -78,13 +78,15 @@ function prepared(epics: readonly string[]): AutopilotPrepareAnswer {
 
 interface Fake {
   calls: { channel: string; input: unknown }[]
+  /** What each autopilot.start answers in turn; empty: the run's first state. */
+  started: { ok: boolean; value?: unknown; error?: string }[]
   listeners: Map<number, { channel: string; handler: (payload: unknown) => void }>
 }
 let fake: Fake
 
 beforeEach(() => {
   vi.resetModules()
-  fake = { calls: [], listeners: new Map() }
+  fake = { calls: [], started: [], listeners: new Map() }
   const bridge = {
     invoke: (channel: string, input: unknown) => {
       fake.calls.push({ channel, input })
@@ -92,6 +94,7 @@ beforeEach(() => {
         case 'autopilot.prepare':
           return Promise.resolve({ ok: true, value: prepared((input as { epics: string[] }).epics) })
         case 'autopilot.start':
+          if (fake.started.length > 0) return Promise.resolve(fake.started.shift())
           return Promise.resolve({ ok: true, value: { projectId: PROJECT, epic: 'charlie', status: 'running', wave: 1, backgroundTasks: 0, resumesAt: null, reason: null, message: null, resumable: [], stopping: false, ticketsInWork: 0, harnessBehind: null, revision: 2 } })
         case 'appSettings.get':
           return Promise.resolve({ ok: true, value: { ...defaultAppSettings(), revision: 1 } })
@@ -290,6 +293,95 @@ describe('the queue of the window', () => {
   })
 })
 
+describe('a refused start of the queue: "Start anyway" (worfy-autopilot-queue ticket 21)', () => {
+  const MESSAGE = 'Autopilot is already running Epic bravo of this repository on Studio'
+  const elsewhere = { ok: true, value: { runningElsewhere: { epic: 'bravo', machine: 'Studio', message: MESSAGE } } }
+
+  it('runningElsewhere keeps the window open with the reason and "Start anyway"; it starts the same queue, in the same order and Run mode, with override', async () => {
+    fake.started = [elsewhere]
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-mode-budget-aware'))
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(within(dialog).getByTestId('start-autopilot-elsewhere').textContent).toContain(MESSAGE)
+    expect(toasts.getState().toasts).toEqual([])
+    const anyway = within(dialog).getByTestId('start-autopilot-anyway')
+    expect(anyway.textContent).toBe('Start anyway')
+    fireEvent.click(anyway)
+    await settle()
+    expect(starts()).toEqual([
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'budget-aware' },
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'budget-aware', override: true },
+    ])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('"Start anyway" is for the queue and mode refused: another tick or mode takes it away, and the plain start goes again', async () => {
+    fake.started = [elsewhere]
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(within(dialog).getByTestId('start-autopilot-anyway')).toBeDefined()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Include bravo' }))
+    await settle()
+    expect(within(dialog).queryByTestId('start-autopilot-anyway')).toBeNull()
+    expect(within(dialog).queryByTestId('start-autopilot-elsewhere')).toBeNull()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(starts().at(-1)).toEqual({ projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'charlie'], mode: 'fastest' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('another Run mode takes "Start anyway" away; back on the refused mode it returns, and starts in that mode', async () => {
+    fake.started = [elsewhere]
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(within(dialog).getByTestId('start-autopilot-anyway')).toBeDefined()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-mode-budget-aware'))
+    await settle()
+    expect(within(dialog).queryByTestId('start-autopilot-anyway')).toBeNull()
+    expect(within(dialog).queryByTestId('start-autopilot-elsewhere')).toBeNull()
+    // The queue and the mode refused again: the button stands for exactly that start, which it repeats with override.
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-mode-fastest'))
+    await settle()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-anyway'))
+    await settle()
+    expect(starts()).toEqual([
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'fastest' },
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'fastest', override: true },
+    ])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('another refusal is a toast only: the window closes, no "Start anyway"', async () => {
+    const reason = 'Set the Run wave template in Project settings'
+    fake.started = [{ ok: false, error: `autopilot.start failed: ${reason}` }]
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(within(dialog).queryByTestId('start-autopilot-anyway')).toBeNull()
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason, testId: 'autopilot-start-refused' }])
+    expect(starts()).toHaveLength(1)
+  })
+
+  it('a refusal of "Start anyway" itself is a toast, and the window closes', async () => {
+    fake.started = [elsewhere, { ok: false, error: 'autopilot.start failed: Autopilot is already running in this Project (Epic alpha): stop it first' }]
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-anyway'))
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: 'Autopilot is already running in this Project (Epic alpha): stop it first' }])
+  })
+})
+
 describe("an agent's ask with a list of Epics (ticket 15)", () => {
   const ASK: AutopilotConfirmAsk = { id: 'ask-1', projectId: PROJECT, project: 'Demo shop', epic: 'bravo', epics: ['bravo', 'alpha', 'charlie'], session: 'c0ffee12-3456-4789-8abc-def012345678', mode: 'fastest', forecast: [], waitMs: 10 * 60_000 }
   const answers = () => fake.calls.filter((call) => call.channel === 'autopilot.confirm.answer').map((call) => call.input)
@@ -334,6 +426,18 @@ describe("an agent's ask with a list of Epics (ticket 15)", () => {
     expect(answers()).toEqual([{ id: 'ask-1', answer: 'fastest', epics: ['charlie', 'bravo'] }])
     expect(starts()).toEqual([])
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('guard (ticket 21): the window of an agent\'s ask has no "Start anyway" and sends no override; main starts the queue, and a run elsewhere is the Session\'s refusal', async () => {
+    fake.started = [{ ok: true, value: { runningElsewhere: { epic: 'bravo', machine: 'Studio', message: 'Autopilot is already running Epic bravo of this repository on Studio' } } }]
+    const dialog = await agentWindow()
+    expect(within(dialog).queryByTestId('start-autopilot-anyway')).toBeNull()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(answers()).toEqual([{ id: 'ask-1', answer: 'fastest', epics: ['bravo', 'alpha', 'charlie'] }])
+    expect(starts()).toEqual([])
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByTestId('start-autopilot-anyway')).toBeNull()
   })
 
   it('nothing ticked: the start is off and nothing is answered; Cancel still answers cancel', async () => {

@@ -176,8 +176,9 @@
 //                                    after its wave-finished; one made while the run waits between
 //                                    Waves, at once; one still waiting when the run stops, never. Each Epic
 //                                    removed gets its epic-finished `removed` right after
-//   epic-finished  outcome,          an Epic of the run's queue ended and the run goes on
-//                  tickets?          (worfy-autopilot-queue ticket 14, ADR-0100); `epic` of the line
+//   epic-finished  outcome,          an Epic of the run's queue ended and the run goes on, or stops
+//                  tickets?          with `waits-owner` (worfy-autopilot-queue tickets 14 and 21,
+//                                    ADR-0100); `epic` of the line
 //                                    is that Epic. outcome: `done` (every Ticket done in the
 //                                    checkout, or the named Tickets), `waits-owner` (only Tickets
 //                                    for the owner are left: `Waits: owner`, no status, or blocked
@@ -185,7 +186,10 @@
 //                                    (it ran on another Machine, or in another Project, when the run
 //                                    reached it: not begun) or `removed` (taken out of the queue
 //                                    before it began, after queue-changed). The Epic a run stops on
-//                                    has none: run-stopped ends it. A run of one Epic writes none
+//                                    has none: run-stopped ends it — but for one that waits for the
+//                                    owner, which gets `waits-owner` and then run-stopped
+//                                    `waits-owner` (ticket 21; journals before it stop with that
+//                                    Epic's `blocked-tickets` and no line). A run of one Epic writes none
 //   epic-started   index, of         the run begins the next Epic of its queue (worfy-autopilot-
 //                                    queue ticket 14), after the last one's epic-finished; `epic` of
 //                                    the line, and of the lines after it, is that Epic. index: its
@@ -296,7 +300,8 @@
 //                                    reason: `user-stop`; wave and tickets as in wave-started;
 //                                    inWork: the Tickets of the Wave in work at the Stop
 //   gate-queue     text              the run had no Wave to send (it was to stop with `no-ready-wave`
-//                                    or `blocked-tickets`) on the machine with the role `serve` of
+//                                    or `blocked-tickets`, or `waits-owner` since worfy-autopilot-queue
+//                                    ticket 21) on the machine with the role `serve` of
 //                                    the cross-machine gate, and sent the Orchestrator the "Process
 //                                    gate queue" template first (worfy-windows ticket 17,
 //                                    ADR-0069); text: what it sent. Once per run. Its turn ends by
@@ -310,13 +315,15 @@
 //                                    written before ticket 11 have none
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with
-//                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
+//                  lastText?         `blocked-tickets` and `waits-owner` (the last Epic of a queue
+//                                    waits only for the owner, worfy-autopilot-queue ticket 21), the
+//                                    Tickets it stopped on (as skipped of
 //                                    wave-started, numbers only); with `user-force-stop`, the
 //                                    Tickets of the Wave it interrupted, none before the first Wave
 //                                    (worfy-week tickets 17, 18; lines written before ticket 18 say
 //                                    `user-stop` for it); so with `session-error` since
 //                                    worfy-retry ticket 14; lastText: with `no-progress`,
-//                                    `no-ready-wave`, `blocked-tickets` and `tickets-done`
+//                                    `no-ready-wave`, `blocked-tickets`, `waits-owner` and `tickets-done`
 //                                    (worfy-flight-recorder ticket 21), the first 1000
 //                                    characters of the Orchestrator's last answer in the turns of
 //                                    the Wave, none when no Wave was sent (ADR-0033)

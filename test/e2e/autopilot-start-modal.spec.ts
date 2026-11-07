@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { EPIC, journals, messages, PROJECT, prepareWorld, type World } from './autopilot-world'
+import { EPIC, git, journals, kindsOf, messages, PROJECT, prepareWorld, type World } from './autopilot-world'
 import { startWindow } from './autopilot-start'
 import { captureScreenshot } from './evidence-capture'
 import { launchApp } from './helpers'
@@ -29,6 +29,12 @@ import { launchApp } from './helpers'
 // over the ticked Epics in that order (`epics` of `run-started` in the run journal). An agent's
 // `autopilot_start` with the same three Epics opens that view under "Asked by …": the person changes the
 // queue there too, and the run starts over exactly the Epics the window answered.
+//
+// worfy-autopilot-queue ticket 21: a second Project of the same repository (a clone with the same origin) runs
+// Epic checkout; "Run all accepted" over demo and checkout is refused, the window keeps main's reason and
+// "Start anyway", which starts the same queue past the check. A queue whose last Epic has only Tickets for the
+// owner stops with `waits-owner`: the line of that Epic says so, with the chip "Waits for owner". The window and
+// the frame are shot in both themes (WORFY_EVIDENCE=worfy-autopilot-queue/21).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -354,6 +360,108 @@ test("an agent's ask for a queue: the person unticks and reorders it in the wind
     expect(answer.content[0]?.text).toBe(`Autopilot started a queue of 2 Epics: search, ${EPIC}.`)
     await expect.poll(() => startedEpics(world.dataDir)).toEqual(['search', EPIC])
     expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The other Project of the "Start anyway" test: a clone of the fixture with the same origin. */
+const OTHER = 'other-000000a5'
+const ORIGIN = 'https://example.invalid/demo.git'
+
+/** The `run-started` line of `projectId`'s run journal; undefined before there is one. */
+function runStarted(dataDir: string, projectId: string): { epics?: string[]; override?: boolean } | undefined {
+  for (const text of journals(dataDir)) {
+    const [first] = text.split('\n')
+    const event = JSON.parse(first ?? '{}') as { kind?: string; project?: string; epics?: string[]; override?: boolean }
+    if (event.kind === 'run-started' && event.project === projectId) return event
+  }
+  return undefined
+}
+
+test('"Run all accepted" refused because an Epic of the queue runs in another Project: the window offers "Start anyway", which starts the same queue past the check (ticket 21)', async () => {
+  const world = prepareWorld(scratch)
+  acceptEpics(world)
+  // A second Project of the same repository: a clone with the same origin, its Epic checkout run first.
+  git(world.repo, 'remote', 'add', 'origin', ORIGIN)
+  const other = join(scratch, 'other')
+  git(scratch, 'clone', '-q', world.repo, other)
+  git(other, 'remote', 'set-url', 'origin', ORIGIN)
+  mkdirSync(join(world.dataDir, OTHER), { recursive: true })
+  writeFileSync(join(world.dataDir, OTHER, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 20, y: 20, zoom: 0.8 } }))
+  const projects = JSON.parse(readFileSync(join(world.dataDir, 'projects.json'), 'utf8')) as { projects: unknown[]; activeId: string }
+  projects.projects.push({ id: OTHER, name: 'other', path: other })
+  writeFileSync(join(world.dataDir, 'projects.json'), JSON.stringify(projects))
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect(window.locator('[data-testid="epic-frame"][data-epic="search"]')).toBeVisible()
+    expect(await bridgeCall(window, 'autopilot.start', { projectId: OTHER, epic: 'checkout' })).toMatchObject({ ok: true, value: { epic: 'checkout' } })
+
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('run all accepted')
+    await expect(window.getByTestId('command-palette').locator('[data-testid="palette-option"][data-command="run-all-accepted"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const dialog = startWindow(window)
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-modes')).not.toContainText('…')
+    await dialog.getByRole('checkbox', { name: 'Include search' }).uncheck()
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Start Autopilot · 2 Epics, 3 Waves')
+
+    // The start is refused: the window stays with main's reason and "Start anyway"; no toast, no run.
+    await dialog.getByTestId('start-autopilot-start').click()
+    const notice = dialog.getByTestId('start-autopilot-elsewhere')
+    await expect(notice).toContainText(`Autopilot is already running Epic checkout of this repository on this Machine (Project ${OTHER})`)
+    const anyway = dialog.getByTestId('start-autopilot-anyway')
+    await expect(anyway).toHaveText('Start anyway')
+    await expect(window.getByTestId('autopilot-start-refused')).toHaveCount(0)
+    expect(runStarted(world.dataDir, PROJECT)).toBeUndefined()
+    await captureScreenshot(dialog, 'queue-start-anyway')
+
+    // "Start anyway": the same queue, in the same order, past the check; the line says Epic 1/2.
+    await anyway.click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => runStarted(world.dataDir, PROJECT)).toMatchObject({ epics: [EPIC, 'checkout'], override: true })
+    await expect(frameOf(window).getByTestId('autopilot-status')).toContainText('Epic 1/2: demo')
+    for (const projectId of [PROJECT, OTHER]) expect(await bridgeCall(window, 'autopilot.forceStop', { projectId })).toMatchObject({ ok: true, value: { status: 'stopped' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the last Epic of a queue where only Tickets for the owner are left: "stopped: waits for owner" and the chip "Waits for owner" on its frame (ticket 21)', async () => {
+  const world = prepareWorld(scratch)
+  acceptEpics(world)
+  // Every Ticket of demo and checkout is blocked and waits for the owner: the run sends no Wave.
+  const answer = join(world.claudeHome, 'epic-status.json')
+  const model = JSON.parse(readFileSync(answer, 'utf8')) as { tickets: { epic: string; state: string; statusRaw: string; waits?: string }[] }
+  for (const ticket of model.tickets) if (ticket.epic === EPIC || ticket.epic === 'checkout') Object.assign(ticket, { state: 'blocked', statusRaw: 'blocked — 2026-11-07', waits: 'owner' })
+  writeFileSync(answer, JSON.stringify(model))
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    const frame = window.locator('[data-testid="epic-frame"][data-epic="checkout"]')
+    await expect(frame).toBeVisible()
+    expect(await bridgeCall(window, 'autopilot.start', { projectId: PROJECT, epic: EPIC, epics: [EPIC, 'checkout'] })).toMatchObject({ ok: true })
+
+    await expect(frame.getByTestId('autopilot-status')).toHaveText('Epic 2/2: checkout · stopped: waits for owner')
+    const chip = frame.getByTestId('autopilot-queue-chip')
+    await expect(chip).toHaveText('Waits for owner')
+    await expect(chip).toHaveAttribute('title', 'Autopilot stopped on checkout: only Tickets for the owner are left')
+    const [text] = journals(world.dataDir)
+    expect(kindsOf(text ?? '').filter((kind) => kind.startsWith('epic-') || kind.startsWith('run-'))).toEqual(['run-started', 'epic-finished', 'epic-started', 'epic-finished', 'run-stopped waits-owner'])
+    // The stop's toast says the reason too; it goes before the shot, which is of the frame alone.
+    const toast = window.getByTestId('run-stopped-toast')
+    await expect(toast).toContainText('Run stopped: waits-owner')
+    await toast.getByRole('button', { name: 'Dismiss' }).click()
+    await expect(toast).toHaveCount(0)
+    await captureScreenshot(frame, 'last-epic-waits-owner')
   } finally {
     await launched.close()
   }

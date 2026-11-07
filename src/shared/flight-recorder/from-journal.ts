@@ -136,7 +136,8 @@ export interface JournalFacts {
 
 /**
  * How a Run ended, by the reason of its run-stopped (AUTOPILOT_STOP_REASONS of
- * src/shared/autopilot/cycle.ts): nothing left to send is `ok`, a stop on blocked Tickets `blocked`,
+ * src/shared/autopilot/cycle.ts): nothing left to send is `ok`, a stop on blocked Tickets `blocked`, and so is
+ * the stop of a queue whose last Epic waits only for the owner (`waits-owner`, worfy-autopilot-queue ticket 21),
  * a person's or the app's stop `stopped` (`interrupted`: the Orchestrator's turn was interrupted, which
  * only the Interrupt button of a Session does, through agent.interrupt), the rest — an error, a stall,
  * a Wave that made no progress, a Start window too short for any Wave (`window-too-short`) — `failed`.
@@ -165,6 +166,7 @@ export const STOP_OUTCOMES: Readonly<Record<AutopilotStopReason, SpanOutcome>> =
   'window-too-short': 'failed',
   'start-cancelled': 'stopped',
   'start-refused': 'failed',
+  'waits-owner': 'blocked',
 }
 
 const iso = (ms: number): Iso => new Date(ms).toISOString()

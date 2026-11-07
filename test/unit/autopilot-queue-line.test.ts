@@ -99,6 +99,34 @@ describe('queueChip: the chip of an Epic of the queue that the run is not on', (
   })
 })
 
+describe('the last Epic of the queue that waits for the owner (worfy-autopilot-queue ticket 21)', () => {
+  const LAST = queueRun(
+    [
+      ['demo', 'done'],
+      ['checkout', 'waits-owner'],
+      ['billing', 'waits-owner'],
+    ],
+    2,
+    { status: 'stopped', reason: 'waits-owner' },
+  )
+
+  it('the line says the run stopped because the Epic waits for the owner', () => {
+    expect(autopilotStatusLine(LAST)).toBe('Epic 3/3: billing · stopped: waits for owner')
+    expect(autopilotStatusLine({ status: 'stopped', wave: 1, reason: 'waits-owner' })).toBe('stopped: waits for owner')
+  })
+
+  it('the frame of the Epic the run stopped on keeps the chip Waits for owner; the other frames of the stopped run have none', () => {
+    expect(queueChip(LAST, 'billing', NO_EDITS)).toMatchObject({ label: 'Waits for owner', tone: 'blocked' })
+    expect(queueChip(LAST, 'checkout', NO_EDITS)).toBeNull()
+    expect(queueChip(LAST, 'demo', NO_EDITS)).toBeNull()
+  })
+
+  it('a stop for another reason gives the last Epic no chip', () => {
+    expect(queueChip({ ...LAST, reason: 'blocked-tickets' }, 'billing', NO_EDITS)).toBeNull()
+    expect(queueChip({ ...LAST, reason: 'no-progress', queue: [{ epic: 'demo', status: 'done' }, { epic: 'checkout', status: 'waits-owner' }, { epic: 'billing', status: 'running' }] }, 'billing', NO_EDITS)).toBeNull()
+  })
+})
+
 describe('queueTitle: the queue in the tooltip of the line', () => {
   it('lists every Epic with its status, and the edits that wait', () => {
     const run = queueRun(
