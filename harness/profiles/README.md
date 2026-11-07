@@ -35,6 +35,9 @@ $HARNESS_HOME/projects/<name>/
                  tickets-to-tasks and is git-ignored)
   state/         working state of the hooks (active-epic) and the code maps the scout
                  keeps (code-map/<repository>.md, bin/code-map); not versioned
+    human-review/  the private folder of the team's reviewer: the review history of the project's pull
+                 requests (bin/review-history: raw/ for one run, meta.json, ignore.json) and what is made
+                 of it. It holds colleagues' words: it stays on this machine, never in a repository
 ```
 
 There is no profile in the project's repository and no PR with a profile. `rules.md` is mixed into a
