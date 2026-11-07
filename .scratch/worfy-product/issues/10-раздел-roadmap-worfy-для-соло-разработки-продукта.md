@@ -1,7 +1,8 @@
 # 10 — Раздел roadmap: worfy для соло-разработки продукта
 
 Type: grilling
-Status: claimed 2026-11-07T20:19Z
+Status: done 2026-11-07T22:00Z
+PR: #1593
 Blocked by: 08, 09
 Source: [map.md](../map.md), Destination
 
