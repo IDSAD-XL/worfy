@@ -19,7 +19,8 @@
 //   - personal data (lib/privacy.cjs, with the host name of this machine and the personal list of the Harness
 //     home), printed only through mask();
 //   - a word of lint.json forbidden, matched case-insensitively as a whole word.
-// Every value is printed with the personal data in it masked.
+// Every value is printed with the personal data in it masked, in the error lines of exit 2 too. A UTF-8 byte order
+// mark at the start of a file is dropped.
 //
 // --skill <folder>: every rule of <folder>/SKILL.md — a list item under a `## ` heading, outside code blocks —
 // ends with one or more references `[R<n>]`, and <folder>/research.md has a section `## R<n> — <title>` for
@@ -46,8 +47,12 @@ const USAGE = `usage: review-draft-lint <draft.json> --rules <lint.json> [-C <pr
        review-draft-lint --skill <folder>
 exit: 0 clean, 1 findings, 2 usage error or broken input`
 
+// The personal data of every printed value is masked: findings, and the error lines, which quote paths, field
+// names and tiers from the input.
+const options = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
+const show = (value) => privacy.maskText(value, options)
 const die = (code, msg) => {
-    if (msg) process.stderr.write(`review-draft-lint: ${msg}\n`)
+    if (msg) process.stderr.write(`review-draft-lint: ${show(msg)}\n`)
     process.exit(code)
 }
 const firstLine = (e) => String((e && (e.stderr || e.message)) || e).split("\n")[0]
@@ -79,7 +84,8 @@ for (let i = 0; i < argv.length; i++) {
 
 function readText(file, what) {
     try {
-        return fs.readFileSync(file === "-" ? 0 : path.resolve(file), "utf8")
+        // Without a UTF-8 byte order mark: Windows PowerShell writes one, and JSON.parse refuses it.
+        return fs.readFileSync(file === "-" ? 0 : path.resolve(file), "utf8").replace(/^\uFEFF/, "")
     } catch (e) {
         die(2, `cannot read ${what} ${file}: ${e.message}`)
     }
@@ -143,7 +149,7 @@ if (skillDir !== null) {
     for (const [n, text] of items) {
         const m = REFS.exec(text.trimEnd())
         if (!m) {
-            found.push(`SKILL.md:${n}: rule without a [R<n>] reference: "${privacy.maskText(text.slice(0, 80))}"`)
+            found.push(`SKILL.md:${n}: rule without a [R<n>] reference: "${show(text.slice(0, 80))}"`)
             continue
         }
         for (const ref of m[1].matchAll(/\[R(\d+)\]/g))
@@ -235,8 +241,6 @@ try {
 const rules = [...traces.traceRules({ epics, ticketWords, workflowFolder }), ...traces.attributionRules(), ...traces.aiVoiceRules()]
 
 // --- search ------------------------------------------------------------------------------
-const options = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
-const show = (value) => privacy.maskText(value, options)
 const words = forbidden.map((w) => [w, new RegExp(`(?<![\\p{L}\\p{N}_])${w.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "giu")])
 const found = []
 for (const [where, text, tier] of texts) {

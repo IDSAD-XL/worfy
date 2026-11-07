@@ -21,9 +21,15 @@ let harnessHome: string
 let repo: string
 /** A folder that is in no registered project. */
 let outside: string
+/** The repository of the Silent project `sp` (attribution off) and its Workflow folder, whose path names a host. */
+let silentRepo: string
+let workflowFolder: string
 
-// A home folder path with a user name that is not a stand-in, built here so this file does not carry one.
+// A home folder path with a user name, a host name and an email address that are not stand-ins (lib/privacy.cjs),
+// built here so this file does not carry one.
 const HOME_PATH = ['', 'Users', 'jdoe', 'proj', 'a.ts'].join('/')
+const HOST = ['jdoe', 'MacBook', 'Pro'].join('-')
+const EMAIL = ['jdoe', 'corp.io'].join('@')
 
 beforeAll(() => {
   root = realpathSync.native(mkdtempSync(join(tmpdir(), 'review-draft-lint-')))
@@ -31,14 +37,41 @@ beforeAll(() => {
   harnessHome = join(root, 'hh')
   repo = join(root, 'repo')
   outside = join(root, 'outside')
-  for (const dir of [home, join(harnessHome, 'gate'), join(harnessHome, 'projects', 'fp'), join(repo, '.scratch', 'checkout-flow', 'issues'), outside])
+  silentRepo = join(root, 'silent-repo')
+  workflowFolder = join(root, HOST, 'wf')
+  for (const dir of [
+    home,
+    join(harnessHome, 'gate'),
+    join(harnessHome, 'projects', 'fp'),
+    join(harnessHome, 'projects', 'sp'),
+    join(repo, '.scratch', 'checkout-flow', 'issues'),
+    join(workflowFolder, '.scratch', 'billing-sync', 'issues'),
+    silentRepo,
+    outside,
+  ])
     mkdirSync(dir, { recursive: true })
-  const init = spawnSync('git', ['init', '-q', repo], { encoding: 'utf8' })
-  expect(init.status, init.stderr).toBe(0)
-  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'fp', match: repo, profile: 'fp', pm: 'npm', root: {}, workspace: {} }] }))
+  for (const dir of [repo, silentRepo, workflowFolder]) {
+    const init = spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' })
+    expect(init.status, init.stderr).toBe(0)
+  }
+  const entry = (key: string, match: string): object => ({ key, match, profile: key, pm: 'npm', root: {}, workspace: {} })
+  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [entry('fp', repo), entry('sp', silentRepo)] }))
   writeFileSync(
     join(harnessHome, 'projects', 'fp', 'profile.json'),
     JSON.stringify({ schema: 2, name: 'fp', mode: 'full', attribution: 'on', tickets: { root: '.scratch/' } }),
+  )
+  writeFileSync(
+    join(harnessHome, 'projects', 'sp', 'profile.json'),
+    JSON.stringify({
+      schema: 2,
+      name: 'sp',
+      mode: 'silent',
+      attribution: 'off',
+      workflow: { folder: workflowFolder, finish: 'local-green' },
+      tickets: { root: '.scratch/', path: '.scratch/<epic>/issues/NN-*.md', branch: null },
+      docs: { adr_dir: 'docs/adr', handoff: { path: 'HANDOFF.md' } },
+      numbering: { adr: { dir: 'docs/adr', check: null }, migrations: null },
+    }),
   )
 })
 
@@ -167,6 +200,63 @@ describe('review-draft-lint', () => {
     expect(count.status, count.stdout + count.stderr).toBe(2)
     const noRules = lint([file(CLEAN)], outside)
     expect(noRules.status, noRules.stdout + noRules.stderr).toBe(2)
+  })
+
+  it('finds every kind of trace and AI authorship line, each by its rule', { timeout: ms(30_000) }, () => {
+    const run = lint([
+      file(
+        draft([
+          ['nit', 'nit: see ADR-0012 for why'],
+          ['nit', 'nit: this belongs to checkout-flow'],
+          ['argued', 'Moved the check up.\n\nGenerated with [Claude Code](https://claude.com/claude-code)'],
+        ]),
+      ),
+      '--rules',
+      file(RULES, 'lint.json'),
+      '-C',
+      repo,
+    ])
+    expect(run.status, run.stdout + run.stderr).toBe(1)
+    expect(run.stdout.trim().split('\n')).toEqual([
+      'comments[0] src/cart.ts:10: ADR number "ADR-0012"',
+      'comments[1] src/cart.ts:11: epic name "checkout-flow"',
+      'comments[2] src/cart.ts:12: Claude attribution "Generated with [Claude Code"',
+    ])
+  })
+
+  it('finds the Workflow folder of a Silent project, and masks the host name in that trace', { timeout: ms(30_000) }, () => {
+    const run = lint([file(draft([['argued', `The notes are in ${workflowFolder}/notes.md, see billing-sync/03.`]])), '--rules', file(RULES, 'lint.json'), '-C', silentRepo])
+    expect(run.status, run.stdout + run.stderr).toBe(1)
+    const lines = run.stdout.trim().split('\n')
+    expect(lines.filter((l) => l.includes(': Workflow folder path "')), run.stdout).toHaveLength(1)
+    expect(lines.filter((l) => l.includes(': epic/NN "billing-sync/03"')), run.stdout).toHaveLength(1)
+    expect(lines.filter((l) => l.includes(': personal data host "jd…(16)"')), run.stdout).toHaveLength(1)
+    expect(run.stdout + run.stderr).not.toContain(HOST)
+  })
+
+  it('masks personal data in the error lines of exit 2', { timeout: ms(30_000) }, () => {
+    const run = lint([file(CLEAN), '--rules', file({ ...RULES, [EMAIL]: 1 }, 'lint.json')], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(2)
+    expect(run.stderr).toContain('unknown field "jd…(12)"')
+    expect(run.stdout + run.stderr).not.toContain(EMAIL)
+    const tier = lint([file(draft([[EMAIL, 'nit: fine']])), '--rules', file(RULES, 'lint.json')], outside)
+    expect(tier.status, tier.stdout + tier.stderr).toBe(2)
+    expect(tier.stdout + tier.stderr).not.toContain(EMAIL)
+  })
+
+  it('reads a draft and lint.json that start with a UTF-8 byte order mark', { timeout: ms(30_000) }, () => {
+    const bom = '\uFEFF'
+    const run = lint([file(bom + JSON.stringify(CLEAN)), '--rules', file(bom + JSON.stringify(RULES), 'lint.json')], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+  })
+
+  it('counts the length in characters, not in UTF-16 code units', { timeout: ms(30_000) }, () => {
+    // 105 characters, 205 code units: under the nit limit of 120.
+    const run = lint([file(draft([['nit', 'nit: ' + '\u{1F600}'.repeat(100)]])), '--rules', file(RULES, 'lint.json')], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    const over = lint([file(draft([['nit', 'nit: ' + '\u{1F600}'.repeat(116)]])), '--rules', file(RULES, 'lint.json')], outside)
+    expect(over.status, over.stdout + over.stderr).toBe(1)
+    expect(over.stdout).toContain('length 121 chars, over 120 of tier nit')
   })
 
   describe('--skill', () => {

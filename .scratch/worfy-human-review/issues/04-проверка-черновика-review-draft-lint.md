@@ -105,3 +105,14 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   test теперь убирает эти переменные (второй commit). Второй и третий: красные только чужие test-ы, каждый раз другие
   (`test/contract/autopilot-wait.test.ts` — timeout ожидания Wave, `test/contract/remote-calls.test.ts`;
   в первом ещё `test/unit/install-stable-update.test.ts`). Все три отдельно — exit 0 (63 из 63). Diff их кода не трогает.
+
+Ревью, раунд 1 (REJECTED: test не проверял номер ADR) — исправлено:
+
+- В test добавлены случаи для номера ADR, голого имени Epic-а, `Generated with [Claude Code`, пути Workflow folder
+  Silent-проекта (второй проект `sp` во временном `HARNESS_HOME`), маски в значении следа (имя машины в пути Workflow
+  folder), маски в строках ошибок exit 2, BOM в начале файлов и длины в символах (emoji: 105 символов при 205 UTF-16).
+- Скрипт: строки ошибок exit 2 тоже проходят `maskText` (маскирование — в `die()`, одно место); BOM UTF-8 в начале
+  файла отбрасывается до `JSON.parse` (PowerShell на Windows пишет его).
+- Mutants (каждый — копия файла, правка, test, восстановление из копии), все убиты, exit 1: без правила ADR, без голого
+  имени Epic-а, без правила Workflow folder, без `Generated with`, `show = v => v`, `die()` без `show`, значение следа
+  без `show`, без снятия BOM, длина через `.length`. Test после восстановления — exit 0, 14 из 14.
