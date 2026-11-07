@@ -38,6 +38,11 @@ exceeded» на чтение логов job-ов.
 | `test/contract/autopilot-limits.test.ts:1236` «five_hour (stub Limits): Start window, budget on…» | macOS 2 | 2 (2, 0) | 11-03 … 11-06 |
 | `test/e2e/browser-family.spec.ts:155`, `browser-focus.spec.ts:459`, `external-session.spec.ts:134` | macOS 2 каждый | по 2 | 11-03 … 11-07 |
 
+Красные под нагрузкой на Mac владельца (gate fast 2026-11-07, по данным Orchestrator-а), в CI за неделю не замечены:
+`test/contract/login-shell-capture.test.ts:144-146` (2 из 2), `test/contract/harness-hook-stdin.test.ts:345`,
+`test/unit/search-index.test.ts:282` (предел 100 ms, было 112 ms), `test/unit/getting-started-panel.test.tsx:141`, `:158`
+(timeout 15 s), `test/contract/projects-connect.test.ts:876`.
+
 Чужие, в этот Ticket не входят:
 
 - `test/contract/autopilot-wait.test.ts` (строки 331, 477–515; Linux 13, macOS 4) — `worfy-polish` 65.
@@ -68,9 +73,67 @@ exceeded» на чтение логов job-ов.
 
 ## Где в коде
 
-- `test/contract/codex-app-server.test.ts` — проверки выхода процесса после `close()`.
-- `test/contract/autopilot-limits.test.ts:1447` — ожидание Start window.
-- `src/main/agent/session/process.ts:96-110` (`waitForExit`), `src/main/vendors/codex/app-server.ts:154-173` (`close`),
-  `src/main/autopilot/run.ts:2402-2404` — только чтение.
+- `test/contract/codex-app-server.test.ts` — проверки выхода процесса после `close()` (строки 247, 297, 308 до правки).
+- `test/contract/autopilot-limits.test.ts:1251`, `:1447` — ожидание Start window.
+- `test/contract/flight-recorder-gate-logs.test.ts:351`, `test/contract/docs.test.ts`, `test/contract/projects.test.ts`,
+  `test/contract/work-track-service.test.ts`, `test/contract/work-track-ticket-status.test.ts`,
+  `test/contract/workflow-reader.test.ts` — git helper-ы test-ов, `maintenance.auto=false`.
+- `test/contract/login-shell-capture.test.ts:85-86`, `:142`, `:183` — файл HOME/after.
+- Только чтение: `src/main/agent/session/process.ts:96-110` (`waitForExit`), `src/main/vendors/codex/app-server.ts:154-173`
+  (`close`), `src/main/autopilot/run.ts:2386-2404`, `src/main/autopilot/journal.ts:71-87` (`append`),
+  `test/e2e/autopilot-world.ts:29-36` (та же правка для e2e, #1510).
 
 ## Итог
+
+Исправлены пять причин, все — в test-ах; код приложения не тронут. Каждая воспроизведена до правки.
+
+1. **`codex-app-server.test.ts:304`** (Windows: 21 flaky и 3 красных job-а за неделю; ещё красный на PR #1603). `close()`
+   кончается по ответу системы: `waitForExit` раз в 50 ms спрашивает `kill(pid, 0)`. Событие `exit` Node, которое
+   ставит `exitCode`, на Windows приходит позже (`process.ts:96-104` это и описывает), и `hasExited()` сразу после
+   `close()` — `false`. Та же проверка стояла ещё в двух test-ах файла (`:247`, `:297`). Теперь test-ы спрашивают
+   систему (`kill(pid, 0)` → ESRCH), а код выхода читают после события `exit`. Воспроизведение на Mac: событие
+   `exit` отложено на 400 ms (подмена `child.emit` в копии test-а): до правки 10 run-ов из 10 красные (3 test-а
+   в каждом), после — 10 из 10 зелёные. Цикл 20 run-ов настоящего файла — 20 зелёных. Наблюдение `worfy-polish` 47
+   про этот test можно снять.
+2. **`autopilot-limits.test.ts:1422`** (macOS 5, красный в gate fast) и **`:1236`** (macOS 2). Test ждал строку
+   journal-а, а сразу после неё проверял состояние run-а. Строка видна, как только `appendFile` её записал, а
+   `append` (open, write, close) кончается позже; состояние run меняет только после двух строк. Теперь test ждёт само
+   состояние (`waitingFor === start-window`). Воспроизведение: пауза 30 ms между двумя записями в `run.ts` —
+   `:1422` до правки 8 из 10 красных, `:1236` — 8 из 10 красных; после — 10 из 10 зелёных; файл 20 раз подряд — 20
+   зелёных.
+3. **`flight-recorder-gate-logs.test.ts:460`** (macOS 5, последний 2026-11-07) и ещё пять test-ов с тем же риском. новый git после merge
+   и commit запускает
+   `git maintenance run --auto --detach`, и его `.git/objects/maintenance.lock` появляется и пропадает, пока test
+   сравнивает файлы репозитория. Тот же lock был macOS-причиной `autopilot-faults.spec.ts:35` (лог run-а
+   42245041471: `ENOENT … demo/.git/objects/maintenance.lock`), её закрыл #1510 для e2e. На Windows runner-е git 2.56.0 (лог run-а 42351046268), версию
+   git macOS runner-а логи не печатают. В контейнере с git 2.56.0 lock появляется после merge и через доли секунды
+   исчезает: `find` сразу после 30 merge-ей 16 раз не застал уже найденный lock (Apple git 2.50 на Mac lock не делает). Воспроизведение на Mac: обёртка `git`, которая после merge и commit держит
+   lock 0.3 s и, как git, молчит при `maintenance.auto=false`. Весь `pnpm test` под обёрткой — 8 красных test-ов:
+   `flight-recorder-gate-logs.test.ts:460`, `docs.test.ts:409`, `projects.test.ts:592`, `work-track-service.test.ts:201`,
+   `work-track-ticket-status.test.ts:169`, `workflow-reader.test.ts:751`, `:977` и Harness-test
+   `bin/tests/wave-brief.test.sh`. До правки: `flight-recorder-gate-logs` 8 из 10 красных, пять других файлов — 3 из 3
+   run-ов красные. После `maintenance.auto=false` в их git helper-ах — 3 из 3 зелёных под обёрткой, циклы по 20 без
+   обёртки — 20 зелёных. `wave-brief.test.sh` и `harness-migrate-boundaries.test.ts:32` (тоже краснел под обёрткой) не
+   тронуты: это `harness/` и его test-ы, у них свой порядок правки.
+4. **`login-shell-capture.test.ts:144-146`** (и `:133-134`, тот же приём): фоновый процесс писал `echo x > HOME/after`,
+   test ждал появления файла и читал его пустым — `>` создаёт файл раньше текста. Теперь файл приходит переименованием
+   `after.tmp`. Воспроизведение: пауза 0.3 s между созданием файла и текстом — до правки 5 из 5 красных
+   (`expected  to be 0`, `expected  to be survived`), после — 5 из 5 зелёных; файл 20 раз подряд — 20 зелёных.
+
+Не исправлены:
+
+- `e3-sandbox.test.ts:1114` (Linux 8, последний 2026-11-06 15:09): не воспроизвёлся — 24 run-а на Mac по 8 параллельно,
+  24 run-а test-а и 16 run-ов всего файла в Linux-контейнере (Debian, 4 CPU). Текста ошибки нет: vitest не печатает
+  ошибку попытки, прошедшей на retry.
+- `autopilot-faults.spec.ts:36` на Windows (17): ошибка — `journals(world.dataDir)` пуст после kill и `close`
+  (`TypeError … reading split`, run 42351046268). Причина не найдена, Windows e2e — вне Linux/macOS.
+- `trash-undo.spec.ts:116`, `autopilot-faults-github.test.ts:156`, `linked-machines.spec.ts:791`, `wave-gate-lock.test.sh`,
+  `card-api.spec.ts:89`, `cards-watch-links.test.ts:64` — только Windows; не разбирались.
+- macOS e2e `autopilot-faults.spec.ts:115`, `session-history-tail.spec.ts:53`, `packaged.spec.ts:998`,
+  `browser-mcp.spec.ts:406`, `toast-placement.spec.ts:135`: последний FLAKY — 2026-11-05…11-06, после него 74–141 run-ов
+  `main` без него. Не разбирались. `autopilot-queue.spec.ts:128` — последний FLAKY до #1558 (2026-11-07 04:55Z), после — нет.
+- `wave-gate-heartbeat.test.sh` (macOS 4, Windows 3) — `harness/`, не разбирался.
+- `cards-watch-edits.test.ts:91` (macOS 2) — FSEvents под нагрузкой, не разбирался.
+- Красные под нагрузкой из данных Orchestrator-а: `harness-hook-stdin.test.ts:345` (pty отдал пустой вывод — причина
+  не найдена), `search-index.test.ts:282` (предел времени 100 ms — подстройка одного предела запрещена правилом
+  проекта), `getting-started-panel.test.tsx:141`, `:158` (timeout 15 s), `projects-connect.test.ts:876` — не разбирались.
