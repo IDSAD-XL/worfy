@@ -1,7 +1,8 @@
 # 01 — Skills Matt Pocock в plugin worfy: копия 1.3.1, лицензия, ссылки `worfy:`
 
 Type: task
-Status: open
+Status: done 2026-11-07T19:47Z
+PR: #1589
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 1, 3, 5, 6; «Какие skills берём»; «Как работает» → «Копия и авторство», «Перекрёстные ссылки», «Где skills находят tracker»; «Вопросы владельцу», Q1–Q4, Q6
 
@@ -49,21 +50,28 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] 19 skills лежат в `harness/skills/`; для каждого файла хэш совпадает с 1.3.1, кроме файлов из списка правок
       `THIRD_PARTY.md` — таблица хэшей в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] `THIRD_PARTY.md` и `LICENSE.mattpocock-skills` есть; текст `LICENSE` совпадает с копией 1.3.1 байт в байт.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] Contract test: в `harness/` нет `mattpocock-skills`, `setup-matt-pocock-skills`, `ask-matt` (кроме
       `THIRD_PARTY.md`); каждый вызов Skill tool по имени в `harness/skills/` — `worfy:<имя>` существующего skill-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] Contract test: у каждого `SKILL.md` из копии `name` в frontmatter совпадает с именем папки; `disable-model-invocation`
       такой же, как у 1.3.1.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] Раздел `## Wayfinding operations` в `TICKETS.md`; `bash harness/bin/tests/skill-blocks.test.sh` и
       `node scripts/eval-harness.mjs --dry-run --changed origin/main` — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/skill-blocks.test.sh` exit 0, `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] `node scripts/check-cyrillic.mjs` — exit 0 (тексты plugin-а английские).
   - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: review pass · PR #1589 · - - · 3979650595bdc787f5c3e089e5c297a12c5173de
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0, `gate fast` exit 0 · mac - · ba437868580e603364f9b13007e0d5a9a3e1310d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42407293575/job/128509121326 · ci - · 3979650595bdc787f5c3e089e5c297a12c5173de
 
 ## Тесты
 
