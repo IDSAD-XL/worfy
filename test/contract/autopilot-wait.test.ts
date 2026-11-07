@@ -117,6 +117,16 @@ async function waveOne(h: { kinds: () => Promise<string[]>; messages: (unattende
   await until(async () => (await h.kinds()).includes('wave-started') && h.messages(true).length > 0, 'Wave 1 in the run\'s Session')
 }
 
+/**
+ * autopilot-waves.jsonl with the Wave's turn held until the test releases `wave` (harness option
+ * `unattended: 'autopilot-waves-held'`). The plain script answers the Wave at once: the run then reads the
+ * same Tickets and stops with no-progress, so a test that looks at the run "in its Wave" may find it stopped.
+ */
+function holdWaveTurn(): void {
+  const lines = readFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), 'utf8').trim().split('\n')
+  writeFileSync(join(scriptsDir, 'autopilot-waves-held.jsonl'), `${[...lines.slice(0, 2), '{"fake":"wait_release","name":"wave"}', ...lines.slice(2)].join('\n')}\n`)
+}
+
 /** A clock the test moves by hand: it keeps the timers the run sets and fires them when told. */
 class ManualClock {
   private next = 1
@@ -437,8 +447,7 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
 
   it('Start now on a run that does not wait does nothing: no tasks-killed, no new Session, no second start, keep-awake held once', async () => {
     // The Wave's turn holds until the test releases `wave`: the run is in its Wave when Start now comes.
-    const lines = readFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), 'utf8').trim().split('\n')
-    writeFileSync(join(scriptsDir, 'autopilot-waves-held.jsonl'), `${[...lines.slice(0, 2), '{"fake":"wait_release","name":"wave"}', ...lines.slice(2)].join('\n')}\n`)
+    holdWaveTurn()
     const h = harness({ unattended: 'autopilot-waves-held' })
     expect(await h.autopilot.start(PROJECT, EPIC)).toMatchObject({ status: 'running' })
     // The run writes `wave-started` only after "Run wave" has gone and its send has come back, a few awaits after the
@@ -517,9 +526,13 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
   })
 
   it('a waiting run parks nothing: the stopped run\'s Session it waits for gets no park', async () => {
-    const h = harness({ approval: true })
+    // The Wave's turn holds: with the plain script the turn ends at once and the run stops with no-progress, so a
+    // poll that comes late finds the run stopped, and a stopped run's policy rightly parks nothing.
+    holdWaveTurn()
+    const h = harness({ approval: true, unattended: 'autopilot-waves-held' })
     await h.autopilot.start(PROJECT, EPIC)
-    await until(() => h.messages(true).length === 1, 'the Wave to reach the Orchestrator')
+    await until(async () => h.messages(true).length === 1 && (await h.session()).state === 'busy' && (await h.kinds()).includes('wave-started'), 'the run in its Wave\'s turn')
+    expect(h.state()).toMatchObject({ status: 'running' })
     const launch = h.unattendedCalls[0]!
     expect(launch.parks?.()).toBe(true)
     await h.autopilot.forceStop(PROJECT)

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { creamInside, decodePng, pagePixelsOutside, type Box, type Image } from './browser-pixels'
 import { canvasReady, EDGE_ROOM, launchApp, repoRoot, roomToEdges, type LaunchedApp } from './helpers'
+import { WHOLLY_IN_VIEW } from './px'
 import { ms } from '../time-scale'
 
 // A Browser in focus mode (worfy-browser ticket 17). The page of a Browser is a <webview> of the
@@ -303,7 +304,7 @@ test('with a Note beside it the page follows its tile when the tiling changes, a
   await window.locator(`.react-flow__node[data-id="${NOTE.id}"] .w-note__header`).click({ modifiers: ['ControlOrMeta'] })
   await expect(window.locator('.react-flow__node.selected')).toHaveCount(2)
   const focusButton = window.getByRole('button', { name: /^Focus/ })
-  await expect(focusButton, 'the Focus button is inside the window').toBeInViewport({ ratio: 1 })
+  await expect(focusButton, 'the Focus button is inside the window').toBeInViewport(WHOLLY_IN_VIEW)
   expect(await roomToEdges(window, focusButton), 'the Focus button keeps its distance from the edges of the page').toBeGreaterThanOrEqual(EDGE_ROOM)
   await focusButton.click()
   const focus = window.getByTestId('focus-mode')
