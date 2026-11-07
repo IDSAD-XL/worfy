@@ -2,7 +2,9 @@
 // onward go through this module, so they share the same three rules:
 //
 // - what is read is parsed with a zod schema, and the caller gets the parsed value, never the raw
-//   JSON (keys the schema does not declare are dropped);
+//   JSON. Keys the schema does not declare are dropped, unless the schema is loose: the stores whose
+//   files a newer build may have written keep them and write them back (getting-started.json,
+//   limits.json, link/settings.json; worfy-polish ticket 63);
 // - a write goes to a temporary file in the same directory and is renamed over the target, so a
 //   crash mid-write leaves either the old file or the new one, never half of one;
 // - a file that cannot be parsed or does not match its schema is not overwritten: it is renamed to

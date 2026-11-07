@@ -35,11 +35,12 @@ export const limitWindowStateSchema = z.object({
   /** When worfy received the value, in milliseconds since the epoch. */
   receivedAt: z.number(),
   /**
-   * Where the value came from. Read leniently: a source this build does not know (one a newer build
-   * added) reads as `sdk` instead of setting the whole limits.json aside, which would lose a
-   * `rejected` status and the reset times Autopilot and Terminal AI wait by.
+   * Where the value came from: `sdk`, `statusline` or `usage`. Any string reads: a source this build
+   * does not know (one a newer build added) is kept as it is instead of setting the whole limits.json
+   * aside, which would lose a `rejected` status and the reset times Autopilot and Terminal AI wait by,
+   * and the next write leaves it for the newer build. This build counts it as a passive source.
    */
-  source: z.enum(['sdk', 'statusline', 'usage']).catch('sdk'),
+  source: z.string(),
 })
 export type LimitWindowState = z.infer<typeof limitWindowStateSchema>
 
@@ -257,7 +258,8 @@ export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[])
     if (known !== undefined && sameWindow(known, next)) continue
     windows = { ...windows, [window]: next }
   }
-  return windows === state.windows ? state : { windows }
+  // The spread keeps what else the state holds: the keys of a newer build's limits.json (src/main/agent/limits.ts).
+  return windows === state.windows ? state : { ...state, windows }
 }
 
 /** `next`, with the known reset time when `next` has none and the known one is still ahead of it. */

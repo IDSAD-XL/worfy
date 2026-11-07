@@ -17,20 +17,26 @@
 // A file of version 1 (before ticket 18) had one switch for all Linked machines. It reads as the
 // same access: on gives `all` to every Machine linked at that moment, off gives none; the file is
 // written again as version 2 at once, so a Machine linked later never inherits the old switch.
+//
+// A newer build may have written the file (worfy-polish ticket 63: Roll back, ADR-0089, starts the
+// previous copy on the same data folder). Keys this build does not know are kept and written back
+// with every change. A version later than 2 is not set aside and never rewritten: its access rules
+// may narrow what the fields this build knows say, so this build applies the defaults (access off)
+// and refuses every change with an error the Settings shows. The newer build finds its file as it was.
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { accessLevelSchema, type AccessLevel } from '../../shared/ipc/link'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
-const versionOne = z.object({
+const versionOne = z.looseObject({
   version: z.literal(1),
   projectsAccess: z.boolean(),
   /** Absent in a file written before worfy-link ticket 14: the default then. */
   keepAwake: z.boolean().optional(),
 })
 
-const versionTwo = z.object({
+const versionTwo = z.looseObject({
   version: z.literal(2),
   projectsAccess: z.boolean(),
   machines: z.record(z.uuid(), accessLevelSchema),
@@ -39,7 +45,18 @@ const versionTwo = z.object({
   tailscale: z.boolean().optional(),
 })
 
-const settingsFileSchema = z.discriminatedUnion('version', [versionOne, versionTwo])
+/** What a read accepts: version 1 or 2, or a later version, which reads as `newer` with its number. */
+const readSchema = z.union([
+  z.discriminatedUnion('version', [versionOne, versionTwo]),
+  z.looseObject({ version: z.number().int().gt(2) }).transform((file) => ({ version: 'newer' as const, was: file.version })),
+])
+
+/** The keys this build writes itself; any other key of the file is a newer build's and is written back as it was. */
+const KNOWN_KEYS: ReadonlySet<string> = new Set(['version', 'projectsAccess', 'machines', 'keepAwake', 'tailscale'])
+
+function unknownKeys(file: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(file).filter(([key]) => !KNOWN_KEYS.has(key)))
+}
 
 /** A level other than `off`: what `machines` keeps. */
 export type GrantedLevel = Exclude<AccessLevel, 'off'>
@@ -78,23 +95,33 @@ export interface LinkSettingsOptions {
 export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }> {
   private readonly file: string
   private value: LinkSettingsValue
+  /** The keys of the file this build does not know, written back with every change. */
+  private unknown: Record<string, unknown> = {}
+  /** The version of the file when a newer build wrote it: this build then never writes the file. */
+  private readonly newerVersion: number | null = null
 
   constructor(linkDir: string, options: LinkSettingsOptions = {}) {
     super()
     const warn = options.warn ?? ((message: string) => console.warn(message))
     this.file = join(linkDir, 'settings.json')
-    let stored: z.output<typeof settingsFileSchema> | undefined
+    let stored: z.output<typeof readSchema> | undefined
     try {
-      stored = readJsonFile(this.file, settingsFileSchema)
+      stored = readJsonFile(this.file, readSchema)
     } catch (error) {
       // Access stays off when the file cannot be read: the safe side of the switch.
       warn(`[link] ${this.file} could not be read, access stays off: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (stored === undefined) {
       this.value = { ...DEFAULT_LINK_SETTINGS, machines: {} }
+    } else if (stored.version === 'newer') {
+      this.value = { ...DEFAULT_LINK_SETTINGS, machines: {} }
+      this.newerVersion = stored.was
+      warn(`[link] ${this.file} is version ${stored.was}, written by a newer worfy: access stays off, and this build leaves the file as it is`)
     } else if (stored.version === 2) {
+      this.unknown = unknownKeys(stored)
       this.value = { projectsAccess: stored.projectsAccess, machines: granted(stored.machines), keepAwake: stored.keepAwake, tailscale: stored.tailscale ?? DEFAULT_LINK_SETTINGS.tailscale }
     } else {
+      this.unknown = unknownKeys(stored)
       const machines: Record<string, GrantedLevel> = {}
       if (stored.projectsAccess) for (const id of options.linked?.() ?? []) machines[id] = 'all'
       this.value = { projectsAccess: stored.projectsAccess, machines, keepAwake: stored.keepAwake ?? DEFAULT_LINK_SETTINGS.keepAwake, tailscale: DEFAULT_LINK_SETTINGS.tailscale }
@@ -146,6 +173,11 @@ export class LinkSettings extends EventEmitter<{ changed: [LinkSettingsValue] }>
   }
 
   private write(value: LinkSettingsValue): void {
-    writeJsonFile(this.file, settingsFileSchema, { version: 2, projectsAccess: value.projectsAccess, machines: { ...value.machines }, keepAwake: value.keepAwake, tailscale: value.tailscale })
+    // A change is refused rather than kept in memory: the user sees this text where Settings → Machines
+    // shows its errors, instead of a switch that is silently off again after a restart. Nothing is
+    // granted in this mode, so the service's own setLevel(id, 'off') on link and unlink changes
+    // nothing, writes nothing and never gets here.
+    if (this.newerVersion !== null) throw new Error(`Link settings were written by a newer worfy build (file version ${this.newerVersion}); update worfy to change them`)
+    writeJsonFile(this.file, versionTwo, { ...this.unknown, version: 2, projectsAccess: value.projectsAccess, machines: { ...value.machines }, keepAwake: value.keepAwake, tailscale: value.tailscale })
   }
 }

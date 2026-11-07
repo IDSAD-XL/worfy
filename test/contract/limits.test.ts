@@ -126,11 +126,11 @@ describe('LimitsTracker', () => {
     expect(tracker(NOW + 1).snapshot()).toEqual(saved)
   })
 
-  it('drops keys outside the schema from limits.json and sets an unreadable file aside', () => {
+  it('keeps keys outside the schema of limits.json (a newer build wrote them) and sets an unreadable file aside', () => {
     mkdirSync(dataDir, { recursive: true })
     const window = { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk', extra: 'x' }
     writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: window }, other: 1 }))
-    expect(tracker().snapshot()).toEqual({ windows: { five_hour: { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk' } } })
+    expect(tracker().snapshot()).toEqual({ windows: { five_hour: window }, other: 1 })
 
     writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: { ...window, utilization: '50%' } } }))
     expect(tracker().snapshot()).toEqual({ windows: {} })
@@ -381,6 +381,24 @@ describe('limits channels', () => {
     snapshot = { claude: { windows: { five_hour: { ...window, utilization: '50%' } } }, vendors: {} }
     const refused = await open(undefined)
     expect(refused).toEqual({ ok: false, error: 'limits.open: invalid output from the handler' })
+  })
+
+  it('keeps the keys a newer build wrote in limits.json out of limits.open and limits.changed', async () => {
+    mkdirSync(dataDir, { recursive: true })
+    const window = { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk' }
+    writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { seven_day: { ...window, windowMinutes: 10080 } }, vendors: { codex: {} } }))
+    const limits = tracker()
+    expect(limits.snapshot()).toEqual({ windows: { seven_day: { ...window, windowMinutes: 10080 } }, vendors: { codex: {} } })
+
+    const open = await register(() => limits)
+    const client = fakeWindow()
+    expect(await open(undefined, client)).toEqual({ ok: true, value: { claude: { windows: { seven_day: window } }, vendors: {} } })
+
+    const update = { window: 'five_hour', state: { utilization: 0.7, resetsAt: null, status: null, receivedAt: NOW + 1, source: 'sdk' as const } }
+    limits.record([update])
+    expect(client.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}limits.changed`, payload: { claude: { windows: { seven_day: window, five_hour: update.state } }, vendors: {} } }])
+    // The file keeps them for the newer build.
+    expect(JSON.parse(readFileSync(join(dataDir, 'limits.json'), 'utf8'))).toMatchObject({ windows: { seven_day: { windowMinutes: 10080 } }, vendors: { codex: {} } })
   })
 
   it('sends every change to an open window as limits.changed until the window is destroyed', async () => {

@@ -76,8 +76,17 @@ Project is not in this Machine's list.
   none of them in the real folder.
 - **A write is all or nothing.** A write goes to a temporary file in the same folder, which is then renamed over the
   target. A crash leaves the old file or the new one. A value outside its schema throws before anything is written.
-- **A read gives the parsed value.** Keys the schema does not declare are dropped, unless the schema is loose. The one of
-  `getting-started.json` is, so an older build does not lose what a newer one wrote.
+- **A read gives the parsed value.** Keys the schema does not declare are dropped, unless the schema is loose. Roll back
+  ([ADR-0089](../adr/0089-update-builds-main-in-own-clone.md)) runs the previous copy on the same data folder, so three
+  files that a newer build may have written have loose schemas: `getting-started.json`, `limits.json` and
+  `link/settings.json`. An older build reads them with keys it does not know, is not set aside for them, and its next
+  write keeps them. In `limits.json` a window the older build updates gets its own new value, without the old value's
+  unknown keys, and a source of a window it does not know is kept as written. A `link/settings.json` of a version later
+  than 2 is not set aside either. Its rules may narrow what the known fields say, so the older build leaves access off
+  and uses the other defaults, and never writes that file. A change in Settings → Machines is refused there with "Link
+  settings were written by a newer worfy build (file version N); update worfy to change them". Linking and unlinking a
+  Machine still work. The newer build finds its file as it was. A file that does not parse as JSON is still set aside. The other state files drop keys
+  they do not know.
 - **The calls are synchronous.** The files are small, a window position has to be saved inside a `close` handler, and two
   synchronous read-modify-write cycles cannot interleave in one process.
 - **The Layout and the camera wait for a quiet moment.** They are written 250 ms after the last change, the Layout at

@@ -23,7 +23,8 @@
 // Session (src/main/vendors/codex/session.ts, ticket 26). view() is what the Limits panel draws.
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
-import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitsView } from '../../shared/agent/limits'
+import { z } from 'zod'
+import { emptyLimits, limitStatusOf, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitWindowStateSchema, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitsView } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
@@ -34,6 +35,15 @@ import type { EventSink, QueryFactory } from './session'
 export const LIMITS_FILE = 'limits.json'
 /** Written by scripts/statusline-bridge.mjs: the status line's `rate_limits` object as is. */
 export const STATUSLINE_FILE = 'statusline-limits.json'
+
+/**
+ * limits.json as this build reads and writes it: the stored state, loose at both levels (worfy-polish
+ * ticket 63). The file may come from a newer build (Roll back, ADR-0089, runs the previous copy on the
+ * same data folder): a key this build does not know stays in the state, so the next write keeps it, and
+ * a window this build replaces drops the keys of its old value. What goes over IPC is still parsed with
+ * the strict limitsStateSchema, so those keys never reach the renderer.
+ */
+const limitsFileSchema = limitsStateSchema.extend({ windows: z.record(z.string(), limitWindowStateSchema.loose()) }).loose()
 
 /** How long to wait after a change of the status line file before reading it. */
 const STATUSLINE_DEBOUNCE_MS = 50
@@ -89,7 +99,7 @@ export class LimitsTracker {
     this.statuslineFile = join(options.dataDir, STATUSLINE_FILE)
     this.now = options.now ?? Date.now
     // An unreadable limits.json is set aside by readJsonFile; the Limits then start empty.
-    this.state = readJsonFile(this.file, limitsStateSchema) ?? emptyLimits()
+    this.state = readJsonFile(this.file, limitsFileSchema) ?? emptyLimits()
   }
 
   snapshot(): LimitsState {
@@ -108,7 +118,7 @@ export class LimitsTracker {
     if (next === this.state) return
     this.state = next
     try {
-      writeJsonFile(this.file, limitsStateSchema, next)
+      writeJsonFile(this.file, limitsFileSchema, next)
     } catch (error) {
       // The Limits on screen stay right; only the copy for the next start is lost.
       console.warn(`[limits] could not save ${this.file}`, error)

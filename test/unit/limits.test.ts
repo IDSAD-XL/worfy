@@ -265,7 +265,7 @@ describe('limitUpdatesFromUsage (the answer of the SDK usage request)', () => {
 })
 
 describe('limits.json with a source this build does not know', () => {
-  it('is read, not set aside: the status and the reset times stay, the source reads as sdk', () => {
+  it('is read, not set aside: the status, the reset times and the source stay as written', () => {
     const file = {
       windows: {
         seven_day: { utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'a-source-of-a-newer-build' },
@@ -274,7 +274,7 @@ describe('limits.json with a source this build does not know', () => {
     }
     const parsed = limitsStateSchema.safeParse(file)
     expect(parsed.success).toBe(true)
-    expect(parsed.data?.windows.seven_day).toEqual({ utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'sdk' })
+    expect(parsed.data?.windows.seven_day).toEqual({ utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'a-source-of-a-newer-build' })
     expect(parsed.data?.windows.five_hour?.source).toBe('statusline')
   })
 })
