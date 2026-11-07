@@ -13,7 +13,7 @@ page. New to the terms: start with [Concepts](concepts.md).
 Every run of Autopilot goes in one **Run mode**. The mode is fixed when the run starts and stays the same for the whole
 run. It acts only at the boundary of a Wave, before "Run wave" is sent: it decides whether the next Wave starts now or
 waits. It never stops or cuts a Wave in work. A refusal by the Limits inside a Wave stays the hard limit in every mode:
-the run waits for the reset, as the [Autopilot](autopilot.md) page describes.
+the run waits for the reset, as the [Autopilot faults and recovery](autopilot-faults.md#waiting-for-the-limits) page describes.
 
 | Mode | Before each Wave |
 |---|---|
