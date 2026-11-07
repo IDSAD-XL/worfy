@@ -126,11 +126,11 @@ describe('LimitsTracker', () => {
     expect(tracker(NOW + 1).snapshot()).toEqual(saved)
   })
 
-  it('drops keys outside the schema from limits.json and sets an unreadable file aside', () => {
+  it('keeps keys outside the schema of limits.json (a newer build wrote them) and sets an unreadable file aside', () => {
     mkdirSync(dataDir, { recursive: true })
     const window = { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk', extra: 'x' }
     writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: window }, other: 1 }))
-    expect(tracker().snapshot()).toEqual({ windows: { five_hour: { utilization: 0.5, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk' } } })
+    expect(tracker().snapshot()).toEqual({ windows: { five_hour: window }, other: 1 })
 
     writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { five_hour: { ...window, utilization: '50%' } } }))
     expect(tracker().snapshot()).toEqual({ windows: {} })
