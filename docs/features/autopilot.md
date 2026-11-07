@@ -67,8 +67,8 @@ remote `origin` asks no one.
 **While the Orchestrator is busy** — in a turn, with live background tasks, or with messages waiting in its queue — a
 start is not refused. The run begins at once, its journal opens with `run-started` and `orchestrator-busy`, and the status line says
 `waiting for the Orchestrator · 4 min`. The run sends its first Wave once the Orchestrator is free: the turn is over, the
-queue is empty, no background task lives, and two minutes passed after the last task ended with no new turn. A message
-sent during the wait makes it longer. Then the checks above run again: a refusal at this moment stops the run with
+queue is empty, no background task lives, and after the last task ended a new turn has run to its end, or two minutes
+passed with no new turn. A message sent during the wait makes it longer. Then the checks above run again: a refusal at this moment stops the run with
 `start-refused` and the reason, in the journal and as a notice in the Session that asked from a chat. keep-awake starts
 only with the real start. **Stop** (and Force stop) on a waiting run cancels it: `start-cancelled`, the Orchestrator
 untouched. **Start now** (channel `autopilot.startNow`) does not wait: it stops the Orchestrator's turn and background

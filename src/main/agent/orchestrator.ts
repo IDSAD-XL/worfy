@@ -190,6 +190,12 @@ interface Run {
    */
   fresh: boolean
   session: Session | null
+  /**
+   * A turn has run in this Session since its background tasks last went to none (worfy-polish ticket 65), as its
+   * events said, in order: a run that waits reads it (turnSinceLastTask), since it reads the Orchestrator after the
+   * events and may come after that turn has ended.
+   */
+  turnSinceTasks: boolean
 }
 
 interface Entry {
@@ -460,6 +466,15 @@ export class Orchestrators {
    * Session that waits to be given back do not count (it is taken over as it runs). Null when none
    * holds, and for an Orchestrator that is not open (setUnattended opens it).
    */
+  /**
+   * Whether a turn has run in the Orchestrator's current Session since its background tasks last went to none
+   * (worfy-polish ticket 65): a run that waits takes the Orchestrator once it is free, rather than wait the grace time
+   * for the turn of the last task's task-notification when that turn has already ended.
+   */
+  turnSinceLastTask(projectId: string): boolean {
+    return this.entries.get(projectId)?.run?.turnSinceTasks === true
+  }
+
   busy(projectId: string): OrchestratorBusy | null {
     const entry = this.entries.get(projectId)
     const view = entry === undefined ? undefined : this.views.get(entry.nodeId)
@@ -694,7 +709,7 @@ export class Orchestrators {
 
   /** Starts the Orchestrator's Session; with `after`, its Claude Code process waits for `after` (relaunch). */
   private launch(entry: Entry, resume: string | undefined, facts: TranscriptFacts, after?: Promise<void>, fresh = false): void {
-    const run: Run = { current: true, resume, initSeen: false, fresh, session: null }
+    const run: Run = { current: true, resume, initSeen: false, fresh, session: null, turnSinceTasks: false }
     entry.run = run
     // The view goes first: the registry reports `starting` before start() returns.
     this.setView(entry, {
@@ -757,6 +772,7 @@ export class Orchestrators {
       case 'state':
         next.state = event.state
         next.error = event.error
+        if (inTurn(event.state) && (run.session?.backgroundTasks().length ?? 0) === 0) run.turnSinceTasks = true
         if (event.state === 'error') {
           entry.cost.processEnded()
           if (run.resume !== undefined && !run.initSeen && NO_CONVERSATION.test(event.error ?? '')) {
@@ -776,6 +792,8 @@ export class Orchestrators {
         }
         break
       case 'background_tasks':
+        // A task still alive, or the last one ending outside a turn: the turn its task-notification starts is still to come.
+        run.turnSinceTasks = event.tasks.length === 0 && inTurn(this.current(entry).state)
         // The last task ended: its task-notification starts a turn, which the relaunch waits for;
         // when none comes within the grace time, the relaunch goes on without it.
         if (event.tasks.length === 0 && entry.wanted !== null) this.relaunchAfterGrace(entry, run)
