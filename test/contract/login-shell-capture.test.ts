@@ -81,9 +81,11 @@ const BACKGROUND = 'sleep 30 & echo $! > "$HOME/background.pid"\n'
 // A second background process that writes to the shell's output and its stderr once the test
 // creates HOME/go — after the capture has answered — and then writes HOME/after. A `git pull` of
 // dotfiles an rc file starts in the background is such a process. It waits for the file, not for
-// a fixed time, so a slow run cannot move its writes before the answer.
+// a fixed time, so a slow run cannot move its writes before the answer. HOME/after (here and below)
+// comes by a rename of HOME/after.tmp: `> file` makes the file before the text is in it, and a test
+// that waited for the file read it empty under load.
 const LATE_WRITER =
-  '( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; echo late; echo late >&2; echo survived > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n'
+  '( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; echo late; echo late >&2; echo survived > "$HOME/after.tmp" && mv "$HOME/after.tmp" "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n'
 
 /**
  * The lines of a script of its own that give it `captureLoginShellEnv`. Electron's Node strips the types of env.ts
@@ -137,7 +139,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
 
   it('drops what that process writes after the answer: more than MAX_SHELL_OUTPUT of it neither piles up nor breaks its pipe', async () => {
     // After HOME/go, 17 MB to the shell's output; HOME/after gets the exit status of that pipeline.
-    profile(BACKGROUND + `( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 17000000 /dev/zero | tr '\\0' a; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
+    profile(BACKGROUND + `( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 17000000 /dev/zero | tr '\\0' a; echo "$?" > "$HOME/after.tmp" && mv "$HOME/after.tmp" "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
     const result = await captureLoginShellEnv({ shell: '/bin/sh', source: source('/bin/sh') })
     expect(result.from, result.error ?? '').toBe('login-shell')
     writeFileSync(join(home, 'go'), '')
@@ -178,7 +180,7 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     // 40 MB a second on a quiet Mac, so the 100 MB took 2.5 s of the 20 s below, and on a Mac loaded
     // by parallel runs the time limit killed the process. head writes them in tens of milliseconds;
     // the capture drops NULs as it drops any other text.
-    profile(`( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 100000000 /dev/zero; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
+    profile(`( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 100000000 /dev/zero; echo "$?" > "$HOME/after.tmp" && mv "$HOME/after.tmp" "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
     const script = join(home, 'flood.mts')
     writeFileSync(
       script,
