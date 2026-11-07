@@ -65,10 +65,15 @@ exceeded» на чтение логов job-ов.
 ## Готово, когда
 
 - [ ] Таблица flaky test-ов за 2026-11-01…11-07 в «Что происходит».
+  - evidence: commit pass · docs: polish 66 — the week's flaky table, what was fixed and what was not · - - · 817fe8bcd0750033a2cbf5768426c24102f3b479
 - [ ] Каждый исправленный test воспроизведён до правки и проходит после неё: счёт до и после в «Итог».
+  - evidence: test-run pass · `pnpm test <the test with the injected delay or the git wrapper>` before red, after exit 0 (counts in Итог) · mac - · 817fe8bcd0750033a2cbf5768426c24102f3b479
 - [ ] Исправленные test-ы — 20 прогонов подряд зелёные; все unit и contract test-ы затронутых модулей, `pnpm lint`,
       `pnpm typecheck`, gate fast — exit 0.
+  - evidence: test-run pass · `pnpm test` (all unit and contract) exit 0; `pnpm lint` exit 0; `pnpm typecheck` exit 0; 20-run loops 20 of 20 · mac - · 817fe8bcd0750033a2cbf5768426c24102f3b479
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 817fe8bcd0750033a2cbf5768426c24102f3b479
 - [ ] Не исправленные test-ы таблицы — в «Итог», с причиной или с тем, почему её не нашли.
+  - evidence: commit pass · docs: polish 66 — the week's flaky table, what was fixed and what was not · - - · 817fe8bcd0750033a2cbf5768426c24102f3b479
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
