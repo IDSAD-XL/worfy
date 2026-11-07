@@ -1,7 +1,8 @@
 # 62 — Flight Recorder: Run очереди читает данные Ticket-а по его Epic-у
 
 Type: bug
-Status: open
+Status: done 2026-11-07T00:56Z
+PR: #1544
 Blocked by: —
 Source: review PR [#1535](https://github.com/IDSAD-XL/worfy/pull/1535) ([worfy-autopilot-queue 18](../../worfy-autopilot-queue/issues/18-run-history-ожидание-и-run-очереди.md):
 Run history для Run-а над очередью Epic-ов), 2026-11-06. Находка medium, плюс одна low в том же месте. PR влит
@@ -46,17 +47,23 @@ Ticket-а. Пример: очередь `alpha` → `beta`, в обоих Epic-�
 - [ ] Ветки, marks file и разбор transcript-ов берут Epic Ticket-а, а не `journal.epic` / `run.epic`
       (`service.ts:539`, `service.ts:576`, `transcripts.ts:393`, `:471`, `from-transcript.ts:554`, `:587`, `:321-326`).
   - evidence: commit pass · Flight Recorder: a queue Run reads each Ticket by its own Epic (worfy-polish 62) · - - · 2828f39f192f87b8bdcd6b223c76ec17f5de0420
+  - evidence: review pass · PR #1544 · - - · 530cab1c746f2c866605fb6f590c38d14045c454
 - [ ] Test-ы на Run очереди с одним номером Ticket-а в двух Epic-ах (`alpha/01` и `beta/01`), каждый до правки
       красный: Ticket второго Epic-а со своей строкой `Branch:` получает свой PR; Ticket без PR второго Epic-а
       читает свой marks file (`beta-01`); agent «ticket 01» с веткой или путём `beta` приписан `beta/01`, а Wave
       Epic-а `beta` — Ticket-ам `beta`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flight-recorder-transcript.test.ts test/contract/flight-recorder-service.test.ts` exit 0 (red on origin/main 8c57c8018) · mac - · 2828f39f192f87b8bdcd6b223c76ec17f5de0420
+  - evidence: review pass · PR #1544 · - - · 530cab1c746f2c866605fb6f590c38d14045c454
 - [ ] Имена строк Ticket-ов: в Run-е очереди — с Epic-ом, в Run-е одного Epic-а — как сейчас; unit test на оба.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/flight-recorder-span-names.test.tsx` exit 0 · mac - · 2828f39f192f87b8bdcd6b223c76ec17f5de0420
+  - evidence: review pass · PR #1544 · - - · 530cab1c746f2c866605fb6f590c38d14045c454
 - [ ] `docs/features/flight-recorder.md` и перевод не обещают больше, чем делает код.
   - evidence: commit pass · Flight Recorder: a queue Run reads each Ticket by its own Epic (worfy-polish 62) · - - · 2828f39f192f87b8bdcd6b223c76ec17f5de0420
+  - evidence: review pass · PR #1544 · - - · 530cab1c746f2c866605fb6f590c38d14045c454
 - [ ] Все unit и contract test-ы `src/main/flight-recorder/`, `src/shared/flight-recorder/`,
       `src/renderer/flight-recorder/`, `pnpm typecheck`, `pnpm lint`, gate fast — exit 0.
+  - evidence: review pass · PR #1544 · - - · 530cab1c746f2c866605fb6f590c38d14045c454
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42318365426 · ci - · 530cab1c746f2c866605fb6f590c38d14045c454
 
 ## Где в коде
 
