@@ -36,9 +36,10 @@ Run history занимает всю главную область окна вм�
 - **Open Run history** в Command palette: экран на самом новом run-е активного Project-а.
 
 Над экраном стоит переключатель `Run history | Work track` вкладки Runs ([Work track](work-track.md)). Project
-показывает Run history, пока для него не выбран Work track. Тогда, пока приложение работает, вкладка и **Open Run
-history** в Command palette показывают для этого Project-а Work track. Toast остановки, **History**, **Run history** в
-«⋯» и **Open Run** панели Work track называют run или Epic, поэтому всегда показывают Run history.
+показывает Run history, пока для него не выбран Work track. Тогда, пока приложение работает, вкладка показывает для
+этого Project-а Work track. **Open Run history** в Command palette всегда показывает Run history и снова делает его
+выбором Project-а. Toast остановки, **History**, **Run history** в «⋯» и **Open Run** панели Work track называют run
+или Epic, поэтому тоже всегда показывают Run history.
 
 **Esc** возвращает на Canvas, если только его не забирает диалог, меню или текстовое поле. Выбор другого Project-а в
 боковой панели тоже возвращает на Canvas.

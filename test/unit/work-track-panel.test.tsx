@@ -36,6 +36,8 @@ const FACTS: WorkFact[] = [
   { id: 'subagent:s-orch:a2', kind: 'subagent', start: at(4, 9, 30), end: at(4, 10, 30), outcome: 'rejected', session: 's-orch', epic: 'worfy-alpha', ticket: '02', source: 'transcript', title: 'verify-02' },
   { id: 'gate:wt/1', kind: 'gate', start: at(4, 13), end: at(4, 13, 10), outcome: 'failed', session: null, source: 'gate-log', title: 'gate fast' },
   { id: 'gh-pr:1501', kind: 'pr', start: at(4, 7), end: at(4, 12, 30), outcome: 'ok', session: null, epic: 'worfy-alpha', ticket: '01', pr: 1501, source: 'github', title: '#1501 Ticket 01' },
+  { id: 'gh-run:91', kind: 'ci', start: at(4, 12), end: at(4, 12, 12), outcome: 'failed', session: null, epic: 'worfy-alpha', ticket: '01', pr: 1501, source: 'github', title: 'ci' },
+  { id: 'ticket-status:abc123:worfy-alpha/01', kind: 'ticket-status', start: at(4, 12, 31), end: at(4, 12, 31), outcome: 'ok', session: null, epic: 'worfy-alpha', ticket: '01', pr: 1501, source: 'git', title: '01 claimed → done' },
 ]
 const SESSIONS: SessionInfo[] = [{ id: 's-orch', name: 'Orchestrator', vendor: 'claude', hidden: false, archived: false }]
 
@@ -228,6 +230,42 @@ describe('the Span panel', () => {
       fireEvent.click(open)
     })
     expect(calls.filter((call) => call.channel === 'shell.openExternal').map((call) => call.input)).toEqual([{ url: `${REPO}/pull/1501` }])
+  })
+
+  it('opens on a CI run: its outcome, its PR and the source GitHub (ticket 13)', async () => {
+    const { calls } = fakeMain()
+    await openDay()
+    const panel = await clickSpan('gh-run:91')
+    expect(within(panel).getByRole('heading').textContent).toBe('ci')
+    expect(within(panel).getByTestId('work-track-panel-what').textContent).toBe('CI run')
+    const rows = table(panel)
+    expect(rows.Duration).toBe('12m 00s')
+    expect(rows.Epic).toBe('worfy-alpha')
+    expect(rows.Ticket).toBe('01')
+    expect(rows.PR).toBe('#1501')
+    expect(rows.Outcome).toBe('failed')
+    expect(within(panel).getByTestId('work-track-panel-source').textContent).toMatch(/^Source: GitHub\./u)
+    expect(within(panel).getByRole('button', { name: 'Open Session' })).toHaveProperty('disabled', true)
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Open PR' }))
+    })
+    expect(calls.filter((call) => call.channel === 'shell.openExternal').map((call) => call.input)).toEqual([{ url: `${REPO}/pull/1501` }])
+  })
+
+  it('opens on a Ticket status change: the moment, the change itself and the source git (ticket 13)', async () => {
+    fakeMain()
+    await openDay()
+    const panel = await clickSpan('ticket-status:abc123:worfy-alpha/01')
+    expect(within(panel).getByRole('heading').textContent).toBe('01 claimed → done')
+    expect(within(panel).getByTestId('work-track-panel-what').textContent).toBe('Ticket status change')
+    const rows = table(panel)
+    // A moment: one time, no stretch and no duration.
+    expect(rows.When).not.toContain('–')
+    expect(rows.Duration).toBe('—')
+    expect(rows.Epic).toBe('worfy-alpha')
+    expect(rows.Ticket).toBe('01')
+    expect(rows.Outcome).toBe('claimed → done')
+    expect(within(panel).getByTestId('work-track-panel-source').textContent).toMatch(/^Source: git log of the Ticket files\./u)
   })
 
   it('keeps Open PR off when the Project has no page on GitHub', async () => {

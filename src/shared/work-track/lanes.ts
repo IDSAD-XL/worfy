@@ -6,8 +6,9 @@
 // strip — until the Session is expanded, then a lane per Subagent, nested under the Subagent that
 // started it; the lane «Gate runs» last. «by Epic»: a lane per Epic holding the work (Waves, turns,
 // Subagents) of that Epic, the longest first, «—» for work with no Epic last, then «Gate runs».
-// PRs, CI runs and Ticket status changes are on no lane (offLaneSpans): the screen marks only merged PRs,
-// as diamonds on the axis that open the side panel; CI runs and status changes are not drawn.
+// PRs, CI runs and Ticket status changes are on no lane (offLaneSpans): merged PRs are diamonds on the axis;
+// CI runs and status changes are marks on two narrow rows under it (markRows, ticket 13), each row hatched
+// where its source — GitHub, the git log — holds nothing.
 //
 // Every span is cut to the period; a fact with no end lasts until `now`. The Epic of a fact with
 // none is the Epic of its parent chain (a Subagent inside a Wave takes the Wave's); with none there
@@ -19,6 +20,8 @@ import type { Period, SessionInfo, SourceGap, WorkFact, WorkFactKind, WorkSource
 export const NO_EPIC = '—'
 export const RUNS_LANE_TITLE = 'Autopilot Runs'
 export const GATE_LANE_TITLE = 'Gate runs'
+export const CI_ROW_TITLE = 'CI runs'
+export const STATUS_ROW_TITLE = 'Ticket status'
 
 /** The kinds that are work: the hours count them, the Epic lanes hold them (Runs are their Waves). */
 export const WORK_KINDS: ReadonlySet<WorkFactKind> = new Set<WorkFactKind>(['wave', 'turn', 'subagent'])
@@ -66,6 +69,16 @@ export interface Lane {
   children: Lane[]
   /** The Subagent spans of a folded Session, drawn as a strip on its lane. */
   strip: WorkSpan[]
+  gaps: LaneGap[]
+}
+
+/** A narrow row of marks under the axis: the CI runs, or the Ticket status changes. */
+export interface MarkRow {
+  id: 'ci' | 'ticket-status'
+  title: string
+  /** The one source of its marks, whose gaps hatch it. */
+  source: WorkSource
+  marks: WorkSpan[]
   gaps: LaneGap[]
 }
 
@@ -151,6 +164,20 @@ function laneGaps(gaps: readonly SourceGap[], bounds: { start: number; end: numb
     if (end > start) result.push({ source: gap.source, start, end, why: gap.why })
   }
   return result.sort((a, b) => a.start - b.start)
+}
+
+/** The rows of CI runs (hatched by GitHub's gaps) and of Ticket status changes (by the git log's). */
+export function markRows(input: WorkTrackInput): MarkRow[] {
+  const bounds = periodBounds(input.period)
+  const spans = offLaneSpans(input)
+  const row = (id: MarkRow['id'], title: string, source: WorkSource): MarkRow => ({
+    id,
+    title,
+    source,
+    marks: spans.filter((span) => span.kind === id),
+    gaps: laneGaps(input.gaps, bounds, (gap) => gap.source === source),
+  })
+  return [row('ci', CI_ROW_TITLE, 'github'), row('ticket-status', STATUS_ROW_TITLE, 'git')]
 }
 
 function lane(id: string, kind: LaneKind, title: string, spans: WorkSpan[], over: Partial<Lane> = {}): Lane {

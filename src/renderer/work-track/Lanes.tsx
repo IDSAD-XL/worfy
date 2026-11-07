@@ -4,7 +4,9 @@
 // Subagents by their kind, an outcome `failed` or `rejected` underlined in the problem colour, the folded
 // Subagents of a Session as a strip, «no data» hatched with its source and why in the tooltip, and the «now»
 // line. Above them the axis: the hours of a Day, the days of a Week (a click opens the Day), the merged PRs
-// as diamonds; the Month is cells of days instead (MonthGrid.tsx).
+// as diamonds; the Month is cells of days instead (MonthGrid.tsx). Under the axis of a Day or a Week, two
+// narrow rows (ticket 13): the CI runs, coloured by outcome and hatched where GitHub has no data, and the
+// Ticket status changes, hatched where the git log has none; a click on a mark opens it like a Span.
 //
 // The lanes are the model's (src/shared/work-track/lanes.ts) over main's answer; positions are percents of
 // the period, so the track needs no measuring but for whether a label fits in its bar.
@@ -14,7 +16,7 @@ import { agentSubkind } from '../../shared/flight-recorder/spans'
 import type { WorkTrackView } from '../../shared/ipc/work-track'
 import { vendorLabel } from '../../shared/vendors/vendor'
 import { WORK_SOURCE_LABELS, type WorkFact } from '../../shared/work-track/facts'
-import { lanesByEpic, lanesBySession, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type WorkSpan } from '../../shared/work-track/lanes'
+import { lanesByEpic, lanesBySession, markRows, offLaneSpans, periodBounds, periodDays, type Lane, type LaneGap, type MarkRow, type WorkSpan } from '../../shared/work-track/lanes'
 import { formatClock, formatDuration, formatLocal } from '../flight-recorder/store'
 import { MonthAxis, MonthCells } from './MonthGrid'
 import { dayName, hoursText, monthScale, openDay, startOfDay, toggleSession, type Density, type LaneMode } from './store'
@@ -57,12 +59,12 @@ function laneColour(lane: Lane): string {
   }
 }
 
-/** The tooltip of a span: its name, its time and duration as the sources have them, its Epic and Ticket. */
+/** The tooltip of a span: its name, its time and duration as the sources have them (a moment: its time), its Epic and Ticket. */
 function spanTip(span: WorkSpan, fact: WorkFact | undefined): string {
   const start = fact === undefined ? span.start : Date.parse(fact.start)
   const end = fact?.end == null ? span.end : Date.parse(fact.end)
   const until = span.open ? 'now' : startOfDay(start) === startOfDay(end) ? formatClock(end) : formatLocal(end)
-  const when = [`${formatLocal(start)} – ${until}`, formatDuration(end - start)]
+  const when = !span.open && end === start ? [formatLocal(start)] : [`${formatLocal(start)} – ${until}`, formatDuration(end - start)]
   if (span.outcome !== null && span.outcome !== 'ok') when.push(span.outcome)
   if (span.open) when.push('going on')
   const lines = [span.title, when.join(' · ')]
@@ -248,6 +250,68 @@ function Axis({ view, scale, prs, width }: { view: WorkTrackView; scale: Scale; 
   )
 }
 
+/** The colour of a CI run's mark: its outcome; none yet while it runs. */
+function ciColour(span: WorkSpan): string {
+  switch (span.outcome) {
+    case null:
+      return 'running'
+    case 'ok':
+      return 'ok'
+    case 'failed':
+    case 'rejected':
+      return 'failed'
+    default:
+      return 'stopped'
+  }
+}
+
+const ROW_SOURCES: Readonly<Record<MarkRow['id'], string>> = { ci: '· GitHub', 'ticket-status': '· git log' }
+
+/**
+ * The rows under the axis of a Day or a Week (ticket 13): a mark per CI run, as long as the run and coloured by
+ * its outcome, and a mark per Ticket status change; «no data» of GitHub and of the git log hatched on them.
+ */
+function MarkRows({ rows, scale, width, facts }: { rows: readonly MarkRow[]; scale: Scale; width: number; facts: ReadonlyMap<string, WorkFact> }) {
+  return (
+    <div className="w-wt-marks" data-testid="work-track-marks">
+      {rows.map((row) => (
+        <div key={row.id} className="w-wt-markrow" data-testid="work-track-mark-row" data-row-id={row.id}>
+          <div className="w-wt-name" style={{ paddingLeft: '4px' }}>
+            <span className="w-wt-toggle" aria-hidden="true" />
+            <i className={`w-wt-name__kind w-wt-colour--${row.id}`} aria-hidden="true" />
+            <span className="w-wt-name__text">{row.title}</span>
+            <span className="w-wt-name__note">{ROW_SOURCES[row.id]}</span>
+          </div>
+          <div className="w-wt-track">
+            <Gaps gaps={row.gaps} scale={scale} width={width} />
+            {row.marks.map((span) =>
+              row.id === 'ci' ? (
+                <span
+                  key={span.id}
+                  className={`w-wt-mark w-wt-mark--ci w-wt-mark--${ciColour(span)}`}
+                  data-testid="work-track-ci"
+                  data-span-id={span.id}
+                  title={spanTip(span, facts.get(span.id))}
+                  style={stretch(span.start, span.end, scale)}
+                />
+              ) : (
+                <span
+                  key={span.id}
+                  className={`w-wt-mark w-wt-mark--status${span.outcome === 'blocked' ? ' w-wt-mark--blocked' : ''}`}
+                  data-testid="work-track-status"
+                  data-span-id={span.id}
+                  title={spanTip(span, facts.get(span.id))}
+                  style={{ left: `${percent(span.start, scale)}%` }}
+                />
+              ),
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** The lines of the grid: the days of a Week, every two hours of a Day, every day of a Month. */
 function gridTimes(view: WorkTrackView, scale: Scale): number[] {
   if (view.period.kind !== 'day') return periodDays(view.period).slice(1)
@@ -272,6 +336,7 @@ export function Lanes({ view, mode, expanded, density }: LanesProps) {
   const month = view.period.kind === 'month'
   const days = useMemo(() => periodDays(view.period), [view])
   const prs = useMemo(() => offLaneSpans(view).filter((span) => span.kind === 'pr' && !span.open && !span.clippedEnd), [view])
+  const rows = useMemo(() => markRows(view), [view])
   const shade = useMemo(() => (month ? monthScale(lanes, days) : HOUR), [month, lanes, days])
   const now = Date.parse(view.now)
   const comfortable = density === 'comfortable'
@@ -284,6 +349,7 @@ export function Lanes({ view, mode, expanded, density }: LanesProps) {
           {month ? <MonthAxis view={view} days={days} /> : <Axis view={view} scale={scale} prs={prs} width={width} />}
         </div>
       </div>
+      {month ? null : <MarkRows rows={rows} scale={scale} width={width} facts={facts} />}
       <div className="w-wt-rows">
         <div className="w-wt-rows__inner">
           <div className="w-wt-grid" aria-hidden="true">

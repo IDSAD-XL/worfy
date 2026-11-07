@@ -12,13 +12,18 @@ import { launchApp } from './helpers'
 //
 // The channel `workTrack.read` is a stub in main: its handler is replaced by one that answers made-up work
 // for the period asked (several Sessions, a hidden, an archived and a Codex one, Subagents, Autopilot Runs
-// with their Waves, gate runs, merged PRs, transcripts older than 30 days as «no data»), so the view is
-// checked apart from the readers of the sources (their contract tests are test/contract/work-track-*.test.ts).
-// The screen is kept in both themes with the test's output: the evidence of the ticket is chosen from it.
+// with their Waves, gate runs, merged PRs, CI runs, Ticket status changes, transcripts older than 30 days as
+// «no data»), so the view is checked apart from the readers of the sources (their contract tests are
+// test/contract/work-track-*.test.ts). The screen is kept in both themes with the test's output: the evidence
+// of the ticket is chosen from it.
 //
 // The second test (ticket 10) has one Autopilot Run that is real: its Journal is in the data folder, and the stub
 // answers its Run and Wave beside the made-up work. A click on the Wave opens the Span panel, «Open Run» opens
 // Run history on that Run; the summary row and the panel are kept in both themes.
+//
+// The third test (ticket 13) asks the stub for GitHub and git gaps too: the rows of CI runs and status changes
+// under the axis are hatched there, a CI run's mark opens its panel, and «Open Run history» of the Command
+// palette shows Run history although Work track was the last choice of the Runs tab.
 
 const PROJECT = 'CanvasForAI-0e2e0e2e'
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -62,11 +67,11 @@ function prepare(run?: RealRun): Record<string, string> {
 
 /**
  * Replaces main's handler of `workTrack.read` with made-up work for the period asked, the same for the same
- * day whenever it is asked, and the Run `run` with its Wave as the service names them. Runs in main:
- * everything it needs is inside the function.
+ * day whenever it is asked, and the Run `run` with its Wave as the service names them; `holes` adds a stretch
+ * of yesterday where GitHub and git did not answer. Runs in main: everything it needs is inside the function.
  */
-function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null): Promise<void> {
-  return app.evaluate(({ ipcMain }, real) => {
+function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null, holes = false): Promise<void> {
+  return app.evaluate(({ ipcMain }, { real, holes }) => {
     const MIN = 60_000
     const HOUR = 60 * MIN
     const DAY_MS = 24 * HOUR
@@ -180,10 +185,22 @@ function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null): Pr
           const number = 1400 + Math.floor((day / DAY_MS) % 100) * 5 + pr
           fact({ id: `pr:${number}`, kind: 'pr', start: at - 3 * HOUR, end: at, epic: epics[0], ticket: two(1 + pr), pr: number, source: 'github', title: `PR #${number}` })
           merged += 1
+          // Its CI runs before the merge, the first one red now and then; its Ticket claimed, then done at the merge.
+          for (let ci = 0; ci < 2; ci += 1) {
+            const ciStart = at - (2.5 - ci) * HOUR
+            fact({ id: `ci:${number}:${ci}`, kind: 'ci', start: ciStart, end: ciStart + (8 + rnd() * 10) * MIN, epic: epics[0], ticket: two(1 + pr), pr: number, source: 'github', title: 'ci', outcome: ci === 0 && rnd() < 0.35 ? 'failed' : 'ok' })
+          }
+          fact({ id: `status:${number}:claimed`, kind: 'ticket-status', start: at - 3.5 * HOUR, end: at - 3.5 * HOUR, epic: epics[0], ticket: two(1 + pr), source: 'git', title: `${two(1 + pr)} open → claimed` })
+          fact({ id: `status:${number}:done`, kind: 'ticket-status', start: at + 5 * MIN, end: at + 5 * MIN, epic: epics[0], ticket: two(1 + pr), pr: number, source: 'git', title: `${two(1 + pr)} claimed → done` })
         }
         days.push({ start: day, workMs: union(work.map(([from, to]) => [from, Math.min(to, now)] as [number, number]).filter(([from, to]) => to > from)), prsMerged: merged })
       }
       const gaps = start < kept ? [{ source: 'transcript', start: new Date(start).toISOString(), end: new Date(Math.min(kept, end)).toISOString(), why: 'Transcripts are deleted after 30 days (cleanupPeriodDays of Claude Code).' }] : []
+      const yesterday = addDays(new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()).getTime(), -1)
+      if (holes && yesterday < end && yesterday + DAY_MS > start) {
+        gaps.push({ source: 'github', start: new Date(yesterday).toISOString(), end: new Date(yesterday + 7 * HOUR).toISOString(), why: 'GitHub did not answer: error connecting to api.github.com' })
+        gaps.push({ source: 'git', start: new Date(yesterday).toISOString(), end: new Date(yesterday + 4 * HOUR).toISOString(), why: 'git did not answer: fatal: not a git repository' })
+      }
       const workMs = days.reduce((sum, day) => sum + day.workMs, 0)
       const prsMerged = days.reduce((sum, day) => sum + day.prsMerged, 0)
       const value = {
@@ -198,7 +215,7 @@ function stubWorkTrack(app: ElectronApplication, run: RealRun | null = null): Pr
       }
       return { ok: true, value }
     })
-  }, run)
+  }, { real: run, holes })
 }
 
 /** The Runs view in both themes, kept with the test's output as `<ticket>-<name>-<theme>.png`. */
@@ -336,6 +353,64 @@ test('Work track: the summary of the period; a Wave of a Run → its panel → �
     await expect(track).toBeHidden()
     await expect(window.getByTestId('run-history-choose')).toHaveValue(run.id)
     await expect(window.getByTestId('run-history-epic')).toHaveText(run.epic)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('Work track: CI runs and Ticket status changes under the axis, GitHub and git gaps hatched; a CI run → its panel; «Open Run history» of the palette after Work track → Run history (ticket 13)', async () => {
+  const launched = await launchApp({ env: prepare() })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
+    await stubWorkTrack(app, null, true)
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+
+    await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
+    await window.getByRole('button', { name: 'Work track' }).click()
+    const track = window.getByTestId('work-track')
+    await expect(track).toBeVisible()
+
+    // The Week: the rows of CI runs and of status changes under the axis, each with its marks.
+    const ciRow = track.locator('[data-testid="work-track-mark-row"][data-row-id="ci"]')
+    const statusRow = track.locator('[data-testid="work-track-mark-row"][data-row-id="ticket-status"]')
+    await expect(ciRow).toContainText('CI runs')
+    await expect(statusRow).toContainText('Ticket status')
+    await expect(ciRow.getByTestId('work-track-ci').first()).toBeVisible()
+    await expect(statusRow.getByTestId('work-track-status').first()).toBeVisible()
+    // Yesterday's stretch where GitHub and git did not answer: hatched on their rows, with the source and why.
+    await expect(ciRow.getByTestId('work-track-gap')).toHaveAttribute('title', /^No data · GitHub\nGitHub did not answer/u)
+    await expect(statusRow.getByTestId('work-track-gap')).toHaveAttribute('title', /^No data · git log of the Ticket files\ngit did not answer/u)
+    await snapshots(window, 'marks-week', '13')
+
+    // Yesterday's Day: a CI run's mark opens its panel.
+    await window.getByTestId('work-track-day').nth(5).click()
+    await expect(pressed(window, 'Period')).toHaveText('Day')
+    await expect(ciRow.getByTestId('work-track-gap')).toBeVisible()
+    await expect(statusRow.getByTestId('work-track-gap')).toBeVisible()
+    await ciRow.getByTestId('work-track-ci').first().click()
+    const panel = window.getByTestId('work-track-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('heading')).toHaveText('ci')
+    await expect(panel.getByTestId('work-track-panel-what')).toHaveText('CI run')
+    await expect(panel.getByTestId('work-track-panel-source')).toContainText('Source: GitHub.')
+    await snapshots(window, 'marks-day', '13')
+    await window.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+
+    // The Month has no marks.
+    await window.locator('[role="group"][aria-label="Period"]').getByRole('button', { name: 'Month' }).click()
+    await expect(window.getByTestId('work-track-month-day').first()).toBeVisible()
+    await expect(track.getByTestId('work-track-marks')).toHaveCount(0)
+
+    // Work track was the last choice of the Runs tab; the palette's «Open Run history» shows Run history all the same.
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Open Run history')
+    await expect(window.getByTestId('palette-option').first()).toContainText('Open Run history')
+    await window.keyboard.press('Enter')
+    await expect(window.getByTestId('run-history')).toBeVisible()
+    await expect(track).toBeHidden()
+    await expect(pressed(window, 'Runs view')).toHaveText('Run history')
   } finally {
     await launched.close()
   }

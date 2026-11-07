@@ -1,5 +1,6 @@
 // The Span panel of Work track (worfy-work-track ticket 10; spec «What the owner sees», 7–8; owner decisions 7,
-// 11): a click on a Span of the lanes or on a merged PR's diamond opens it on the right, as the prototype on Card
+// 11): a click on a Span of the lanes, on a merged PR's diamond, or on the mark of a CI run or a Ticket status
+// change (ticket 13) opens it on the right, as the prototype on Card
 // card-dcf3918a has it — the Span's name, what it is and whose, the table When, Duration, Epic, Ticket, PR,
 // Outcome, the buttons and the line «Source: …». Esc and ✕ close it.
 //
@@ -130,8 +131,12 @@ export function SpanPanel({ projectId, span, view, onClose }: SpanPanelProps) {
   const start = fact === undefined ? span.start : Date.parse(fact.start)
   const end = fact?.end == null ? span.end : Date.parse(fact.end)
   const until = span.open ? 'now' : startOfDay(start) === startOfDay(end) ? formatClock(end) : formatLocal(end)
+  // A moment — a Ticket status change — has one time and no duration.
+  const moment = !span.open && end === start
   let outcome: string
   if (span.kind === 'pr') outcome = span.open ? 'not merged' : 'merged'
+  // The change itself, `claimed → done`: the title of a status change after its Ticket (src/main/work-track/ticket-status.ts).
+  else if (span.kind === 'ticket-status' && span.ticket !== undefined && span.title.startsWith(`${span.ticket} `)) outcome = span.title.slice(span.ticket.length + 1)
   else outcome = span.outcome ?? (span.open ? 'going on' : '—')
 
   let prTitle = `PR #${span.pr ?? ''} on GitHub`
@@ -151,8 +156,8 @@ export function SpanPanel({ projectId, span, view, onClose }: SpanPanelProps) {
       </p>
       <table className="w-wt-panel__table">
         <tbody>
-          <Row name="When">{`${formatLocal(start)} – ${until}`}</Row>
-          <Row name="Duration">{formatDuration(end - start)}</Row>
+          <Row name="When">{moment ? formatLocal(start) : `${formatLocal(start)} – ${until}`}</Row>
+          <Row name="Duration">{moment ? '—' : formatDuration(end - start)}</Row>
           <Row name="Epic">{span.epic ?? '—'}</Row>
           <Row name="Ticket">{span.ticket ?? '—'}</Row>
           <Row name="PR">{span.pr === undefined ? '—' : `#${span.pr}`}</Row>

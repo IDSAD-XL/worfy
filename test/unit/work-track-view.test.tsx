@@ -30,6 +30,9 @@ const FACTS: WorkFact[] = [
   { id: 'turn-3', kind: 'turn', start: at(31, 15, 0, 9), end: at(31, 15, 30, 9), outcome: 'ok', session: 's-old', source: 'transcript', title: 'Session turn' },
   { id: 'gate-1', kind: 'gate', start: at(4, 11), end: at(4, 11, 10), outcome: 'failed', session: null, source: 'gate-log', title: 'gate fast' },
   { id: 'pr-1', kind: 'pr', start: at(4, 8), end: at(4, 12, 30), outcome: 'ok', session: null, pr: 1500, epic: 'worfy-alpha', source: 'github', title: 'PR #1500' },
+  { id: 'ci-1', kind: 'ci', start: at(4, 11, 15), end: at(4, 11, 25), outcome: 'failed', session: null, pr: 1500, epic: 'worfy-alpha', ticket: '01', source: 'github', title: 'ci' },
+  { id: 'ci-2', kind: 'ci', start: at(5, 13, 50), end: null, outcome: null, session: null, source: 'github', title: 'ci' },
+  { id: 'status-1', kind: 'ticket-status', start: at(4, 12, 31), end: at(4, 12, 31), outcome: 'ok', session: null, epic: 'worfy-alpha', ticket: '01', source: 'git', title: '01 claimed → done' },
 ]
 const SESSIONS: SessionInfo[] = [
   { id: 's-orch', name: 'Orchestrator', vendor: 'claude', hidden: false, archived: false },
@@ -38,8 +41,8 @@ const SESSIONS: SessionInfo[] = [
 ]
 const GAPS: SourceGap[] = [{ source: 'transcript', start: at(30, 0, 0, 9), end: at(31, 0, 0, 9), why: 'Transcripts are deleted after 30 days.' }]
 
-function viewFor(projectId: string, period: Period, loading: WorkTrackView['loading'] = []): WorkTrackView {
-  const input = { period, now: NOW.toISOString(), facts: FACTS, sessions: SESSIONS, gaps: GAPS }
+function viewFor(projectId: string, period: Period, loading: WorkTrackView['loading'] = [], gaps: readonly SourceGap[] = GAPS): WorkTrackView {
+  const input = { period, now: NOW.toISOString(), facts: FACTS, sessions: SESSIONS, gaps: [...gaps] }
   return { projectId, ...input, summary: summarize(input), loading }
 }
 
@@ -50,7 +53,7 @@ interface Read {
 }
 
 /** Main as a fake bridge: `workTrack.read` from the facts above, slow sources still loading on a read without `wait` when asked. */
-function fakeMain(options: { loading?: WorkTrackView['loading']; fail?: string } = {}) {
+function fakeMain(options: { loading?: WorkTrackView['loading']; fail?: string; gaps?: readonly SourceGap[] } = {}) {
   const reads: Read[] = []
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
@@ -59,7 +62,7 @@ function fakeMain(options: { loading?: WorkTrackView['loading']; fail?: string }
       const read = input as Read
       reads.push(read)
       if (options.fail !== undefined) return Promise.resolve({ ok: false, error: options.fail })
-      return Promise.resolve({ ok: true, value: viewFor(read.projectId, read.period, read.wait === true ? [] : (options.loading ?? [])) })
+      return Promise.resolve({ ok: true, value: viewFor(read.projectId, read.period, read.wait === true ? [] : (options.loading ?? []), options.gaps) })
     },
     on: () => 1,
     off: () => undefined,
@@ -231,6 +234,70 @@ describe('the Work track view', () => {
     const [first, second, after] = [new Date(2026, 9, 30), new Date(2026, 9, 31), new Date(2026, 10, 6)].map((date) => date.getTime())
     expect(Number.parseFloat(gaps[0]!.style.left)).toBe(0)
     expect(Number.parseFloat(gaps[0]!.style.width)).toBeCloseTo(((second! - first!) / (after! - first!)) * 100, 5)
+  })
+
+  it('marks the CI runs and the Ticket status changes on rows of their own in Week and Day, not in Month; a click opens the panel (ticket 13)', async () => {
+    fakeMain()
+    render(<RunsView activeProjectId="p-1" />)
+    await openWorkTrack()
+    const row = (id: string): HTMLElement => {
+      const found = document.querySelector<HTMLElement>(`[data-testid="work-track-mark-row"][data-row-id="${id}"]`)
+      if (found === null) throw new Error(`no row ${id} on the screen`)
+      return found
+    }
+    expect(row('ci').textContent).toContain('CI runs')
+    expect(row('ticket-status').textContent).toContain('Ticket status')
+    const ci = within(row('ci')).getAllByTestId('work-track-ci')
+    expect(ci.map((mark) => mark.dataset.spanId)).toEqual(['ci-1', 'ci-2'])
+    // The colour of a CI run is its outcome; one still running has none yet.
+    expect(ci[0]!.className).toContain('w-wt-mark--failed')
+    expect(ci[1]!.className).toContain('w-wt-mark--running')
+    expect(ci[0]!.title).toMatch(/^ci\n.* · failed\nworfy-alpha 01\nPR #1500$/u)
+    const status = within(row('ticket-status')).getAllByTestId('work-track-status')
+    expect(status.map((mark) => mark.dataset.spanId)).toEqual(['status-1'])
+    expect(status[0]!.title).toMatch(/^01 claimed → done\n/u)
+
+    await act(async () => {
+      fireEvent.click(ci[0]!)
+    })
+    await settle()
+    const panel = screen.getByTestId('work-track-panel')
+    expect(within(panel).getByRole('heading').textContent).toBe('ci')
+    expect(within(panel).getByTestId('work-track-panel-what').textContent).toBe('CI run')
+    expect(within(panel).getByTestId('work-track-panel-source').textContent).toMatch(/^Source: GitHub\./u)
+
+    // The Day keeps the marks of its day only.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open Wed 4 Nov' }))
+    })
+    await settle()
+    expect(within(row('ci')).getAllByTestId('work-track-ci').map((mark) => mark.dataset.spanId)).toEqual(['ci-1'])
+    expect(within(row('ticket-status')).getAllByTestId('work-track-status')).toHaveLength(1)
+
+    // The Month counts merges in its cells, as before, and has no marks.
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('group', { name: 'Period' })).getByRole('button', { name: 'Month' }))
+    })
+    await settle()
+    expect(document.querySelector('[data-testid="work-track-marks"]')).toBeNull()
+    expect(screen.getAllByTestId('work-track-month-day')[3]!.getAttribute('title')).toMatch(/1 PR merged/u)
+  })
+
+  it('hatches a GitHub gap on the row of CI runs and a git gap on the row of status changes, each with its source and why (ticket 13)', async () => {
+    fakeMain({
+      gaps: [
+        ...GAPS,
+        { source: 'github', start: at(3, 0), end: at(3, 6), why: 'GitHub could not be reached: no network.' },
+        { source: 'git', start: at(2, 0), end: at(3, 0), why: 'The Project is not a git repository.' },
+      ],
+    })
+    render(<RunsView activeProjectId="p-1" />)
+    await openWorkTrack()
+    const gapsOf = (selector: string) => [...document.querySelectorAll<HTMLElement>(`${selector} [data-testid="work-track-gap"]`)].map((gap) => gap.title)
+    expect(gapsOf('[data-row-id="ci"]')).toEqual(['No data · GitHub\nGitHub could not be reached: no network.'])
+    expect(gapsOf('[data-row-id="ticket-status"]')).toEqual(['No data · git log of the Ticket files\nThe Project is not a git repository.'])
+    // The lanes keep only their own sources' gaps.
+    expect(gapsOf('[data-testid="work-track-lane"]').every((title) => title.startsWith('No data · Claude Code transcripts'))).toBe(true)
   })
 
   it('opens the Day of a day clicked on the Week axis', async () => {
