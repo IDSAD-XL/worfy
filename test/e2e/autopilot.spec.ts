@@ -339,9 +339,10 @@ test('Autopilot on an Epic: starts Wave 1, shows its state, refuses Run wave mea
     await expect(status).toHaveText('stopped: user stop')
     await expect(status).toHaveAttribute('title', 'stopped: user stop')
     await expect(autopilot).toHaveText('Autopilot')
-    // Nothing to force any more: "⋯" keeps Run history only (worfy-flight-recorder ticket 20).
+    // Nothing to force any more: "⋯" keeps Run all accepted (worfy-autopilot-queue ticket 17) and Run history
+    // (worfy-flight-recorder ticket 20).
     await more.click()
-    await expect(window.getByRole('menuitem')).toHaveText(['Run history'])
+    await expect(window.getByRole('menuitem')).toHaveText(['Run all accepted', 'Run history'])
     await window.keyboard.press('Escape')
     expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`, STOP_TEXT])
     expect(journalKinds(dataDir)).toEqual(['run-started', 'forecast', 'wave-started 1', 'run-stopping 1', 'run-stopped user-stop'])
@@ -509,9 +510,10 @@ test('the stop of a Run: a toast with its count that stays; "Open history", "His
     await history.click()
     await expectHistoryAt(window, run)
 
-    // "Run history" under "⋯", with no run going: the screen with the Runs of this Epic.
+    // "Run history" under "⋯", with no run going: the screen with the Runs of this Epic. "Run all accepted" stands
+    // before it with no run (worfy-autopilot-queue ticket 17).
     await more.click()
-    await expect(window.getByRole('menuitem')).toHaveText(['Run history'])
+    await expect(window.getByRole('menuitem')).toHaveText(['Run all accepted', 'Run history'])
     await menuSnapshots(window, header, '20-menu')
     await window.getByTestId('action-run-history').click()
     await expect(window.getByTestId('run-history')).toContainText(`Epic filter: ${EPIC}`)

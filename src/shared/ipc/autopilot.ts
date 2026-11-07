@@ -297,10 +297,24 @@ export interface StatusLineOptions {
  * while its Orchestrator was busy, in whole minutes since `waitingSince`, none in the first one;
  * worfy-autopilot-queue ticket 07), `stopped: no ready wave`, `stopped: user force stop`, `stopped: turn error · 3 background
  * tasks still run` (the tasks that live on in the Session a stopped run gave back to a person, worfy-autopilot-queue ticket 08).
+ * A run over a queue of more than one Epic puts the place of its Epic first: `Epic 2/3: checkout · Wave 1 · running`
+ * (worfy-autopilot-queue ticket 17), also while it waits and after it stopped.
  */
 export function autopilotStatusLine(
-  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> &
+    Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork' | 'epic' | 'queue' | 'index'>>,
   options: StatusLineOptions = {},
+): string | null {
+  const line = runLine(state, options)
+  const { queue, index } = state
+  if (line === null || queue === undefined || queue.length < 2 || index === undefined) return line
+  return `Epic ${index + 1}/${queue.length}: ${queue[index]?.epic ?? state.epic ?? ''} · ${line}`
+}
+
+/** The status line without the place in the queue. */
+function runLine(
+  state: Pick<AutopilotState, 'status' | 'wave' | 'reason'> & Partial<Pick<AutopilotState, 'resumesAt' | 'waitingFor' | 'waitingSince' | 'retry' | 'windowReason' | 'backgroundTasks' | 'stopping' | 'ticketsInWork'>>,
+  options: StatusLineOptions,
 ): string | null {
   if (state.status === 'running') {
     if (state.stopping === true) {
@@ -341,6 +355,92 @@ export function autopilotStatusLine(
   // Tasks that live on in the Session the run gave back to a person as it runs (worfy-autopilot-queue ticket 08).
   const tasks = state.backgroundTasks ?? 0
   return tasks > 0 ? `${stopped} · ${tasks} background ${tasks === 1 ? 'task' : 'tasks'} still run${tasks === 1 ? 's' : ''}` : stopped
+}
+
+/**
+ * The edits of a run's queue one window made during a Wave, which main applies at its end (Autopilot.editQueue):
+ * Epics to add, Epics to remove. Main's state shows the queue as it is, not these; the window keeps them until
+ * the state shows them made (worfy-autopilot-queue ticket 17).
+ */
+export interface QueueEdits {
+  add: readonly string[]
+  remove: readonly string[]
+}
+
+type QueueView = Pick<AutopilotState, 'status' | 'epic'> & Partial<Pick<AutopilotState, 'queue' | 'index' | 'stopping'>>
+
+/** A chip on the frame of an Epic of a run's queue: its text, its colour (a `w-chip--<tone>` class) and its tooltip. */
+export interface QueueChip {
+  label: string
+  tone: 'open' | 'blocked' | 'stopped'
+  title: string
+}
+
+/** The words of each status of an Epic of the queue in the tooltip of the line. */
+const QUEUE_STATUS_WORDS: Record<QueueEpicStatus, string> = {
+  done: 'done',
+  running: 'running',
+  next: 'next',
+  'waits-owner': 'skipped: waits for the owner',
+  elsewhere: 'skipped: runs on another Machine',
+}
+
+/** The words of an edit that waits for the end of the Wave, in that tooltip. */
+const JOINS = 'joins after this Wave'
+const LEAVES = 'leaves after this Wave'
+
+/**
+ * The chip on the frame of `epic` while a run over a queue goes on (worfy-autopilot-queue ticket 17): `In queue 3/3`
+ * for one not started, `Waits for owner` for one passed with only the owner's Tickets left, `Runs elsewhere` for
+ * one passed because another Machine ran it; `Joins after this Wave` and `Leaves after this Wave` for an edit
+ * that waits. None for the Epic the run is on (its frame has the line), a done one (its frame is on the done
+ * shelf), an Epic outside the queue, and once the run has stopped.
+ */
+export function queueChip(state: QueueView, epic: string, edits: QueueEdits): QueueChip | null {
+  if (state.status === 'stopped' || state.queue === undefined) return null
+  if (edits.add.includes(epic)) return { label: 'Joins after this Wave', tone: 'open', title: `Autopilot adds ${epic} to the end of its queue once the Wave in work ends` }
+  const at = state.queue.findIndex((each) => each.epic === epic)
+  if (at === -1) return null
+  if (edits.remove.includes(epic)) return { label: 'Leaves after this Wave', tone: 'stopped', title: `Autopilot takes ${epic} out of its queue once the Wave in work ends` }
+  const of = state.queue.length
+  switch (state.queue[at]?.status) {
+    case 'next':
+      return { label: `In queue ${at + 1}/${of}`, tone: 'open', title: `Autopilot runs ${epic} after ${state.epic ?? ''}: ${at + 1} of ${of} in its queue` }
+    case 'waits-owner':
+      return { label: 'Waits for owner', tone: 'blocked', title: `Autopilot passed ${epic}: only Tickets for the owner are left` }
+    case 'elsewhere':
+      return { label: 'Runs elsewhere', tone: 'stopped', title: `Autopilot passed ${epic}: another Machine ran it` }
+    default:
+      return null
+  }
+}
+
+/**
+ * The queue in the tooltip of the line (worfy-autopilot-queue ticket 17): each Epic with its status, in order, and
+ * the edits that wait for the end of the Wave. Null for a run of one Epic with no edit waiting.
+ */
+export function queueTitle(state: QueueView, edits: QueueEdits): string | null {
+  const queue = state.queue ?? []
+  if (queue.length + edits.add.length < 2) return null
+  const rows = [
+    ...queue.map(({ epic, status }) => `${epic} — ${[QUEUE_STATUS_WORDS[status], ...(edits.remove.includes(epic) ? [LEAVES] : [])].join(', ')}`),
+    ...edits.add.map((epic) => `${epic} — ${JOINS}`),
+  ]
+  return ['Queue of this run:', ...rows.map((row, at) => `${at + 1}. ${row}`)].join('\n')
+}
+
+/**
+ * What "⋯" of the frame of `epic` offers for the queue of the Project's run (worfy-autopilot-queue ticket 17):
+ * `add` for an Epic outside it, `remove` for one not started or whose adding waits; nothing for the Epic running
+ * or finished, a removal that waits, without a run that goes on, and once a Stop was asked (main refuses then).
+ */
+export function queueAction(state: QueueView | undefined, epic: string, edits: QueueEdits): 'add' | 'remove' | null {
+  if (state === undefined || state.status === 'stopped' || state.stopping === true) return null
+  if (edits.add.includes(epic)) return 'remove'
+  if (edits.remove.includes(epic)) return null
+  const entry = (state.queue ?? []).find((each) => each.epic === epic)
+  if (entry === undefined) return state.epic === epic ? null : 'add'
+  return entry.status === 'next' ? 'remove' : null
 }
 
 /** The chip of the Autopilot action while the Harness in main is newer than this build's (worfy-harness ticket 21). */
