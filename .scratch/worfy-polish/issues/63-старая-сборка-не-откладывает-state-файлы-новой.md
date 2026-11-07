@@ -1,7 +1,8 @@
 # 63 — Старая сборка не откладывает state-файлы новой
 
 Type: bug
-Status: open
+Status: done 2026-11-07T22:49Z
+PR: #1595
 Blocked by: —
 Source: решение владельца 2026-11-07, оценка идей PR #1580 (идеи 9 и 10). Строки перечитаны по main `14d18997e`.
 
@@ -47,17 +48,22 @@ Source: решение владельца 2026-11-07, оценка идей PR #
       link settings и limits. До правки — красный.
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts` exit 0 (exit 1 before the fix on 42372355b, 3 of 5 red) · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/contract/link-settings-newer-build.test.ts test/contract/limits.test.ts` exit 0; mutants of the rework red (4 of 4) · mac - · 7ffe71d7b
+  - evidence: review pass · PR #1595 · - - · 5ef859f7b8f21fd16c206fe31d60b77e5853f759
 - [ ] Старая сборка сохраняет неизвестные ключи и поля, а не откладывает файл; файл не-JSON откладывается, как раньше.
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/unit/limits.test.ts test/contract/limits.test.ts test/unit/link-settings-tailscale.test.ts` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
   - evidence: test-run pass · `pnpm test test/unit/state-files-newer-build.test.ts test/contract/link-settings-newer-build.test.ts test/contract/limits.test.ts` exit 0 · mac - · 7ffe71d7b
+  - evidence: review pass · PR #1595 · - - · 5ef859f7b8f21fd16c206fe31d60b77e5853f759
 - [ ] Поведение при `version` новее известной выбрано и обосновано в «Итог».
   - evidence: commit pass · Keep a newer build's state files readable by an older one · - - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: review pass · PR #1595 · - - · 5ef859f7b8f21fd16c206fe31d60b77e5853f759
 - [ ] `docs/features/storage-and-diagnostics.md` и перевод говорят то, что делает код.
   - evidence: commit pass · Keep a newer build's state files readable by an older one · - - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: review pass · PR #1595 · - - · 5ef859f7b8f21fd16c206fe31d60b77e5853f759
 - [ ] Все unit и contract test-ы `src/main/storage/`, `src/main/link/`, `src/main/agent/limits.ts`, `pnpm typecheck`,
       `pnpm lint`, gate fast — exit 0.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4d221fc8a467ffd657d85084ed76f6d88479c0d4
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42416925498/job/128544030502 · ci - · 5ef859f7b8f21fd16c206fe31d60b77e5853f759
 
 ## Где в коде
 
