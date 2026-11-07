@@ -581,7 +581,6 @@ Stop||$N/hooks/stop.mjs"|900
 SubagentStop||$N/hooks/stop.mjs"|900
 Stop||$N/bin/worktree-lock" beat|5
 Stop||$N/bin/qmd-refresh" --quiet|15
-SessionEnd||$N/hooks/session-end.mjs"|10
 SessionEnd||$N/bin/worktree-lock" release|5
 PreToolUse|Bash|apply_patch|$N/hooks/guard.mjs"|30
 EOF

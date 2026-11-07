@@ -1,5 +1,5 @@
 // Matt Pocock's skills, version 1.3.1, live inside the worfy plugin as a frozen copy (epic
-// worfy-skills, ticket 01). The copy is byte for byte the upstream one except the cross-references
+// worfy-skills, tickets 01 and 02). The copy is byte for byte the upstream one except the cross-references
 // that harness/skills/THIRD_PARTY.md lists: a skill calls another skill by its worfy: name, and tracker
 // setup points to /worfy:connect-project and bin/TICKETS.md instead of /setup-matt-pocock-skills.
 // The hashes below are of the files of the installed 1.3.1 copy (upstream commit 49dd158d); the copy
@@ -17,7 +17,7 @@ const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
 const SKILLS = join(HARNESS, 'skills')
 
-// sha256 of every file of the 19 copied skills in mattpocock-skills 1.3.1, by `<skill>/<file>`.
+// sha256 of every file of the 20 copied skills in mattpocock-skills 1.3.1, by `<skill>/<file>`.
 const UPSTREAM: Record<string, string> = {
   'code-review/SKILL.md': '09eb147f793e4647949edd32dbad278f0554dfb56e0d46b699cd4c2c55bf0357',
   'code-review/agents/openai.yaml': '8229ca854e11dc8e6aef2131ee03f31fb1561cf905fab9ccc325180cf3331352',
@@ -43,6 +43,8 @@ const UPSTREAM: Record<string, string> = {
   'prototype/agents/openai.yaml': '5af65e43ab41a350436697b81e27b7f848d36782043b73c322bb2c9fa9cc55dc',
   'research/SKILL.md': '985569f15739c713d6784887c3d186d4ef9ac85bec5ad9c068d25bf0739928e4',
   'research/agents/openai.yaml': '9b4c470d63221c1f68f22df70b83e2f12401b317babe0d1b7b5f24a974474d0d',
+  'retro/SKILL.md': '33fbc28568e3146f20fd908b12998bc0ab30aa4f4c87288199a40793efa94696',
+  'retro/agents/openai.yaml': 'cb6fb9d7e6b4be5975f41f6def1dd00a1255bad5d9b02696b124c924a8b8745c',
   'tdd/SKILL.md': '5505d25bbaa8fc14a79e4d20163936958992a2995b7f1dd1d6197edc9ed722e0',
   'tdd/agents/openai.yaml': 'ea6f01cf1b8c06a4b0f5b649d74b1b8ce8685e72af1b38d70d877693e092af0b',
   'tdd/mocking.md': '3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef',
@@ -82,6 +84,7 @@ const EDITED: Record<string, string> = {
   'grill-with-docs/SKILL.md': '55287c9fd1f0b72bdb01657d4c25db66911c8e171c90bb42c86d3063d8e01be3',
   'improve-codebase-architecture/HTML-REPORT.md': '907a9abe4b549e46477384195f0e07cf42dfbb61eaab68f14b025484ea191382',
   'improve-codebase-architecture/SKILL.md': 'dfd0ed01e99c8f6ee282a67543e687a53c8ec5fdb6f9767c717d4290d2930629',
+  'retro/SKILL.md': '9947999f355426af8552db3bbf8fdf725ad1830ad533ee760978e1e1d55f81a6',
   'tdd/SKILL.md': '6c5b6da52ffe622f30c3deba006811e3e7e0532ae1e539a0bc3578d8dbf8eaf2',
   'teach/SKILL.md': '04c70a169b35aae5f8e10861250aedd81a3b7d4f859a1248d8e94f327f5cc5bc',
   'to-spec/SKILL.md': '8f9c899397afb0fcbbf6e65d5a80746e7d9dec532cd7c8867b6ae33ef80e3f2e',
@@ -102,6 +105,7 @@ const MANUAL_ONLY: Record<string, boolean> = {
   'improve-codebase-architecture': true,
   prototype: false,
   research: false,
+  retro: true,
   tdd: false,
   'to-spec': true,
   'to-tickets': true,
@@ -126,7 +130,6 @@ const NOT_TAKEN = [
   'triage',
   'implement',
   'implement-spec',
-  'retro',
   'git-guardrails-claude-code',
   'migrate-to-shoehorn',
   'scaffold-exercises',
@@ -239,8 +242,9 @@ describe('references between skills in harness/skills', () => {
     const wrong = markdownOfSkills().flatMap(({ file, lines }) =>
       lines.flatMap((line, i) =>
         line.includes('Skill tool')
-          ? [...line.matchAll(/"([a-z][a-z0-9:-]*)"/g)]
-              .map((match) => match[1] ?? '')
+          ? // A name in quotes, or in backticks right after the words (`retro`: "Call the Skill tool with `name`").
+            [...line.matchAll(/"([a-z][a-z0-9:-]*)"|Skill tool with `([a-z][a-z0-9:-]*)`/g)]
+              .map((match) => match[1] ?? match[2] ?? '')
               .filter((name) => !(name.startsWith('worfy:') && dirs.has(name.slice('worfy:'.length))))
               .map((name) => `${file}:${i + 1} "${name}"`)
           : [],

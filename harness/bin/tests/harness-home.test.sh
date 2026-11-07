@@ -204,7 +204,7 @@ for f in bin/profile bin/ticket bin/epic-status bin/epic-board bin/preflight bin
     chmod +x "$H4/.claude/$f"
 done
 # The gate and the hooks are run as `node <file>`: their traps are JavaScript.
-for f in hooks/gate.mjs hooks/gate-resolve.mjs hooks/stop.mjs hooks/session-start.mjs hooks/session-end.mjs; do
+for f in hooks/gate.mjs hooks/gate-resolve.mjs hooks/stop.mjs hooks/session-start.mjs; do
     printf 'import fs from "node:fs"\nfs.appendFileSync(%s, "%s " + process.argv.slice(2).join(" ") + "\\n")\nprocess.exit(1)\n' \
         "\"$TRAP\"" "$f" >"$H4/.claude/$f"
 done
@@ -215,7 +215,6 @@ c() { clean "$H4" "$@"; }
 (cd "$R" && c node "$COPY/bin/epic-status" --json >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/epic-board" --no-open --out "$T/eb.html" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-start.mjs" >/dev/null 2>&1)
-(cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-end.mjs" >/dev/null 2>&1)
 (c node "$COPY/bin/qmd-sync-main" --describe tp >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/preflight" --epic e1 </dev/null >/dev/null 2>&1)
 # qmd-refresh asks qmd-sync-main --describe for each collection with an `update:` line; qmd is a stub.
@@ -301,7 +300,7 @@ FILES=(
     skills/continuous-audit/SKILL.md skills/tickets-to-tasks/SKILL.md
     bin/profile bin/ticket bin/epic-status bin/preflight bin/worktree-lock bin/epic-board
     bin/qmd-mcp bin/qmd-refresh bin/qmd-sync-main bin/TICKETS.md
-    hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.mjs hooks/session-start.mjs hooks/session-end.mjs
+    hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.mjs hooks/session-start.mjs
     bin/tests/preflight.test.sh bin/tests/profile.test.sh bin/tests/qmd.test.sh bin/tests/skill-blocks.test.sh
     bin/tests/profile-world.sh bin/tests/profile-schema2-world.sh bin/tests/profile-schema2.test.sh
     bin/tests/profile-attribution.test.sh bin/tests/profile-user.test.sh

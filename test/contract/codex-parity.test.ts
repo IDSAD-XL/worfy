@@ -151,8 +151,11 @@ const GUARANTEES: Guarantee[] = [
     row: 8,
     guarantee: 'Session bookkeeping',
     readme: 'Session bookkeeping',
-    codex: 'SessionEnd, when worfy closes the app-server, records the Session for /retro and ends within the 3 s Codex gives it',
-    claude: [{ file: 'harness/hooks/tests/session-hooks.test.sh', check: 'ok "session-end appends time<TAB>cwd ($n lines)"' }],
+    codex: 'SessionEnd, when worfy closes the app-server, writes no retrospective log for a profile that still carries session.retro_reminder_after, and ends within the 3 s Codex gives it',
+    claude: [
+      { file: 'harness/hooks/tests/session-hooks.test.sh', check: 'ok "retro_reminder_after: the SessionEnd hooks of hooks.json ($ends) exit 0 and write no pending-retro.log"' },
+      { file: 'harness/hooks/tests/rules-hooks.test.sh', check: 'SessionEnd||$N/bin/worktree-lock" release|5' },
+    ],
   },
   {
     row: 9,
@@ -373,7 +376,8 @@ const MACHINE_VARIABLES = /^(CLAUDE_|HARNESS_HOME$|EVAL_HARNESS_HOME$|GATE_|GH_T
 /**
  * A registered project for one run: a git worktree with status.txt, whose first line is what its one gate
  * script `check` passes on (ok) or fails on; its registry, gate state, Harness home, HOME and a stand-in
- * bin/profile that names a profile with session.retro_reminder_after. `env` is the environment of the fake.
+ * bin/profile that names a profile with session.retro_reminder_after (a field worfy-skills 02 removed, which an
+ * older profile may still carry). `env` is the environment of the fake.
  */
 function project(name: string): Project {
   const dir = join(root, name)
@@ -663,13 +667,9 @@ describe('a turn with a reviewer and a scout (parity-guards.jsonl)', () => {
     expect(statuses(run.runs('sessionStart')).every((status) => status === 'completed')).toBe(true)
   })
 
-  row(8, 'SessionEnd records the Session for /retro and ends within the 3 s Codex gives it', () => {
+  row(8, 'SessionEnd writes no retrospective log and ends within the 3 s Codex gives it', () => {
     expect(run.code).toBe(0)
-    const log = join(p.profileDir, 'state', 'pending-retro.log')
-    expect(existsSync(log), 'pending-retro.log of the profile').toBe(true)
-    const lines = readFileSync(log, 'utf8').split('\n')
-    expect(lines).toEqual([expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\t/), ''])
-    expect(lines[0]?.split('\t')[1]).toBe(p.work)
+    expect(existsSync(join(p.profileDir, 'state', 'pending-retro.log')), 'pending-retro.log of the profile').toBe(false)
     // Codex kills a SessionEnd hook at 3 s (the fake too): a process that ended sooner had hooks that ended sooner.
     expect(run.endMs).toBeLessThan(CODEX_SESSION_END_MS)
   })

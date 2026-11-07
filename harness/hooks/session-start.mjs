@@ -3,12 +3,13 @@
 //
 // Which project it is, is decided by bin/profile of this plugin from the session directory (the `cwd` field of
 // the hook JSON, else the current folder): the registry $HARNESS_HOME/gate/config.json, the entry's "profile"
-// field. A directory outside the registered projects, a project without a profile, or a profile without
-// `session.inject_rules: true` and without `session.retro_reminder_after` — print nothing, code 0. That way the
-// session start of a project that asks for neither stays empty, as it was.
+// field. A directory outside the registered projects, a project without a profile, or a Full mode profile
+// with attribution on and without `session.inject_rules: true` — print nothing, code 0. That way the session
+// start of a project that asks for nothing stays empty, as it was. A profile may still carry
+// `session.retro_reminder_after`, a removed field: it is ignored.
 //
 // What is mixed in (the format is profiles/README.md, the `session` field); item 0 in a Silent project or with
-// `attribution: off`, items 1–3 only with session.inject_rules: true, item 4 with any session.retro_reminder_after:
+// `attribution: off`, items 1–3 only with session.inject_rules: true:
 //   0. the workflow mode: in Silent mode (mode "silent") where the workflow files live (the Workflow folder)
 //      and that branches, commits and PRs carry no trace of the workflow; with `attribution: off` that commits
 //      and PRs carry no Claude attribution lines. A Full project with attribution on gets nothing here;
@@ -16,9 +17,7 @@
 //      before (it is for the maintainer, not for the agent), under the heading session.rules_heading;
 //   2. the lessons index <profile>/lessons/lessons-index.md, if the lessons live in the profile
 //      (`lessons: "profile"`);
-//   3. the active epic's map: <profile>/state/active-epic -> <profile>/epics/<epic>/map.md;
-//   4. a reminder about /retro, if <profile>/state/pending-retro.log has at least
-//      session.retro_reminder_after lines (hooks/session-end.mjs appends them).
+//   3. the active epic's map: <profile>/state/active-epic -> <profile>/epics/<epic>/map.md.
 // Each section is at most CLAUDE_SESSION_SECTION_CAP bytes (20000 by default); a longer one is
 // cut at a line boundary, and the last line is "… truncated, full text: <path>".
 // A path under the home folder (os.homedir(); on Windows that is USERPROFILE) is shown as ~/….
@@ -136,10 +135,9 @@ async function main() {
     const session = json?.session ?? {}
     const resolved = json?._resolved ?? {}
     const inject = session.inject_rules === true || session.inject_rules === "true"
-    const after = str(session.retro_reminder_after)
     const mode = str(resolved.mode)
     const attribution = str(json?.attribution)
-    if (!inject && !after && mode !== "silent" && attribution !== "off") return
+    if (!inject && mode !== "silent" && attribution !== "off") return
 
     const name = str(resolved.name)
     const dir = str(resolved.dir)
@@ -204,16 +202,6 @@ async function main() {
         const map = path.join(dir, "epics", active, "map.md")
         const text = readText(map)
         if (text) add(`Active epic: ${active}`, text, map)
-    }
-
-    if (/^-?[0-9]+$/.test(after)) {
-        let pending = 0
-        try {
-            pending = (fs.readFileSync(path.join(state, "pending-retro.log"), "utf8").match(/\n/g) || []).length
-        } catch {}
-        if (pending >= Number(after)) {
-            add("Housekeeping", `${pending} sessions have ended without a retrospective. Suggest running /retro when this session reaches a natural pause.`)
-        }
     }
 
     if (!ctx) return

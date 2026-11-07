@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Tests of hooks/session-start.mjs and hooks/session-end.mjs.
+# Tests of hooks/session-start.mjs, and of the SessionEnd hooks of hooks.json for a profile that still
+# carries session.retro_reminder_after, a removed field: no hook writes a retrospective log.
 # Run: bash harness/hooks/tests/session-hooks.test.sh; exit code 0 means everything passed.
 #
 # The first checks run with the live registry (read only) and a copy of ~/.claude/profiles in a
-# temporary directory (CLAUDE_PROFILES_DIR), so the real state/pending-retro.log is not touched. The
+# temporary directory (CLAUDE_PROFILES_DIR), so the real state/ of the profiles is not touched. The
 # rest run on synthetic registries and profiles with a temporary home folder: a project of several
 # repositories below a common directory, profiles without the session field, broken ones.
 # JSON is read with node, not jq: Git Bash on Windows has no jq.
@@ -17,7 +18,6 @@ HARNESS="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })"
 BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 START="$HOOKS/session-start.mjs"
-END="$HOOKS/session-end.mjs"
 export CLAUDE_PROFILE_BIN="$BIN/profile" CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -54,11 +54,6 @@ ctx() { field additionalContext; }
 
 out="$(run "$START" "$T/plain" "$T/plain")"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "unregistered dir: session-start silent, exit 0" || bad "unregistered start: rc=$rc"
-before="$(find "$T/profiles" -name pending-retro.log -exec cat {} + 2>/dev/null | wc -l)"
-out="$(run "$END" "$T/plain" "$T/plain")"; rc=$?
-after="$(find "$T/profiles" -name pending-retro.log -exec cat {} + 2>/dev/null | wc -l)"
-[ "$rc" -eq 0 ] && [ -z "$out" ] && [ "$before" = "$after" ] && ok "unregistered dir: session-end silent, writes nothing" \
-    || bad "unregistered end: rc=$rc before=$before after=$after"
 
 # --- synthetic registry: a profile without the session field, a broken profile -------------
 # From here on the home folder is a temporary one: the hooks shorten a path under it to ~, and the
@@ -69,8 +64,8 @@ mkdir -p "$T/home"
 export HOME="$T/home" USERPROFILE="$T/home"
 
 # --- a project of several repositories: suite-api and suite-web below the common directory suite ----
-# (not git itself) share the profile suite, which mixes its rules and lessons into the session and
-# reminds about /retro after three sessions; scratch-tools is someone else's git repository in the
+# (not git itself) share the profile suite, which mixes its rules and lessons into the session and still
+# carries the removed field session.retro_reminder_after; scratch-tools is someone else's git repository in the
 # same directory, not in the registry. The profile acme sets inject_rules false. The profiles lie
 # under the home folder, so the hook shows the path of the lessons log as ~/….
 SP="$HOME/sp"
@@ -97,17 +92,13 @@ c="$(printf '%s' "$out" | ctx)"
     && ok "suite repo: lessons index injected" || bad "suite repo: lessons heading missing"
 [[ "$c" != *"## Sources"* && "$c" != *"SUITE-SOURCE"* ]] && ok "suite repo: Sources section stripped" || bad "suite repo: Sources leaked"
 [[ "$c" != *"Housekeeping"* ]] && ok "suite repo: no retro reminder without log" || bad "suite repo: reminder without log"
-
-# session-end writes into the profile's state; at the third line session-start reminds
-for d in "$W" "$R" "$R/elt"; do [ -d "$d" ] && srun "$END" "$d" "$d" >/dev/null; done
-n="$(wc -l <"$LOG" 2>/dev/null | tr -d ' ')"
-[ "${n:-0}" -ge 2 ] && grep -q $'\t'"$R"'$' "$LOG" && ok "session-end appends time<TAB>cwd ($n lines)" \
-    || bad "session-end: log has ${n:-0} lines"
-printf 'x\tx\nx\tx\nx\tx\n' >"$LOG"
+# A log an older Harness left with as many lines as the old threshold: no reminder any more, and the log
+# itself stays as it was (it is the user's data; worfy does not delete it).
+mkdir -p "$SP/suite/state" && printf 'x\tx\nx\tx\nx\tx\n' >"$LOG"
 c="$(srun "$START" "$R" "$R" | ctx)"
-[[ "$c" == *"## Housekeeping"$'\n'"3 sessions have ended without a retrospective."* ]] \
-    && ok "retro reminder at 3 pending sessions" || bad "retro reminder missing"
-: >"$LOG"
+[[ "$c" == *"SUITE-RULE"* && "$c" != *"Housekeeping"* && "$c" != *"/retro"* ]] && [ "$(wc -l <"$LOG" | tr -d ' ')" = 3 ] \
+    && ok "suite repo: an old pending-retro.log of 3 lines gives no reminder and stays as it was" || bad "suite repo: reminder from an old log: [$c]"
+rm -f "$LOG"
 
 # active epic
 mkdir -p "$SP/suite/epics/ep1" && echo "MAP-OF-EP1" >"$SP/suite/epics/ep1/map.md"
@@ -148,14 +139,10 @@ a="$(srun "$START" "$W" "$W")"; b="$(srun "$START" "$R" "$R")"
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "suite workspace root: same context as a repo" || bad "suite workspace root differs"
 
 # someone else's git repository in the shared directory that is not in the registry (scratch-tools) —
-# "not registered": session-start stays silent, session-end writes nothing
+# "not registered": session-start stays silent
 F="$W/scratch-tools"
-: >"$LOG"
 out="$(srun "$START" "$F" "$F")"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "scratch-tools: session-start silent" || bad "scratch-tools start: rc=$rc out=${out:0:120}"
-out="$(srun "$END" "$F" "$F")"; rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -s "$LOG" ] && ok "scratch-tools: session-end writes nothing" \
-    || bad "scratch-tools end: rc=$rc log=$(wc -l <"$LOG")"
 
 # cwd from the JSON wins over $PWD
 c="$(srun "$START" "$T/plain" "$R" | ctx)"
@@ -164,13 +151,10 @@ c="$(srun "$START" "$T/plain" "$R" | ctx)"
 c="$(srun "$START" "$R" "" | ctx)"
 [[ "$c" == *"Personal working rules"* ]] && ok "no cwd in JSON: falls back to PWD" || bad "PWD fallback broken"
 
-# a profile with inject_rules false: session-start prints nothing, session-end writes no state
+# a profile with inject_rules false: session-start prints nothing and writes no state
 out="$(srun "$START" "$T/work/acme" "$T/work/acme")"; rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "acme: session-start prints nothing (inject_rules false)" \
+[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$SP/acme/state" ] && ok "acme: session-start prints nothing (inject_rules false)" \
     || bad "acme: rc=$rc out=${out:0:120}"
-out="$(srun "$END" "$T/work/acme" "$T/work/acme")"; rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$SP/acme/state" ] \
-    && ok "acme: session-end writes nothing" || bad "acme: session-end rc=$rc or wrote state"
 mkdir -p "$T/syn/p1" "$T/syn/p2" "$T/sp/quiet" "$T/sp/broken"
 git -C "$T/syn/p1" init -q; git -C "$T/syn/p2" init -q
 echo '{"schema":1,"name":"quiet","lessons":"profile"}' >"$T/sp/quiet/profile.json"
@@ -179,31 +163,40 @@ echo '{broken' >"$T/sp/broken/profile.json"
 cat >"$T/syn.json" <<EOF
 {"repos":[{"key":"q","match":"$T/syn/p1","profile":"quiet"},{"key":"b","match":"$T/syn/p2","profile":"broken"}]}
 EOF
-for hook in "$START" "$END"; do
-    h="$(basename "$hook")"
-    out="$(CLAUDE_GATE_CONFIG="$T/syn.json" CLAUDE_PROFILES_DIR="$T/sp" run "$hook" "$T/syn/p1" "$T/syn/p1")"; rc=$?
-    [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/sp/quiet/state" ] && ok "$h: profile without session field -> nothing" \
-        || bad "$h: no-session profile rc=$rc out=${out:0:80}"
-    out="$(CLAUDE_GATE_CONFIG="$T/syn.json" CLAUDE_PROFILES_DIR="$T/sp" run "$hook" "$T/syn/p2" "$T/syn/p2")"; rc=$?
-    [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "$h: broken profile.json -> silent exit 0" || bad "$h: broken profile rc=$rc"
-done
+out="$(CLAUDE_GATE_CONFIG="$T/syn.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p1" "$T/syn/p1")"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/sp/quiet/state" ] && ok "session-start.mjs: profile without session field -> nothing" \
+    || bad "session-start.mjs: no-session profile rc=$rc out=${out:0:80}"
+out="$(CLAUDE_GATE_CONFIG="$T/syn.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p2" "$T/syn/p2")"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "session-start.mjs: broken profile.json -> silent exit 0" || bad "session-start.mjs: broken profile rc=$rc"
 
-# a reminder about /retro without mixing in rules.md (no inject_rules, retro_reminder_after present)
-mkdir -p "$T/syn/p3" "$T/sp/remind"; git -C "$T/syn/p3" init -q
+# A profile that still carries session.retro_reminder_after (a removed field) and no
+# inject_rules: SessionStart prints nothing, as for a profile without the session field, and neither
+# SessionStart nor any SessionEnd hook of hooks.json writes state/pending-retro.log. Claude Code and
+# Codex run the same hooks.json; each SessionEnd command runs here as the hook runner starts it, with
+# CLAUDE_PLUGIN_ROOT set and a Harness home of the test.
+mkdir -p "$T/syn/p3" "$T/sp/remind" "$T/hh"; git -C "$T/syn/p3" init -q
 echo '{"schema":1,"name":"remind","session":{"retro_reminder_after":1}}' >"$T/sp/remind/profile.json"
 echo '# remind rules' >"$T/sp/remind/rules.md"
 printf '{"repos":[{"key":"r","match":"%s","profile":"remind"}]}\n' "$T/syn/p3" >"$T/syn3.json"
-CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$END" "$T/syn/p3" "$T/syn/p3" >/dev/null
-c="$(CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p3" "$T/syn/p3" | ctx)"
-[[ "$c" == *"## Housekeeping"* && "$c" != *"remind rules"* ]] && ok "reminder-only profile: reminder without rules" \
-    || bad "reminder-only profile: [$c]"
-
-# session-end appends: two sessions that end give two lines, the second does not replace the first.
-: >"$T/sp/remind/state/pending-retro.log"
-for i in 1 2; do CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$END" "$T/syn/p3" "$T/syn/p3" >/dev/null; done
-n="$(wc -l <"$T/sp/remind/state/pending-retro.log" | tr -d ' ')"
-[ "$n" = 2 ] && grep -c $'\t'"$T/syn/p3"'$' "$T/sp/remind/state/pending-retro.log" | grep -qx 2 \
-    && ok "synthetic: two session-end runs -> two lines time<TAB>cwd" || bad "synthetic: session-end twice -> $n lines"
+out="$(CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/p3" "$T/syn/p3")"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/sp/remind/state/pending-retro.log" ] \
+    && ok "retro_reminder_after without inject_rules: SessionStart prints nothing, exit 0, no pending-retro.log" \
+    || bad "retro_reminder_after without inject_rules: SessionStart rc=$rc out=${out:0:120}"
+ends=0 end_rcs=""
+while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    ends=$((ends + 1))
+    (cd "$T/syn/p3" && printf '{"session_id":"t-1","cwd":"%s","hook_event_name":"SessionEnd","reason":"other"}' "$T/syn/p3" \
+        | CLAUDE_PLUGIN_ROOT="$(dirname "$HOOKS")" HARNESS_HOME="$T/hh" CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" \
+            bash -c "$cmd" >/dev/null 2>&1)
+    end_rcs="$end_rcs $?"
+done < <(node -e '
+const groups = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks.SessionEnd || []
+for (const group of groups) for (const hook of group.hooks || []) console.log(hook.command)' "$HOOKS/hooks.json")
+[ "$ends" -ge 1 ] && [ "${end_rcs// 0/}" = "" ] && [ ! -e "$T/sp/remind/state/pending-retro.log" ] \
+    && ok "retro_reminder_after: the SessionEnd hooks of hooks.json ($ends) exit 0 and write no pending-retro.log" \
+    || bad "retro_reminder_after: SessionEnd hooks ($ends, exit codes:$end_rcs) or a pending-retro.log was written"
+[ ! -e "$HOOKS/session-end.mjs" ] && ok "hooks/session-end.mjs is gone" || bad "hooks/session-end.mjs is still there"
 
 # rules.md is mixed in without its sources section, under either heading: `## Sources` or its old Russian form.
 mkdir -p "$T/syn/p5" "$T/sp/rules"; git -C "$T/syn/p5" init -q
@@ -288,12 +281,6 @@ if [ "$WIN" -eq 1 ] && [ -z "${BIN_DIR:-}" ]; then
         | env -u CLAUDE_PROFILE_BIN CLAUDE_PLUGIN_ROOT="$HARNESS" CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" node "$START" | ctx)"
     [[ "$c" == *"This project works in Silent mode"* ]] && ok "windows: cwd C:\\… with backslashes finds the project" \
         || bad "windows: cwd $wcwd not used: [$c]"
-    wcwd3="$(cygpath -w "$T/syn/p3")"; : >"$T/sp/remind/state/pending-retro.log"
-    (cd "$T/plain" && printf '{"session_id":"t-1","cwd":"%s","hook_event_name":"SessionEnd"}' "${wcwd3//\\/\\\\}" \
-        | env -u CLAUDE_PROFILE_BIN CLAUDE_PLUGIN_ROOT="$HARNESS" CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" node "$END")
-    last="$(tail -n 1 "$T/sp/remind/state/pending-retro.log" 2>/dev/null)"
-    [ "${last#*$'\t'}" = "$wcwd3" ] && ok "windows: session-end writes the cwd C:\\… as the hook got it" \
-        || bad "windows: session-end log line: [$last]"
 else
     echo "skip windows paths: not Git Bash on Windows, or BIN_DIR names another bin/profile"
 fi

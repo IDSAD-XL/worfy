@@ -5,7 +5,7 @@
 // Last, how the Session factory (src/main/vendors/claude/query.ts) hands the list to Claude Code.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,6 +19,7 @@ import {
   profileRunner,
   readGithubAccount,
   readMcpAllowlist,
+  readPipelineProfile,
   readResolvedProfile,
   scriptFailureDetail,
   type ProfileRun,
@@ -32,6 +33,7 @@ import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { ABORTED, hasSh, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 import { shellStub } from '../shell-stub'
 import { ms } from '../time-scale'
 
@@ -913,5 +915,93 @@ describe('scriptFailureDetail', () => {
     const layout = await readProjectLayout({ root: '/work/shop', claudeHome: '/nowhere/.claude', env: {}, run, log: () => undefined })
     expect(layout.failed).toBe(true)
     expect(layout.reason).toContain(reason)
+  })
+})
+
+// worfy-skills ticket 02 removed the Profile field session.retro_reminder_after and the /retro reminder
+// it drove (profiles/README.md: "ignored if present"). A Profile written before still carries it, and it
+// keeps working: the real bin/profile reads it with exit code 0, bin/project-connect --schema-only passes
+// a draft with it, and the app's readers load it as they load a Profile without it.
+describe('a Profile that still carries session.retro_reminder_after (worfy-skills 02)', () => {
+  const HARNESS = join(__dirname, '..', '..', 'harness')
+  /** The folders of harness/ that bin/profile and bin/project-connect need; tests stay out of the copy. */
+  const PARTS = ['.claude-plugin', 'bin', 'hooks', 'lib', 'profiles']
+
+  /**
+   * A Claude home whose Harness is a copy of this repository's harness/ in <home>/worfy-harness/plugin, a
+   * git repository registered in its gate registry, and the Profile `old` of that repository with the field.
+   */
+  function oldProfileHome(): { home: string; harnessHome: string; root: string } {
+    const base = realpathSync.native(scratch)
+    const home = join(base, 'claude-home')
+    const harnessHome = join(home, 'worfy-harness')
+    for (const part of PARTS) cpSync(join(HARNESS, part), join(harnessHome, 'plugin', part), { recursive: true, filter: (from) => !/[\\/]tests$/.test(from) })
+    const root = join(base, 'project')
+    mkdirSync(root)
+    expect(spawnSync('git', ['init', '-q', root]).status).toBe(0)
+    mkdirSync(join(harnessHome, 'projects', 'old'), { recursive: true })
+    mkdirSync(join(harnessHome, 'gate'), { recursive: true })
+    writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'old', match: root, profile: 'old' }] }))
+    writeFileSync(
+      join(harnessHome, 'projects', 'old', 'profile.json'),
+      JSON.stringify({ schema: 2, name: 'old', mode: 'full', session: { retro_reminder_after: 3 }, mcp: { allowed: ['github'] }, github: { account: 'IDSAD-XL' } }),
+    )
+    return { home, harnessHome, root }
+  }
+
+  it('the real bin/profile reads it with exit code 0, and the readers of the app load the Profile', async () => {
+    const { home, harnessHome, root } = oldProfileHome()
+    const before = snapshot(harnessHome)
+    const field = await profileRunner(home, loginEnv())(root, ['-C', root, '--field', 'session.retro_reminder_after'])
+    expect([field.code, field.stdout.trim()]).toEqual([0, '3'])
+    const json = await profileRunner(home, loginEnv())(root, ['-C', root, '--json'])
+    expect(json.code).toBe(0)
+
+    const options = { root, claudeHome: home, env: loginEnv(), log }
+    expect(await readResolvedProfile(options)).toMatchObject({ ok: true, profile: { mode: 'full', workflowFolder: root, workspace: null } })
+    expect(await readPipelineProfile(options)).toMatchObject({ ok: true, profile: { name: 'old', mode: 'full', pipelineReason: null } })
+    expect(await readMcpAllowlist(options)).toEqual({ servers: ['github'], source: 'profile', reason: null })
+    expect(await readGithubAccount(options)).toEqual({ account: 'IDSAD-XL', reason: null })
+    expect(logged).toEqual([])
+    expect(snapshot(harnessHome)).toEqual(before)
+  })
+
+  it('bin/project-connect --schema-only passes a draft whose profile carries it, and writes nothing', () => {
+    const harnessHome = join(scratch, 'harness-home')
+    mkdirSync(harnessHome)
+    const match = join(scratch, 'shop')
+    const profile = {
+      schema: 2,
+      name: 'shop',
+      title: 'shop',
+      mode: 'full',
+      language: { reports: 'en', team: 'en', docs: 'en' },
+      attribution: 'on',
+      layout: { summary: 'one package', packages: ['.'], repos: null },
+      stack: ['node'],
+      commands: { install: 'npm ci', lint: 'npm run lint', typecheck: null, test: 'npm test', test_one: null, contract: null, e2e: null, build: null, verify: 'npm run lint && npm test', prepare_tree: 'npm ci', requires: [] },
+      parallel: 'worktrees',
+      worktree: { root: `${match}/.claude/worktrees/`, base: 'origin/main', implementer: null, reviewer: null },
+      tickets: { root: '.scratch/', path: '.scratch/<epic>/issues/NN-*.md', trail_section: '## Where in the code', spec: '.scratch/<epic>/spec.md', branch: null },
+      workflow: { folder: null, ticket_skill: 'ship-ticket', implementer_steps: 'steps 1-8', finish: 'local-green', merge: 'orchestrator' },
+      numbering: null,
+      deploy: null,
+      github: { account: null },
+      docs: null,
+      lessons: 'repo:docs/lessons',
+      mcp: { allowed: ['plugin_worfy_qmd', 'worfy-canvas'] },
+      review: { lenses: ['correctness'], ticket_lenses: ['correctness'] },
+      session: { retro_reminder_after: 3 },
+    }
+    const gate = [{ key: 'shop', match, profile: 'shop', pm: 'npm', root: { fast: ['lint', 'test'], full: ['lint', 'test'] }, workspace: {} }]
+    const run = spawnSync(scriptNode(), [join(HARNESS, 'bin', 'project-connect'), '--schema-only'], {
+      input: JSON.stringify({ profile, rules: '# shop\n', gate }),
+      env: scriptsEnv([NODE_DIR], { HOME: scratch, HARNESS_HOME: harnessHome }),
+      encoding: 'utf8',
+      timeout: ms(30_000),
+    })
+    expect([run.status, run.stderr]).toEqual([0, ''])
+    expect(JSON.parse(run.stdout)).toMatchObject({ ok: true })
+    expect(readdirSync(harnessHome)).toEqual([])
   })
 })
