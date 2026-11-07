@@ -33,11 +33,16 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
 
 - [ ] Test: после ошибки чтения ветки следующее чтение (после паузы) читает её снова, и Ticket показывает статус
       ветки. До правки — красный; mutant со старым условием кеша — красный.
+  - evidence: test-run pass · `pnpm test` exit 0; mutant with the old cache condition: `vitest run test/contract/workflow-reader.test.ts -t "worfy-polish 67"` exit 1 · mac - · 39570471a
 - [ ] Test: watcher сам перечитывает ветку после ошибки, без нового события.
+  - evidence: test-run pass · `pnpm test` exit 0 (workflow-reader.test.ts, watcher re-reads a failed branch with no event) · mac - · 39570471a
 - [ ] Test: Ticket, ветку которого не удалось прочитать, `readyWave` не берёт в Wave, его файлы `held`.
+  - evidence: test-run pass · `pnpm test` exit 0 (waves.test.ts and workflow-reader.test.ts, unreadBranch keeps the Ticket out of readyWave) · mac - · 39570471a
 - [ ] `branchErrors` показаны пользователю или в «Итог» обосновано, почему нет.
+  - evidence: test-run pass · `pnpm test` exit 0 (workflow-stages.test.ts, branch errors in the Pipeline problems) · mac - · 39570471a
 - [ ] Все unit и contract test-ы `src/main/workflow/`, `src/shared/workflow/`, test-ы модели Autopilot,
       `pnpm lint`, `pnpm typecheck`, `pnpm test`, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 · mac - · 39570471a
 - [ ] ci-ok зелёный на head PR.
 
 ## Где в коде
