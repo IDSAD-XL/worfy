@@ -165,6 +165,11 @@ it gives the state, blockers, Wave, Gate outcome, PR and CI. Its `error` field s
 The first read of the workflow has 15 seconds. After that `worfy.workflow.get` rejects its Promise, and
 `worfy.workflow.subscribe` writes the failure to the console.
 
+Every Card can read this snapshot without asking: the Epics, the Ticket titles and states, and the PR links. A Card may also
+send requests to any https address, so a Card can send the snapshot out. This is accepted on purpose. A Card is written by
+the Project's own agent, which has network tools of its own, so the Card reaches nothing the agent could not. The snapshot is
+built in `src/renderer/canvas/card-bridge.ts` and the network rule is the CSP in `src/main/cards/protocol.ts`.
+
 **Messages to a Session.** `worfy.ask` opens a dialog titled `Message from a Card`, with the buttons `Send` and `Cancel`. The
 dialog names the Card and the recipient and shows the exact text. Nothing is sent without `Send`. The result is
 `{sent: true}`, or `{sent: false, canceled: true}` for any other answer.

@@ -2,7 +2,7 @@
 
 | Находка | Адрес |
 |---|---|
-| security-1 | решение владельца: Ticket 01 (`Type: grilling`) — чтение workflow Card-ой без вопроса вместе с сетью на любой https |
+| security-1 | Ticket 01 (`Type: grilling`), done 2026-11-07: владелец выбрал вариант а — оставить и записать (`docs/features/cards.md`, ADR-0015 Amendment); чтение workflow Card-ой без вопроса вместе с сетью на любой https принято намеренно |
 | security-2 | очередь исправлений: Ticket 02 |
 | security-3 | LOW, не делать: подменённый Codex и так работает с правами пользователя |
 | security-4 | LOW, решение принято: `worfy-link/15`, вопрос 2 — service messages идут при любом уровне доступа |
