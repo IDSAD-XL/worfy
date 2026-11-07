@@ -19,6 +19,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Autopilot](autopilot.md) | Autopilot |
 | [Run planning](run-planning.md) | Run mode and Epic forecast: Start window, the budget of the Limits |
 | [Flight Recorder](flight-recorder.md) | Run history: the timeline of an Autopilot Run |
+| [Work track](work-track.md) | Work track: all the work of a Project over a Day, a Week or a Month |
 | [Terminal](terminal.md) | Terminal, Terminal AI |
 | [Cards](cards.md) | Card as a file, Card API, Canvas MCP |
 | [Canvas](canvas.md) | Node and Layout, Find, inserting images |

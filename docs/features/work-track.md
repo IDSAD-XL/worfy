@@ -32,11 +32,11 @@ One row, left to right:
 - **Period**: `Day`, `Week` or `Month`, Week by default. A Week is the 7 days that end on the chosen day, today at
   first. A Month is the calendar month, from the 1st;
 - `‹` and `›` with the words of the period (`Thu 5 Nov 2026`, `30 Oct – 5 Nov 2026`, `November 2026`): a Day, a Week or
-  a Month earlier or later. `›` is off when the period ends today, with the tooltip "Nothing later: the period ends
-  today";
+  a Month earlier or later. `›` is off while no later period has begun (the Day is today, the Week ends today, the
+  Month is the current one), with the tooltip "Nothing later: the period ends today";
 - **Lanes**: `by Session` (the default) or `by Epic`;
 - **Density**: `compact` (the default) or `comfortable`. Comfortable has taller bars, writes the name in every bar wide
-  enough for it, and writes the hours in the cells of a Month. Compact writes only the names of Waves.
+  enough for it except a run's, and writes the hours in the cells of a Month. Compact writes only the names of Waves.
 
 Main answers at once with what the quick sources gave. While the transcripts and GitHub are still read, a line in
 the row says `Reading transcripts, GitHub…`, and the view fills in when they come. If the whole read fails, a notice
@@ -99,8 +99,8 @@ opens that Day.
 
 #### No data
 
-Where a source holds nothing, the lanes it fills are hatched grey with `no data · <source>` and the reason in the
-tooltip:
+Where a source holds nothing, the lanes it fills are hatched grey, with the source and the reason in the tooltip. A
+hatched stretch wider than 110 pixels also carries the label `no data · <source>`:
 
 | Source | Hatched on | Reason |
 |---|---|---|
@@ -160,7 +160,7 @@ of the app; the answer of GitHub for a minute.
 |---|---|---|
 | The Autopilot journals | Runs and their Waves. | Never cleaned by worfy. |
 | The Wave markers of the Harness | Waves sent by hand: the first row `wave-started` with the Ticket numbers, the last `wave-finished`. | worfy does not clean them. |
-| Claude Code transcripts | The turns of every Session of the Project and their Subagents. | `cleanupPeriodDays` of Claude Code's settings, 30 days by default. A whole calendar Month needs 31 days, so 35 or more keeps one. |
+| Claude Code transcripts | The turns of every Session of the Project and their Subagents. | `cleanupPeriodDays` of Claude Code's settings, 30 days by default. The Month in progress reaches at most 31 days back, so 35 or more keeps it whole; an earlier Month reaches further back (October seen on 7 November starts 37 days before). |
 | The Codex history | The turns of Sessions on Codex. | As long as Codex keeps the thread; archived threads are not listed. |
 | GitHub | PRs merged and CI runs. | Not cleaned. |
 | Gate logs | Each gate run: time, outcome, worktree. | The record of a run (`timings.json`) for 31 days. |
@@ -176,8 +176,8 @@ Profile cannot be read has none.
 four characters of its id, with the last part of its folder. The title Claude Code writes into a transcript is the
 model's text, so it is not used.
 
-**A Wave of a run and its marker are one Wave** when they have the same Epic, overlap in time and share a Ticket: the
-journal's stays, with its run. A marker with no `wave-finished` goes on for a day, then ends at its last row as
+**A Wave of a run and its marker are one Wave** when they have the same Epic, overlap in time and share a Ticket, or
+neither names one: the journal's stays, with its run. A marker with no `wave-finished` goes on for a day, then ends at its last row as
 `stopped`. A run goes on while its journal has no stop, it is the Project's newest, and Autopilot works on its Epic.
 
 **Which Epic.** A run, a Wave and a PR or CI run on a branch `<epic>/<NN>` name their Epic. A turn or a Subagent with no
@@ -188,7 +188,8 @@ With no Epic anywhere up the chain, it is `—`, never a guess.
 **Hours** are the union of the intervals of the work in the period, not their sum, as self time is in Run history. A
 day of a Month counts the part of the work inside that day.
 
-**Slow sources.** A Month of transcripts and GitHub take seconds on a first read. Main reads them in the background:
+**Slow sources.** On a first read a Month takes about 12 seconds for the transcripts and about 50
+seconds for GitHub. Main reads them in the background:
 its first answer names them in `loading`, and the view asks again, waiting for them. GitHub is read a week at a time
 (one search of the merged PRs) and a day at a time (the CI runs). The first call that fails stops the read: the rest
 of the period is a gap, and what was read before it stays. Over 1000 PRs in a week or 1000 CI runs in a day, the rest

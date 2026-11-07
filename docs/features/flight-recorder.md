@@ -196,7 +196,7 @@ Run history keeps no copy. A run lasts as long as its sources:
 | Source | Kept |
 |---|---|
 | The Autopilot journal | Never cleaned by worfy, so the frame of every run stays: its Waves, waits, Tickets' statuses and stop. |
-| Transcripts | As long as Claude Code keeps them: `cleanupPeriodDays` of its settings, 30 days by default. A whole calendar Month of [Work track](work-track.md) needs 31 days, so 35 or more keeps one. |
+| Transcripts | As long as Claude Code keeps them: `cleanupPeriodDays` of its settings, 30 days by default. The Month in progress of [Work track](work-track.md) reaches at most 31 days back, so 35 or more keeps it whole; an earlier Month needs more. |
 | Gate logs | The record of each gate run (`timings.json`) for 31 days. A run folder that lost its record is labelled too. |
 | GitHub | Not cleaned. |
 
