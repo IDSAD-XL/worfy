@@ -22,12 +22,12 @@
 - Spec `worfy-autopilot-queue` принят 2026-11-06; раздача — после merge worfy-retry 05 и 14.
 - `worfy-work-track` (Work track во вкладке Runs; [spec](.scratch/worfy-work-track/spec.md)): закрыт, 13/13, принят владельцем 2026-11-07 («принимаю трек»); «Итог» 12.
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
-- Приняты 11-04: `worfy-retry`, `worfy-auto-approve`; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
+- `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
 
 ## Ждёт владельца
 
-- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11, `worfy-retry` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
+- Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
 
 ## Риски и долги
