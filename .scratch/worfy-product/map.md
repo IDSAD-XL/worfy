@@ -17,6 +17,7 @@
   - [`docs/research/2026-11-07-оценка-идей-pr-1580.md`](../../docs/research/2026-11-07-оценка-идей-pr-1580.md) — двенадцать идей PR #1580, влито в #1581; переоценка по пользователям worfy — раздел 8 (Ticket 02);
   - [`docs/research/2026-11-07-product-session-основа.md`](../../docs/research/2026-11-07-product-session-основа.md) — что есть в коде под Product Session, влито в #1586 (Ticket 07).
 - Epic `worfy-skills` переносит skills Matt Pocock в плагин worfy (spec принят 2026-11-07); первый Epic Product Session ждёт его (Ticket 11). Epic `worfy-human-review` идёт параллельно; его место в roadmap решает Ticket 10.
+- 2026-11-07: черновики на приёмку одним раундом — раздел [roadmap «worfy для соло-разработки продукта»](../../docs/roadmap.md#worfy-для-соло-разработки-продукта) (Ticket 10) и [spec Epic-а `worfy-product-session`](../worfy-product-session/spec.md), 17 Ticket-ов, Q1–Q10 «подтвердить» (Ticket 11); Wave-ы Harness ждут `worfy-skills`, остальные стартуют сразу.
 
 ## Decisions so far
 
