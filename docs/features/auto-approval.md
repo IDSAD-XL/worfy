@@ -11,7 +11,7 @@ the approval policy, a request parked for the owner and where to see the decisio
 #### The mode and the approval policy
 
 Auto-approval decides what worfy answers when the agent of a run asks for a permission. It is set per Project on the
-Machine of the Project, in the Orchestrator's Modes menu ([Sessions](sessions.md)), and is Off until set. The mode is
+Machine of the Project, in the Orchestrator's Modes menu ([Orchestrator modes](orchestrator-modes.md)), and is Off until set. The mode is
 kept in worfy's own `app-settings.json`, not in the Profile, which the agent could change itself. While worfy runs with
 a debugging port or the Node inspector open, Off applies whatever is saved. A run reads the mode at each request.
 
@@ -140,7 +140,7 @@ The decision and its reasons are recorded in [ADR-0098](../adr/0098-approval-pol
 
 #### Modules
 
-The modules of the Auto-approval item of the Modes menu are listed on the [Sessions](sessions.md#implementation) page,
+The modules of the Auto-approval item of the Modes menu are listed on the [Orchestrator modes](orchestrator-modes.md#modules) page,
 and those of the counters of a run's decisions on the [Flight Recorder](flight-recorder.md#modules) page.
 
 #### Tests

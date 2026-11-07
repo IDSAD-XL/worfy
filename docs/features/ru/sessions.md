@@ -1,6 +1,6 @@
 # Sessions
 
-> Перевод [английской версии](../sessions.md), commit `same-pr`.
+> Перевод [английской версии](../sessions.md), commit `9e80b208`.
 
 Два Feature. **Session** — один разговор с Claude Code. **Subagent** — агент, которого запустила Session. Transcript, Claude home, Memory и
 Limits описаны на странице [Transcripts and usage](transcripts-and-usage.md). Термины объяснены в [Concepts](concepts.md).
@@ -123,17 +123,10 @@ Orchestrator. Память об этом выборе живёт столько 
 
 - «New conversation» отклоняется в `busy` и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
 - Когда Orchestrator открывается, его сохранённая Session продолжается. Если transcript пропал, стартует новая Session.
-- Orchestrator modes собраны в одной кнопке под полем ввода Orchestrator, «Modes»; у обычной Session её нет. Кнопка всегда
-  показывает по иконке на режим в постоянном порядке — Eco mode, потом Auto-approval: яркую, когда режим включён, приглушённую,
-  когда выключен, контур для Auto-approval Shadow, бледную, пока состояние неизвестно. Ширина кнопки от состояний не меняется;
-  когда в строке тесно, первой пропадает её подпись. Клик, Enter, Space или ArrowDown открывают меню над ней: Eco mode (вкл. или
-  выкл.), потом Auto-approval с тремя положениями Off, Shadow и On, у каждого строка под ним и tooltip. Стрелки, Home и End ходят
-  по пунктам, Enter и Space выбирают, Esc закрывает меню и возвращает фокус на кнопку, Tab закрывает. Выбор пункта меню не
-  закрывает: в нём видно новое состояние.
-- Eco mode пишет два поля Profile Project-а: `workflow.agents` со значением `eco` и `agents`, то есть Sonnet с effort medium для
-  каждой роли агента. Выключение убирает оба поля, а прежние модели ролей не возвращаются. Действует со следующего Ticket-а.
-- Auto-approval хранится по Project-у в собственных настройках worfy на этой Machine (`app-settings.json`), не в Profile; пока
-  worfy запущен с открытым debugging port, режим Off, а три положения недоступны с причиной и сохранённым режимом в tooltip.
+- Orchestrator modes — Eco mode, Auto-approval и Auto-continue — собраны в одной кнопке под полем ввода Orchestrator-а,
+  «Modes». С включённым Auto-continue worfy продолжает turn Orchestrator-а, который закончился временной ошибкой API или
+  отказом Limits, а строка над полем ввода отсчитывает время до продолжения. И то и другое — на странице
+  [Orchestrator modes](orchestrator-modes.md). У обычной Session нет ни того, ни другого.
 - Autopilot ведёт эту Session без человека. См. [Autopilot](autopilot.md). В это время permission mode принудительно Bypass permissions и не
   сохраняется, смена режима отклоняется, а запросы разрешений и вопросы сразу отклоняются.
 
@@ -148,13 +141,6 @@ worfy. Session из терминала или Claude desktop уведомляе�
 - «+» там использует скрытый file input, и файл передаётся байтами.
 - При read-only доступе поле ввода, picker-ы и ответы на карточках неактивны, а tooltip объясняет почему. Session view не открывает там
   Orchestrator: если его нет, показывается «No Orchestrator yet».
-- Меню Modes показывает режимы Project-а на той Machine, где он живёт. С полным доступом пункты меняют их там: Eco mode
-  пишет Profile той Machine, Auto-approval и Auto-continue — её `app-settings.json`; на Machine окна ничего не пишется. С
-  read-only доступом иконки и меню показывают состояния, каждый пункт недоступен с подсказкой read-only; Machine Project-а
-  такую запись тоже отклоняет. Смена на одной Machine сразу видна в открытом меню другой. Если ответ на запись не пришёл,
-  toast называет причину, а пункт читает состояние заново; пока чтение не удаётся, пункт недоступен с причиной.
-- Пока worfy на Machine окна запущен с debugging port или Node inspector, Auto-approval там недоступен с причиной, и с этой
-  Machine уходит только Off; Eco mode и Auto-continue меняются.
 - Уведомление идёт и подключённым Linked machine. Каждая Machine применяет своё правило фокуса и свои 10 секунд.
 
 #### Windows
@@ -215,12 +201,11 @@ worfy. Session из терминала или Claude desktop уведомляе�
 | Store в renderer, соединение прошлых и live-событий | `src/renderer/session/store.ts` |
 | Карточки | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Элементы под полем ввода, находятся через glob | `src/renderer/session/composer/` |
-| Меню Modes | `src/renderer/session/composer/Modes.tsx` |
-| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
-| Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
 | Node | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Настройки autocompact | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Уведомления | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
+
+Модули меню Modes, Auto-continue и обратного отсчёта — на странице [Orchestrator modes](orchestrator-modes.md#модули).
 
 **Поток данных.** Окно вызывает `agent.send`. Handler сообщает input observer-ам, проверяет вложения и передаёт сообщение Session, сохраняя порядок
 сообщений одной Session. Session кладёт его во вход query, а во время turn — в очередь. Каждое сообщение SDK становится `AgentEvent` в общей схеме, в
