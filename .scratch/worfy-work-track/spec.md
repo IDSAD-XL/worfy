@@ -3,7 +3,8 @@
 Status: принят владельцем 2026-11-06 («со всем согласен»): решения grilling-а 2026-11-05 (Ticket-ы карты 01, 04–06),
 прототип Work track, нарезка на Ticket-ы и Wave-ы, «Решено без владельца» и ответы на «Открытые вопросы». Wave 1
 этого Epic-а идёт параллельно с Wave 1 [worfy-autopilot-queue](../worfy-autopilot-queue/spec.md), то есть после merge
-worfy-retry 05 и 14.
+worfy-retry 05 и 14. Epic принят владельцем 2026-11-07 («принимаю трек»), 13/13 — «Итог»
+[Ticket-а 12](issues/12-приёмка-с-владельцем.md#итог).
 Source: слово владельца 2026-11-05: «в runs пункт full work track … таймлайн по датам с выбранным периодом (1д, 7д, 2нд,
 1 мес) где можно будет отследить всю работу»; карта [worfy-autopilot-queue](../worfy-autopilot-queue/map.md) и её
 Ticket-ы [01](../worfy-autopilot-queue/issues/01-destination-и-масштаб.md) (Q4–Q6),
@@ -265,11 +266,13 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 ## Готово, когда
 
-- [ ] Во вкладке Runs — «Run history | Work track»; Work track — Day / Week / Month, by Session / by Epic, compact /
+- [x] Во вкладке Runs — «Run history | Work track»; Work track — Day / Week / Month, by Session / by Epic, compact /
       comfortable, как прототип `card-dcf3918a` (09).
-- [ ] Лента показывает Run-ы, ходы всех Session Project-а этой Machine (скрытых и архивных тоже), Subagent-ы, PR, CI,
+- [x] Лента показывает Run-ы, ходы всех Session Project-а этой Machine (скрытых и архивных тоже), Subagent-ы, PR, CI,
       gate, смены статуса; только названия (05–08).
-- [ ] Сводка — часы по Epic-ам без двойного счёта, PR merged, Run-ы, пробелы; щелчок по Span-у — панель (10).
-- [ ] Пробелы источников — «no data» с причиной; Harness хранит `timings.json` 31 день и маркер каждой Wave; срок
+- [x] Сводка — часы по Epic-ам без двойного счёта, PR merged, Run-ы, пробелы; щелчок по Span-у — панель (10).
+- [x] Пробелы источников — «no data» с причиной; Harness хранит `timings.json` 31 день и маркер каждой Wave; срок
       транскриптов — 35 дней (01–03).
-- [ ] Страница Feature и три термина в `CONTEXT.md` (11). Приёмка владельца (12).
+- [x] Страница Feature и три термина в `CONTEXT.md` (11). Приёмка владельца (12).
+
+Все пункты закрыты приёмкой 2026-11-07 — «Итог» [Ticket-а 12](issues/12-приёмка-с-владельцем.md#итог).
