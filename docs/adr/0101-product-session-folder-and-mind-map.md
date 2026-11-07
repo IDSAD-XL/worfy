@@ -1,0 +1,74 @@
+# 0101 — Папка Product Session и файл Mind map
+Дата: 2026-11-07. Статус: принят. Epic `worfy-product-session`, Ticket 03; spec — `.scratch/worfy-product-session/spec.md`
+(«Решения владельца 2026-11-07», п. 4, 5; «Как работает» → «Папка темы и файл Mind map»; «Вопросы владельцу», Q1, Q4,
+Q6, Q7, Q8); карта [worfy-product](../../.scratch/worfy-product/map.md), решение 09.
+
+**Контекст.** Product Session (советник Product owner-а, CONTEXT.md) ведёт продуктовую тему по процессу wayfinder и
+рисует Mind map — схему разговора из узлов Идея, Вопрос, Решение, Возражение. Владелец решил (карта worfy-product,
+решения 05 и 09): тема — папка `docs/product/<тема>/` с картой wayfinder и файлом Mind map, без базы данных; формат,
+который worfy описывает сам, worfy сам читает и проверяет. До этого Ticket-а папки `docs/product/` не было ни в одном
+Project-е и формата не было.
+
+**Решение.**
+1. **Папка Product Session.** Одна функция даёт её путь — `productFolder` (`src/shared/product/paths.ts`): в Full mode
+   `<корень Project-а>/docs/product/`, в Silent mode `<Workflow folder>/product/` вне git (Q6). Внутри:
+
+   ```text
+   <папка Product Session>/
+     <тема>/
+       map.md             карта wayfinder: H1, разделы Destination, Notes, Decisions so far, Not yet specified
+       issues/NN-slug.md  Ticket-ы карты: шапка Type / Status / Blocked by / Source (TICKETS.md, «Wayfinding operations»)
+       mind-map.json      мелкие узлы, связи, положения, свёрнутые ветки
+       drafts/<epic>.md   черновики Epic-ов с пометкой «черновик советника» (Q4)
+     critic/<epic>-<YYYY-MM-DD>.md   разборы критика (Q8)
+   ```
+
+   Имя темы — одно имя папки: буквы любого алфавита, цифры, `.`, `_`, `-`, первая — буква или цифра, до 80 символов;
+   `critic` занято разборами критика (`isProductTopicName`).
+2. **Ticket-ы карты — крупные узлы Mind map.** Их номер, H1 и слово строки `Status:` worfy читает из файлов
+   `issues/NN-slug.md` по правилам `harness/bin/TICKETS.md`: H1 — `firstHeading` (`src/main/workflow/reader.ts`), строки
+   внутри блоков кода не считаются. В `mind-map.json` Ticket-ы не копируются; узел ссылается на Ticket строкой
+   `ticket:NN`.
+3. **Схема `mind-map.json`** — zod в `src/shared/product/mind-map.ts`, это публичный контракт:
+   - `version: 1`, `nodes: [...]`; ключи, которых схема не знает, отбрасываются при чтении;
+   - узел: `id` (1–64 символа: латинские буквы, цифры, `_`, `-`), `kind` — `idea` | `question` | `decision` |
+     `objection`, `text`, `from` — id узла-родителя, `ticket:NN` или `null` (от темы);
+   - у `decision` обязательны `status` (`accepted` | `rejected`) и непустой `reason`; у `objection` — непустой `source`
+     (факт: путь документа, Ticket, PR, URL);
+   - необязательные: `advice` (совет советника, считается в доле принятых, Q9), `replaces` (id Решения, которое это
+     Решение отменило), `history` (прежние `status` и `reason` Решения, с `message`), `message` (uuid события
+     транскрипта, где узел появился или менялся), `x`, `y`, `collapsed` (пишет только экран, руками владельца);
+   - текст узла, причина и источник — не длиннее 2000 символов.
+4. **Одна проверка формата** — `checkMindMap(value, tickets)`: возвращает узлы или все найденные ошибки, каждую с id
+   узла в тексте и в поле `id`: неверное поле, два узла с одним id, `from` не на узел и не на Ticket карты, цикл по
+   `from`, `replaces` не на Решение, Решение без статуса или причины, Возражение без источника. Её зовут и tools
+   `mind_map_*` до записи (Ticket 04), и экран при чтении.
+5. **Чтение темы** — `readTopic` (`src/main/product/topic.ts`). Файл, которого нет, который не читается, не JSON или
+   не прошёл проверку, даёт тему с ошибками, а не исключение: экран показывает ошибку и узел, а не пустую Mind map.
+   Чтение ничего не пишет. `mind-map.json` не читается через `readJsonFile` (`src/main/storage/json-file.ts`): тот
+   переименовывает файл, который не разобрал, а этот файл принадлежит Project-у.
+6. **Писатели.** `mind-map.json` пишет только main: и tools `mind_map_*`, и перетаскивание узла на экране идут через
+   него (Ticket-ы 04, 09), запись атомарная. `map.md`, `issues/`, `drafts/` и `critic/` пишут агенты Product Session и
+   критик. Обычные Session-ы и Orchestrator `docs/product/` читают, но не пишут: это говорят их правила, и tools
+   `mind_map_*` у них нет (Q7); guard для них не ставится. Исключение — docs PR Orchestrator-а, который сохраняет
+   `docs/product/` по сигналу (Q5): он коммитит файлы, но не правит их.
+7. **Язык.** Ключи и значения `kind`, `status` — английские, как код (ADR-0074); тексты узлов, карты и черновиков —
+   на языке `language.team` Profile-а.
+
+**Последствия.** ADR-0005 («worfy ничего не пишет в репозитории проектов») для Product Session получает одно
+исключение: main пишет `mind-map.json` в папку Product Session Project-а (Ticket 04), остальное по-прежнему только в
+`WORFY_DATA_DIR`. Новая версия формата — новое значение `version` и чтение обеих; файл со старой версией сегодня
+даёт ошибку `version`, а не пустую Mind map.
+
+## Considered Options
+
+- **Markdown со списком узлов вместо JSON** (Q1, б). Отвергнуто: читается глазами, но положения, свёрнутые ветки и
+  проверка формата хуже; узлы и так видны на экране.
+- **Несколько родителей у узла.** Отвергнуто: «из чего выросло» — один родитель, и дерево по умолчанию рисуется без
+  выбора; второй связью остаётся только `replaces`.
+- **Ticket-ы карты внутри `mind-map.json`.** Отвергнуто: два источника правды для одного Ticket-а; Ticket-ы карты
+  остаются файлами `issues/`, которые читают `bin/ticket` и `epic-status`.
+- **Чтение через `readJsonFile`.** Отвергнуто: файл с ошибкой ушёл бы в сторону под другим именем, и правка руками
+  исчезла бы с экрана вместо того, чтобы показать ошибку.
+- **Правила «Решение — с причиной», «Возражение — с источником» как union-схема zod по `kind`.** Отвергнуто: ошибка
+  union-а не называет, чего не хватает конкретному узлу; проверка в `checkMindMap` даёт текст с id узла.
