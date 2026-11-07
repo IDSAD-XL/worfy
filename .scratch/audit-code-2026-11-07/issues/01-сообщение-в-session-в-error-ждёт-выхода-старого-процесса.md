@@ -1,7 +1,8 @@
 # 01 — Сообщение в Session в состоянии error ждёт выхода старого процесса Claude Code
 
 Type: task
-Status: open
+Status: done 2026-11-07T23:26Z
+PR: #1601
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Находки», находка correctness-1; [ADR-0064](../../../docs/adr/0064-orchestrator-relaunch-waits-for-old-process-exit.md)
 
@@ -40,15 +41,18 @@ Claude Code на той же Vendor session, хотя старый процес�
       вызов `start`/`resume` driver-а происходит только после выхода первого процесса.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
+  - evidence: review pass · PR #1601 · - - · eda2ccf822f54acaa831e93333a391fc82a12684
 - [ ] Contract test: процесс, который не выходит, получает SIGKILL после границы, и новый старт идёт после этого;
       сообщение не теряется и уходит в новый процесс.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 082997eb1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
+  - evidence: review pass · PR #1601 · - - · eda2ccf822f54acaa831e93333a391fc82a12684
 - [ ] Существующий test `test/contract/session-handle-lifecycle.test.ts:94` («a subscriber that throws fails the
       Session and closes its query; the next message starts the only live one») зелёный.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42418602438/job/128560348795 · ci - · eda2ccf822f54acaa831e93333a391fc82a12684
 
 ## Тесты
 
