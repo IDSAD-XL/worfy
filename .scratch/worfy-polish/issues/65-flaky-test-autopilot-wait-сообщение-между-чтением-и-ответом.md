@@ -26,11 +26,16 @@ Source: CI PR #1592 linux-tests (2/4) и main run 42266856501 (FLAKY).
 ## Готово, когда
 
 - [ ] Root cause назван в «Итог» с file:line; падение воспроизведено до правки.
+  - evidence: commit pass · Fix the flaky autopilot-wait race: hold the Wave's turn, take a free Orchestrator without a stale grace time (polish 65) · - - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] Test-ы файла не зависят от того, как быстро run доходит до своего конца после Wave 1.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-wait.test.ts --retry=0` with a 300 ms delay injected at the end of waveOne: exit 0 (14 of 14; before the fix 5 failed) · mac - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] Если найден race в продукте — он исправлен, есть test, красный до правки.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-wait.test.ts --retry=0` exit 0 (new test a run that reads the Orchestrator only after the last task red before the fix) · mac - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] `test/contract/autopilot-wait.test.ts` с `--sequence.shuffle --retry=0`: 30+ запусков под нагрузкой, все exit 0.
+  - evidence: test-run pass · `pnpm test test/contract/autopilot-wait.test.ts --retry=0 --sequence.shuffle` 92 runs in 3, 6 and 8 parallel copies: 92 exit 0 · mac - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] Все unit и contract test-ы `src/main/autopilot/`, `src/main/agent/orchestrator.ts`, `src/main/ipc/autopilot.ts`,
       `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] ci-ok зелёный на head PR.
 
 ## Где в коде
