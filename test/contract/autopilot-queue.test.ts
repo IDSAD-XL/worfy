@@ -397,7 +397,8 @@ describe('a Run over a queue of Epics on the fake agent', () => {
       ['epic-finished', 'beta', 'waits-owner 02'],
       ['run-stopped', 'beta', 'waits-owner'],
     ])
-    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'waits-owner', tickets: ['02'] })
+    // A stop for want of a Wave carries the Orchestrator's last answer of the Wave, as blocked-tickets does (ADR-0033).
+    expect((await h.journal()).at(-1)).toMatchObject({ kind: 'run-stopped', reason: 'waits-owner', tickets: ['02'], lastText: 'Wave of the queue done.' })
     expect(h.autopilot.state(PROJECT)).toMatchObject({
       status: 'stopped',
       reason: 'waits-owner',
@@ -1073,6 +1074,45 @@ describe('the queue of a run over stand-ins', () => {
     await s.stopped()
     expect(s.out.waves.map((wave) => wave.epic)).toEqual(['alpha'])
     expect(s.said().slice(-2)).toEqual(['epic-finished alpha done', 'run-stopped alpha no-ready-wave'])
+  })
+
+  /**
+   * A queue of alpha and beta whose beta keeps a Ticket for the owner after its Wave; a Stop is clicked during the
+   * `nth` read of the workflow after beta's Wave started (1: the read after the turn, which judges the Wave; 2: the
+   * read of the rule of the queue).
+   */
+  async function stopAtBetaRead(nth: number) {
+    const s = stand({ epics: ['alpha', 'beta'] })
+    s.out.tickets = [t('alpha', 1), t('beta', 1), t('beta', 2, 'blocked', { waits: 'owner' })]
+    const read = s.deps.workflow
+    let after = 0
+    s.deps.workflow = (root) => {
+      if (s.out.waves.some((wave) => wave.epic === 'beta')) {
+        after += 1
+        if (after === nth) void s.autopilot.stop(PROJECT)
+      }
+      return read(root)
+    }
+    await s.autopilot.start(PROJECT, 'alpha', { epics: ['alpha', 'beta'] })
+    await s.stopped()
+    return s
+  }
+
+  it('a Stop clicked during the rule\'s read of the last Epic that waits for the owner: the Run stops with its cycle\'s reason, not waits-owner (ticket 21)', async () => {
+    const s = await stopAtBetaRead(2)
+    expect(s.said().filter((line) => line.startsWith('epic-') || line.startsWith('run-stopped'))).toEqual([
+      'epic-finished alpha done',
+      'epic-started beta 2/2',
+      'epic-finished beta waits-owner',
+      'run-stopped beta blocked-tickets',
+    ])
+    expect(s.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
+  })
+
+  it('a Stop clicked during the read that judges the last Epic\'s Wave: no epic-finished for it, the Run stops with its cycle\'s reason (ticket 21)', async () => {
+    const s = await stopAtBetaRead(1)
+    expect(s.said().filter((line) => line.startsWith('epic-') || line.startsWith('run-stopped'))).toEqual(['epic-finished alpha done', 'epic-started beta 2/2', 'run-stopped beta blocked-tickets'])
+    expect(s.autopilot.state(PROJECT).reason).toBe('blocked-tickets')
   })
 
   it('the workflow cannot be read when the Epic\'s cycle stops: the Run stops with its reason, the next Epic is not begun', async () => {

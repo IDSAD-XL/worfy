@@ -334,6 +334,28 @@ describe('a refused start of the queue: "Start anyway" (worfy-autopilot-queue ti
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('another Run mode takes "Start anyway" away; back on the refused mode it returns, and starts in that mode', async () => {
+    fake.started = [elsewhere]
+    const dialog = await queueWindow()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(within(dialog).getByTestId('start-autopilot-anyway')).toBeDefined()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-mode-budget-aware'))
+    await settle()
+    expect(within(dialog).queryByTestId('start-autopilot-anyway')).toBeNull()
+    expect(within(dialog).queryByTestId('start-autopilot-elsewhere')).toBeNull()
+    // The queue and the mode refused again: the button stands for exactly that start, which it repeats with override.
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-mode-fastest'))
+    await settle()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-anyway'))
+    await settle()
+    expect(starts()).toEqual([
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'fastest' },
+      { projectId: PROJECT, epic: 'alpha', epics: ['alpha', 'bravo', 'charlie'], mode: 'fastest', override: true },
+    ])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('another refusal is a toast only: the window closes, no "Start anyway"', async () => {
     const reason = 'Set the Run wave template in Project settings'
     fake.started = [{ ok: false, error: `autopilot.start failed: ${reason}` }]

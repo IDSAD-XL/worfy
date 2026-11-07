@@ -100,20 +100,19 @@ Machine» для всей очереди; [spec.md](../spec.md), «Решени�
   Кнопка повторяет старт той же очереди, в том же порядке и Run mode, с `override: true`; main снимает проверку для
   всего Run-а (`run.ts`, `start` и `beginEpic`, без изменений). Другая отметка, порядок или режим убирают причину и
   кнопку: она — только для очереди, которой отказали. Остальные отказы — toast, окно закрывается, как раньше.
-- **Решено без владельца: окно просьбы агента кнопку не получает.** Пункт 1 «Что делаем» называл и просьбу агента с
+- **Подтверждено владельцем 2026-11-07: окно просьбы агента кнопку не получает.** Пункт 1 «Что делаем» называл и просьбу агента с
   очередью. Но очередь агента запускает main после ответа окна (`autopilot.confirm.answer` → `startFromChat`,
   `src/main/autopilot/chat-confirm.ts`, `chat-start.ts`), окно отказ не видит, и отказ `runningElsewhere` получает
   Session, которая просила. Кнопка там потребовала бы нового ответа канала подтверждения и правки файлов вне «Где в
   коде». Старт мимо чужого run-а остаётся только нажатием человека в окне «Run all accepted»; guard — unit test
   «guard (ticket 21)» в `test/unit/queue-list.test.tsx` (нет кнопки, нет `override`, нет `autopilot.start` из окна).
-  Подтвердить владельцу.
 - **Последний Epic, ждущий владельца.** `moveOn` (`src/main/autopilot/run.ts`) спрашивает правило очереди и у
   последнего Epic-а Run-а очереди (больше одного Epic-а): `waits-owner` — `epic-finished` `waits-owner` с `tickets`, затем
   остановка с новой причиной `waits-owner` (`AUTOPILOT_STOP_REASONS`, `src/shared/autopilot/cycle.ts`) и её Ticket-ами.
   Так же — когда после такого Epic-а ни один не начался, потому что все оставшиеся идут в другом месте. Последний Epic
   `done` останавливает Run с причиной цикла, как раньше. Строка — `Epic 3/3: billing · stopped: waits for owner`, у рамки
   остаётся чип `Waits for owner` (title `Autopilot stopped on <epic>: …`; `queueChip`, `src/shared/ipc/autopilot.ts`).
-- **Решено без владельца, подтверждено:** Run одного Epic-а не меняется — его Epic, ждущий владельца, по-прежнему
+- **Подтверждено владельцем 2026-11-07:** Run одного Epic-а не меняется — его Epic, ждущий владельца, по-прежнему
   `blocked-tickets` (contract test «a Run of one Epic whose Ticket waits for the owner stops with blocked-tickets»).
 - **Где ещё `blocked-tickets`** (grep по `src`, `scripts`, `harness`): `gateQueueTurn` — `waits-owner` добавлен (ход gate
   queue на `serve`, как у `blocked-tickets`); `end` — `lastText` и `tickets` и для `waits-owner`; `endGateQueue` — не
@@ -132,6 +131,10 @@ Machine» для всей очереди; [spec.md](../spec.md), «Решени�
   другом Project-е — main уже умел, test закрепляет), journal и Run history (`test/unit/autopilot-journal.test.ts`,
   `flight-recorder-journal.test.ts`, `flight-recorder-view.test.tsx`); e2e `test/e2e/autopilot-start-modal.spec.ts` —
   отказ из-за Epic-а в другом Project-е того же репозитория, «Start anyway», `Epic 1/2`; остановка `waits-owner`.
+- **Ревью, раунд 1 (mutation testing):** добавлены test-ы на пробелы — смена Run mode убирает «Start anyway»
+  (`test/unit/queue-list.test.tsx`), Stop во время чтений последнего Epic-а, ждущего владельца, — причина цикла, не
+  `waits-owner`, и без лишнего `epic-finished` (`test/contract/autopilot-queue.test.ts`), `lastText` в `run-stopped`
+  `waits-owner`. Код не менялся: каждый test падает на своём мутанте (M19, M6, M12, M11).
 - **Снимки** (fixture build, обе темы; владельцу посмотреть до merge):
   [окно с «Start anyway», светлая](../evidence/21-queue-start-anyway-light.png),
   [тёмная](../evidence/21-queue-start-anyway-dark.png);
