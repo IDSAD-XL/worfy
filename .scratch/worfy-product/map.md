@@ -14,7 +14,9 @@
 - Skills: grilling + domain-modeling для grilling-Ticket-ов, research для research-Ticket-ов, prototype для prototype-Ticket-ов. Документы — по-русски, термины латиницей.
 - Research на сегодня:
   - [`docs/research/2026-11-07-оценка-идей-pr-1314.md`](../../docs/research/2026-11-07-оценка-идей-pr-1314.md) — восемь идей PR #1314;
-  - [`docs/research/2026-11-07-оценка-идей-pr-1580.md`](../../docs/research/2026-11-07-оценка-идей-pr-1580.md) — двенадцать идей PR #1580, влито в #1581; переоценка по пользователям worfy — раздел 8 (Ticket 02).
+  - [`docs/research/2026-11-07-оценка-идей-pr-1580.md`](../../docs/research/2026-11-07-оценка-идей-pr-1580.md) — двенадцать идей PR #1580, влито в #1581; переоценка по пользователям worfy — раздел 8 (Ticket 02);
+  - [`docs/research/2026-11-07-product-session-основа.md`](../../docs/research/2026-11-07-product-session-основа.md) — что есть в коде под Product Session, влито в #1586 (Ticket 07).
+- Epic `worfy-skills` переносит skills Matt Pocock в плагин worfy (spec принят 2026-11-07); первый Epic Product Session ждёт его (Ticket 11). Epic `worfy-human-review` идёт параллельно; его место в roadmap решает Ticket 10.
 
 ## Decisions so far
 
@@ -23,15 +25,18 @@
 - [03 — Работы и форма продуктового режима](issues/03-работы-и-форма-продуктового-режима.md): первый Epic — критика плана и генерация идей, обзор рынка — второй; советник говорит по просьбе и перед приёмкой spec нового Epic-а; pilot — на roadmap worfy, потом auction; агент-критик с фактами, доля принятых советов — мерка пользы; продуктовый режим отделён от разработки.
 - [04 — Граница Product Session и разработки](issues/04-граница-product-session-и-разработки.md): термин Product Session; свои правила без Ticket-ов, gate и merge; код не меняет, Autopilot не запускает, пишет только `docs/product/` и черновики Epic-ов; вход «New Product Session»; Epic — только после приёмки владельцем.
 - [05 — Экран Product Session и Mind map](issues/05-экран-product-session-и-mind-map.md): термин Mind map; узлы Идея, Вопрос, Решение, Возражение, связи «из чего выросло»; агент меняет её своим инструментом, файл в `docs/product/<тема>/`; Mind map 60 / чат 40; прототип в Card до spec ([06](issues/06-прототип-экрана-product-session.md)); первый Epic — Wave-ы Harness, потом экран.
+- [06 — Прототип экрана Product Session](issues/06-прототип-экрана-product-session.md): прототип в Card `card-2dffdc46` принят, реакция владельца «Получилось просто ебейше»; только разделитель, по умолчанию 60 / 40, без переключателя; «дерево» по умолчанию с крупным текстом; отклонённые решения зачёркнуты и скрываются переключателем; чипы узлов под сообщениями остаются; руками — только двигать узлы и сворачивать ветки, смысл узла меняет агент.
+- [07 — Что есть в коде под Product Session](issues/07-что-есть-в-коде-под-product-session.md): вида Session нет, layout один, ограничения по пути только через PreToolUse hook, `mind_map_*` по образцу `worfy-canvas`, watcher документов расширяется, Card — только прототип; оценка 14–17 Ticket-ов.
+- [08 — Поведение советника](issues/08-поведение-советника.md): критик перед приёмкой spec (Keep/Reorder/Split/Defer, до 3 возражений с фактами), 3–5 идей по просьбе, каждый совет — узел Mind map и Решение с причиной, доля принятых в шапке и по Project-у, сильнейшая модель без Eco, в первом Epic-е только Claude.
+- [09 — Основа — wayfinder](issues/09-основа-wayfinder.md): Product Session = wayfinder + grilling + research + prototype + to-spec плюс наши слои; `docs/product/<тема>/` — карта wayfinder плюс файл Mind map; worfy сам читает и проверяет формат; skills Matt Pocock переезжают в плагин worfy (Epic `worfy-skills`).
+- [10 — Раздел roadmap](issues/10-раздел-roadmap-worfy-для-соло-разработки-продукта.md) и [11 — Spec первого Epic-а](issues/11-spec-первого-epic-а-product-session.md): открыты, ждут 08 и 09 (10), затем 10 и Epic `worfy-skills` (11).
 
 ## Not yet specified
 
 - Содержание правил Product Session и брифа агента-критика.
-- Формат `docs/product/` и файла Mind map.
+- Детали формата `docs/product/` и файла Mind map.
 - Операции инструмента Mind map.
-- Как Mind map выглядит при 100+ узлах и может ли владелец править её руками.
-- Работает ли Product Session и на Codex.
-- Как считается и где показывается доля принятых и отклонённых советов.
+- Как Mind map выглядит при 100+ узлах.
 - План pilot на roadmap worfy.
 - Epic обзора рынка (второй).
 
