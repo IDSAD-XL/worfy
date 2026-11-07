@@ -5,17 +5,23 @@ import { vendorLimitsOf, type VendorLimits } from '../../../shared/autopilot/bud
 import { epicForecast, remainingWaves, type EpicForecast } from '../../../shared/autopilot/forecast'
 import { fitBeforeReset, forecastLine, modeLine, recommendationLine, warningLine, windowLine } from '../../../shared/autopilot/forecast-lines'
 import type { RunMode, StartWindow } from '../../../shared/autopilot/run-mode'
+import { MAX_QUEUE_EPICS } from '../../../shared/autopilot/epic-queue'
 import {
   autopilotEstimateAnswerSchema,
   autopilotStatusLine,
   HARNESS_BEHIND_LABEL,
   harnessBehindTitle,
+  queueAction,
+  queueChip,
+  queueTitle,
   type AutopilotEstimateAnswer,
+  type AutopilotQueueEdit,
   type AutopilotState,
+  type QueueEdits,
   type RunningElsewhereRefusal,
 } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
-import { askStart } from '../../autopilot/start-modal'
+import { askStart, runAllAccepted } from '../../autopilot/start-modal'
 import { StartNowModal, type OrchestratorBusy } from '../../autopilot/StartNowModal'
 import { invoke, subscribe } from '../../ipc'
 import { autopilotBudgetOf, autopilotRunOf } from '../../../shared/settings/app-settings'
@@ -24,6 +30,7 @@ import { useLimits, useNow } from '../../limits/useLimits'
 import { useReadOnly } from '../../projects/useProjects'
 import { useAppSettings } from '../../settings/useAppSettings'
 import { showToast } from '../../toast/toasts'
+import { useWorkflow } from '../../workflow/useWorkflow'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
 import { ActionMenu, type ActionMenuItem } from './action-menu'
@@ -120,6 +127,22 @@ import { hasRunWave, useRunWaveState } from './gates'
 // window in that answer: an idle canvas asks main nothing for hours. An answer that does not parse
 // leaves the hint with the mode line alone. The bootstrap runs again only when the samples or the
 // Tickets change; the lines whenever the Limits, Settings or the minute do.
+//
+// A run over a queue of Epics (worfy-autopilot-queue ticket 17; the queue of the state, ticket 14, ADR-0100):
+// - The line, on the frame of the Epic the run is on, puts its place in the queue first: "Epic 2/3: checkout ·
+//   Wave 1 · running". Its tooltip lists the queue, each Epic with its status (queueTitle).
+// - The frame of each other Epic of the queue has a chip under the button while the run goes on: "In queue 3/3"
+//   for one not started, "Waits for owner" for one the run passed with only the owner's Tickets left, "Runs
+//   elsewhere" for one another Machine ran (queueChip).
+// - "⋯" has "Add to queue" on the frame of an Epic outside the queue, and "Remove from queue" on one not started,
+//   while the run goes on and no Stop was asked (`autopilot.queue`). Main makes the change at once between Waves
+//   and at the end of the Wave during one; the toast then says "applies after this Wave", and until the state
+//   shows the change made the frame has the chip "Joins after this Wave" or "Leaves after this Wave" (the edits
+//   this window made, kept per Project and run: main's state carries the queue as it is, not the edits that
+//   wait). "Remove from queue" on an Epic that waits to join takes it back. Main's refusal is an error toast and
+//   the title of "⋯".
+// - With no run in the Project, "⋯" has "Run all accepted": the Start Autopilot window over the accepted Epics,
+//   as the Command palette's (worfy-autopilot-queue ticket 16, runAllAccepted).
 
 export const order = 30
 
@@ -145,6 +168,13 @@ export const HISTORY_TITLE = 'Show the Run history of this run'
 /** "History" by the status line: a text button in the link colour (F-SPEC: link / accent text), the line's 11px. */
 const historyStyle: CSSProperties = { border: 0, padding: 0, background: 'transparent', color: 'var(--accent)', font: 'inherit', textDecoration: 'underline', cursor: 'pointer', flex: 'none' }
 
+/**
+ * The widest line of a run over a queue (ticket 17): "Epic 2/3: <name> · " goes before the 220px of the line of one
+ * Epic, so its Wave part stays whole for an Epic name of up to about 20 letters; a longer one ends in "…", whole in
+ * the tooltip.
+ */
+const QUEUE_LINE_WIDTH = 340
+
 /** The title of the button while Force stop waits for main. */
 export const STOPPING_TITLE = 'Stopping Autopilot: the Orchestrator\'s turn is being interrupted'
 
@@ -158,9 +188,43 @@ interface AutopilotStore {
   pending: Readonly<Record<string, StopKind>>
   /** By projectId: the last start refused for a run of its Epic on another Machine (worfy-link ticket 15). */
   elsewhere: Readonly<Record<string, RunningElsewhereRefusal>>
+  /** By projectId: the edits of the queue this window made that wait for the end of the Wave, and the run they are for. */
+  edits: Readonly<Record<string, QueueEdits & { run: string | null }>>
 }
 
-const useAutopilotStore = create<AutopilotStore>(() => ({ byProject: {}, pending: {}, elsewhere: {} }))
+const useAutopilotStore = create<AutopilotStore>(() => ({ byProject: {}, pending: {}, elsewhere: {}, edits: {} }))
+
+/** No edit of the queue waits. */
+const NO_EDITS: QueueEdits = { add: [], remove: [] }
+
+/**
+ * The edits of the Project's queue that still wait once `state` is the run's: those the queue shows made leave,
+ * and all of them once the run has stopped or another run began (main drops the edits not made at a stop).
+ */
+function settleEdits(state: AutopilotState): void {
+  useAutopilotStore.setState(({ edits }) => {
+    const own = edits[state.projectId]
+    if (own === undefined) return {}
+    const queue = (state.queue ?? []).map((each) => each.epic)
+    const add = own.add.filter((epic) => !queue.includes(epic))
+    const remove = own.remove.filter((epic) => queue.includes(epic))
+    const next = { ...edits }
+    if (state.status === 'stopped' || (state.run ?? null) !== own.run || add.length + remove.length === 0) delete next[state.projectId]
+    else next[state.projectId] = { run: own.run, add, remove }
+    return { edits: next }
+  })
+}
+
+/** Keeps an edit of the run's queue that waits for the end of the Wave (`add` or `remove` one Epic), or drops a waiting addition (`unadd`). */
+function noteEdit(state: AutopilotState, kind: 'add' | 'remove' | 'unadd', epic: string): void {
+  useAutopilotStore.setState(({ edits }) => {
+    const own = edits[state.projectId] ?? { run: state.run ?? null, add: [], remove: [] }
+    const without = (list: readonly string[]) => list.filter((each) => each !== epic)
+    const changed =
+      kind === 'add' ? { ...own, add: [...without(own.add), epic] } : kind === 'remove' ? { ...own, remove: [...without(own.remove), epic] } : { ...own, add: without(own.add) }
+    return { edits: { ...edits, [state.projectId]: changed } }
+  })
+}
 
 function setElsewhere(projectId: string, refusal: RunningElsewhereRefusal | null): void {
   useAutopilotStore.setState(({ elsewhere }) => {
@@ -189,11 +253,10 @@ let subscribed = false
 function take(state: AutopilotState): void {
   // A run of the Project goes on: a refusal from before it is over.
   if (state.status !== 'stopped') setElsewhere(state.projectId, null)
-  useAutopilotStore.setState(({ byProject }) => {
-    const known = byProject[state.projectId]
-    if (known !== undefined && known.revision >= state.revision) return {}
-    return { byProject: { ...byProject, [state.projectId]: state } }
-  })
+  const known = useAutopilotStore.getState().byProject[state.projectId]
+  if (known !== undefined && known.revision >= state.revision) return
+  useAutopilotStore.setState(({ byProject }) => ({ byProject: { ...byProject, [state.projectId]: state } }))
+  settleEdits(state)
 }
 
 function ensure(projectId: string): void {
@@ -362,6 +425,60 @@ async function startNow(projectId: string, busy: OrchestratorBusy): Promise<void
   else if (state.waitingFor !== 'orchestrator') waitToast(projectId, 'success', startNowText(busy))
 }
 
+/** The key and `data-testid` of the toasts of "Add to queue" and "Remove from queue" (ticket 17). */
+const QUEUE_TOAST = 'autopilot-queue'
+
+/** What the toast of an edit made during a Wave adds: main makes it at the Wave's end. */
+export const AFTER_THIS_WAVE = 'applies after this Wave'
+
+function queueToast(projectId: string, kind: 'info' | 'success' | 'error', text: string): void {
+  showToast({ kind, key: `${QUEUE_TOAST}:${projectId}`, testId: QUEUE_TOAST, projectId, text })
+}
+
+/**
+ * "Add to queue" and "Remove from queue" of "⋯": `autopilot.queue` with one Epic. The state main answers is taken;
+ * an edit it does not show made waits for the end of the Wave and is kept (noteEdit) with the toast "… · applies
+ * after this Wave". Resolves to main's refusal, which an error toast says too.
+ */
+async function editQueue(projectId: string, edit: AutopilotQueueEdit): Promise<string | undefined> {
+  const result = await invoke('autopilot.queue', { projectId, ...edit })
+  if (!result.ok) {
+    const reason = failureReason('autopilot.queue', result.error)
+    queueToast(projectId, 'error', reason)
+    return reason
+  }
+  // A waiting addition taken back: main dropped it, and the queue never had it.
+  const takenBack = edit.remove !== undefined && (useAutopilotStore.getState().edits[projectId]?.add.includes(edit.remove) ?? false)
+  take(result.value)
+  // The newest state: an `autopilot.changed` with the change made may have come before this answer.
+  const state = useAutopilotStore.getState().byProject[projectId] ?? result.value
+  const queue = (state.queue ?? []).map((each) => each.epic)
+  if (edit.add !== undefined) {
+    if (queue.includes(edit.add)) queueToast(projectId, 'success', `Added ${edit.add} to the queue`)
+    else {
+      noteEdit(state, 'add', edit.add)
+      queueToast(projectId, 'info', `Added ${edit.add} to the queue · ${AFTER_THIS_WAVE}`)
+    }
+  }
+  if (edit.remove !== undefined) {
+    if (takenBack) {
+      noteEdit(state, 'unadd', edit.remove)
+      queueToast(projectId, 'success', `${edit.remove} will not join the queue`)
+    } else if (!queue.includes(edit.remove)) queueToast(projectId, 'success', `Removed ${edit.remove} from the queue`)
+    else {
+      noteEdit(state, 'remove', edit.remove)
+      queueToast(projectId, 'info', `Removed ${edit.remove} from the queue · ${AFTER_THIS_WAVE}`)
+    }
+  }
+  return undefined
+}
+
+/** The titles of the queue's items of "⋯". */
+const addToQueueTitle = (epic: string, running: string): string => `Run ${epic} after the queue of the Autopilot over ${running}: it joins the end of the queue between Waves`
+const removeFromQueueTitle = (epic: string): string => `Take ${epic} out of the Autopilot queue before it starts: between Waves`
+const QUEUE_FULL_TITLE = `The queue holds ${MAX_QUEUE_EPICS} Epics at most`
+const RUN_ALL_ACCEPTED_TITLE = 'Autopilot over the accepted Epics, one after another: the Start Autopilot window lists them first'
+
 /** The titles of "Start now" and "Cancel" in the line of a run that waits for its Orchestrator. */
 const START_NOW_TITLE = 'Start Autopilot now: shows what it interrupts first'
 const CANCEL_WAIT_TITLE = 'Cancel this Autopilot: it has not started, and the Orchestrator is not touched'
@@ -474,9 +591,14 @@ function usePastRuns(projectId: string, epic: string, ask: boolean): boolean {
   return ask && has
 }
 
-function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
+function Autopilot({ projectId, root, epic, tickets }: Extract<SlotProps['subject'], { kind: 'epic' }>) {
   const state = useAutopilot(projectId)
   const mine = state?.epic === epic.epic
+  // The edits of the run's queue that wait for the end of the Wave, and what they and the queue say of this Epic (ticket 17).
+  const edits = useAutopilotStore((store) => store.edits[projectId]) ?? NO_EDITS
+  const chip = state === undefined ? null : queueChip(state, epic.epic, edits)
+  // The accepted Epics of "Run all accepted" come from the workflow model.
+  const { model } = useWorkflow(root)
   // Only the frame of the Epic being stopped says so.
   const pendingKind = useAutopilotStore((store) => store.pending[projectId])
   const pending = mine ? pendingKind : undefined
@@ -513,7 +635,7 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
     [wave.enabled, estimate, forecast, limits, mode, windowFrom, windowTo, budgetOn, reservePercent, now, vendor],
   )
   // Nothing to start, stop or say: the button is not drawn, and "⋯" only for an Epic with past Runs.
-  const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined
+  const hidden = !hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined && chip === null
   const pastRuns = usePastRuns(projectId, epic.epic, hidden)
   // A run of this Epic that waits for its Orchestrator: "Start now" and "Cancel" in the line (ticket 10).
   const wait = mine && state?.status === 'waiting' && state.waitingFor === 'orchestrator' && state.busy !== undefined ? { busy: state.busy, since: state.waitingSince ?? 0 } : null
@@ -572,13 +694,45 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
     disabled: readOnly !== null || pending === 'force',
     run: () => stop(projectId, 'force'),
   }
+  // The queue of the Project's run (ticket 17): "Add to queue" or "Remove from queue" while it goes on; "Run all
+  // accepted" while none does. Not on a frame drawn only for its Run history.
+  const queueItems: ActionMenuItem[] = []
+  // The frame of an Epic with nothing left keeps Run history alone.
+  const edit = hidden ? 'none' : queueAction(state, epic.epic, edits)
+  if (edit === 'add') {
+    const full = (state?.queue?.length ?? 1) + edits.add.length >= MAX_QUEUE_EPICS
+    queueItems.push({
+      label: 'Add to queue',
+      title: readOnly ?? (full ? QUEUE_FULL_TITLE : addToQueueTitle(epic.epic, state?.epic ?? '')),
+      testId: 'action-queue-add',
+      disabled: readOnly !== null || full,
+      run: () => editQueue(projectId, { add: epic.epic }),
+    })
+  } else if (edit === 'remove') {
+    queueItems.push({
+      label: 'Remove from queue',
+      title: readOnly ?? removeFromQueueTitle(epic.epic),
+      testId: 'action-queue-remove',
+      disabled: readOnly !== null,
+      run: () => editQueue(projectId, { remove: epic.epic }),
+    })
+  } else if (edit === null && !running) {
+    const usable = model !== undefined && model.error === null ? model : null
+    queueItems.push({
+      label: 'Run all accepted',
+      title: readOnly ?? (usable === null ? 'The workflow of the Project cannot be read' : RUN_ALL_ACCEPTED_TITLE),
+      testId: 'action-run-all-accepted',
+      disabled: readOnly !== null || usable === null,
+      run: () => Promise.resolve(usable === null ? undefined : runAllAccepted(projectId, usable)),
+    })
+  }
   const more = (
     <ActionMenu
       label={`More Autopilot actions for ${epic.epic}`}
       title="More Autopilot actions"
       testId="action-autopilot-more"
       menuLabel={`Autopilot over ${epic.epic}`}
-      items={mine && running ? [forceStop, runHistory] : [runHistory]}
+      items={[...(mine && running ? [forceStop] : []), ...queueItems, runHistory]}
     />
   )
   if (hidden) return <div className="nodrag" style={{ flex: 'none' }}>{more}</div>
@@ -594,6 +748,9 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   )
   const behind = state?.harnessBehind ?? null
   const ledBy = mine && running && state !== undefined ? (state.machine ?? null) : null
+  // The line of a run over a queue: its place first, the queue in its tooltip (ticket 17).
+  const inQueue = (state?.queue?.length ?? 0) > 1
+  const queueList = mine && state !== undefined ? queueTitle(state, edits) : null
   // The status line goes above the button, out of the header's row: it takes no width from the
   // Epic's title, and runs left over the actions beside the button through the header's top margin
   // (56px header: the 20px button centred, 18px free above it). It stays inside the header: below
@@ -610,8 +767,8 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
           <span
             data-testid="autopilot-status"
             data-status={state?.status}
-            title={state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line)}
-            style={{ minWidth: 0, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}
+            title={[state?.message ?? (running ? `${line}. ${DISPLAY_STAYS_ON}` : line), ...(queueList === null ? [] : [queueList])].join('\n')}
+            style={{ minWidth: 0, maxWidth: inQueue ? QUEUE_LINE_WIDTH : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}
           >
             {line}
           </span>
@@ -641,8 +798,13 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
           )}
         </div>
       )}
-      {behind === null && ledBy === null && refused === undefined ? null : (
+      {behind === null && ledBy === null && refused === undefined && chip === null ? null : (
         <div style={{ position: 'absolute', right: 0, top: '100%', display: 'flex', gap: 'var(--space-1)' }}>
+          {chip === null ? null : (
+            <span className={`w-chip w-chip--${chip.tone}`} data-testid="autopilot-queue-chip" data-epic={epic.epic} title={chip.title} style={{ whiteSpace: 'nowrap' }}>
+              {chip.label}
+            </span>
+          )}
           {ledBy === null || state === undefined ? null : (
             <span className="w-chip w-chip--working" data-testid="autopilot-machine" title={machineTitle(state, ledBy.name)}>
               on {ledBy.name}

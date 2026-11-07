@@ -709,8 +709,9 @@ describe('Force stop interrupts the Orchestrator (worfy-week tickets 17, 18)', (
     })
     await screen.findByRole('button', { name: 'Autopilot' })
     expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
-    // A stopped run has nothing to force: the menu, still open, holds Run history only (worfy-flight-recorder ticket 20).
-    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Run history'])
+    // A stopped run has nothing to force: the menu, still open, holds Run all accepted (worfy-autopilot-queue ticket 17)
+    // and Run history (worfy-flight-recorder ticket 20).
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Run all accepted', 'Run history'])
   })
 
   it('main\'s refusal of Force stop is the title of "⋯", with the error mark', async () => {
@@ -766,10 +767,10 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     expect(more.textContent).toBe('⋯')
   })
 
-  it('once the run has stopped, "⋯" has no Force stop, only Run history', async () => {
+  it('once the run has stopped, "⋯" has no Force stop: Run all accepted (worfy-autopilot-queue ticket 17) and Run history', async () => {
     await running({ status: 'stopped', reason: 'user-stop' })
     await screen.findByTestId('autopilot-status')
-    expect(menuItems()).toEqual(['Run history'])
+    expect(menuItems()).toEqual(['Run all accepted', 'Run history'])
   })
 
   it('opens the menu with the focus on Force stop; Esc closes it with preventDefault and gives the focus back to "⋯"', async () => {

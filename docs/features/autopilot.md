@@ -30,7 +30,8 @@ button. The main button is **Start Autopilot**, or **Start when free** while the
 says what keeps it busy. The window closes once main answers; a refusal is the toast and the button's tooltip, as
 below. **Start anyway** starts at once, in the default mode, without the window.
 
-**Run all accepted** in the Command palette opens the same window over a queue: every Epic of the Project whose spec
+**Run all accepted** in the Command palette, and in the "⋯" menu of an Epic frame while the Project has no run, opens
+the same window over a queue: every Epic of the Project whose spec
 the owner accepted and that has a ready Ticket, oldest acceptance first (at most 10). Its title counts the ticked Epics
 and their Waves, `Start Autopilot · 3 Epics, 6 Waves`, and under it `3 Epics are accepted and waiting. Autopilot runs
 them one after another.` Instead of the Epic and its Tickets the window lists the queue
@@ -173,6 +174,24 @@ The line above the button shows the state of the run:
 | `stopping · 2 tickets in work` | A Stop came. Two Tickets of the current Wave are in work. Without any it says `stopping`. |
 | `stopped: no ready wave` | The run is over, with its reason (see below). |
 | `stopped: turn error · 2 background tasks still run` | The run is over and gave the Orchestrator back to a person at once; two of its background tasks still run there. |
+| `Epic 2/3: checkout · Wave 1 · running` | A run over a queue of three Epics is on the second, `checkout`. Any line above gets this start when the queue holds more than one Epic, after the stop too. |
+
+**A run over a queue of Epics.** The line stands on the frame of the Epic the run is on, and its tooltip lists the
+queue: each Epic with its status (`done`, `running`, `next`, `skipped: waits for the owner`, `skipped: runs on another
+Machine`). While the run goes on, the frame of every other Epic of the queue has a chip under its button: `In queue 3/3`
+for one not started yet, `Waits for owner` for one the run passed because only the owner's Tickets were left, `Runs
+elsewhere` for one it passed because another Machine ran it. A done Epic and the Epic the run is on have no chip.
+
+The queue can change while the run goes on, from the "⋯" menu of an Epic frame: **Add to queue** on an Epic outside the
+queue puts it at the end, **Remove from queue** on an Epic not started yet takes it out. Nothing reorders the queue.
+Between Waves — while the run waits for its Orchestrator, for the budget or for the Start window — the change is made at
+once. During a Wave it is made at the end of the Wave: the toast says `Added search to the queue · applies after this
+Wave`, and until then the frame has the chip `Joins after this Wave` or `Leaves after this Wave`. **Remove from queue** on
+an Epic that waits to join takes it back. A change made writes `queue-changed` to the journal, and each Epic removed
+`epic-finished` with `removed`; it never starts. A change not yet made when the run stops is dropped. The items are not
+there after a Stop was asked, and they are inactive on a read-only screen. A refusal (the queue already holds 10 Epics,
+the Epic is not the Project's, a run over named Tickets) is an error toast and the tooltip of "⋯". Only the person
+changes a running queue: the chat command and the `autopilot_start` tool are refused while a run goes on.
 
 While a run goes on:
 
@@ -759,6 +778,8 @@ a replaced `powerSaveBlocker`, and not what the display does.
 | `test/contract/autopilot-journal.test.ts` | The journal files, a line appended from outside, no write outside the data folder. |
 | `test/contract/autopilot-wiring.test.ts` | The wiring of a new session per Wave in `sharedAutopilot`. |
 | `test/e2e/autopilot.spec.ts` | The built app: a run, the wait for the Limits, the budget, background tasks, Force stop, the narrow fix round. |
+| `test/unit/autopilot-queue-line.test.ts` | The line of a run over a queue (`Epic 2/3: …`), the chip of each status of an Epic of the queue, the queue in the tooltip, and which of Add to queue and Remove from queue "⋯" offers. |
+| `test/e2e/autopilot-queue.spec.ts` | The built app: Run all accepted from "⋯", a run over two Epics (`Epic 1/2`), Add to queue during a Wave made at its end (`Epic 1/3`), Remove from queue leaving the Epic unstarted with `queue-changed` in the journal. |
 | `test/e2e/linked-autopilot.spec.ts` | Two linked apps: the refusal, Start anyway, Stop pressed on two screens. |
 | `test/e2e/browser-autopilot.spec.ts` | What the Session of a run may do with a Browser. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
