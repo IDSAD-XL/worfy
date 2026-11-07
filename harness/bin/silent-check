@@ -11,7 +11,8 @@
 //   silent-check [-C <dir>]                  no input named — stdin
 // Several inputs may be given together; each finding names its input and line.
 //
-// What a trace is (profiles/README.md, "Silent mode"):
+// What a trace is (profiles/README.md, "Silent mode"; the rules themselves are lib/workflow-traces.cjs, which
+// bin/review-draft-lint applies to review drafts too):
 //   - in Silent mode (profile mode "silent"): the name of an epic of the project (a directory of the tickets
 //     root), `<epic>/<NN>`, `ADR-<4 digits>`, `Ticket <number>` and `Ticket-<number>`, the path of the
 //     Workflow folder, `.scratch`, `HANDOFF`. In the added lines of a diff a bare epic name is not looked
@@ -30,7 +31,6 @@
 "use strict"
 
 const fs = require("node:fs")
-const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 // The git to start: EVAL_GIT of an eval run, else git from PATH.
@@ -127,9 +127,10 @@ if (!R.gate_key) {
     process.exit(0)
 }
 
-// --- what counts as a trace --------------------------------------------------------
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-const rules = [] // [kind, RegExp with the g flag, also in the added lines of a diff]
+// --- what counts as a trace (lib/workflow-traces.cjs) ------------------------------------
+// The module is loaded only here, after the Full-mode exit and (Silent mode) after the data file below.
+const traces = () => require("../lib/workflow-traces.cjs")
+const rules = [] // { kind, re, diff }
 if (silent) {
     let root
     try {
@@ -137,56 +138,25 @@ if (silent) {
     } catch (e) {
         die(2, `tickets root not read (exit ${e.status ?? e.code}): ${String(e.stderr || e.message).split("\n")[0]}`)
     }
-    let epics = []
-    try {
-        epics = fs
-            .readdirSync(root, { withFileTypes: true })
-            .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-            .map((d) => d.name)
-    } catch {
-        /* no tickets root yet — no epic names to look for */
-    }
-    // The longest name first: of `checkout` and `checkout-flow` the longer one is the finding.
-    epics.sort((a, b) => b.length - a.length)
-    const B = "(?<![\\p{L}\\p{N}_-])" // the name is a whole token: not a part of a longer word or slug
-    const E = "(?![\\p{L}\\p{N}_-])"
-    for (const ep of epics) rules.push(["epic/NN", new RegExp(`${B}${esc(ep)}/\\d+${E}`, "giu"), true])
-    for (const ep of epics) rules.push(["epic name", new RegExp(`${B}${esc(ep)}${E}`, "giu"), false])
-    rules.push(["ADR number", /(?<![\p{L}\p{N}_])ADR[-_ ]?\d{4}(?!\d)/giu, true])
     // The word "ticket" in the languages of projects, other than English (data, not protocol). Read only
     // here, on the Silent path: a broken data file must not break the check of a Full project. Here it is
-    // exit 2, which the Bash guard takes as "the check failed" and refuses the command.
+    // exit 2, which the Bash guard takes as "the check failed" and refuses the command. The file is read
+    // before the rules module is loaded, so a broken one is named as such.
     let input
     try {
         input = require("../lib/input-words.json")
-        if (!Array.isArray(input.ticketWord) || !input.ticketWord.every((w) => typeof w === "string" && w)) throw new Error("ticketWord is not a list of words")
     } catch (e) {
         die(2, `input words not read (lib/input-words.json): ${String(e.message).split("\n")[0]}`)
     }
-    const ticketWords = ["Tickets?", ...input.ticketWord.map((w) => `${esc(w)}\\p{L}*`)].join("|")
-    rules.push(["ticket number", new RegExp(`(?<![\\p{L}\\p{N}_])(?:${ticketWords})[- ]#?\\d+`, "giu"), true])
-    const wf = R.workflow_folder
-    if (typeof wf === "string" && wf) {
-        const forms = new Set([wf.replace(/\/+$/, "")])
-        try {
-            forms.add(fs.realpathSync(wf))
-        } catch {}
-        // Windows: the profile gives C:\…, git and the shell print C:/…; HOME may be spelled either way.
-        if (path.sep === "\\") for (const f of [...forms]) forms.add(f.split("\\").join("/"))
-        const home = os.homedir() ? path.resolve(os.homedir()) : ""
-        for (const f of [...forms]) {
-            const r = path.resolve(f)
-            if (home && r.startsWith(home + path.sep)) forms.add("~" + r.slice(home.length).split(path.sep).join("/"))
-        }
-        for (const f of forms) rules.push(["Workflow folder path", new RegExp(esc(f), "g"), true])
+    let ticketWords
+    try {
+        ticketWords = traces().ticketWords(input)
+    } catch (e) {
+        die(2, `input words not read (lib/input-words.json): ${String(e.message).split("\n")[0]}`)
     }
-    rules.push([".scratch", /\.scratch(?![\p{L}\p{N}_])/gu, true])
-    rules.push(["HANDOFF", /HANDOFF/g, true])
+    rules.push(...traces().traceRules({ epics: traces().epicNames(root), ticketWords, workflowFolder: R.workflow_folder }))
 }
-if (attributionOff) {
-    rules.push(["Claude attribution", /Co-Authored-By:[ \t]*Claude/gi, true])
-    rules.push(["Claude attribution", /Generated with \[?Claude Code/gi, true])
-}
+if (attributionOff) rules.push(...traces().attributionRules())
 
 // --- inputs ----------------------------------------------------------------------------
 const inputs = [] // [label, [[line number or "file:line", text]], is the added lines of a diff]
@@ -265,19 +235,8 @@ if (!inputs.length) inputs.push(["stdin", asLines(fs.readFileSync(0, "utf8"))])
 const found = []
 for (const [label, lines, isDiff] of inputs) {
     for (const [where, text] of lines) {
-        const taken = [] // [start, end): a span already reported under a stronger rule
-        for (const [kind, re, inDiff] of rules) {
-            if (isDiff && !inDiff) continue
-            re.lastIndex = 0
-            for (const m of text.matchAll(re)) {
-                const s = m.index
-                const e = s + m[0].length
-                if (taken.some(([a, b]) => s < b && e > a)) continue
-                taken.push([s, e])
-                const where2 = typeof where === "number" ? `${label}:${where}` : `${label} ${where}`
-                found.push(`${where2}: ${kind} "${m[0]}"`)
-            }
-        }
+        const where2 = typeof where === "number" ? `${label}:${where}` : `${label} ${where}`
+        for (const { kind, text: t } of traces().scan(text, rules, { diff: isDiff })) found.push(`${where2}: ${kind} "${t}"`)
     }
 }
 if (found.length) {
