@@ -38,10 +38,13 @@ Source: [spec.md](../spec.md), раздел «Находки», находки t
 - [ ] Test «refuses an unattended start when the capabilities of the Vendor cannot be read» рядом с
       `test/contract/codex-orchestrator.test.ts:551`: `capabilities: () => Promise.reject(...)`, `setUnattended` бросает с
       текстом отказа. Test краснеет, если catch на `orchestrator.ts:533` вернёт `null` (проверено правкой и записано в PR).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/codex-orchestrator.test.ts` exit 0; catch mutant returning null: exit 1, only the new test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 - [ ] Три test-а «setUnattended refuses a turn / live tasks / queued messages» в
       `test/contract/orchestrator-relaunch.test.ts`: каждый ждёт точный текст своей константы. Каждый краснеет, если
       удалить свою строку `:365`, `:370` или `:371` (три правки, итог в PR).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/orchestrator-relaunch.test.ts` exit 0; deleting lines 365, 370, 371 one by one: exit 1 each, only its own test red · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 - [ ] Остальные test-ы обоих файлов зелёные.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c733f9c7c31b02abfb861e8d68d4641d786c9040
 
 ## Тесты
 
