@@ -36,6 +36,8 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2; «
   - evidence: screenshot pass · `../evidence/07-countdown-retry-light.png` · mac dev · 444c1c307 · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/07-countdown-retry-dark.png` · mac dev · 444c1c307 · scrub: 2026-11-07
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 13baf9023
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 13baf9023
 
 ## Тесты
 
