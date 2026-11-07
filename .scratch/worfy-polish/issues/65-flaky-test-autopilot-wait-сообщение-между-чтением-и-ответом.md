@@ -46,6 +46,7 @@ Source: CI PR #1592 linux-tests (2/4) и main run 42266856501 (FLAKY).
 - `src/main/agent/orchestrator.ts` — `apply` (события Session), `busy`.
 - `src/main/ipc/autopilot.ts` — зависимости Autopilot в приложении.
 - `docs/features/autopilot.md` — когда run считает Orchestrator свободным.
+- `docs/adr/0099-run-waits-for-orchestrator.md` — поправка к п. 3 (пауза после последней задачи).
 
 ## Итог
 

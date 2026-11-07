@@ -460,13 +460,6 @@ export class Orchestrators {
   }
 
   /**
-   * What keeps the Project's Orchestrator busy now, so a run cannot take it without killing or losing
-   * something (worfy-autopilot-queue ticket 07): the conditions of setUnattended's refusals — a turn
-   * runs, messages wait in the queue, background tasks live — where the tasks of a stopped run's
-   * Session that waits to be given back do not count (it is taken over as it runs). Null when none
-   * holds, and for an Orchestrator that is not open (setUnattended opens it).
-   */
-  /**
    * Whether a turn has run in the Orchestrator's current Session since its background tasks last went to none
    * (worfy-polish ticket 65): a run that waits takes the Orchestrator once it is free, rather than wait the grace time
    * for the turn of the last task's task-notification when that turn has already ended.
@@ -475,6 +468,13 @@ export class Orchestrators {
     return this.entries.get(projectId)?.run?.turnSinceTasks === true
   }
 
+  /**
+   * What keeps the Project's Orchestrator busy now, so a run cannot take it without killing or losing
+   * something (worfy-autopilot-queue ticket 07): the conditions of setUnattended's refusals — a turn
+   * runs, messages wait in the queue, background tasks live — where the tasks of a stopped run's
+   * Session that waits to be given back do not count (it is taken over as it runs). Null when none
+   * holds, and for an Orchestrator that is not open (setUnattended opens it).
+   */
   busy(projectId: string): OrchestratorBusy | null {
     const entry = this.entries.get(projectId)
     const view = entry === undefined ? undefined : this.views.get(entry.nodeId)
