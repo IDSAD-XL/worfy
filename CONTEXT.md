@@ -124,6 +124,18 @@ _Avoid_: этап, шаг (как имя), event
 Span, в котором работа стоит по внешней причине с ожидаемым концом: Limits, Start window (окно запуска), сон Machine, другая Machine, человек, занятый Orchestrator (`orchestrator-busy`), очередь, background tasks. Wait всегда несёт свою причину. Блокировка Ticket-а — не Wait, а пометка на нём.
 _Avoid_: простой, пауза, idle
 
+**Run history**:
+Вид одного Run-а Autopilot-а: шкала его Wave-ов, Ticket-ов, агентов, CI и gate, ожиданий и блокировок; считается при открытии из источников. Половина вкладки Runs рядом с Work track.
+_Avoid_: журнал (как имя вида), trace
+
+**Flight Recorder**:
+Часть worfy, которая собирает факты Run-а из журнала Autopilot-а, транскриптов, GitHub и логов gate (у Project-а без PR — из файла отметок и git) и строит Run history; своего хранилища нет.
+_Avoid_: бортовой самописец, logger
+
+**Work track**:
+Лента всей работы Project-а на этой Machine за выбранный период (Day, Week, Month): Run-ы и их Wave-ы, Wave-ы, запущенные руками, turn-ы всех Session и их Subagent-ы, run-ы gate, PR merged; сверху — часы по Epic-ам без двойного счёта параллельной работы. Считается при открытии из тех же источников, что Run history, и из git; своего хранилища нет; часть периода, где источник ничего не хранит, помечена «no data». Работа Linked machine видна только как её PR в GitHub.
+_Avoid_: full work track, таймлайн работы, activity log
+
 **Stable copy**:
 Собранная копия worfy вне репозитория (на macOS — `~/Applications/worfy-stable.app`, на Windows — папка `%LOCALAPPDATA%\worfy-stable`), из которой Autopilot ведёт Wave-ы самого worfy; обновляется между прогонами — руками или через **Update**.
 _Avoid_: стабильная копия, prod-сборка, релиз
