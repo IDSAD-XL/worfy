@@ -251,7 +251,7 @@ export class OrchestratorContinue {
     const decision = entry.retry.decide(failure, actions)
     if (decision.kind === 'retry' && failure.kind === 'transient') {
       entry.retry.wait(decision, { error: failure.error, actions, message }, (id) => this.retryFired(entry, id))
-      this.notice(entry, `worfy: ${ERROR_WORDS[failure.error]}, retry ${decision.attempt} of ${decision.of} at ${clockText(entry.retry.until ?? this.now(), this.now())}`)
+      this.notice(entry, `worfy: ${ERROR_WORDS[failure.error]}, retry ${decision.attempt} of ${decision.of} at ${clockText(entry.retry.until ?? this.now(), this.now())}`, () => this.waiting(entry))
       return
     }
     entry.retry.passed()
@@ -279,7 +279,7 @@ export class OrchestratorContinue {
     }
     const id = entry.limits.wait(plan.at, () => this.limitsFired(entry, id))
     const at = clockText(plan.at, this.now())
-    this.notice(entry, plan.kind === 'at' ? `worfy: waiting for the Limits, resumes ${at}` : `worfy: waiting for the Limits, no reset time reported, next try at ${at}`)
+    this.notice(entry, plan.kind === 'at' ? `worfy: waiting for the Limits, resumes ${at}` : `worfy: waiting for the Limits, no reset time reported, next try at ${at}`, () => this.waiting(entry))
   }
 
   private retryFired(entry: Entry, id: number): void {
@@ -370,11 +370,14 @@ export class OrchestratorContinue {
   /**
    * A line of worfy's in the Orchestrator's transcript; the model does not get it. It goes once the
    * event being handled has reached the windows too: the registry tells the observers before the sink,
-   * and a line sent at once would stand above the error row it tells of.
+   * and a line sent at once would stand above the error row it tells of. A line about a wait goes only
+   * if the wait is still there by then: a message the person queued during the turn is sent right after
+   * its end, and its `prompt` has cancelled the wait before the line would go.
    */
-  private notice(entry: Entry, text: string): void {
+  private notice(entry: Entry, text: string, still: () => boolean = () => true): void {
     const sessionId = entry.sessionId
     queueMicrotask(() => {
+      if (!still()) return
       try {
         this.deps.session(sessionId).notice(text)
       } catch {
