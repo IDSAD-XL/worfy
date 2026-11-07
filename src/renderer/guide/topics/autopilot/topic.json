@@ -1,7 +1,8 @@
 {
   "sources": [
     { "page": "docs/features/autopilot.md", "sha": "cb75f5a9" },
-    { "page": "docs/features/autopilot-faults.md", "sha": "cb75f5a9" }
+    { "page": "docs/features/autopilot-faults.md", "sha": "cb75f5a9" },
+    { "page": "docs/features/autopilot-chat.md", "sha": "cb75f5a9" }
   ],
   "files": [
     "src/main/autopilot/run.ts",

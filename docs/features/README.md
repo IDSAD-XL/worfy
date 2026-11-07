@@ -18,6 +18,8 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
 | [Autopilot faults and recovery](autopilot-faults.md) | Waits, stops and recovery: the wait for the Limits, the retry after an API error, stop reasons, Fault scenarios |
+| [Starting Autopilot from a chat](autopilot-chat.md) | The command `/worfy:epic-wave` typed in a chat, the canvas tool `autopilot_start` and its ask |
+| [Auto-approval](auto-approval.md) | Auto-approval: the modes Off, Shadow and On, the approval policy, park |
 | [Run planning](run-planning.md) | Run mode and Epic forecast: Start window, the budget of the Limits |
 | [Flight Recorder](flight-recorder.md) | Run history: the timeline of an Autopilot Run |
 | [Work track](work-track.md) | Work track: all the work of a Project over a Day, a Week or a Month |

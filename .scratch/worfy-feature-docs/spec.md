@@ -39,6 +39,8 @@ Ticket-ы: Epic `worfy-feature-docs`, 19 Ticket-ов, нумерация с `01`
 | Страница (файл) | Разделы | Ticket |
 |---|---|---|
 | Autopilot (`autopilot.md`) | один раздел | 03 |
+| Starting Autopilot from a chat (`autopilot-chat.md`) | один раздел, вынесен из `autopilot.md` | 21 |
+| Auto-approval (`auto-approval.md`) | один раздел, вынесен из `autopilot.md` | 21 |
 | Terminal (`terminal.md`) | Terminal, Terminal AI | 04 |
 | Cards (`cards.md`) | Card как файл, Card API, Canvas MCP | 05 |
 | Canvas (`canvas.md`) | Node и Layout, Find, вставка изображений | 08 |
@@ -269,3 +271,4 @@ Commit — это последний commit, менявший английски
 | 4 | 07, 08–17 | после 06 |
 | 5 | 18 | после 08–17 |
 | 6 | 19 | после 07 и всех страниц |
+| 7 | 21 | после 20; решение владельца 2026-11-07, Q1: деление `autopilot.md` |
