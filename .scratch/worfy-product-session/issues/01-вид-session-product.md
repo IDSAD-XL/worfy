@@ -1,7 +1,8 @@
 # 01 — Вид Session `product`: данные Node-а и `sessions.new`
 
 Type: task
-Status: open
+Status: done 2026-11-07T23:44Z
+PR: #1603
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 1; «Как работает» → «Вид Session»; «Решено без владельца», п. 1; research [product-session-основа](../../../docs/research/2026-11-07-product-session-основа.md), разделы 1.4, 1.5
 
@@ -35,14 +36,19 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Test: `sessions.new` с `kind: 'product'` создаёт Node с `data.kind === 'product'`; вид Session несёт `kind`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts test/contract/sessions-vendor.test.ts` exit 0; mutant without SessionLaunch.kind: exit 1, two kind tests red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
+  - evidence: review pass · PR #1603 · - - · e331595673922c3a32f76dcf71f445914019591e
 - [ ] Test: Node без `kind` создаётся и возобновляется как раньше; данные Node-а старой сборки читаются.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts` exit 0 (a Node without a kind is created and resumed as before) · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
+  - evidence: review pass · PR #1603 · - - · e331595673922c3a32f76dcf71f445914019591e
 - [ ] Test: `kind: 'product'` + Vendor `codex` — отказ с текстом, Node не создан.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/sessions-vendor.test.ts` exit 0; mutant without the kind refusal in open: exit 1, the codex refusal test red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
+  - evidence: review pass · PR #1603 · - - · e331595673922c3a32f76dcf71f445914019591e
 - [ ] Test: Session Node-а с `kind: 'product'` после перезапуска возобновляется с тем же `kind` в `SessionLaunch`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts test/contract/sessions-vendor.test.ts` exit 0; mutant without SessionLaunch.kind: exit 1, two kind tests red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
+  - evidence: review pass · PR #1603 · - - · e331595673922c3a32f76dcf71f445914019591e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42419012036/job/128564889966 · ci - · e331595673922c3a32f76dcf71f445914019591e
 
 ## Тесты
 
