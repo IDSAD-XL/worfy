@@ -53,15 +53,10 @@ interface Run {
 }
 
 function lint(args: string[], cwd = repo): Run {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HOME: home,
-    USERPROFILE: home,
-    HARNESS_HOME: harnessHome,
-    EVAL_HARNESS_HOME: '',
-    CLAUDE_PROFILE_BIN: '',
-    CLAUDE_TICKET_BIN: '',
-  }
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, HARNESS_HOME: harnessHome, EVAL_HARNESS_HOME: '' }
+  // The gate runs the tests with CLAUDE_GATE_CONFIG naming the registry of this machine; the scripts would read
+  // that one instead of the temporary HARNESS_HOME.
+  for (const name of ['CLAUDE_GATE_CONFIG', 'CLAUDE_GATE_RESOLVE', 'CLAUDE_PROFILES_DIR', 'CLAUDE_PROFILE_BIN', 'CLAUDE_TICKET_BIN']) delete env[name]
   const run = spawnSync(scriptNode(), [CLI, ...args], { cwd, encoding: 'utf8', env })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
