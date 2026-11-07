@@ -76,6 +76,7 @@ exceeded» на чтение логов job-ов.
 - [ ] Не исправленные test-ы таблицы — в «Итог», с причиной или с тем, почему её не нашли.
   - evidence: commit pass · docs: polish 66 — the week's flaky table, what was fixed and what was not · - - · 817fe8bcd0750033a2cbf5768426c24102f3b479
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42425207013/job/128564797504 · ci - · d23a79bb0b12d2306b897cf37be1a9093595d75e
 
 ## Где в коде
 
