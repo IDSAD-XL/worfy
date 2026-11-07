@@ -35,15 +35,20 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Unit test схемы: верный файл читается; каждая ошибка из п. 1 — свой случай с id узла в тексте.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] Test `topic.ts` на fixture-теме: `map.md`, два Ticket-а карты, `mind-map.json` с узлом `from: "ticket:02"` — тема
       собрана; битый JSON — тема с ошибкой, без исключения.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] Test путей: Full mode и Silent mode дают разные папки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] ADR добавлен, ссылка на него — в шапке `src/shared/product/mind-map.ts`.
   - evidence: commit pass · feat(product): topic folder and mind-map.json format with one check (ADR-0101) · - - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: commit pass · fix(product): replaces only on a decision, no replaces cycles, canonical ticket refs · - - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 
 ## Тесты
 
@@ -93,3 +98,12 @@ Mind map»; ссылка на него — в шапке `src/shared/product/min
   Ticket-а карты (у второго шапка после H1 и обманный блок кода с `Status: done` перед ним), `mind-map.json` с узлом
   `from: "ticket:02"`. Битый JSON, пропавший Ticket и пропавший `map.md` test делает в копии fixture-а во временной
   папке и проверяет, что чтение не меняет файлы.
+- **Раунд ревью 1 (PR #1607, REJECTED на одном medium).** `replaces` проверялся только у цели: Идея с `replaces` на
+  Решение проходила. Теперь `checkMindMap` отказывает `replaces` у любого узла, который не Решение («only a decision
+  may carry replaces»); mutant без этой проверки — test «refuses replaces on a node that is not a decision» красный
+  (exit 1). Заодно: цикл по `replaces` и Решение, которое отменяет само себя, — ошибка «a cycle through replaces»;
+  `text` из одних пробелов отклоняется, как `reason` и `source`; `ticket:NN` — только в одном написании (не меньше двух
+  цифр, без лишнего нуля: `ticket:02`, `ticket:100`; `ticket:2` и `ticket:002` — ошибка); `readTopic` пропускает BOM
+  UTF-8 перед `JSON.parse`; имя темы не `critic` ни в каком регистре, не имя устройства Windows (`CON`, `NUL`,
+  `COM1`, `lpt9.txt`…) и не кончается на `.`. Раздел `## Amendments` ADR-0005 получил строку об исключении для
+  `mind-map.json` со ссылкой на ADR-0101. Все шесть новых test-ов были красными до правки.
