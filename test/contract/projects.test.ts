@@ -40,10 +40,14 @@ let scratch: string
 let dataDir: string
 let handlers: Map<string, Listener>
 
-/** git for the fixtures, without GIT_* variables of a surrounding hook. */
+/**
+ * git for the fixtures, without GIT_* variables of a surrounding hook, and without auto maintenance: git 2.56
+ * may start it detached after a commit, and its .git/objects/maintenance.lock comes and goes while a test
+ * compares the repository's files (#1510).
+ */
 function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' }).trim()
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'maintenance.auto=false', ...args], { cwd, env, encoding: 'utf8' }).trim()
 }
 
 function makeRepo(name: string, branch = 'main'): string {

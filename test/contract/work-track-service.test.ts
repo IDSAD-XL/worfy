@@ -42,9 +42,11 @@ let claude: string
 let harness: string
 let data: string
 
+// No auto maintenance: git 2.56 may start it detached after a commit, and its .git/objects/maintenance.lock
+// comes and goes while a test compares the repository's files (#1510).
 function git(cwd: string, at: string, ...args: string[]): string {
   const env = { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at }
-  return execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, env, encoding: 'utf8' }).trim()
+  return execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', ...args], { cwd, env, encoding: 'utf8' }).trim()
 }
 
 async function put(path: string, text: string): Promise<void> {

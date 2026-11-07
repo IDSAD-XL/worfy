@@ -35,8 +35,10 @@ function git(...args: string[]): string {
   return gitAt({}, ...args)
 }
 
+// No auto maintenance: git 2.56 may start it detached after a commit, and its .git/objects/maintenance.lock
+// comes and goes while a test compares the repository's files (#1510).
 function gitAt(env: Record<string, string>, ...args: string[]): string {
-  return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], {
+  return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', ...args], {
     cwd: repo,
     env: { ...process.env, HOME: root, USERPROFILE: root, XDG_CONFIG_HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', ...env },
     encoding: 'utf8',

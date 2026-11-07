@@ -57,9 +57,11 @@ const HANDOFF = '# HANDOFF\n\n## Сейчас в работе\n\n- тикет 12
 const ADR_1 = '# worfy — чистая реализация\n\nДата: 2026-10-05. Статус: принят.\n\nТекст.\n'
 const ADR_2 = '# Каналы IPC\n\nДата: 2026-10-05. Статус: заменён 0099.\n\nТекст.\n'
 
+// No auto maintenance: git 2.56 may start it detached after a commit, and its .git/objects/maintenance.lock
+// comes and goes while a test compares the repository's files (#1510).
 function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env, encoding: 'utf8' }).trim()
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'maintenance.auto=false', ...args], { cwd, env, encoding: 'utf8' }).trim()
 }
 
 function makeSender(id: number): FakeSender {
