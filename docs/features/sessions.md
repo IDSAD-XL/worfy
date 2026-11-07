@@ -188,7 +188,30 @@ answers.
   the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
   once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run
   reads it before each retry after a temporary API error ([Autopilot, Retry after an API error](autopilot.md#retry-after-an-api-error)).
-  A turn of the Orchestrator outside a run still stops on an API error as before.
+- With Auto-continue on, a turn of the Orchestrator outside a run that ends with a temporary API error (500, 502, 503,
+  504, 529, a lost connection, a timed-out request, a broken response stream) is continued the same way as in a run:
+  after 1, 5, 15, 30 and 60 minutes (±20 %), five in a row at most, worfy sends the Orchestrator a new message that asks
+  it to continue and names what the failed turn already did outside the Session — never the person's message again.
+  A call that reaches outside and has no result (a `git push` cut off) is not retried. Each turn is judged by its own
+  calls and its own Limits status, a turn a background task's notification starts too. A refusal by the Limits waits
+  for the reset of the window the Vendor reported, plus 2 minutes, however far away; without a reset time it tries
+  again every 30 minutes, for 24 hours at most. Then it sends the continuation a run sends after the Limits. On Codex
+  the windows are not read again before that continuation, as a run does: one still refused waits again. A turn the
+  person interrupted is never continued.
+- Each step is a line of worfy's own in the transcript, below the row it tells of; the model does not get it:
+  `worfy: API error 529, retry 2 of 5 at 14:20`, `worfy: sent "continue" (retry 2 of 5)`, ``worfy: not retried: `git
+  push origin main` may or may not have run``, `worfy: not retried: gave up after 5 retries`, `worfy: waiting for the
+  Limits, resumes 14:20` (without a reset time `…, no reset time reported, next try at 14:20`), `worfy: sent "continue"
+  after the Limits wait`, `worfy: not continued: …` (a quota, or no reset time for 24 hours), `worfy: Auto-continue is
+  off; nothing was sent` and `worfy: a turn is under way; nothing was sent, its end decides`. Times are local; a time on
+  another day carries its date. These lines live only while the app runs: worfy does not write them into the transcript
+  file, so after a restart they are gone.
+- A message of the person during the wait takes the continuation's place; a message queued during the turn goes
+  right after it, so no wait starts and no line about one shows. A turn under way when the time comes (a
+  background task's notification) takes its place too, and its end decides. Auto-continue turned off, the Session closed or the
+  app quit cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries.
+  Outside a run worfy does not keep the Mac awake for the wait: a Mac that sleeps through the time continues when it
+  wakes. With Auto-continue off a turn outside a run stops on an API error or the Limits as before.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
@@ -285,7 +308,7 @@ for a process also asks the system.
 | Modes menu | `src/renderer/session/composer/Modes.tsx` |
 | Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
 | Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
-| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts` |
+| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts`, `src/main/agent/orchestrator-continue.ts` (manual turns) |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
@@ -303,6 +326,11 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   Session over the fake agent.
 - `test/contract/orchestrator.test.ts`, `test/contract/orchestrator-relaunch.test.ts`, `test/contract/node-sessions.test.ts`,
   `test/contract/permissions.test.ts`.
+- `test/contract/orchestrator-continue.test.ts`: Auto-continue of a manual turn of the Orchestrator — a 529 and one
+  continuation with its lines, the switch off, a person's message during the wait, the switch turned off and the Session
+  closed during it, a push without its result (also across a permission answered mid-turn), a turn the person
+  interrupted, a message queued during the turn, a refusal by the Limits, two Projects, the app's wiring, and an
+  Autopilot run on the same Session.
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake

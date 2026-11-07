@@ -11,6 +11,9 @@
 //
 // Each Orchestrator runs on its Project's `defaultVendor` (worfy-multi-vendor ticket 37), read from the
 // Project's settings when it starts; a Project that names none runs it on Claude Code.
+//
+// Auto-continue of the Orchestrators' manual turns (worfy-retry ticket 06, orchestrator-continue.ts)
+// follows the app's registry and learns from each view which Session is whose Orchestrator.
 import { app } from 'electron'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { agentEvent } from '../../shared/ipc/agent'
@@ -23,10 +26,13 @@ import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
+import { appSettingsStore, autoContinueOn } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
+import { appLimits } from './limits'
 import { Orchestrators } from './orchestrator'
+import { OrchestratorContinue } from './orchestrator-continue'
 import { readTranscriptFacts, type TranscriptFacts } from './orchestrator-transcript'
 import { SessionSettingsStore } from './session-settings'
 
@@ -82,10 +88,43 @@ export function sharedOrchestrators(): Orchestrators {
       capabilities: (vendor) => vendorDriver(vendor).capabilities(),
       harnessHooks: (vendor) => vendorDriver(vendor).harnessHooks,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
-      publish: (view) => toEveryWindow((target) => emit(target, orchestratorChanged, view)),
+      publish: (view) => {
+        try {
+          sharedOrchestratorContinue().view(view)
+        } catch (error) {
+          console.warn('[orchestrator] Auto-continue could not take a view of the Orchestrator', error)
+        }
+        toEveryWindow((target) => emit(target, orchestratorChanged, view))
+      },
     })
   }
   return shared
+}
+
+let continuer: OrchestratorContinue | null = null
+
+/**
+ * Auto-continue of the Orchestrators' manual turns, made on first use: the Project's switch of
+ * app-settings.json, the Limits of limits.json, the pauses by the wall clock. It stops when the app
+ * quits; the registry closes every Session then too, which ends any wait.
+ */
+export function sharedOrchestratorContinue(): OrchestratorContinue {
+  if (continuer === null) {
+    const made = new OrchestratorContinue({
+      observe: (sink) => sharedRegistry().observe(sink),
+      session: (sessionId) => sharedRegistry().get(sessionId),
+      enabled: (projectId) => autoContinueOn(projectId),
+      observeSettings: (listener) => {
+        const store = appSettingsStore()
+        store.on('changed', listener)
+        return () => void store.off('changed', listener)
+      },
+      limits: () => appLimits().snapshot(),
+    })
+    app.on('will-quit', () => made.stop())
+    continuer = made
+  }
+  return continuer
 }
 
 /**
