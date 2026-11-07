@@ -20,6 +20,8 @@ Epic-ам и Ticket-ам.
 |---|---|
 | [Autopilot](autopilot.md) | Autopilot |
 | [Autopilot faults and recovery](autopilot-faults.md) | Ожидания, остановки и восстановление: ожидание Limits, повтор после ошибки API, причины остановки, Fault scenario-и |
+| [Starting Autopilot from a chat](autopilot-chat.md) | Команда `/worfy:epic-wave`, набранная в чате, canvas-инструмент `autopilot_start` и его просьба |
+| [Auto-approval](auto-approval.md) | Auto-approval: режимы Off, Shadow и On, approval policy, park |
 | [Run planning](run-planning.md) | Run mode и Epic forecast: Start window, budget Limits |
 | [Flight Recorder](flight-recorder.md) | Run history: шкала времени run-а Autopilot |
 | [Work track](work-track.md) | Work track: вся работа Project-а за Day, Week или Month |
