@@ -453,6 +453,16 @@ describe('Update Harness in Codex (fake Codex, temporary CODEX_HOME)', () => {
     expect(removals()).toEqual([`codex plugin remove ${MP}`])
   })
 
+  it('a first add of worfy to Codex removes nothing, even with worfy’s record', async () => {
+    machine({ version: '1.4.0' })
+    writeState(sb.codexState, { marketplaces: { 'claude-plugins-official': 'anthropics/claude-plugins-official' }, plugins: { [MP]: { version: '1.4.0' } } })
+    recorded({ id: MP, vendor: 'codex' })
+    const result = await installer(makeBundle(V2), { codex: true }).install(yes)
+    expect(calls()).toContain(`codex plugin add ${HARNESS_PLUGIN_ID}`)
+    expect(removals()).toEqual([])
+    expect(result.status.codex?.state).toEqual({ kind: 'installed', version: V2 })
+  })
+
   it('a failed `codex plugin remove` is a line of the result; the Harness in Codex stays installed', async () => {
     machine(undefined, { mp: { version: '1.4.0' } })
     recorded({ id: MP, vendor: 'codex' })

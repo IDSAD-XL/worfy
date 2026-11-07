@@ -111,3 +111,55 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 Только читать: `src/main/first-run/checks.ts`, `src/main/vendors/codex/protocol/`, `docs/adr/0059-installer-installs-plugin-dependencies.md`,
 `test/unit/agent-options.test.ts` и `test/contract/workflow-profile.test.ts` (там `mattpocock-skills` — пример plugin-а
 пользователя, он остаётся), `test/fixtures/claude-home-legacy/` (старый Harness).
+
+## Итог
+
+Ветка `worfy-skills/03`.
+
+### Откуда worfy читает время установки (шаг 1, до кода)
+
+- **Claude Code** — `claude plugin list --json` встроенного Claude Code 2.1.289 (SDK
+  `@anthropic-ai/claude-agent-sdk` 0.3.289, `claudeCodeVersion` в его `package.json`). Проверено без запуска, по строкам
+  бинарника `@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`: вывод `plugin list` собирает у каждой записи
+  `{ id, version, scope, enabled, installPath, …, installedAt, lastUpdated, projectPath, … }`; схема записи
+  `installed_plugins.json` в `sdk.mjs` описывает `installedAt` как «ISO 8601 timestamp of installation». `plugin update`
+  сохраняет `installedAt` прежней записи (`installedAt: … ?? new Date()` в коде обновления). `plugins/installed_plugins.json`
+  worfy не читает: хватает того же `plugin list`, который installer уже зовёт.
+- **Codex** — времени установки для plugin-а из marketplace нет. `codex plugin list --json` Codex 0.166.0
+  (`test/fixtures/codex-cli/plugin-list-0.166.0.json`) поля не отдаёт; в протоколе app-server
+  (`src/main/vendors/codex/protocol/ts/v2/PluginSummary.ts`, версия протокола 0.166.0) `installedAt: number | null` —
+  «Unix timestamp in seconds when the remote plugin was installed», только у remote plugin-ов. Поэтому в Codex решает
+  только запись worfy; если `plugin list` когда-нибудь отдаст `installedAt` (секунды), действует то же окно. Команда
+  удаления — `codex plugin remove <id>` (help-текст в бинарнике 0.166.0: «Uninstall a plugin and remove its local cache»).
+  Настоящий Codex не запускался.
+
+### Что сделано
+
+- `harness/.claude-plugin/plugin.json` — без `dependencies`; механизм ADR-0059 в коде остался, его test-ы берут
+  fixture-копию с зависимостью `example-skills@claude-plugins-official` (contract — `makeBundle`, e2e — копия
+  `out/harness` через `WORFY_HARNESS_BUNDLE`, которую читает только не упакованный запуск).
+- `src/main/harness/dependency-cleanup.ts` — правило Q5: сначала запись worfy (`harness-dependencies.json` в папке
+  данных worfy, рядом с `harness-codex.json`; id, Vendor, время), без неё — окно 10 минут до `installedAt` у
+  `worfy@worfy-harness`. Запускается только после `plugin update` уже установленного `worfy` (Update Harness из toolbar и
+  установка после Update), никогда на первой установке и не до `worfy`. Marketplace не трогается. Ошибка удаления —
+  строка в итоге (`status.cleanup`), Harness остаётся `installed`, следующий Update пробует снова.
+- Toolbar после такого Update пишет `· removed mattpocock-skills` (tooltip — команда возврата) или
+  `· could not remove mattpocock-skills` (tooltip — вывод команды).
+
+### Решено без владельца
+
+1. **Строго раньше `worfy`.** Spec: «не раньше чем за 10 минут до и не позже». Время, равное времени `worfy`, не
+   считается установкой worfy: installer ставил зависимость раньше, а одинаковое время у двух записей оставляет
+   инструмент, который переписал все записи разом. Ошибка в безопасную сторону.
+2. **Повторного `plugin list` нет, если удаляемого plugin-а не было в списке до установки** — Update без него идёт
+   прежними командами.
+3. **Запись в Codex с другим Vendor не считается** — запись `codex` не удаляет plugin из Claude Code, и наоборот.
+4. `src/renderer/shell/toolbar/HarnessStatus.tsx` и `test/contract/harness-evals-run.test.ts` вне раздела «Где в коде»:
+   первый показывает итог (п. 5 «Что делаем»), второй проверял, что у настоящего `plugin.json` есть `dependencies`.
+   `docs/features/harness.md` — абзац об удалении и строка о зависимости.
+
+### Сначала падающий test
+
+На `main` (до правки `plugin.json`) красные: `test/contract/harness-plugin.test.ts` «declares no dependencies» и
+`test/contract/first-run-checks.test.ts` «the Harness of this repository (worfy-skills 03): Install on an empty stub
+runs no command for mattpocock-skills…» — 2 failed, exit 1; после правки — exit 0.
