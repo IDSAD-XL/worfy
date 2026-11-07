@@ -73,6 +73,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2; «
   `test/contract/orchestrator-continue.test.ts` (двойной клик, таймер после Retry now, таймер после Cancel, Limits) и
   `test/contract/autopilot-retry.test.ts` (двойной клик `Promise.all` → `[true, false]`, таймер после, Cancel →
   `turn-error` / `limits-timeout`, сообщений после Cancel нет).
+- **Ревью PR #1563, раунд 1 (mutation testing).** Добавлены test-ы на три выживших мутанта, каждый проверен ручной
+  мутацией: Cancel Run-а, вставший в очередь за Retry now или за таймером, отвечает `false`, ничего не подаёт в цикл,
+  Run идёт дальше (мутант без guard-а `retry.until === null` в `cancelContinue`); Cancel ручного ожидания и сразу
+  следующий 529 без удачного хода между ними — снова retry 1 (мутант без сброса счёта в `cancel`); Retry now при Session,
+  которая уже не готова, сразу сообщает окнам конец ожидания (мутант без `tell()` в `retryNow`). Код не менялся.
 - **Снимки** — строка retry в обеих темах: `../evidence/07-countdown-retry-light.png`,
   `../evidence/07-countdown-retry-dark.png` (e2e `test/e2e/auto-continue.spec.ts`, `captureScreenshot`). Строк Limits на
   снимках нет: их вид проверяет unit test.
