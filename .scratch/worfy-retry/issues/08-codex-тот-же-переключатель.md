@@ -39,12 +39,19 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 ## Готово, когда
 
 - [ ] Contract test: Codex, `serverOverloaded`, затем удачный — `turn-retry`, `resumed`, одно продолжение.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: `willRetry: true` — worfy ничего не шлёт, `turn-retry` нет.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: квота без сброса — остановка с причиной, ожидания нет.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Unit test: `responseTooManyFailedAttempts` с `httpStatusCode` 429 → `other`; без кода и с 5xx — как сейчас.
+  - evidence: gate pass · `gate fast` (pnpm test: test/unit/turn-failure.test.ts, test/unit/codex-items.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Contract test: ход Codex с `collabAgentToolCall` без результата, затем `serverOverloaded` → `retry-refused` `in-flight`.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] Новые скрипты проходят проверку схемы `codex-fake.test.ts`.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-fake.test.ts, test/contract/codex-compat.test.ts) exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · af4c3b75c8c2cbbec5f34759331b51d885dc4ac3
 
 ## Тесты
 
