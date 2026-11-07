@@ -302,7 +302,7 @@ a shell are the shell's.
 **Paste and drop.** ⌘V puts an image from the clipboard on the Canvas, while the Canvas is on screen with the focus on
 it or nowhere and not in a text place. It lands under the pointer when the pointer is over the Canvas, otherwise in the
 middle. Drop works only on the empty plane: a file dropped on a Node belongs to the Node, and a Session takes it as an
-attachment. The window itself never opens a dropped file.
+attachment. The window itself never opens a dropped file or a dropped link.
 
 **Size on the Canvas.** An image starts at its natural size, scaled down so that the longer side is at most 480 and
 never scaled up. Each side is at least 48. The first image centres on the point and the next ones cascade by 32. Several

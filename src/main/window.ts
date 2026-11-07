@@ -344,8 +344,9 @@ export function guardBrowserSession(browserSession: Session): void {
 
 /**
  * Puts up main's side of the walls for every web contents: frame navigation (a Card stays on its
- * own origin, the window never shows a Card), no new windows, permissions for the app's renderer
- * only. `isAppUrl` is the same renderer matcher the IPC sender check uses (src/main/index.ts).
+ * own origin, the main frame of the window stays on the app's own address), no new windows,
+ * permissions for the app's renderer only. `isAppUrl` is the same renderer matcher the IPC sender
+ * check uses (src/main/index.ts).
  *
  * The page of a Browser (the guest of a <webview>, ADR-0078 item 3) attaches only as the attach
  * policy allows (browser/attach-policy.ts), on one of `browserPartitions()` — read at each attach,
@@ -375,7 +376,12 @@ export function installWebPolicy(isAppUrl: (url: string) => boolean, browserPart
       return
     }
     contents.on('will-frame-navigate', (details) => {
-      const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
+      // The main frame of the app window goes only to the app's own address: a foreign page there
+      // would get the preload and every event main sends the window (audit-security-2026-11-07
+      // ticket 02). Loads main starts itself (loadURL, View ▸ Reload) do not come through here.
+      const allowed =
+        allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url }) &&
+        (!details.isMainFrame || isAppUrl(details.url))
       if (!allowed) details.preventDefault()
     })
     contents.setWindowOpenHandler(windowOpenResponse)
