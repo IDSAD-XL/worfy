@@ -22,7 +22,7 @@ Orchestrator отмечает пункты «(вручную)» в Ticket-е и 
 
 1. [`worfy-multi-vendor` 43](#worfy-multi-vendor-43) — Mac, затем ПК.
 2. [`worfy-windows` 16](#worfy-windows-16) — ПК.
-3. [`worfy-evidence` 09](#worfy-evidence-09) — код готов. ([`worfy-faults` 08](#worfy-faults-08) — принят 2026-11-06.)
+3. [`worfy-evidence` 09](#worfy-evidence-09) — принят 2026-11-07. ([`worfy-faults` 08](#worfy-faults-08) — принят 2026-11-06.)
 4. [`worfy-auto-approve` 11](#worfy-auto-approve-11) — ещё не готово: ждёт Ticket-ов 05, 08, 10, 13, 14.
 5. [`worfy-retry` 11](#worfy-retry-11) — ещё не готово: ждёт Ticket-ов 05–10, 14.
 6. [`worfy-autopilot-queue` 20](#worfy-autopilot-queue-20) — ещё не готово: ждёт Ticket-ов 07–19.
