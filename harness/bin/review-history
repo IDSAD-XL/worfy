@@ -17,8 +17,10 @@
 //   raw/prs.jsonl  one line per pull request of the last fetch: the reviews, the review threads with their
 //                  line comments, the conversation comments, each with `role` "team" or "context". Colleagues'
 //                  words: it lives one run — the caller deletes it with `clean` when it is done with it
-//   meta.json      the window, the counts, the date of the run and the newest pull request read per repository;
-//                  other keys of the file are kept as they are
+//   meta.json      the window, the counts, the voice and the date of the last whole fetch; `update` — the same for
+//                  the slice of the last `fetch --since`, which never overwrites the history's counts; `raw` — which
+//                  of the two raw/ holds; repositories[].last_pr — the cursor, the newest pull request read
+//                  ({number, updated_at}), where the next `fetch --since` starts. Other keys of the file are kept
 //   ignore.json    {"logins": [...], "body_prefixes": [...]}: service accounts that GitHub shows as a User and
 //                  the openings of texts agents post under a person's account; a person edits it. `fetch`
 //                  creates it with empty lists when it is missing; `probe` only reads it
@@ -683,6 +685,28 @@ function stats(pulls) {
 }
 
 // --- the commands ----------------------------------------------------------------------------------------------
+// meta.json after a fetch. A whole fetch is the history: its record goes to the top level (fetched_at, window,
+// repositories, dropped, requests, counts, voice) and an older `update` is dropped. A fetch with --since reads only a
+// slice of new pull requests: the top level keeps the history it describes, the slice goes under `update`, and
+// `raw` says which of the two raw/ holds. Either way the cursor — repositories[].last_pr, the newest pull request
+// read ({number, updated_at}), where the next `fetch --since` starts — moves to the newest one read, and stays as it
+// was for a repository where nothing new was read. Keys of other writers are kept.
+function withRecord(old, record, isUpdate) {
+    const cursors = new Map((old.repositories || []).map((r) => [r.repo, r.last_pr || null]))
+    const latest = (r) => r.last_pr || cursors.get(r.repo) || null
+    if (!isUpdate) {
+        const { update, ...rest } = old
+        return { ...rest, ...record, repositories: record.repositories.map((r) => ({ ...r, last_pr: latest(r) })), raw: "fetch" }
+    }
+    const repositories = [...(old.repositories || [])].map((r) => ({ ...r }))
+    for (const r of record.repositories) {
+        const at = repositories.find((o) => o.repo === r.repo)
+        if (at) at.last_pr = latest(r)
+        else repositories.push({ repo: r.repo, pull_requests: null, last_pr: r.last_pr })
+    }
+    return { ...old, repositories, update: record, raw: "update" }
+}
+
 function cmdFetch(opts, R, f) {
     const repos = repositories(R, opts.dir)
     const ignore = readIgnore(f, true)
@@ -715,17 +739,20 @@ function cmdFetch(opts, R, f) {
         throw e
     }
     const { lower, ...window } = win
-    const meta = { ...(readJson(f.meta) || {}), fetched_at: now().toISOString(), window, repositories: perRepo, dropped, requests }
-    const summary = summarize(pulls, meta, opts.passes)
-    meta.counts = { pull_requests: summary.pull_requests, reviews: summary.reviews, comments: summary.comments, context: summary.context, substantive: summary.substantive, reviewers: summary.reviewers, characters: summary.characters }
-    meta.voice = summary.voice.line
-    writeJson(f.meta, meta)
+    const record = { fetched_at: now().toISOString(), window, repositories: perRepo, dropped, requests }
+    const summary = summarize(pulls, record, opts.passes)
+    record.counts = { pull_requests: summary.pull_requests, reviews: summary.reviews, comments: summary.comments, context: summary.context, substantive: summary.substantive, reviewers: summary.reviewers, characters: summary.characters }
+    record.voice = summary.voice.line
+    writeJson(f.meta, withRecord(readJson(f.meta) || {}, record, !!opts.since))
+
     if (opts.json) return { fetched: { requests, raw: f.raw }, estimate: summary }
     return `fetched: ${summary.pull_requests} pull requests in ${requests} requests into ${f.raw}\n${estimateText(summary)}`
 }
 
 function cmdEstimate(opts, R, f) {
-    const s = summarize(readRaw(f), readJson(f.meta), opts.passes)
+    // raw/ holds either the history or the slice of the last `fetch --since`: the window and the drops of that fetch.
+    const meta = readJson(f.meta)
+    const s = summarize(readRaw(f), meta?.raw === "update" ? meta.update : meta, opts.passes)
     return opts.json ? s : estimateText(s)
 }
 

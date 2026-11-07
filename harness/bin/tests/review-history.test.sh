@@ -6,8 +6,9 @@
 # Covered: the filter (a Bot, a [bot] login, a service User and an agent's report from ignore.json, the author of the
 # pull request — dropped; authors outside the team — context; a person's reply to a bot — kept); the window
 # (older than 12 months and the 501st pull request are not read, a silent approval counts, --since reads only the
-# new); the voice threshold (29 and 30); probe stops at the 30th substantive comment and writes no file; a rate
-# limit is retried after retry-after and gives up after three retries with raw/ untouched; the global gh account
+# new and keeps the history's counts and the cursor in meta.json); the voice threshold (29 and 30); probe stops at
+# the 30th substantive comment and writes no file; a rate limit is retried only after retry-after has passed and
+# gives up after three retries with raw/ untouched; the global gh account
 # is never switched; clean removes raw/ and nothing else; stats names no login; profiles/README.md names the folder.
 # Run: bash harness/bin/tests/review-history.test.sh; exit code 0 — everything passed.
 set -u
@@ -31,7 +32,8 @@ export REVIEW_HISTORY_NOW="2026-06-01T00:00:00Z"
 # One line per call into $GH_LOG: the call number, the GraphQL operation, the cursor, the GH_TOKEN it saw and its
 # first two arguments. Answers like `gh api --include`: headers, a blank line, the body of the fixture file
 # $GH_FIX/<page|reviews-N|…>-<cursor>.json. $RL_CALLS (",2,3,") — the call numbers answered with a rate limit
-# (HTTP 403, retry-after 1); $DENY — a GraphQL NOT_FOUND, as for a repository the token cannot see.
+# (HTTP 403, retry-after 1), and with it set the time of each call in ms goes to $GH_TIMES; $DENY — a GraphQL
+# NOT_FOUND, as for a repository the token cannot see.
 STUBS="$T/stubs"; mkdir -p "$STUBS"
 cat >"$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -46,6 +48,7 @@ for a in "$@"; do
     esac
 done
 echo "call=$n op=$op cursor=$cursor token=${GH_TOKEN:-unset} args=${1:-} ${2:-}" >>"$GH_LOG"
+[ -z "${RL_CALLS:-}" ] || node -e 'process.stdout.write(Date.now() + "\n")' >>"$GH_TIMES"
 case ",${RL_CALLS:-}," in *",$n,"*)
     printf 'HTTP/2.0 403 Forbidden\r\nRetry-After: 1\r\nX-Ratelimit-Remaining: 0\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n'
     echo "gh: You have exceeded a secondary rate limit. (HTTP 403)" >&2; exit 1 ;;
@@ -96,7 +99,7 @@ state() { echo "$HH/projects/$1/state/human-review"; }
 # $T/err, the calls to $T/gh-<project>.log; returns the exit code.
 rh() {
     local p="$1" fx="$2"; shift 2
-    (cd "$T/r/$p" && env HOME="$H" HARNESS_HOME="$HH" GH_FIX="$fx" GH_LOG="$T/gh-$p.log" GH_COUNT="$T/count-$p" node "$RH" "$@") >"$T/out" 2>"$T/err"
+    (cd "$T/r/$p" && env HOME="$H" HARNESS_HOME="$HH" GH_FIX="$fx" GH_LOG="$T/gh-$p.log" GH_COUNT="$T/count-$p" GH_TIMES="$T/times-$p" node "$RH" "$@") >"$T/out" 2>"$T/err"
 }
 calls() { [ -f "$T/gh-$1.log" ] && wc -l <"$T/gh-$1.log" | tr -d ' ' || echo 0; }
 raw_has() { grep -qF -- "$2" "$(state "$1")/raw/prs.jsonl"; }
@@ -166,12 +169,23 @@ n="$(grep -c . "$(state cap)/raw/prs.jsonl" 2>/dev/null)"
 [ "$rc" -eq 0 ] && [ "$n" = 500 ] && ! grep -q '"number":1,' "$(state cap)/raw/prs.jsonl" && [ "$(calls cap)" = 5 ] \
     && ok "501 reviewed PRs: 500 kept, the 501st not read, its page not requested (5 requests)" || bad "cap: exit $rc, $n lines, $(calls cap) calls $(cat "$T/err")"
 make "$T/fx-since" since
+rh since "$T/fx-since" fetch; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^pull requests: 4 " "$T/out" && [ "$(calls since)" = 2 ] && ok "fetch without --since reads the whole window (4 PRs, 2 pages)" || bad "no since: exit $rc $(cat "$T/out") calls $(calls since)"
+cp "$(state since)/meta.json" "$T/meta-full.json"
 rh since "$T/fx-since" fetch --since 2026-05-01; rc=$?
 nums="$(node -e 'process.stdout.write(require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").map((l)=>JSON.parse(l).number).join(","))' "$(node_path "$(state since)/raw/prs.jsonl")")"
-[ "$rc" -eq 0 ] && [ "$nums" = "3,2" ] && [ "$(calls since)" = 1 ] && [ "$(jfield window.since <"$(state since)/meta.json")" = "2026-05-01T00:00:00.000Z" ] \
-    && ok "fetch --since 2026-05-01: only the PRs updated after it, one request, meta.json records since" || bad "since: exit $rc PRs $nums calls $(calls since) $(cat "$T/err")"
-rh since "$T/fx-since" fetch; rc=$?
-[ "$rc" -eq 0 ] && grep -q "^pull requests: 4 " "$T/out" && [ "$(calls since)" = 3 ] && ok "fetch without --since reads the whole window (4 PRs, 2 pages)" || bad "no since: exit $rc $(cat "$T/out") calls $(calls since)"
+M="$(state since)/meta.json"
+[ "$rc" -eq 0 ] && [ "$nums" = "3,2" ] && [ "$(calls since)" = 3 ] && [ "$(jfield update.window.since <"$M")" = "2026-05-01T00:00:00.000Z" ] && [ "$(jfield update.counts.pull_requests <"$M")" = 2 ] && [ "$(jfield raw <"$M")" = update ] \
+    && ok "fetch --since 2026-05-01: only the PRs updated after it, one request, the slice recorded under update" || bad "since: exit $rc PRs $nums calls $(calls since) $(cat "$M") $(cat "$T/err")"
+for k in counts voice window fetched_at; do
+    [ "$(jfield "$k" <"$M")" = "$(jfield "$k" <"$T/meta-full.json")" ] && ok "fetch --since keeps the history's $k in meta.json" || bad "fetch --since overwrote $k: $(jfield "$k" <"$M")"
+done
+rh since "$T/fx-since" estimate --json; rc=$?
+[ "$rc" -eq 0 ] && [ "$(jfield pull_requests <"$T/out")" = 2 ] && [ "$(jfield window.since <"$T/out")" = "2026-05-01T00:00:00.000Z" ] \
+    && ok "estimate after fetch --since: the slice in raw/ with its own window" || bad "estimate after since: exit $rc $(cat "$T/out")"
+rh since "$T/fx-since" fetch --since 2026-05-25; rc=$?
+[ "$rc" -eq 0 ] && [ "$(jfield update.counts.pull_requests <"$M")" = 0 ] && [ "$(jfield repositories.0.last_pr.number <"$M")" = 3 ] && [ "$(jfield repositories.0.last_pr.updated_at <"$M")" = "2026-05-20T00:00:00Z" ] \
+    && [ "$(jfield counts.pull_requests <"$M")" = 4 ] && ok "fetch --since with nothing new: the cursor last_pr stays at PR 3, the history's counts stay" || bad "empty since: exit $rc $(cat "$M")"
 
 # --- 4. probe: stops at the 30th, writes nothing ------------------------------------------------------------------------
 make "$T/fx-probe" pages 20 3 1
@@ -201,11 +215,13 @@ DENY=1 rh deny "$FIX/filter" probe; rc=$?
 [ "$rc" -eq 3 ] && [ "$(wc -l <"$T/err" | tr -d ' ')" = 1 ] && grep -q "no access to acme/deny" "$T/err" && ok "probe: no access to the repository -> exit 3, one line of reason" || bad "probe deny: exit $rc $(cat "$T/err")"
 
 # --- 5. the rate limit ------------------------------------------------------------------------------------------------
-start=$(date +%s)
 RL_CALLS=",1,2," rh rl "$FIX/filter" fetch; rc=$?
-took=$(( $(date +%s) - start ))
-[ "$rc" -eq 0 ] && grep -q "retry-after 1 s); waiting 1 s, retry 1 of 3" "$T/err" && grep -q "retry 2 of 3" "$T/err" && [ "$took" -ge 2 ] && raw_has rl TEAM-NIT-TEXT \
-    && ok "rate limit twice: waits retry-after (1 s) before each retry, then reads the page" || bad "rate limit retry: exit $rc took ${took}s $(cat "$T/err")"
+# The gaps between the starts of calls 1, 2 and 3 as the stand-in saw them: each retry comes after retry-after (1 s).
+gaps="$(node -e 'const t = require("fs").readFileSync(0, "utf8").trim().split("\n").map(Number); process.stdout.write(t.slice(1, 3).map((v, i) => v - t[i]).join(" "))' <"$T/times-rl")"
+[ "$rc" -eq 0 ] && grep -q "retry-after 1 s); waiting 1 s, retry 1 of 3" "$T/err" && grep -q "retry 2 of 3" "$T/err" && raw_has rl TEAM-NIT-TEXT \
+    && ok "rate limit twice: says it waits retry-after (1 s) before each retry, then reads the page" || bad "rate limit retry: exit $rc $(cat "$T/err")"
+[ "$(wc -w <<<"$gaps" | tr -d ' ')" = 2 ] && [ "${gaps% *}" -ge 1000 ] && [ "${gaps#* }" -ge 1000 ] \
+    && ok "rate limit twice: each retry starts at least 1000 ms after the limited call (gaps $gaps ms)" || bad "rate limit wait: gaps [$gaps] ms"
 cp "$(state rl)/raw/prs.jsonl" "$T/rl-before"
 : >"$T/gh-rl.log"; rm -f "$T/count-rl"
 RL_CALLS=",1,2,3,4,5," rh rl "$FIX/filter" fetch; rc=$?
