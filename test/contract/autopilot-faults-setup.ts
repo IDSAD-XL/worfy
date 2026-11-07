@@ -23,6 +23,8 @@
 // - The Vendor: `claude` (default) or `codex` — the Project's Orchestrator then runs on the fake
 //   Codex app-server (WORFY_CODEX=fake from test/setup-contract.ts) with a CODEX_HOME of the test;
 //   its approval of the Harness's hooks is not checked here (codex-orchestrator.test.ts checks it).
+// - Auto-continue (`autoContinue`, worfy-retry ticket 09): off unless asked; on, the pause before a
+//   continuation after a temporary API error is a timer on the test's clock, as the Limits wait is.
 //
 // A test file that imports this module mocks `electron` as autopilot-faults-api.test.ts does. The
 // module's afterEach stops every run, closes every Session, kills every stub and fake process and
@@ -118,6 +120,12 @@ export interface FaultRunOptions {
   tasksGraceMs?: number
   /** How long a Stop waits for the interrupted turn before the process is closed (default 100 ms). */
   haltTurnMs?: number
+  /**
+   * Auto-continue on for the Project (worfy-retry ticket 09): the run gets AutopilotDeps.retry with the
+   * switch on, the pause's timer on the test's clock and no spread (each pause is the plan's own: 1, 5,
+   * 15, 30, 60 minutes). Absent or false: no `retry` at all, the run as before worfy-retry.
+   */
+  autoContinue?: boolean
 }
 
 // ── the clock of the test ────────────────────────────────────────────────────
@@ -458,6 +466,19 @@ export function faultRun(options: FaultRunOptions = {}) {
     },
     tasksClock: clock,
     haltTurnMs: options.haltTurnMs ?? 100,
+    ...(options.autoContinue === true
+      ? {
+          retry: {
+            enabled: () => true,
+            send: (sessionId: string, text: string) => {
+              registry.get(sessionId).send(text)
+            },
+            now: () => clock.now,
+            schedule: clock.schedule,
+            random: () => 0.5,
+          },
+        }
+      : {}),
     ...(options.backgroundStallMs === undefined ? {} : { backgroundStallMs: options.backgroundStallMs }),
     ...(options.tasksGraceMs === undefined ? {} : { tasksGraceMs: options.tasksGraceMs }),
     ...(prs === null || prOptions === null

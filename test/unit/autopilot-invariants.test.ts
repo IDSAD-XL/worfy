@@ -12,6 +12,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { MAX_RETRIES, retryText } from '../../src/shared/agent/continue-plan'
 import { checkRecovery, type RecoveryInput, type StatusWrite } from '../autopilot-invariants'
 
 const root = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'autopilot-faults')
@@ -182,5 +183,106 @@ describe('checkRecovery, rule by rule', () => {
       'I7: worfy changed .scratch/demo/issues/03-ticket-3.md in the Project',
       'I7: worfy removed src/f1.ts from the Project',
     ])
+  })
+})
+
+// ── Auto-continue (worfy-retry ticket 09) ────────────────────────────────────
+//
+// The good Run's first journal, rewritten as Auto-continue would leave it: after the claims the
+// Orchestrator's turn ends with the 500, and the journal goes on with `tail` instead of its
+// session-error and run-stopped. The continuations Auto-continue sent join the messages.
+
+const RUN_1 = '2026-11-03T10-00-00-000Z-a1b2c3'
+const ERROR_500 = 'API Error: 500 {"type":"error","error":{"type":"api_error","message":"Internal server error"}}'
+const continuation = (attempt: number): string => retryText({ attempt, of: MAX_RETRIES, error: 'api-500', actions: [] })
+
+/** A journal line of run 1, `second` seconds after 10:00:10. */
+const at = (second: number, fields: Record<string, unknown>): string =>
+  JSON.stringify({ at: new Date(Date.parse('2026-11-03T10:00:10.000Z') + second * 1000).toISOString(), run: RUN_1, project: 'demo-000000a4', epic: 'demo', ...fields })
+
+/** `turn-retry` `attempt` of the 500, then (unless `resumed` is false) its `resumed`. */
+const retried = (attempt: number, second: number, resumed = true): string[] => [
+  at(second, { kind: 'turn-retry', attempt, of: MAX_RETRIES, error: 'api-500', message: ERROR_500, until: '2026-11-03T10:30:00.000Z' }),
+  ...(resumed ? [at(second + 1, { kind: 'resumed' })] : []),
+]
+
+/** The good Run with run 1's journal ending in `tail`, `continuations` more messages after the Wave's command. */
+function withRetry(tail: string[], continuations: number, expectChanges: Partial<RecoveryInput['expect']>): RecoveryInput {
+  const input = load()
+  const head = lines(input.journals[0]!).slice(0, 4)
+  return {
+    ...input,
+    journals: [[...head, ...tail].join('\n') + '\n', ...input.journals.slice(1)],
+    messages: [...input.messages, ...Array.from({ length: continuations }, (_, index) => continuation(index + 1))],
+    expect: { ...input.expect, ...expectChanges },
+  }
+}
+
+/** The 500 survived: one turn-retry, one continuation, resumed; a person then stops the Run. */
+const survived = (): RecoveryInput => withRetry([...retried(1, 0), at(5, { kind: 'run-stopped', reason: 'user-stop' })], 1, { stop: 'user-stop', resumed: true })
+
+/** Five retries, then the give-up: retry-refused cap, session-error, run-stopped turn-error. */
+const capTail = (): string[] => [
+  ...[1, 2, 3, 4, 5].flatMap((attempt) => retried(attempt, attempt * 2)),
+  at(20, { kind: 'retry-refused', reason: 'cap' }),
+  at(21, { kind: 'session-error', session: 'demo-session-000001', message: `${ERROR_500} — gave up after ${MAX_RETRIES} retries` }),
+  at(22, { kind: 'run-stopped', reason: 'turn-error' }),
+]
+const gaveUp = (): RecoveryInput => withRetry(capTail(), MAX_RETRIES, { refused: 'cap' })
+
+describe('checkRecovery with Auto-continue (worfy-retry ticket 09)', () => {
+  it('finds nothing wrong in a Run that survived the 500: the error is named by its turn-retry', () => {
+    expect(checkRecovery(survived())).toEqual([])
+  })
+
+  it('finds nothing wrong in a Run that gave up after five retries', () => {
+    expect(checkRecovery(gaveUp())).toEqual([])
+  })
+
+  it('I1 does not count the continuation as a Wave command, and sees the Wave command sent again in its place', () => {
+    expect(continuation(1)).not.toMatch(/epic-wave/u)
+    const input = survived()
+    expect(checkRecovery({ ...input, messages: [input.messages[0]!, input.messages[0]!] })).toEqual(['I1: /epic-wave for wave 1 sent 2 times'])
+  })
+
+  it('I4 holds the error text of a survived Run to its turn-retry', () => {
+    expect(checkRecovery({ ...survived(), expect: { ...survived().expect, errorText: /overloaded_error/u } })).toEqual([
+      'I4: no session-error or turn-retry matches /overloaded_error/u',
+    ])
+  })
+
+  it('I4 sees a turn-retry without its resumed before the next step', () => {
+    const tail = capTail()
+    // The resumed of retry 3 is gone: retry 4 follows retry 3 at once.
+    tail.splice(5, 1)
+    expect(checkRecovery(withRetry(tail, MAX_RETRIES, { refused: 'cap' }))).toEqual(['I4: turn-retry 3 has no resumed before turn-retry'])
+    const finished = [...retried(1, 0, false), at(5, { kind: 'wave-finished', wave: 1, tickets: ['01', '02'] }), at(6, { kind: 'run-stopped', reason: 'user-stop' })]
+    expect(checkRecovery(withRetry(finished, 1, { stop: 'user-stop' }))).toEqual(['I4: turn-retry 1 has no resumed before wave-finished'])
+  })
+
+  it('I4 sees a retry-refused that is not the give-up right before run-stopped turn-error', () => {
+    const tail = capTail()
+    // A continuation went after the give-up.
+    tail.splice(11, 0, at(20.5, { kind: 'resumed' }))
+    expect(checkRecovery(withRetry(tail, MAX_RETRIES, { refused: 'cap' }))).toEqual(['I4: retry-refused cap is followed by resumed, not run-stopped turn-error'])
+  })
+
+  it('I4 holds the reason of the give-up to the scenario', () => {
+    expect(checkRecovery({ ...gaveUp(), expect: { ...gaveUp().expect, refused: 'in-flight' } })).toEqual(['I4: no retry-refused in-flight before run-stopped'])
+    expect(checkRecovery({ ...load(), expect: { ...load().expect, refused: 'cap' } })).toEqual(['I4: no retry-refused cap before run-stopped'])
+  })
+
+  it('I4 lets a wait to retry end with a Force stop, with the Limits taking it over, or with a killed app', () => {
+    const forceStop = withRetry([...retried(1, 0, false), at(5, { kind: 'run-stopped', reason: 'user-force-stop' })], 0, { stop: 'user-force-stop' })
+    expect(checkRecovery(forceStop)).toEqual([])
+    const limits = [
+      ...retried(1, 0, false),
+      at(2, { kind: 'limits-hit', window: 'seven_day', resetsAt: '2026-11-03T11:00:00.000Z' }),
+      at(3, { kind: 'waiting-until', until: '2026-11-03T11:02:00.000Z' }),
+      at(4, { kind: 'resumed' }),
+      at(5, { kind: 'run-stopped', reason: 'user-stop' }),
+    ]
+    expect(checkRecovery(withRetry(limits, 0, { stop: 'user-stop', resumed: true }))).toEqual([])
+    expect(checkRecovery(withRetry(retried(1, 0, false), 0, { stop: null }))).toEqual([])
   })
 })
