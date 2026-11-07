@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os'
 import { join, posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
@@ -418,7 +417,7 @@ describe('affected-tests.mjs on the diff', () => {
     return readFileSync(file, 'utf8')
   }
 
-  quarantined('affected-tests-github-output')('appends run and files to $GITHUB_OUTPUT with --github-output, for the test jobs of CI', () => {
+  it('appends run and files to $GITHUB_OUTPUT with --github-output, for the test jobs of CI', () => {
     const some = branch(() => put('src/shared/format.ts', 'export const format = (n: number): string => `[${n}]`\n'))
     expect(output(some)).toBe('earlier=1\nrun=some\nfiles=test/unit/format.test.ts test/unit/menu.test.ts\n')
   })
@@ -624,17 +623,17 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     ...generated.filter((entry) => [...(entry.reads ?? []), ...(entry.scans ?? [])].some((named) => under(path, named))).map((entry) => entry.file),
   ]
 
-  quarantined('affected-tests-repo-hand-rows')('holds only the rows written by hand: the generated ones are never committed', () => {
+  it('holds only the rows written by hand: the generated ones are never committed', () => {
     expect(table).not.toHaveProperty('generated')
     expect(generated.length).toBeGreaterThan(100)
   })
 
-  quarantined('affected-tests-repo-files-exist')('names only files that exist', () => {
+  it('names only files that exist', () => {
     const named = [...table.links.flatMap((entry) => entry.files), ...generated.map((entry) => entry.file)]
     expect(named.filter((file) => !existsSync(join(REPO, file)))).toEqual([])
   })
 
-  quarantined('affected-tests-repo-links')('sends a fixture, a document and a Harness script to the tests that read or start it', () => {
+  it('sends a fixture, a document and a Harness script to the tests that read or start it', () => {
     expect(selected('test/fixtures/agent-scripts/account-error.jsonl')).toEqual(expect.arrayContaining(['test/contract/agent-session.test.ts', 'test/contract/orchestrator.test.ts', 'test/contract/permissions.test.ts']))
     expect(selected('test/fixtures/sdk-messages/README.md')).toContain('test/contract/agent-events.test.ts')
     expect(selected('test/fixtures/claude-home-legacy/README.md')).toContain('test/claude-home-legacy.ts')
@@ -651,7 +650,7 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     expect(selected('scripts/e2e-specs.table.json')).toContain('test/contract/ci-scope-e2e.test.ts')
   })
 
-  quarantined('affected-tests-repo-run-all')('runs the whole suite for the configuration of the run', () => {
+  it('runs the whole suite for the configuration of the run', () => {
     const all = (path: string): boolean => table.all.some((entry) => entry.paths.some((pattern) => posix.matchesGlob(path, pattern)))
     for (const path of ['vitest.config.ts', 'package.json', 'pnpm-lock.yaml', 'tsconfig.node.json', 'test/setup-contract.ts', 'scripts/vitest-electron.mjs']) expect(all(path), path).toBe(true)
     // A pull request that changes how the tests are picked runs them all.
@@ -659,7 +658,7 @@ describe('scripts/affected-tests.table.json of this repository', () => {
   })
 })
 
-// Outside the describe above: its beforeAll parses every test source, and its tests are quarantined on macOS.
+// Outside the describe above: its beforeAll parses every test source, which this test does not need.
 describe('scripts/affected-tests.table.json of this repository, the rows written by hand', () => {
   const links = (JSON.parse(readFileSync(join(REPO, 'scripts', 'affected-tests.table.json'), 'utf8')) as { links: { paths: string[]; files: string[]; scan?: boolean }[] }).links
 

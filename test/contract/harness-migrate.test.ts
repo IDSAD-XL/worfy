@@ -17,7 +17,6 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationStep } from '../../src/shared/ipc/harness-migration'
 import { applyMigration, MIGRATION_STEPS } from '../../src/main/harness/migrate/apply'
-import { quarantined } from '../quarantine'
 import { removeTestTree } from '../remove'
 import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
@@ -477,20 +476,23 @@ describe('the move', () => {
     expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
   })
 
-  quarantined('harness-migrate-toolbar-offer')('the toolbar offer: there before a move, gone after a move with the defaults, there while a Harness file is kept', async () => {
-    const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)
+  // One move per test: the two moves in one test, with a new sandbox between them, ran past 45 s
+  // under the load of a full run on Windows (worfy-polish 41).
+  const offered = (): boolean => hasLegacyHarness(omit(planOptions() as unknown as Record<string, unknown>, 'pluginState') as unknown as Omit<PlanOptions, 'pluginState'>)
+
+  it('the toolbar offer: there before a move, gone after a move with the defaults', async () => {
     expect(offered()).toBe(true)
     const view = plan()
     const sectionDefault = (id: string): MigrationChoice | undefined => view.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice
     expect((await applyMigration(selection(view, sectionDefault), applyOptions())).outcome).toBe('done')
     expect(offered()).toBe(false)
     expect(plan().missing).toEqual(['nothing of the old Harness is left in ~/.claude'])
+  })
 
-    removeTestTree(sandbox.root)
-    makeSandbox()
-    const again = plan()
-    const keepScout = (id: string): MigrationChoice | undefined => (id === fileId('agents/scout.md') ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
-    expect((await applyMigration(selection(again, keepScout), applyOptions())).outcome).toBe('done')
+  it('the toolbar offer: still there after a move that keeps a Harness file', async () => {
+    const view = plan()
+    const keepScout = (id: string): MigrationChoice | undefined => (id === fileId('agents/scout.md') ? 'keep' : (view.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
+    expect((await applyMigration(selection(view, keepScout), applyOptions())).outcome).toBe('done')
     expect(offered()).toBe(true)
   })
 

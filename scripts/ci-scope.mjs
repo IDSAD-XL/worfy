@@ -147,7 +147,7 @@ function isBundledHarness(path) {
 }
 
 /** A path whose change a pull request checks with the e2e tests on macOS. */
-const isAppPath = (path) =>
+export const isAppPath = (path) =>
   isBuildInput(path) || APP_FILES.has(path) || APP_FOLDERS.some((folder) => path.startsWith(folder)) || isBundledHarness(path)
 
 // Which e2e spec files a pull request that changes the app runs (e2eSpecs), on macOS and Windows
