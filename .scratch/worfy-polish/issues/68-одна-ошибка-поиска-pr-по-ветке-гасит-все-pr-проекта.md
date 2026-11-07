@@ -34,12 +34,17 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
 
 - [ ] Test: список прочитан, поиск по одной ветке падает — PR списка отдаются, `gh.available` true, ветка ждёт свой
       интервал, другие ветки ищутся. До правки — красный.
+  - evidence: test-run pass · `pnpm test test/contract/github-prs.test.ts test/contract/workflow-stages.test.ts` exit 0 · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] Test: rate limit на поиске по ветке — данные списка остаются, интервал проекта удвоен от момента ошибки, ни
       списка, ни поиска до его конца.
+  - evidence: test-run pass · `pnpm test test/contract/github-prs.test.ts` exit 0 (rate limit test) · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] Stage пишет узкую строку про ветку, а «gh is unavailable» — только при ошибке списка.
+  - evidence: test-run pass · `pnpm test test/contract/workflow-stages.test.ts` exit 0 · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] Mutant: возврат к старому `this.fail` на поиске по ветке — новый test красный (exit code ≠ 0).
+  - evidence: test-run pass · mutant old this.fail path: `pnpm test test/contract/github-prs.test.ts test/contract/workflow-stages.test.ts` exit 1, 3 tests red · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] Все unit и contract test-ы `src/main/github/` и `src/main/workflow/stages.ts`, `pnpm lint`, `pnpm typecheck`,
       `pnpm test`, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -51,4 +56,20 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
 
 ## Итог
 
-—
+- Ошибка поиска `--head <branch>` больше не ставит ошибку проекта. Ветка хранит в `searched` время попытки, PR
+  последнего ответа, свой интервал и причину ошибки. Интервал ветки удваивается после каждой ошибки подряд
+  (5 → 10 → 20 → 32 мин), успешный ответ возвращает его к 5 мин. Упавшая ветка больше не ищется первой в каждом чтении,
+  поэтому данные не мигают.
+- После ошибки поиск в этом чтении останавливается: при сбое gh целиком это одна лишняя попытка за чтение, а не
+  десять. Сбой gh целиком (сеть, вход) ловит следующий список — тогда, как и раньше, «gh is unavailable» и `pulls: []`.
+- Rate limit раньше отдельно не распознавался: любая ошибка просто удваивала интервал. Теперь причина gh проверяется
+  regex-ом (`rate limit`, `HTTP 429`, `abuse detection`, `submitted too quickly` — так gh пишет первичный и вторичный
+  limit). На поиске по ветке он удваивает интервал проекта от момента ошибки и останавливает и список, и поиски до
+  конца интервала; данные списка при этом остаются. Rate limit на самом списке идёт прежним путём ошибки проекта.
+- Сообщение Stage: «gh is unavailable in <repo>» — только при ошибке списка. Для ветки — узкая строка
+  `gh could not look up the PR of branch <branch> in <repo>: <reason>`: gh отвечает, без PR может остаться только Ticket
+  этой ветки, и строка говорит какой. `GhStatus` (IPC бейджей) не менялся: ошибки веток идут в необязательном поле
+  `branchErrors` ответа tracker-а только для Stage.
+- Два старых test-а, которые закрепляли старое поведение («a failing branch lookup … is «gh unavailable»» и «a branch
+  lookup failing between two lists …»), заменены новыми: про ошибку одной ветки, про rate limit и про ошибку списка.
+- Feature page `docs/features/gate-and-github.md`, абзац «Old and many PRs», описывает новое поведение.
