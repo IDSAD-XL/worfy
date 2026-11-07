@@ -39,12 +39,19 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 ## Готово, когда
 
 - [ ] Contract test: Codex, `serverOverloaded`, затем удачный — `turn-retry`, `resumed`, одно продолжение.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] Contract test: `willRetry: true` — worfy ничего не шлёт, `turn-retry` нет.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] Contract test: квота без сброса — остановка с причиной, ожидания нет.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] Unit test: `responseTooManyFailedAttempts` с `httpStatusCode` 429 → `other`; без кода и с 5xx — как сейчас.
+  - evidence: gate pass · `gate fast` (pnpm test: test/unit/turn-failure.test.ts, test/unit/codex-items.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] Contract test: ход Codex с `collabAgentToolCall` без результата, затем `serverOverloaded` → `retry-refused` `in-flight`.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-auto-continue.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] Новые скрипты проходят проверку схемы `codex-fake.test.ts`.
+  - evidence: gate pass · `gate fast` (pnpm test: test/contract/codex-fake.test.ts, test/contract/codex-compat.test.ts) exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 545f0e6b5eef1f61a4fe3df26709ea805f0cf098
 
 ## Тесты
 
@@ -61,3 +68,63 @@ Source: [spec.md](../spec.md), «Как работает» → «Повтор п
 
 Только читать: `src/main/vendors/codex/session.ts`, `src/main/vendors/codex/limits.ts`,
 `test/fixtures/codex-app-server/fake-app-server.mjs`, `test/contract/codex-orchestrator.test.ts`.
+
+## Итог
+
+Переключатель Auto-continue на Orchestrator-е Codex проверен contract test-ами `test/contract/codex-auto-continue.test.ts`
+на fake app-server (временный `CODEX_HOME`, настоящий `codex` не запускается): Run Autopilot-а и ручной ход, по четыре
+сценария, плюс чтение окон перед продолжением ручного хода.
+
+- **Сначала падающий.** `serverOverloaded` и квота Run-а прошли сразу: классификатор worfy-retry 03 уже знал
+  `serverOverloaded`, а Run worfy-retry 04/05 — Codex. Красными до правки `src/` были: `collabAgentToolCall` без
+  результата (Run — `timed out waiting for run 1 to stop`, ручной ход — другая строка вместо «not retried»), unit test-ы 429 и
+  `httpStatusCode`, и чтение окон ручного хода (`timed out waiting for the second wait`).
+- **`httpStatusCode` в `terminalReason`** (`items.ts`, `errorKind`): ключ `codexErrorInfo` и `:<код>`, когда Codex его
+  дал (`responseTooManyFailedAttempts:429`, `httpConnectionFailed:503`); без кода — один ключ, как раньше.
+  `turnFailureKind` читает ключ и код: 429 — `other` при любом ключе, остальные коды — по ключу, как сейчас.
+- **`collabAgentToolCall` → `tool_use`/`tool_result`** с именем `collabAgentToolCall` (вход: `tool`,
+  `receiverThreadIds`, `prompt`; результат — состояния агентов, ошибка при статусе не `completed`). Для
+  `continue-plan.ts` это внешнее действие (не из `LOCAL_TOOLS`); строка ручного хода:
+  ``worfy: not retried: `collabAgentToolCall` may or may not have run``. История Codex (`history.ts`) не меняется: там
+  такие элементы раньше идут в `subagentEvents`.
+- **`willRetry: true`** — строка «It tries again», хода не кончает: Run без `turn-retry`, ручной ход без таймера и строк.
+- **Квота без сброса**: Run — `limits-hit` `reason: quota` и `run-stopped` `vendor-quota`, без `waiting-until`; ручной
+  ход — `worfy: not continued: the Limits refused the turn by a quota, and nothing resets`, без ожидания.
+- **Пробел worfy-retry 06 закрыт (решение владельца, передано Orchestrator-ом 2026-11-07).** Модуль ручного хода
+  перед продолжением после ожидания Limits на Codex читает окна заново тем же путём, что Run: общий
+  `LimitsWait.stillRefused` (`src/main/autopilot/limits-wait.ts`), `run.ts stillRefused` теперь зовёт его. В
+  `app-orchestrators.ts` модулю даны `windows` (`appLimits().windowsOf`) и `usage` (`refreshAppUsage`, бесплатный
+  `account/rateLimits/read`). Окно всё ещё исчерпано — ничего не уходит, новое ожидание до нового сброса и строка
+  `worfy: waiting for the Limits, resumes HH:MM`; окно открыто — одно продолжение. На Claude Code путь прежний и
+  синхронный: окна не читаются. `shortcut:` про это в `orchestrator-continue.ts` убран.
+- Новые скрипты: `auto-continue-server-overloaded`, `-will-retry`, `-quota`, `-collab-in-flight`, `-limits-window`,
+  `-limits-poll-used-up`; все проходят схему `codex-fake.test.ts` и формы записей `codex-compat.test.ts`.
+
+- **Раунд ревью 1 (mutation testing).** Добавлены test-ы на чтение окон перед продолжением ручного хода, каждый
+  проверен своим мутантом. Чтение окон держится, пока test его не отпустит; за это время человек пишет, выключают
+  Auto-continue, открывают New conversation или приложение выходит. После этого чтение отвечает «окно открыто», и
+  ничего не уходит (`test/contract/codex-auto-continue.test.ts`, мутант без `isCurrent` после чтения). Чтение
+  падает: решают известные окна, unhandled rejection нет; для ручного хода и для Run-а
+  (`codex-auto-continue.test.ts`, `codex-orchestrator.test.ts`, мутант, где `stillRefused` пробрасывает ошибку).
+  Проводка `windows` и `usage` в `sharedOrchestratorContinue` проверена (`test/contract/app-orchestrators-continue.test.ts`).
+  `LimitsWait.stillRefused` с `cutShort` проверен unit test-ом (`test/unit/limits-wait-still-refused.test.ts`).
+  Код не менялся: ни один новый test дефекта не показал.
+
+Решено без владельца:
+
+- 429 — `other` при любом ключе `codexErrorInfo`, не только у `responseTooManyFailedAttempts`: так шапка
+  `turn-failure.ts` («429 и любой rate limit — `other`») и Q4 (а). Сейчас 429 у других ключей Codex не встречался.
+- Имя `tool_use` — `collabAgentToolCall`, не `Agent`: `Agent` читают дерево Subagent-ов и Flight Recorder как вызов
+  Claude Code (`AGENT_TOOLS`), это поменяло бы их поведение на Codex. Цена — строка называет вызов
+  `collabAgentToolCall`, а не `Agent (spawnAgent)`.
+- Любой вызов `collabAgentToolCall` (и `wait`, и `listAgents`) — внешний: безопасная сторона, как у `Agent`.
+- Строка ручного хода для `serverOverloaded` — `API error 529` (`ERROR_WORDS` модуля 06 по виду `overloaded`), не
+  «server overloaded».
+- `faultRun` получил необязательный `publish` (`test/contract/autopilot-faults-setup.ts`): Session Codex меняет id на
+  id thread-а (`renamed`), и модулю ручного хода нужен новый view, как в приложении.
+
+Вне следа тикета изменены (с разрешения Orchestrator-а для пробела 06 и по правилу страниц функций):
+`src/main/agent/orchestrator-continue.ts`, `src/main/agent/app-orchestrators.ts`, `src/main/autopilot/limits-wait.ts`,
+`src/main/autopilot/run.ts`, `test/unit/codex-items.test.ts`, `test/contract/autopilot-faults-setup.ts`,
+`docs/features/sessions.md`, `docs/features/autopilot-faults.md` (страница Autopilot разделена в #1564; абзац о Codex и
+строка test-а легли в раздел «Retry after an API error» и таблицу test-ов новой страницы).

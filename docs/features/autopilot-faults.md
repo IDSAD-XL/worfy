@@ -46,6 +46,11 @@ outside: a script (`node <file>`, every Harness script) reads as local to worfy 
 done, so it always asks the model to check what every command of that turn did before it repeats one. The Wave's command
 and the original message never go again. A turn that ends without an error resets the count.
 
+On a Codex Orchestrator the kind comes from Codex's own error kind: `serverOverloaded` waits as a 529 does; Codex's
+`responseTooManyFailedAttempts` with HTTP status 429 is not temporary (Codex already spent its retries on a rate limit).
+An error Codex retries by itself is left to Codex: no `turn-retry`, nothing sent. A Codex Subagent call
+(`collabAgentToolCall`) without its result refuses the retry with `in-flight`, as an `Agent` call does.
+
 The run does not retry, and stops with `turn-error` as before, after an error that is not temporary (`not-transient`),
 when an action of the turn that reaches outside has no result (`in-flight`: a push or a merge may or may not have run),
 and after the fifth retry in a row (`cap`; the message says "gave up after 5 retries"). The journal has `retry-refused`
@@ -198,6 +203,7 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait; the countdown's Retry now (one continuation, also after a double click and the timer) and Cancel (`turn-error`, `limits-timeout`, nothing sent; a Cancel queued behind the continuation finds nothing and the run goes on). |
+| `test/contract/codex-auto-continue.test.ts` | Auto-continue on a Codex Orchestrator on the fake app-server, in a run and in a manual turn: `serverOverloaded` and one continuation, an error Codex retries by itself, `vendor-quota`, a Subagent call without its result (`in-flight`), and the windows read again at the reset of a manual Limits wait. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |

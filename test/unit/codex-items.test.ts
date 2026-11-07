@@ -190,9 +190,15 @@ describe('the events of a turn: what the scripts do not play', () => {
     ])
   })
 
-  it('names an error of a kind with fields by its key, and a failed turn of no kind "failed"', () => {
+  it('names an error of a kind with fields by its key and its HTTP status (worfy-retry ticket 08), and a failed turn of no kind "failed"', () => {
     const error = { message: 'No connection.', codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 503 } }, additionalDetails: '  ' }
-    expect(play([turnCompleted({ status: 'failed', error })])[0]?.[1]).toEqual([result({ subtype: 'error', isError: true, error: 'No connection.', durationMs: 0, terminalReason: 'httpConnectionFailed' })])
+    expect(play([turnCompleted({ status: 'failed', error })])[0]?.[1]).toEqual([result({ subtype: 'error', isError: true, error: 'No connection.', durationMs: 0, terminalReason: 'httpConnectionFailed:503' })])
+    const reasonOf = (codexErrorInfo: unknown): unknown => (play([turnCompleted({ status: 'failed', error: { message: 'x', codexErrorInfo } })])[0]?.[1][0] as { terminalReason?: unknown }).terminalReason
+    expect(reasonOf({ responseTooManyFailedAttempts: { httpStatusCode: 429 } })).toBe('responseTooManyFailedAttempts:429')
+    expect(reasonOf({ responseStreamDisconnected: { httpStatusCode: null } })).toBe('responseStreamDisconnected')
+    expect(reasonOf({ responseStreamConnectionFailed: {} })).toBe('responseStreamConnectionFailed')
+    expect(reasonOf({ activeTurnNotSteerable: { turnKind: 'review' } })).toBe('activeTurnNotSteerable')
+    expect(reasonOf('serverOverloaded')).toBe('serverOverloaded')
     const detailsOnly = { message: ' ', codexErrorInfo: {}, additionalDetails: 'Only details.' }
     expect(play([turnCompleted({ status: 'failed', error: detailsOnly, durationMs: 12 })])[0]?.[1]).toEqual([result({ subtype: 'error', isError: true, error: 'Only details.', durationMs: 12, terminalReason: 'failed' })])
   })
@@ -273,6 +279,15 @@ describe('the pieces of the translation', () => {
     expect(toolResult({ ...call, result: null } as ThreadItem)?.content).toBe('')
     expect(toolResult({ ...call, result: { content: [null] } } as unknown as ThreadItem)?.content).toBe('[null]')
     expect(toolResult({ ...call, error: { message: 'gone' } } as ThreadItem)).toMatchObject({ content: 'gone', isError: true })
+  })
+
+  it('a Subagent call (collabAgentToolCall) is a tool_use when it starts and a tool_result when it completes (worfy-retry ticket 08)', () => {
+    const call = { type: 'collabAgentToolCall', id: 'call_1', tool: 'spawnAgent', status: 'inProgress', senderThreadId: 'thr_1', receiverThreadIds: ['thr_2'], prompt: 'Implement Ticket 01.', model: null, reasoningEffort: null, agentsStates: {} } as unknown as ThreadItem
+    expect(toolUse(call)).toEqual({ type: 'tool_use', id: 'call_1', name: 'collabAgentToolCall', input: { tool: 'spawnAgent', receiverThreadIds: ['thr_2'], prompt: 'Implement Ticket 01.' }, parentToolUseId: null })
+    const done = { ...call, status: 'completed', agentsStates: { thr_2: { status: 'running', message: null } } } as unknown as ThreadItem
+    expect(toolResult(done)).toEqual({ type: 'tool_result', toolUseId: 'call_1', content: 'thr_2: running', isError: false, parentToolUseId: null })
+    const failed = { ...call, status: 'failed', agentsStates: { thr_2: { status: 'errored', message: 'No slot for a new agent.' } } } as unknown as ThreadItem
+    expect(toolResult(failed)).toMatchObject({ content: 'thr_2: errored — No slot for a new agent.', isError: true })
   })
 
   it('a file change without changes has an empty result; only tools have a tool_use and a tool_result', () => {

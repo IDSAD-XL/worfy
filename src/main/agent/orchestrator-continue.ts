@@ -30,9 +30,9 @@
 // observers first, the window's sink after them). A notice lives in the live Session's events only: worfy
 // writes nothing into Claude Code's transcript (ADR-0005), so after a restart of the app the lines are gone.
 //
-// shortcut: on Codex the windows are not read again before a continuation after the Limits (the run does
-// it, run.ts stillRefused); a continuation still refused waits again; redo when the owner asks for the
-// free read before each try (spec Q7 (a)).
+// On a Vendor other than Claude (Codex) the windows are read anew before a continuation after the Limits,
+// as a run reads them (LimitsWait.stillRefused, spec Q7 (a); worfy-retry ticket 08): the free read of
+// account/rateLimits/read, no model tokens. A window still used up waits again, and nothing goes out.
 //
 // The wait of each Project (wait()) is what the countdown in the Orchestrator's chat shows (ticket 07);
 // observeWaits() tells of each change, and its buttons are retryNow() (the continuation at once, as at the
@@ -42,12 +42,13 @@
 // time (the wall-clock timer); redo when the owner wants a manual Limits wait to keep the Mac awake.
 import { MAX_RETRIES } from '../../shared/agent/continue-plan'
 import type { AgentEvent } from '../../shared/agent/events'
-import type { LimitsState } from '../../shared/agent/limits'
+import type { LimitsState, LimitWindow } from '../../shared/agent/limits'
 import { turnFailureKind, type TransientError } from '../../shared/agent/turn-failure'
+import { listsWindows } from '../../shared/autopilot/budget-window'
 import type { LimitsHit } from '../../shared/autopilot/resume-at'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import { UNNAMED_VENDOR, type VendorId } from '../../shared/vendors/vendor'
-import { LimitsWait } from '../autopilot/limits-wait'
+import { LimitsWait, type VendorUsage } from '../autopilot/limits-wait'
 import { TurnRetry } from '../autopilot/turn-retry'
 import { observeSessionLimits } from './limits'
 import type { EventSink, Session } from './session'
@@ -63,6 +64,10 @@ export interface OrchestratorContinueDeps {
   observeSettings?(listener: () => void): () => void
   /** The Limits state of limits.json (LimitsTracker.snapshot). */
   limits(): LimitsState
+  /** The windows of a Vendor other than Claude as last read (LimitsTracker.windowsOf); null when unknown. */
+  windows?(vendor: string): readonly LimitWindow[] | null
+  /** Reads the Limits anew before a continuation after the Limits (refreshAppUsage); without it the windows known decide. */
+  usage?: VendorUsage
   /** The clock, in milliseconds; tests pass a fixed one. */
   now?(): number
   /** Calls `fire` once at the wall time `at`; answers the cancel (default wallTimer). */
@@ -214,6 +219,7 @@ export class OrchestratorContinue {
       state: () => this.deps.limits(),
       observeSession: (isSession, listener) => observeSessionLimits((sink) => this.deps.observe(sink), isSession, listener),
       send,
+      ...(this.deps.windows === undefined ? {} : { windows: this.deps.windows }),
       ...timing,
     })
     const entry: Entry = { projectId, sessionId, vendor, retry, limits, unwatch: () => undefined, inTurn: false }
@@ -348,8 +354,23 @@ export class OrchestratorContinue {
 
   private limitsFired(entry: Entry, id: number): void {
     if (!entry.limits.isCurrent(id)) return
+    // Claude reads nothing: the continuation goes at once, as before worfy-retry ticket 08.
+    if (!listsWindows(entry.vendor)) return this.limitsResume(entry, null)
+    if (this.ready(entry) === null) return
+    // A person, the switch, a run or the quit may end the wait while the windows are read.
+    void entry.limits.stillRefused(entry.vendor, this.deps.usage).then((again) => {
+      if (entry.limits.isCurrent(id)) this.limitsResume(entry, again)
+    })
+  }
+
+  /** The Limits wait is over: `again` (a window the fresh read still finds used up) waits once more, else the continuation goes. */
+  private limitsResume(entry: Entry, again: LimitsHit | null): void {
     const session = this.ready(entry)
     if (session === null) return
+    if (again !== null) {
+      this.limitsHit(entry, again)
+      return
+    }
     const text = entry.limits.resume()
     if (this.send(entry, session, text)) this.notice(entry, 'worfy: sent "continue" after the Limits wait')
   }

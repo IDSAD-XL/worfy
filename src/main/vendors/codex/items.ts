@@ -6,11 +6,14 @@
 // - `item/agentMessage/delta` → `delta` (text); `item/reasoning/summaryTextDelta` → `delta` (thinking);
 // - a completed `agentMessage` → `text`, and so a completed `exitedReviewMode` (the review of `/review`,
 //   ticket 22): each is the turn's answer; a completed `reasoning` with a summary → `thinking`;
-// - `commandExecution`, `fileChange`, `mcpToolCall` → `tool_use` when they start and `tool_result` when
-//   they complete (a tool that completes without having started gets both then);
+// - `commandExecution`, `fileChange`, `mcpToolCall` and `collabAgentToolCall` (a call about the turn's
+//   Subagents: spawn, wait, send…; worfy-retry ticket 08) → `tool_use` when they start and `tool_result`
+//   when they complete (a tool that completes without having started gets both then);
 // - `turn/started` → `init` (the thread's id as the Vendor's session id); `turn/completed` → `result`,
 //   an interrupted or failed turn with its text; `error` → a `result` with the error, after which the
-//   `turn/completed` of the same turn gives nothing more; an `error` Codex retries by itself → `notice`;
+//   `turn/completed` of the same turn gives nothing more; an `error` Codex retries by itself → `notice`.
+//   The `result`'s `terminalReason` is the error's `codexErrorInfo` key, with its HTTP status when Codex
+//   gives one (`responseTooManyFailedAttempts:429`): turnFailureKind reads both (worfy-retry ticket 08);
 // - `thread/tokenUsage/updated` → `context`;
 // - a notification or an item of a kind worfy does not know → `unknown`, named by its method or
 //   `item/<type>`. Those that only repeat what the events above already say give nothing.
@@ -70,11 +73,19 @@ const textOf = (error: TurnError | null | undefined): string | null => {
   return details === null ? message : `${message}\n${details}`
 }
 
-/** The kind of a Codex error, as a `result` names its end: `usageLimitExceeded`, `httpConnectionFailed`, … */
+/**
+ * The kind of a Codex error, as a `result` names its end: `usageLimitExceeded`, `httpConnectionFailed:503`, …
+ * — the `codexErrorInfo` key, and `:<status>` when its fields carry an `httpStatusCode`.
+ */
 const errorKind = (error: TurnError | null | undefined): string | null => {
   const info = error?.codexErrorInfo
   if (typeof info === 'string') return info
-  return info !== null && typeof info === 'object' ? (Object.keys(info)[0] ?? null) : null
+  if (info === null || typeof info !== 'object') return null
+  const key = Object.keys(info)[0]
+  if (key === undefined) return null
+  const fields = (info as Record<string, unknown>)[key]
+  const status = fields !== null && typeof fields === 'object' ? (fields as { httpStatusCode?: unknown }).httpStatusCode : undefined
+  return Number.isInteger(status) ? `${key}:${String(status)}` : key
 }
 
 /** How full the context window is after the turn's latest request; null when Codex did not give the window. */
@@ -106,6 +117,10 @@ export function toolUse(item: ThreadItem): Extract<AgentEvent, { type: 'tool_use
       return { type: 'tool_use', id: item.id, name: 'fileChange', input: { changes: item.changes }, parentToolUseId: null }
     case 'mcpToolCall':
       return { type: 'tool_use', id: item.id, name: `mcp__${item.server}__${item.tool}`, input: item.arguments, parentToolUseId: null }
+    case 'collabAgentToolCall':
+      // Not `Agent`: that name is Claude Code's, and the Subagent tree and the Flight Recorder read it as
+      // Claude's. Any name outside continue-plan.ts LOCAL_TOOLS is an external action there.
+      return { type: 'tool_use', id: item.id, name: 'collabAgentToolCall', input: { tool: item.tool, receiverThreadIds: item.receiverThreadIds, prompt: item.prompt }, parentToolUseId: null }
     default:
       return null
   }
@@ -136,6 +151,16 @@ export function toolResult(item: ThreadItem): Extract<AgentEvent, { type: 'tool_
         toolUseId: item.id,
         content: mcpContent(item),
         isError: item.status !== 'completed' || (item.error !== null && item.error !== undefined),
+        parentToolUseId: null,
+      }
+    case 'collabAgentToolCall':
+      return {
+        type: 'tool_result',
+        toolUseId: item.id,
+        content: Object.entries(item.agentsStates)
+          .map(([agent, state]) => `${agent}: ${state?.status ?? 'unknown'}${state?.message ? ` — ${state.message}` : ''}`)
+          .join('\n'),
+        isError: item.status !== 'completed',
         parentToolUseId: null,
       }
     default:

@@ -196,8 +196,13 @@ answers.
   calls and its own Limits status, a turn a background task's notification starts too. A refusal by the Limits waits
   for the reset of the window the Vendor reported, plus 2 minutes, however far away; without a reset time it tries
   again every 30 minutes, for 24 hours at most. Then it sends the continuation a run sends after the Limits. On Codex
-  the windows are not read again before that continuation, as a run does: one still refused waits again. A turn the
-  person interrupted is never continued.
+  the windows are read again first, as a run reads them (free, no model tokens): while one is still used up, nothing
+  goes, and the wait goes on until that window's new reset. A turn the person interrupted is never continued.
+- On a Codex Orchestrator the kind of the error is Codex's own: `serverOverloaded`, `internalServerError`, a connection
+  or a response stream that failed, and `responseTooManyFailedAttempts` are temporary; the same with HTTP status 429
+  is not (Codex already spent its own retries on a rate limit). An error Codex retries by itself (its line ends with
+  "It tries again") is left to Codex: worfy waits for nothing and sends nothing. A Subagent call of Codex
+  (`collabAgentToolCall`) counts as a call that reaches outside: without its result the turn is not retried.
 - Each step is a line of worfy's own in the transcript, below the row it tells of; the model does not get it:
   `worfy: API error 529, retry 2 of 5 at 14:20`, `worfy: sent "continue" (retry 2 of 5)`, ``worfy: not retried: `git
   push origin main` may or may not have run``, `worfy: not retried: gave up after 5 retries`, `worfy: waiting for the
@@ -346,6 +351,9 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   window's label, Retry now and Cancel to whoever waits, read-only access; `test/unit/continue-countdown.test.tsx`: the
   three kinds of line and the format of the countdown; `test/e2e/auto-continue.spec.ts`: the line after a 529, Retry now
   and Cancel in the built app.
+- `test/contract/codex-auto-continue.test.ts`: Auto-continue on a Codex Orchestrator on the fake app-server, in a run
+  and in a manual turn — `serverOverloaded` and one continuation, an error Codex retries by itself, a quota, a Subagent
+  call without its result, and the windows read again at the reset (still used up, then open).
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake

@@ -743,6 +743,27 @@ describe('the Limits of a Run on Codex and the gate queue\'s turn (worfy-multi-v
     })
   })
 
+  it('after the wait the read of Codex\'s windows fails: the windows known decide (still used up — the run waits again), the run does not break, and nothing goes to the Session (worfy-retry ticket 08)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const h = harness({ vendor: () => 'codex', scripts: ['turn', 'usage-limit-window', 'resume'], hooksApproved: true, limitsClock: CLOCK, fires: 1, readFails: true })
+      await h.autopilot.start(PROJECT, EPIC)
+      await until(async () => (await h.journal()).filter((event) => event.kind === 'waiting-until').length === 2, 'the second wait')
+      // The Wave's line reads the windows too (none known yet); the read after the wait is the one that warns.
+      expect(h.reads()).toBeGreaterThanOrEqual(1)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read the Limits of codex after the wait'), expect.any(Error))
+      const prompts = h.observed.filter((event) => event.type === 'prompt').length
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      const kinds = (await h.journal()).map((event) => event.kind)
+      const from = kinds.indexOf('limits-hit')
+      expect(kinds.slice(from)).toEqual(['limits-hit', 'waiting-until', 'waiting-until'])
+      expect(h.autopilot.state(PROJECT)).toMatchObject({ status: 'waiting', resumesAt: 1_793_003_600_000 + RESUME_MARGIN_MS, reason: null })
+      expect(h.observed.filter((event) => event.type === 'prompt').length).toBe(prompts)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('the budget of a Run on Codex reads Codex\'s windows: the 5-hour window used up holds Wave 1 until its reset; the forecast\'s week is the weekly window', async () => {
     const h = harness({
       vendor: () => 'codex',

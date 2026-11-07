@@ -206,7 +206,7 @@ import { epicForecast, remainingWaves, type RemainingWaves } from '../../shared/
 import { fitBeforeReset } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveEstimate, waveGrowth, waveSamples, type WaveLine } from '../../shared/autopilot/limits-estimate'
-import { stillUsedUp, toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
+import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import { DEFAULT_START_WINDOW, unknownDurationText, windowDecision, windowNeverFitsText, windowWaitText, type RunMode, type WindowWait, type WindowWaitReason } from '../../shared/autopilot/run-mode'
 import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import {
@@ -2677,23 +2677,12 @@ export class Autopilot {
   }
 
   /**
-   * After a wait on a Vendor other than Claude: its windows read anew (deps.usage.refresh with the
-   * Vendor and age 0, a poll whatever is known), then judged as known. A window still used up with its
-   * reset ahead gives the time to wait until once more; null goes on — no window used up, or a read
-   * that failed and left windows whose resets have passed (the turn then shows whether it is refused).
-   * A Force stop or the quit does not wait for the read (Run.rush): the caller then sees `rushed` and
+   * After a wait on a Vendor other than Claude: its windows read anew with deps.usage and judged
+   * (LimitsWait.stillRefused, which Auto-continue of a manual turn shares). A Force stop or the quit does not wait for the read (Run.rush): the caller then sees `rushed` and
    * sends nothing, whatever this answers.
    */
-  private async stillRefused(run: Run, wait: LimitsWait): Promise<LimitsHit | null> {
-    if (!listsWindows(run.vendor)) return null
-    if (this.deps.usage !== undefined && !run.rushed) {
-      try {
-        await Promise.race([this.deps.usage.refresh(0, run.vendor), run.rushing])
-      } catch (error) {
-        console.warn(`[autopilot] ${run.projectId}: could not read the Limits of ${run.vendor} after the wait; the windows known decide`, error)
-      }
-    }
-    return stillUsedUp(wait.windowsOf(run.vendor), wait.clock())
+  private stillRefused(run: Run, wait: LimitsWait): Promise<LimitsHit | null> {
+    return wait.stillRefused(run.vendor, run.rushed ? undefined : this.deps.usage, run.rushing)
   }
 
   /**
