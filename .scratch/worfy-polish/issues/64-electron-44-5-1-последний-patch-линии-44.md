@@ -1,7 +1,8 @@
 # 64 — Electron 44.5.1 → последний patch линии 44
 
 Type: task
-Status: open
+Status: done 2026-11-07T21:43Z
+PR: #1592
 Blocked by: —
 Source: решение владельца 2026-11-07, оценка идей PR #1580 (идеи 9 и 10). Строки перечитаны по main `14d18997e`.
 
@@ -35,13 +36,18 @@ macOS и Windows — PR ждёт Windows verdict.
 
 - [ ] В «Итог» — список по каждой пропущенной версии 44.x: исправления безопасности и breaking changes.
   - evidence: commit pass · docs: polish 64 result — release notes of Electron 44.6.0 to 44.10.2 · - - · a69fcc374
+  - evidence: review pass · PR #1592 · - - · 304d4cf44cd32e6dc9f4aeb389340221ec2e1ffa
 - [ ] `package.json` и `pnpm-lock.yaml` — на последнем patch-е линии 44; номер записан в «Итог».
   - evidence: commit pass · Raise Electron from 44.5.1 to 44.10.2, the last patch of line 44 · - - · f7207d233
+  - evidence: review pass · PR #1592 · - - · 304d4cf44cd32e6dc9f4aeb389340221ec2e1ffa
 - [ ] `node scripts/check-fuses.mjs` на собранном приложении — exit 0.
   - evidence: test-run pass · `pnpm test:package` exit 0 (ends with node scripts/check-fuses.mjs) · mac - · f7207d233
+  - evidence: review pass · PR #1592 · - - · 304d4cf44cd32e6dc9f4aeb389340221ec2e1ffa
 - [ ] `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:e2e`, `pnpm test:package` на Mac — exit 0; `ci-ok` на PR
       зелёный.
+  - evidence: review pass · PR #1592 · - - · 304d4cf44cd32e6dc9f4aeb389340221ec2e1ffa
 - [ ] Windows verdict получен до merge.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42413393759/job/128537602916 · ci - · 304d4cf44cd32e6dc9f4aeb389340221ec2e1ffa
 
 ## Где в коде
 
