@@ -24,7 +24,7 @@ Autopilot), и Epic forecast для того, что осталось от Epic-
 Клик по кнопке run не запускает: он открывает окно **Start Autopilot** внутри worfy
 (`src/renderer/autopilot/StartAutopilotModal.tsx`). Окно показывает Project, Epic, его Ticket-ы и сколько Wave осталось,
 Vendor и Session Orchestrator-а, прогноз против бюджета, Limits сейчас и Modes (Eco mode, Auto-approval, Auto-continue)
-со ссылкой «change in Modes» на меню Modes Orchestrator-а. Эти факты main читает по каналу `autopilot.prepare`, из тех же
+со ссылкой «change in Modes» на меню Modes Orchestrator-а ([Orchestrator modes](orchestrator-modes.md)). Эти факты main читает по каналу `autopilot.prepare`, из тех же
 источников и с теми же строками прогноза, что и диалог `autopilot_start`. Ниже человек выбирает Run mode: Fastest,
 Budget-aware или Start window; режим по умолчанию из Settings → Autopilot помечен «(default)» и выбран. Фокус стоит на
 **Cancel**, Esc — это Cancel, ⌘↩ (Ctrl+Enter на Windows) — главная кнопка. Главная кнопка — **Start Autopilot**, а пока

@@ -23,7 +23,7 @@ lines.
 A click on the button does not start the run: it opens the **Start Autopilot** window inside worfy
 (`src/renderer/autopilot/StartAutopilotModal.tsx`). The window shows the Project, the Epic, its Tickets and Waves left,
 the Vendor and Session of the Orchestrator, the forecast against the budget, the Limits now, and the Modes (Eco mode,
-Auto-approval, Auto-continue) with a "change in Modes" link to the Orchestrator's Modes menu. Main reads these facts on
+Auto-approval, Auto-continue) with a "change in Modes" link to the Orchestrator's Modes menu ([Orchestrator modes](orchestrator-modes.md)). Main reads these facts on
 the channel `autopilot.prepare`, from the same sources and with the same forecast lines as the `autopilot_start` dialog.
 Below them the person picks the Run mode: Fastest, Budget-aware or Start window, the default of Settings → Autopilot
 marked "(default)" and chosen. The focus is on **Cancel**, Esc is Cancel, ⌘↩ (Ctrl+Enter on Windows) is the main

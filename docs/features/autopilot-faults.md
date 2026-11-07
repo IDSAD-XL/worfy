@@ -36,7 +36,7 @@ pause to HANDOFF. worfy does not write that entry itself.
 
 #### Retry after an API error
 
-With Auto-continue on for the Project (the Modes menu of the Orchestrator, see [Sessions](sessions.md)), a turn that ends
+With Auto-continue on for the Project (the Modes menu of the Orchestrator, see [Orchestrator modes](orchestrator-modes.md)), a turn that ends
 with a temporary API error does not end the run. Temporary are a 500, 502, 503 or 504, a 529 (overloaded), a connection that dropped or
 could not be made, a timeout and a broken response stream; a refusal by the Limits is not one, it waits as above. The run
 waits 1, 5, 15, 30, then 60 minutes, each spread by up to 20 % either way, by the wall clock. Then the Orchestrator gets one
@@ -65,7 +65,7 @@ wait is read when the time comes: the wait is dropped and the run stops with `tu
 with an API error stops the run with `turn-error`, as before.
 
 The Orchestrator's chat shows the wait as a line over its input field that counts down by the second
-([Sessions](sessions.md)): `API error 529 (overloaded) · retry 2 of 5 in 4:12` with **Retry now** and **Cancel**, and for a
+([Orchestrator modes](orchestrator-modes.md#the-countdown)): `API error 529 (overloaded) · retry 2 of 5 in 4:12` with **Retry now** and **Cancel**, and for a
 Limits wait `Limits: 7-day window · resumes 14:20 (in 2:13:05)` or `Limits: no reset time reported · next try in 27:40`
 with **Cancel** only. Retry now sends the continuation of the same retry at once, in the run's order, as its timer would
 (`resumed` in the journal); the timer and a second click send nothing more. Cancel ends the wait with nothing sent, and the
@@ -200,12 +200,16 @@ agent, which plays the scripts in `test/fixtures/agent-scripts/`.
 | Test | Covers |
 |---|---|
 | `test/unit/autopilot-resume-at.test.ts` | When a run continues after a refusal. |
+| `test/unit/turn-failure.test.ts` | Which failed turn is a temporary API error: the error texts of Claude Code, the Codex error kinds with and without the HTTP status (429 is not temporary), an interrupted turn. |
+| `test/unit/continue-plan.test.ts` | The plan of a retry: the pauses and the cap, the order of the refusals (`not-transient`, then `in-flight`, then `cap`), which calls of a turn reach outside, and the continuation text, which never carries the original message or the model's own words. |
+| `test/unit/limits-wait-still-refused.test.ts` | The windows read again before a continuation after the Limits on Codex: one still used up waits again, a read that fails leaves the known windows to decide, Force stop and the quit do not wait for the read. |
 | `test/contract/autopilot-limits.test.ts` | The wait for the Limits and the budget, with a clock the test moves. |
 | `test/contract/autopilot-limits-switch.test.ts` | The wait for the Limits with Auto-continue off and on: the 7-day window without the 5-hour one, a reset in 3 days with keep-awake released and taken again, no reset time, the switch turned off during the wait. |
 | `test/contract/autopilot-retry.test.ts` | The retry after an API error with Auto-continue off and on: a 500 and one continuation, 529 until `cap` with the pauses of the plan, a 400, a push without its result and the secrets of its command, the Limits (also during the wait), a background task's turn, Stop (also a second one while stopping), Force stop, the quit and the switch turned off during the wait; the countdown's Retry now (one continuation, also after a double click and the timer) and Cancel (`turn-error`, `limits-timeout`, nothing sent; a Cancel queued behind the continuation finds nothing and the run goes on). |
 | `test/contract/codex-auto-continue.test.ts` | Auto-continue on a Codex Orchestrator on the fake app-server, in a run and in a manual turn: `serverOverloaded` and one continuation, an error Codex retries by itself, `vendor-quota`, a Subagent call without its result (`in-flight`), and the windows read again at the reset of a manual Limits wait. |
 | `test/unit/autopilot-invariants.test.ts` | The recovery rules over the journals of `test/fixtures/autopilot-faults/`: a good run breaks none, and each rule catches a broken copy made for it. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenarios of the model API: an API 500, a 529 in the middle of a streamed answer (not taken for the Limits) and a dropped connection stop the run with `turn-error`, and a new start sends its Wave command once; Limits that refuse the turn of Wave 2 make the run wait and resume after the reset with one continuation, and Wave 1 does not go again. |
+| `test/contract/autopilot-faults-retry.test.ts` | The same Fault scenarios of the model API with Auto-continue on: an API 500, a 529 in the middle of a streamed answer and a dropped connection give `turn-retry`, one continuation and `resumed`, and the run goes on; five 529 in a row end with `retry-refused` `cap`, and a `git push` without its result with `retry-refused` `in-flight`, both then `turn-error`; Limits that refuse the turn of Wave 2 by the 7-day window, with no 5-hour one, make the run wait for that reset. The rules I1–I8 below hold in each. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenarios of the processes: Claude Code of the Orchestrator dies while both implementers work (`session-error`, and a new start goes to a new Session, its first Wave naming the Ticket still `claimed` by the dead implementer along with the ready one); an implementer fails and its Ticket stays `claimed` (`wave-unfinished`) or goes back to `open` (the next Wave holds only that Ticket). |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenarios on the GitHub side: the gh stub's `hang` mode; gh hangs for the whole run (the Waves go on, and the stop waits no longer than the limit of the last read); gh answers 502 (the next read comes after the doubled interval); a merge conflict (the run stops with `blocked-tickets`, and a new run does not take the blocked Ticket). |
 | `test/contract/autopilot-faults-codex.test.ts` | Fault scenarios on a Codex Orchestrator: a failed turn stops the run with `turn-error`; an app-server that exits in the middle of a Wave gives `session-error`, and a new run starts in a new Session. |

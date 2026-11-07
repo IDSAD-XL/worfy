@@ -13,7 +13,7 @@ policy, запрос, который ждёт владельца в park, и г�
 #### Mode и approval policy
 
 Auto-approval решает, что worfy отвечает, когда агент run-а просит разрешения. Он задаётся для Project-а на Machine
-Project-а, в меню Modes Orchestrator-а ([Sessions](sessions.md)), и стоит в Off, пока его не задали. Mode хранится в
+Project-а, в меню Modes Orchestrator-а ([Orchestrator modes](orchestrator-modes.md)), и стоит в Off, пока его не задали. Mode хранится в
 собственном `app-settings.json` worfy, а не в Profile, который агент мог бы поменять сам. Пока worfy запущен с debugging
 port или открытым Node inspector, действует Off, что бы ни было сохранено. Run читает mode при каждом запросе.
 
@@ -141,7 +141,7 @@ Policy видит только те запросы, которые агент з
 
 #### Модули
 
-Модули пункта Auto-approval в меню Modes перечислены на странице [Sessions](sessions.md#implementation), модули
+Модули пункта Auto-approval в меню Modes перечислены на странице [Orchestrator modes](orchestrator-modes.md#модули), модули
 счётчиков решений run-а — на странице [Flight Recorder](flight-recorder.md#модули).
 
 #### Test-ы

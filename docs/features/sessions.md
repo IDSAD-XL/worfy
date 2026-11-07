@@ -161,72 +161,10 @@ answers.
   Node keeps the old Session until the new one has started: when that start fails, a change back to the old Vendor
   resumes the old Session. A Codex Orchestrator shows its model and status block from its first answer after a start,
   not from its transcript.
-- The Orchestrator modes sit in one button under the Orchestrator's input field, "Modes"; a regular Session has none.
-  The button always shows one icon per mode, in a fixed order — Eco mode, Auto-approval, then Auto-continue: bright when on, muted
-  when off, an outline for Auto-approval Shadow, faint while the state is not known. Its width does not change with the
-  states; only its caption goes first when the bar is short of room. A click, or Enter, Space or ArrowDown, opens the
-  menu over it: Eco mode (on or off), Auto-approval with its three positions Off, Shadow and On, then Auto-continue (on
-  or off), each with a line next to it and a tooltip. The arrows, Home and End move through the items, Enter and Space choose, Esc closes the menu
-  back to the button, Tab closes it. Choosing an item does not close the menu: it shows the new state.
-- Eco mode writes two fields of the Project's Profile: `workflow.agents` set to `eco`, and `agents`, which is Sonnet with
-  effort medium for each agent role. Off removes both fields, and the models the roles had before are not restored. It
-  applies from the next Ticket. When the Profile changed outside worfy since the menu read it, nothing is written: a
-  toast says so and the item shows the Profile as it is now.
-- Auto-approval is Off for a Project until set. The mode is kept per Project in worfy's own settings on this Machine
-  (`app-settings.json` in worfy's data folder), not in the Profile, and only the Modes menu writes it. worfy reads that file once at start: an edit of it made outside worfy shows after the next
-  start, and the next change of any setting of the Machine writes worfy's own state back over it.
-- While worfy runs with a debugging port or pipe (`--remote-debugging-port`, `--remote-debugging-pipe`) or the Node
-  inspector (`--inspect`) open, Auto-approval is Off whatever is saved: any program on the Machine could script worfy's
-  window then. The menu shows Off, its three positions are unavailable, and their tooltip names the reason and the saved
-  mode, which applies again after a start without them. The saved mode cannot be changed from the menu meanwhile. The packaged worfy has
-  the Electron fuses RunAsNode and EnableNodeCliInspectArguments off (`electronFuses` in `electron-builder.yml`): it
-  ignores `--inspect` and its kin, `kill -USR1` opens no inspector (the signal ends worfy), and `ELECTRON_RUN_AS_NODE=1`
-  starts worfy, not a Node. A development run (`pnpm dev`) is the stock Electron and keeps both.
-- In an Autopilot run the mode decides the answer to a permission request: Off refuses it, Shadow refuses it and
-  records what the approval policy would have done, On answers by the policy ([Auto-approval](auto-approval.md)).
-- Auto-continue is off for a Project until turned on. It is kept per Project in the same `app-settings.json`, and only
-  the Modes menu writes it: on adds the Project's entry, off removes it, other Projects keep theirs. A change shows at
-  once in the Modes menu of every window, on a Linked machine too. A debugging port does not hold it off. An Autopilot run
-  reads it before each retry after a temporary API error ([Autopilot faults and recovery, Retry after an API error](autopilot-faults.md#retry-after-an-api-error)).
-- With Auto-continue on, a turn of the Orchestrator outside a run that ends with a temporary API error (500, 502, 503,
-  504, 529, a lost connection, a timed-out request, a broken response stream) is continued the same way as in a run:
-  after 1, 5, 15, 30 and 60 minutes (±20 %), five in a row at most, worfy sends the Orchestrator a new message that asks
-  it to continue and names what the failed turn already did outside the Session — never the person's message again.
-  A call that reaches outside and has no result (a `git push` cut off) is not retried. Each turn is judged by its own
-  calls and its own Limits status, a turn a background task's notification starts too. A refusal by the Limits waits
-  for the reset of the window the Vendor reported, plus 2 minutes, however far away; without a reset time it tries
-  again every 30 minutes, for 24 hours at most. Then it sends the continuation a run sends after the Limits. On Codex
-  the windows are read again first, as a run reads them (free, no model tokens): while one is still used up, nothing
-  goes, and the wait goes on until that window's new reset. A turn the person interrupted is never continued.
-- On a Codex Orchestrator the kind of the error is Codex's own: `serverOverloaded`, `internalServerError`, a connection
-  or a response stream that failed, and `responseTooManyFailedAttempts` are temporary; the same with HTTP status 429
-  is not (Codex already spent its own retries on a rate limit). An error Codex retries by itself (its line ends with
-  "It tries again") is left to Codex: worfy waits for nothing and sends nothing. A Subagent call of Codex
-  (`collabAgentToolCall`) counts as a call that reaches outside: without its result the turn is not retried.
-- Each step is a line of worfy's own in the transcript, below the row it tells of; the model does not get it:
-  `worfy: API error 529, retry 2 of 5 at 14:20`, `worfy: sent "continue" (retry 2 of 5)`, ``worfy: not retried: `git
-  push origin main` may or may not have run``, `worfy: not retried: gave up after 5 retries`, `worfy: waiting for the
-  Limits, resumes 14:20` (without a reset time `…, no reset time reported, next try at 14:20`), `worfy: sent "continue"
-  after the Limits wait`, `worfy: not continued: …` (a quota, or no reset time for 24 hours), `worfy: Auto-continue is
-  off; nothing was sent` and `worfy: a turn is under way; nothing was sent, its end decides`. Times are local; a time on
-  another day carries its date. These lines live only while the app runs: worfy does not write them into the transcript
-  file, so after a restart they are gone.
-- A message of the person during the wait takes the continuation's place; a message queued during the turn goes
-  right after it, so no wait starts and no line about one shows. A turn under way when the time comes (a
-  background task's notification) takes its place too, and its end decides. Auto-continue turned off, the Session closed or the
-  app quit cancel the wait, and nothing is sent. While an Autopilot run owns the Orchestrator, only the run retries.
-  Outside a run worfy does not keep the Mac awake for the wait: a Mac that sleeps through the time continues when it
-  wakes. With Auto-continue off a turn outside a run stops on an API error or the Limits as before.
-- While the Orchestrator waits to be continued — by its Autopilot run when one waits, else after a manual turn — a line over
-  its input field counts down by the second: `API error 529 (overloaded) · retry 2 of 5 in 4:12` with **Retry now** and
-  **Cancel**, `Limits: 7-day window · resumes 14:20 (in 2:13:05)` or `Limits: no reset time reported · next try in 27:40`
-  with **Cancel** only. The window is named by the label the Vendor's window has (`5-hour`, `7-day`, Codex's own); the time
-  is local, with its date on another day. Retry now sends the continuation of the same retry at once, and its timer sends
-  nothing after it. Cancel ends the wait and nothing is sent, also when its time passes: a manual turn stays as it ended,
-  with the line `worfy: the wait was cancelled; nothing was sent`; a run stops as it would have without Auto-continue
-  ([Autopilot faults and recovery, Retry after an API error](autopilot-faults.md#retry-after-an-api-error)). A regular
-  Session has no such line. On a
-  read-only window the buttons show and do nothing.
+- The Orchestrator modes — Eco mode, Auto-approval and Auto-continue — sit in one button under the Orchestrator's input
+  field, "Modes". With Auto-continue on, worfy continues a turn of the Orchestrator that ended with a temporary API error
+  or a refusal by the Limits, and a line over the input field counts down to the continuation. Both are on the
+  [Orchestrator modes](orchestrator-modes.md) page. A regular Session has neither.
 - Autopilot runs this Session unattended. On Codex a run is refused, with the reason, while the Harness's hooks are not
   approved in Codex's `/hooks`; see [Autopilot, During a run](autopilot.md#during-a-run). While it does, the permission
   mode is forced to Bypass permissions (Full access on Codex) and not saved, a mode change is refused, and permission
@@ -243,14 +181,6 @@ Session sends at most one notification in 10 seconds. A click opens that Session
 - "+" uses a hidden file input there, and the file travels as bytes.
 - With read-only access, the input field, the pickers and the answers on the cards are inactive, with a tooltip that says
   why. The Session view does not open an Orchestrator there: it shows "No Orchestrator yet" when there is none.
-- The Modes menu shows the modes of the Project on the Machine it lives on. With full access each item changes them
-  there: Eco mode writes that Machine's Profile, Auto-approval and Auto-continue its `app-settings.json`; nothing is
-  written on the Machine of the window. With read-only access the icons and the menu show the states, and each item is
-  unavailable with the read-only hint; the Machine of the Project refuses such a write too. A change made on either
-  Machine shows in an open menu on the other at once. A write whose answer did not come back shows a toast with the
-  reason, and the item reads the state again; while that read fails, the item is unavailable with why.
-- While worfy on the Machine of the window runs with a debugging port or the Node inspector open, Auto-approval there
-  is unavailable with the reason, and only Off leaves that Machine; Eco mode and Auto-continue still change.
 - A notification also goes to the connected Linked machines. Each Machine applies its own focus rule and its own 10 seconds.
 
 #### Windows
@@ -320,13 +250,12 @@ for a process also asks the system.
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
-| Modes menu | `src/renderer/session/composer/Modes.tsx` |
-| Eco mode | `src/main/ipc/eco-mode.ts`, `src/shared/ipc/eco-mode.ts`, `src/shared/agent/plan-preset.ts`, `src/renderer/session/modes/eco-mode.ts` |
-| Auto-approval | `src/main/ipc/auto-approve.ts`, `src/shared/ipc/auto-approve.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-approval.ts` |
-| Auto-continue | `src/main/ipc/auto-continue.ts`, `src/shared/ipc/auto-continue.ts`, `src/main/settings/store.ts`, `src/renderer/session/modes/auto-continue.ts`, `src/main/agent/orchestrator-continue.ts` (manual turns), `src/renderer/session/composer/ContinueCountdown.tsx` (the countdown) |
 | Nodes | `src/renderer/canvas/nodes/SessionNode.tsx`, `src/renderer/canvas/nodes/OrchestratorNode.tsx`, `src/renderer/canvas/overlays/SessionNodes.tsx` |
 | Autocompact settings | `src/renderer/settings/SessionsSection.tsx`, `src/shared/settings/app-settings.ts` |
 | Notifications | `src/main/notify.ts`, `src/renderer/session/notification-target.ts` |
+
+The modules of the Modes menu, of Auto-continue and of the countdown are on the
+[Orchestrator modes](orchestrator-modes.md#modules) page.
 
 **Data flow.** A window calls `agent.send`. The handler tells the input observers, checks the attachments and passes the
 message to the Session, keeping the order of one Session's messages. The Session passes it to its Vendor's SessionHandle, or to
@@ -341,19 +270,6 @@ events go to every client on `agent.event`, and the renderer store keeps the new
   Session over the fake agent.
 - `test/contract/orchestrator.test.ts`, `test/contract/orchestrator-relaunch.test.ts`, `test/contract/node-sessions.test.ts`,
   `test/contract/permissions.test.ts`.
-- `test/contract/orchestrator-continue.test.ts`: Auto-continue of a manual turn of the Orchestrator — a 529 and one
-  continuation with its lines, the switch off, a person's message during the wait, the switch turned off and the Session
-  closed during it, a push without its result (also across a permission answered mid-turn), a turn the person
-  interrupted, a message queued during the turn, a refusal by the Limits, two Projects, the app's wiring, an
-  Autopilot run on the same Session, and the countdown's Retry now (one continuation, also after a double click and the
-  timer) and Cancel (nothing sent, also when the timer fires).
-- `test/contract/auto-continue-setting.test.ts`: the countdown's channels — the run's wait before a manual one, the
-  window's label, Retry now and Cancel to whoever waits, read-only access; `test/unit/continue-countdown.test.tsx`: the
-  three kinds of line and the format of the countdown; `test/e2e/auto-continue.spec.ts`: the line after a 529, Retry now
-  and Cancel in the built app.
-- `test/contract/codex-auto-continue.test.ts`: Auto-continue on a Codex Orchestrator on the fake app-server, in a run
-  and in a manual turn — `serverOverloaded` and one continuation, an error Codex retries by itself, a quota, a Subagent
-  call without its result, and the windows read again at the reset (still used up, then open).
 - `test/contract/sessions-vendor.test.ts`: the Vendor of a Node and of a Project, Claude Code on the fake agent and Codex on
   the fake app-server, and what the Vendor list of "New session" offers.
 - `test/contract/codex-sessions-on-canvas.test.ts`: the Codex threads of a Project's root and worktrees on the fake

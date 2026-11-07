@@ -39,7 +39,7 @@ run сразу останавливается с `vendor-quota`, а tooltip по
 
 #### Повтор после ошибки API
 
-С включённым для Project-а Auto-continue (меню Modes у Orchestrator-а, см. [Sessions](sessions.md)) turn, который
+С включённым для Project-а Auto-continue (меню Modes у Orchestrator-а, см. [Orchestrator modes](orchestrator-modes.md)) turn, который
 закончился временной ошибкой API, не заканчивает run. Временные — это 500, 502, 503 или 504, 529 (overloaded), соединение,
 которое оборвалось или не установилось, timeout и оборванный поток ответа; отказ Limits к ним не относится, он ждёт, как
 выше. Run ждёт 1, 5, 15, 30, затем 60 минут, каждый раз с разбросом до 20 % в обе стороны, по wall clock. Затем
@@ -49,6 +49,11 @@ Orchestrator получает одно сообщение: прошлый turn �
 merge или отметить Ticket как done, поэтому сообщение всегда просит модель проверить, что сделала каждая команда того
 turn-а, прежде чем её повторить. Команда Wave и исходное сообщение второй раз не уходят. Turn, закончившийся без ошибки,
 сбрасывает счёт.
+
+На Orchestrator-е Codex вид ошибки берётся из собственного вида ошибки Codex: `serverOverloaded` ждёт, как 529;
+`responseTooManyFailedAttempts` от Codex с HTTP status 429 не временная (Codex уже потратил свои повторы на rate limit).
+Ошибку, которую Codex повторяет сам, worfy оставляет Codex: ни `turn-retry`, ни отправки. Вызов Subagent-а Codex
+(`collabAgentToolCall`) без результата отказывает в повторе с `in-flight`, как вызов `Agent`.
 
 Run не повторяет и останавливается с `turn-error`, как раньше, после ошибки, которая не временная (`not-transient`), когда у
 действия turn-а, выходящего за пределы Session, нет результата (`in-flight`: push или merge мог пройти, а мог и нет), и после
@@ -62,6 +67,15 @@ Run не повторяет и останавливается с `turn-error`, �
 когда более ранний Stop уже перевёл run в остановку; Force stop, конец Session и выход из приложения отменяют ожидание.
 Auto-continue, выключенный во время ожидания, читается, когда приходит время: ожидание отменяется, и run останавливается с
 `turn-error`. С выключенным Auto-continue turn с ошибкой API останавливает run с `turn-error`, как раньше.
+
+Чат Orchestrator-а показывает ожидание строкой над полем ввода, которая отсчитывает время по секундам
+([Orchestrator modes](orchestrator-modes.md#обратный-отсчёт)): `API error 529 (overloaded) · retry 2 of 5 in 4:12` с
+**Retry now** и **Cancel**, а для ожидания Limits — `Limits: 7-day window · resumes 14:20 (in 2:13:05)` или
+`Limits: no reset time reported · next try in 27:40` только с **Cancel**. Retry now сразу отправляет продолжение того же
+повтора, в очереди run-а, как это сделал бы его таймер (`resumed` в journal); таймер и второй клик больше ничего не
+отправляют. Cancel заканчивает ожидание, ничего не отправив, и run останавливается так, как остановился бы без
+Auto-continue: с `turn-error` во время ожидания повтора, с `limits-timeout` во время ожидания Limits. Cancel-у, пришедшему
+после того, как продолжение уже ушло, отменять нечего, и run идёт дальше.
 
 #### Остановка
 
@@ -130,11 +144,11 @@ Orchestrator остаётся unattended, экран остаётся включ
 | `no-progress` | Следующая готовая Wave — тот же набор Ticket-ов, что и только что оконченная. |
 | `wave-unfinished` | Ticket Wave остался в работе дольше 10 минут после turn-а. |
 | `background-stalled` | Background task-и не дали ни одного события за час, и ни один их output file за это время не изменился. |
-| `limits-timeout` | Ожидание Limits превысило бы 24 часа (с включённым Auto-continue — только без времени сброса), или Auto-continue выключили во время ожидания сброса дальше 24 часов. |
+| `limits-timeout` | Ожидание Limits превысило бы 24 часа (с включённым Auto-continue — только без времени сброса), Auto-continue выключили во время ожидания сброса дальше 24 часов, или ожидание отменили кнопкой Cancel в чате Orchestrator-а. |
 | `vendor-quota` | Codex отказал turn-у по своим Limits, и ни одно окно не исчерпано, так что сбрасываться нечему. Текст ошибки Codex — это сообщение состояния run-а (tooltip строки состояния) и `message` строки `limits-hit`. |
 | `window-too-short` | Run mode — Start window, и следующая Wave обычно идёт дольше, чем всё окно. Tooltip называет Wave, её обычную длительность и окно. |
 | `interrupted` | Turn Wave прервали, или прервали turn человека, и Wave осталась удержанной в очереди. |
-| `turn-error` | Turn Wave закончился ошибкой, которая не является отказом Limits, и его не повторили (Auto-continue выключен или `retry-refused`). |
+| `turn-error` | Turn Wave закончился ошибкой, которая не является отказом Limits, и его не повторили (Auto-continue выключен, `retry-refused` или ожидание повтора отменили кнопкой Cancel в чате Orchestrator-а). |
 | `session-error` | Session Orchestrator-а упала, или перед следующей Wave или turn-ом очереди gate Codex больше не запускает hook-и Harness. |
 | `session-closed` | Session Orchestrator-а закрылась. |
 | `send-failed` | «Run wave» не удалось отправить. |
@@ -192,11 +206,16 @@ Orchestrator-у шаблон «Process gate queue», один раз за run. �
 | Test | Что покрывает |
 |---|---|
 | `test/unit/autopilot-resume-at.test.ts` | Когда run продолжает после отказа. |
+| `test/unit/turn-failure.test.ts` | Какой упавший turn — временная ошибка API: тексты ошибок Claude Code, виды ошибок Codex с HTTP status и без него (429 не временная), прерванный turn. |
+| `test/unit/continue-plan.test.ts` | План повтора: паузы и предел, порядок отказов (`not-transient`, потом `in-flight`, потом `cap`), какие вызовы turn-а выходят за пределы Session, и текст продолжения, в котором никогда нет исходного сообщения и собственных слов модели. |
+| `test/unit/limits-wait-still-refused.test.ts` | Окна, прочитанные заново перед продолжением после Limits на Codex: окно, которое ещё исчерпано, ждёт снова, при неудачном чтении решают известные окна, Force stop и выход из приложения чтения не ждут. |
 | `test/contract/autopilot-limits.test.ts` | Ожидание Limits и бюджет, с часами, которые двигает test. |
 | `test/contract/autopilot-limits-switch.test.ts` | Ожидание Limits с выключенным и включённым Auto-continue: недельное окно без 5-часового, сброс через 3 дня с отпущенным и снова взятым keep-awake, нет времени сброса, переключатель выключен во время ожидания. |
-| `test/contract/autopilot-retry.test.ts` | Повтор после ошибки API с выключенным и включённым Auto-continue: 500 и одно продолжение, 529 до `cap` с паузами плана, 400, push без результата и секреты его команды, Limits (и во время ожидания), turn background task-а, Stop (и второй во время остановки), Force stop, выход из приложения и переключатель, выключенный во время ожидания. |
+| `test/contract/autopilot-retry.test.ts` | Повтор после ошибки API с выключенным и включённым Auto-continue: 500 и одно продолжение, 529 до `cap` с паузами плана, 400, push без результата и секреты его команды, Limits (и во время ожидания), turn background task-а, Stop (и второй во время остановки), Force stop, выход из приложения и переключатель, выключенный во время ожидания; Retry now обратного отсчёта (одно продолжение, и после двойного клика, и после таймера) и Cancel (`turn-error`, `limits-timeout`, ничего не отправлено; Cancel, вставший в очередь за продолжением, ничего не находит, и run идёт дальше). |
+| `test/contract/codex-auto-continue.test.ts` | Auto-continue на Orchestrator-е Codex поверх fake app-server, в run-е и в ручном turn-е: `serverOverloaded` и одно продолжение, ошибка, которую Codex повторяет сам, `vendor-quota`, вызов Subagent-а без результата (`in-flight`) и окна, прочитанные заново при сбросе ручного ожидания Limits. |
 | `test/unit/autopilot-invariants.test.ts` | Правила восстановления на journal-ах из `test/fixtures/autopilot-faults/`: хороший run не нарушает ни одного, а каждое правило ловит испорченную для него копию. |
 | `test/contract/autopilot-faults-api.test.ts` | Fault scenario-и API модели: API 500, 529 посреди потокового ответа (не принимается за Limits) и обрыв связи останавливают run с `turn-error`, и новый старт шлёт свою команду Wave один раз; Limits, отказавшие turn-у Wave 2, — run ждёт и продолжает после сброса одним продолжением, Wave 1 второй раз не идёт. |
+| `test/contract/autopilot-faults-retry.test.ts` | Те же Fault scenario-и API модели с включённым Auto-continue: API 500, 529 посреди потокового ответа и обрыв связи дают `turn-retry`, одно продолжение и `resumed`, и run идёт дальше; пять 529 подряд кончаются `retry-refused` `cap`, а `git push` без результата — `retry-refused` `in-flight`, оба потом `turn-error`; Limits, которые отказывают turn-у Wave 2 по недельному окну без 5-часового, заставляют run ждать этого сброса. Правила I1–I8 ниже выполняются в каждом. |
 | `test/contract/autopilot-faults-process.test.ts` | Fault scenario-и процессов: Claude Code Orchestrator-а умирает, пока работают оба implementer-а (`session-error`, и новый старт идёт в новую Session, а его первая Wave называет Ticket, который всё ещё `claimed` умершим implementer-ом, вместе с готовым); implementer падает, и его Ticket остаётся `claimed` (`wave-unfinished`) или возвращается в `open` (следующая Wave — только с этим Ticket-ом). |
 | `test/contract/autopilot-faults-github.test.ts` | Fault scenario-и на стороне GitHub: режим `hang` у gh stub; gh висит весь run (Wave-ы идут, остановка ждёт не дольше предела последнего чтения); gh отвечает 502 (следующее чтение — через удвоенный интервал); конфликт merge (run останавливается с `blocked-tickets`, новый run не берёт заблокированный Ticket). |
 | `test/contract/autopilot-faults-codex.test.ts` | Fault scenario-и на Orchestrator-е Codex: упавший turn останавливает run с `turn-error`; app-server, вышедший посреди Wave, даёт `session-error`, и новый run стартует в новой Session. |
