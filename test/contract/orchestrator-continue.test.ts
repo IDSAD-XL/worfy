@@ -700,6 +700,41 @@ describe("Retry now, Cancel and the wait's changes for the countdown (worfy-retr
     expect(h.messages()).toEqual([PERSON])
   })
 
+  it('Cancel starts the count over: the very next turn failing with a 529 is retry 1, with no turn going through between', async () => {
+    // Every turn of this script ends with a 529.
+    const h = harness({ script: 'autopilot-retry-overloaded-5' })
+    await h.open()
+    h.write(PERSON)
+    await until(() => h.continuer.wait(PROJECT) !== null, 'the wait for the continuation')
+    expect(h.continuer.wait(PROJECT)).toMatchObject({ kind: 'retry', attempt: 1 })
+    await tick()
+    expect(h.continuer.cancel(PROJECT)).toBe(true)
+
+    h.write('Go on.')
+    await until(() => h.results().length === 2 && h.continuer.wait(PROJECT) !== null, 'the wait after the next 529')
+    expect(h.results()).toEqual([true, true])
+    expect(h.continuer.wait(PROJECT)).toMatchObject({ kind: 'retry', attempt: 1 })
+    expect(h.messages()).toEqual([PERSON, 'Go on.'])
+  })
+
+  it('Retry now when the Session is no longer ready (a run took it): the wait ends with nothing sent, and the windows are told at once', async () => {
+    const h = harness({ script: 'orchestrator-continue-overloaded' })
+    const told: string[] = []
+    h.continuer.observeWaits((projectId) => told.push(projectId))
+    await h.open()
+    h.write(PERSON)
+    await until(() => h.timers.live().length === 1, 'the wait for the continuation')
+    await tick()
+    expect(told).toEqual([PROJECT])
+
+    h.setUnattended(true)
+    expect(h.continuer.retryNow(PROJECT)).toBe(true)
+    expect(h.continuer.wait(PROJECT)).toBeNull()
+    expect(told).toEqual([PROJECT, PROJECT])
+    await tick(100)
+    expect(h.messages()).toEqual([PERSON])
+  })
+
   it('nothing waits, or another Project waits: both buttons find nothing, and only the Project that waits is told', async () => {
     const h = harness({ script: (request) => (request.cwd === repoB ? 'orchestrator-continue-overloaded' : 'orchestrator') })
     const told: string[] = []
