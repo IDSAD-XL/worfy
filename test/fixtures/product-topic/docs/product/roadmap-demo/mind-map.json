@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "nodes": [
+    { "id": "idea-1", "kind": "idea", "text": "Сначала советник, потом обзор рынка", "from": "ticket:02", "advice": true, "x": 120, "y": 40 },
+    { "id": "q-1", "kind": "question", "text": "Сколько стоит второй Epic?", "from": "idea-1", "message": "evt-1" },
+    {
+      "id": "d-1",
+      "kind": "decision",
+      "text": "Обзор рынка — вторым Epic-ом",
+      "from": "idea-1",
+      "status": "accepted",
+      "reason": "советник нужнее сейчас",
+      "advice": true,
+      "collapsed": true
+    },
+    { "id": "o-1", "kind": "objection", "text": "Без аналитики советник не знает, чем пользуются", "from": "d-1", "source": "docs/roadmap.md" }
+  ]
+}

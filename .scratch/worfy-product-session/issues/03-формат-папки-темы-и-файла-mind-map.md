@@ -34,11 +34,21 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] Unit test схемы: верный файл читается; каждая ошибка из п. 1 — свой случай с id узла в тексте.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] Test `topic.ts` на fixture-теме: `map.md`, два Ticket-а карты, `mind-map.json` с узлом `from: "ticket:02"` — тема
       собрана; битый JSON — тема с ошибкой, без исключения.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] Test путей: Full mode и Silent mode дают разные папки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/product-mind-map.test.ts test/unit/product-topic.test.ts` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] ADR добавлен, ссылка на него — в шапке `src/shared/product/mind-map.ts`.
+  - evidence: commit pass · feat(product): topic folder and mind-map.json format with one check (ADR-0101) · - - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: commit pass · fix(product): replaces only on a decision, no replaces cycles, canonical ticket refs · - - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e0eeeb3b69fccfce3be4a7aba99204189f11be38
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 496a3f004d1188b6e5a34a21b002aa3008beef46
 
 ## Тесты
 
@@ -57,3 +67,43 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 Только читать: `harness/bin/TICKETS.md` («Wayfinding operations»), `src/main/workflow/reader.ts`,
 `src/shared/canvas/tools.ts`, `src/main/storage/json-file.ts`.
+
+## Итог
+
+Формат описан ADR [0101](../../../docs/adr/0101-product-session-folder-and-mind-map.md) «Папка Product Session и файл
+Mind map»; ссылка на него — в шапке `src/shared/product/mind-map.ts`.
+
+- **Схема и проверка** — `src/shared/product/mind-map.ts`: `mindMapSchema` (`version: 1`, узлы `id`, `kind`, `text`,
+  `from`, `status`, `reason`, `source`, `advice`, `replaces`, `history`, `message`, `x`, `y`, `collapsed`) и
+  `checkMindMap(value, tickets)`. Она возвращает `{ ok: true, map }` или `{ ok: false, errors }`; у каждой ошибки поле
+  `id` и текст `node "<id>": …`. Ошибки: неверное поле (id узла берётся из сырого значения), два узла с одним id,
+  `from` не на узел и не на Ticket карты, цикл по `from` (все узлы цикла в тексте), `replaces` не на Решение или на
+  несуществующий узел, Решение без `status` или с пустым `reason`, Возражение с пустым `source`. Ошибки файла целиком
+  (`version`, не объект) — с `id: null`. Правила «Решение — с причиной», «Возражение — с источником» проверяет
+  `checkMindMap`, а не union-схема zod: так ошибка называет узел.
+- **Пути** — `src/shared/product/paths.ts`: `productFolder({ mode, root, workflowFolder })` — `<root>/docs/product` в
+  Full mode, `<Workflow folder>/product` в Silent mode; `productTopicFolder`, `productCriticFolder`,
+  `productDraftsFolder`, `isProductTopicName` (одно имя папки, не `critic`, без `..` и разделителей). Без `node:path`:
+  модуль общий для main и renderer, путь сохраняет разделитель корня (`C:\…` даёт `\`). `ProjectLayout`
+  (`src/main/workflow/folder.ts`) подходит к входу `productFolder` как есть.
+- **Чтение темы** — `src/main/product/topic.ts`: `readTopic(folder)` даёт `title` (H1 `map.md` через `firstHeading`),
+  `sections` (разделы `## ` карты; строки в блоках кода разделами не считаются), `tickets` (номер и slug — `issueKey`,
+  H1, слово первой строки `Status:` вне блоков кода) и `nodes`. Нет `map.md`, файл не читается, не JSON или не прошёл
+  `checkMindMap` — ошибка в `errors` с файлом и id узла, исключения нет; нет `mind-map.json` — новая тема без узлов, не
+  ошибка. Чтение ничего не пишет: `mind-map.json` читается через `readFile` и `JSON.parse`, а не `readJsonFile` —
+  тот переименовал бы файл Project-а с ошибкой (`.unreadable-<время>`). `src/main/storage/json-file.ts` не менялся.
+- **Сначала падающий test**: `test/unit/product-mind-map.test.ts` и `test/unit/product-topic.test.ts` написаны до
+  модулей и падали с `Cannot find module '../../src/shared/product/mind-map'` и `'../../src/main/product/topic'`.
+- **Fixture** — `test/fixtures/product-topic/docs/product/roadmap-demo/`: `map.md` с блоком кода внутри раздела, два
+  Ticket-а карты (у второго шапка после H1 и обманный блок кода с `Status: done` перед ним), `mind-map.json` с узлом
+  `from: "ticket:02"`. Битый JSON, пропавший Ticket и пропавший `map.md` test делает в копии fixture-а во временной
+  папке и проверяет, что чтение не меняет файлы.
+- **Раунд ревью 1 (PR #1607, REJECTED на одном medium).** `replaces` проверялся только у цели: Идея с `replaces` на
+  Решение проходила. Теперь `checkMindMap` отказывает `replaces` у любого узла, который не Решение («only a decision
+  may carry replaces»); mutant без этой проверки — test «refuses replaces on a node that is not a decision» красный
+  (exit 1). Заодно: цикл по `replaces` и Решение, которое отменяет само себя, — ошибка «a cycle through replaces»;
+  `text` из одних пробелов отклоняется, как `reason` и `source`; `ticket:NN` — только в одном написании (не меньше двух
+  цифр, без лишнего нуля: `ticket:02`, `ticket:100`; `ticket:2` и `ticket:002` — ошибка); `readTopic` пропускает BOM
+  UTF-8 перед `JSON.parse`; имя темы не `critic` ни в каком регистре, не имя устройства Windows (`CON`, `NUL`,
+  `COM1`, `lpt9.txt`…) и не кончается на `.`. Раздел `## Amendments` ADR-0005 получил строку об исключении для
+  `mind-map.json` со ссылкой на ADR-0101. Все шесть новых test-ов были красными до правки.

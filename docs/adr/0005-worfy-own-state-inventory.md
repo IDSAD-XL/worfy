@@ -38,3 +38,8 @@ worfy ничего не пишет в репозитории Project-ов — н
   port; вызывающая Machine при своём debugging port или inspector-е пропускает через `linked.invoke` только Off (тот же
   текст отказа), потому что Machine Project-а не может знать, что окно вызывающей ведёт скрипт. Окно узнаёт причину по
   каналу `autoApproval.blockedHere` (`local`).
+- 2026-11-07 — исключение для Product Session (ADR-0101, Epic `worfy-product-session`, Ticket 03): main пишет файл
+  Mind map `mind-map.json` в папку Product Session Project-а — `docs/product/<тема>/` в Full mode,
+  `<Workflow folder>/product/<тема>/` в Silent mode. Пишут его только tools `mind_map_*` и перетаскивание узла на
+  экране (Ticket-ы 04, 09). Остальное собственное состояние worfy по-прежнему только в `WORFY_DATA_DIR`; в
+  репозиторий эти файлы попадают docs PR-ом Orchestrator-а, сам worfy их не коммитит.
