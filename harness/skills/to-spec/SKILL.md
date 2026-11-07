@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-The issue tracker is the ticket folder of the worfy project profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; its format, operations and triage label vocabulary are in `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations". If the project has no profile, suggest `/worfy:connect-project`.
+The issue tracker is the ticket folder of the worfy project profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; its format and operations are in `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations". If the project has no profile, suggest `/worfy:connect-project`.
 
 ## Process
 
@@ -16,7 +16,7 @@ The issue tracker is the ticket folder of the worfy project profile: `"${CLAUDE_
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it to the project issue tracker. It carries no label.
 
 <spec-template>
 

@@ -4,10 +4,14 @@
 // setup points to /worfy:connect-project and bin/TICKETS.md instead of /setup-matt-pocock-skills.
 // The hashes below are of the files of the installed 1.3.1 copy (upstream commit 49dd158d); the copy
 // itself is not in this repository, so the test pins them.
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
+import { scriptNode } from '../script-node'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -68,6 +72,21 @@ const UPSTREAM: Record<string, string> = {
   'writing-for-agents/SKILL-MECHANICS.md': 'c768e6307c7c10728c401c213f2c4ba71c542127eeb7ad2956aabd15a0fa0059',
   'writing-for-agents/SKILL.md': '551adca942227b44192edba88acd4e8db911f0121ce58ad16944ccf6a896a74a',
   'writing-for-agents/agents/openai.yaml': 'eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b',
+}
+
+// sha256 of the files with the edits THIRD_PARTY.md lists, as this repository ships them: an edit
+// beyond the list changes the hash. A new edit updates THIRD_PARTY.md and this map together.
+const EDITED: Record<string, string> = {
+  'code-review/SKILL.md': '37cce433b54816e5b64544faee76bc971296bdd0b32459c8d1f6fe8a1e77183c',
+  'grill-me/SKILL.md': '310e9e01d9b18a9bbe949de4d9c238402919c570342de771f2e221af6221d6df',
+  'grill-with-docs/SKILL.md': '55287c9fd1f0b72bdb01657d4c25db66911c8e171c90bb42c86d3063d8e01be3',
+  'improve-codebase-architecture/HTML-REPORT.md': '907a9abe4b549e46477384195f0e07cf42dfbb61eaab68f14b025484ea191382',
+  'improve-codebase-architecture/SKILL.md': 'dfd0ed01e99c8f6ee282a67543e687a53c8ec5fdb6f9767c717d4290d2930629',
+  'tdd/SKILL.md': '6c5b6da52ffe622f30c3deba006811e3e7e0532ae1e539a0bc3578d8dbf8eaf2',
+  'teach/SKILL.md': '04c70a169b35aae5f8e10861250aedd81a3b7d4f859a1248d8e94f327f5cc5bc',
+  'to-spec/SKILL.md': '8f9c899397afb0fcbbf6e65d5a80746e7d9dec532cd7c8867b6ae33ef80e3f2e',
+  'to-tickets/SKILL.md': 'c32c365c660d434c602f2330e4fec016c85d2db7e6bed87b215b89d024e4adeb',
+  'wayfinder/SKILL.md': 'e0bc29e391256cb08b00d8c754ff826daf6f40e9a553d5351234083c8c1f3801',
 }
 
 // sha256 of LICENSE at the root of the 1.3.1 copy.
@@ -188,9 +207,11 @@ describe('the copy of mattpocock-skills 1.3.1 in harness/skills', () => {
   it('lists in THIRD_PARTY.md only files of the copy that really differ from 1.3.1', () => {
     const edited = editedFiles()
     expect(edited.length).toBeGreaterThan(0)
+    expect([...edited].sort()).toEqual(Object.keys(EDITED).sort())
     for (const file of edited) {
       expect(UPSTREAM, file).toHaveProperty([file])
       expect(sha256(join(SKILLS, file)), file).not.toBe(UPSTREAM[file])
+      expect(sha256(join(SKILLS, file)), file).toBe(EDITED[file])
     }
   })
 
@@ -250,5 +271,63 @@ describe('references between skills in harness/skills', () => {
         ),
       )
     expect(found).toEqual([])
+  })
+})
+
+describe('the copied planning skills write tickets in the language of bin/TICKETS.md', () => {
+  const tickets = readFileSync(join(HARNESS, 'bin', 'TICKETS.md'), 'utf8')
+
+  it('TICKETS.md has the section "Wayfinding operations" the skills point to', () => {
+    expect(tickets).toMatch(/^## Wayfinding operations$/m)
+  })
+
+  it('every file that quotes "Wayfinding operations" says it is the section of bin/TICKETS.md', () => {
+    const quoting = listFiles(HARNESS, HARNESS)
+      .filter((file) => file !== 'bin/TICKETS.md' && file !== 'skills/THIRD_PARTY.md')
+      .filter((file) => readFileSync(join(HARNESS, file), 'utf8').includes('Wayfinding operations'))
+    expect(quoting.length).toBeGreaterThan(0)
+    expect(quoting.filter((file) => !readFileSync(join(HARNESS, file), 'utf8').includes('bin/TICKETS.md'))).toEqual([])
+  })
+
+  // worfy tickets carry no labels (TICKETS.md, "Wayfinding operations"): a copied skill neither applies
+  // a triage label nor promises a vocabulary of them. A line that says "never" names one only to forbid it.
+  it('no copied skill tells the agent to apply a triage label or promises a triage label vocabulary', () => {
+    const wrong = markdownOfSkills()
+      .filter(({ file }) => COPIED.includes(file.split('/')[0] ?? ''))
+      .flatMap(({ file, lines }) =>
+      lines
+        .map((line, i) => ({ line, at: `${file}:${i + 1}` }))
+        .filter(({ line }) => /triage label vocabulary|ready-for-agent|needs-triage/.test(line) && !/\bnever\b/.test(line))
+        .map(({ at }) => at),
+    )
+    expect(wrong).toEqual([])
+  })
+
+  it('the local ticket template of to-tickets has a header epic-status reads: Type task, Status open, parsed Blocked by', () => {
+    const skill = readFileSync(join(SKILLS, 'to-tickets', 'SKILL.md'), 'utf8')
+    const template = /<local-ticket-template>\n([\s\S]*?)<\/local-ticket-template>/.exec(skill)?.[1] ?? ''
+    expect(template).toMatch(/^Type: task$/m)
+    const root = mkdtempSync(join(tmpdir(), 'worfy-to-tickets-'))
+    try {
+      mkdirSync(join(root, '.scratch', 'demo', 'issues'), { recursive: true })
+      writeFileSync(join(root, '.scratch', 'demo', 'issues', '01-demo.md'), template.replaceAll('<NN>', '01').replaceAll('<Ticket title>', 'Demo'))
+      const child = spawnSync(scriptNode(), [join(HARNESS, 'bin', 'epic-status'), '--json', '--root', join(root, '.scratch'), 'demo'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      })
+      expect(child.status, `${child.stdout}${child.stderr}`).toBe(0)
+      const status = JSON.parse(child.stdout) as { tickets: unknown[] }
+      expect(status.tickets).toEqual([expect.objectContaining({ num: 1, state: 'open', statusError: null, blockedParsed: true })])
+    } finally {
+      removeTestTree(root)
+    }
+  })
+
+  it('THIRD_PARTY.md lists as copied exactly the skills of the copy', () => {
+    const text = readFileSync(join(SKILLS, 'THIRD_PARTY.md'), 'utf8')
+    const section = text.split(/^## Copied skills$/m)[1]?.split(/^## /m)[0] ?? ''
+    const names = [...section.matchAll(/`([a-z0-9-]+)`/g)].map((match) => match[1])
+    expect([...new Set(names)].sort()).toEqual([...COPIED].sort())
   })
 })

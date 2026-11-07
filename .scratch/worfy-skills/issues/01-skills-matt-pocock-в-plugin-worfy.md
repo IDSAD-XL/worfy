@@ -119,7 +119,8 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 ### Хэши (sha256, первые 12 знаков)
 
-43 файла совпадают с 1.3.1 байт в байт, 10 — правка ссылок из `THIRD_PARTY.md`. Полные хэши 1.3.1 закреплены в
+43 файла совпадают с 1.3.1 байт в байт, 10 — правки из `THIRD_PARTY.md`; хэши этих 10 файлов в копии закреплены в
+`EDITED` того же test-а. Полные хэши 1.3.1 закреплены в
 `test/contract/harness-third-party-skills.test.ts` (`UPSTREAM`).
 
 | Файл | 1.3.1 | копия | |
@@ -152,9 +153,9 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 | `tdd/agents/openai.yaml` | `ea6f01cf1b8c` | `ea6f01cf1b8c` | совпадает |
 | `tdd/mocking.md` | `3ceb807fdf4a` | `3ceb807fdf4a` | совпадает |
 | `tdd/tests.md` | `859f9e592c18` | `859f9e592c18` | совпадает |
-| `to-spec/SKILL.md` | `43ad9cf318e5` | `081ea68055e2` | правка ссылок |
+| `to-spec/SKILL.md` | `43ad9cf318e5` | `8f9c899397af` | правка ссылок и метки (ревью 1) |
 | `to-spec/agents/openai.yaml` | `1c5b4d1e3d8e` | `1c5b4d1e3d8e` | совпадает |
-| `to-tickets/SKILL.md` | `56ec23c5b278` | `36d0f609616b` | правка ссылок |
+| `to-tickets/SKILL.md` | `56ec23c5b278` | `c32c365c660d` | правка ссылок, метки и шапки (ревью 1) |
 | `to-tickets/agents/openai.yaml` | `21bc6215fffc` | `21bc6215fffc` | совпадает |
 | `wayfinder/SKILL.md` | `9be7b478c389` | `e0bc29e39125` | правка ссылок |
 | `wayfinder/agents/openai.yaml` | `88bc81a11a6d` | `88bc81a11a6d` | совпадает |
@@ -177,6 +178,22 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 | `writing-for-agents/SKILL-MECHANICS.md` | `c768e6307c7c` | `c768e6307c7c` | совпадает |
 | `writing-for-agents/SKILL.md` | `551adca94222` | `551adca94222` | совпадает |
 | `writing-for-agents/agents/openai.yaml` | `eacb24b2a618` | `eacb24b2a618` | совпадает |
+
+### Ревью 1 (REJECTED) — что исправлено
+
+- **Шаблон Ticket-а в `to-tickets`** писал `**Status:** ready-for-agent` и `**Blocked by:**` без `Type:`: `epic-status` читал
+  это как «old header», а `ticket migrate` превратил бы `ready-for-agent` в `claimed`. Теперь шапка по `TICKETS.md`:
+  `Type: task`, `Status: open`, `Blocked by: None — can start immediately`; строка 62 говорит, как писать номера
+  (`Blocked by: 01, 03`).
+- **Метки триажа** убраны: `to-spec:19`, `to-tickets:63`, слова «triage label vocabulary» в `to-spec:9` и
+  `to-tickets:11`. В «Wayfinding operations» сказано: у Ticket-ов worfy меток нет, указание поставить метку триажа
+  не выполняется.
+- **Новые проверки** в contract test: заголовок `## Wayfinding operations` есть в `TICKETS.md` (мутант с переименованным
+  заголовком теперь падает: exit 1); каждый файл, который цитирует раздел, называет `bin/TICKETS.md`; в скопированных
+  skills нет `ready-for-agent`, `needs-triage`, «triage label vocabulary» (кроме строк с «never»); шаблон
+  `to-tickets`, записанный как Ticket, `epic-status --json` читает как `open`, `statusError: null`, `blockedParsed: true`;
+  список «Copied skills» в `THIRD_PARTY.md` равен `COPIED`; хэши 10 правленых файлов закреплены.
+- До правки: 2 failed | 47 passed (метки и шапка шаблона); после — 49 passed.
 
 ### Сначала падающий test
 

@@ -34,9 +34,9 @@ these folders alone: upstream links the files of a skill relatively, not through
 
 ## Reference edits
 
-Every file is the 1.3.1 file byte for byte, except the references below. Nothing else in the text
-changed: words such as issue, label, `resolved` and `GLOSSARY.md` stay upstream's, and
-`bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
+Every file is the 1.3.1 file byte for byte, except the references and the ticket header below.
+Nothing else in the text changed: words such as issue, label, `resolved` and `GLOSSARY.md` stay
+upstream's, and `bin/TICKETS.md`, section "Wayfinding operations", reads them in worfy's terms.
 
 - A call of the Skill tool names the skill `worfy:<name>` instead of `<name>`.
 - A skill named as a slash command is `/worfy:<name>` instead of `/<name>`.
@@ -44,6 +44,11 @@ changed: words such as issue, label, `resolved` and `GLOSSARY.md` stay upstream'
   setup skill becomes: the tracker is the ticket folder of the worfy project profile
   (`bin/profile --field tickets.root`), its format and operations are in `bin/TICKETS.md`, section
   "Wayfinding operations", and a project without a profile is pointed to `/worfy:connect-project`.
+- worfy tickets carry no labels, and `bin/ticket` and `epic-status` read only the header of
+  `bin/TICKETS.md`. So `to-spec` and `to-tickets` no longer apply the `ready-for-agent` triage
+  label, and the local ticket template of `to-tickets` has the header `Type: task`, `Status: open`,
+  `Blocked by: None — can start immediately` instead of `**Blocked by:**` and
+  `**Status:** ready-for-agent`.
 
 | File | Line | Edit |
 | --- | --- | --- |
@@ -58,16 +63,21 @@ changed: words such as issue, label, `resolved` and `GLOSSARY.md` stay upstream'
 | `skills/tdd/SKILL.md` | 26 | Skill tool: `"worfy:codebase-design"` |
 | `skills/tdd/SKILL.md` | 38 | the `worfy:code-review` skill |
 | `skills/teach/SKILL.md` | 12 | `/worfy:teach` |
-| `skills/to-spec/SKILL.md` | 9 | tracker sentence (with the triage label vocabulary) |
-| `skills/to-tickets/SKILL.md` | 11 | tracker sentence (with the triage label vocabulary) |
+| `skills/to-spec/SKILL.md` | 9 | tracker sentence |
+| `skills/to-spec/SKILL.md` | 19 | no triage label |
+| `skills/to-tickets/SKILL.md` | 11 | tracker sentence |
 | `skills/to-tickets/SKILL.md` | 60 | the tracker `/worfy:connect-project` configured |
+| `skills/to-tickets/SKILL.md` | 62 | the `Blocked by:` line of the header |
+| `skills/to-tickets/SKILL.md` | 63 | no triage label |
+| `skills/to-tickets/SKILL.md` | 73-77 | ticket header: `Type: task`, `Status: open`, `Blocked by:` |
 | `skills/wayfinder/SKILL.md` | 25 | tracker sentence |
 | `skills/wayfinder/SKILL.md` | 77, 115 | Skill tool: `"worfy:research"` |
 | `skills/wayfinder/SKILL.md` | 78 | Skill tool: `"worfy:prototype"` |
 | `skills/wayfinder/SKILL.md` | 79, 111, 124 | Skill tool: `"worfy:grilling"`, `"worfy:domain-modeling"` |
 
 `test/contract/harness-third-party-skills.test.ts` pins the sha256 of every 1.3.1 file: a file not
-in this table must match it, a file in the table must differ from it.
+in this table must match it, a file in the table must differ from it and match the hash the test
+pins for the edited file.
 
 ## Updates
 

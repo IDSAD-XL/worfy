@@ -226,9 +226,11 @@ folder that holds this file's `bin/`.
   closed — then append the context pointer (gist and link) to Decisions-so-far in `map.md`. A ticket
   ruled out of scope is resolved the same way, its answer saying so.
 - **Comments**: append to the ticket file under a `## Comments` heading.
-- **Labels**: none. There are no triage labels (`needs-triage`, `ready-for-agent`, …) and no
-  `wayfinder:` labels: a ticket waiting for an agent is simply `open` and **Unblocked**, and the
-  Status line holds only the words `open`, `claimed`, `blocked`, `done`.
+- **Labels**: none. worfy tickets carry no labels: no triage labels (`needs-triage`,
+  `ready-for-agent`, …) and no `wayfinder:` labels. An instruction to apply a triage label is
+  ignored, and its word never goes into the Status line, which holds only `open`, `claimed`,
+  `blocked` or `done`: `ticket migrate` would read an unknown word there as a refusal or fold it
+  into another state. A ticket waiting for an agent is simply `open` and **Unblocked**.
 - **Glossary**: the file `docs.context` of the profile
   (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field docs.context.path`) is the glossary a skill calls
   `GLOSSARY.md`; ADRs live in `docs.adr_dir`. A profile without `docs.context` has no glossary yet:

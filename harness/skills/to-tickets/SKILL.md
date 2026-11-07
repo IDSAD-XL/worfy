@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Break a plan, spec, or conversation into a set of **tickets**: tracer-bullet vertical slices, each declaring the tickets that **block** it.
 
-The issue tracker is the ticket folder of the worfy project profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; its format, operations and triage label vocabulary are in `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations". If the project has no profile, suggest `/worfy:connect-project`.
+The issue tracker is the ticket folder of the worfy project profile: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root`; its format and operations are in `${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, section "Wayfinding operations". If the project has no profile, suggest `/worfy:connect-project`.
 
 ## Process
 
@@ -59,8 +59,8 @@ Iterate until the user approves the breakdown.
 
 Publish the approved tickets. **How** depends on the tracker `/worfy:connect-project` configured; the tickets are the same either way, only the shape of the blocking edges changes:
 
-- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
-- **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. If the source was an existing issue, make each ticket its sub-issue (tracker doc's operation). Apply the `ready-for-agent` triage label unless instructed otherwise; the tickets are agent-grabbable by construction.
+- **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's `Blocked by:` line lists the numbers of the tickets it depends on (`Blocked by: 01, 03`), or says `None — can start immediately`. Use the per-ticket file template below: one ticket per file, never a single combined file.
+- **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. If the source was an existing issue, make each ticket its sub-issue (tracker doc's operation). The tickets carry no label; they are agent-grabbable by construction.
 
 Work the **frontier**: any ticket whose blockers are all done. For a purely linear chain that means top to bottom.
 
@@ -70,11 +70,11 @@ Do NOT close or modify any parent issue.
 
 # <NN>: <Ticket title>
 
+Type: task
+Status: open
+Blocked by: None — can start immediately
+
 **What to build:** the end-to-end behaviour this ticket makes work, from the user's perspective, not a layer-by-layer implementation list.
-
-**Blocked by:** the numbers/titles of the tickets that gate this one, or "None (can start immediately)".
-
-**Status:** ready-for-agent
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2
