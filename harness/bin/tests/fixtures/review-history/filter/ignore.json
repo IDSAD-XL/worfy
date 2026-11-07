@@ -1,0 +1,4 @@
+{
+  "logins": ["acme-ci"],
+  "body_prefixes": ["VERIFIED (", "REJECTED ("]
+}

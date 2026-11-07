@@ -1,0 +1,809 @@
+#!/usr/bin/env node
+// review-history — reads the review history of a project's pull requests on GitHub, keeps the words of the
+// team's reviewers and says how much there is: the input of a reviewer skill written in the team's voice.
+// No model runs here; GitHub is read through `gh api graphql`.
+//
+//   review-history fetch [--since <date>] [--passes <n>]   read the window into raw/, then print the estimate
+//   review-history estimate [--passes <n>]                 the counts and the token estimate of raw/
+//   review-history probe                                   is there a voice? reads until the 30th substantive
+//                                                          comment, writes nothing
+//   review-history stats                                   mechanical numbers of raw/ for the evidence file, JSON
+//   review-history clean                                   delete raw/
+// Common flags: -C <dir> — the project is the one bin/profile finds from <dir> (default: the current
+// directory); --json — one JSON object on stdout instead of text.
+//
+// The private folder is <profile folder>/state/human-review/ (STATE_PATH below, the one place that names it):
+// `state/` of a profile is outside the history of the Harness home. In it:
+//   raw/prs.jsonl  one line per pull request of the last fetch: the reviews, the review threads with their
+//                  line comments, the conversation comments, each with `role` "team" or "context". Colleagues'
+//                  words: it lives one run — the caller deletes it with `clean` when it is done with it
+//   meta.json      the window, the counts, the voice and the date of the last whole fetch; `update` — the same for
+//                  the slice of the last `fetch --since`, which never overwrites the history's counts; `raw` — which
+//                  of the two raw/ holds; repositories[].last_pr — the cursor, the newest pull request read
+//                  ({number, updated_at}), where the next `fetch --since` starts. Other keys of the file are kept
+//   ignore.json    {"logins": [...], "body_prefixes": [...]}: service accounts that GitHub shows as a User and
+//                  the openings of texts agents post under a person's account; a person edits it. `fetch`
+//                  creates it with empty lists when it is missing; `probe` only reads it
+//
+// The repositories: every registry entry of the project (`_resolved.repos`) whose origin is on GitHub, or the
+// checkout of <dir> when the registry names none. Each repository has its own window.
+//
+// The window: pull requests updated in the last 12 months (`--since <date>`: updated after that date too), newest
+// first, that have at least one review of the team; at most 500 of them per repository. A pull request approved
+// without a single comment counts. Pages of 100 pull requests, one request at a time; a pull request with more
+// than 30 reviews, 50 review threads, 50 conversation comments or 20 comments in a thread is read on with
+// requests of its own. A rate limit answer is retried after `retry-after`, else after `x-ratelimit-reset`, else
+// after 60 s, at most 3 times; then exit 1. A failed fetch leaves raw/ as it was: the new one is written
+// beside it (.raw-next/) and moved in place only when the whole window is read.
+//
+// Whose words count (the voice is all the team's reviewers together, never one person):
+//   - dropped: an author whose type is Bot or whose login ends with [bot]; a login of ignore.json; a text that
+//     starts with a prefix of ignore.json; the author of the pull request on their own pull request;
+//   - context: an author outside the team (author association other than OWNER, MEMBER, COLLABORATOR — a
+//     CONTRIBUTOR, NONE, a first-timer): kept as the context of a thread, never counted as the team's voice;
+//   - team: everyone else. A person's reply to a bot's comment stays.
+// A substantive comment of the team: at least 20 characters of its own text (quoted lines `>` left out) or a
+// ```suggestion block, and not only LGTM, +1, thanks, emoji. 30 of them make a voice.
+//
+// The token estimate: Latin and other characters / 4, Cyrillic / 2, of the texts and the diff context of the
+// threads, times the number of model passes (--passes, default 1). It is an estimate and the output says so.
+//
+// GH_TOKEN is taken as the caller set it (the session hook of the profile's github.account, or the app); this
+// script never switches the global gh account. REVIEW_HISTORY_GH names a program run instead of gh (a .mjs file
+// runs with this node); REVIEW_HISTORY_NOW (an ISO date) is the "now" of the window; CLAUDE_PROFILE_BIN replaces
+// bin/profile. All three are for tests.
+//
+// Exit codes: 0 — done (estimate and probe: whether or not there is a voice); 1 — failed (the rate limit after 3
+// retries, a gh error, no raw/ for estimate or stats, a broken ignore.json); 2 — usage; 3 — not available: the
+// directory is not a registered project, no origin on GitHub, no gh, or no access to the repository. A failure is
+// one line on stderr.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync, execFileSync } = require("node:child_process")
+// The git to start: EVAL_GIT of an eval run, else git from PATH.
+const { git: GIT } = require("../hooks/eval-env.cjs")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+
+const STATE_PATH = ["state", "human-review"]
+const WINDOW_MONTHS = 12
+const MAX_PRS = 500
+const VOICE_THRESHOLD = 30
+const MIN_OWN_CHARS = 20
+const RETRIES = 3
+const DEFAULT_WAIT_S = 60
+const MAX_WAIT_S = 3700
+const TEAM = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
+const DROPPED = ["bot", "ignored_login", "ignored_prefix", "pr_author"]
+
+const USAGE = `usage: review-history <fetch|estimate|probe|stats|clean> [-C <dir>] [--json]
+       review-history fetch [--since <date>] [--passes <n>]
+       review-history estimate [--passes <n>]
+exit: 0 done, 1 failed, 2 usage, 3 not available (no registered project, no origin on GitHub, no gh, no access)`
+
+class Stop extends Error {
+    constructor(code, message) {
+        super(message)
+        this.code = code
+    }
+}
+const fail = (message) => new Stop(1, message)
+const unavailable = (message) => new Stop(3, message)
+
+// --- arguments -----------------------------------------------------------------------------------------------
+function parseArgs(argv) {
+    const opts = { command: "", dir: process.cwd(), json: false, since: null, passes: 1 }
+    const usage = (msg) => new Stop(2, `${msg}\n${USAGE}`)
+    for (let i = 0; i < argv.length; i++) {
+        const a = argv[i]
+        const next = () => {
+            const v = argv[++i]
+            if (v === undefined || v === "") throw usage(`${a} needs a value`)
+            return v
+        }
+        if (a === "-C") opts.dir = path.resolve(next())
+        else if (a === "--json") opts.json = true
+        else if (a === "--since") {
+            const v = next()
+            const t = Date.parse(v)
+            if (!/^\d{4}-\d{2}-\d{2}/.test(v) || Number.isNaN(t)) throw usage(`--since needs a date (YYYY-MM-DD or ISO), got "${v}"`)
+            opts.since = new Date(t)
+        } else if (a === "--passes") {
+            const v = next()
+            if (!/^[1-9]\d*$/.test(v)) throw usage(`--passes needs a whole number from 1, got "${v}"`)
+            opts.passes = Number(v)
+        } else if (a === "-h" || a === "--help") {
+            process.stdout.write(USAGE + "\n")
+            process.exit(0)
+        } else if (a.startsWith("-")) throw usage(`unknown flag: ${a}`)
+        else if (!opts.command) opts.command = a
+        else throw usage(`unexpected argument: ${a}`)
+    }
+    if (!["fetch", "estimate", "probe", "stats", "clean"].includes(opts.command))
+        throw usage(opts.command ? `unknown command: ${opts.command}` : "no command")
+    if (opts.since && opts.command !== "fetch") throw usage("--since goes with fetch only")
+    if (opts.passes !== 1 && !["fetch", "estimate"].includes(opts.command)) throw usage("--passes goes with fetch and estimate only")
+    return opts
+}
+
+// --- the project -----------------------------------------------------------------------------------------------
+// A sibling script runs with the node running this one (Windows does not start an extensionless file by its #!
+// line); a shell stub of a test runs by its #! line.
+function execScriptSync(file, args, options) {
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable or missing: the start reports it */
+    }
+    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return execFileSync(file, args, options)
+    return execFileSync(process.execPath, [file, ...args], options)
+}
+
+function readProfile(dir) {
+    try {
+        if (!fs.statSync(dir).isDirectory()) throw new Error()
+    } catch {
+        throw new Stop(2, `no such directory: ${dir}`)
+    }
+    try {
+        return JSON.parse(execScriptSync(PROFILE, ["-C", dir, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }))
+    } catch (e) {
+        const why = String(e.stderr || e.message || "").trim().split("\n")[0]
+        if (e.status === 3) throw unavailable(`not a registered project: ${why}`)
+        throw fail(`profile not read (exit ${e.status ?? e.code}): ${why}`)
+    }
+}
+
+const GITHUB_URL = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/
+
+// The GitHub repositories of the project: [{owner, name}], each once.
+function repositories(R, dir) {
+    const paths = (R.repos || []).map((r) => r.path).filter(Boolean)
+    if (!paths.length) paths.push(R.checkout || R.repo_root || dir)
+    const seen = new Map()
+    for (const p of paths) {
+        let url = ""
+        try {
+            url = execFileSync(GIT, ["-C", p, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }).trim()
+        } catch {
+            continue
+        }
+        const m = url.match(GITHUB_URL)
+        if (m) seen.set(`${m[1]}/${m[2]}`.toLowerCase(), { owner: m[1], name: m[2] })
+    }
+    if (!seen.size) throw unavailable(`no origin on GitHub in ${paths.join(", ")}`)
+    return [...seen.values()]
+}
+
+// --- the private folder ---------------------------------------------------------------------------------------
+function folder(R) {
+    const dir = path.join(R.dir, ...STATE_PATH)
+    return { dir, raw: path.join(dir, "raw"), next: path.join(dir, ".raw-next"), meta: path.join(dir, "meta.json"), ignore: path.join(dir, "ignore.json") }
+}
+
+function readJson(file) {
+    try {
+        return JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (e) {
+        if (e.code === "ENOENT") return null
+        throw fail(`${file} is not valid JSON: ${e.message}`)
+    }
+}
+
+function writeJson(file, value) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = `${file}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n")
+    fs.renameSync(tmp, file)
+}
+
+// ignore.json as sets; `create` writes it with empty lists when it is missing.
+function readIgnore(f, create) {
+    let v = readJson(f.ignore)
+    if (v === null) {
+        v = { logins: [], body_prefixes: [] }
+        if (create) writeJson(f.ignore, v)
+    }
+    const list = (k) => {
+        if (v[k] === undefined) return []
+        if (!Array.isArray(v[k]) || v[k].some((x) => typeof x !== "string")) throw fail(`${f.ignore}: "${k}" must be a list of strings`)
+        return v[k]
+    }
+    return { logins: new Set(list("logins").map((l) => l.toLowerCase())), prefixes: list("body_prefixes").filter((p) => p !== "") }
+}
+
+// --- gh --------------------------------------------------------------------------------------------------------
+let requests = 0
+
+function ghProgram() {
+    const over = process.env.REVIEW_HISTORY_GH
+    if (!over) return ["gh", []]
+    return over.endsWith(".mjs") ? [process.execPath, [over]] : [over, []]
+}
+
+function sleepSeconds(s) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s * 1000)
+}
+
+// The output of `gh api --include`: the status line and the headers, a blank line, the body.
+function parseIncluded(stdout) {
+    let status = 0
+    const headers = {}
+    let rest = stdout || ""
+    if (rest.startsWith("HTTP/")) {
+        const cut = rest.search(/\r?\n\r?\n/)
+        const head = cut < 0 ? rest : rest.slice(0, cut)
+        rest = cut < 0 ? "" : rest.slice(cut).replace(/^\r?\n\r?\n/, "")
+        const lines = head.split(/\r?\n/)
+        status = Number(lines[0].split(" ")[1]) || 0
+        for (const line of lines.slice(1)) {
+            const at = line.indexOf(":")
+            if (at > 0) headers[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim()
+        }
+    }
+    let body = null
+    try {
+        body = rest.trim() ? JSON.parse(rest) : null
+    } catch {
+        body = null
+    }
+    return { status, headers, body }
+}
+
+// null, or {wait, why} when the answer is a rate limit.
+function rateLimit(res, stderr) {
+    const msg = `${res.body?.message || ""} ${(res.body?.errors || []).map((e) => e.message).join(" ")} ${stderr || ""}`
+    const typed = (res.body?.errors || []).some((e) => e.type === "RATE_LIMITED")
+    const h = res.headers
+    const limited = typed || res.status === 429 || ((res.status === 403 || res.status === 0) && (h["retry-after"] || h["x-ratelimit-remaining"] === "0" || /rate limit/i.test(msg)))
+    if (!limited) return null
+    let wait = DEFAULT_WAIT_S
+    let basis = "no retry-after or x-ratelimit-reset"
+    if (/^\d+$/.test(h["retry-after"] || "")) {
+        wait = Number(h["retry-after"])
+        basis = `retry-after ${wait} s`
+    } else if (/^\d+$/.test(h["x-ratelimit-reset"] || "")) {
+        wait = Math.max(1, Number(h["x-ratelimit-reset"]) - Math.floor(Date.now() / 1000) + 1)
+        basis = `x-ratelimit-reset in ${wait} s`
+    }
+    const why = msg.trim().split("\n")[0] || `HTTP ${res.status}`
+    return { wait: Math.min(wait, MAX_WAIT_S), why: `${why} (${basis})` }
+}
+
+function noAccess(res, code, stderr) {
+    if ([401, 403, 404].includes(res.status)) return true
+    if ((res.body?.errors || []).some((e) => ["NOT_FOUND", "FORBIDDEN"].includes(e.type))) return true
+    if (code === 4) return true // gh: not logged in
+    return /Could not resolve to a Repository|gh auth login|HTTP 40[134]|Bad credentials/i.test(stderr || "")
+}
+
+// One GraphQL request, retried on a rate limit; the `data` of the answer.
+function graphql(query, vars, repo) {
+    const args = ["api", "graphql", "--include", "-f", `query=${query}`]
+    for (const [k, v] of Object.entries(vars)) if (v !== undefined && v !== null) args.push(typeof v === "number" ? "-F" : "-f", `${k}=${v}`)
+    const [file, pre] = ghProgram()
+    for (let retry = 0; ; retry++) {
+        requests++
+        const r = spawnSync(file, [...pre, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] })
+        if (r.error) {
+            if (r.error.code === "ENOENT") throw unavailable(`gh not found${process.env.REVIEW_HISTORY_GH ? ` (REVIEW_HISTORY_GH=${process.env.REVIEW_HISTORY_GH})` : " in PATH"}`)
+            throw fail(`gh did not start: ${r.error.message}`)
+        }
+        const res = parseIncluded(r.stdout)
+        const limited = rateLimit(res, r.stderr)
+        if (!limited && r.status === 0 && res.body?.data && !res.body.errors) return res.body.data
+        if (limited) {
+            if (retry >= RETRIES) throw fail(`GitHub rate limit: still limited after ${RETRIES} retries — ${limited.why}`)
+            process.stderr.write(`review-history: GitHub rate limit — ${limited.why}; waiting ${limited.wait} s, retry ${retry + 1} of ${RETRIES}\n`)
+            sleepSeconds(limited.wait)
+            continue
+        }
+        const why = (res.body?.errors?.[0]?.message || res.body?.message || r.stderr || `exit ${r.status}`).trim().split("\n")[0]
+        if (noAccess(res, r.status, r.stderr)) throw unavailable(`no access to ${repo}: ${why}`)
+        throw fail(`gh api graphql failed for ${repo} (exit ${r.status}): ${why}`)
+    }
+}
+
+// --- the queries ----------------------------------------------------------------------------------------------
+const PAGE_INFO = "pageInfo { hasNextPage endCursor }"
+const ACTOR = "author { __typename login }"
+const REVIEW = `id url state body submittedAt authorAssociation ${ACTOR} commit { oid }`
+const LINE_COMMENT = `id url body createdAt authorAssociation ${ACTOR} path line originalLine diffHunk replyTo { id } originalCommit { oid }`
+const THREAD = (n) => `id path line isResolved isOutdated comments(first: ${n}) { ${PAGE_INFO} nodes { ${LINE_COMMENT} } }`
+const COMMENT = `id url body createdAt authorAssociation ${ACTOR}`
+const PULL = [
+    `number url title state createdAt updatedAt mergedAt additions deletions changedFiles ${ACTOR}`,
+    "files(first: 100) { nodes { path } }",
+    `reviews(first: 30) { ${PAGE_INFO} nodes { ${REVIEW} } }`,
+    `reviewThreads(first: 50) { ${PAGE_INFO} nodes { ${THREAD(20)} } }`,
+    `comments(first: 50) { ${PAGE_INFO} nodes { ${COMMENT} } }`,
+].join(" ")
+const Q = {
+    page: `query ReviewHistoryPage($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(first: 100, after: $endCursor, orderBy: {field: UPDATED_AT, direction: DESC}) { ${PAGE_INFO} nodes { ${PULL} } } } }`,
+    reviews: `query ReviewHistoryReviews($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviews(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${REVIEW} } } } } }`,
+    threads: `query ReviewHistoryThreads($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${THREAD(20)} } } } } }`,
+    comments: `query ReviewHistoryComments($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { comments(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${COMMENT} } } } } }`,
+    threadComments: `query ReviewHistoryThreadComments($id: ID!, $endCursor: String) { node(id: $id) { ... on PullRequestReviewThread { comments(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${LINE_COMMENT} } } } } }`,
+}
+
+// Reads the rest of a connection that did not fit into the page: the nodes after its endCursor.
+function readOn(conn, fetchPage) {
+    let info = conn.pageInfo
+    while (info?.hasNextPage) {
+        const more = fetchPage(info.endCursor)
+        if (!more) break
+        conn.nodes.push(...(more.nodes || []))
+        info = more.pageInfo
+    }
+}
+
+function completePull(node, repo) {
+    const v = { owner: repo.owner, name: repo.name, number: node.number }
+    const full = `${repo.owner}/${repo.name}`
+    const pr = (data) => data?.repository?.pullRequest
+    readOn(node.reviews, (c) => pr(graphql(Q.reviews, { ...v, endCursor: c }, full))?.reviews)
+    readOn(node.reviewThreads, (c) => pr(graphql(Q.threads, { ...v, endCursor: c }, full))?.reviewThreads)
+    readOn(node.comments, (c) => pr(graphql(Q.comments, { ...v, endCursor: c }, full))?.comments)
+    for (const t of node.reviewThreads.nodes) readOn(t.comments, (c) => graphql(Q.threadComments, { id: t.id, endCursor: c }, full)?.node?.comments)
+}
+
+// --- whose words count ------------------------------------------------------------------------------------------
+function role(author, association, body, prAuthor, ignore) {
+    if (!author) return "context" // a deleted account
+    const login = author.login || ""
+    if (author.__typename === "Bot" || /\[bot\]$/i.test(login)) return "bot"
+    if (ignore.logins.has(login.toLowerCase())) return "ignored_login"
+    const text = (body || "").trimStart()
+    if (ignore.prefixes.some((p) => text.startsWith(p))) return "ignored_prefix"
+    if (prAuthor && login.toLowerCase() === prAuthor.toLowerCase()) return "pr_author"
+    return TEAM.has(association) ? "team" : "context"
+}
+
+// The text of a comment without its quoted lines.
+function ownText(body) {
+    return (body || "")
+        .split(/\r?\n/)
+        .filter((l) => !l.trimStart().startsWith(">"))
+        .join("\n")
+        .trim()
+}
+
+function isSubstantive(body) {
+    const own = ownText(body)
+    if (/```suggestion\b/.test(own)) return true
+    if ([...own].length < MIN_OWN_CHARS) return false
+    const rest = own
+        .toLowerCase()
+        .replace(/\+1/g, " ")
+        .replace(/\b(lgtm|thanks|thank you|thx|ty)\b/g, " ")
+        .replace(/[^\p{L}\p{N}]+/gu, "")
+    return rest.length > 0
+}
+
+// A pull request as raw/ keeps it, and the counts of what the filter dropped.
+function filterPull(node, repo, ignore) {
+    const dropped = Object.fromEntries(DROPPED.map((k) => [k, 0]))
+    const prAuthor = node.author?.login || ""
+    const keep = (item) => {
+        const r = role(item.author, item.authorAssociation, item.body, prAuthor, ignore)
+        if (r in dropped) {
+            dropped[r]++
+            return null
+        }
+        return { r, login: item.author?.login || null }
+    }
+    const reviews = []
+    for (const rv of node.reviews.nodes) {
+        if (rv.state === "PENDING") continue
+        const k = keep(rv)
+        if (k) reviews.push({ id: rv.id, url: rv.url, state: rv.state, body: rv.body || "", submitted_at: rv.submittedAt, commit_id: rv.commit?.oid || null, author: k.login, role: k.r })
+    }
+    const threads = []
+    for (const t of node.reviewThreads.nodes) {
+        const comments = []
+        for (const c of t.comments.nodes) {
+            const k = keep(c)
+            if (k)
+                comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, path: c.path, line: c.line ?? null, original_line: c.originalLine ?? null, diff_hunk: c.diffHunk || "", in_reply_to: c.replyTo?.id || null, commit_id: c.originalCommit?.oid || null, author: k.login, role: k.r })
+        }
+        if (comments.length) threads.push({ id: t.id, path: t.path, line: t.line ?? null, is_resolved: !!t.isResolved, is_outdated: !!t.isOutdated, comments })
+    }
+    const comments = []
+    for (const c of node.comments.nodes) {
+        const k = keep(c)
+        if (k) comments.push({ id: c.id, url: c.url, body: c.body || "", created_at: c.createdAt, author: k.login, role: k.r })
+    }
+    const pull = {
+        repo: `${repo.owner}/${repo.name}`,
+        number: node.number,
+        url: node.url,
+        title: node.title,
+        state: node.state,
+        created_at: node.createdAt,
+        updated_at: node.updatedAt,
+        merged_at: node.mergedAt || null,
+        additions: node.additions ?? 0,
+        deletions: node.deletions ?? 0,
+        changed_files: node.changedFiles ?? 0,
+        files: (node.files?.nodes || []).map((f) => f.path),
+        reviews,
+        threads,
+        comments,
+    }
+    return { pull, dropped }
+}
+
+// The texts of a pull request: [{kind, role, author, body, url, thread?}].
+function texts(pull) {
+    const out = []
+    for (const r of pull.reviews) if (r.body.trim()) out.push({ kind: "review_body", role: r.role, author: r.author, body: r.body, url: r.url })
+    for (const t of pull.threads) for (const c of t.comments) out.push({ kind: "line", role: c.role, author: c.author, body: c.body, url: c.url, thread: t, first: c === t.comments[0] })
+    for (const c of pull.comments) out.push({ kind: "conversation", role: c.role, author: c.author, body: c.body, url: c.url })
+    return out
+}
+const hasTeamReview = (pull) => pull.reviews.some((r) => r.role === "team")
+const substantiveCount = (pull) => texts(pull).filter((t) => t.role === "team" && isSubstantive(t.body)).length
+
+// --- the window --------------------------------------------------------------------------------------------------
+function now() {
+    const v = process.env.REVIEW_HISTORY_NOW
+    const t = v ? Date.parse(v) : NaN
+    return Number.isNaN(t) ? new Date() : new Date(t)
+}
+
+function windowOf(since) {
+    const to = now()
+    const from = new Date(to)
+    from.setUTCMonth(from.getUTCMonth() - WINDOW_MONTHS)
+    const lower = since && since > from ? since : from
+    return { from: from.toISOString(), to: to.toISOString(), since: since ? since.toISOString() : null, months: WINDOW_MONTHS, max_prs_per_repository: MAX_PRS, lower }
+}
+
+// Walks the window of one repository: onPull(pull) for each pull request with a review of the team, until it
+// returns true, the window ends, or MAX_PRS were given. Returns the counts of what the filter dropped.
+function walk(repo, win, ignore, onPull) {
+    const dropped = Object.fromEntries(DROPPED.map((k) => [k, 0]))
+    const full = `${repo.owner}/${repo.name}`
+    let cursor = null
+    let given = 0
+    for (;;) {
+        const data = graphql(Q.page, { owner: repo.owner, name: repo.name, endCursor: cursor }, full)
+        const conn = data?.repository?.pullRequests
+        if (!conn) throw unavailable(`no access to ${full}: the answer has no repository`)
+        for (const node of conn.nodes || []) {
+            if (Date.parse(node.updatedAt) < win.lower.getTime()) return dropped
+            completePull(node, repo)
+            const { pull, dropped: d } = filterPull(node, repo, ignore)
+            if (!hasTeamReview(pull)) continue
+            for (const k of DROPPED) dropped[k] += d[k]
+            given++
+            if (onPull(pull) || given >= MAX_PRS) return dropped
+        }
+        if (!conn.pageInfo?.hasNextPage) return dropped
+        cursor = conn.pageInfo.endCursor
+    }
+}
+
+// --- counts and the estimate ----------------------------------------------------------------------------------------
+function tokenEstimate(chars, passes) {
+    let cyrillic = 0
+    let other = 0
+    for (const ch of chars) {
+        if (/[\u0400-\u04FF]/.test(ch)) cyrillic++
+        else other++
+    }
+    return Math.ceil((other / 4 + cyrillic / 2) * passes)
+}
+
+function voiceOf(substantive) {
+    const enough = substantive >= VOICE_THRESHOLD
+    return { enough, substantive, threshold: VOICE_THRESHOLD, line: enough ? "voice: yes" : `voice: no (${substantive} of ${VOICE_THRESHOLD})` }
+}
+
+function summarize(pulls, meta, passes) {
+    const reviews = { APPROVED: 0, CHANGES_REQUESTED: 0, COMMENTED: 0, DISMISSED: 0 }
+    const comments = { review_body: 0, line: 0, conversation: 0 }
+    const reviewers = new Set()
+    let context = 0
+    let substantive = 0
+    let text = ""
+    let hunks = ""
+    for (const p of pulls) {
+        for (const r of p.reviews) {
+            if (r.role !== "team") continue
+            reviews[r.state] = (reviews[r.state] || 0) + 1
+            if (r.author) reviewers.add(r.author.toLowerCase())
+        }
+        for (const t of texts(p)) {
+            text += t.body
+            if (t.kind === "line" && t.first) hunks += t.thread.comments[0].diff_hunk
+            if (t.role !== "team") {
+                context++
+                continue
+            }
+            comments[t.kind]++
+            if (t.author) reviewers.add(t.author.toLowerCase())
+            if (isSubstantive(t.body)) substantive++
+        }
+    }
+    const textChars = [...text].length
+    const hunkChars = [...hunks].length
+    return {
+        repositories: meta?.repositories?.map((r) => r.repo) || [...new Set(pulls.map((p) => p.repo))],
+        window: meta?.window || null,
+        pull_requests: pulls.length,
+        reviews,
+        comments: { ...comments, total: comments.review_body + comments.line + comments.conversation },
+        context,
+        substantive,
+        reviewers: reviewers.size,
+        dropped: meta?.dropped || null,
+        characters: { text: textChars, diff_context: hunkChars },
+        tokens: { estimate: tokenEstimate(text + hunks, passes), passes, basis: "estimate: Latin and other characters / 4, Cyrillic / 2, times the passes" },
+        voice: voiceOf(substantive),
+    }
+}
+
+const num = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+
+function estimateText(s) {
+    const w = s.window
+    const d = s.dropped
+    return [
+        `repositories: ${s.repositories.join(", ")}`,
+        `pull requests: ${s.pull_requests}${w ? ` (updated ${w.since ? `since ${w.since.slice(0, 10)}` : `from ${w.from.slice(0, 10)}`} to ${w.to.slice(0, 10)}, with a review of the team, at most ${w.max_prs_per_repository} per repository)` : ""}`,
+        `reviews of the team: ${Object.values(s.reviews).reduce((a, b) => a + b, 0)} — approved ${s.reviews.APPROVED}, changes requested ${s.reviews.CHANGES_REQUESTED}, commented ${s.reviews.COMMENTED}, dismissed ${s.reviews.DISMISSED}`,
+        `comments of the team: ${s.comments.total} — review bodies ${s.comments.review_body}, line comments ${s.comments.line}, conversation ${s.comments.conversation}`,
+        `context (authors outside the team): ${s.context}`,
+        `substantive comments of the team: ${s.substantive}`,
+        `reviewers of the team: ${s.reviewers}`,
+        d ? `dropped: bots ${d.bot}, ignored logins ${d.ignored_login}, ignored prefixes ${d.ignored_prefix}, authors on their own pull request ${d.pr_author}` : "dropped: not recorded",
+        `characters: ${num(s.characters.text)} of text, ${num(s.characters.diff_context)} of diff context`,
+        `tokens: ~${num(s.tokens.estimate)} (estimate: Latin characters / 4, Cyrillic / 2, × ${s.tokens.passes} pass${s.tokens.passes === 1 ? "" : "es"})`,
+        s.voice.line,
+    ].join("\n")
+}
+
+function readRaw(f) {
+    const file = path.join(f.raw, "prs.jsonl")
+    let content
+    try {
+        content = fs.readFileSync(file, "utf8")
+    } catch {
+        throw fail(`no ${file}: run review-history fetch first`)
+    }
+    return content
+        .split("\n")
+        .filter((l) => l.trim())
+        .map((l, i) => {
+            try {
+                return JSON.parse(l)
+            } catch {
+                throw fail(`${file}:${i + 1} is not valid JSON`)
+            }
+        })
+}
+
+// --- stats ----------------------------------------------------------------------------------------------------
+function percentiles(values) {
+    const v = [...values].sort((a, b) => a - b)
+    const at = (q) => (v.length ? v[Math.min(v.length - 1, Math.ceil(q * v.length) - 1)] : null)
+    return { count: v.length, p10: at(0.1), p25: at(0.25), p50: at(0.5), p75: at(0.75), p90: at(0.9), max: v.length ? v[v.length - 1] : null }
+}
+
+const share = (part, whole) => (whole ? Math.round((part / whole) * 1000) / 1000 : 0)
+
+function label(i) {
+    let s = ""
+    for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s
+    return `reviewer ${s}`
+}
+
+const SIZES = [
+    ["1-10", 10],
+    ["11-50", 50],
+    ["51-200", 200],
+    ["201-1000", 1000],
+    ["1001+", Infinity],
+]
+
+function stats(pulls) {
+    const lengths = { all: [], review_body: [], line: [], conversation: [] }
+    const states = { APPROVED: 0, CHANGES_REQUESTED: 0, COMMENTED: 0, DISMISSED: 0 }
+    const byReviewer = new Map()
+    const bySize = Object.fromEntries(SIZES.map(([k]) => [k, { pull_requests: 0, approved_without_comments: 0 }]))
+    const byArea = new Map()
+    const repeats = new Map()
+    let threadStarts = 0
+    let outdated = 0
+    let resolved = 0
+    for (const p of pulls) {
+        const team = texts(p).filter((t) => t.role === "team")
+        for (const r of p.reviews) if (r.role === "team") states[r.state] = (states[r.state] || 0) + 1
+        for (const t of team) {
+            if (t.author) byReviewer.set(t.author.toLowerCase(), (byReviewer.get(t.author.toLowerCase()) || 0) + 1)
+            if (!isSubstantive(t.body)) continue
+            const n = [...ownText(t.body)].length
+            lengths.all.push(n)
+            lengths[t.kind].push(n)
+            const key = ownText(t.body).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().slice(0, 80)
+            if (key.length >= 10) {
+                const g = repeats.get(key) || { prs: new Set(), urls: [] }
+                g.prs.add(`${p.repo}#${p.number}`)
+                if (g.urls.length < 5) g.urls.push(t.url)
+                repeats.set(key, g)
+            }
+            if (t.kind === "line" && t.first) {
+                threadStarts++
+                if (t.thread.is_outdated) outdated++
+                if (t.thread.is_resolved) resolved++
+            }
+        }
+        for (const r of p.reviews) if (r.role === "team" && r.author && !team.some((t) => t.author === r.author)) byReviewer.set(r.author.toLowerCase(), byReviewer.get(r.author.toLowerCase()) || 0)
+        const silent = p.reviews.some((r) => r.role === "team" && r.state === "APPROVED") && team.every((t) => !t.body.trim())
+        const size = p.additions + p.deletions
+        const bucket = SIZES.find(([, max]) => size <= max)[0]
+        bySize[bucket].pull_requests++
+        if (silent) bySize[bucket].approved_without_comments++
+        for (const area of new Set(p.files.map((f) => (f.includes("/") ? f.split("/")[0] + "/" : ".")))) {
+            const a = byArea.get(area) || { pull_requests: 0, approved_without_comments: 0 }
+            a.pull_requests++
+            if (silent) a.approved_without_comments++
+            byArea.set(area, a)
+        }
+    }
+    const totalComments = [...byReviewer.values()].reduce((a, b) => a + b, 0)
+    const reviewers = [...byReviewer.values()].sort((a, b) => b - a).map((c, i) => ({ reviewer: label(i), comments: c, share: share(c, totalComments) }))
+    const totalReviews = Object.values(states).reduce((a, b) => a + b, 0)
+    const groups = [...repeats.values()].filter((g) => g.prs.size >= 2).sort((a, b) => b.prs.size - a.prs.size)
+    return {
+        pull_requests: pulls.length,
+        lengths: Object.fromEntries(Object.entries(lengths).map(([k, v]) => [k, percentiles(v)])),
+        review_states: Object.fromEntries(Object.entries(states).map(([k, c]) => [k, { count: c, share: share(c, totalReviews) }])),
+        approved_without_comments: {
+            by_size: bySize,
+            by_area: Object.fromEntries([...byArea.entries()].sort((a, b) => b[1].pull_requests - a[1].pull_requests || (a[0] < b[0] ? -1 : 1))),
+        },
+        repeated_remarks: { groups: groups.length, top: groups.slice(0, 10).map((g) => ({ pull_requests: g.prs.size, urls: g.urls })) },
+        threads: {
+            started_by_team: threadStarts,
+            outdated_after_comment: { count: outdated, share: share(outdated, threadStarts), basis: "the thread is outdated: a later commit changed the lines it comments" },
+            resolved: { count: resolved, share: share(resolved, threadStarts) },
+        },
+        reviewers: { count: reviewers.length, top_share: reviewers[0]?.share ?? 0, shares: reviewers },
+    }
+}
+
+// --- the commands ----------------------------------------------------------------------------------------------
+// meta.json after a fetch. A whole fetch is the history: its record goes to the top level (fetched_at, window,
+// repositories, dropped, requests, counts, voice) and an older `update` is dropped. A fetch with --since reads only a
+// slice of new pull requests: the top level keeps the history it describes, the slice goes under `update`, and
+// `raw` says which of the two raw/ holds. Either way the cursor — repositories[].last_pr, the newest pull request
+// read ({number, updated_at}), where the next `fetch --since` starts — moves to the newest one read, and stays as it
+// was for a repository where nothing new was read. Keys of other writers are kept.
+function withRecord(old, record, isUpdate) {
+    const cursors = new Map((old.repositories || []).map((r) => [r.repo, r.last_pr || null]))
+    const latest = (r) => r.last_pr || cursors.get(r.repo) || null
+    if (!isUpdate) {
+        const { update, ...rest } = old
+        return { ...rest, ...record, repositories: record.repositories.map((r) => ({ ...r, last_pr: latest(r) })), raw: "fetch" }
+    }
+    const repositories = [...(old.repositories || [])].map((r) => ({ ...r }))
+    for (const r of record.repositories) {
+        const at = repositories.find((o) => o.repo === r.repo)
+        if (at) at.last_pr = latest(r)
+        else repositories.push({ repo: r.repo, pull_requests: null, last_pr: r.last_pr })
+    }
+    return { ...old, repositories, update: record, raw: "update" }
+}
+
+function cmdFetch(opts, R, f) {
+    const repos = repositories(R, opts.dir)
+    const ignore = readIgnore(f, true)
+    const win = windowOf(opts.since)
+    fs.rmSync(f.next, { recursive: true, force: true })
+    fs.mkdirSync(f.next, { recursive: true })
+    const out = path.join(f.next, "prs.jsonl")
+    fs.writeFileSync(out, "")
+    const pulls = []
+    const dropped = Object.fromEntries(DROPPED.map((k) => [k, 0]))
+    const perRepo = []
+    try {
+        for (const repo of repos) {
+            let newest = null
+            let count = 0
+            const d = walk(repo, win, ignore, (pull) => {
+                fs.appendFileSync(out, JSON.stringify(pull) + "\n")
+                pulls.push(pull)
+                count++
+                if (!newest) newest = { number: pull.number, updated_at: pull.updated_at }
+                return false
+            })
+            for (const k of DROPPED) dropped[k] += d[k]
+            perRepo.push({ repo: `${repo.owner}/${repo.name}`, pull_requests: count, last_pr: newest })
+        }
+        fs.rmSync(f.raw, { recursive: true, force: true })
+        fs.renameSync(f.next, f.raw)
+    } catch (e) {
+        fs.rmSync(f.next, { recursive: true, force: true })
+        throw e
+    }
+    const { lower, ...window } = win
+    const record = { fetched_at: now().toISOString(), window, repositories: perRepo, dropped, requests }
+    const summary = summarize(pulls, record, opts.passes)
+    record.counts = { pull_requests: summary.pull_requests, reviews: summary.reviews, comments: summary.comments, context: summary.context, substantive: summary.substantive, reviewers: summary.reviewers, characters: summary.characters }
+    record.voice = summary.voice.line
+    writeJson(f.meta, withRecord(readJson(f.meta) || {}, record, !!opts.since))
+
+    if (opts.json) return { fetched: { requests, raw: f.raw }, estimate: summary }
+    return `fetched: ${summary.pull_requests} pull requests in ${requests} requests into ${f.raw}\n${estimateText(summary)}`
+}
+
+function cmdEstimate(opts, R, f) {
+    // raw/ holds either the history or the slice of the last `fetch --since`: the window and the drops of that fetch.
+    const meta = readJson(f.meta)
+    const s = summarize(readRaw(f), meta?.raw === "update" ? meta.update : meta, opts.passes)
+    return opts.json ? s : estimateText(s)
+}
+
+function cmdProbe(opts, R, f) {
+    const repos = repositories(R, opts.dir)
+    const ignore = readIgnore(f, false)
+    const win = windowOf(null)
+    let substantive = 0
+    let pulls = 0
+    for (const repo of repos) {
+        if (substantive >= VOICE_THRESHOLD) break
+        walk(repo, win, ignore, (pull) => {
+            pulls++
+            substantive += substantiveCount(pull)
+            return substantive >= VOICE_THRESHOLD
+        })
+    }
+    const voice = voiceOf(Math.min(substantive, VOICE_THRESHOLD))
+    if (opts.json) return { voice: voice.enough ? "yes" : "no", substantive: voice.substantive, threshold: VOICE_THRESHOLD, pull_requests: pulls, requests, line: voice.line }
+    return `${voice.line}\npull requests read: ${pulls}, substantive comments of the team: ${voice.substantive}, requests: ${requests}`
+}
+
+function cmdStats(opts, R, f) {
+    return stats(readRaw(f))
+}
+
+function cmdClean(opts, R, f) {
+    const had = fs.existsSync(f.raw)
+    fs.rmSync(f.raw, { recursive: true, force: true })
+    fs.rmSync(f.next, { recursive: true, force: true })
+    return opts.json ? { removed: had ? f.raw : null } : had ? `removed ${f.raw}` : `nothing to remove: no ${f.raw}`
+}
+
+function main() {
+    let opts = null
+    try {
+        opts = parseArgs(process.argv.slice(2))
+        const prof = readProfile(opts.dir)
+        const R = prof._resolved || {}
+        if (!R.dir) throw fail("the profile has no _resolved.dir")
+        const f = folder(R)
+        const run = { fetch: cmdFetch, estimate: cmdEstimate, probe: cmdProbe, stats: cmdStats, clean: cmdClean }[opts.command]
+        const result = run(opts, R, f)
+        process.stdout.write((typeof result === "string" ? result : JSON.stringify(result, null, 2)) + "\n")
+        process.exit(0)
+    } catch (e) {
+        if (!(e instanceof Stop)) throw e
+        process.stderr.write(`review-history: ${e.message}\n`)
+        if (opts?.json && e.code !== 2) process.stdout.write(JSON.stringify({ error: e.code === 3 ? "not available" : "failed", reason: e.message }) + "\n")
+        process.exit(e.code)
+    }
+}
+
+main()

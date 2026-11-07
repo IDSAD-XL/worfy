@@ -1,0 +1,14 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviews": {
+          "pageInfo": { "hasNextPage": false, "endCursor": "r3" },
+          "nodes": [
+            { "id": "R6", "url": "https://github.com/acme/shop/pull/41#pullrequestreview-6", "state": "COMMENTED", "body": "OVERFLOW-REVIEW-TEXT One more look: the error path still logs twice.", "submittedAt": "2026-05-19T12:00:00Z", "authorAssociation": "OWNER", "author": { "__typename": "User", "login": "jun-o" }, "commit": { "oid": "c2" } }
+          ]
+        }
+      }
+    }
+  }
+}
