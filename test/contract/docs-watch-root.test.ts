@@ -191,3 +191,33 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: a root written otherw
     expect(changes.at(-1)?.adrs).toHaveLength(1)
   })
 })
+
+// A Product Session topic the watcher knows (worfy-product-session ticket 05) goes with the root:
+// read as gone while the root is away, read again when it is back. On Windows the root is waited for
+// and watched anew (ticket 27); on macOS the same watch reports it (ticket 38).
+describe.runIf(MACOS || WINDOWS)('DocsWatcher, real folders: a known Product Session topic while the root is removed and made again', () => {
+  it('the topic reads as gone, then as it is after the root is back', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const topic = (): string => join(root, 'docs', 'product', 't')
+    mkdirSync(topic(), { recursive: true })
+    writeFileSync(join(topic(), 'mind-map.json'), JSON.stringify({ version: 1, nodes: [{ id: 'a', kind: 'idea', text: 'before', from: null }] }))
+    const topics: { name: string; text: string | null }[] = []
+    const watcher = await DocsWatcher.start({
+      root,
+      retryMs: 200,
+      productDir: ['docs', 'product'],
+      onChange: () => undefined,
+      onTopic: (name, read) => topics.push({ name, text: read === null ? null : (read.nodes[0]?.text ?? '') }),
+    })
+    watchers.push(watcher)
+    expect((await watcher.topic('t'))?.nodes[0]?.text).toBe('before')
+    await pause(1200)
+
+    removeTestTree(root)
+    await vi.waitFor(() => expect(topics.at(-1)).toEqual({ name: 't', text: null }), { timeout: ms(5000), interval: 50 })
+
+    mkdirSync(topic(), { recursive: true })
+    writeFileSync(join(topic(), 'mind-map.json'), JSON.stringify({ version: 1, nodes: [{ id: 'a', kind: 'idea', text: 'after', from: null }] }))
+    await vi.waitFor(() => expect(topics.at(-1)).toEqual({ name: 't', text: 'after' }), { timeout: ms(5000), interval: 50 })
+  }, ms(20_000))
+})

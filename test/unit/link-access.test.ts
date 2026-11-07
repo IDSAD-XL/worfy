@@ -235,6 +235,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'pipeline.get',
     // The Pipeline editor reads the Profile's Pipeline through bin/profile-set --read (worfy-pipeline ticket 08).
     'pipeline.read',
+    // One Product Session topic, as docs.read: the map, its Tickets and the Mind map are read (worfy-product-session ticket 05).
+    'product.topic',
     'projects.list',
     'projects.settings.defaults',
     'projects.settings.get',
