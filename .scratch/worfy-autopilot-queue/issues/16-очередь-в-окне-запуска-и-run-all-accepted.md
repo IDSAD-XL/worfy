@@ -1,7 +1,8 @@
 # 16 — Очередь в окне запуска и «Run all accepted»
 
 Type: task
-Status: open
+Status: done 2026-11-07T01:06Z
+PR: #1542
 Blocked by: 11, 13, 14
 Source: [spec.md](../spec.md), «Что видит владелец», п. 4; «Окно запуска (прототип)», вид «Queue»; «Решения владельца», 16; «Открытые вопросы», 2; [03](03-очередь-epic-ов.md), Q1
 
@@ -28,15 +29,21 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4; «
 
 - [ ] Unit test списка: снять галочку, перетащить мышью и ⌥↑/⌥↓, прогноз пересчитан, пустой выбор — старт недоступен.
   - evidence: test-run pass · `pnpm test test/unit/queue-list.test.tsx` 12 passed, exit 0 · mac - · 9705a71af5bab9cf2b547c2fb38031c6b92febd9
+  - evidence: review pass · PR #1542 · - - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
 - [ ] Contract test `autopilot.prepare` с тремя Epic-ами: даты, Wave-ы, сумма прогноза.
   - evidence: test-run pass · `pnpm test test/contract/autopilot-prepare.test.ts` 10 passed, exit 0 · mac - · 9705a71af5bab9cf2b547c2fb38031c6b92febd9
+  - evidence: review pass · PR #1542 · - - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
 - [ ] e2e: Command palette → «Run all accepted» → окно с тремя Epic-ами fixture-а → снять второй, первый и третий
       поменять местами → старт → `run-started.epics` в журнале — в новом порядке без снятого.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-start-modal.spec.ts` 5 passed, exit 0 · mac dev · 9705a71af5bab9cf2b547c2fb38031c6b92febd9
+  - evidence: review pass · PR #1542 · - - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
 - [ ] Снимок вида «Queue» в обеих темах — `../evidence/16-*.png`.
   - evidence: screenshot pass · `../evidence/16-start-window-queue-light.png` · mac dev · f57fa8cdd3242eb2d1afc20b5b2b1391e8f1170a · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/16-start-window-queue-dark.png` · mac dev · f57fa8cdd3242eb2d1afc20b5b2b1391e8f1170a · scrub: 2026-11-07
+  - evidence: review pass · PR #1542 · - - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: review pass · PR #1542 · - - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42319324778 · ci - · d603c1d6cdf5132c58f77e4ab38235b4ee9ca969
 
 ## Тесты
 
