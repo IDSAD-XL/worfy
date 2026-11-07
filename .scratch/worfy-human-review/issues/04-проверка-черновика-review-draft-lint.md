@@ -54,3 +54,44 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - `test/contract/harness-review-draft-lint.test.ts` (новый)
 
 Только читать: `harness/lib/privacy.cjs`, `harness/lib/input-words.json`.
+
+## Итог
+
+Ветка `worfy-human-review/04`.
+
+- **Модуль `harness/lib/workflow-traces.cjs`** — правила следов workflow (имя Epic-а, `<epic>/<NN>`, номер ADR, `Ticket <N>`
+  и слово «ticket» из `lib/input-words.json`, путь Workflow folder, `.scratch`, `HANDOFF`), строки авторства Claude и поиск
+  с правилом «найденный кусок второй раз не находится». Данные (корень тикетов, `input-words.json`) читает вызывающий
+  скрипт. `silent-check` берёт правила оттуда; своей копии правил в нём нет. Порядок в `silent-check`: сначала
+  `input-words.json`, потом модуль — так test «битый `input-words.json`» из `silent-mode.test.sh` (копия одного
+  `silent-check` без `lib/`) даёт тот же exit 2 с той же причиной. Test-ы `silent-check` не менялись.
+- **`harness/bin/review-draft-lint`** — формат черновика `{ payload, tiers, body_tier }` и `lint.json`
+  (`schema: 1`, `tiers.<уровень>.max_chars`, `forbidden`) — как в spec. Находка — строка `<где>: <правило> …`, где `<где>` —
+  `body` или `comments[<i>] <path>:<line>`. Все значения в выводе проходят `privacy.maskText`, находки личных данных —
+  `privacy.mask`. Вне зарегистрированного проекта имена Epic-ов и Workflow folder не проверяются, об этом строка в stderr.
+- **`--skill <папка>`** — правило — пункт списка под заголовком `## ` (и его `###`), вне блоков кода (`lib/code-fence.cjs`),
+  с продолжением на следующих строках; должен кончаться одной или несколькими `[R<n>]`. Раздел `research.md` —
+  `## R<n> — <заголовок>` (тире `—`, `–` или `-`).
+- `harness/lib/README.md` — строка о модуле; `docs/features/harness.md` — строка `review-draft-lint` в таблице скриптов
+  (страница Feature описывает список скриптов; перевод не правится, ADR-0088).
+
+Решено без владельца:
+
+1. Номер ADR — тоже след в черновике: spec велит «те же правила, что у `silent-check`», а там он есть. Цена: команда,
+   которая сама ссылается на свои ADR, получит находку и перепишет фразу.
+2. Голое имя Epic-а ищется во всех текстах черновика, как в тексте у `silent-check` (не как в строках diff). Epic, названный
+   по области кода (`deals`), даст ложную находку в комментарии про эту область.
+3. Уровень, которого нет в `lint.json.tiers`, — exit 2 (ошибка входа), а не «предела нет». `body_tier` обязателен, когда
+   `payload.body` не пустой. Неизвестное поле верхнего уровня черновика — тоже exit 2; `payload` проверяется только в
+   полях, которые читает скрипт (тело GitHub-запроса «как есть»).
+4. Слово `forbidden` ищется без учёта регистра как целое слово; одна находка на слово в тексте.
+5. Длина — в символах Unicode (code points), не в байтах.
+
+Проверки:
+
+- Сначала красный: `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` до скрипта —
+  exit 1, 9 из 9 test-ов красные (скрипта нет). После — exit 0, 9 из 9.
+- `bash harness/bin/tests/silent-mode.test.sh` — exit 0 (95 passed), без правок test-а; `evidence-check.test.sh` — exit 0
+  (233); `ticket-evidence.test.sh`, `land.test.sh`, `hooks/tests/guard-silent.test.sh`, `skill-blocks.test.sh`,
+  `eval-env.test.sh`, `plugin-neutral.test.sh`, `agents-text.test.sh` — exit 0.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` (681 файлов) — exit 0.

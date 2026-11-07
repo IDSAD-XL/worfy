@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+// review-draft-lint — checks a review draft before a person sees it, and the rules of a generated review skill.
+//
+//   review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+//   review-draft-lint --skill <folder>
+//
+// A draft is { payload, tiers, body_tier }: payload — the body of the GitHub request
+// POST /repos/{owner}/{repo}/pulls/{number}/reviews as it is (event, body, comments[] with path, line, side,
+// body); tiers — the tier of each comment, in the order of payload.comments; body_tier — the tier of the body,
+// needed when the body is not empty. lint.json is { schema: 1, tiers: { <tier>: { max_chars } }, forbidden }.
+//
+// A finding, one line each on stdout, `<where>: <rule> …`, where <where> is `body` or `comments[<i>] <path>:<line>`:
+//   - length: a text longer than max_chars of its tier (characters, not bytes);
+//   - the traces of the workflow (lib/workflow-traces.cjs, the rules of bin/silent-check), in any mode of the
+//     project and whatever its attribution: an epic name and `<epic>/<NN>` of the project of -C (default: the
+//     current directory), a ticket number, an ADR number, the Workflow folder, `.scratch`, `HANDOFF`. Outside a
+//     registered project the rules that need one (epic names, the Workflow folder) are skipped, and stderr says so;
+//   - AI authorship: the Claude attribution lines, a text that calls its author an AI;
+//   - personal data (lib/privacy.cjs, with the host name of this machine and the personal list of the Harness
+//     home), printed only through mask();
+//   - a word of lint.json forbidden, matched case-insensitively as a whole word.
+// Every value is printed with the personal data in it masked.
+//
+// --skill <folder>: every rule of <folder>/SKILL.md — a list item under a `## ` heading, outside code blocks —
+// ends with one or more references `[R<n>]`, and <folder>/research.md has a section `## R<n> — <title>` for
+// each. A rule without a reference and a reference to a missing section are findings.
+//
+// Exit codes: 0 — clean; 1 — findings; 2 — usage error or broken input (a file not read, not JSON, an unknown
+// field of lint.json, a tier lint.json does not name, a profile that could not be read). Reads only.
+"use strict"
+
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { execFileSync } = require("node:child_process")
+const { harnessHome } = require("../hooks/eval-env.cjs")
+const privacy = require("../lib/privacy.cjs")
+const traces = require("../lib/workflow-traces.cjs")
+const { codeLines } = require("../lib/code-fence.cjs")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
+
+const USAGE = `usage: review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+       review-draft-lint --skill <folder>
+exit: 0 clean, 1 findings, 2 usage error or broken input`
+
+const die = (code, msg) => {
+    if (msg) process.stderr.write(`review-draft-lint: ${msg}\n`)
+    process.exit(code)
+}
+const firstLine = (e) => String((e && (e.stderr || e.message)) || e).split("\n")[0]
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
+
+// --- arguments -----------------------------------------------------------------
+let dir = process.cwd()
+let draftFile = null
+let rulesFile = null
+let skillDir = null
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    const next = () => {
+        const v = argv[++i]
+        if (v === undefined || v === "") die(2, `${a} needs a value\n${USAGE}`)
+        return v
+    }
+    if (a === "-C") dir = path.resolve(next())
+    else if (a === "--rules") rulesFile = next()
+    else if (a === "--skill") skillDir = next()
+    else if (a === "-h" || a === "--help") {
+        process.stdout.write(USAGE + "\n")
+        process.exit(0)
+    } else if (a.startsWith("-") && a !== "-") die(2, `unknown flag: ${a}\n${USAGE}`)
+    else if (draftFile === null) draftFile = a
+    else die(2, `extra argument: ${a}\n${USAGE}`)
+}
+
+function readText(file, what) {
+    try {
+        return fs.readFileSync(file === "-" ? 0 : path.resolve(file), "utf8")
+    } catch (e) {
+        die(2, `cannot read ${what} ${file}: ${e.message}`)
+    }
+}
+
+function readJson(file, what) {
+    const text = readText(file, what)
+    try {
+        return JSON.parse(text)
+    } catch (e) {
+        die(2, `${what} ${file} is not JSON: ${e.message}`)
+    }
+}
+
+const finish = (found, clean) => {
+    if (found.length) {
+        process.stdout.write(found.join("\n") + "\n")
+        process.exit(1)
+    }
+    process.stdout.write(`review-draft-lint: clean (${clean})\n`)
+    process.exit(0)
+}
+
+// --- --skill ---------------------------------------------------------------------
+if (skillDir !== null) {
+    if (draftFile !== null || rulesFile !== null) die(2, `--skill takes no draft and no --rules\n${USAGE}`)
+    const skill = readText(path.join(skillDir, "SKILL.md"), "the skill")
+    const research = readText(path.join(skillDir, "research.md"), "the research")
+    const sections = new Set()
+    for (const line of research.split(/\r?\n/)) {
+        const m = /^##[ \t]+R(\d+)[ \t]+[—–-][ \t]+\S/.exec(line)
+        if (m) sections.add(Number(m[1]))
+    }
+    // The rules: list items under a `## ` heading, each with its continuation lines, outside code blocks.
+    const ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S/
+    const REFS = /((?:\[R\d+\][ \t]*)+)$/
+    const items = [] // [first line number, text]
+    const isCode = codeLines()
+    let inSection = false
+    let item = null
+    const close = () => {
+        if (item) items.push(item)
+        item = null
+    }
+    skill.split(/\r?\n/).forEach((line, i) => {
+        if (isCode(line)) return close()
+        if (/^#{1,6}[ \t]/.test(line)) {
+            close()
+            inSection = /^##[ \t]/.test(line) || (inSection && /^#{3,6}[ \t]/.test(line))
+            return
+        }
+        if (!inSection) return
+        if (ITEM.test(line)) {
+            close()
+            item = [i + 1, line.trim()]
+        } else if (line.trim() === "") close()
+        else if (item) item[1] += " " + line.trim()
+    })
+    close()
+    const found = []
+    for (const [n, text] of items) {
+        const m = REFS.exec(text.trimEnd())
+        if (!m) {
+            found.push(`SKILL.md:${n}: rule without a [R<n>] reference: "${privacy.maskText(text.slice(0, 80))}"`)
+            continue
+        }
+        for (const ref of m[1].matchAll(/\[R(\d+)\]/g))
+            if (!sections.has(Number(ref[1]))) found.push(`SKILL.md:${n}: [R${ref[1]}] — no section "## R${ref[1]} — …" in research.md`)
+    }
+    finish(found, `${items.length} rules, each with a section of research.md`)
+}
+
+// --- the draft and lint.json --------------------------------------------------------
+if (draftFile === null) die(2, `no draft named\n${USAGE}`)
+if (rulesFile === null) die(2, `no --rules named\n${USAGE}`)
+try {
+    if (!fs.statSync(dir).isDirectory()) die(2, `not a directory: ${dir}`)
+} catch {
+    die(2, `no such directory: ${dir}`)
+}
+
+const lint = readJson(rulesFile, "lint.json")
+const bad = (msg) => die(2, `lint.json ${rulesFile}: ${msg}`)
+if (!isObject(lint)) bad("not an object")
+for (const k of Object.keys(lint)) if (!["schema", "tiers", "forbidden"].includes(k)) bad(`unknown field "${k}"`)
+if (lint.schema !== 1) bad(`schema must be 1, got ${JSON.stringify(lint.schema)}`)
+if (!isObject(lint.tiers)) bad(`"tiers" must be an object of { max_chars }`)
+for (const [tier, t] of Object.entries(lint.tiers)) {
+    if (!isObject(t)) bad(`tiers.${tier} must be an object`)
+    for (const k of Object.keys(t)) if (k !== "max_chars") bad(`unknown field "tiers.${tier}.${k}"`)
+    if (!Number.isInteger(t.max_chars) || t.max_chars < 1) bad(`tiers.${tier}.max_chars must be a positive whole number`)
+}
+const forbidden = lint.forbidden === undefined ? [] : lint.forbidden
+if (!Array.isArray(forbidden) || !forbidden.every((w) => typeof w === "string" && w.trim() !== "")) bad(`"forbidden" must be a list of words`)
+
+const draft = readJson(draftFile, "the draft")
+const badDraft = (msg) => die(2, `the draft ${draftFile}: ${msg}`)
+if (!isObject(draft)) badDraft("not an object")
+for (const k of Object.keys(draft)) if (!["payload", "tiers", "body_tier"].includes(k)) badDraft(`unknown field "${k}"`)
+const payload = draft.payload
+if (!isObject(payload)) badDraft(`"payload" must be an object`)
+if (payload.body !== undefined && typeof payload.body !== "string") badDraft(`payload.body must be text`)
+const comments = payload.comments === undefined ? [] : payload.comments
+if (!Array.isArray(comments)) badDraft(`payload.comments must be a list`)
+comments.forEach((c, i) => {
+    if (!isObject(c) || typeof c.body !== "string") badDraft(`payload.comments[${i}] must be an object with a text body`)
+})
+const tiers = draft.tiers === undefined ? [] : draft.tiers
+if (!Array.isArray(tiers) || tiers.length !== comments.length)
+    badDraft(`"tiers" must be a list with one tier for each of the ${comments.length} comments of payload.comments`)
+const tierOf = (tier, where) => {
+    if (typeof tier !== "string" || !Object.hasOwn(lint.tiers, tier))
+        badDraft(`tier ${JSON.stringify(tier)} of ${where} is not in the tiers of lint.json (${Object.keys(lint.tiers).join(", ")})`)
+    return tier
+}
+const texts = [] // [where, text, tier]
+const body = payload.body || ""
+if (body.trim() !== "") {
+    if (draft.body_tier === undefined) badDraft(`"body_tier" is needed: payload.body is not empty`)
+    texts.push(["body", body, tierOf(draft.body_tier, "the body")])
+}
+comments.forEach((c, i) => {
+    const at = typeof c.path === "string" ? ` ${c.path}${c.line !== undefined ? `:${c.line}` : ""}` : ""
+    texts.push([`comments[${i}]${at}`, c.body, tierOf(tiers[i], `comments[${i}]`)])
+})
+
+// --- the project: epic names and the Workflow folder -----------------------------------
+// A sibling script runs with the node running this one: Windows does not start an extensionless file by its #! line.
+const runScript = (file, args, options) => execFileSync(process.execPath, [file, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...options })
+let epics = []
+let workflowFolder = null
+let prof = null
+try {
+    prof = JSON.parse(runScript(PROFILE, ["-C", dir, "--json"]))
+} catch (e) {
+    if (e.status !== 3) die(2, `profile not read (exit ${e.status ?? e.code}): ${firstLine(e)}`)
+    process.stderr.write(`review-draft-lint: ${dir} is not a registered project — epic names and the Workflow folder are not checked\n`)
+}
+if (prof) {
+    workflowFolder = (prof._resolved || {}).workflow_folder || null
+    try {
+        epics = traces.epicNames(runScript(TICKET, ["root"], { cwd: dir }).trim())
+    } catch (e) {
+        die(2, `tickets root not read (exit ${e.status ?? e.code}): ${firstLine(e)}`)
+    }
+}
+let ticketWords
+try {
+    ticketWords = traces.ticketWords(require("../lib/input-words.json"))
+} catch (e) {
+    die(2, `input words not read (lib/input-words.json): ${firstLine(e)}`)
+}
+const rules = [...traces.traceRules({ epics, ticketWords, workflowFolder }), ...traces.attributionRules(), ...traces.aiVoiceRules()]
+
+// --- search ------------------------------------------------------------------------------
+const options = { hostname: os.hostname(), deny: privacy.personal(harnessHome()).deny }
+const show = (value) => privacy.maskText(value, options)
+const words = forbidden.map((w) => [w, new RegExp(`(?<![\\p{L}\\p{N}_])${w.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "giu")])
+const found = []
+for (const [where, text, tier] of texts) {
+    const length = [...text].length
+    const max = lint.tiers[tier].max_chars
+    if (length > max) found.push(`${where}: length ${length} chars, over ${max} of tier ${tier}`)
+    for (const line of text.split(/\r?\n/)) for (const f of traces.scan(line, rules)) found.push(`${where}: ${f.kind} "${show(f.text)}"`)
+    for (const f of privacy.findings(text, options))
+        found.push(`${where}: personal data ${f.rule} "${privacy.mask(text.slice(f.index, f.index + f.length))}"`)
+    for (const [w, re] of words) if (text.search(re) !== -1) found.push(`${where}: forbidden "${show(w)}"`)
+}
+finish(found, `${texts.length} texts`)
