@@ -38,10 +38,14 @@ Claude Code на той же Vendor session, хотя старый процес�
 
 - [ ] Contract test: fake query, чей `close()` оставляет процесс живым N ms, и `send()` в состоянии `error`. Второй
       вызов `start`/`resume` driver-а происходит только после выхода первого процесса.
+  - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
 - [ ] Contract test: процесс, который не выходит, получает SIGKILL после границы, и новый старт идёт после этого;
       сообщение не теряется и уходит в новый процесс.
+  - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 082997eb1
 - [ ] Существующий test `test/contract/session-handle-lifecycle.test.ts:94` («a subscriber that throws fails the
       Session and closes its query; the next message starts the only live one») зелёный.
+  - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
 
 ## Тесты
 
@@ -54,3 +58,31 @@ Claude Code на той же Vendor session, хотя старый процес�
 - `src/main/agent/session/process.ts` — `EXIT_WAIT_MS`, `KILL_EXIT_MS`.
 - `src/main/agent/orchestrator.ts` — `oldExit` в relaunch (`:837-847`), образец ожидания.
 - `test/contract/session-handle-lifecycle.test.ts` — test-ы жизненного цикла handle.
+
+## Итог
+
+- Сначала падающий: четыре новых test-а в `test/contract/session-handle-lifecycle.test.ts` до исправления красные —
+  `start 2` шёл сразу после `close 1`, до `exit 1`; Session, закрытая во время ожидания, всё равно запускала процесс 2.
+- Исправление — `begin()` в `src/main/agent/session.ts`: если в наборе `alive` остались процессы Session, вызов
+  `start`/`resume` driver-а идёт только после их выхода, с той же границей, что у `exited()`: `EXIT_WAIT_MS`, затем
+  SIGKILL и ещё `KILL_EXIT_MS`. Ожидание и SIGKILL вынесены из `exited()` в общий `endProcesses()`; `exited()` ведёт
+  себя как прежде. Пока Session ждёт, сообщение лежит в `run.waiting` (как сообщение, отправленное во время обычного
+  старта), а не в видимой очереди: состояние `busy`, prompt показан сразу. Session, закрытая во время ожидания,
+  процесс не запускает. Без живых процессов старт синхронный, как раньше.
+- Test-ы: fake process (pid самого test-а, выход только по событию `exit`, SIGTERM и `close()` его не завершают) за
+  каждым fake query. Критерий 1 — процесс жив 300 ms после второго сообщения, второго старта нет; после `exit 1` —
+  `start 2`, resume того же Vendor session, сообщение `again` у процесса 2. Критерий 2 — SIGKILL не раньше границы
+  (в test-е `EXIT_WAIT_MS` = 500 через `vi.mock`), потом `start 2` и сообщение у процесса 2. Ещё два: Session,
+  закрытая во время ожидания, не стартует; провал `accountInfo` до первого сообщения.
+- Находка correctness-2 (LOW, `finish()` в `src/main/vendors/claude/session.ts` обнуляет query, и `close()` не
+  доходит до процесса) кодом не правилась, но её последствие снято: такой процесс лежит в `alive`, следующий старт ждёт
+  его и убивает по границе — это проверяет test «a failed start check whose close does not reach the process».
+- `test/contract/orchestrator-relaunch.test.ts` (вне «Где в коде»): в test-е «the same Session and process go on
+  attended…» строка `fake: exit` завершала query, но не stub-процесс за ним, и новый процесс стартовал рядом с живым —
+  та самая форма дефекта. Теперь test завершает stub-процесс (`stopAll()`) перед следующим сообщением, как его
+  завершил бы выход Claude Code.
+- `docs/features/sessions.md`, «A crash»: следующий процесс ждёт выхода старого, SIGKILL через 7,5 s.
+- Mutation-проверка: без проверки `closing` краснеет test закрытия во время ожидания; без ожидания (граница 0)
+  краснеют test-ы критериев 1 и 2.
+- Проверки: test-ы модулей Session, driver-а Claude и relaunch (82 файла) — exit 0; `pnpm lint && pnpm typecheck &&
+  pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
