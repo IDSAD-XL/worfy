@@ -1,7 +1,8 @@
 # 09 — Сценарии worfy-faults с включённым Auto-continue
 
 Type: task
-Status: open
+Status: done 2026-11-07T02:19Z
+PR: #1547
 Blocked by: 04, 05
 Source: [spec.md](../spec.md), «Совместимость с worfy-faults»; [worfy-faults](../../worfy-faults/spec.md), «Правила восстановления (инварианты)», «Сценарии», Q3; Ticket-ы [worfy-faults 01](../../worfy-faults/issues/01-проверка-правил-восстановления.md) и [02](../../worfy-faults/issues/02-contract-setup-и-сбои-api.md) — влиты до старта этого Ticket-а
 
@@ -28,16 +29,23 @@ Source: [spec.md](../spec.md), «Совместимость с worfy-faults»; [
 
 - [ ] Сценарии worfy-faults 02 и 06 без поля `autoContinue` — без правки и зелёные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-api.test.ts test/contract/autopilot-faults-codex.test.ts test/contract/autopilot-faults-process.test.ts test/contract/autopilot-faults-github.test.ts` exit 0 · mac - · 9f6a469181328c546051c4b8134d6284481e3279
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 - [ ] Contract test-ы с переключателем: 500, 529, обрыв связи — `checkRecovery` пустой, команда Wave одна.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-retry.test.ts` exit 0 · mac - · 9f6a469181328c546051c4b8134d6284481e3279
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 - [ ] `cap` и `in-flight` — Run остановлен `turn-error`, `checkRecovery` пустой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-faults-retry.test.ts` exit 0 · mac - · 9f6a469181328c546051c4b8134d6284481e3279
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 - [ ] Каждый новый случай И4 ловит свой испорченный fixture — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-invariants.test.ts` exit 0 · mac - · 9f6a469181328c546051c4b8134d6284481e3279
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 - [ ] Файл contract test-ов — не дольше 20 с по логу `linux-tests` (предел worfy-faults).
   - evidence: test-run pass · CI job `linux-tests (3/4)` of run 42324104775: test/contract/autopilot-faults-retry.test.ts 6 tests in 1043 ms, exit 0 · linux - · a3e3ac88f78bc8502ba51fca4ea0441975ade0e2
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 - [ ] `src/` не изменён. `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
   - evidence: test-run pass · `ci-ok` of run 42324104775 (lint, typecheck, test on Linux and Windows) exit 0; the PR diff has no file under src/ · linux - · a3e3ac88f78bc8502ba51fca4ea0441975ade0e2
+  - evidence: review pass · PR #1547 · - - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42325954389 · ci - · 28ae891e5ac71ffc10547ce7c4d7788ae726be50
 
 ## Тесты
 
