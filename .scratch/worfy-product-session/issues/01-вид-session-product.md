@@ -34,10 +34,15 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] Test: `sessions.new` с `kind: 'product'` создаёт Node с `data.kind === 'product'`; вид Session несёт `kind`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts test/contract/sessions-vendor.test.ts` exit 0; mutant without SessionLaunch.kind: exit 1, two kind tests red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
 - [ ] Test: Node без `kind` создаётся и возобновляется как раньше; данные Node-а старой сборки читаются.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts` exit 0 (a Node without a kind is created and resumed as before) · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
 - [ ] Test: `kind: 'product'` + Vendor `codex` — отказ с текстом, Node не создан.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/sessions-vendor.test.ts` exit 0; mutant without the kind refusal in open: exit 1, the codex refusal test red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
 - [ ] Test: Session Node-а с `kind: 'product'` после перезапуска возобновляется с тем же `kind` в `SessionLaunch`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/node-sessions.test.ts test/contract/sessions-vendor.test.ts` exit 0; mutant without SessionLaunch.kind: exit 1, two kind tests red · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 65d7b8ec7d0f6becdf9eb7371e6ce21e85e77d97
 
 ## Тесты
 
@@ -56,3 +61,32 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 Только читать: `src/main/agent/orchestrator.ts:713` (флаг Orchestrator-а), `src/main/vendors/claude/query.ts`
 (Ticket 02), `src/renderer/canvas/nodes/SessionNode.tsx` (Ticket 06).
+
+## Итог
+
+- Вид Session — `SESSION_KINDS = ['product']`, `sessionKindSchema` (`src/shared/ipc/sessions.ts:26-27`). Вид Session на
+  экране — `kind: sessionKindSchema.optional()` (`:96`), вход `sessions.new` — `kind` (`:123`), handler передаёт его в
+  `NodeSessions.open` (`src/main/ipc/sessions.ts:13`).
+- **Отступление от п. 1 «Что делаем».** В данных Node-а `kind` — `z.string().min(1).optional()` (`sessions.ts:52`), а не
+  `z.literal('product')`. С `z.literal` Node сборки новее (`kind: 'mentor'`) не прошёл бы `readWorfySessionNodeData` в
+  renderer целиком, и Node перестал бы читаться как Session Node worfy. Строка — как у `vendor`: значение сохраняется,
+  main отказывает в старте («The Session of later cannot start: mentor is not a kind of Session this build of worfy
+  runs»), это и требует второе предложение п. 1.
+- `SessionLaunch.kind?: SessionKind` (`src/main/agent/session-settings.ts:45`). `NodeSessions.launch` отдаёт
+  `registry.start` launch `{ unattended: false, kind }` для Session с видом и `undefined`, как раньше, без вида
+  (`src/main/agent/node-sessions.ts:424`). Вид читается из данных Node-а на каждом старте: New session, Start, Resume,
+  после перезапуска (`launchOf`, `:137`).
+- Product Session — только Claude Code: без Vendor-а New session берёт Claude Code, а не `defaultVendor` Project-а;
+  Vendor `codex` — отказ «Product Session runs on Claude Code only» до создания Node-а и до проверки входа
+  (`kindRefusal`, `:121`, `:204`). Сохранённый Node `kind: 'product'` с Vendor-ом `codex` тоже не стартует.
+- Renderer: store видов (`src/renderer/session/node-sessions.ts`) хранит `SessionNodeView` целиком, поле `kind`
+  приходит в нём без новой логики; правка — комментарий.
+- **Не сделано: вид не доходит до Vendor-а.** `SessionStart` (`src/main/vendors/session.ts:104`) поля вида не имеет, его
+  собирает `Session.begin()` в `src/main/agent/session.ts`, а этот файл в брифе закрыт (параллельная работа audit-code 01
+  и 02). Ticket 02 (настройки Claude) должен добавить `kind` в `SessionStart` и одну строку в `begin()`; трассы Ticket-а
+  02 этих двух файлов сейчас не называют. Ещё: `Session.becomeAttended` (`session.ts:490`) пересобирает launch только
+  с `orchestrator` и теряет `kind` — Product Session без человека не бывает, но Ticket 02 стоит это поправить там же.
+- Test-ы: `test/contract/node-sessions.test.ts`, describe «the kind of a Session (worfy-product-session ticket 01)»
+  (`:471`, `:487`, `:509`, `:525`) и channels (`:718`, отказ `kind: 'mentor'` на входе); `test/contract/sessions-vendor.test.ts`
+  `:244`, `:253`, `:264`. Сначала красные: 10 test-ов на `main`. Мутанты (код восстановлен `git checkout`): без
+  `kindRefusal` в `open` — красный test отказа `codex`; без `SessionLaunch.kind` — красные два test-а вида.
