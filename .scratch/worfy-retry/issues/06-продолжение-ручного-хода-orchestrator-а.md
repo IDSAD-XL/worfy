@@ -33,15 +33,15 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
 ## Готово, когда
 
 - [ ] Contract test: on, ручной ход 529, затем удачный — одно продолжение, строки в транскрипте; off — ничего не ушло.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 4b14576a438d61a1c8e8a9943bb44e25976a28c3
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
 - [ ] Contract test: человек написал во время ожидания — продолжения нет.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 4b14576a438d61a1c8e8a9943bb44e25976a28c3
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
 - [ ] Contract test: отказ Limits вне Run-а — ожидание сброса по stub-у, одно продолжение.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 4b14576a438d61a1c8e8a9943bb44e25976a28c3
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
 - [ ] Contract test: идёт Run — модуль ничего не шлёт; Run повторил один раз.
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 4b14576a438d61a1c8e8a9943bb44e25976a28c3
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
 - [ ] Contract test: `git push` без результата — продолжения нет, строка «not retried».
-  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 4b14576a438d61a1c8e8a9943bb44e25976a28c3
+  - evidence: test-run pass · `pnpm test test/contract/orchestrator-continue.test.ts` exit 0 · mac - · 0ceae2c35b719be97f40662bf3983e58cd6403b0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный. Ревью не ниже `high`.
 
 ## Тесты
@@ -102,3 +102,45 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 2 и 
   дают строку `worfy: not continued: …`.
 
 Долг: ветки `give-up`/`quota` и далёкий сброс у ручного хода test-ом не покрыты (покрыты в Run-е тем же `LimitsWait`).
+
+### Итог раунда 2
+
+После ревью high (раунд 1, PR #1548); ветка перебазирована на `origin/main` 12349ec0c.
+
+- (1) Начало хода — не только `prompt`, но и переход Session в `busy` (ход, который Claude Code начал сам по
+  task-notification, `prompt` не шлёт). Каждое начало сбрасывает вызовы прошлого хода (`TurnRetry.turnStarted`) и
+  новости Limits (`LimitsWait.turnStarted`); запись вызовов больше не растёт всё время работы приложения. Ходы и их
+  вызовы отслеживаются и пока Run владеет Session: Run, отдавший Session посреди хода, оставляет модулю его конец со
+  всеми вызовами. Новый fixture `orchestrator-continue-task-turn.jsonl`.
+- (2) Связка `app-orchestrators.ts` проверена через `sharedOrchestrators()` и `sharedOrchestratorContinue()` с настоящим
+  хранилищем настроек: выключено — ни строки, ни отправки и через 2 ч; включено — одно продолжение по часам стены;
+  выключено в Modes во время ожидания — ожидание снято сразу; выход приложения (`will-quit`) снимает ожидание.
+- (3) Ход, прерванный человеком, с отказом Limits во время хода и текстом про Limits — не продолжается.
+- (4) Проверки в момент таймера: переключатель выключен без уведомления модуля; Session стала unattended; идёт ход
+  (task-notification) — ничего не уходит. Для последнего случая добавлена строка
+  `worfy: a turn is under way; nothing was sent, its end decides`.
+- (5) Смена другой настройки во время ожидания ожидание не снимает; продолжение уходит одно.
+- (6) Два Project-а: отказ одного не трогает ожидание другого, отказ без окна не берёт окно чужой Session.
+- Строки `notice` теперь уходят после того, как событие, о котором они говорят, дошло до окон (`queueMicrotask`): в
+  чате строка стоит ниже строки ошибки.
+- Новые fixture-ы: `orchestrator-continue-task-turn.jsonl`, `-interrupted-limits.jsonl`, `-limits-text.jsonl`;
+  `test/contract/sdk-compat.test.ts` их принимает (у прерванного хода — `errors`, как у настоящего SDK).
+- Каждый новый test убивает своего мутанта: 15 мутантов (11 в модуле, 4 в связке) — все убиты
+  (`/tmp/impl-retry06/mutate.mjs`, вне репозитория).
+
+Раздел «Consider»:
+
+- **Codex: чтение окон перед продолжением (spec Q7 (а)) не добавлено — решение для владельца.** Run перед продолжением
+  читает окна Codex бесплатным `account/rateLimits/read` (`stillRefused` в `run.ts`); модуль ручного хода — нет: после
+  ожидания продолжение уходит, и если Limits всё ещё отказывают, отказ ставит новое ожидание (цена — один отказанный
+  запрос на попытку). Если владелец хочет чтение и здесь — отдельный Ticket: перенести `stillRefused` в общий helper.
+  В коде — `shortcut:` в `orchestrator-continue.ts`.
+- Строка при идущем ходе в момент таймера — сделано (пункт 4).
+- Порядок строк относительно строки ошибки — сделано (`queueMicrotask`, test проверяет порядок в событиях окон).
+- `isLimitsMessage` (`resume-at.ts`, только читать) может принять за отказ Limits постоянную ошибку, в тексте которой
+  есть «rate limit». Не менялось: так же ведёт себя Run; ошибка без окна даёт попытки раз в 30 мин не дольше 24 ч.
+- `docs/features/sessions.md`: полный список временных ошибок (timeout, обрыв потока), все строки, сон Mac без
+  keep-awake, Codex без чтения окон, прерванный ход.
+- Мёртвый код: `entry.sent` удалён (своё продолжение снимает ожидание до отправки, его `prompt` ничего не находит).
+  `retry.cancel()` в ветке отказа Limits оставлен: он нужен, когда во время ожидания повтора ход task-notification
+  кончается отказом Limits — тогда ожидание одно, Limits.
