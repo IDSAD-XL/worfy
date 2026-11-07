@@ -171,9 +171,9 @@ function stubGh(world: { pulls: StubPull[]; deployments: { sha: string; created_
   return { gh, calls, world }
 }
 
-function hubOver(world: World, profile: PipelineProfile, gh: GhRunner, logs: string[] = []): { hub: StageHub; workflow: WorkflowHub } {
+function hubOver(world: World, profile: PipelineProfile, gh: GhRunner, logs: string[] = [], searchIntervalMs?: number): { hub: StageHub; workflow: WorkflowHub } {
   const workflow = new WorkflowHub({ claudeHome: world.home, env: ownEnv })
-  const prs = new PrTracker({ run: gh, baseIntervalMs: 20 })
+  const prs = new PrTracker({ run: gh, baseIntervalMs: 20, ...(searchIntervalMs === undefined ? {} : { searchIntervalMs }) })
   const sources: StageSources = {
     workflow,
     prs,
@@ -398,16 +398,23 @@ describe('Stages in Full mode with workflow.finish local-green', () => {
     expect(gh.calls.some((args) => args[0] === 'pr' && args[1] === 'list')).toBe(true)
   })
 
-  it('a failing lookup of one branch names that branch; the PRs of the list still give the other Tickets their Stage', async () => {
+  it('a failing lookup of one branch names that branch; the PRs of the list still give the other Tickets their Stage; the line goes when it answers', async () => {
     const world = makeWorld()
     const { B } = world.commits
     const gh = stubGh({ pulls: [pr(4, 'demo/04', { state: 'MERGED', mergeCommit: { oid: B }, mergedAt: '2026-10-17T12:00:00Z' })], deployments: [], deployMarks: [] })
-    const failing: GhRunner = (args, cwd, env) => (args.includes('--head') && args.includes('demo/03') ? Promise.reject(new Error('HTTP 502: Bad Gateway')) : gh.gh(args, cwd, env))
-    const { hub } = hubOver(world, fullProfile(world), failing)
-    const snapshot = await hub.open(world.repo, { id: 1, send: () => undefined })
+    let failing = true
+    const run: GhRunner = (args, cwd, env) => (failing && args.includes('--head') && args.includes('demo/03') ? Promise.reject(new Error('HTTP 502: Bad Gateway')) : gh.gh(args, cwd, env))
+    // Branch lookups every 20 ms, so the failed one is tried again within the test.
+    const { hub } = hubOver(world, fullProfile(world), run, [], 20)
+    const sent: PipelineSnapshot[] = []
+    const snapshot = await hub.open(world.repo, { id: 1, send: (each) => sent.push(each) })
 
     expect(snapshot.error).toBe(`gh could not look up the PR of branch demo/03 in ${world.repo}: HTTP 502: Bad Gateway`)
     expect(ticket(snapshot, 4).stage).not.toBe('implementing')
+
+    failing = false
+    const healed = await nextSnapshot(sent, (each) => each.error === null)
+    expect(ticket(healed, 4).stage).toBe(ticket(snapshot, 4).stage)
   })
 })
 

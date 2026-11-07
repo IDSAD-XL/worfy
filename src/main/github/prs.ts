@@ -417,7 +417,7 @@ interface ProjectState {
 }
 
 /** gh's reason when GitHub refused for its rate limit, the primary or the secondary one. */
-const RATE_LIMIT = /rate limit|HTTP 429|abuse detection|submitted too quickly/iu
+const RATE_LIMIT = /\brate limit|\bHTTP 429\b|\babuse detection|\bsubmitted too quickly/iu
 
 /** Keeps the pull requests of each Project and decides when gh may run again. */
 export class PrTracker {

@@ -399,20 +399,59 @@ describe('PrTracker over the gh stub', () => {
     expect(second).toMatchObject({ gh: { available: true, error: null, intervalMs: 60_000 }, branchErrors: branchError })
     expect(numbers(second)).toEqual([1, 3])
     expect(gh.calls).toEqual(['list', 'demo/02', 'list', 'demo/03'])
+  })
 
-    now = 10 * 60_000 - 1 // the first failure doubles the 5-minute lookup interval of demo/02 to 10 minutes
-    await tracker.read('/r', branches)
-    expect(gh.calls.filter((call) => call === 'demo/02')).toHaveLength(1)
-    now = 10 * 60_000
-    expect(numbers(await tracker.read('/r', branches))).toEqual([1, 3])
-    expect(gh.calls.filter((call) => call === 'demo/02')).toHaveLength(2)
-    now = 10 * 60_000 + 20 * 60_000 - 1 // a second failure in a row: 20 minutes
-    await tracker.read('/r', branches)
-    expect(gh.calls.filter((call) => call === 'demo/02')).toHaveLength(2)
+  it('a failing branch keeps the PRs of its last answer and waits 10, 20, then at most 32 minutes; an answer clears its error', async () => {
+    let failing = false
+    const reason = 'HTTP 502: Bad Gateway (https://api.github.com/graphql)'
+    const gh = scriptedGh([pull(1, 'demo/01')], { 'demo/02': [pull(2, 'demo/02')], 'demo/03': [pull(3, 'demo/03')] }, (branch) => (failing && branch === 'demo/02' ? reason : null))
+    let now = 0
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    const branches = ['demo/02', 'demo/03']
+    const numbers = (read: { pulls: { number: number }[] }) => read.pulls.map((each) => each.number)
+    const lookups = () => gh.calls.filter((call) => call === 'demo/02').length
+    const at = async (minutes: number) => {
+      now = minutes * 60_000
+      return tracker.read('/r', branches)
+    }
 
-    // A branch that answers again has no error any more.
-    const healed = new PrTracker({ run: scriptedGh([pull(1, 'demo/01')], {}, () => null).run, now: () => now })
-    expect(await healed.read('/r', branches)).not.toHaveProperty('branchErrors')
+    expect(await at(0)).toEqual(expect.not.objectContaining({ branchErrors: expect.anything() }))
+    failing = true
+    const failed = await at(5)
+    expect(failed.branchErrors).toEqual([{ branch: 'demo/02', error: reason }])
+    expect(numbers(failed)).toEqual([1, 2, 3]) // the PR of demo/02's last answer stays
+    expect(lookups()).toBe(2)
+
+    // Each failure in a row doubles the wait from 5 minutes: 10, 20, then 32 — the cap — and 32 again.
+    for (const [before, due] of [[15, 3], [35, 4], [67, 5], [99, 6]] as const) {
+      now = before * 60_000 - 1
+      await tracker.read('/r', branches)
+      expect(lookups()).toBe(due - 1)
+      expect(numbers(await at(before))).toEqual([1, 2, 3])
+      expect(lookups()).toBe(due)
+    }
+
+    // The same tracker: demo/02 answers again at its next lookup, its error is gone and its wait is 5 minutes again.
+    failing = false
+    now = (99 + 32) * 60_000 - 1
+    expect((await tracker.read('/r', branches)).branchErrors).toEqual([{ branch: 'demo/02', error: reason }])
+    const healed = await at(99 + 32)
+    expect(lookups()).toBe(7)
+    expect(healed).not.toHaveProperty('branchErrors')
+    expect(numbers(healed)).toEqual([1, 2, 3])
+    await at(99 + 32 + 5)
+    expect(lookups()).toBe(8)
+  })
+
+  it('a reason that only contains the letters of «rate limit» inside a word is not a rate limit: the list keeps its interval', async () => {
+    const reason = 'HTTP 502: separate limits of the proxy'
+    const gh = scriptedGh([pull(1, 'demo/01')], {}, (branch) => (branch === 'demo/02' ? reason : null))
+    let now = 0
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    expect((await tracker.read('/r', ['demo/02'])).gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+    now = 60_000
+    await tracker.read('/r', ['demo/02'])
+    expect(gh.calls).toEqual(['list', 'demo/02', 'list'])
   })
 
   it('a rate limit on a branch lookup keeps the PRs of the list, and doubles the interval from the failure: no list and no lookup until it ends', async () => {
