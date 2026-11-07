@@ -491,7 +491,8 @@ export async function readBranches(
         return [worktree.branch, { head: worktree.head, ticket, error: null, retry: null }]
       } catch (error) {
         const before = previous.get(worktree.branch)
-        const failures = (before?.retry?.failures ?? 0) + 1
+        // A new head starts the waits over: the commit may have fixed what failed.
+        const failures = (before?.head === worktree.head ? (before.retry?.failures ?? 0) : 0) + 1
         const wait = retryMs[Math.min(failures, retryMs.length) - 1] ?? BRANCH_RETRY_MS[0]!
         return [worktree.branch, { head: worktree.head, ticket: before?.ticket ?? null, error: errorOf(error).message, retry: { at: now() + wait, failures } }]
       }

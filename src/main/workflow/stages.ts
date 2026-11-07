@@ -113,6 +113,9 @@ export async function marksInFile(profile: Pick<PipelineProfile, 'mode' | 'finis
   return profile.finish === 'local-green' && !(await hasOrigin())
 }
 
+/** How many branches that could not be read the problems name one by one; the rest are counted. */
+export const BRANCH_ERRORS_SHOWN = 3
+
 const columnsOf = (pipeline: readonly PipelineStage[]): PipelineColumn[] => pipeline.map((stage) => ({ ...stage, id: stageId(stage), title: stageLabel(stage) }))
 
 /** Computes one snapshot of a Project; keeps what is worth keeping between snapshots. */
@@ -137,9 +140,11 @@ export class StageReader {
     }
     if (profile.pipelineReason !== null) problems.push(`the default Pipeline stands in: ${profile.pipelineReason}`)
     if (model?.error) problems.push(`the workflow model is empty: ${model.error.message}`)
-    for (const { branch, message } of model?.branchErrors ?? []) {
-      problems.push(`the branch ${branch} could not be read, the status of its Ticket may be behind it and the Ticket goes into no Wave: ${message}`)
+    const branchErrors = model?.branchErrors ?? []
+    for (const { branch, message } of branchErrors.slice(0, BRANCH_ERRORS_SHOWN)) {
+      problems.push(`the branch ${branch} could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): ${message}`)
     }
+    if (branchErrors.length > BRANCH_ERRORS_SHOWN) problems.push(`${branchErrors.length - BRANCH_ERRORS_SHOWN} more branches could not be read`)
     const pipeline = profile.pipeline
     const tickets = model?.tickets ?? []
 

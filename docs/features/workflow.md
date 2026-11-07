@@ -126,7 +126,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   at the latest 1 s after the first event of a series. Reads never overlap. In Full mode the git refs and the worktree list
   are watched too, and only branches whose head moved are read again, four at a time. A branch whose read failed keeps
   the status its last good read gave and is read again by itself after 30 s, then 1 min, 2 min and every 5 minutes while
-  it keeps failing. On macOS a Tickets root that is not a
+  it keeps failing; a new commit on it starts the waits over. On macOS a Tickets root that is not a
   folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
@@ -201,7 +201,8 @@ Implementing, CI, Agent review, Gate & merge, Closing, Done.
 - **The board:** the "Pipeline" item of the View switch in the toolbar. A column per Stage of the active Project, with its
   count, and a card per Ticket. Done is folded into `N done` until clicked. The board follows changes by itself, and a click
   on a card shows that Ticket on the Canvas, or its frame when the card is folded away. When facts are missing, a notice says
-  "Some Stages may be short of facts" with the reason; a worktree branch that could not be read is one of them, by name.
+  "Some Stages may be short of facts" with the reason; a worktree branch that could not be read is one of them, by name,
+  three at most and the rest counted.
 - **The Pipeline section of the sidebar:** the Tickets of every Project of the window's Machine that are neither on Queued
   nor on Done. A click opens the board of that Project. With no such Ticket it says "Nothing in work".
 

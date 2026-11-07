@@ -523,6 +523,13 @@ describe('workflow reader', () => {
     expect(second.branchErrors).toEqual([])
     expect(ticketOf(second, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
     expect(ticketOf(second, 2)).not.toHaveProperty('unreadBranch')
+
+    // The read that worked clears the wait: later reads, far past it, keep the branch's snapshot.
+    expect(again.get('demo/02')).toMatchObject({ error: null, retry: null })
+    now += BRANCH_RETRY_MS.at(-1)! * 10
+    const later = await readBranches(repo, checkout, worktrees, again, run, clock)
+    expect(refs).toEqual(['demo/02', 'demo/02'])
+    expect(later.get('demo/02')).toBe(again.get('demo/02'))
   })
 
   it('keeps the last status a branch gave while its read fails, and waits longer after each failure in a row (worfy-polish 67)', async () => {
@@ -555,6 +562,12 @@ describe('workflow reader', () => {
     await readBranches(repo, checkout, moved, twice, run, clock)
     expect(refs).toHaveLength(3)
     expect(ticketOf(applyBranches(checkout, twice), 2)).toMatchObject({ state: 'work', unreadBranch: 'demo/02' })
+
+    // A new commit starts the waits over: its failure waits the first step again.
+    const newHead = worktrees.map((worktree) => ({ ...worktree, head: 'moved again' }))
+    const fresh = await readBranches(repo, checkout, newHead, twice, run, clock)
+    expect(refs).toHaveLength(4)
+    expect(fresh.get('demo/02')!.retry).toEqual({ at: now + BRANCH_RETRY_MS[0]!, failures: 1 })
   })
 
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {
@@ -1139,7 +1152,9 @@ describe('workflow watcher', () => {
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const real = epicStatusRunner(home, ownEnv)
     let failures = 1
+    let refReads = 0
     const run: EpicStatusRunner = async (cwd, ref) => {
+      if (ref !== null) refReads += 1
       if (ref !== null && failures-- > 0) throw new Error('epic-status timed out')
       return real(cwd, ref)
     }
@@ -1152,6 +1167,11 @@ describe('workflow watcher', () => {
     const { delta } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 2))
     expect(delta.tickets.map((t) => [t.num, t.state, t.fromBranch])).toEqual([[2, 'work', 'demo/02']])
     expect(delta.branchErrors).toEqual([])
+
+    // Once the read worked, no timer is set again: several retry waits pass and the branch is not read.
+    const afterRecovery = refReads
+    await new Promise((done) => setTimeout(done, ms(1000)))
+    expect(refReads).toBe(afterRecovery)
   })
 
   it('reports a removed Ticket', async () => {
