@@ -52,16 +52,23 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] `harness/hooks/session-end.mjs` нет; `hooks.json` не зовёт его; `SessionEnd` зовёт только
       `bin/worktree-lock release`.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 - [ ] Test: Profile с `session.retro_reminder_after` и без `inject_rules` — SessionStart печатает пусто, exit 0;
       `pending-retro.log` не создаётся ни SessionStart, ни SessionEnd (Claude Code и Codex).
+  - evidence: test-run pass · `bash harness/hooks/tests/session-hooks.test.sh` and `vitest run test/contract/harness-codex-hooks.test.ts test/contract/codex-parity.test.ts` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 - [ ] Test: такой Profile читают `bin/profile`, `bin/project-connect --schema-only` и приложение — без ошибки.
+  - evidence: test-run pass · `vitest run test/contract/workflow-profile.test.ts -t retro_reminder_after` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 - [ ] `harness/skills/retro/SKILL.md` — `retro` Matt Pocock с `disable-model-invocation: true`; test Ticket-а 01 зелёный
       и на нём.
+  - evidence: test-run pass · `vitest run test/contract/harness-third-party-skills.test.ts` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 - [ ] `bash harness/hooks/tests/session-hooks.test.sh`, `bash harness/hooks/tests/rules-hooks.test.sh`,
       `bash harness/bin/tests/harness-home.test.sh` — exit 0 на Mac.
+  - evidence: test-run pass · `bash session-hooks, rules-hooks, harness-home .test.sh` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 - [ ] Те же три на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 35f51f2c0073f8431ef787b57d29495a9a0342c7
 
 ## Тесты
 
