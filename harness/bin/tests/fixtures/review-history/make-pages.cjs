@@ -9,6 +9,8 @@
 //                                                          k substantive comments each
 //   node make-pages.cjs <dir> since                        three pull requests updated 2026-05-20, 2026-05-10 and
 //                                                          2026-04-20, and a next page
+//   node make-pages.cjs <dir> chars                        one pull request with two comments: 40 Cyrillic
+//                                                          letters and 40 Latin ones
 // The "now" of the tests is 2026-06-01; every pull request here is inside the 12 months before it.
 "use strict"
 const fs = require("fs")
@@ -85,6 +87,8 @@ if (kind === "voice") {
         for (let i = 0; i < per; i++, at++) pages[p].push(pull(1000 - at, day(at + 10), Array.from({ length: k }, (_, j) => say(at * 10 + j))))
     }
     writePages(dir, pages)
+} else if (kind === "chars") {
+    writePages(dir, [[pull(1, day(10), ["Ж".repeat(40), "a".repeat(40)])]])
 } else if (kind === "since") {
     writePages(dir, [
         [pull(3, "2026-05-20T00:00:00Z", [say(1)]), pull(2, "2026-05-10T00:00:00Z", [say(2)]), pull(1, "2026-04-20T00:00:00Z", [say(3)])],

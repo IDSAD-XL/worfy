@@ -87,7 +87,7 @@ project() { # project <name> <origin url or "">
     mkdir -p "$HH/projects/$1" && printf '{"schema":2,"name":"%s","mode":"full"}\n' "$1" >"$HH/projects/$1/profile.json"
     entries="$entries${entries:+,}{\"key\":\"$1\",\"match\":\"$TN/r/$1\",\"profile\":\"$1\"}"
 }
-for p in filt v29 v30 cap since probe probe2 rl rlmid deny nogh clean; do project "$p" "git@github.com:acme/$p.git"; done
+for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean; do project "$p" "git@github.com:acme/$p.git"; done
 project local "$T/elsewhere.git"
 printf '{"repos":[%s]}\n' "$entries" >"$HH/gate/config.json"
 state() { echo "$HH/projects/$1/state/human-review"; }
@@ -154,6 +154,10 @@ rh v30 "$T/fx-v30" fetch && rh v30 "$T/fx-v30" estimate; rc=$?
 [ "$rc" -eq 0 ] && grep -qx "voice: yes" "$T/out" && ok "30 substantive comments: voice: yes, exit 0" || bad "voice 30: exit $rc $(cat "$T/out")"
 [ -f "$(state v29)/ignore.json" ] && [ "$(tr -d ' \n' <"$(state v29)/ignore.json")" = '{"logins":[],"body_prefixes":[]}' ] \
     && ok "fetch creates ignore.json with empty lists when it is missing" || bad "ignore.json: $(cat "$(state v29)/ignore.json" 2>/dev/null)"
+make "$T/fx-chars" chars
+rh chars "$T/fx-chars" fetch --passes 2 --json; rc=$?
+[ "$rc" -eq 0 ] && [ "$(jfield estimate.characters.text <"$T/out")" = 80 ] && [ "$(jfield estimate.tokens.estimate <"$T/out")" = 60 ] \
+    && ok "token estimate: 40 Cyrillic / 2 + 40 Latin / 4 = 30, times 2 passes = 60" || bad "tokens: exit $rc $(cat "$T/out")"
 
 # --- 3. the window: 500 PRs at most, --since ------------------------------------------------------------------------
 make "$T/fx-cap" cap 501
