@@ -484,6 +484,14 @@ describe('where gh and git run', () => {
     expect(snapshot.error).toContain('the Profile could not be read')
   })
 
+  it('names each worktree branch that could not be read among the problems (worfy-polish 67)', async () => {
+    const root = join(dir, 'single')
+    mkdirSync(root)
+    const model = { ...claimedModel(root), branchErrors: [{ branch: 'demo/03', message: 'epic-status timed out' }] }
+    const snapshot = await readerWithoutProfile([]).read(root, model)
+    expect(snapshot.error).toContain('the branch demo/03 could not be read, the status of its Ticket may be behind it and the Ticket goes into no Wave: epic-status timed out')
+  })
+
   it('a Profile that could not be read and a root in a git repository: gh runs in the root, as before', async () => {
     const root = join(dir, 'single')
     mkdirSync(root)

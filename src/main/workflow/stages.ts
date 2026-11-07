@@ -137,6 +137,9 @@ export class StageReader {
     }
     if (profile.pipelineReason !== null) problems.push(`the default Pipeline stands in: ${profile.pipelineReason}`)
     if (model?.error) problems.push(`the workflow model is empty: ${model.error.message}`)
+    for (const { branch, message } of model?.branchErrors ?? []) {
+      problems.push(`the branch ${branch} could not be read, the status of its Ticket may be behind it and the Ticket goes into no Wave: ${message}`)
+    }
     const pipeline = profile.pipeline
     const tickets = model?.tickets ?? []
 

@@ -201,6 +201,17 @@ describe('ready wave', () => {
     expect(wave.ready).toEqual([])
   })
 
+  it('does not take a Ticket whose worktree branch could not be read, and holds its files (worfy-polish 67)', () => {
+    const wave = readyWave([ticket(1, { unreadBranch: 'e/01', files: ['src/x.ts'] }), ticket(2, { files: ['src/x.ts'] }), ticket(3, blocked(1))])
+    expect(wave.ready).toEqual([])
+    expect(wave.waiting).toEqual([
+      { num: 2, reason: { kind: 'files', files: ['src/x.ts'], heldBy: [1] } },
+      { num: 3, reason: { kind: 'blockers', blockers: [1] } },
+    ])
+    // A blocked Ticket stays as it was: the mark does not make it skipped or not.
+    expect(readyWave([ticket(1, { state: 'blocked', statusRaw: 'blocked', unreadBranch: 'e/01' })]).skipped).toEqual([{ num: 1, state: 'blocked' }])
+  })
+
   it('treats a directory entry as holding every file under it', () => {
     const wave = readyWave([ticket(1, { files: ['test/fixtures/epic/'] }), ticket(2, { files: ['test/fixtures/epic/spec.md'] })])
     expect(wave.ready.map((r) => r.num)).toEqual([1])

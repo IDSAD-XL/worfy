@@ -48,8 +48,8 @@ export interface ReadyWave {
 }
 
 type WaveTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
-  /** Absent or null: the status comes from the checkout. */
-  Partial<Pick<Ticket, 'fromBranch'>>
+  /** `fromBranch` absent or null: the status comes from the checkout. `unreadBranch`: see the Ticket schema. */
+  Partial<Pick<Ticket, 'fromBranch' | 'unreadBranch'>>
 
 /** Done in the checkout: a blocker the ready Wave counts as closed. */
 const closed = (ticket: WaveTicket | undefined): boolean => ticket?.state === 'done' && !ticket.fromBranch
@@ -57,8 +57,11 @@ const closed = (ticket: WaveTicket | undefined): boolean => ticket?.state === 'd
 /** Done only in its unmerged worktree branch: not a closed blocker yet. */
 export const doneOnlyInBranch = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'fromBranch'>>): boolean => ticket.state === 'done' && Boolean(ticket.fromBranch)
 
-/** In work, or done only in its unmerged worktree branch: its files are held, its dependants wait. */
-const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || doneOnlyInBranch(ticket)
+/**
+ * In work, done only in its unmerged worktree branch, or open with a worktree branch that could
+ * not be read (it may hold a claim): its files are held, its dependants wait.
+ */
+const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || doneOnlyInBranch(ticket) || (ticket.state === 'open' && ticket.unreadBranch !== undefined)
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 
@@ -164,7 +167,8 @@ export function filesOverlap(a: string, b: string): boolean {
 /**
  * The ready Wave of one Epic: open Tickets whose blockers are all done in the checkout, in number
  * order. The files of Tickets in work (claimed in the checkout or in a worktree branch) and of
- * Tickets done only in a worktree branch are held from the start; a Ticket whose file overlaps a
+ * Tickets done only in a worktree branch are held from the start, and so are those of an open Ticket
+ * whose worktree branch could not be read (`unreadBranch`), which is not taken; a Ticket whose file overlaps a
  * held file, or a file of a Ticket already taken into this Wave, waits for the next one. Blocked and status-less Tickets never go into the Wave; those
  * whose blockers are all done are listed as `skipped`.
  *
@@ -184,7 +188,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string, named?:
   const waiting: ReadyWave['waiting'] = []
   const skipped: ReadyWave['skipped'] = []
   for (const ticket of [...all.values()].sort(byNum)) {
-    if (ticket.state !== 'open' && ticket.state !== 'blocked' && ticket.state !== 'none') continue
+    if ((ticket.state !== 'open' && ticket.state !== 'blocked' && ticket.state !== 'none') || inFlight(ticket)) continue
     if (named !== undefined && !named.includes(ticket.num)) continue
 
     const problem = ownProblem(ticket, all, cycleOf)

@@ -861,7 +861,7 @@ describe('an Autopilot run on the fake agent', () => {
   // ── ticket 30 (ADR-0033): blocked Tickets stay out of the Wave, the text names the Wave's Tickets ──
 
   /** The worktree branch of Ticket 02 that never touched its file: Status open, as on its base. */
-  const untouchedBranch = (): BranchCache => new Map([['demo/02', { head: 'b0', ticket: { epic: EPIC, num: 2, state: 'open', statusRaw: 'open' }, error: null }]])
+  const untouchedBranch = (): BranchCache => new Map([['demo/02', { head: 'b0', ticket: { epic: EPIC, num: 2, state: 'open', statusRaw: 'open' }, error: null, retry: null }]])
   const ANSWER = 'Волна уже закрыта, перезапускать в ней нечего.'
 
   it('repeats the run of 2026-10-06 15:24Z: a Ticket blocked in the checkout and open in its branch stays out; the journal shows what went, the answer and the skipped Ticket', async () => {

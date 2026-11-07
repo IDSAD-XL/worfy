@@ -79,6 +79,8 @@ mark) is a palette row found only by typing. Picking it goes to the Ticket. worf
 - Every blocker is done in the checkout. A blocker done only in an unmerged worktree branch is not done yet.
 - No file of its trail section overlaps a held file. Tickets in work and Tickets done only in a branch hold their files,
   and so does each Ticket already taken into this Wave, in number order. An entry that ends in `/` holds its whole folder.
+- Its worktree branch, if it has one, was read. An open Ticket whose branch read failed may be claimed there: it is not in
+  the Wave and holds its files until a read of the branch works.
 
 A Ticket without a trail section can be in the Wave: it holds nothing. Tickets of the Wave have the `Ready` chip, and the
 label of Level 1 shows `Ready wave · N`.
@@ -122,7 +124,9 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
   Without them the defaults are `## Where in code`, `## Done when` and `manual`, and the older Russian names are read too.
 - **Reads follow changes.** A file event under the Tickets root leads to one full `epic-status` after 300 ms of quiet, and
   at the latest 1 s after the first event of a series. Reads never overlap. In Full mode the git refs and the worktree list
-  are watched too, and only branches whose head moved are read again, four at a time. On macOS a Tickets root that is not a
+  are watched too, and only branches whose head moved are read again, four at a time. A branch whose read failed keeps
+  the status its last good read gave and is read again by itself after 30 s, then 1 min, 2 min and every 5 minutes while
+  it keeps failing. On macOS a Tickets root that is not a
   folder is looked for every 2 s. Only the files `epic-status` reads are watched: Epic folders, `spec.md`, `map.md` and `issues/*.md`.
 - **A branch never undoes the checkout.** This is why a blocked Ticket with an old worktree branch does not look open
   ([ADR-0033](../adr/0033-autopilot-names-wave-tickets.md)).
@@ -197,7 +201,7 @@ Implementing, CI, Agent review, Gate & merge, Closing, Done.
 - **The board:** the "Pipeline" item of the View switch in the toolbar. A column per Stage of the active Project, with its
   count, and a card per Ticket. Done is folded into `N done` until clicked. The board follows changes by itself, and a click
   on a card shows that Ticket on the Canvas, or its frame when the card is folded away. When facts are missing, a notice says
-  "Some Stages may be short of facts" with the reason.
+  "Some Stages may be short of facts" with the reason; a worktree branch that could not be read is one of them, by name.
 - **The Pipeline section of the sidebar:** the Tickets of every Project of the window's Machine that are neither on Queued
   nor on Done. A click opens the board of that Project. With no such Ticket it says "Nothing in work".
 

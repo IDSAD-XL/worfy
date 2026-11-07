@@ -12,10 +12,24 @@ import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { codeSection, enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, REPO_URL_TTL_MS, repoUrlOf, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import {
+  applyBranches,
+  BRANCH_RETRY_MS,
+  codeSection,
+  enrichSnapshot,
+  readBranches,
+  readCheckout,
+  readWorkflow,
+  epicStatusRunner,
+  REPO_URL_TTL_MS,
+  repoUrlOf,
+  ticketWorktrees,
+  type EpicStatusRunner,
+} from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
+import { readyWave } from '../../src/shared/workflow/waves'
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
@@ -462,6 +476,85 @@ describe('workflow reader', () => {
     git(repo, 'merge', '-q', '--ff-only', 'demo/02')
     const after = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(ticketOf(after, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed 2026-10-05', fromBranch: null })
+  })
+
+  /** A runner whose `--ref` reads fail while `failing()` says so; every `--ref` it is asked goes into `refs`. */
+  function flakyBranches(home: string, failing: () => boolean, refs: string[]): EpicStatusRunner {
+    const real = epicStatusRunner(home, ownEnv)
+    return async (cwd, ref) => {
+      if (ref !== null) {
+        refs.push(ref)
+        if (failing()) throw new Error('epic-status timed out')
+      }
+      return real(cwd, ref)
+    }
+  }
+
+  it('reads a branch whose read failed again once the pause is over, and keeps its Ticket out of the ready Wave meanwhile (worfy-polish 67)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const refs: string[] = []
+    let failures = 1
+    const run = flakyBranches(home, () => failures-- > 0, refs)
+    let now = 1_000
+    const clock = { now: () => now }
+    const checkout = await readCheckout(repo, run)
+    const worktrees = await ticketWorktrees(repo)
+
+    const failed = await readBranches(repo, checkout, worktrees, new Map(), run, clock)
+    const first = applyBranches(checkout, failed)
+    expect(first.branchErrors).toEqual([{ branch: 'demo/02', message: 'epic-status timed out' }])
+    // The checkout says open, but the branch could not say otherwise: not ready, its files held.
+    expect(ticketOf(first, 2)).toMatchObject({ state: 'open', fromBranch: null, unreadBranch: 'demo/02' })
+    expect(readyWave(first.tickets, 'demo').ready.map((entry) => entry.num)).not.toContain(2)
+
+    // Within the pause the failed read stands and the branch is not read again.
+    now += BRANCH_RETRY_MS[0]! - 1
+    const paused = await readBranches(repo, checkout, worktrees, failed, run, clock)
+    expect(refs).toEqual(['demo/02'])
+    expect(applyBranches(checkout, paused).branchErrors).toHaveLength(1)
+
+    // After it, the same head is read again, and the Ticket shows the branch's claim.
+    now += 1
+    const again = await readBranches(repo, checkout, worktrees, paused, run, clock)
+    expect(refs).toEqual(['demo/02', 'demo/02'])
+    const second = applyBranches(checkout, again)
+    expect(second.branchErrors).toEqual([])
+    expect(ticketOf(second, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
+    expect(ticketOf(second, 2)).not.toHaveProperty('unreadBranch')
+  })
+
+  it('keeps the last status a branch gave while its read fails, and waits longer after each failure in a row (worfy-polish 67)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const refs: string[] = []
+    let failing = false
+    const run = flakyBranches(home, () => failing, refs)
+    let now = 1_000
+    const clock = { now: () => now }
+    const checkout = await readCheckout(repo, run)
+    const worktrees = await ticketWorktrees(repo)
+    const good = await readBranches(repo, checkout, worktrees, new Map(), run, clock)
+
+    // A new commit on the branch, and its read fails.
+    failing = true
+    const moved = worktrees.map((worktree) => ({ ...worktree, head: 'moved' }))
+    const once = await readBranches(repo, checkout, moved, good, run, clock)
+    const model = applyBranches(checkout, once)
+    // The claim read before stands: the Ticket is still in work, marked as not read now.
+    expect(ticketOf(model, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02', unreadBranch: 'demo/02' })
+    expect(model.branchErrors).toHaveLength(1)
+
+    // The second failure in a row waits the second step of the pause, not the first.
+    now += BRANCH_RETRY_MS[0]!
+    const twice = await readBranches(repo, checkout, moved, once, run, clock)
+    expect(refs).toHaveLength(3)
+    now += BRANCH_RETRY_MS[1]! - 1
+    await readBranches(repo, checkout, moved, twice, run, clock)
+    expect(refs).toHaveLength(3)
+    expect(ticketOf(applyBranches(checkout, twice), 2)).toMatchObject({ state: 'work', unreadBranch: 'demo/02' })
   })
 
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {
@@ -1038,6 +1131,27 @@ describe('workflow watcher', () => {
     // between `worktree add` and the claim commit.
     expect(calls(log).length).toBeGreaterThan(0)
     expect(new Set(calls(log))).toEqual(new Set(['demo/03']))
+  })
+
+  it('reads a branch whose read failed again by itself, with no event, once the pause is over (worfy-polish 67)', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const real = epicStatusRunner(home, ownEnv)
+    let failures = 1
+    const run: EpicStatusRunner = async (cwd, ref) => {
+      if (ref !== null && failures-- > 0) throw new Error('epic-status timed out')
+      return real(cwd, ref)
+    }
+    const deltas: WorkflowDelta[] = []
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, run, branchRetryMs: [ms(200)], onChange: (delta) => deltas.push(delta) })
+    cleanups.push(() => watcher.close())
+    expect(watcher.current.branchErrors).toEqual([{ branch: 'demo/02', message: 'epic-status timed out' }])
+    expect(ticketOf(watcher.current, 2)).toMatchObject({ state: 'open', unreadBranch: 'demo/02' })
+
+    const { delta } = await nextDelta(deltas, (d) => d.tickets.some((t) => t.num === 2))
+    expect(delta.tickets.map((t) => [t.num, t.state, t.fromBranch])).toEqual([[2, 'work', 'demo/02']])
+    expect(delta.branchErrors).toEqual([])
   })
 
   it('reports a removed Ticket', async () => {

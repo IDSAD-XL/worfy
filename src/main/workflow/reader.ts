@@ -80,10 +80,28 @@ const statusFacts = (t: StatusFacts): StatusFacts => ({
 /** What one branch said about its own Ticket, kept between reads keyed by branch name. */
 export interface BranchSnapshot {
   head: string
+  /** After a failed read: what the last read that worked said, or null. */
   ticket: (Pick<Ticket, 'epic' | 'num'> & StatusFacts) | null
   error: string | null
+  /** Set with `error`: when the branch is read again, and how many reads in a row have failed. */
+  retry: { at: number; failures: number } | null
 }
 export type BranchCache = Map<string, BranchSnapshot>
+
+/**
+ * How long a branch whose read failed waits before it is read again, one wait per failure in a
+ * row with the last repeated: a passing failure (a timeout under load) clears soon, and a branch
+ * that always fails runs `epic-status` once in 5 minutes, not on every read.
+ */
+export const BRANCH_RETRY_MS: readonly number[] = [30_000, 60_000, 120_000, 300_000]
+
+/** The clock and the waits of `readBranches`; tests replace them. */
+export interface BranchReadOptions {
+  /** How many branch snapshots run at once (default 4). */
+  concurrency?: number
+  now?: () => number
+  retryMs?: readonly number[]
+}
 
 /** The checkout's read before branch statuses are laid over it. */
 export type CheckoutModel = Omit<WorkflowModel, 'branchErrors'>
@@ -437,8 +455,11 @@ async function inPool<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[
 }
 
 /**
- * Brings the branch cache up to date: a branch is read again only when its head moved or it is
- * new; branches whose worktree is gone, or whose Ticket the checkout does not know, drop out.
+ * Brings the branch cache up to date: a branch is read again when its head moved, when it is new,
+ * or when its last read failed and the wait after it (BRANCH_RETRY_MS) is over; branches whose
+ * worktree is gone, or whose Ticket the checkout does not know, drop out. A failed read keeps what
+ * the last read that worked said, so a Ticket claimed in the branch does not fall back to the
+ * checkout's open for one timeout.
  */
 export async function readBranches(
   root: string,
@@ -446,16 +467,17 @@ export async function readBranches(
   worktrees: TicketWorktree[],
   previous: BranchCache,
   run: EpicStatusRunner,
-  concurrency = 4,
+  { concurrency = 4, now = Date.now, retryMs = BRANCH_RETRY_MS }: BranchReadOptions = {},
 ): Promise<BranchCache> {
   const known = new Set(checkout.tickets.map(ticketKey))
   const next: BranchCache = new Map()
   const stale: TicketWorktree[] = []
+  const at = now()
   for (const worktree of worktrees) {
     const ref = parseTicketBranch(worktree.branch)!
     if (!known.has(ticketKey(ref)) || next.has(worktree.branch)) continue
     const cached = previous.get(worktree.branch)
-    if (cached && cached.head === worktree.head) next.set(worktree.branch, cached)
+    if (cached && cached.head === worktree.head && (cached.retry === null || at < cached.retry.at)) next.set(worktree.branch, cached)
     else stale.push(worktree)
   }
 
@@ -466,9 +488,12 @@ export async function readBranches(
         const snapshot = parseEpicStatus(await run(root, worktree.branch))
         const own = snapshot.tickets.find((ticket) => ticket.epic === ref.epic && ticket.num === ref.num)
         const ticket = own ? { epic: own.epic, num: own.num, ...statusFacts(own) } : null
-        return [worktree.branch, { head: worktree.head, ticket, error: null }]
+        return [worktree.branch, { head: worktree.head, ticket, error: null, retry: null }]
       } catch (error) {
-        return [worktree.branch, { head: worktree.head, ticket: null, error: errorOf(error).message }]
+        const before = previous.get(worktree.branch)
+        const failures = (before?.retry?.failures ?? 0) + 1
+        const wait = retryMs[Math.min(failures, retryMs.length) - 1] ?? BRANCH_RETRY_MS[0]!
+        return [worktree.branch, { head: worktree.head, ticket: before?.ticket ?? null, error: errorOf(error).message, retry: { at: now() + wait, failures } }]
       }
     }),
     concurrency,
@@ -495,16 +520,25 @@ function branchOverrides(checkout: Ticket['state'], branch: Ticket['state']): bo
  */
 export function applyBranches(checkout: CheckoutModel, branches: BranchCache): WorkflowModel {
   const overrides = new Map<string, { branch: string; snapshot: BranchSnapshot }>()
+  const unread = new Map<string, string>()
   const branchErrors: BranchError[] = []
   for (const [branch, snapshot] of [...branches.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (snapshot.error !== null) branchErrors.push({ branch, message: snapshot.error })
+    if (snapshot.error !== null) {
+      branchErrors.push({ branch, message: snapshot.error })
+      const ref = parseTicketBranch(branch)
+      if (ref) unread.set(ticketKey(ref), branch)
+    }
     if (snapshot.ticket) overrides.set(ticketKey(snapshot.ticket), { branch, snapshot })
   }
   const tickets = checkout.tickets.map((ticket) => {
+    // A branch that could not be read may hold a claim: the Ticket goes into no Wave until it is read
+    // (shared/workflow/waves.ts). Blocked and done in the checkout stand whatever a branch says.
+    const unreadBranch = unread.get(ticketKey(ticket))
+    const marked = unreadBranch === undefined || ticket.state === 'blocked' || ticket.state === 'done' ? ticket : { ...ticket, unreadBranch }
     const override = overrides.get(ticketKey(ticket))
     const fromBranch = override?.snapshot.ticket
-    if (!override || !fromBranch || !branchOverrides(ticket.state, fromBranch.state) || fromBranch.statusRaw === ticket.statusRaw) return ticket
-    return { ...ticket, ...statusFacts(fromBranch), fromBranch: override.branch }
+    if (!override || !fromBranch || !branchOverrides(ticket.state, fromBranch.state) || fromBranch.statusRaw === ticket.statusRaw) return marked
+    return { ...marked, ...statusFacts(fromBranch), fromBranch: override.branch }
   })
   return { ...checkout, tickets, branchErrors }
 }
@@ -525,6 +559,6 @@ export async function readWorkflow(
   const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
-  const branches = await readBranches(root, checkout, await ticketWorktrees(root), previous, run, options.concurrency)
+  const branches = await readBranches(root, checkout, await ticketWorktrees(root), previous, run, options.concurrency === undefined ? {} : { concurrency: options.concurrency })
   return { model: applyBranches(checkout, branches), checkout, branches }
 }
