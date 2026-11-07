@@ -39,13 +39,16 @@ Claude Code на той же Vendor session, хотя старый процес�
 - [ ] Contract test: fake query, чей `close()` оставляет процесс живым N ms, и `send()` в состоянии `error`. Второй
       вызов `start`/`resume` driver-а происходит только после выхода первого процесса.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
 - [ ] Contract test: процесс, который не выходит, получает SIGKILL после границы, и новый старт идёт после этого;
       сообщение не теряется и уходит в новый процесс.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 082997eb1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
 - [ ] Существующий test `test/contract/session-handle-lifecycle.test.ts:94` («a subscriber that throws fails the
       Session and closes its query; the next message starts the only live one») зелёный.
   - evidence: test-run pass · `pnpm test test/contract/session-handle-lifecycle.test.ts` exit 0 · mac - · 082997eb1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0171e1245
 
 ## Тесты
 
@@ -102,4 +105,4 @@ Claude Code на той же Vendor session, хотя старый процес�
   test-ы критериев 1 и 2; `handOverQueue()` без `run.waiting` — краснеют оба test-а передачи (exit 1); проглоченный
   отказ старта после ожидания — краснеет test отказа (exit 1).
 - Проверки круга 1: test-ы, импортирующие Session, driver Claude и Orchestrator (89 файлов), — exit 0; `pnpm lint &&
-  pnpm typecheck && pnpm test` и gate fast — в отчёте implementer-а с exit code.
+  pnpm typecheck && pnpm test` — exit 0; gate fast на 0171e1245 — exit 0, `[gate] green (fast)`.
