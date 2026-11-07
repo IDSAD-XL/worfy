@@ -15,7 +15,9 @@
 // oldest acceptance first, in its "Queue" view; the person unticks and reorders them there, and the start
 // goes to main with the ticked Epics in that order (`autopilot.start` with `epics`). With no accepted Epic,
 // a toast says so and no window opens. An agent's ask with a list of Epics (ticket 15) shows the same
-// view, its order fixed: the answer to main carries only the Run mode.
+// view under "Asked by …": the answer to main carries the Run mode and the ticked Epics in their order,
+// and main starts over exactly those (src/main/autopilot/chat-confirm.ts checks they are a part of the
+// queue asked for). An ask of one Epic answers no list.
 //
 // "change in Modes" of the window (openOrchestratorModes) shows the Session view of the Project's
 // Orchestrator and opens the Modes menu under its input field (session/composer/Modes.tsx).
@@ -91,9 +93,12 @@ export function askStart(request: StartRequest): Promise<string | undefined> {
   })
 }
 
-/** Sends the window's answer to the agent's ask `id`; resolves to the reason when main did not take it. */
-async function answerAsk(id: string, answer: AutopilotConfirmAnswer): Promise<string | undefined> {
-  const result = await invoke('autopilot.confirm.answer', { id, answer })
+/**
+ * Sends the window's answer to the agent's ask `id`, with `epics` — the ticked Epics of its queue, in
+ * order — when there are any; resolves to the reason when main did not take it.
+ */
+async function answerAsk(id: string, answer: AutopilotConfirmAnswer, epics?: readonly string[]): Promise<string | undefined> {
+  const result = await invoke('autopilot.confirm.answer', { id, answer, ...(epics === undefined ? {} : { epics: [...epics] }) })
   return result.ok ? undefined : readableReason(failureReason('autopilot.confirm.answer', result.error))
 }
 
@@ -112,7 +117,7 @@ export function askFromAgent(ask: AutopilotConfirmAsk, now: () => number = Date.
     ...(ask.tickets === undefined ? {} : { tickets: ask.tickets }),
     from: 'agent',
     agent: { id: ask.id, session: ask.session, deadline: now() + ask.waitMs },
-    start: (mode) => answerAsk(ask.id, mode),
+    start: (mode, chosen) => answerAsk(ask.id, mode, ask.epics === undefined ? undefined : chosen),
     cancel: () => void answerAsk(ask.id, 'cancel'),
   })
 }

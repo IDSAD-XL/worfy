@@ -3,11 +3,8 @@
 // place among the ticked, the Epic, its Waves left and the day the owner accepted it. Before the start
 // the queue is the person's to change: untick to drop an Epic, drag a row with the mouse, or ⌥↑/⌥↓ on
 // its grip to move it a place (the focus stays on that grip). The window (StartAutopilotModal.tsx) keeps
-// the rows and starts with the ticked Epics in their order.
-//
-// `locked` (an agent's ask with a list of Epics, ticket 15): the rows are shown without ticks, grips or
-// dragging — the window's answer to main carries only the Run mode, so the queue stays the one the
-// Session asked for.
+// the rows and starts with the ticked Epics in their order: "Run all accepted" of the Command palette and
+// an agent's ask with a list of Epics (ticket 15) alike.
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { KIND } from '../canvas/kind-colours'
 import { isMac } from '../platform'
@@ -48,14 +45,12 @@ export function QueueList({
   rows,
   facts,
   onChange,
-  locked,
   off,
 }: {
   rows: readonly QueueRow[]
   /** By Epic; an Epic main has not answered for yet shows `…` for its Waves. */
   facts: Readonly<Record<string, QueueFacts>>
   onChange(rows: QueueRow[]): void
-  locked: boolean
   /** The window starts or its time is up: nothing changes any more. */
   off: boolean
 }) {
@@ -64,7 +59,6 @@ export function QueueList({
   const [over, setOver] = useState<number | null>(null)
   // The grip a key moved: it keeps the focus after the rows are drawn again.
   const focusEpic = useRef<string | null>(null)
-  const fixed = locked || off
 
   useLayoutEffect(() => {
     const epic = focusEpic.current
@@ -88,7 +82,7 @@ export function QueueList({
     setOver(null)
     const from = dragged.current
     dragged.current = null
-    if (from !== null && !fixed) onChange(moveRow(rows, from, index))
+    if (from !== null && !off) onChange(moveRow(rows, from, index))
   }
 
   const ticked = rows.filter((row) => row.on)
@@ -104,9 +98,9 @@ export function QueueList({
             data-testid="start-autopilot-queue-row"
             data-epic={row.epic}
             data-on={String(row.on)}
-            draggable={!fixed}
+            draggable={!off}
             onDragStart={(event) => {
-              if (fixed) return
+              if (off) return
               dragged.current = index
               event.dataTransfer?.setData('text/plain', row.epic)
               if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
@@ -123,23 +117,19 @@ export function QueueList({
             onDragLeave={() => setOver((now) => (now === index ? null : now))}
             onDrop={(event) => drop(event, index)}
           >
-            {locked ? null : (
-              <>
-                <button
-                  type="button"
-                  className="w-apstart__grip"
-                  title={`Drag to reorder (or ${isMac() ? '⌥' : 'Alt+'}↑/↓)`}
-                  aria-label={`Reorder ${row.epic}`}
-                  aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                  data-grip={row.epic}
-                  disabled={off}
-                  onKeyDown={(event) => onGripKey(event, index)}
-                >
-                  ⋮⋮
-                </button>
-                <input type="checkbox" checked={row.on} aria-label={`Include ${row.epic}`} disabled={off} onChange={() => toggle(index)} />
-              </>
-            )}
+            <button
+              type="button"
+              className="w-apstart__grip"
+              title={`Drag to reorder (or ${isMac() ? '⌥' : 'Alt+'}↑/↓)`}
+              aria-label={`Reorder ${row.epic}`}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              data-grip={row.epic}
+              disabled={off}
+              onKeyDown={(event) => onGripKey(event, index)}
+            >
+              ⋮⋮
+            </button>
+            <input type="checkbox" checked={row.on} aria-label={`Include ${row.epic}`} disabled={off} onChange={() => toggle(index)} />
             <span className="w-apstart__queue-n w-mono">{row.on ? ticked.indexOf(row) + 1 : '–'}</span>
             <span className="w-apstart__queue-epic" style={{ background: KIND.epic.band }} aria-hidden="true" />
             <span className="w-apstart__queue-name w-mono">{row.epic}</span>

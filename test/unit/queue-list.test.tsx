@@ -10,8 +10,9 @@
 //   grip move it. The title counts the ticked Epics and their Waves, and the facts (the forecast) are
 //   asked again of main for the ticked Epics in their order. Nothing ticked: the start is off.
 // - The start goes with the ticked Epics in the order of the list.
-// - An agent's ask with a list of Epics (ticket 15) shows the same list under "Asked by …", without
-//   ticks or grips: the window's answer to main carries only the Run mode.
+// - An agent's ask with a list of Epics (ticket 15) shows the same list, ticks and grips under "Asked by …";
+//   the answer to main carries the Run mode and the ticked Epics in their order (`epics`); an ask of one
+//   Epic answers no list.
 // What main answers to `autopilot.prepare` for several Epics is test/contract/autopilot-prepare.test.ts.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -290,26 +291,70 @@ describe('the queue of the window', () => {
 })
 
 describe("an agent's ask with a list of Epics (ticket 15)", () => {
-  it('shows the same queue under "Asked by …", without ticks or grips; the answer is the Run mode', async () => {
+  const ASK: AutopilotConfirmAsk = { id: 'ask-1', projectId: PROJECT, project: 'Demo shop', epic: 'bravo', epics: ['bravo', 'alpha', 'charlie'], session: 'c0ffee12-3456-4789-8abc-def012345678', mode: 'fastest', forecast: [], waitMs: 10 * 60_000 }
+  const answers = () => fake.calls.filter((call) => call.channel === 'autopilot.confirm.answer').map((call) => call.input)
+
+  /** The shell's window with the agent's ask received and its facts read. */
+  async function agentWindow(ask: AutopilotConfirmAsk = ASK): Promise<HTMLElement> {
     const { StartAutopilotModal } = await import('../../src/renderer/autopilot/StartAutopilotModal')
     render(<StartAutopilotModal />)
     await settle()
-    const ask: AutopilotConfirmAsk = { id: 'ask-1', projectId: PROJECT, project: 'Demo shop', epic: 'bravo', epics: ['bravo', 'alpha'], session: 'c0ffee12-3456-4789-8abc-def012345678', mode: 'fastest', forecast: [], waitMs: 10 * 60_000 }
     act(() => {
       for (const listener of [...fake.listeners.values()]) if (listener.channel === 'autopilot.confirm.ask') listener.handler(ask)
     })
     const dialog = await screen.findByRole('dialog')
     await settle()
+    return dialog
+  }
+
+  it('shows the queue under "Asked by …" with ticks and grips, in the order the Session asked', async () => {
+    const dialog = await agentWindow()
     expect(within(dialog).getByTestId('start-autopilot-asked').textContent).toContain('Asked by Session "c0ffee12" in a chat')
-    expect(order(dialog)).toEqual(['bravo', 'alpha'])
-    expect(title(dialog)).toBe('Start Autopilot · 2 Epics, 3 Waves')
-    expect(within(dialog).queryAllByRole('checkbox')).toEqual([])
-    expect(within(dialog).queryByRole('button', { name: 'Reorder bravo' })).toBeNull()
-    expect(within(dialog).getByTestId('start-autopilot-queue-hint').textContent).toBe('In the order the Session asked')
-    expect(rows(dialog).map((each) => each.getAttribute('draggable'))).toEqual(['false', 'false'])
+    expect(within(dialog).getByTestId('start-autopilot-countdown').textContent).toMatch(/^(10:00|9:[0-5]\d)$/u)
+    expect(order(dialog)).toEqual(['bravo', 'alpha', 'charlie'])
+    expect(title(dialog)).toBe('Start Autopilot · 3 Epics, 6 Waves')
+    expect(within(dialog).getByTestId('start-autopilot-queue-hint').textContent).toBe('In the order the Session asked · drag to reorder, untick to drop')
+    expect(within(dialog).getAllByRole('checkbox').map((box) => box.getAttribute('aria-label'))).toEqual(['Include bravo', 'Include alpha', 'Include charlie'])
+    expect(within(dialog).getAllByRole('button', { name: /^Reorder / }).map((grip) => grip.getAttribute('aria-label'))).toEqual(['Reorder bravo', 'Reorder alpha', 'Reorder charlie'])
+    expect(rows(dialog).map((each) => each.getAttribute('draggable'))).toEqual(['true', 'true', 'true'])
+  })
+
+  it('the answer carries the Run mode and the ticked Epics in their new order; the window starts nothing itself', async () => {
+    const dialog = await agentWindow()
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Include alpha' }))
+    const grip = within(dialog).getByRole('button', { name: 'Reorder charlie' })
+    grip.focus()
+    fireEvent.keyDown(grip, { key: 'ArrowUp', altKey: true })
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp', altKey: true })
+    await settle()
+    expect(order(dialog)).toEqual(['charlie', 'bravo', 'alpha'])
+    expect(title(dialog)).toBe('Start Autopilot · 2 Epics, 4 Waves')
     fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
     await settle()
-    expect(fake.calls.filter((call) => call.channel === 'autopilot.confirm.answer').map((call) => call.input)).toEqual([{ id: 'ask-1', answer: 'fastest' }])
+    expect(answers()).toEqual([{ id: 'ask-1', answer: 'fastest', epics: ['charlie', 'bravo'] }])
     expect(starts()).toEqual([])
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('nothing ticked: the start is off and nothing is answered; Cancel still answers cancel', async () => {
+    const dialog = await agentWindow()
+    for (const epic of ['bravo', 'alpha', 'charlie']) fireEvent.click(within(dialog).getByRole('checkbox', { name: `Include ${epic}` }))
+    await settle()
+    expect((within(dialog).getByTestId('start-autopilot-start') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(window, { key: 'Enter', metaKey: true, ctrlKey: true })
+    await settle()
+    expect(answers()).toEqual([])
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-cancel'))
+    await settle()
+    expect(answers()).toEqual([{ id: 'ask-1', answer: 'cancel' }])
+  })
+
+  it('an ask of one Epic shows no queue and answers no list', async () => {
+    const one: AutopilotConfirmAsk = { id: 'ask-1', projectId: PROJECT, project: 'Demo shop', epic: 'alpha', session: ASK.session, mode: 'fastest', forecast: [], waitMs: 10 * 60_000 }
+    const dialog = await agentWindow(one)
+    expect(within(dialog).queryByTestId('start-autopilot-queue')).toBeNull()
+    fireEvent.click(within(dialog).getByTestId('start-autopilot-start'))
+    await settle()
+    expect(answers()).toEqual([{ id: 'ask-1', answer: 'fastest' }])
   })
 })

@@ -32,7 +32,8 @@
 //   grid leaves the Epic and its Tickets out, and below it the queue (QueueList.tsx) shows each Epic with
 //   its Waves and acceptance date. The facts are asked again for the ticked Epics in their order whenever
 //   they change, so the forecast is theirs; the last facts stay on screen while the next are read. Nothing
-//   ticked: the start is off. The start goes with the ticked Epics in the order of the list.
+//   ticked: the start is off. The start goes with the ticked Epics in the order of the list — for an
+//   agent's ask, as the answer to main, which starts over exactly those.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ticketNumber } from '../../shared/actions/render-template'
@@ -316,8 +317,6 @@ function FactsGrid({ facts, open, queue, empty, onChangeModes, off }: { facts: F
 
 function StartWindow({ open }: { open: OpenStart }) {
   const queue = open.from === 'accepted' || open.epics.length > 1
-  // An agent's queue is the one it asked for: the answer to main carries only the Run mode.
-  const locked = open.from === 'agent'
   const [rows, setRows] = useState<QueueRow[]>(() => open.epics.map((epic) => ({ epic, on: true })))
   // The queue of the run: the ticked Epics, in the order of the list.
   const ticked = useMemo(() => rows.filter((row) => row.on).map((row) => row.epic), [rows])
@@ -476,10 +475,10 @@ function StartWindow({ open }: { open: OpenStart }) {
               <h3>
                 Queue{' '}
                 <span className="w-apstart__queue-hint" data-testid="start-autopilot-queue-hint">
-                  {locked ? 'In the order the Session asked' : open.from === 'accepted' ? 'Ordered by acceptance date · drag to reorder, untick to drop' : 'Drag to reorder, untick to drop'}
+                  {open.from === 'agent' ? 'In the order the Session asked' : open.from === 'accepted' ? 'Ordered by acceptance date' : 'In the order asked'} · drag to reorder, untick to drop
                 </span>
               </h3>
-              <QueueList rows={rows} facts={known} onChange={setRows} locked={locked} off={off} />
+              <QueueList rows={rows} facts={known} onChange={setRows} off={off} />
             </div>
           ) : null}
           <div className="w-apstart__section">

@@ -32,8 +32,11 @@
 //   forecast out; the window still asks.
 // - A queue of Epics (`epics`, worfy-autopilot-queue ticket 15): every Epic of it is checked before the
 //   ask as the one Epic is, the ask carries the queue (`epics`, when more than one) and the forecast of
-//   all their Waves left, one Epic after another, and the start goes with the queue. The window's view of
-//   the queue is worfy-autopilot-queue ticket 16.
+//   all their Waves left, one Epic after another, and the start goes with the queue. In the window's
+//   "Queue" view (ticket 16) the person may untick Epics of it and reorder them: the answer then carries
+//   the ticked Epics in their order, and the run starts over exactly those. A list that is empty, names
+//   an Epic twice or one the Session did not ask for is refused (queueRefusal): nothing starts. An answer
+//   without a list starts the queue as asked.
 // - A start goes to startFromChat with `by: 'tool'` and its mode (src/main/autopilot/chat-start.ts),
 //   as the command typed in a chat: the same run as the button. While the Orchestrator is busy, also
 //   in the turn that asked, the run is accepted and waits for it (WAIT_MESSAGE, worfy-autopilot-queue ticket 07).
@@ -46,7 +49,7 @@ import { epicForecast, remainingWaves } from '../../shared/autopilot/forecast'
 import { dialogLines } from '../../shared/autopilot/forecast-lines'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import { waveSamples } from '../../shared/autopilot/limits-estimate'
-import type { RunMode } from '../../shared/autopilot/run-mode'
+import { RUN_MODES, type RunMode } from '../../shared/autopilot/run-mode'
 import { waveDurationP90 } from '../../shared/autopilot/wave-duration'
 import { autopilotConfirmAsk, autopilotConfirmClose, type AutopilotConfirmAnswer } from '../../shared/ipc/autopilot-confirm'
 import { autopilotRunOf, type AutopilotRunSettings } from '../../shared/settings/app-settings'
@@ -102,10 +105,27 @@ export interface AutopilotPrompt {
 }
 
 /**
- * What became of the ask: the Run mode the person started in, or why nothing starts; 'no-window':
- * there was no window to show it on, or it closed; 'occupied': the window was busy with another start.
+ * What became of the ask: the Run mode the person started in — with `epics`, the Epics of the queue the
+ * person left ticked, in their order — or why nothing starts; 'no-window': there was no window to show it
+ * on, or it closed; 'occupied': the window was busy with another start.
  */
-export type Confirmation = RunMode | 'cancel' | 'timeout' | 'no-window' | 'occupied'
+export type Confirmation = RunMode | { mode: RunMode; epics: readonly string[] } | 'cancel' | 'timeout' | 'no-window' | 'occupied'
+
+const NOT_STARTED = 'Autopilot did not start.'
+
+const isRunMode = (answer: AutopilotConfirmAnswer): answer is RunMode => (RUN_MODES as readonly string[]).includes(answer)
+
+/** Why the Epics the window answered cannot start in place of `queue`, the one asked for; null when they are a part of it. */
+export function queueRefusal(queue: readonly string[], chosen: readonly string[]): string | null {
+  if (chosen.length === 0) return `The Start Autopilot window answered no Epic: ${NOT_STARTED}`
+  const seen = new Set<string>()
+  for (const epic of chosen) {
+    if (seen.has(epic)) return `The Start Autopilot window answered Epic ${epic} twice: ${NOT_STARTED}`
+    if (!queue.includes(epic)) return `The Start Autopilot window answered Epic ${epic}, which the Session did not ask for: ${NOT_STARTED}`
+    seen.add(epic)
+  }
+  return null
+}
 
 const ticketsText = (tickets: readonly number[]): string => `${tickets.length === 1 ? 'Ticket' : 'Tickets'} ${tickets.map(ticketNumber).join(', ')}`
 
@@ -170,14 +190,15 @@ export class WindowAsks {
   }
 
   /**
-   * The answer of the window whose webContents id is `sender` to ask `id`. An ask that is over (its
-   * time was up, its window closed) takes it and changes nothing; another window's answer is refused.
+   * The answer of the window whose webContents id is `sender` to ask `id`; `epics`, with a Run mode: the
+   * Epics of the queue left ticked, in their order. An ask that is over (its time was up, its window
+   * closed) takes it and changes nothing; another window's answer is refused.
    */
-  answer(id: string, answer: AutopilotConfirmAnswer, sender: number): void {
+  answer(id: string, answer: AutopilotConfirmAnswer, sender: number, epics?: readonly string[]): void {
     const pending = this.pending.get(id)
     if (pending === undefined) return
     if (pending.sender !== sender) throw new Error('This window was not asked to confirm this start of Autopilot')
-    pending.done(answer)
+    pending.done(epics !== undefined && isRunMode(answer) ? { mode: answer, epics: [...epics] } : answer)
   }
 }
 
@@ -311,11 +332,17 @@ export function autopilotStarter(deps: AutopilotToolDeps): AutopilotStarter {
       if (answer === 'occupied') throw new Error(WINDOW_OCCUPIED_MESSAGE)
       if (answer === 'timeout') throw new Error(NO_ONE_CONFIRMED)
       if (answer === 'cancel') throw new Error(CANCELED_MESSAGE)
-      const started = await deps.startFromChat({ projectId, epic, ...many, ...(tickets === undefined ? {} : { tickets }), by: 'tool', session, mode: answer })
+      // The queue the person left in the window, a part of the one asked for; without a list, that one.
+      const chosen = typeof answer === 'string' ? queue : answer.epics
+      const refusal = queueRefusal(queue, chosen)
+      if (refusal !== null) throw new Error(refusal)
+      const [first = epic] = chosen
+      const mode = typeof answer === 'string' ? answer : answer.mode
+      const started = await deps.startFromChat({ projectId, epic: first, ...(chosen.length > 1 ? { epics: [...chosen] } : {}), ...(tickets === undefined ? {} : { tickets }), by: 'tool', session, mode })
       if (started.kind === 'refused') throw new Error(started.message)
       if (started.kind === 'after-turn') return started.message
-      if (queue.length > 1) return `Autopilot started a queue of ${queue.length} Epics: ${queue.join(', ')}.`
-      return `Autopilot started ${tickets === undefined ? `Epic ${epic}` : `${ticketsText(tickets)} of Epic ${epic}`}.`
+      if (chosen.length > 1) return `Autopilot started a queue of ${chosen.length} Epics: ${chosen.join(', ')}.`
+      return `Autopilot started ${tickets === undefined ? `Epic ${first}` : `${ticketsText(tickets)} of Epic ${first}`}.`
     } finally {
       asking.delete(projectId)
     }

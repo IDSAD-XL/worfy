@@ -116,9 +116,13 @@ read as a command.
 the agent calls the canvas tool `autopilot_start` with the Epic and, for named Tickets, their numbers. For several Epics
 one after another it gives `epics` (1 to 10, each once) instead of `epic`; both fields, neither, an Epic named twice, or
 `tickets` with more than one Epic is a form error before any ask. The ask then carries the queue (`epics` on
-`autopilot.confirm.ask`, when it has more than one Epic), and the start goes with the queue. The window shows such a
-queue in the same list as **Run all accepted**, with the forecast over all of its Epics, but without ticks or grips: the
-answer to main carries only the Run mode, so the person confirms the queue as the agent asked it. worfy asks the
+`autopilot.confirm.ask`, when it has more than one Epic). The window shows such a queue in the same list as **Run all
+accepted**, in the order the Session asked, with ticks and grips: the person may untick Epics and reorder them, and the
+forecast follows the ticked ones. With nothing ticked the start is inactive. The answer then carries the ticked Epics
+in their order (`epics` on `autopilot.confirm.answer`), and the run starts over exactly those. Main takes that list
+only when it is a part of the queue asked for: an empty list, an Epic named twice or an Epic the Session did not ask for
+is refused, nothing starts, and the agent is told why. An answer without a list (an ask of one Epic) starts the queue as
+asked. worfy asks the
 user in the same **Start Autopilot** window as the button, in its "Agent asks" view: under the title it says
 `Asked by Session "<first 8 characters of the Session id>" in a chat · answer within 9:59` and counts down 10 minutes;
 the last minute is in the blocked colours. The facts, the Modes and the Run mode are as for the button, and the

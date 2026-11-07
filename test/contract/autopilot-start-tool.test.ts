@@ -13,6 +13,11 @@
 //
 // The Run mode and the forecast (worfy-resource-planner ticket 06): the ask carries the default mode of
 // Settings and the forecast lines of the past runs' journals; the window answers the mode chosen.
+//
+// The queue an agent asks for (worfy-autopilot-queue tickets 15, 16): the window may answer the ticked
+// Epics in a new order (`epics` of `autopilot.confirm.answer`); the run starts over exactly those. A list
+// that is empty, names an Epic twice or one the Session did not ask for is refused and starts nothing; an
+// answer without a list starts the queue as asked.
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -267,10 +272,11 @@ function windowAsk() {
     get shown(): AutopilotConfirmAsk[] {
       return asksOf(owner)
     },
-    answer: (answer: AutopilotConfirmAnswer) => {
+    /** The window's answer to the last ask; `epics`: the queue the person left ticked, in its order. */
+    answer: (answer: AutopilotConfirmAnswer, epics?: readonly string[]) => {
       const last = asksOf(owner).at(-1)
       if (last === undefined) throw new Error('no ask is open')
-      asks.answer(last.id, answer, owner.webContents.id)
+      asks.answer(last.id, answer, owner.webContents.id, epics)
     },
   }
 }
@@ -782,6 +788,86 @@ describe('autopilot_start: a queue of Epics (worfy-autopilot-queue ticket 15)', 
     }
     expect(ask.shown).toEqual([])
     expect(w.startFromChat).not.toHaveBeenCalled()
+  })
+
+  /** Epic demo with Tickets 05–07, shop with 01 and 02, and docs with 03, all open: a queue of three. */
+  const THREE_MODEL = {
+    ...QUEUE_MODEL,
+    epics: [...QUEUE_MODEL.epics, { epic: 'docs', hasSpec: true, hasMap: false }],
+    tickets: [...QUEUE_MODEL.tickets, { ...t(3), epic: 'docs' }],
+  } as unknown as WorkflowModel
+
+  it('the window answers the ticked Epics in a new order: the run starts over exactly those (worfy-autopilot-queue ticket 16)', async () => {
+    const w = world({ model: THREE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(THREE_MODEL) }).starter)
+    const call = rpc.call('autopilot_start', { epics: [EPIC, 'shop', 'docs'] })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('budget-aware', ['docs', EPIC])
+    const result = await call
+    expect(result.isError, textOf(result)).toBeFalsy()
+    expect(textOf(result)).toBe(`Autopilot started a queue of 2 Epics: docs, ${EPIC}.`)
+    expect(w.startFromChat).toHaveBeenCalledWith({ projectId: PROJECT, epic: 'docs', epics: ['docs', EPIC], by: 'tool', session: ORCHESTRATOR, mode: 'budget-aware' })
+    expect(w.out.starts).toEqual([[PROJECT, 'docs', { override: false, by: 'tool', epics: ['docs', EPIC], mode: 'budget-aware' }]])
+  })
+
+  it('one Epic left ticked is that Epic alone: no queue in the start', async () => {
+    const w = world({ model: THREE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(THREE_MODEL) }).starter)
+    const call = rpc.call('autopilot_start', { epics: [EPIC, 'shop', 'docs'] })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('fastest', ['shop'])
+    expect(textOf(await call)).toBe('Autopilot started Epic shop.')
+    expect(w.out.starts).toEqual([[PROJECT, 'shop', { override: false, by: 'tool', mode: 'fastest' }]])
+  })
+
+  it('a list that is empty, names an Epic twice or one the Session did not ask for is refused: nothing starts', async () => {
+    const w = world({ model: THREE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(THREE_MODEL) }).starter)
+    const cases: [readonly string[], string][] = [
+      [[], 'The Start Autopilot window answered no Epic: Autopilot did not start.'],
+      [['shop', 'shop'], 'The Start Autopilot window answered Epic shop twice: Autopilot did not start.'],
+      // docs is the Project's, but the Session asked only for demo and shop.
+      [[EPIC, 'docs'], 'The Start Autopilot window answered Epic docs, which the Session did not ask for: Autopilot did not start.'],
+    ]
+    for (const [epics, message] of cases) {
+      const before = ask.shown.length
+      const call = rpc.call('autopilot_start', { epics: [EPIC, 'shop'] })
+      await vi.waitFor(() => expect(ask.shown).toHaveLength(before + 1))
+      ask.answer('fastest', epics)
+      const result = await call
+      expect(result.isError, JSON.stringify(epics)).toBe(true)
+      expect(textOf(result)).toBe(message)
+    }
+    expect(w.startFromChat).not.toHaveBeenCalled()
+    expect(w.out.starts).toEqual([])
+  })
+
+  it('an answer without a list starts the queue as the Session asked it', async () => {
+    const w = world({ model: THREE_MODEL })
+    const ask = windowAsk()
+    const rpc = await connect(ORCHESTRATOR, tool(w, ask, { workflow: () => Promise.resolve(THREE_MODEL) }).starter)
+    const call = rpc.call('autopilot_start', { epics: ['shop', 'docs', EPIC] })
+    await vi.waitFor(() => expect(ask.shown).toHaveLength(1))
+    ask.answer('fastest')
+    expect(textOf(await call)).toBe(`Autopilot started a queue of 3 Epics: shop, docs, ${EPIC}.`)
+    expect(w.out.starts).toEqual([[PROJECT, 'shop', { override: false, by: 'tool', epics: ['shop', 'docs', EPIC], mode: 'fastest' }]])
+  })
+
+  it('the handler of `autopilot.confirm.answer` passes the list on; a list longer than a queue is a form error', async () => {
+    const { autopilotConfirmHandlers } = await import('../../src/main/ipc/autopilot-confirm')
+    const seen: unknown[][] = []
+    const asks = { answer: (...args: unknown[]) => void seen.push(args) } as unknown as InstanceType<typeof confirm.WindowAsks>
+    const [handler] = autopilotConfirmHandlers(() => asks)
+    await handler!.handle(handler!.channel.input.parse({ id: 'ask-1', answer: 'fastest', epics: ['shop', EPIC] }), { event: { sender: { id: 7 } } } as never)
+    await handler!.handle(handler!.channel.input.parse({ id: 'ask-2', answer: 'cancel' }), { event: { sender: { id: 7 } } } as never)
+    expect(seen).toEqual([
+      ['ask-1', 'fastest', 7, ['shop', EPIC]],
+      ['ask-2', 'cancel', 7, undefined],
+    ])
+    expect(handler!.channel.input.safeParse({ id: 'ask-3', answer: 'fastest', epics: Array.from({ length: 11 }, (_, at) => `e${at + 1}`) }).success).toBe(false)
   })
 
   it('an Epic of the queue the Project has not is refused before anyone is asked', async () => {

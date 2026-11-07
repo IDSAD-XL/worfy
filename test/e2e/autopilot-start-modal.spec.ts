@@ -26,7 +26,9 @@ import { launchApp } from './helpers'
 // "Run all accepted" of the Command palette (worfy-autopilot-queue ticket 16) opens the window in its
 // "Queue" view over the Project's accepted Epics: here the stub's epic-status answer says three Epics are
 // accepted, each with a ready Ticket. The person unticks one and drags another to the top; the run starts
-// over the ticked Epics in that order (`epics` of `run-started` in the run journal).
+// over the ticked Epics in that order (`epics` of `run-started` in the run journal). An agent's
+// `autopilot_start` with the same three Epics opens that view under "Asked by …": the person changes the
+// queue there too, and the run starts over exactly the Epics the window answered.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -304,6 +306,52 @@ test('"Run all accepted" opens the window over the accepted Epics; the run start
     // The start: run-started names the ticked Epics in the new order, without the unticked one.
     await dialog.getByTestId('start-autopilot-start').click()
     await expect(dialog).toHaveCount(0)
+    await expect.poll(() => startedEpics(world.dataDir)).toEqual(['search', EPIC])
+    expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
+  } finally {
+    await launched.close()
+  }
+})
+
+test("an agent's ask for a queue: the person unticks and reorders it in the window, and the run starts over exactly those Epics", async () => {
+  const world = prepareWorld(scratch)
+  acceptEpics(world)
+  const launched = await launchApp({ env: world.env('orchestrator') })
+  try {
+    const { window, app } = launched
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900))
+    await quietPower(launched)
+    await expect(window.getByTestId('orchestrator-node')).toBeVisible()
+    await expect.poll(() => app.evaluate(() => typeof (globalThis as { worfyCanvasTool?: unknown }).worfyCanvasTool)).toBe('function')
+    const view = (await bridgeCall(window, 'orchestrator.open', { projectId: PROJECT })) as { ok: boolean; value?: { sessionId: string | null } }
+    const sessionId = view.value?.sessionId ?? null
+    expect(sessionId).not.toBeNull()
+
+    const started = agentCalls(launched, sessionId!, { epics: ACCEPTED.map(({ epic }) => epic) })
+    const dialog = startWindow(window)
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('data-from', 'agent')
+    await expect(dialog).toHaveAttribute('data-facts', 'read')
+    await expect(dialog.getByTestId('start-autopilot-asked')).toContainText(`Asked by Session "${sessionId!.slice(0, 8)}" in a chat`)
+    const rows = dialog.getByTestId('start-autopilot-queue-row')
+    const order = () => rows.evaluateAll((each) => each.map((row) => row.getAttribute('data-epic')))
+    expect(await order()).toEqual(ACCEPTED.map(({ epic }) => epic))
+
+    // Untick checkout; search up two places with ⌥↑: the queue is search, then demo.
+    await dialog.getByRole('checkbox', { name: 'Include checkout' }).uncheck()
+    const grip = dialog.getByRole('button', { name: 'Reorder search' })
+    await grip.focus()
+    await window.keyboard.press('Alt+ArrowUp')
+    await window.keyboard.press('Alt+ArrowUp')
+    await expect.poll(order).toEqual(['search', EPIC, 'checkout'])
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Start Autopilot · 2 Epics, 3 Waves')
+
+    // The answer carries the ticked Epics in their order; main starts over exactly those.
+    await dialog.getByTestId('start-autopilot-start').click()
+    await expect(dialog).toHaveCount(0)
+    const answer = await started
+    expect(answer.isError ?? false).toBe(false)
+    expect(answer.content[0]?.text).toBe(`Autopilot started a queue of 2 Epics: search, ${EPIC}.`)
     await expect.poll(() => startedEpics(world.dataDir)).toEqual(['search', EPIC])
     expect(await bridgeCall(window, 'autopilot.forceStop', { projectId: PROJECT })).toMatchObject({ ok: true, value: { status: 'stopped' } })
   } finally {
