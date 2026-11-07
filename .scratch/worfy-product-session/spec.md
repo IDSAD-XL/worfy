@@ -1,7 +1,8 @@
 # worfy-product-session: Product Session и Mind map — советник Product owner-а
 
-Status: черновик — ждёт приёмки владельцем вместе с разделом roadmap «worfy для соло-разработки продукта»; вопросы
-Q1–Q10 помечены «подтвердить».
+Status: принят владельцем 2026-11-07 («тогда да, верно») вместе с разделом roadmap «worfy для соло-разработки
+продукта»: Q1–Q10 — по рекомендации; Q5 владелец уточнил (сохранение `docs/product/` — docs PR Orchestrator-а по
+«сохранить» или по концу разговора, Product Session git не трогает).
 Source: карта [worfy-product](../worfy-product/map.md), решения 01–09 владельца 2026-11-07 (Ticket
 [11](../worfy-product/issues/11-spec-первого-epic-а-product-session.md) карты — этот spec); раздел roadmap
 [«worfy для соло-разработки продукта»](../../docs/roadmap.md#worfy-для-соло-разработки-продукта); research
@@ -190,9 +191,27 @@ docs/product/
 | `mind_map_update` | текст или вид узла; Решение без причины отклоняется |
 | `mind_map_decide` | узел становится Решением: `accepted` / `rejected` и причина; прежний статус уходит в `history` |
 | `mind_map_remove` | только узел без детей и не Решение — ошибка агента, а не отказ от идеи |
+| `product_save` | сигнал «сохранить»: Orchestrator-у уходит просьба сохранить `docs/product/` docs PR-ом (раздел «Сохранение») |
 
 Handler проверяет узел схемой, пишет файл атомарно (`writeJsonFile`, `src/main/storage/json-file.ts:79`) и отвечает
 JSON-ом. Main — единственный писатель `mind-map.json`: и tool, и перетаскивание узла на экране идут через него.
+
+### Сохранение `docs/product/` (Ticket 04, правило — Ticket 10; Q5, Q6)
+
+- **Product Session git не трогает никогда** — ни `git add`, ни commit, ни PR (решение владельца 2026-11-07, Q5).
+- **Повод.** Владелец говорит «сохранить» в Product Session — агент по правилам (Ticket 10) зовёт tool
+  `product_save` сервера `worfy-mind-map`. Или разговор заканчивается: Node Product Session закрыт или отправлен в
+  архив.
+- **Сигнал.** Main проверяет, есть ли незакоммиченные изменения под `docs/product/` (только чтение
+  `git status --porcelain -- docs/product`, сам main ничего не коммитит). Есть — ставит в очередь Orchestrator-а
+  Project-а сообщение: какие файлы изменились, из какой темы, и просьба сохранить их обычным docs PR-ом. Очередь —
+  `MessageQueue` (`src/main/agent/queue.ts`): занятый Orchestrator возьмёт сообщение после своего хода. Изменений
+  нет — сигнала нет, `product_save` отвечает «nothing to save».
+- **Docs PR** делает Orchestrator, как любой свой docs PR: ветка, commit, PR, зелёный CI, merge. Сообщение сигнала
+  само говорит, что делать, поэтому отдельной строки в правилах Orchestrator-а не нужно (их предел — 10000 символов).
+- **Silent mode** (Q6): файлы лежат в `<Workflow folder>/product/<тема>/` вне git — PR нет и сохранять нечего;
+  `product_save` отвечает «Silent mode: nothing to save», сигнала нет. Черновик Epic-а при приёмке переносится в
+  `<Workflow folder>/.scratch/<epic>/spec.md`.
 
 ### Живая перерисовка (Ticket 05)
 
@@ -255,7 +274,7 @@ Watcher документов уже держит один рекурсивный
 - **02 — Ограничения Product Session у Claude: deny в PreToolUse, без `autopilot_start`, сильнейшая модель.** Blocked
   by: 01. Платформенный (пути Windows в guard). Ревью `high`.
 - **03 — Формат папки темы и файла Mind map, ADR.** Blocked by: —. Не платформенный. Ревью `medium`.
-- **04 — MCP server `worfy-mind-map`: tools `mind_map_*`.** Blocked by: 02, 03. Платформенный (атомарная запись файла
+- **04 — MCP server `worfy-mind-map`: tools `mind_map_*` и сигнал сохранения Orchestrator-у.** Blocked by: 02, 03. Платформенный (атомарная запись файла
   Project-а на Windows). Ревью `high`.
 - **05 — Watcher `docs/product/` и канал `product.changed`.** Blocked by: 03. Платформенный (`fs.watch` на Windows).
   Ревью `medium`.
@@ -294,7 +313,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 05 | `src/main/docs/watch.ts`, `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`, `src/renderer/product/useMindMap.ts`, `test/contract/docs-watch-root.test.ts`, `test/contract/product-watch.test.ts` | 2 |
 | 06 | `src/renderer/palette/commands.ts`, `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/canvas/nodes/SessionNode.tsx`, `test/unit/palette-commands.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/new-product-session.spec.ts` | 2 |
 | 07 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx`, `src/renderer/session/SplitDivider.tsx`, `src/renderer/session/session.css`, `src/renderer/session/composer/Pickers.tsx`, `src/shared/settings/app-settings.ts`, `test/unit/session-view.test.tsx`, `test/unit/product-session-panel.test.tsx`, `test/contract/app-settings.test.ts` | 2 |
-| 04 | `src/shared/product/tools.ts`, `src/main/mcp/mind-map-server.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/mcp/agent-instructions-mind-map.md`, `test/contract/mind-map-tools.test.ts` | 3 |
+| 04 | `src/shared/product/tools.ts`, `src/main/mcp/mind-map-server.ts`, `src/main/product/save-signal.ts`, `src/main/agent/node-sessions.ts`, `test/contract/product-save-signal.test.ts`, `src/main/vendors/claude/options.ts`, `src/main/vendors/claude/query.ts`, `src/main/mcp/agent-instructions-mind-map.md`, `test/contract/mind-map-tools.test.ts` | 3 |
 | 08 | `src/renderer/product/MindMap.tsx`, `src/renderer/product/mind-map-layout.ts`, `src/renderer/product/mind-map.css`, `src/renderer/session/ProductSessionPanel.tsx`, `test/unit/mind-map-view.test.tsx`, `test/unit/mind-map-layout.test.ts` | 3 |
 | 09 | `src/renderer/product/MindMap.tsx`, `src/renderer/product/NodeChips.tsx`, `src/renderer/session/Transcript.tsx`, `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`, `src/main/mcp/mind-map-server.ts`, `test/unit/mind-map-hand.test.tsx`, `test/unit/node-chips.test.tsx`, `test/e2e/product-session.spec.ts` | 4 |
 | 10 | `harness/hooks/rules/product.md`, `harness/hooks/inject-rules.mjs`, `harness/hooks/hooks.json`, `harness/hooks/rules/common.md`, `harness/hooks/tests/rules-hooks.test.sh`, `harness/bin/TICKETS.md`, `test/contract/codex-parity.test.ts`, `test/contract/harness-plugin.test.ts` | H1 |
@@ -352,8 +371,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
    на плане с заложенной ошибкой критик её находит.
 6. **Правила Orchestrator-а у предела 10000 символов.** Строка Ticket-а 13 — не длиннее 300 символов; test
    `rules-hooks.test.sh` проверяет предел.
-7. **Файлы `docs/product/` в рабочем дереве.** Product Session пишет в checkout Project-а; пока Orchestrator не
-   отправил их в docs PR (Q5), это незакоммиченные изменения рядом с его работой.
+7. **Файлы `docs/product/` в рабочем дереве.** Product Session пишет в checkout Project-а; до сигнала «сохранить» или
+   конца разговора (Q5) это незакоммиченные изменения рядом с работой Orchestrator-а. Docs PR берёт только
+   `docs/product/`, чужие изменения дерева не трогает.
 
 ## Соглашения для Ticket-ов этого Epic-а
 
@@ -374,40 +394,46 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 ## Вопросы владельцу
 
-Каждый вопрос — «подтвердить»: решения карты его не закрывают, ниже — рекомендация.
+Решения карты эти вопросы не закрывали. Владелец 2026-11-07 («тогда да, верно») принял рекомендацию по каждому; Q5 —
+с уточнением владельца.
 
 1. **Q1. Файл Mind map.** (а) `mind-map.json` — JSON по схеме zod; один родитель на узел (`from`) плюс необязательная
    связь `replaces`; положения и свёрнутые ветки — в том же файле. (б) Markdown со списком узлов — читается глазами, но
-   положения и проверка формата хуже. **Рекомендую (а).** Подтвердить.
+   положения и проверка формата хуже. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 2. **Q2. Где живут tools.** (а) Отдельный сервер `worfy-mind-map`, только у Product Session, операции `read`, `add`,
    `update`, `decide`, `remove` (раздел «Tools»). (б) Те же tools в `worfy-canvas` — их получит каждая Session.
-   **Рекомендую (а):** обычная Session и не увидит, чем менять Mind map. Подтвердить.
+   **Рекомендую (а):** обычная Session и не увидит, чем менять Mind map. **Подтверждено владельцем 2026-11-07.**
 3. **Q3. Bash в Product Session.** (а) Есть, но deny известных команд записи (`bin/ticket`, `git commit|push|merge`,
    `gh pr create|merge`, `pnpm`, `npm`). (б) Bash нет совсем — тогда нет `gh`, `git log` и `epic-status`, советник не
-   прочитает PR и падения CI (решение 04, Q4). **Рекомендую (а).** Подтвердить.
+   прочитает PR и падения CI (решение 04, Q4). **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 4. **Q4. Где черновики Epic-ов.** (а) `docs/product/<тема>/drafts/<epic>.md` с пометкой «черновик советника»; после
    приёмки Orchestrator переносит его в `.scratch/<epic>/spec.md` и нарезает Ticket-ы. (б) Сразу
    `.scratch/<epic>/spec.md` — тогда guard должен пускать Product Session в папку Ticket-ов. **Рекомендую (а):** одна
-   разрешённая папка. Подтвердить.
+   разрешённая папка. **Подтверждено владельцем 2026-11-07.**
 5. **Q5. Кто коммитит `docs/product/`.** (а) Product Session не коммитит; файлы уходят docs PR-ом Orchestrator-а, как
    правки Ticket-ов сегодня. (б) Product Session сама делает commit и PR — нужен `git commit` и `gh pr create`, которые
-   Q3 закрывает. **Рекомендую (а).** Подтвердить.
+   Q3 закрывает. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07, с уточнением:** Product Session git не
+   трогает никогда; Orchestrator коммитит `docs/product/` обычным docs PR-ом (ветка, commit, PR, зелёный CI, merge).
+   Повод — владелец говорит «сохранить» в Product Session или разговор заканчивается: Orchestrator получает сигнал и
+   открывает docs PR (раздел «Сохранение `docs/product/`», Ticket 04).
 6. **Q6. Silent mode.** В Silent mode от workflow в репозитории следа нет (CONTEXT.md). (а) Папка Product Session —
    `<Workflow folder>/product/`, в Full mode — `docs/product/`; путь даёт одна функция. (б) Product Session в Silent
-   mode не предлагается. **Рекомендую (а).** Подтвердить.
+   mode не предлагается. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07:** в Silent mode файлы лежат в
+   `<Workflow folder>/product/<тема>/` вне git, PR нет и сохранять нечего; черновик Epic-а при приёмке переносится в
+   `<Workflow folder>/.scratch/<epic>/spec.md`.
 7. **Q7. Как обычные Session-ы не пишут в `docs/product/`.** (а) Строка в правилах `common.md` плюс отсутствие tools
    `mind_map_*`; без guard-а. (б) Guard для всех Session-ов и Subagent-ов. **Рекомендую (а):** guard для всех задел бы
-   docs PR Orchestrator-а (Q5). Подтвердить.
+   docs PR Orchestrator-а (Q5). **Подтверждено владельцем 2026-11-07.**
 8. **Q8. Разбор критика.** (а) `docs/product/critic/<epic>-<YYYY-MM-DD>.md`: вердикт, до 3 возражений с фактом, одна
    альтернатива, под каждым возражением — строка `Решение владельца:` (принято / отклонено — причина); spec ссылается
    на файл строкой `Критик:` в шапке. (б) Разбор в папке темы. **Рекомендую (а):** критик идёт и для spec-ов, у которых
-   темы нет. Подтвердить.
+   темы нет. **Подтверждено владельцем 2026-11-07.**
 9. **Q9. Доля принятых.** (а) Считаются узлы с `advice: true` во всех `mind-map.json` Project-а и возражения всех
    разборов критика, у которых есть решение владельца; без решения — не в счёт. Шапка: «Советы: принято N из M».
-   Нигде не хранится — считается при чтении. (б) Только узлы Mind map. **Рекомендую (а).** Подтвердить.
+   Нигде не хранится — считается при чтении. (б) Только узлы Mind map. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 10. **Q10. Сильнейшая модель.** (а) Product Session стартует на alias `opus` с самым высоким effort модели; выбор
     модели в её строке ввода закрыт с tooltip «Product Session всегда на сильнейшей модели». Критик — `model: opus`.
-    (б) Модель выбирает пользователь, по умолчанию `opus`. **Рекомендую (а).** Подтвердить.
+    (б) Модель выбирает пользователь, по умолчанию `opus`. **Рекомендую (а).** **Подтверждено владельцем 2026-11-07.**
 
 ## Готово, когда
 
@@ -416,6 +442,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
       отказ называет причину (02).
 - [ ] Формат папки темы и `mind-map.json` описан ADR и проверяется одной функцией (03).
 - [ ] Агент меняет Mind map только tools `mind_map_*`, tool отклоняет неверный узел (04).
+- [ ] «Сохранить» или конец разговора дают Orchestrator-у сигнал, и он открывает docs PR с `docs/product/`;
+      Product Session git не трогает; в Silent mode сигнала нет (04, 10).
 - [ ] Правка файла через tool или руками перерисовывает экран без перезагрузки (05).
 - [ ] Экран: Mind map 60 / чат 40, разделитель запоминается, полоса агентов, без Binding; «дерево» и «граф»,
       отклонённые зачёркнуты и скрываются, zoom и pan, чипы под сообщениями; руками — только двигать и сворачивать

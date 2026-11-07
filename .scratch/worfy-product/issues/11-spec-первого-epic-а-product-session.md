@@ -15,4 +15,4 @@ Ticket ждёт Epic `worfy-skills`: skills должны оказаться в �
 
 ## Comments
 
-- 2026-11-07: черновик spec-а — [worfy-product-session/spec.md](../../worfy-product-session/spec.md), 17 Ticket-ов, вопросы Q1–Q10 помечены «подтвердить»; Wave-ы Harness (10–14) — `blocked` до закрытия Epic-а `worfy-skills`. Раздел roadmap — Ticket [10](10-раздел-roadmap-worfy-для-соло-разработки-продукта.md). Владелец принимает оба одним раундом.
+- 2026-11-07: spec — [worfy-product-session/spec.md](../../worfy-product-session/spec.md), 17 Ticket-ов, принят владельцем 2026-11-07 («тогда да, верно»), Q1–Q10 по рекомендации, Q5 с уточнением владельца; Wave-ы Harness (10–14) — `blocked` до закрытия Epic-а `worfy-skills`. Раздел roadmap — Ticket [10](10-раздел-roadmap-worfy-для-соло-разработки-продукта.md). Оба приняты одним раундом.

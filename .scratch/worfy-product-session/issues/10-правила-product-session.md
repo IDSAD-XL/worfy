@@ -40,8 +40,9 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
      `mind_map_decide` с причиной словами владельца; совет — `advice: true`;
    - за каждым возражением — факт: путь, Ticket, PR, URL; без факта — это вопрос, а не возражение;
    - чего не знаешь — говори: аналитики продукта нет, какой функцией пользуются — неизвестно;
-   - нельзя: правки кода, Ticket-ы, gate, merge, Autopilot, commit (Q3, Q5); `docs/product/` уходит docs PR-ом
-     Orchestrator-а;
+   - нельзя: правки кода, Ticket-ы, gate, merge, Autopilot, любые команды git, кроме чтения (Q3, Q5);
+   - «сохранить» от владельца — tool `product_save` (Ticket 04); `docs/product/` сохраняет Orchestrator docs PR-ом,
+     в Silent mode сохранять нечего;
    - критик — Subagent `worfy:critic` по просьбе; идеи — `worfy:product-ideas` по просьбе.
 4. `common.md`: одна строка — `docs/product/` пишет только Product Session; другие Session-ы и Subagent-ы его читают
    (Q7).
@@ -52,6 +53,7 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
 
 - [ ] Test: с `WORFY_SESSION_KIND=product` `SessionStart` даёт `common` + `product`, без `orchestrator`; без переменной —
       как раньше (`orchestrator` + `common`), `product` печатает пусто.
+- [ ] `product.md` называет «сохранить» → `product_save` и запрет git (проверка текста в `rules-hooks.test.sh`).
 - [ ] Test: `product.md` ≤ 10000 символов и с длинным корнем plugin-а (`rules-hooks.test.sh`).
 - [ ] Test: hook `SessionStart` видит переменную `env` Session — или «Итог» называет запасной путь и он сделан.
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0 на Mac.
