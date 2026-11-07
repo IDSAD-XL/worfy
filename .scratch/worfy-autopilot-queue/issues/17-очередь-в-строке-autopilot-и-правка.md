@@ -1,7 +1,8 @@
 # 17 — Очередь в строке Autopilot и правка между Wave-ами
 
 Type: task
-Status: open
+Status: done 2026-11-07T02:35Z
+PR: #1549
 Blocked by: 10, 14, 16
 Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5; «Как работает» → «Очередь Epic-ов», «Виды»; «Решения владельца», 17, 18, 21; «Открытые вопросы», 2; [03](03-очередь-epic-ов.md), Q2, Q3, Q6
 
@@ -24,9 +25,11 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
 
 - [ ] Unit test строки очереди и чипов: `done`, `running`, `next`, `waits-owner`, `elsewhere`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/autopilot-queue-line.test.ts test/unit/canvas-actions.test.tsx` exit 0 · mac - · 0012f39329e853ebb505655165c82d5e011a11aa
+  - evidence: review pass · PR #1549 · - - · 457ad8b13b79502eb652b2a598f29dc905057ca6
 - [ ] e2e: Run из двух Epic-ов fixture-а → строка «Epic 1/2» → «Add to queue» на третьем → после Wave — «Epic 1/3»;
       «Remove from queue» на втором → он не начат, `queue-changed` в журнале.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/autopilot-queue.spec.ts` exit 0 · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa
+  - evidence: review pass · PR #1549 · - - · 457ad8b13b79502eb652b2a598f29dc905057ca6
 - [ ] Снимки строки и чипов в обеих темах — `../evidence/17-*.png`.
   - evidence: screenshot pass · `../evidence/17-queue-line-light.png` · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/17-queue-line-dark.png` · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa · scrub: 2026-11-07
@@ -36,7 +39,10 @@ Source: [spec.md](../spec.md), «Что видит владелец», п. 4–5
   - evidence: screenshot pass · `../evidence/17-queue-chip-joins-dark.png` · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/17-queue-chip-leaves-light.png` · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa · scrub: 2026-11-07
   - evidence: screenshot pass · `../evidence/17-queue-chip-leaves-dark.png` · mac dev · 0012f39329e853ebb505655165c82d5e011a11aa · scrub: 2026-11-07
+  - evidence: review pass · PR #1549 · - - · 457ad8b13b79502eb652b2a598f29dc905057ca6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный.
+  - evidence: review pass · PR #1549 · - - · 457ad8b13b79502eb652b2a598f29dc905057ca6
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42327445637 · ci - · 457ad8b13b79502eb652b2a598f29dc905057ca6
 
 ## Тесты
 
