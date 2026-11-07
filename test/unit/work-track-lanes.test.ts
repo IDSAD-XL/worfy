@@ -1,11 +1,12 @@
 // The lanes of Work track (src/shared/work-track/lanes.ts; worfy-work-track ticket 04, owner decision 9):
 // «by Session» — «Autopilot Runs» on top (a Run and its Waves), then a lane per Session in the order of
 // its first work, its Subagents folded under it until the Session is expanded, and «Gate runs» last;
-// «by Epic» — a lane per Epic, «—» for work with no Epic; every span is cut to the period.
+// «by Epic» — a lane per Epic, «—» for work with no Epic; every span is cut to the period. The CI runs and the
+// Ticket status changes are on two rows of their own, hatched by GitHub and by git (ticket 13).
 // The facts are literals in local time, so the test reads the same in every time zone.
 import { describe, expect, it } from 'vitest'
 import type { SessionInfo, SourceGap, WorkFact, WorkTrackInput } from '../../src/shared/work-track/facts'
-import { buildSpans, lanesByEpic, lanesBySession, NO_EPIC, offLaneSpans, periodBounds, type Lane } from '../../src/shared/work-track/lanes'
+import { buildSpans, lanesByEpic, lanesBySession, markRows, NO_EPIC, offLaneSpans, periodBounds, type Lane } from '../../src/shared/work-track/lanes'
 
 /** A local time on a day of November 2026 (no change of daylight saving time in the days used). */
 const at = (day: number, hh: number, mm = 0): string => new Date(2026, 10, day, hh, mm).toISOString()
@@ -123,6 +124,44 @@ describe('lanes by Session', () => {
 
   it('keeps PRs, CI runs and Ticket status changes off the lanes', () => {
     expect(offLaneSpans(input).map((span) => span.id)).toEqual(['pr-7'])
+  })
+})
+
+describe('the rows of CI runs and Ticket status changes (worfy-work-track ticket 13)', () => {
+  const marked: WorkTrackInput = {
+    ...input,
+    facts: [
+      ...facts,
+      fact({ id: 'ci-1', kind: 'ci', start: at(10, 9, 40), end: at(10, 9, 52), outcome: 'failed', pr: 7, source: 'github', title: 'ci' }),
+      fact({ id: 'ci-2', kind: 'ci', start: at(11, 15), end: null, outcome: null, source: 'github', title: 'ci' }),
+      fact({ id: 'ci-old', kind: 'ci', start: at(2, 15), end: at(2, 15, 10), source: 'github', title: 'ci' }),
+      fact({ id: 'status-1', kind: 'ticket-status', start: at(10, 12, 31), end: at(10, 12, 31), epic: 'ep-a', ticket: '01', source: 'git', title: '01 claimed → done' }),
+    ],
+    gaps: [
+      ...gaps,
+      { source: 'github', start: at(12, 0), end: at(12, 8), why: 'GitHub could not be reached: no network' },
+      { source: 'git', start: at(8, 0), end: at(9, 3), why: 'The Project is not a git repository' },
+    ],
+  }
+
+  it('gives the CI runs a row hatched by GitHub, the status changes a row hatched by git', () => {
+    const [ci, status] = markRows(marked)
+    expect(ci).toMatchObject({ id: 'ci', title: 'CI runs', source: 'github' })
+    expect(ci!.marks.map((span) => span.id)).toEqual(['ci-1', 'ci-2'])
+    expect(ci!.gaps.map((gap) => [gap.source, gap.why])).toEqual([['github', 'GitHub could not be reached: no network']])
+    expect(status).toMatchObject({ id: 'ticket-status', title: 'Ticket status', source: 'git' })
+    expect(status!.marks.map((span) => span.id)).toEqual(['status-1'])
+    // the git gap is cut to the period
+    const { start } = periodBounds(period)
+    expect(status!.gaps).toEqual([{ source: 'git', start, end: Date.parse(at(9, 3)), why: 'The Project is not a git repository' }])
+  })
+
+  it('leaves the GitHub and git gaps off every lane', () => {
+    for (const lanes of [lanesBySession(marked), lanesByEpic(marked)]) {
+      const sources = lanes.flatMap((lane) => lane.gaps).map((gap) => gap.source)
+      expect(sources).not.toContain('github')
+      expect(sources).not.toContain('git')
+    }
   })
 })
 

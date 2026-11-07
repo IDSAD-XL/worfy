@@ -34,9 +34,10 @@ from five places:
 - **Open Run history** in the Command palette: the screen at the newest run of the active Project.
 
 Over the screen is the switch `Run history | Work track` of the Runs tab ([Work track](work-track.md)). A Project shows
-Run history until Work track is chosen for it. While the app runs, the tab and **Open Run history** in the Command
-palette then show Work track for that Project. The stop toast, **History**, **Run history** in "⋯" and **Open Run** of
-the Work track panel name a run or an Epic, so they always show Run history.
+Run history until Work track is chosen for it. While the app runs, the tab then shows Work track for that Project.
+**Open Run history** in the Command palette always shows Run history and makes it the Project's choice again. The stop
+toast, **History**, **Run history** in "⋯" and **Open Run** of the Work track panel name a run or an Epic, so they
+always show Run history too.
 
 **Esc** goes back to the Canvas, unless a dialog, a menu or a text field takes it. Choosing another Project in the
 sidebar goes back to the Canvas too.

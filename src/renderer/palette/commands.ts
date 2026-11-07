@@ -75,6 +75,7 @@ import type { ShellView } from '../shell/Toolbar'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
 import { checkForUpdateNow, installUpdateTelling, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
+import { setRunsTab } from '../work-track/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -405,7 +406,8 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
   if (project) {
     const projectId = project.id
     // The Run history screen at the active Project's newest Run (worfy-flight-recorder ticket 20); it
-    // only reads, so a read-only screen has it too.
+    // only reads, so a read-only screen has it too. It shows Run history even when the Project last chose
+    // Work track in the Runs tab (worfy-work-track ticket 13); the toolbar's Runs keeps that choice.
     commands.push({
       id: 'open-run-history',
       group: 'View',
@@ -413,6 +415,7 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
       detail: 'Autopilot Runs',
       keys: ['run history', 'autopilot runs', 'flight recorder', 'timeline'],
       run: () => {
+        setRunsTab(projectId, 'history')
         void openRunHistory(projectId)
         return undefined
       },

@@ -13,10 +13,11 @@ sources each time it is read and stores nothing of its own. New to the terms: st
 #### Opening the view
 
 **Runs** in the View switch of the toolbar opens the Runs tab. Over it is the switch `Run history | Work track`. A
-Project shows Run history until Work track is chosen for it; then the tab and the Command palette's **Open Run
-history** show Work track for that Project while the app runs. The choice is kept per Project and only in the memory
-of the window. An entry that names a run or an Epic shows Run history whatever was chosen: the stop toast, **History**
-by the Autopilot status line, **Run history** in the "⋯" menu of an Epic, and **Open Run** of the Span panel below.
+Project shows Run history until Work track is chosen for it; then the tab shows Work track for that Project while the
+app runs. The choice is kept per Project and only in the memory of the window. The Command palette's **Open Run
+history** always shows Run history, and makes it the Project's choice again. An entry that names a run or an Epic shows
+Run history whatever was chosen: the stop toast, **History** by the Autopilot status line, **Run history** in the "⋯"
+menu of an Epic, and **Open Run** of the Span panel below.
 
 **Esc** goes back to the Canvas, as it does from Run history, unless the Span panel, another dialog, a menu or a text
 field takes it. Choosing another Project in the sidebar goes back to the Canvas too.
@@ -64,6 +65,16 @@ Over the lanes is the time axis, in local time: every two hours on a Day, a butt
 Day. A diamond on the axis marks each PR merged in the period, at the time of its merge. On a Day with room for them, the
 diamonds carry the PR number. A line marks now.
 
+Under the axis of a Day or a Week, two narrow rows hold marks:
+
+- **CI runs · GitHub**: a mark per CI run of the period, as long as the run (at least a few pixels), coloured by its
+  outcome: green `ok`, the problem colour `failed`, grey `stopped`, blue while it runs.
+- **Ticket status · git log**: a dot per change of a Ticket's `Status:`, at the time of the change; a change to
+  `blocked` is orange.
+
+A mark's tooltip is that of a bar; a click on it opens the Span panel. The two rows are the same `by Session` and
+`by Epic`.
+
 **by Session**, top to bottom:
 
 1. **Autopilot Runs**: each run as a framed bar, with its Waves as framed bars on it. A Wave sent by hand, outside
@@ -95,7 +106,7 @@ A Month is cells, not bars. The axis has a button per day with its date, the let
 PRs merged that day. Each lane has a cell per day, shaded by its hours of work that day: the busiest cell of the Month
 is the full shade, counted between 4 and 14 hours. The Gate runs lane counts its runs instead, full at 20, and the
 tooltip says how many failed. Comfortable writes the number in each cell. A click on a day, on the axis or in a cell,
-opens that Day.
+opens that Day. A Month has no rows of CI runs and status changes: they are on its Days and Weeks.
 
 #### No data
 
@@ -108,20 +119,22 @@ hatched stretch wider than 110 pixels also carries the label `no data · <source
 | Codex history | Session lanes on Codex | "Codex history did not answer"; "Codex did not give this thread" for one thread. Archived Codex threads are not read: a lane "Codex archived threads", hatched over the whole period, stands for them when the Project has any Codex thread. |
 | gate logs (`timings.json`) | Gate runs | The part of the period before the later of 31 days ago and the Project's oldest gate record: "Gate logs are kept 31 days: the records of older gate runs are deleted". |
 | Run journals, Wave markers | Autopilot Runs | The source could not be read. |
-| GitHub | no lane | "GitHub did not answer: <reason>", from the part it did not read to the end of the period. |
-| git log of the Ticket files | no lane | "git did not answer". |
+| GitHub | the row of CI runs | "GitHub did not answer: <reason>", from the part it did not read to the end of the period. |
+| git log of the Ticket files | the row of Ticket status changes | "git did not answer: <reason>". |
 
-A Session whose own transcript is gone still has its lane, hatched. Every gap counts in **no-data gaps** of the summary,
-those on no lane too. A failed source never empties the view: the others still come.
+A Session whose own transcript is gone still has its lane, hatched. Every gap counts in **no-data gaps** of the summary.
+A Month has no rows of marks, so a GitHub or git gap shows there only in that count. A failed source never empties the
+view: the others still come.
 
 #### The Span panel
 
-A click on a bar or on a PR's diamond opens a panel on the right:
+A click on a bar, on a PR's diamond or on a mark of CI runs or status changes opens a panel on the right:
 
-- the Span's name, what it is (`Autopilot Run`, `Wave`, `Session turn`, `Subagent · implementer`, `Gate run`, `PR`…)
-  and whose Session;
+- the Span's name, what it is (`Autopilot Run`, `Wave`, `Session turn`, `Subagent · implementer`, `Gate run`, `PR`,
+  `CI run`, `Ticket status change`…) and whose Session;
 - **When**, **Duration**, **Epic**, **Ticket**, **PR** and **Outcome**, with the times as the source has them, not cut
-  to the period. A PR's outcome is `merged`;
+  to the period. A PR's outcome is `merged`. A status change is a moment: **When** is one time, **Duration** is `—`,
+  and **Outcome** is the change, such as `claimed → done`;
 - **Open Session**: the Session on its Node of the Canvas, live while worfy runs it; without a Node, its transcript
   read-only in the Session view. A Subagent opens its Session. Off for work of no Session;
 - **Open Run**: Run history at the run the Span is part of. Off for work outside a run, a Wave sent by hand included;
@@ -138,7 +151,6 @@ chosen bar is not highlighted, and the panel opens only with the pointer.
   the name of a CI workflow and of a gate run. The text of prompts, answers and reports never reaches the view.
 - **Only this Machine.** The work of a Linked machine shows only as its PRs merged on GitHub.
 - **Terminal and Terminal AI.** A shell keeps no transcript, and Terminal AI asks Claude Code to keep none.
-- **CI runs and Ticket status changes** are read and are in the answer of main, but no lane or mark shows them.
 
 #### On a Linked machine
 
@@ -206,7 +218,7 @@ first 15 lines of a file going to another state. Its time comes from the value w
 | Path | What it holds |
 |---|---|
 | `src/shared/work-track/facts.ts` | The contract between the readers and the model: the kinds of fact, the sources and their names on screen, a Session, a gap, the period. |
-| `src/shared/work-track/lanes.ts` | The spans of the period, the lanes `by Session` and `by Epic`, the work on no lane. Pure. |
+| `src/shared/work-track/lanes.ts` | The spans of the period, the lanes `by Session` and `by Epic`, the work on no lane, the rows of CI runs and status changes with their gaps. Pure. |
 | `src/shared/work-track/summary.ts` | The summary: hours, hours by Epic, PRs merged, runs, gaps, and each day's hours and merges. Pure. |
 | `src/shared/work-track/status-value.ts` | The parse of a `Status:` value: the state and its time. Pure. |
 | `src/main/work-track/service.ts` | The service: every source of a period, the slow ones in the background, the summary. Writes nothing. |
@@ -217,7 +229,7 @@ first 15 lines of a file going to another state. Its time comes from the value w
 | `src/main/ipc/work-track.ts`, `src/shared/ipc/work-track.ts` | The channel `workTrack.read` and the shape of its answer. |
 | `src/renderer/flight-recorder/RunsView.tsx` | The Runs tab: the switch `Run history \| Work track` and which half each Project shows. |
 | `src/renderer/work-track/WorkTrackView.tsx` | The view: the controls, the summary, the lanes, the panel, the legend. |
-| `src/renderer/work-track/Lanes.tsx` | The axis, the names of the lanes and their bars, the gaps. |
+| `src/renderer/work-track/Lanes.tsx` | The axis, the rows of CI runs and status changes, the names of the lanes and their bars, the gaps. |
 | `src/renderer/work-track/MonthGrid.tsx` | The Month: the days and their cells. |
 | `src/renderer/work-track/SummaryRow.tsx` | The summary row. |
 | `src/renderer/work-track/SpanPanel.tsx` | The Span panel and its buttons. |
@@ -230,8 +242,9 @@ first 15 lines of a file going to another state. Its time comes from the value w
 2. The service reads the journals, the Wave markers, the gate logs and git, starts the transcripts and GitHub in the
    background, and answers with the facts, the Sessions, the gaps, the summary and `loading`.
 3. With `loading` not empty, the view asks again with `wait` and shows the answer once every source is in.
-4. The view builds the lanes itself from the answer with `lanesBySession` or `lanesByEpic`: which Sessions are unfolded
-   is the view's state, so switching the lanes or unfolding a Session reads nothing.
+4. The view builds the lanes itself from the answer with `lanesBySession` or `lanesByEpic`, and the rows of marks with
+   `markRows`: which Sessions are unfolded is the view's state, so switching the lanes or unfolding a Session reads
+   nothing.
 
 #### Windows
 
@@ -247,12 +260,13 @@ is a stand-in named by `WORFY_GH` (`test/fixtures/work-track/gh/gh-work-track.mj
 
 | Test | Covers |
 |---|---|
-| `test/unit/work-track-lanes.test.ts`, `test/unit/work-track-summary.test.ts` | The lanes, the Epic up the chain, the gaps; hours without double counting, merges, days. |
+| `test/unit/work-track-lanes.test.ts`, `test/unit/work-track-summary.test.ts` | The lanes, the Epic up the chain, the gaps, the rows of CI runs and status changes; hours without double counting, merges, days. |
 | `test/unit/work-track-status-value.test.ts` | The forms of a `Status:` value. |
 | `test/contract/work-track-transcripts.test.ts` | The transcripts of every Session, names only, the cleanup gap, Codex. |
 | `test/contract/work-track-github.test.ts` | The weekly and daily reads, the answer kept for a minute, the stop on the first failure. |
 | `test/contract/work-track-ticket-status.test.ts` | The status changes of a branch squashed into the main branch and of the main branch alone, their times. |
 | `test/contract/work-track-service.test.ts` | Every source together, a Wave sent by hand, the gate gap, GitHub not answering, and that nothing is written. |
-| `test/unit/work-track-view.test.tsx` | The switch of the Runs tab, the periods and `‹ ›`, the lanes, the gaps, the Month, the slow sources, Retry. |
-| `test/unit/work-track-panel.test.tsx` | The summary and the Span panel with its buttons and Esc. |
-| `test/e2e/work-track.spec.ts` | The built app: the Week, a Day, the Month, the summary, and Open Run into Run history. |
+| `test/unit/work-track-view.test.tsx` | The switch of the Runs tab, the periods and `‹ ›`, the lanes, the marks of CI runs and status changes, the gaps, the Month, the slow sources, Retry. |
+| `test/unit/work-track-panel.test.tsx` | The summary and the Span panel with its buttons and Esc, for a CI run and a status change too. |
+| `test/unit/palette-commands.test.tsx` | **Open Run history** shows Run history after Work track was chosen. |
+| `test/e2e/work-track.spec.ts` | The built app: the Week, a Day, the Month, the summary, Open Run into Run history, a CI run's mark into its panel, the GitHub and git gaps, and the palette's Open Run history after Work track. |

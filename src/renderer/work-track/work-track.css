@@ -477,6 +477,67 @@ button.w-wt-toggle {
   white-space: nowrap;
 }
 
+/* ── the rows of CI runs and Ticket status changes under the axis (ticket 13) ── */
+
+.w-wt-marks {
+  flex: none;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+.w-wt-markrow {
+  display: flex;
+  height: 18px;
+  font-size: 11px;
+}
+.w-wt-markrow + .w-wt-markrow {
+  border-top: 1px solid var(--border);
+}
+.w-wt-colour--ci {
+  --w-wt-colour: var(--span-ci);
+}
+.w-wt-colour--ticket-status {
+  --w-wt-colour: var(--span-ticket);
+}
+.w-wt-mark {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  box-sizing: border-box;
+  cursor: pointer;
+  z-index: 2;
+}
+.w-wt-mark:hover {
+  outline: 1px solid var(--text);
+  z-index: 3;
+}
+.w-wt-mark--ci {
+  min-width: 4px;
+  border-radius: 2px;
+}
+.w-wt-mark--ok {
+  background: var(--ready-dot);
+}
+.w-wt-mark--failed {
+  background: var(--span-problem);
+}
+.w-wt-mark--stopped {
+  background: var(--text-muted);
+}
+.w-wt-mark--running {
+  background: var(--working-dot);
+}
+.w-wt-mark--status {
+  top: 5px;
+  bottom: 5px;
+  width: 8px;
+  transform: translateX(-4px);
+  border-radius: 50%;
+  background: var(--span-ticket);
+}
+.w-wt-mark--blocked {
+  background: var(--blocked-ring);
+}
+
 .w-wt-month-day {
   position: absolute;
   top: 3px;

@@ -23,6 +23,7 @@ import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 import { useGuide } from '../../src/renderer/guide/store'
 import { GUIDE_TOPICS, shownTopics } from '../../src/renderer/guide/registry'
 import { useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
+import { resetWorkTrack, runsTabOf, setRunsTab, useWorkTrack } from '../../src/renderer/work-track/store'
 
 // The Run history screen is ticket 18's (flight-recorder/open.ts): the palette only asks it (worfy-flight-recorder/20).
 const openRunHistory = vi.hoisted(() => vi.fn<(projectId: string, run?: string, epic?: string) => Promise<void>>(() => Promise.resolve()))
@@ -363,6 +364,15 @@ describe('palette commands', () => {
     expect(openRunHistory.mock.calls).toEqual([['p1'], ['p2']])
     for (const query of ['run history', 'autopilot runs', 'flight recorder']) expect(rankItems(buildCommands(context()), query)[0]?.id).toBe('open-run-history')
     expect(ids(context({ project: undefined }))).not.toContain('open-run-history')
+  })
+
+  it('opens Run history even when the Project last chose Work track in the Runs tab (worfy-work-track/13)', async () => {
+    resetWorkTrack()
+    onTestFinished(resetWorkTrack)
+    setRunsTab('p1', 'track')
+    const command = buildCommands(context()).find((each) => each.id === 'open-run-history')
+    expect(await command!.run()).toBeUndefined()
+    expect(runsTabOf(useWorkTrack.getState(), 'p1')).toBe('history')
   })
 
   it('has First-run checks in the View group, with or without a Project, and running it opens the screen (worfy-harness/19)', async () => {

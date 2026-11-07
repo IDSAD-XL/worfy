@@ -17,8 +17,9 @@ PR, а над ними — сколько часов ушло на каждый 
 
 **Runs** в переключателе видов на панели инструментов открывает вкладку Runs. Над ней стоит переключатель
 `Run history | Work track`. Project показывает Run history, пока для него не выбран Work track; после этого, пока
-приложение работает, вкладка и **Open Run history** в Command palette показывают для этого Project-а Work track. Выбор
-хранится для каждого Project-а отдельно и только в памяти окна. Вход, который называет run или Epic, показывает Run
+приложение работает, вкладка показывает для этого Project-а Work track. Выбор хранится для каждого Project-а отдельно и
+только в памяти окна. **Open Run history** в Command palette всегда показывает Run history и снова делает его выбором
+Project-а. Вход, который называет run или Epic, показывает Run
 history, что бы ни было выбрано: toast остановки, **History** у строки состояния Autopilot, **Run history** в меню «⋯»
 Epic-а и **Open Run** панели Span ниже.
 
@@ -68,6 +69,15 @@ Main сразу отвечает тем, что дали быстрые исто
 этот Day. Ромб на оси отмечает каждый PR, смёрженный в периоде, во время его merge. На Day, где для этого есть место,
 ромбы несут номер PR. Линия отмечает текущий момент.
 
+Под осью Day или Week — две узкие строки с отметками:
+
+- **CI runs · GitHub**: отметка на каждый CI run периода, длиной с run (не короче нескольких пикселей), цветом по
+  исходу: зелёная — `ok`, цвет проблемы — `failed`, серая — `stopped`, синяя — пока run идёт.
+- **Ticket status · git log**: точка на каждую смену `Status:` Ticket-а, во время смены; смена на `blocked` — оранжевая.
+
+Tooltip отметки — такой же, как у полосы; клик по ней открывает панель Span. Эти две строки одинаковы в `by Session` и
+`by Epic`.
+
 **by Session**, сверху вниз:
 
 1. **Autopilot Runs**: каждый run — полоса в рамке, а на ней его Wave-ы — тоже полосы в рамке. Wave, отправленная
@@ -100,7 +110,7 @@ Month — это ячейки, а не полосы. На оси — кнопк�
 этот день. У каждой дорожки — ячейка на каждый день, закрашенная по её часам работы в этот день: самая загруженная
 ячейка Month — полная заливка, считая от 4 до 14 часов. Дорожка Gate runs вместо этого считает свои run-ы, полная
 заливка — при 20, а tooltip говорит, сколько из них упало. Comfortable пишет число в каждой ячейке. Клик по дню, на оси
-или в ячейке, открывает этот Day.
+или в ячейке, открывает этот Day. Строк CI run-ов и смен статуса у Month нет: они — на его Day и Week.
 
 #### Нет данных
 
@@ -113,21 +123,22 @@ tooltip. Заштрихованный участок шире 110 пикселе
 | История Codex | Дорожки Session-ов на Codex | "Codex history did not answer"; "Codex did not give this thread" для одного thread-а. Thread-ы Codex в архиве не читаются: дорожка "Codex archived threads", заштрихованная на весь период, стоит вместо них, когда у Project-а есть хоть один thread Codex. |
 | gate log-и (`timings.json`) | Gate runs | Часть периода до более поздней из двух дат — 31 день назад и самая старая запись gate Project-а: "Gate logs are kept 31 days: the records of older gate runs are deleted". |
 | Journal-ы run-ов, маркеры Wave | Autopilot Runs | Источник не удалось прочитать. |
-| GitHub | нет дорожки | "GitHub did not answer: <reason>", от части, которую он не прочитал, до конца периода. |
-| git log файлов Ticket-ов | нет дорожки | "git did not answer". |
+| GitHub | Строка CI run-ов | "GitHub did not answer: <reason>", от части, которую он не прочитал, до конца периода. |
+| git log файлов Ticket-ов | Строка смен статуса Ticket-ов | "git did not answer: <reason>". |
 
 У Session, чей собственный transcript удалён, дорожка остаётся, заштрихованная. Каждый пробел считается в
-**no-data gaps** сводки, в том числе те, что ни на какой дорожке. Сбой источника никогда не опустошает view: остальные
-всё равно приходят.
+**no-data gaps** сводки. У Month нет строк отметок, поэтому пробел GitHub или git виден там только в этом счёте. Сбой
+источника никогда не опустошает view: остальные всё равно приходят.
 
 #### Панель Span
 
-Клик по полосе или по ромбу PR открывает панель справа:
+Клик по полосе, по ромбу PR или по отметке CI run-а или смены статуса открывает панель справа:
 
-- имя Span, что это (`Autopilot Run`, `Wave`, `Session turn`, `Subagent · implementer`, `Gate run`, `PR`…) и чьей
-  Session;
+- имя Span, что это (`Autopilot Run`, `Wave`, `Session turn`, `Subagent · implementer`, `Gate run`, `PR`, `CI run`,
+  `Ticket status change`…) и чьей Session;
 - **When**, **Duration**, **Epic**, **Ticket**, **PR** и **Outcome**, со временем, как его даёт источник, не обрезанным
-  по периоду. Исход PR — `merged`;
+  по периоду. Исход PR — `merged`. Смена статуса — момент: **When** — одно время, **Duration** — `—`, а **Outcome** —
+  сама смена, например `claimed → done`;
 - **Open Session**: Session на её Node на Canvas, живая, пока её ведёт worfy; без Node — её transcript только для чтения
   в Session view. Subagent открывает свою Session. Выключена для работы без Session;
 - **Open Run**: Run history на run-е, частью которого является Span. Выключена для работы вне run-а, в том числе для
@@ -145,7 +156,6 @@ tooltip. Заштрихованный участок шире 110 пикселе
   run-а. Текст prompt-ов, ответов и отчётов до view никогда не доходит.
 - **Только эта Machine.** Работа Linked machine видна только как её PR, смёрженные на GitHub.
 - **Terminal и Terminal AI.** Shell не хранит transcript, а Terminal AI просит Claude Code его не хранить.
-- **CI run-ы и смены статуса Ticket-ов** читаются и есть в ответе main, но ни дорожка, ни отметка их не показывает.
 
 #### На Linked machine
 
@@ -214,7 +224,7 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 | Путь | Что в нём |
 |---|---|
 | `src/shared/work-track/facts.ts` | Контракт между reader-ами и моделью: виды фактов, источники и их имена на экране, Session, пробел, период. |
-| `src/shared/work-track/lanes.ts` | Span-ы периода, дорожки `by Session` и `by Epic`, работа вне дорожек. Чистые функции. |
+| `src/shared/work-track/lanes.ts` | Span-ы периода, дорожки `by Session` и `by Epic`, работа вне дорожек, строки CI run-ов и смен статуса с их пробелами. Чистые функции. |
 | `src/shared/work-track/summary.ts` | Сводка: часы, часы по Epic-ам, смёрженные PR, run-ы, пробелы, а также часы и merge-и каждого дня. Чистые функции. |
 | `src/shared/work-track/status-value.ts` | Разбор значения `Status:`: состояние и его время. Чистые функции. |
 | `src/main/work-track/service.ts` | Сервис: каждый источник периода, медленные — в фоне, сводка. Ничего не пишет. |
@@ -225,7 +235,7 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 | `src/main/ipc/work-track.ts`, `src/shared/ipc/work-track.ts` | Канал `workTrack.read` и форма его ответа. |
 | `src/renderer/flight-recorder/RunsView.tsx` | Вкладка Runs: переключатель `Run history \| Work track` и какую половину показывает каждый Project. |
 | `src/renderer/work-track/WorkTrackView.tsx` | View: элементы управления, сводка, дорожки, панель, легенда. |
-| `src/renderer/work-track/Lanes.tsx` | Ось, имена дорожек и их полосы, пробелы. |
+| `src/renderer/work-track/Lanes.tsx` | Ось, строки CI run-ов и смен статуса, имена дорожек и их полосы, пробелы. |
 | `src/renderer/work-track/MonthGrid.tsx` | Month: дни и их ячейки. |
 | `src/renderer/work-track/SummaryRow.tsx` | Строка сводки. |
 | `src/renderer/work-track/SpanPanel.tsx` | Панель Span и её кнопки. |
@@ -238,8 +248,9 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 2. Сервис читает journal-ы, маркеры Wave, gate log-и и git, запускает чтение transcript-ов и GitHub в фоне и отвечает
    фактами, Session-ами, пробелами, сводкой и `loading`.
 3. Когда `loading` не пуст, view спрашивает снова с `wait` и показывает ответ, когда пришли все источники.
-4. View сам строит дорожки из ответа через `lanesBySession` или `lanesByEpic`: какие Session-ы развёрнуты — это
-   состояние view, поэтому переключение дорожек или разворачивание Session ничего не читает.
+4. View сам строит дорожки из ответа через `lanesBySession` или `lanesByEpic`, а строки отметок — через `markRows`:
+   какие Session-ы развёрнуты — это состояние view, поэтому переключение дорожек или разворачивание Session ничего не
+   читает.
 
 #### Windows
 
@@ -255,12 +266,13 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 
 | Test | Что покрывает |
 |---|---|
-| `test/unit/work-track-lanes.test.ts`, `test/unit/work-track-summary.test.ts` | Дорожки, Epic вверх по цепочке, пробелы; часы без двойного счёта, merge-и, дни. |
+| `test/unit/work-track-lanes.test.ts`, `test/unit/work-track-summary.test.ts` | Дорожки, Epic вверх по цепочке, пробелы, строки CI run-ов и смен статуса; часы без двойного счёта, merge-и, дни. |
 | `test/unit/work-track-status-value.test.ts` | Формы значения `Status:`. |
 | `test/contract/work-track-transcripts.test.ts` | Transcript-ы каждой Session, только имена, пробел из-за очистки, Codex. |
 | `test/contract/work-track-github.test.ts` | Чтения по неделям и по дням, ответ, хранимый минуту, остановку на первом сбое. |
 | `test/contract/work-track-ticket-status.test.ts` | Смены статуса ветки, squash-нутой в главную ветку, и одной главной ветки, их время. |
 | `test/contract/work-track-service.test.ts` | Все источники вместе, Wave, отправленную вручную, пробел gate, неответ GitHub и то, что ничего не пишется. |
-| `test/unit/work-track-view.test.tsx` | Переключатель вкладки Runs, периоды и `‹ ›`, дорожки, пробелы, Month, медленные источники, Retry. |
-| `test/unit/work-track-panel.test.tsx` | Сводку и панель Span с её кнопками и Esc. |
-| `test/e2e/work-track.spec.ts` | Собранное приложение: Week, Day, Month, сводку и переход Open Run в Run history. |
+| `test/unit/work-track-view.test.tsx` | Переключатель вкладки Runs, периоды и `‹ ›`, дорожки, отметки CI run-ов и смен статуса, пробелы, Month, медленные источники, Retry. |
+| `test/unit/work-track-panel.test.tsx` | Сводку и панель Span с её кнопками и Esc, в том числе для CI run-а и смены статуса. |
+| `test/unit/palette-commands.test.tsx` | **Open Run history** показывает Run history после выбора Work track. |
+| `test/e2e/work-track.spec.ts` | Собранное приложение: Week, Day, Month, сводку, переход Open Run в Run history, отметку CI run-а и её панель, пробелы GitHub и git и Open Run history из Command palette после Work track. |
