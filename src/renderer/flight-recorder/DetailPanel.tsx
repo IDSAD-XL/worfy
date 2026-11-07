@@ -66,15 +66,15 @@ const SOURCE_WORDS: Record<FactSource, string> = {
 }
 
 /** The rows from the Run down to the span, as the tree draws them: a Ticket under the Wave it started in. */
-function pathOf(span: Span, spans: readonly Span[]): string[] {
+function pathOf(span: Span, spans: readonly Span[], epics: readonly string[] | undefined): string[] {
   const byId = new Map(spans.map((each) => [each.id, each]))
   const names: string[] = []
   let at: Span | undefined = span
   while (at !== undefined) {
-    names.unshift(displayName(at))
+    names.unshift(displayName(at, epics))
     if (at.kind === 'ticket') {
       const wave = firstWaveOf(at, spans)
-      if (wave !== undefined) names.unshift(displayName(wave))
+      if (wave !== undefined) names.unshift(displayName(wave, epics))
     }
     at = at.parent === null ? undefined : byId.get(at.parent)
   }
@@ -237,7 +237,7 @@ function Overview({ span, view }: { span: Span; view: RunView }) {
             <>
               {' — retry of '}
               <button type="button" className="w-fr-link" onClick={() => revealSpan(cause.id)}>
-                {displayName(cause)}
+                {displayName(cause, view.epics)}
                 {cause.attempt > 1 ? ` #${cause.attempt}` : ''}
               </button>
               {cause.outcome !== null ? ` (${cause.outcome})` : ''}
@@ -248,7 +248,7 @@ function Overview({ span, view }: { span: Span; view: RunView }) {
           {reasonText(span) ?? '—'}
         </Field>
         <Field name="Path" id="path">
-          {pathOf(span, spans).join(' › ')}
+          {pathOf(span, spans, view.epics).join(' › ')}
         </Field>
         {span.note !== null ? (
           <Field name="Note" id="note">
@@ -494,7 +494,7 @@ function SpanDetails({ view }: { view: RunView }) {
           ))}
         </div>
         <span className="w-fr-detail__title" data-testid="run-history-detail-title">
-          <span className={`w-fr-dot w-fr-dot--${tokenOf(span)}`} /> {displayName(span)}
+          <span className={`w-fr-dot w-fr-dot--${tokenOf(span)}`} /> {displayName(span, view.epics)}
           {span.attempt > 1 ? ` #${span.attempt}` : ''}
           <span className="w-fr-muted">
             {' '}

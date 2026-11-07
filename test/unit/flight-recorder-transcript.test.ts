@@ -424,6 +424,46 @@ describe('the turns of the Orchestrator', () => {
   })
 })
 
+describe('a Run over a queue of Epics, Ticket 01 in two of them (worfy-polish ticket 62)', () => {
+  // The Run's first Epic is alpha; its Tickets are alpha/01 and beta/01.
+  const queue = (lines: readonly string[]) => transcriptFacts({ session: SESSION, epic: 'alpha', tickets: ['alpha/01', 'beta/01'], lines })
+
+  it('an agent of ticket 01 goes to the Epic its branch or issue path names; a bare 01 alone names neither', () => {
+    const { work } = queue([
+      ...launch(T('10:01'), 'call-1', 'a1', { name: 'impl-01', subagent_type: 'worfy:implementer', description: 'Implement ticket 01', prompt: 'Branch beta/01 from origin/main' }),
+      ...launch(T('10:02'), 'call-2', 'a2', { name: 'verify-01', subagent_type: 'worfy:reviewer', description: 'Verify ticket 01', prompt: 'Read .scratch/alpha/issues/01-the-ticket.md first' }),
+      ...launch(T('10:03'), 'call-3', 'a3', { name: 'review-01', subagent_type: 'worfy:reviewer', description: 'Review ticket 01', prompt: 'Read .scratch/beta/issues/01-the-ticket.md first' }),
+      ...launch(T('10:04'), 'call-4', 'a4', { name: 'helper', description: 'x', prompt: 'work on ticket 01' }),
+      ...launch(T('10:05'), 'call-5', 'a5', { name: 'helper-2', description: 'x', prompt: 'Review branch gamma/01' }),
+    ])
+    expect(agents(work).map((fact) => [fact.name, fact.ticket])).toEqual([
+      ['impl-01', 'beta/01'],
+      ['verify-01', 'alpha/01'],
+      ['review-01', 'beta/01'],
+      ['helper', null],
+      ['helper-2', null],
+    ])
+  })
+
+  it('a Wave names the Tickets of its own Epic, the second Epic of the queue too', () => {
+    const { turns } = queue([
+      prompt(T('10:00'), '/worfy:epic-wave tickets 01 of epic alpha'),
+      prompt(T('10:01'), '/worfy:epic-wave tickets 01 of epic beta'),
+      prompt(T('10:02'), '/worfy:epic-wave tickets 01 of epic gamma'),
+    ])
+    expect(turns.map((turn) => turn.tickets)).toEqual([['alpha/01'], ['beta/01'], []])
+  })
+
+  it('a message from an agent names the Ticket the agent was given to', () => {
+    const { turns } = queue([
+      prompt(T('10:00'), 'go'),
+      ...launch(T('10:01'), 'call-1', 'a1', { name: 'impl-01', subagent_type: 'worfy:implementer', description: 'Implement ticket 01', prompt: 'Branch beta/01 from origin/main' }),
+      prompt(T('10:10'), '<agent-message from="impl-01">\nq\n</agent-message>'),
+    ])
+    expect(turns.map((turn) => turn.tickets)).toEqual([['beta/01'], ['beta/01']])
+  })
+})
+
 describe('two calls of one name at the same moment', () => {
   it('the first is replaced by the second, not the second by the first', () => {
     const lines = [...launch(T('10:00'), 'call-1', 'a1', IMPL), ...launch(T('10:00'), 'call-2', 'a2', IMPL)]

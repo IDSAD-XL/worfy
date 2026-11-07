@@ -44,13 +44,17 @@ export function epicsText(epics: readonly string[]): string {
   return epics.length > 3 ? `${shown} +${epics.length - 3}` : shown
 }
 
-/** The name a span goes by on screen. */
-export function displayName(span: Span): string {
+/**
+ * The name a span goes by on screen. `epics` — the Epics of its Run (RunView.epics): over a queue of Epics
+ * two Tickets may share a number, so a Ticket names its Epic (`Ticket beta/01`); a Run of one Epic writes
+ * the number alone (`Ticket 01`).
+ */
+export function displayName(span: Span, epics: readonly string[] = []): string {
   switch (span.kind) {
     case 'run':
       return `Run ${span.name.slice(-6)}`
     case 'ticket':
-      return `Ticket ${span.name.split('/').at(-1) ?? span.name}`
+      return `Ticket ${epics.length > 1 ? span.name : (span.name.split('/').at(-1) ?? span.name)}`
     case 'wait':
       return span.waitCause === null ? span.name : WAIT_WORDS[span.waitCause]
     case 'orchestrator-turn':

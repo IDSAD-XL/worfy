@@ -78,6 +78,10 @@ export interface TranscriptWave extends Pick<WaveFact, 'number' | 'startedAt' | 
 
 /** What the reader needs of a Run. */
 export interface TranscriptRun {
+  /**
+   * The first Epic of the Run. The parse reads each Ticket by its own Epic, from the Tickets of the Waves
+   * (`<epic>/<NN>`); this one counts only while no Wave names a Ticket (ParseInput.epic).
+   */
   epic: string
   /** The Project's root, as the Orchestrator's Sessions start in it. */
   root: string
