@@ -377,7 +377,7 @@ describe('the time a hook gives its input', () => {
           const file = /\/hooks\/([\w-]+\.mjs)"/.exec(handler.command)?.[1]
           if (file) (limits[file] ??= []).push(event === 'SessionEnd' ? Math.min(3, handler.timeout) : handler.timeout)
         }
-    expect(Object.keys(FIRST_BYTE_MS).sort()).toEqual(['gh-token-env.mjs', 'session-start.mjs', 'stop.mjs'])
+    expect(Object.keys(FIRST_BYTE_MS).sort()).toEqual(['gh-token-env.mjs', 'session-start.mjs', 'stage-lines.mjs', 'stop.mjs'])
     for (const [file, wait] of Object.entries(FIRST_BYTE_MS)) {
       expect(limits[file], `${file} is a hook of hooks.json`).toBeDefined()
       // The hook takes its own entry of the table, not another hook's.
