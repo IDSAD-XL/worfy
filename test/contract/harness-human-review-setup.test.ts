@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFi
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
@@ -898,11 +899,10 @@ describe('a skill written by write.md from a made-up research.md', () => {
         .join('\n'),
     )
 
-  /** The checks of write.md, step 5, besides the lint: placeholders, logins, mentions, the rule of a third. */
+  /** The checks of write.md, step 5, besides the lint (which finds a placeholder of the template left): logins, mentions, the rule of a third. */
   function writeChecks(files: Record<string, string>): string[] {
     const found: string[] = []
     for (const [name, text] of Object.entries(files)) {
-      if (text.includes('{{')) found.push(`${name}: a {{…}} place left`)
       for (const login of LOGINS) if (text.toLowerCase().includes(login)) found.push(`${name}: login ${login}`)
       for (const m of text.matchAll(/(^|[\s(])@([A-Za-z0-9][A-Za-z0-9-]*)/g)) if (m[2] !== 'someone') found.push(`${name}: mention @${m[2]}`)
     }
@@ -953,12 +953,14 @@ describe('a skill written by write.md from a made-up research.md', () => {
     expect(run.out).toContain('rule without a [R<n>] reference: "- src: check that every error')
   })
 
-  it('the fixed text of the template has no list item the lint would take for a rule', { timeout: ms(30_000) }, () => {
+  it('the fixed text of the template has no list item the lint would take for a rule, and each place left is a finding', { timeout: ms(30_000) }, () => {
     const run = lint(build('bare', template, examplesTemplate))
-    expect(run.status, run.out).toBe(0)
-    expect(run.out).toContain('clean (0 rules,')
-    // And the checks of write.md stop such an unfilled skill.
-    expect(writeChecks({ 'SKILL.md': template }).some((f) => f.includes('{{…}} place left'))).toBe(true)
+    // Only the {{…}} places of the template are findings (worfy-human-review 13): no rule without a reference.
+    expect(run.status, run.out).toBe(1)
+    const lines = run.out.trim().split('\n')
+    const places = (template.match(/^\{\{rules: /gm) ?? []).length + (examplesTemplate.match(/^\{\{examples: /gm) ?? []).length
+    expect(lines, run.out).toHaveLength(places)
+    for (const line of lines) expect(line).toMatch(/^(SKILL|voice-examples)\.md:\d+: placeholder of the template left: "\{\{(rules|examples): /)
   })
 
   it('the checks of write.md catch an unmasked login and one reviewer over a third', () => {
@@ -990,5 +992,135 @@ describe('the text of the skill', () => {
       expect(covered.has(file), file).toBe(true)
       expect(map.uncovered[file], file).toBeUndefined()
     }
+  })
+})
+
+// worfy-human-review 13: the five places where the live run of 2026-11-09 on a public repository went wrong.
+describe('the fixes of the live run (worfy-human-review 13)', () => {
+  const flat = (text: string): string => text.replace(/\s+/g, ' ')
+
+  it('analyse.md names id, url and submitted_at of reviews[] and takes every link from a url of raw/prs.jsonl', () => {
+    const fields = /`reviews\[\]` \(([^)]*)\)/.exec(analyse)
+    expect(fields, 'no list of the fields of reviews[]').not.toBeNull()
+    for (const f of ['`id`', '`url`', '`submitted_at`', '`state`', '`commit_id`']) expect(fields![1], f).toContain(f)
+    expect(flat(analyse)).toMatch(/a link is a `url` of `raw\/prs\.jsonl`, copied as it is: never build a link/i)
+    // The script of the check refuses any other link: write.md runs the lint with raw/prs.jsonl, an update with the
+    // research.md of before as known links too.
+    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"')
+    expect(flat(refresh)).toContain('--known "<private folder>/raw/refresh/research-before.md"')
+  })
+
+  it('analyse.md keeps a plain approval out of the tiers, out of heads-up, and counts it on a line of its own', () => {
+    const three = sectionOf(analyse, 3, 'analyse.md')
+    const rule = blocks(three).find((b) => b.startsWith('**A plain approval is not a tier.**'))
+    expect(rule, three).toBeDefined()
+    expect(rule).toContain('LGTM')
+    expect(rule).toMatch(/tested/)
+    expect(rule).toMatch(/never heads-up/)
+    expect(rule).toContain('"tier": "approval"')
+    // Not in any Voice section, not in lint.json; R4 carries the count.
+    const five = sectionOf(analyse, 5, 'analyse.md')
+    expect(flat(five)).toMatch(/plain approvals .*apart/)
+    expect(flat(analyse)).toMatch(/\*\*Review states\*\*[^\n]*plain approvals/)
+    // The estimate shows them too, and the judge of the check takes them out of N.
+    expect(flat(skill)).toContain('plain approvals of the team')
+    expect(flat(check)).toMatch(/`approval`[^.]*is not a remark/)
+  })
+
+  it('check.md lets the drafting Subagent only read: git diff, git show, git grep and files, never run the code of the repository', () => {
+    const two = sectionOf(check, 2, 'check.md')
+    const rule = blocks(two).find((b) => b.startsWith('- only reading:'))
+    expect(rule, two).toBeDefined()
+    for (const allowed of ['`git diff "<base>" "<commit_id>"`', '`git show "<commit_id>:<path>"`', '`git grep -n <pattern> "<commit_id>"`']) expect(rule, allowed).toContain(allowed)
+    expect(rule).toMatch(/never runs the code of the repository/)
+    for (const banned of ['no build', 'no test', 'no package manager', 'no script of the repository']) expect(rule, banned).toContain(banned)
+  })
+
+  describe('a shallow clone is found before the analysis and fetched in full, or the run stops', () => {
+    const two = sectionOf(skill, 2, 'SKILL.md')
+    const block = /```bash\n((?:.*\n)*?)```/g
+    const commands = [...two.matchAll(block)].flatMap((m) => m[1]!.trim().split('\n'))
+    const shallowCmd = commands.find((c) => c.includes('--is-shallow-repository'))
+    const unshallowCmd = commands.find((c) => c.includes('--unshallow'))
+
+    it('the step names both commands, before the hold-out and the analysis, and a stop with the command to run by hand', () => {
+      expect(shallowCmd, two).toBe('git rev-parse --is-shallow-repository; echo "EXIT=$?"')
+      expect(unshallowCmd, two).toBe('git fetch --unshallow origin; echo "EXIT=$?"')
+      const rule = blocks(two).find((b) => b.startsWith('**Full history.**'))
+      expect(rule, two).toBeDefined()
+      expect(two.indexOf('**Full history.**')).toBeLessThan(two.indexOf('hold 5 pull requests out'))
+      const stop = blocks(two).find((b) => /`git fetch --unshallow` failed/.test(b))
+      expect(stop, two).toBeDefined()
+      expect(stop).toMatch(/review-history" clean/)
+      expect(stop).toMatch(/stop/i)
+    })
+
+    const dir = join(root, 'shallow')
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'no-global-git-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '' }
+    const git = (cwd: string, ...args: string[]): { status: number | null; out: string } => {
+      const r = spawnSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, env, encoding: 'utf8' })
+      return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
+    }
+    /** A command of the step without its `; echo "EXIT=$?"`, run by git in `cwd`. */
+    const run = (cwd: string, cmd: string): { status: number | null; out: string } => {
+      const words = cmd.replace(/; echo "EXIT=\$\?"$/, '').split(' ')
+      expect(words[0]).toBe('git')
+      return git(cwd, ...words.slice(1))
+    }
+    /** An origin with main A-B and a branch feature A-C, and a clone of depth 1: B and C share no history there. */
+    const shallowClone = (name: string): string => {
+      const origin = join(dir, `${name}-origin`)
+      const clone = join(dir, `${name}-clone`)
+      mkdirSync(origin, { recursive: true })
+      const ok = (cwd: string, ...args: string[]): void => expect(git(cwd, ...args).status, args.join(' ')).toBe(0)
+      ok(origin, 'init', '-q')
+      for (const [file, branch] of [['a', null], ['b', null], ['c', 'feature']] as const) {
+        if (branch) ok(origin, 'switch', '-qc', branch, 'HEAD~1')
+        writeFileSync(join(origin, `${file}.txt`), `${file}\n`)
+        ok(origin, 'add', `${file}.txt`)
+        ok(origin, 'commit', '-qm', file)
+      }
+      ok(dir, 'clone', '-q', '--depth', '1', '--no-single-branch', pathToFileURL(origin).href, clone)
+      return clone
+    }
+
+    it('in a shallow clone the base of a pull request is not found, and after the step it is', { timeout: ms(60_000) }, () => {
+      const clone = shallowClone('fetch')
+      expect(run(clone, shallowCmd!).out).toBe('true')
+      // What the live run met: no common history, exit 1.
+      expect(git(clone, 'merge-base', 'origin/main', 'origin/feature').status).toBe(1)
+      const fetched = run(clone, unshallowCmd!)
+      expect(fetched.status, fetched.out).toBe(0)
+      expect(run(clone, shallowCmd!).out).toBe('false')
+      const base = git(clone, 'merge-base', 'origin/main', 'origin/feature')
+      expect(base.status, base.out).toBe(0)
+      expect(base.out).toBe(git(clone, 'rev-parse', 'origin/main~1').out)
+    })
+
+    it('when the origin cannot be read the fetch fails with a non-zero exit, which the step turns into a stop', { timeout: ms(60_000) }, () => {
+      const clone = shallowClone('gone')
+      expect(git(clone, 'remote', 'set-url', 'origin', pathToFileURL(join(dir, 'no-such-origin')).href).status).toBe(0)
+      const fetched = run(clone, unshallowCmd!)
+      expect(fetched.status, fetched.out).not.toBe(0)
+      expect(run(clone, shallowCmd!).out).toBe('true')
+    })
+  })
+
+  it('the eval grader of a template place left takes the places of the template, not a {{ of a quote', () => {
+    const grader = readFileSync(join(process.cwd(), 'harness', 'evals', 'human-review-setup-full', 'graders', 'no-template-left.md'), 'utf8')
+    const m = /^pattern: '(.*)'$/m.exec(grader)
+    expect(m, grader).not.toBeNull()
+    const re = new RegExp(m![1]!)
+    for (const place of template.match(/^\{\{rules: .*$/gm) ?? []) expect(re.test(place), place).toBe(true)
+    expect(re.test('{{examples: nit}}')).toBe(true)
+    expect(re.test('  > nit: `cases := []tc{{name: "a"}}` reads better')).toBe(false)
+    expect(re.test('m := map[string]int{{"a", 1}}')).toBe(false)
+  })
+
+  it('write.md leaves the {{ of a quote alone: only a placeholder of the template is a finding, and the lint finds it', () => {
+    const five = flat(sectionOf(write, 5, 'write.md'))
+    expect(five).not.toMatch(/no `\{\{` left/)
+    expect(five).toMatch(/no placeholder of the template is left/)
+    expect(five).toMatch(/a `\{\{` inside a quote[^.]*is no finding/i)
   })
 })

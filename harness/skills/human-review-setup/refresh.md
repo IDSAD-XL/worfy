@@ -61,7 +61,8 @@ Tell the person the date: "pull requests updated since <date>".
 
 ## 3. Hold out 5 new pull requests
 
-After the "yes", before the analysis, hold 5 pull requests of the new slice out of it for the check of step 7, by
+After the "yes", first the **Full history** of step 2 of SKILL.md: a shallow clone is fetched in full, or the run
+stops there. Then, before the analysis, hold 5 pull requests of the new slice out of it for the check of step 7, by
 the rules and with the script over `raw/prs.jsonl` that step 2 of SKILL.md gives for the first run, but counting
 only the new comments of step 2 — those of the team dated after `<date>`: the newest pull requests with a new
 comment of the team at least 20 characters long, from different areas, one with a `CHANGES_REQUESTED` review of
@@ -98,6 +99,9 @@ Read `<plugin>/skills/human-review-setup/analyse.md` and follow it, with these c
 
 Read `<plugin>/skills/human-review-setup/write.md` and follow its sections 1 to 5 with `raw/refresh/research.md`
 in place of `research.md`: the draft is built in `raw/skill/` and checked there with `review-draft-lint --skill`.
+`raw/prs.jsonl` holds the slice only, while the sections of before keep their links, so the lint gets those as known
+links too: `"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"
+--known "<private folder>/raw/refresh/research-before.md"; echo "EXIT=$?"`.
 The `forbidden` words of `lint.json` are those of the installed `<private folder>/lint.json`. Its section 6, the
 install, does not run now: the files are put in place only on **Accept** of step 8.
 

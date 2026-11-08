@@ -925,7 +925,7 @@ describe('harness/evals: human-review-setup', () => {
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"')
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" estimate --passes 2; echo "EXIT=$?"')
     expect(refresh).toContain('"<plugin>/bin/review-history" fetch --since <date> --passes 2; echo "EXIT=$?"')
-    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill"; echo "EXIT=$?"')
+    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"; echo "EXIT=$?"')
     expect(analyse).toContain('\n## R1 — Triage: approved without comments\n')
     expect(skill).toContain('Use the words N of 30 as they are')
     expect(skill).toContain('/worfy:code-review')

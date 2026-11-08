@@ -316,5 +316,83 @@ describe('review-draft-lint', () => {
       expect(run.status, run.stdout + run.stderr).toBe(2)
       expect(run.stderr).toContain('research.md')
     })
+
+    // worfy-human-review 13: a left placeholder of the template is a finding, a `{{` in a quote of the team is not.
+    describe('the placeholders of the template', () => {
+      const GO_QUOTE = '- Keep table tests in one literal, as `cases := []tc{{name: "a"}}` reads. [R2]'
+      const EXAMPLES = (body: string): string => `# Voice examples\n\n## nit\n\n${body}\n`
+
+      it('finds a {{rules: …}} line of SKILL.md and a {{examples: …}} line of voice-examples.md left as the template wrote them', { timeout: ms(30_000) }, () => {
+        const left = FULL.replace('## 5. Voice by tier\n', '## 5. Voice by tier\n\n{{rules: one per Voice section with comments}}\n')
+        const dir = skill(left, RESEARCH)
+        writeFileSync(join(dir, 'voice-examples.md'), EXAMPLES('{{examples: nit}}'))
+        const run = lint(['--skill', dir], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(1)
+        const lines = run.stdout.trim().split('\n')
+        expect(lines, run.stdout).toHaveLength(2)
+        expect(lines[0]).toMatch(/^SKILL\.md:20: placeholder of the template left: "\{\{rules: /)
+        expect(lines[1]).toMatch(/^voice-examples\.md:5: placeholder of the template left: "\{\{examples: nit\}\}"/)
+      })
+
+      it('lets a {{ of a quoted Go composite literal through, in a rule, a code block and an example', { timeout: ms(30_000) }, () => {
+        const quoted = FULL.replace('- Approve a dependency bump without comments. [R1]', `- Approve a dependency bump without comments. [R1]\n${GO_QUOTE}`).replace(
+          '- an example line in a code block is not a rule',
+          'm := map[string]int{{"a", 1}}',
+        )
+        const dir = skill(quoted, RESEARCH)
+        writeFileSync(join(dir, 'voice-examples.md'), EXAMPLES('- [acme/shop#3](https://github.com/acme/shop/pull/3#discussion_r1) — reviewer A, 40 chars\n  > nit: `[]T{{Name: "x"}}` can drop the type'))
+        const run = lint(['--skill', dir], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(0)
+      })
+    })
+
+    // worfy-human-review 13: a link to a review or a comment is one raw/prs.jsonl holds, never one built by hand.
+    describe('--prs: the links against raw/prs.jsonl', () => {
+      const PR = 'https://github.com/acme/shop/pull/12'
+      const PRS = [
+        {
+          repo: 'acme/shop',
+          number: 12,
+          url: PR,
+          reviews: [{ id: 'PRR_1', url: `${PR}#pullrequestreview-901`, state: 'APPROVED', body: '', submitted_at: '2026-05-01T00:00:00Z' }],
+          threads: [{ path: 'a.go', comments: [{ id: 'PRRC_1', url: `${PR}#discussion_r902`, body: 'nit: name' }] }],
+          comments: [{ id: 'IC_1', url: `${PR}#issuecomment-903`, body: 'One question.' }],
+        },
+      ]
+        .map((p) => JSON.stringify(p))
+        .join('\n')
+      const withLinks = (links: string[]): string =>
+        `${RESEARCH}\n## R3 — Review states\n\nNumbers: 1 (analysis)\nComments: ${links.map((l, i) => `[${i + 1}](${l})`).join(', ')}.\n`
+
+      it('passes links that are a url of the pull request, a review, a line or a conversation comment', { timeout: ms(30_000) }, () => {
+        const dir = skill(FULL, withLinks([PR, `${PR}#pullrequestreview-901`, `${PR}#discussion_r902`, `${PR}#issuecomment-903`]))
+        const run = lint(['--skill', dir, '--prs', file(PRS, 'prs.jsonl')], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(0)
+      })
+
+      it('refuses a link to a review that raw/prs.jsonl does not hold, in research.md and in voice-examples.md', { timeout: ms(30_000) }, () => {
+        const dir = skill(FULL, withLinks([`${PR}#pullrequestreview-901`, `${PR}#pullrequestreview-PRR_1`]))
+        writeFileSync(join(dir, 'voice-examples.md'), `# Voice examples\n\n## nit\n\n- [acme/shop#13](https://github.com/acme/shop/pull/13#discussion_r5) — reviewer A, 9 chars\n`)
+        const run = lint(['--skill', dir, '--prs', file(PRS, 'prs.jsonl')], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(1)
+        const lines = run.stdout.trim().split('\n')
+        expect(lines, run.stdout).toHaveLength(2)
+        expect(lines[0]).toBe(`research.md:14: link not in prs.jsonl: ${PR}#pullrequestreview-PRR_1`)
+        expect(lines[1]).toBe('voice-examples.md:5: link not in prs.jsonl: https://github.com/acme/shop/pull/13#discussion_r5')
+      })
+
+      it('accepts with --known the links of the research.md of before, which an update keeps', { timeout: ms(30_000) }, () => {
+        const old = 'https://github.com/acme/shop/pull/4#discussion_r40'
+        const dir = skill(FULL, withLinks([`${PR}#discussion_r902`, old]))
+        const run = lint(['--skill', dir, '--prs', file(PRS, 'prs.jsonl'), '--known', file(`## R1 — x\n\nComments: [1](${old})\n`, 'research-before.md')], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(0)
+      })
+
+      it('gives exit 2 for a prs.jsonl that does not read as JSON lines', { timeout: ms(30_000) }, () => {
+        const run = lint(['--skill', skill(FULL, RESEARCH), '--prs', file('{"repo": "acme/shop"\n', 'prs.jsonl')], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(2)
+        expect(run.stderr).toContain('prs.jsonl')
+      })
+    })
   })
 })
