@@ -37,6 +37,7 @@ Source: [spec.md](../spec.md), «Готово, когда»; «Соглашен�
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case human-review-setup-* --max-cost-usd 2/2/11` exit 0, 3 of 3 cases at or above 0.8 (0.97, 1.00, 0.93), costUsd 15.33; contract test/contract/harness-evals.test.ts exit 0 · mac - · 34c725e4b0239f8f448d3b04db8b5a35edd7fde1
 - [ ] Живой прогон на публичном репозитории: числа оценки, «совпало K из N» по 5 PR — в «Итог»; ни одного текста
       комментария и логина в репозитории (`evidence-check --changed` — exit 0).
+  - evidence: test-run pass · live run of the Stable human-review-setup on urfave/cli (public): estimate 118 PRs, reviews 148 (approved 125, changes requested 7, commented 15, dismissed 1), comments 108 (review bodies 78, line 16, conversation 14), substantive 100, reviewers 9, ~56969 tokens; review-draft-lint --skill exit 0 (26 rules, each with a section); check on 5 held-out PRs: matched 5 of 6, 4 extra; wall 14 min; nothing posted to GitHub; evidence-check exit 0 · mac - · 59b4ac03847806cce33999a3d6a4e9572d3e2ca6
 - [ ] (manual) Владелец на своём проекте: строка при добавлении, «Build», черновик голосом команды, ничего не ушло на
       GitHub без «да».
   - needs: mac stable
@@ -70,3 +71,10 @@ Source: [spec.md](../spec.md), «Готово, когда»; «Соглашен�
   правила в собранном skill-е есть. После прогона он заменён regex-grader-ами `migration-rule` и `docs-rule`; повторный
   платный прогон не делался.
 - Не сделано: живой прогон на публичном репозитории (пункт 2) и ручная приёмка владельцем (пункт 3).
+
+**Живой прогон 2026-11-09 (пункт 2).** Генератор из Stable на публичном `urfave/cli`, от начала до «Keep», 14 min.
+Оценка: 118 PR, 148 review, 108 комментариев команды (100 существенных), 9 reviewer-ов, около 57 тысяч token-ов.
+`research.md` — разделы R1–R19, `review-draft-lint --skill` — exit 0 (26 правил, у каждого раздел). Проверка на 5
+отложенных PR: совпало 5 из 6, 4 лишних (грубая мера). На GitHub ничего не ушло. Прогон шёл во временной Harness home
+(клон не зарегистрирован как Project); личная папка и клон удалены после прогона. Что пошло не так, как описано в
+[странице Feature](../../../docs/features/human-review.md) — Ticket [13](13-исправления-генератора-после-живого-прогона.md).
