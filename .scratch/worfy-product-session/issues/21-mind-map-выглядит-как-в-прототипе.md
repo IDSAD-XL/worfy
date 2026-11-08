@@ -35,9 +35,12 @@ Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
 ## Готово, когда
 
 - [ ] Список отличий от прототипа и что сделано с каждым — в «Итог».
+  - evidence: commit pass · Mind map looks like the prototype: shapes, arrows, legend, background (worfy-product-session 21) · - - · e36d48db837509252a175e655ce7a461682d903c
 - [ ] Unit test-ы Mind map зелёные; новые test-ы на вид, который несёт смысл (класс или атрибут вида и статуса узла,
       зачёркнутое отклонённое, стрелка «заменило» отличается от обычной связи).
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · e36d48db837509252a175e655ce7a461682d903c
 - [ ] Снимки экрана в светлой и тёмной теме, просмотренные исполнителем.
+  - evidence: screenshot pass · ../evidence/21-mind-map-light.png, ../evidence/21-mind-map-dark.png, ../evidence/21-mind-map-dark-graph.png, ../evidence/21-prototype-dark.png · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
 - [ ] (manual) Владелец в Mac Stable: Mind map выглядит как в прототипе.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
