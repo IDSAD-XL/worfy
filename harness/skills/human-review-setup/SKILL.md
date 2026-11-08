@@ -48,7 +48,8 @@ The private folder is `<_resolved.dir>/state/human-review/`. `review-history` cr
 - `raw/` — the answers of GitHub of this run.
 
 This skill adds `research.md` (step 4), `lint.json` and the review skill itself in
-`.claude/skills/human-review/` (step 5). Logins of colleagues appear in `ignore.json` and in `raw/` only.
+`.claude/skills/human-review/` (step 5), and `check/`, the drafts of the check beside the team's comments
+(step 6). Logins of colleagues appear in `ignore.json` and in `raw/` only.
 
 ## 2. Read the history and ask
 
@@ -128,18 +129,31 @@ moves to `previous/` first.
 
 ## 6. Check it on the held-out pull requests
 
-Not available yet: worfy-human-review 08.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/check.md` at this step and follow it: one Subagent per
+pull request of `held_out` gets the new skill as its brief and drafts a review at the commit the first review of
+the team saw, posting nothing; the draft's remarks are paired with the team's by file and lines, a judge Subagent
+confirms each pair, and each pull request gets a page `<private folder>/check/<PR>.md` and the line "matched K of
+N remarks of the team, M extra", recorded in `meta.json`.
 
 ## 7. The person decides
 
-Show the person what the run produced — the rules of the written skill by step, each with its `[R<n>]`, and
-the section headings of `research.md` — and ask: keep, build again, or refuse.
+Show the person what the run produced: the rules of the written skill by step, each with its `[R<n>]`, the
+section headings of `research.md`, and the check of step 6 — the line of each pull request, the total with the
+words "a rough measure", and the paths of the pages in `<private folder>/check/`, which put the draft beside what
+the team really said. A check that could not run says so. Then ask: keep, build again, or refuse.
 
 - **Keep** — run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"` to delete `raw/`, and
   record the date in `meta.json` under the key `kept_at` (ISO date; change only this key).
-- **Build again** — steps 5 and 6 again, with the person's remarks.
-- **Refuse** — delete the whole private folder, by its literal path:
-  `rm -rf "<_resolved.dir>/state/human-review"`. Say what was deleted.
+- **Build again** — take the person's remarks on the rules and on the pages of the check, and run steps 5 and 6
+  again with them: in step 5 the remarks are one more input — a rule the person rejects is dropped, a change they
+  ask for is made, as long as every rule still ends with `[R<n>]` of a section of `research.md` that supports
+  it. Then this step again.
+- **Refuse** — delete the private folder and nothing else, with one command and its literal path:
+  `rm -rf "<_resolved.dir>/state/human-review"`, with `<_resolved.dir>` written out in full as step 1 printed it,
+  not a shell variable, and nothing after the path. Say what was deleted.
+
+Record the choice in `meta.json` under the key `decision`: `{"choice": "keep" | "build again", "at": "<ISO
+date>"}` (change only this key); after **Refuse** there is no `meta.json` left to record it in.
 
 Without an answer, do what **Keep** does for `raw/` (run `clean`) and leave the rest as it is: the
 colleagues' raw words never outlive the run.

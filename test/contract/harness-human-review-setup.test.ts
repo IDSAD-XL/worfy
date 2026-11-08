@@ -1,10 +1,10 @@
-// The generator skill /worfy:human-review-setup (Epic worfy-human-review, ticket 06): the order of its steps read
+// The generator skill /worfy:human-review-setup (Epic worfy-human-review, tickets 06-08): the order of its steps read
 // from the text of harness/skills/human-review-setup/SKILL.md — the script's estimate before any reading of raw/ by
 // the model, an explicit "yes", "no" deletes raw/, the short-history branch writes only meta.json — and the format
 // of research.md that analyse.md describes, run through `review-draft-lint --skill` on a fixture built from it.
 // No model runs and nothing reads GitHub here; every run of the lint gets a temporary HOME and Harness home.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +26,8 @@ const write = read('write.md')
 const template = read('template/SKILL.template.md')
 const examplesTemplate = read('template/voice-examples.md')
 const lintTemplate = read('template/lint.json')
+// Read softly: before ticket 08 the file does not exist, and each test of it fails on its own line.
+const check = existsSync(join(DIR, 'check.md')) ? read('check.md') : ''
 
 /** The text of the step `## <n>. …` of a skill text, up to the next `## ` heading. */
 function sectionOf(text: string, n: number, name: string): string {
@@ -148,7 +150,7 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(skill).toContain('meta.json')
   })
 
-  it('sends step 4 to analyse.md, step 5 to write.md and the template, and marks step 6 as not available yet', () => {
+  it('sends step 4 to analyse.md, step 5 to write.md and the template, and step 6 to check.md', () => {
     expect(step(4)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/analyse.md')
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/write.md`')
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/template/`')
@@ -157,7 +159,8 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(step(5)).toContain('`<private folder>/.claude/skills/human-review/`')
     for (const [name, text] of [['SKILL.md', skill], ['write.md', write]]) expect(text, name).not.toContain('<project root>/.claude')
     expect(step(5)).not.toMatch(/not available/i)
-    expect(step(6)).toContain('Not available yet: worfy-human-review 08')
+    expect(step(6)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/check.md')
+    expect(step(6)).not.toMatch(/not available/i)
   })
 
   it('in step 7: keep deletes raw/ and records kept_at in meta.json, refuse deletes the private folder', () => {
@@ -171,6 +174,36 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(keep!.indexOf('`meta.json`'), keep).toBeGreaterThan(clean)
     expect(seven).toMatch(/Refuse/)
     expect(seven).toContain('state/human-review')
+  })
+
+  it('in step 7 offers three choices after showing the result of the check', () => {
+    const seven = step(7)
+    const choices = blocks(seven).filter((b) => /^- \*\*(Keep|Build again|Refuse)\*\*/.test(b))
+    expect(choices.map((b) => /^- \*\*([^*]+)\*\*/.exec(b)![1]), seven).toEqual(['Keep', 'Build again', 'Refuse'])
+    // The check comes first: its total line and its pages are what the person decides on.
+    expect(seven).toContain('a rough measure')
+    expect(seven).toContain('check/')
+    expect(seven.indexOf('a rough measure')).toBeLessThan(seven.indexOf('- **Keep**'))
+    // The person's remarks go to step 5 of the next build.
+    const again = choices[1]!
+    expect(again).toMatch(/remarks/)
+    expect(again).toMatch(/step 5/)
+    expect(again).toContain('`[R<n>]`')
+    // The choice lands in meta.json next to the result of the check.
+    expect(seven).toContain('`decision`')
+  })
+
+  it('"Refuse" deletes only the private folder, with one command and a literal path', () => {
+    const seven = step(7)
+    const refuse = blocks(seven).find((b) => b.startsWith('- **Refuse**'))
+    expect(refuse, seven).toBeDefined()
+    const commands = refuse!.match(/`rm [^`]*`/g) ?? []
+    expect(commands, refuse).toEqual(['`rm -rf "<_resolved.dir>/state/human-review"`'])
+    // The whole step has no other rm, no shell variable and no glob in a deletion.
+    expect(seven.match(/\brm\b/g) ?? [], seven).toHaveLength(1)
+    expect(seven).not.toMatch(/rm [^`\n]*(\$|\*)/)
+    expect(refuse).toMatch(/literal path/)
+    expect(refuse).toMatch(/not a shell variable/)
   })
 
   it('says it works in Claude Code sessions only', () => {
@@ -385,6 +418,81 @@ describe('write.md', () => {
   })
 })
 
+describe('check.md', () => {
+  // The text with its line breaks folded, so a phrase may wrap anywhere.
+  const flat = check.replace(/\s+/g, ' ')
+
+  it('says where the plugin root is, on its third line', () => {
+    expect(check.split('\n')[2]).toMatch(/^Plugin root: `<plugin>`/)
+  })
+
+  it('takes the held-out pull requests from meta.json and builds each draft on the commit_id of the first review', () => {
+    expect(flat).toContain('`held_out`')
+    expect(flat).toContain('`commit_id`')
+    expect(flat).toMatch(/the commit the first review of the team saw/)
+    // Files at that commit without touching the working tree: no checkout, no worktree.
+    expect(flat).toContain('git show "<commit_id>:<path>"')
+    expect(flat).toContain('git diff "origin/<baseRefName>...<commit_id>"')
+    expect(flat).not.toMatch(/git (checkout|switch|worktree add)/)
+    expect(flat).toMatch(/no checkout and no worktree/)
+    // The head of the pull request today is not the code the reviewer saw.
+    expect(flat).toMatch(/not `gh pr diff`/)
+  })
+
+  it('briefs one Subagent per pull request with the text of the new SKILL.md and voice-examples.md, and keeps the answers from it', () => {
+    expect(flat).toContain('<private folder>/.claude/skills/human-review/SKILL.md')
+    expect(flat).toContain('<private folder>/.claude/skills/human-review/voice-examples.md')
+    expect(flat).toMatch(/One Subagent per pull request/)
+    expect(flat).toMatch(/pasted in full/)
+    // The drafting Subagent never sees what the team said on that pull request.
+    expect(flat).toMatch(/never reads `raw\/`/)
+    for (const field of ['reviews', 'comments', 'latestReviews']) expect(flat).toContain(`no \`${field}\``)
+  })
+
+  it('posts nothing: no gh call with a method that writes, no gh pr review or comment', () => {
+    expect(flat).toMatch(/posts nothing/i)
+    expect(flat).not.toMatch(/--method\s+(POST|PUT|PATCH|DELETE)|-X\s*(POST|PUT|PATCH|DELETE)/)
+    expect(flat).not.toMatch(/gh pr (review|comment)\b/)
+    expect(flat).toMatch(/no `gh api` call at all/)
+  })
+
+  it('pairs comments by file and lines within ±10, sends pairs and general comments to a judge', () => {
+    expect(flat).toMatch(/the same file/)
+    expect(flat).toContain('±10')
+    expect(flat).toMatch(/at most 10 lines apart/)
+    const judge = blocks(check).filter((b) => /judge/i.test(b))
+    expect(judge.some((b) => /candidate pair/.test(b)), judge.join('\n')).toBe(true)
+    expect(judge.some((b) => /general/.test(b) && /no line/.test(b)), judge.join('\n')).toBe(true)
+    // A line pair further apart is never a match, so the judge cannot widen the measure.
+    expect(flat).toMatch(/never a match/)
+  })
+
+  it('reports "matched K of N remarks of the team, M extra" per pull request and in total, as a rough measure', () => {
+    expect(flat).toContain('matched K of N remarks of the team, M extra')
+    expect(flat).toContain('a rough measure')
+    expect(flat).toMatch(/per pull request and in total/)
+  })
+
+  it('writes check/<PR>.md with the real comments on the left and the draft on the right, without logins', () => {
+    expect(flat).toContain('<private folder>/check/<PR>.md')
+    expect(flat).toContain("the team's comments on the left and the draft on the right")
+    for (const field of ['tier', 'length', 'link']) expect(flat).toContain(field)
+    expect(flat).toContain('@someone')
+    expect(flat).toMatch(/No login/)
+  })
+
+  it('records the result of the check in meta.json under its own key', () => {
+    expect(flat).toContain('`meta.json`')
+    expect(flat).toContain('`check`')
+    expect(flat).toMatch(/Change only this key/)
+  })
+
+  it('goes on to step 7 even when there is nothing to check', () => {
+    expect(flat).toMatch(/no `held_out`/)
+    expect(flat).toContain('step 7 of SKILL.md')
+  })
+})
+
 describe('a skill written by write.md from a made-up research.md', () => {
   // Made-up logins: they live in raw/reviewers.json only and must not reach the written files.
   const LOGINS = ['quill-otter', 'marsh-fern', 'tide-lamp']
@@ -539,7 +647,7 @@ describe('a skill written by write.md from a made-up research.md', () => {
 describe('the text of the skill', () => {
   const privacy = createRequire(__filename)(PRIVACY) as { findings: (text: string) => { rule: string }[] }
 
-  it.each(['SKILL.md', 'analyse.md', 'write.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
+  it.each(['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
     const text = read(name)
     expect(privacy.findings(text).map((f) => f.rule)).toEqual([])
     expect(text.match(/(^|[\s(])@[A-Za-z0-9][A-Za-z0-9-]*/g) ?? []).toEqual([])
@@ -547,7 +655,7 @@ describe('the text of the skill', () => {
 
   it('every file of the skill is in the uncovered list of the eval coverage map', () => {
     const map = JSON.parse(readFileSync(COVERAGE, 'utf8')) as { uncovered: Record<string, string> }
-    const files = ['SKILL.md', 'analyse.md', 'write.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
+    const files = ['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
     for (const file of files.map((f) => `skills/human-review-setup/${f}`))
       expect(map.uncovered[file], file).toBe('No case yet: worfy-human-review 12 adds cases')
   })
