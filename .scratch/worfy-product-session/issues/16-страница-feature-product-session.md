@@ -26,7 +26,9 @@ Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/READ
 ## Готово, когда
 
 - [ ] Обе страницы есть; `node scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2c9ddf438a3ca00fed08aa81923a9fb9a3fb9111
 - [ ] Каждое утверждение страницы сверено с кодом; список сверки — в «Итог».
+  - evidence: commit pass · Add the Feature page Product Session and its Russian copy (worfy-product-session 16) · - - · 2c9ddf438a3ca00fed08aa81923a9fb9a3fb9111
 - [ ] `node scripts/check-cyrillic.mjs` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
