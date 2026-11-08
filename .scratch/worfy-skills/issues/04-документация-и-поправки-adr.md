@@ -1,7 +1,8 @@
 # 04 — Документация: страницы Feature, `harness/README.md`, поправки ADR-0059, -0047, -0094
 
 Type: task
-Status: open
+Status: done 2026-11-08T03:08Z
+PR: #1638
 Blocked by: 02, 03
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 7; «Как работает» → «Документация, ADR, eval-ы»; [ADR-0059](../../../docs/adr/0059-installer-installs-plugin-dependencies.md), «Considered Options»
 
@@ -39,12 +40,16 @@ worfy-feature-docs: каждое утверждение — путь и стро
 
 - [ ] Обе страницы Feature и их `ru/` копии описывают сделанное в 01–03; каждое новое утверждение — со ссылкой на
       файл и строку, проверено вторым агентом.
+  - evidence: review pass · PR #1638 · - - · abc1bb645ea72b806a2094dc5b1d61d3525746cc
 - [ ] Поправки ADR-0059, -0047, -0094 — в разделе `## Amendments`, принятый текст не тронут (`git diff` только
       дописывает).
   - evidence: commit pass · `git diff origin/main -- docs/adr` has 0 removed lines; docs: Matt Pocock's skills inside the worfy plugin (worfy-skills 04) · - - · da25d878ed00c49d47220b935cb204500a219eee
+  - evidence: review pass · PR #1638 · - - · abc1bb645ea72b806a2094dc5b1d61d3525746cc
 - [ ] grep `mattpocock`, `retro_reminder_after`, `session-end.mjs` по `docs/features/` и `harness/README.md` — только
       строки об истории и об авторстве.
+  - evidence: review pass · PR #1638 · - - · abc1bb645ea72b806a2094dc5b1d61d3525746cc
 - [ ] `node scripts/check-cyrillic.mjs`, `node scripts/check-handoff.mjs` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42439389586/job/128609458004 · ci - · abc1bb645ea72b806a2094dc5b1d61d3525746cc
 
 ## Тесты
 
