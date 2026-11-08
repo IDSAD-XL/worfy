@@ -385,6 +385,13 @@ link opens on the Machine where it was clicked.
   when the last one leaves. Events for other paths are dropped by name before any read. A read runs 50 ms after the last event,
   and a state goes out only when something changed. The event stream starts a moment after the watch is made, so reads at 100,
   400 and 1000 ms pick up what changed in that moment.
+- **The same watch follows Product Session topics** ([ADR-0101](../adr/0101-product-session-folder-and-mind-map.md)):
+  `docs/product/<topic>/` in Full mode, `<Workflow folder>/product/<topic>/` in Silent mode. A change of a topic's files reads
+  that topic 50 ms after its last event and sends `product.changed` with the topic as it reads now, or `null` when its folder
+  is gone, to the windows that have the Project's documents open. HANDOFF and the ADRs are not read again for it, and
+  `docs.changed` does not go out. The reads of one topic run one at a time, so the last event carries the last content.
+  `product.topic` reads a topic on demand in the same turn. A change of the Product Session folder itself, or of the root,
+  reads again the topics already known; `critic/` and names that are not topic names are dropped.
 - **A version per file.** The state carries a hash of each file, not its text. A view reads the text through `docs.read` when
   the hash changes and keeps the old text on screen until the new one is in.
 - **main keeps the active Project's documents open itself,** so the HANDOFF Node follows the file with the sidebar hidden too. It
@@ -403,6 +410,8 @@ link opens on the Machine where it was clicked.
 - `src/shared/ipc/docs.ts`: the channels and the names and sizes of the files and the Node.
   `src/shared/workflow/doc-headings.ts`: the status label. `src/main/layout/place.ts`: the place of a new Node.
 - `src/renderer/docs/useDocs.ts`: `useDocs`, one shared copy per Project, and `useDocText`.
+- `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`: `product.topic` and `product.changed`.
+  `src/renderer/product/useMindMap.ts`: one topic kept current; it holds the Project's documents open through `useDocs`.
 - `src/renderer/canvas/nodes/HandoffNode.tsx`: the Node. `src/renderer/shell/sidebar/AdrSection.tsx`: the section and the panel.
 - `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`: the renderer and what a link leads to.
 - `src/main/ipc/shell.ts`: `shell.openInEditor`. `src/renderer/machines/useFileElsewhere.ts`: `File is on <Machine>`.
@@ -420,4 +429,6 @@ starts the watcher and answers with the state. Each change sends `docs.changed` 
   untouched.
 - `test/unit/adr-section.test.tsx`: palette requests, "Open in Editor", and the window on a Linked machine.
 - `test/contract/docs-watch-root.test.ts`, `test/unit/docs-watch-root-gone.test.ts`: a root that is removed and comes back.
+- `test/contract/product-watch.test.ts`: Product Session topics followed in both modes, two quick writes, the Product Session
+  folder removed whole.
 - `test/unit/docs-remote-links.test.ts`: the rules for shares, under Windows paths on any system.

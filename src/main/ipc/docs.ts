@@ -1,6 +1,9 @@
 import { app } from 'electron'
+import { isAbsolute, relative, sep } from 'node:path'
 import { docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
+import { productChanged } from '../../shared/ipc/product'
 import type { LayoutNode } from '../../shared/layout/types'
+import { productFolder } from '../../shared/product/paths'
 import { ClientHolders, clientOf, type Client } from '../clients'
 import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
@@ -25,10 +28,17 @@ export async function docsRoot(path: string): Promise<string> {
   return (await docsSource(path)).root
 }
 
-/** Where the Project at `path` keeps its documents, and the label of its ADRs' status line (the Profile's). */
-export async function docsSource(path: string): Promise<{ root: string; adrStatusLabel: string | undefined }> {
+/**
+ * Where the Project at `path` keeps its documents, the label of its ADRs' status line (the
+ * Profile's), and its Product Session folder (ADR-0101) as segments under that root: `docs/product`
+ * in Full mode, `product` in Silent mode. No `productDir` when that folder is not under the root.
+ */
+export async function docsSource(path: string): Promise<{ root: string; adrStatusLabel: string | undefined; productDir: readonly string[] | undefined }> {
   const layout = await projectLayouts().get(path)
-  return { root: layout.mode === 'silent' ? layout.workflowFolder : path, adrStatusLabel: layout.headings?.adrStatusLabel }
+  const root = layout.mode === 'silent' ? layout.workflowFolder : path
+  const product = relative(root, productFolder({ mode: layout.mode, root: path, workflowFolder: layout.workflowFolder }))
+  const inside = product !== '' && !isAbsolute(product) && product.split(sep)[0] !== '..'
+  return { root, adrStatusLabel: layout.headings?.adrStatusLabel, productDir: inside ? product.split(sep) : undefined }
 }
 
 /** Where a new HANDOFF Node goes: the same rule as the Orchestrator Node (src/main/layout/place.ts). */
@@ -83,6 +93,9 @@ function subscriberOf(client: Client | undefined): DocsSubscriber {
     send: (state) => {
       if (!client.isDestroyed()) emit(client, docsChanged, state)
     },
+    sendTopic: (change) => {
+      if (!client.isDestroyed()) emit(client, productChanged, change)
+    },
   }
 }
 
@@ -106,7 +119,7 @@ function keepActive(): void {
   kept = next
   if (active) {
     docsSource(active.path)
-      .then(({ root, adrStatusLabel }) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber, adrStatusLabel) : undefined))
+      .then(({ root, adrStatusLabel, productDir }) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber, adrStatusLabel, productDir) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${active.id}`, error)
         if (kept === active.id) kept = null
@@ -139,7 +152,7 @@ export function keepHeld(): void {
     }
     keptHeld.add(projectId)
     docsSource(path)
-      .then(({ root, adrStatusLabel }) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber, adrStatusLabel) : undefined))
+      .then(({ root, adrStatusLabel, productDir }) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber, adrStatusLabel, productDir) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${projectId}`, error)
         keptHeld.delete(projectId)
@@ -156,8 +169,8 @@ app.on('will-quit', () => void docsHub.closeAll())
 export default [
   defineHandler(docsOpen, async ({ projectId }, { event }) => {
     const subscriber = subscriberOf(clientOf(event))
-    const { root, adrStatusLabel } = await docsSource(projectStore().get(projectId).path)
-    return docsHub.open(projectId, root, subscriber, adrStatusLabel)
+    const { root, adrStatusLabel, productDir } = await docsSource(projectStore().get(projectId).path)
+    return docsHub.open(projectId, root, subscriber, adrStatusLabel, productDir)
   }),
   defineHandler(docsClose, async ({ projectId }, { event }) => {
     const client = clientOf(event)

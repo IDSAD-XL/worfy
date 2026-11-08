@@ -9,13 +9,22 @@
 // DocsWatcher follows those files with one recursive fs.watch of the root and reports a new state
 // after a short quiet period; DocsHub shares one watcher per Project between the windows that
 // opened it. Nothing here writes a file: the watch only listens, the rest only reads.
+//
+// The same watch follows the topics of the Product Session folder (ADR-0101; Epic
+// worfy-product-session, ticket 05): `docs/product/<topic>/` in Full mode, `<Workflow folder>/product/<topic>/`
+// in Silent mode — both under the root watched here. A change of a topic's files reads that topic
+// (src/main/product/topic.ts) after the same quiet period and reports it on its own, apart from the
+// documents: HANDOFF.md and the ADRs are not read again for it.
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { resolve, sep } from 'node:path'
 import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState } from '../../shared/ipc/docs'
+import type { ProductTopicChange } from '../../shared/ipc/product'
+import { isProductTopicName } from '../../shared/product/paths'
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
+import { readTopic, type ProductTopic } from '../product/topic'
 import { isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
@@ -172,6 +181,36 @@ function isWatchedPath(filename: string): boolean {
   return parts.length <= ADR_PARTS.length + 1 && parts.every((part, index) => index >= ADR_PARTS.length || part === ADR_PARTS[index])
 }
 
+/**
+ * What a path of an event (relative to the root, in `parts`) is to the Product Session folder `dir`
+ * (its segments under the root): a topic, by the name of its folder; `folder` for that folder itself
+ * or a folder above it, whose change may have taken every topic away or brought it back; null for
+ * any other path, the critic's reviews and a name that is no topic name included.
+ */
+export function productPathOf(parts: readonly string[], dir: readonly string[]): { topic: string } | 'folder' | null {
+  if (parts.length <= dir.length) return parts.every((part, index) => part === dir[index]) ? 'folder' : null
+  if (!dir.every((part, index) => parts[index] === part)) return null
+  const name = parts[dir.length]!
+  return isProductTopicName(name) ? { topic: name } : null
+}
+
+/**
+ * The topic `name` of the Product Session folder `dir` (segments under `root`) as it reads now, or
+ * null when its folder is not there. On Windows a way to it through a link to another host is
+ * treated as not there, as the documents are (readDocs): reading it would hand that host the user's
+ * credentials (worfy-windows tickets 18 and 19).
+ */
+export async function readProductTopic(root: string, dir: readonly string[], name: string, options: Pick<DocOptions, 'paths' | 'links'> = {}): Promise<ProductTopic | null> {
+  if (!isProductTopicName(name)) throw new Error(`not a Product Session topic name: ${JSON.stringify(name)}`)
+  const paths = options.paths ?? nativePath
+  const folder = paths.join(root, ...dir, name)
+  if (paths.sep === '\\') {
+    const base = await realpath(root).catch(() => null)
+    if (base === null || (await leadsToRemote(folder, [root, base], { paths, links: options.links }))) return null
+  }
+  return (await isFolder(folder)) ? readTopic(folder) : null
+}
+
 /** When the reads after the start run, in ms (see DocsWatcher.watch). */
 export const SETTLE_READS_MS: readonly number[] = [100, 400, 1000]
 
@@ -224,6 +263,26 @@ export interface DocsWatchOptions {
   retryMs?: number
   /** Whether an `error` of the watch means it is dead (default errorEndsWatch of this system). */
   errorEnds?: boolean
+  /**
+   * The Product Session folder as segments under the root (`docs`, `product` in Full mode; `product`
+   * in Silent mode); without it no topic is followed.
+   */
+  productDir?: readonly string[]
+  /** Called with a topic whose read gave another state than the read before; null when its folder is not there. */
+  onTopic?: (name: string, topic: ProductTopic | null) => void
+  /** The read of a topic (readProductTopic); replaced in tests. */
+  readTopic?: (root: string, dir: readonly string[], name: string) => Promise<ProductTopic | null>
+}
+
+/** The reads of one Product Session topic: one at a time, in order, after a quiet period. */
+interface TopicReads {
+  timer: ReturnType<typeof setTimeout> | null
+  /** The read queued and not begun yet: whoever asks meanwhile gets its answer. */
+  queued: Promise<ProductTopic | null> | null
+  /** The end of the last read queued; the next one starts after it. */
+  tail: Promise<unknown>
+  /** What the last read gave, as JSON; undefined before the first one. */
+  last: string | undefined
 }
 
 /**
@@ -283,6 +342,12 @@ export class DocsWatcher {
   /** The label of the ADRs' status line every read uses: the Profile's, changed by `relabel`. */
   private label: string | undefined
 
+  /**
+   * The Product Session topics known to this watcher — a change came for them, or they were asked
+   * for (`topic`) — with their reads. A change of the folder itself reads each of them again.
+   */
+  private readonly topics = new Map<string, TopicReads>
+
   private constructor(private readonly options: DocsWatchOptions) {
     this.label = options.adrStatusLabel
   }
@@ -327,9 +392,72 @@ export class DocsWatcher {
     for (const timer of this.settle) clearTimeout(timer)
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
+    for (const reads of this.topics.values()) if (reads.timer) clearTimeout(reads.timer)
     this.watcher?.close()
     this.watcher = null
     if (this.running) await this.running
+    await Promise.all([...this.topics.values()].map((reads) => reads.tail))
+  }
+
+  /**
+   * The Product Session topic `name` as it reads now, null when its folder is not there. The read
+   * takes its turn after the reads of that topic already asked for, so its answer is never older than
+   * a state `onTopic` gave before it; a state it finds changed goes to `onTopic` too. From now on the
+   * topic is known: a change of the Product Session folder itself reads it again.
+   */
+  topic(name: string): Promise<ProductTopic | null> {
+    if (!isProductTopicName(name)) return Promise.reject(new Error(`not a Product Session topic name: ${JSON.stringify(name)}`))
+    if (this.options.productDir === undefined) return Promise.reject(new Error('docs: this watcher follows no Product Session folder'))
+    return this.readTopicInTurn(name)
+  }
+
+  private topicReads(name: string): TopicReads {
+    let reads = this.topics.get(name)
+    if (!reads) this.topics.set(name, (reads = { timer: null, queued: null, tail: Promise.resolve(), last: undefined }))
+    return reads
+  }
+
+  /** Reads the topic after a quiet period: a run of events gives one read, after the last of them. */
+  private scheduleTopic(name: string): void {
+    if (this.closed) return
+    const reads = this.topicReads(name)
+    if (reads.timer) clearTimeout(reads.timer)
+    reads.timer = setTimeout(() => {
+      reads.timer = null
+      this.readTopicInTurn(name).catch((error: unknown) => console.error(`[docs] could not read the Product Session topic ${name}`, error))
+    }, this.options.debounceMs ?? 50)
+  }
+
+  /** Reads every known topic again: the Product Session folder, or a folder above it, changed. */
+  private scheduleTopics(): void {
+    for (const name of this.topics.keys()) this.scheduleTopic(name)
+  }
+
+  private readTopicInTurn(name: string): Promise<ProductTopic | null> {
+    const reads = this.topicReads(name)
+    if (reads.queued) return reads.queued
+    const dir = this.options.productDir ?? []
+    const queued = reads.tail.then(async () => {
+      // Begun: a change from now on needs a read of its own.
+      reads.queued = null
+      const topic = await (this.options.readTopic ?? readProductTopic)(this.options.root, dir, name)
+      const seen = JSON.stringify(topic)
+      if (this.closed || seen === reads.last) return topic
+      // Nothing there, and nothing was ever reported for this name: a plain file directly in the
+      // Product Session folder (`notes.md`), or a folder gone before its first read. Not a topic that went away.
+      const unseen = topic === null && reads.last === undefined
+      reads.last = seen
+      if (unseen) return topic
+      try {
+        this.options.onTopic?.(name, topic)
+      } catch (error) {
+        console.error(`[docs] could not report the Product Session topic ${name}`, error)
+      }
+      return topic
+    })
+    reads.queued = queued
+    reads.tail = queued.catch(() => undefined)
+    return queued
   }
 
   private watch(): void {
@@ -349,7 +477,14 @@ export class DocsWatcher {
         this.failing = false
         // A name under the root is not a full path: this one names the root itself, which is gone.
         if (namesTheFolder(filename, full)) return this.lost()
-        if (filename === null || filename === itself || isWatchedPath(filename)) this.schedule()
+        if (filename === null || filename === itself) {
+          this.schedule()
+          return this.scheduleTopics()
+        }
+        if (isWatchedPath(filename)) this.schedule()
+        const product = this.options.productDir === undefined ? null : productPathOf(filename.split(sep), this.options.productDir)
+        if (product === 'folder') this.scheduleTopics()
+        else if (product !== null) this.scheduleTopic(product.topic)
       },
       (error) => {
         if (this.watcher !== mine.handle) return
@@ -363,7 +498,13 @@ export class DocsWatcher {
     // The event stream starts a moment after watch() returns, and a change in that moment is not
     // reported. A few reads after the start pick such a change up; each one sends nothing unless
     // something changed.
-    for (const delay of SETTLE_READS_MS) this.settle.push(setTimeout(() => this.request(), delay))
+    for (const delay of SETTLE_READS_MS)
+      this.settle.push(
+        setTimeout(() => {
+          this.request()
+          this.scheduleTopics()
+        }, delay),
+      )
     // A watch that lasts a retry period has worked: a failure after that is a new one, and said.
     this.settle.push(
       setTimeout(() => {
@@ -395,6 +536,7 @@ export class DocsWatcher {
     this.watcher = null
     for (const timer of this.settle.splice(0)) clearTimeout(timer)
     this.request()
+    this.scheduleTopics()
     this.waitForRoot()
   }
 
@@ -418,6 +560,7 @@ export class DocsWatcher {
             // meanwhile: they are on the disk, and must not stay "gone" until the watch is made.
             if (!notThere(error)) this.fail(`[docs] cannot watch ${this.options.root}: its documents are not followed until it can be`, error)
             this.request()
+            this.scheduleTopics()
             this.waitForRoot()
           }
         })
@@ -465,6 +608,8 @@ export class DocsWatcher {
 export interface DocsSubscriber {
   readonly id: number | string
   send(state: DocsState): void
+  /** A Product Session topic of the Project changed; a subscriber without it does not hear of topics. */
+  sendTopic?(change: ProductTopicChange): void
 }
 
 export interface DocsHubOptions {
@@ -495,9 +640,10 @@ export class DocsHub {
   /**
    * Starts watching the Project at `root` for `subscriber` (once per subscriber) and returns its
    * state. `adrStatusLabel` is that of the Profile: an open with another one than the watcher has
-   * reads the documents again with it, for every subscriber.
+   * reads the documents again with it, for every subscriber. `productDir` is the Project's Product
+   * Session folder under `root` (DocsWatchOptions.productDir), taken by the open that starts the watcher.
    */
-  async open(projectId: string, root: string, subscriber: DocsSubscriber, adrStatusLabel?: string): Promise<DocsState> {
+  async open(projectId: string, root: string, subscriber: DocsSubscriber, adrStatusLabel?: string, productDir?: readonly string[]): Promise<DocsState> {
     let project = this.open_.get(projectId)
     const fresh = !project
     if (!project) {
@@ -511,6 +657,14 @@ export class DocsHub {
           this.notify(state)
           for (const target of subscribers.values()) target.send(state)
         },
+        ...(productDir === undefined
+          ? {}
+          : {
+              productDir,
+              onTopic: (name, topic) => {
+                for (const target of subscribers.values()) target.sendTopic?.({ projectId, name, topic })
+              },
+            }),
       })
       project = { watcher, subscribers }
       this.open_.set(projectId, project)
@@ -525,6 +679,15 @@ export class DocsHub {
     const watcher = await project.watcher
     if (!fresh) await watcher.relabel(adrStatusLabel)
     return { projectId, ...watcher.current }
+  }
+
+  /**
+   * The Product Session topic `name` of an open Project as it reads now (DocsWatcher.topic), null
+   * when its folder is not there; undefined when the Project is not open here, or its watcher did not start.
+   */
+  async topic(projectId: string, name: string): Promise<ProductTopic | null | undefined> {
+    const watcher = await this.open_.get(projectId)?.watcher.catch(() => undefined)
+    return watcher?.topic(name)
   }
 
   /** Ends `subscriberId`'s interest in the Project; false when it was not subscribed. */

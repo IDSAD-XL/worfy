@@ -29,11 +29,19 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Contract test: запись `docs/product/t/mind-map.json` — событие `product.changed` с темой `t` в пределах
       debounce; запись `src/a.ts` — события нет.
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
 - [ ] Test: две записи одного файла за 50 мс — последнее событие несёт второе содержимое.
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
 - [ ] Test: удаление `docs/product/` целиком не даёт бесконечного потока событий (как `watch-gone`).
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
 - [ ] Test-ы watcher-а на Windows — exit 0.
   - needs: windows
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
 
 ## Тесты
 
@@ -51,3 +59,27 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 Только читать: `src/main/watch-gone.ts`, `src/main/link-safe-watch.ts`, `src/shared/ipc/docs.ts`,
 `src/renderer/docs/useDocs.ts`, `test/unit/docs-watch-root-gone.test.ts`.
+
+## Итог
+
+- **Watcher** — `src/main/docs/watch.ts`. Новый watcher не заведён: тот же рекурсивный `fs.watch` корня документов
+  теперь узнаёт пути папки Product Session (`productPathOf`). Папку как сегменты под корнем даёт `docsSource`
+  (`src/main/ipc/docs.ts`) из `productFolder` Ticket-а 03: `docs/product` в Full mode, `product` в Silent mode (папка
+  `<Workflow folder>/product` лежит под корнем документов Silent mode, отдельный watch не нужен). Событие под
+  `<папка>/<тема>/…` читает эту тему через `readTopic` после той же паузы 50 мс; `critic/` и имена, которые не имя темы,
+  отброшены. HANDOFF и ADR от этих событий заново не читаются, `docs.changed` не меняется.
+- **Порядок чтений.** Чтения одной темы идут по одному (`TopicReads`: очередь и хвост), поэтому медленное старое чтение
+  не приходит после нового; одинаковое состояние второй раз не отправляется. `product.topic` встаёт в ту же очередь —
+  ответ не старее события, которое окно получило до него.
+- **Удаление.** Тема без папки приходит один раз как `topic: null`. Событие самой папки Product Session, папки выше или
+  корня, и возврат корня после удаления перечитывают уже известные темы. На Windows путь к теме через ссылку на другой
+  host считается «нет папки», как у документов (`readProductTopic`).
+- **Каналы** — `src/shared/ipc/product.ts`: `product.changed` (event) и `product.topic` (invoke), оба `project` / `read`.
+  `product.changed` идёт окнам, у которых документы Project-а открыты через `docs.open` (`DocsSubscriber.sendTopic`);
+  handler `product.topic` — `src/main/ipc/product.ts`.
+- **Renderer** — `src/renderer/product/useMindMap.ts`: одна общая копия темы, первое чтение через `product.topic`, затем
+  каждое `product.changed` этой темы; документы Project-а держит открытыми через `useDocs`.
+- **Сначала падающий test**: `test/contract/product-watch.test.ts` на `watch.ts` из `main` — 8 из 9 красные.
+- **Вне следа**: `src/main/ipc/docs.ts` (`docsSource`, `sendTopic`), `test/contract/docs.test.ts` (канал через IPC),
+  `test/unit/link-access.test.ts` (`product.topic` в списке read-каналов), `test/unit/product-use-mind-map.test.tsx`,
+  `docs/features/projects.md`.
