@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-11-06 (UTC), main @ 19c637855
+# Передача контекста — снимок на 2026-11-08 (UTC), main @ 4a9b6c75b
 
 ## Сейчас в работе
 
@@ -11,7 +11,7 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 56/58; 47 (flaky Windows): части 1–5 влиты, ждёт 20 зелёных `windows-e2e`; 48 открыт; 58 (updater ждёт `codex` из terminal-а) влит #1378.
+- `worfy-polish`: 47 (flaky Windows) ждёт 20 зелёных `windows-e2e`. Влиты 73 (#1663: hook `UserPromptSubmit` со строками Stage, cwd на Windows), 74 (#1668: Electron из `actions/cache`, 3 попытки).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 57/60; открыты 05, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
@@ -24,11 +24,14 @@
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
+- `worfy-product-session`: 13/18; 11-08 влиты 09 (#1659), 11 (#1654), 14 (#1672), 18 (#1680), 13 (#1675; blocked: живая проверка в Mac Stable). 08 blocked: экран Mind map. Дальше 15, 16 после 13; 17 после 15. Решения 11-08 по #1666 — в spec.
+- `worfy-human-review`: 11/12; 11-08 влиты 05, 07–10 (10 — #1662), 11 (#1673), 12 (#1679; blocked: живой прогон и приёмка).
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
+- Update Stable copy, затем: `worfy-product-session` 13 и 08, приёмка `worfy-human-review` 12. Q1 11-08: убрать ли имя проекта работодателя из файлов.
 
 ## Риски и долги
 
@@ -44,6 +47,7 @@
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01); условие merge — `ci-ok` (ADR-0083).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: причины — в [agents.md](docs/lessons/agents.md).
+- CI: 5xx GitHub releases на zip Electron (11-08) закрыт polish 74. Один `gh run rerun --failed` на head при сбое GitHub, затем rebase.
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
 - Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone-worktree-then-repository` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
 - Решение владельца не принято (`worfy-terminal-ai` 09, «Итог»): ответ Terminal AI появляется через ~0,6 s после готовности, потому что `attempt()` в `src/main/terminal-ai/assist.ts` ждёт выхода процесса `claude`, а не сообщения `result`.

@@ -1,7 +1,9 @@
 # 12 — Eval генератора и приёмка
 
 Type: task
-Status: open
+Status: blocked 2026-11-08T14:35Z
+Blocked reason: PR #1679 смержен; пункт 2 — живой прогон генератора на публичном репозитории и пункт 3 — приёмка владельцем в Mac Stable после следующего Update
+Waits: owner
 Blocked by: 05, 08, 10
 Source: [spec.md](../spec.md), «Готово, когда»; «Соглашения для Ticket-ов этого Epic-а» (платный eval); «Риски», п. 1–3, 6, 7
 

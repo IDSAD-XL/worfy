@@ -1,7 +1,8 @@
 # 74 — CI берёт binary Electron из `actions/cache`, а не из GitHub releases
 
 Type: task
-Status: claimed 2026-11-08T10:22Z
+Status: done 2026-11-08T14:36Z
+PR: #1668
 Branch: worfy-polish/74
 Blocked by: —
 Source: решение владельца 2026-11-08 (Q8): с утра GitHub releases отвечает HTTP 504 на zip Electron, и CI красный
@@ -81,6 +82,7 @@ Linux X64, macOS ARM64 и Windows X64, так что после merge PR-ы бе
   `check-cyrillic`, lint, typecheck, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0; download-electron unit test, ci-workflow, windows-tests-workflow, ci-scope-e2e contract tests, check-cyrillic, lint, typecheck exit 0; actionlint not installed · mac - · d80ea114b
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
+  - evidence: ci-check pass · ci-ok https://github.com/IDSAD-XL/worfy/actions/runs/42473303758/job/128717042218 · mac - · 1f9a84ed4d3b4b2005807d649cdd9ca3ed4f08a7
 
 ## Тесты
 
