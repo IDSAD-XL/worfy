@@ -1,7 +1,8 @@
 # 68 — Одна ошибка поиска PR по ветке гасит все PR проекта
 
 Type: bug
-Status: claimed
+Status: done 2026-11-08T01:14Z
+PR: #1612
 Blocked by: —
 Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Строки перечитаны по main `3bb9e0778`.
 
@@ -46,6 +47,7 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
       `pnpm test`, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · b65d638f66c57bfa6585266acb0a21f851b1bd5e
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42428637746/job/128580199184 · ci - · 306461d649c55af2d7cb9bf8c23d2f37c00128a2
 
 ## Где в коде
 
