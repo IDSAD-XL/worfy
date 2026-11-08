@@ -1,7 +1,8 @@
 # 72 — `worktree-lock` убирает записи worktree, которых больше нет
 
 Type: task
-Status: open
+Status: done 2026-11-08T02:21Z
+PR: #1630
 Blocked by: —
 Source: решение владельца 2026-11-06, Q5 (бриф Orchestrator-а, «со всем согласен»): папка
 `~/.claude/worfy-harness/worktree-sessions/` растёт без предела; замер Orchestrator-а 2026-11-05 — 101 из 193 файлов
@@ -51,6 +52,7 @@ Source: решение владельца 2026-11-06, Q5 (бриф Orchestrator-
 - [ ] Shell test `harness/bin/tests/worktree-lock-prune.test.sh` (новый; `HOME` и `HARNESS_HOME` — во временном
       каталоге, настоящий `~/.claude` не трогается) зелёный, случаи:
   - evidence: test-run pass · `bash harness/bin/tests/worktree-lock-prune.test.sh` exit 0 (passed 36, failed 0) · mac - · 489d06cb7
+  - evidence: review pass · PR #1630 · - - · 5ece26d5e57589786f25f25b1bf95a37c34abc6c
       - дерево удалено (`rm -rf` папки после `claim`) → `worktree-lock prune` удаляет его файл, печатает «removed 1 of …»;
       - дерево есть, записи старше TTL → файл остаётся;
       - запись без `root` (старый формат), `cwd` не существует → файл удалён; `cwd` есть → остаётся;
@@ -65,15 +67,19 @@ Source: решение владельца 2026-11-06, Q5 (бриф Orchestrator-
 - [ ] Mutant-ы красные: без проверки (а) (удалять всё), без пункта «хотя бы одна живая папка» (удалять при первой
       мёртвой), без повторной проверки под mutex-ом, без метки суток.
   - evidence: test-run pass · `bash harness/bin/tests/worktree-lock-prune.test.sh` against 10 one-line mutants of worktree-lock, each in a copy of harness/ via HARNESS_DIR, each exit 1: no folder check; .every to .some; no re-check under the mutex; no day mark; old entry by cwd without walking up; any stat error counts as gone; beat without root; future mark counts as fresh; no 200 ms budget; waiting for a busy mutex · mac - · 489d06cb7
+  - evidence: review pass · PR #1630 · - - · 5ece26d5e57589786f25f25b1bf95a37c34abc6c
 - [ ] `harness/bin/tests/harness-home.test.sh` и остальные test-ы Harness — exit 0 (`claim` по-прежнему оставляет один
       файл в живом дереве).
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (684 files passed, all Harness shell tests included) · mac - · 489d06cb7
   - evidence: gate pass · `gate fast` exit 0 · mac - · 489d06cb7
+  - evidence: review pass · PR #1630 · - - · 5ece26d5e57589786f25f25b1bf95a37c34abc6c
 - [ ] На копии настоящего реестра (вручную): `cp -R ~/.claude/worfy-harness/worktree-sessions` во временный
       `HARNESS_HOME`, `worktree-lock prune` — число удалённых совпадает с замером «папки нет» плюс `{}`; файлы
       открытых сейчас worktree остались. Цифры — в «Итог».
+  - evidence: test-run pass · worktree-lock prune on a temporary copy of the real registry: removed 215 of 220 files (880K to 20K); no removed file named an existing folder; the 5 kept files name live trees · mac - · 5ece26d5e57589786f25f25b1bf95a37c34abc6c
 - [ ] Платформенный PR (ADR-0056, пункт 2 — PR со скриптом Harness ждёт вердикта Windows): `ci-ok` зелёный, включая
       Windows job; на Windows путь `root` с `\` и буквой диска проверяется тем же test-ом.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42437201778/job/128600934883 · ci - · 5ece26d5e57589786f25f25b1bf95a37c34abc6c
 
 ## Где в коде
 
