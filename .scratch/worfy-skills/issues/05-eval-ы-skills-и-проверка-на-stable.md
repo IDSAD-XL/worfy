@@ -1,7 +1,8 @@
 # 05 — Eval-ы переименованных skills и проверка на Stable copy
 
 Type: task
-Status: open
+Status: done 2026-11-08T09:15Z
+PR: #1642
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 7; «Как работает» → «Документация, ADR, eval-ы»; «Риски», п. 2, 4
 
@@ -50,6 +51,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a5fdef05e5c991e395ca1016174a1d7bdad98e9d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42448218940/job/128633210122 · ci - · 685e647b66f502955d78fd13292b1887cd82e8c7
 
 ## Тесты
 

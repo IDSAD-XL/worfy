@@ -1,7 +1,9 @@
 # 08 — Отрисовка Mind map: «дерево» и «граф», отклонённые, zoom и pan
 
 Type: task
-Status: open
+Status: blocked 2026-11-08T09:15Z
+Blocked reason: manual check on Mac Stable: the screen with a fixture topic, both views, struck-out rejected Decisions, zoom and pan
+Waits: owner
 Blocked by: 03, 05, 07
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 5, 6; «Что видит владелец»; «Риски», п. 3; карта [worfy-product](../../worfy-product/map.md), решение 06 (Q1, Q2), «Not yet specified» (Mind map на 100+ узлах); прототип — Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
 
