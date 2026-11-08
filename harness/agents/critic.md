@@ -119,3 +119,27 @@ and by whom is not known; a source that did not answer; a profile that was not f
 One line: the path of the review file and the verdict, `<path> — <Verdict>`. In Full mode the path is
 relative to the Project root (`docs/product/critic/<file>.md`), in Silent mode it is absolute.
 Nothing else: the review is in the file.
+
+## Before a spec is accepted
+
+This section is for the caller. The orchestrator rules say: before the orchestrator asks the owner to
+accept the `spec.md` of a new epic, it runs this agent on it. The steps:
+
+1. **In.** The brief gives the path of the spec (`<tickets root>/<epic>/spec.md`), the path of the
+   project's roadmap when the project keeps one, and the lines `${CLAUDE_PLUGIN_ROOT}/bin/epic-status`
+   prints for the project. The critic reads them with the plan.
+2. **Out.** One line, as "Your answer" says: `<path> — <Verdict>`.
+3. **The spec links the review.** The orchestrator adds a `Critic:` line to the header of the spec, the
+   paragraph with its `Status:` line, on a line of its own: a relative link to the review file. The label
+   is the word "Critic" in the project's `language.docs`. In Silent mode the review is outside the
+   repository and the line gives its absolute path.
+4. **What the owner sees.** With the request to accept, the orchestrator shows the verdict and the
+   objections as one table in `language.reports`: a first row with the verdict and its reason, then
+   one row per objection with its number, the objection in one line and its `Fact:`; with no
+   objections, the verdict row alone. The path of the review goes under the table.
+5. **The owner's word.** For each objection the owner answers, the orchestrator fills its empty
+   `Owner decision:` line: `Owner decision: accepted — <reason>` or
+   `Owner decision: rejected — <reason>`, the reason being the owner's, in `language.team`. An
+   objection the owner did not answer stays empty: it is pending and does not count.
+6. **The owner may accept against the critic.** A spec accepted against the critic is an ordinary
+   accepted spec: its `Status:` line is the usual one, and worfy neither checks nor blocks it.

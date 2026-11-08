@@ -186,6 +186,21 @@ cflat="$(tr '\n' ' ' <"$RULES/common.md" 2>/dev/null | tr -s ' ')"
 [[ "$cflat" == *'Only a Product Session and its subagents edit topic files in `docs/product/`; the orchestrator only moves an accepted draft and records an owner decision, the critic writes only `docs/product/critic/`.'* ]] \
     && ok "common.md: who writes docs/product/" || bad "common.md: no line on who writes docs/product/"
 
+# Before the owner accepts a new epic's spec the orchestrator runs the critic. The rule is one line of orchestrator.md that names the section of agents/critic.md with the
+# steps; the section is there and says what goes in, what comes back and what the owner sees.
+oflat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+rule='Before asking the owner to accept a new epic'"'"'s `spec.md`, run `worfy:critic` on it and follow `${CLAUDE_PLUGIN_ROOT}/agents/critic.md`, "Before a spec is accepted": a `Critic:` line in the spec header links the review. The owner may accept against it.'
+[[ "$oflat" == *"$rule"* ]] && ok "orchestrator.md: the critic runs before a spec is accepted" || bad "orchestrator.md: no critic rule before a spec is accepted"
+[ "${#rule}" -le 300 ] && ok "orchestrator.md: the critic rule is ${#rule} <= 300 characters" || bad "orchestrator.md: the critic rule is ${#rule} > 300 characters"
+CRITIC="$HARNESS/agents/critic.md"
+grep -qx '## Before a spec is accepted' "$CRITIC" && ok "critic.md: section \"Before a spec is accepted\"" || bad "critic.md: no section \"Before a spec is accepted\""
+sflat="$(sed -n '/^## Before a spec is accepted$/,/^## /p' "$CRITIC" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
+for p in 'path of the spec' 'roadmap' 'bin/epic-status`' '`<path> — <Verdict>`' 'one table' \
+    '`Owner decision: accepted — <reason>`' '`Owner decision: rejected — <reason>`' '`Critic:`' 'language.docs' \
+    'accepted against the critic' 'neither checks nor blocks'; do
+    [[ "$sflat" == *"$p"* ]] && ok "critic.md, before a spec is accepted: names $p" || bad "critic.md, before a spec is accepted: does not name $p"
+done
+
 # The plugin root goes in literally: a Windows path (Claude Code spells it C:/…) and characters a
 # replacement pattern would read ($&, $1) arrive as they are.
 WROOT='C:/Work/x/plugin $& $1'

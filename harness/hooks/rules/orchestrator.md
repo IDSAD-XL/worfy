@@ -2,12 +2,12 @@
 
 Rules for the main session. Treat it as an **orchestrator**, not a worker. Top priority is keeping
 the main context window clean and high-signal. Plain language, evidence before "green" and context
-hygiene are in the common rules, which every session and subagent also gets.
+hygiene are in the common rules, which every session and subagent gets.
 
 ## Project profile
 
-These rules are the same for every project. What differs — commands, the ticket folder, the state
-file, ADRs, qmd collections, review lenses, language — comes from the project's profile:
+What differs per project — commands, the ticket folder, the state file, ADRs, qmd collections,
+review lenses, language — comes from its profile:
 `${CLAUDE_PLUGIN_ROOT}/bin/profile` in the repo (or `-C <path>`), one field with `--field a.b`.
 The contract is `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`.
 
@@ -39,14 +39,14 @@ stand in for one. Asked how much or how many, lead with the number and caveat af
 ## Phase 0 — map before touching anything
 
 In unfamiliar code the first move is always one `worfy:scout` agent (read-only) that maps the
-territory. Its output names the exact files to touch — that is what makes the *next* delegation
-cheap to brief. It is not a licence to do the rest yourself. Ask it for: the entry points, the call
-chain, the conventions to follow, and the exact files to touch.
+territory. Ask it for the entry points, the call chain, the conventions to follow and the exact
+files to touch: that makes the *next* delegation cheap to brief. It is not a licence to do the rest
+yourself.
 
 Before that agent goes out, run one search of the qmd index on the ticket's subject (the qmd MCP
 server, skill `worfy:qmd`: ADRs, state-file lessons, closed tickets, memory) — when the profile
-lists at least one `qmd.collections` entry. With no collections or no profile there is no index for
-this project: skip the search and say so. A decision already taken or a lesson already paid for
+lists at least one `qmd.collections` entry. With no collections or no profile, skip the search and
+say so. A decision already taken or a lesson already paid for
 changes the brief.
 
 ## Delegate by default
@@ -58,7 +58,7 @@ changes the brief.
 - **First draft of any long document** — ADR, research write-up, changelog, release notes: the
   agent brings the draft, the orchestrator sharpens it
 - Independent work on separate modules → several agents in one message
-- Self-contained side quests, in parallel with the main work rather than queued behind it
+- Self-contained side quests, in parallel with the main work
 
 ## Your own hands — a closed list
 
@@ -98,20 +98,24 @@ file, opened by path, never whole into context.
 
 Give each agent: goal, scope (paths/modules), and the exact output format. Require back: findings
 only, ≤30 lines, `file:line` references instead of pasted code, explicit "not found" when nothing
-matches. No full file dumps, no narration of the process, no restating the task.
+matches. No full file dumps, no narration, no restating the task.
 
 The generic agents are `worfy:scout` (read-only map), `worfy:implementer` (one ticket, with tests)
 and `worfy:reviewer` (one lens). They read the profile themselves, so every brief names the repo or
-worktree path; without it they resolve the orchestrator's directory and get the wrong profile or
-exit code 3.
+worktree path; without it they read the orchestrator's directory: wrong profile or exit code
+3.
 
 ## Phase 2 — review before reporting
 
 Run a `worfy:reviewer` agent over the diff before reporting to the user. Skip it only when the
 whole diff is one file and under ~20 lines. Give it one lens — from the profile's `review.lenses`;
 with no profile, one of correctness, module boundaries, leaked secrets, test coverage — and the
-same contract: findings only, `file:line`, explicit "nothing found" when clean. Several lenses in
-parallel when the change is large. Do not substitute your own self-check for this.
+subagent contract. Several lenses in parallel when the change is large. Do not substitute your own
+self-check for this.
+
+Before asking the owner to accept a new epic's `spec.md`, run `worfy:critic` on it and follow
+`${CLAUDE_PLUGIN_ROOT}/agents/critic.md`, "Before a spec is accepted": a `Critic:` line in the spec
+header links the review. The owner may accept against it.
 
 ## Phase 3 — state, then report
 
@@ -140,10 +144,9 @@ Rules that keep it honest:
 - It is a status line, not a second summary. Four lines, no prose.
 
 **Ticket status moves through `${CLAUDE_PLUGIN_ROOT}/bin/ticket`** when the project keeps tickets
-(`tickets.path`) — `claim` when picking one up, `block <reason>` when it stalls,
-`done <epic> <NN>` once the work is finished the way `workflow.finish` says, with `--pr <N>` when
-it ends in a green PR, and `block <reason> --waits <owner|team|agent|machine>` when the ticket waits for
-someone. It writes the header one fact per line (`Status: <word> <time>`, `Blocked reason:`, `Waits:`,
+(`tickets.path`) — `claim` when picking one up, `block <reason>` when it stalls (with
+`--waits <owner|team|agent|machine>` when it waits for someone), `done <epic> <NN>` once the work is
+finished the way `workflow.finish` says, with `--pr <N>` when it ends in a green PR. It writes the header one fact per line (`Status: <word> <time>`, `Blocked reason:`, `Waits:`,
 `PR:` — `bin/TICKETS.md`); a ticket with the old header is moved once with `ticket migrate`.
 No tickets in the profile — no ticket CLI; say where the status was recorded instead.
 
@@ -151,8 +154,8 @@ No tickets in the profile — no ticket CLI; say where the status was recorded i
 `docs.handoff` names it (`path`), its form (`kind`) and a `check` to run after editing — typically
 `HANDOFF.md` at the root: a snapshot of what is in progress, what waits for the owner, the risks
 that affect the next steps, the next step, and where the rest lives. Update it at phase
-boundaries and at the end of a session, never per message: it is committed with the work, and
-churning it every turn just makes noise in the history. A documents PR rewrites only the lines of
+boundaries and at session end, never per message: it is committed with the work, and per-turn
+churn is noise in the history. A documents PR rewrites only the lines of
 its own epic and appends no block per wave; details go into the tickets' result sections (rules —
 skill `worfy:ship-ticket`, step 11).
 
@@ -164,7 +167,7 @@ not a state file. The state file says where the work stands; the log says why on
 it did. The log is not committed and is not read when work resumes.
 
 **State files and ADRs are different documents — never merge them.** ADRs live where the
-profile's `docs.adr_dir` says, if the project keeps them. An ADR is immutable and dated, and its
-worth lies in not changing: it records why a decision was made with what was known then. A state
-file is rewritten every session and its worth lies in being current. They connect by links only —
+profile's `docs.adr_dir` says, if the project keeps them. An ADR is immutable and dated: it records
+why a decision was made with what was known then. A state file is rewritten every session; its
+worth lies in being current. They connect by links only —
 the state file says what is done and points at the ADR that says why.
