@@ -344,10 +344,11 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.hold',
     'projects.remove',
     // The team reviewer (worfy-human-review ticket 09): Build starts a Session, Delete erases the private
-    // folder, Later writes the Project's settings.
+    // folder, Later writes the Project's settings, and so does a due reminder to update it (ticket 10).
     'projects.reviewer.build',
     'projects.reviewer.delete',
     'projects.reviewer.later',
+    'projects.reviewer.remind',
     'projects.settings.set',
     'sessions.close',
     'sessions.new',

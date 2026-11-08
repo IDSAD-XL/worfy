@@ -27,6 +27,7 @@ import {
   projectsReviewerDelete,
   projectsReviewerGet,
   projectsReviewerLater,
+  projectsReviewerRemind,
   projectsReviewerOffer,
   projectsSelect,
   projectsSettingsChanged,
@@ -51,8 +52,8 @@ import { isRemoteCall, localProjectRefusal, setLocalProjects } from '../link/cal
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
-import { deleteTeamReviewer, offerTeamReviewer, privateFolder, probeRunner, readProfileDir, readTeamReviewer } from '../projects/review-offer'
-import { readProjectSettings, writeHumanReviewOffer, writeProjectSettings } from '../projects/settings'
+import { deleteTeamReviewer, offerTeamReviewer, privateFolder, probeRunner, readProfileDir, readTeamReviewer, remindTeamReviewer } from '../projects/review-offer'
+import { readProjectSettings, writeHumanReviewOffer, writeHumanReviewReminder, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
 import { claudeHome, harnessHome } from '../storage/paths'
 import type { TerminalRegistry } from '../terminal/pty'
@@ -428,9 +429,9 @@ export default [
     }
   }),
 
-  defineHandler(projectsReviewerBuild, async ({ id }) => {
+  defineHandler(projectsReviewerBuild, async ({ id, refresh }) => {
     const { sharedLauncher } = await import('./actions')
-    const { nodeId, sessionId } = sharedLauncher().buildTeamReviewer(store.get(id).id)
+    const { nodeId, sessionId } = sharedLauncher().buildTeamReviewer(store.get(id).id, { refresh: refresh === true })
     return { nodeId, sessionId }
   }),
 
@@ -444,5 +445,25 @@ export default [
     const saved = writeHumanReviewOffer(store.dataDir(store.get(id).id), 'later')
     toEveryWindow((client) => emit(client, projectsSettingsChanged, { id, settings: saved }))
     return saved
+  }),
+
+  // The reminder to update the team reviewer (worfy-human-review ticket 10), asked by a window that
+  // made the Project active; a due one is recorded in the Project's settings first.
+  defineHandler(projectsReviewerRemind, async ({ id }) => {
+    const project = store.get(id)
+    const dataDir = store.dataDir(project.id)
+    const due = await remindTeamReviewer(
+      {
+        profileDir: appProfileDir,
+        remindedAt: () => readProjectSettings(dataDir).humanReview?.remindedAt,
+        remember: (_projectId, at) => {
+          const saved = writeHumanReviewReminder(dataDir, at)
+          toEveryWindow((client) => emit(client, projectsSettingsChanged, { id, settings: saved }))
+        },
+      },
+      project.id,
+      project.path,
+    )
+    return { due }
   }),
 ] satisfies HandlerModule

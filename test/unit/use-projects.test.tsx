@@ -44,6 +44,20 @@ async function mount() {
 }
 
 describe('useProjects', () => {
+  // worfy-human-review ticket 10: the reminder to update the team reviewer asks on each activation.
+  it('followActiveProject tells the first active Project and each switch, not a state with the same one', async () => {
+    const { acceptProjectsState, followActiveProject } = await mount()
+    const told: string[] = []
+    const stop = followActiveProject((id) => told.push(id))
+    act(() => acceptProjectsState(state(1, 'a-00000000')))
+    act(() => acceptProjectsState(state(2, 'a-00000000')))
+    act(() => acceptProjectsState(state(3, 'b-00000000')))
+    act(() => acceptProjectsState(state(4, 'a-00000000')))
+    stop()
+    act(() => acceptProjectsState(state(5, 'b-00000000')))
+    expect(told).toEqual(['a-00000000', 'b-00000000', 'a-00000000'])
+  })
+
   it('keeps a newer state when an older one arrives after it', async () => {
     const { acceptProjectsState, hook } = await mount()
     act(() => acceptProjectsState(state(3, 'b-00000000')))

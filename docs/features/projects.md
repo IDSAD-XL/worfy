@@ -81,6 +81,16 @@ Project's root on Claude Code, whose first message is `/worfy:human-review-setup
 alike. `voice: no`, no `origin` on GitHub, no gh, a failure or the time limit show nothing; the log gets one line. A Project
 whose reviewer is built already gets no offer.
 
+**The reminder to update the team reviewer.** Each time a window makes a Project active, it asks main whether the
+reminder is due. It is due when the reviewer is built, its date (as "Team reviewer" shows it below) is more than 30 days
+old, and no reminder came in the last 30 days. A due reminder is saved first, as `humanReview.remindedAt` in the Project's
+settings in worfy's data folder, so it comes once: in one window, and not again for 30 days. The Project then gets an
+`action` toast "Update your team reviewer?" with "Update" and "Later". "Update" opens a new Session in the Project's root
+on Claude Code whose first message is `/worfy:human-review-setup --refresh`: the skill reads only the pull requests since
+its last analysis, shows the rules it adds, changes and removes, and replaces nothing until the person accepts. "Later"
+and closing the toast only close it. The reminder reads the private folder and nothing else: no Harness script, no
+GitHub, no model. A read-only screen of a Linked machine does not ask.
+
 Esc and Cancel close the dialog and stop a running draft, but not while Connect writes. A click outside closes it only on
 the Mode step.
 
@@ -234,7 +244,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   `<Profile folder>/state/human-review/`. The reviewer is built when its skill, `.claude/skills/human-review/SKILL.md`, is
   there. The date is `kept_at` of `meta.json`, written when the person keeps the generator's result, else
   `fetched_at`, the last read of the history, and only without either the time the skill file was written. `<N> PRs`
-  and the short history come from `meta.json` of `review-history`. "Build", or "Rebuild" once built, starts the same Session as the offer and closes the dialog. "Delete"
+  and the short history come from `meta.json` of `review-history`. After an update the person accepted, the date is
+  that of the update and `<N>` adds the pull requests it read (`analysed_pull_requests`), until a whole build reads the
+  history again. "Build" starts the same Session as the offer and closes the dialog. Once built, "Update" takes its place and starts the
+  Session of the reminder, with `--refresh`. "Delete"
   asks first, then erases that folder and nothing else. A read-only Linked machine sees the state without the buttons.
   Once built, the reviewer reaches every Claude Code Session of the Project that a person is at, as `/human-review`: the
   Orchestrator, "New session", "Ship ticket" and a Product Session. Each start reads the Profile folder and adds the private
@@ -298,8 +311,9 @@ it is refused.
   `onChange`, the event for "the active Project switched". `states()` gives the list for this Machine's windows and for a
   Linked machine.
 - `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: the settings of a Project.
-  `src/main/projects/review-offer.ts`: the team reviewer offer after an add, and the state and "Delete" of "Team reviewer";
-  `src/renderer/projects/review-offer.ts`: its toast. `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`)
+  `src/main/projects/review-offer.ts`: the team reviewer offer after an add, the reminder to update it (`refreshDue`), and
+  the state and "Delete" of "Team reviewer"; `src/renderer/projects/review-offer.ts`: their toasts, the reminder asked on
+  each activation through `followActiveProject` (`src/renderer/projects/useProjects.ts`). `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`)
   starts the generator's Session. `privateSkillsFolder` (`src/main/vendors/claude/query.ts`) gives the reviewer's folder to
   a Session, read with `readProfileFolder` (`src/main/workflow/profile.ts`).
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` turns a window's choice into a hold.
@@ -321,7 +335,7 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
 
 - `test/contract/projects.test.ts`: add, select, remove, persistence, settings, the untouched repository, `projects.browse`,
   calls from a Linked machine, Projects local to a Machine, and the team reviewer: the offer by the probe's answer,
-  `humanReview.offer`, the state and "Delete".
+  `humanReview.offer`, the state and "Delete", and the reminder to update it once in 30 days with "Update".
 - `test/e2e/projects.spec.ts`: add, switch, settings, restart and remove in the built app, a broken `projects.json`, and the
   team reviewer offer with "Later" and "Build".
 - `test/unit/use-projects.test.tsx`: revisions, the groups by Machine, windows on a Linked machine.

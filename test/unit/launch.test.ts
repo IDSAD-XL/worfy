@@ -253,9 +253,19 @@ describe('ActionLauncher.buildTeamReviewer (worfy-human-review ticket 09)', () =
     expect(bindings).toEqual([])
   })
 
+  it('"Update" (ticket 10) starts the same Session with /worfy:human-review-setup --refresh', () => {
+    const { launch, sessions, created, vendors } = launcher()
+    expect(launch.buildTeamReviewer('p', { refresh: true })).toEqual({ nodeId: 'node-1', sessionId: 'pending-1', text: '/worfy:human-review-setup --refresh' })
+    expect(created).toEqual(['p'])
+    expect(vendors).toEqual(['claude'])
+    expect(sessions.get('pending-1')!.sent).toEqual(['/worfy:human-review-setup --refresh'])
+    expect(launch.buildTeamReviewer('p', { refresh: false }).text).toBe('/worfy:human-review-setup')
+  })
+
   it('refuses a Project that is not in the list and starts nothing', () => {
     const { launch, created } = launcher()
     expect(() => launch.buildTeamReviewer('gone')).toThrow('no Project gone')
+    expect(() => launch.buildTeamReviewer('gone', { refresh: true })).toThrow('no Project gone')
     expect(created).toEqual([])
   })
 })

@@ -34,7 +34,8 @@
 // - Build of the team reviewer (worfy-human-review ticket 09): a new Session Node in the Project's
 //   root, as "Ship ticket" makes one and on Claude Code alike, whose first message is the generator
 //   skill (TEAM_REVIEWER_COMMAND). No template and no Binding: the Session is about the Project, not
-//   a Ticket or an Epic; the skill asks the user before it reads anything.
+//   a Ticket or an Epic; the skill asks the user before it reads anything. "Update" (ticket 10) is the
+//   same Session with TEAM_REVIEWER_REFRESH_COMMAND.
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
@@ -48,7 +49,7 @@ import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
-import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_REFRESH_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
@@ -219,13 +220,15 @@ export class ActionLauncher {
 
   /**
    * "Build" of the team reviewer: a new Session Node of the Project on Claude Code whose first message
-   * is TEAM_REVIEWER_COMMAND. Throws for a Project that is not in the list.
+   * is TEAM_REVIEWER_COMMAND; with `refresh` ("Update", worfy-human-review ticket 10)
+   * TEAM_REVIEWER_REFRESH_COMMAND. Throws for a Project that is not in the list.
    */
-  buildTeamReviewer(projectId: string): ShipTicketResult {
+  buildTeamReviewer(projectId: string, options: { refresh?: boolean } = {}): ShipTicketResult {
     this.deps.projectRoot(projectId)
+    const text = options.refresh === true ? TEAM_REVIEWER_REFRESH_COMMAND : TEAM_REVIEWER_COMMAND
     const view = this.deps.sessions.create(projectId, undefined, TEAM_REVIEWER_VENDOR)
-    this.deps.registry.get(view.sessionId).send(TEAM_REVIEWER_COMMAND)
-    return { nodeId: view.nodeId, sessionId: view.sessionId, text: TEAM_REVIEWER_COMMAND }
+    this.deps.registry.get(view.sessionId).send(text)
+    return { nodeId: view.nodeId, sessionId: view.sessionId, text }
   }
 
   /** The Project's Tickets that have a live Session launched by "Ship ticket". */

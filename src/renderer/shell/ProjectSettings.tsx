@@ -106,7 +106,7 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * (ticket 37). "None" clears it, and Claude Code is then the default.
  *
  * "Team reviewer" (worfy-human-review ticket 09, spec Q6 (a)): the state of the Project's reviewer in
- * its team's voice, with "Build" ("Rebuild" once built) and "Delete"; see TeamReviewerSection.
+ * its team's voice, with "Build" ("Update" once built, ticket 10) and "Delete"; see TeamReviewerSection.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -359,7 +359,7 @@ interface TeamReviewerSectionProps {
   /** A Project of a Linked machine shared read-only: the state shows, the buttons do not. */
   readOnly: boolean
   /**
-   * "Build" started the Session: the dialog closes, so the new Session Node is in sight, and answers
+   * "Build" or "Update" started the Session: the dialog closes, so the new Session Node is in sight, and answers
    * true. A dialog with edits not saved stays open and answers false, so the edits are not lost.
    */
   onBuilt: () => boolean
@@ -368,9 +368,10 @@ interface TeamReviewerSectionProps {
 /**
  * "Team reviewer" of Project settings (worfy-human-review ticket 09): the reviewer skill in the team's
  * voice that the generator /worfy:human-review-setup builds from the Project's pull request history
- * and keeps in the private folder of its Profile (projects.reviewer.get reads it). "Build" (or
- * "Rebuild") starts a new Session with the generator; "Delete" erases the private folder after a
- * confirmation. "Update" comes with worfy-human-review ticket 10.
+ * and keeps in the private folder of its Profile (projects.reviewer.get reads it). "Build" starts a new
+ * Session with the generator; once built, "Update" (worfy-human-review ticket 10) starts it with
+ * --refresh, which reads the pull requests since and shows the diff of the rules before it replaces
+ * anything. "Delete" erases the private folder after a confirmation.
  */
 function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamReviewerSectionProps) {
   const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
@@ -395,7 +396,7 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
 
   const build = async (): Promise<void> => {
     setBusy(true)
-    const result = await call('projects.reviewer.build', { id: projectId })
+    const result = await call('projects.reviewer.build', state?.status === 'built' ? { id: projectId, refresh: true } : { id: projectId })
     setBusy(false)
     if (!result.ok) setFailure(result.error)
     else if (!onBuilt()) setStarted(true)
@@ -423,7 +424,7 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
       {buttons && !confirming ? (
         <div style={styles.actions}>
           <button type="button" style={styles.secondary} disabled={busy} onClick={() => void build()}>
-            {state.status === 'built' ? 'Rebuild' : 'Build'}
+            {state.status === 'built' ? 'Update' : 'Build'}
           </button>
           <button type="button" style={styles.secondary} disabled={busy || state.status === 'none'} onClick={() => setConfirming(true)}>
             Delete
