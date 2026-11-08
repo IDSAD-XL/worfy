@@ -28,11 +28,15 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] Contract test: `refresh.md` зовёт `fetch --since` и `estimate` до анализа; без «да» — ничего не меняется.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
 - [ ] Contract test: diff правил называет добавленные, изменённые и убранные правила с `R<n>`; «Отклонить» не трогает
       `SKILL.md`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
 - [ ] Contract test: напоминание — только при `SKILL.md` и `meta.json` старше 30 дней, не чаще раза в 30 дней; кнопка
       «Update» открывает Session с `--refresh`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/projects.test.ts test/unit/review-offer-toast.test.ts test/unit/project-settings-shell.test.tsx test/unit/launch.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
 - [ ] `node scripts/check-cyrillic.mjs` и `node scripts/eval-harness.mjs --dry-run --changed origin/main` — exit 0.
+  - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0, `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
 
 ## Тесты
