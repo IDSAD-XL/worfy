@@ -42,6 +42,8 @@
 // none (autopilot/start-modal.ts); it starts a run, so a read-only screen shows it inactive.
 // "Open Run history" (worfy-flight-recorder ticket 20) opens the Run history screen at the active
 // Project's newest Run (flight-recorder/open.ts).
+// "New Product Session" (worfy-product-session ticket 06) is an entry of its own beside "New
+// session": a Session of kind `product` on Claude Code, opened in the Session view at once.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -68,7 +70,7 @@ import { invoke, windowMachine } from '../ipc'
 import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
 import { openProject } from '../projects/useProjects'
-import { openOrchestrator, setView } from '../session/navigation'
+import { openOrchestrator, openSession, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
@@ -179,6 +181,22 @@ function actionCommands({ project, createItems, readOnly, gateQueue, now }: Comm
         if (!result.ok) return failureReason('sessions.new', result.error)
         setView('canvas')
         focusCanvasNode(projectId, result.value.nodeId)
+        return undefined
+      },
+    },
+    {
+      id: 'new:product-session',
+      group: 'Action',
+      title: 'New Product Session',
+      detail: "the Product owner's advisor, on Claude Code",
+      readOnly: hint,
+      // The same call as "New Product Session" in the sidebar. No Vendor: a Product Session runs on
+      // Claude Code only (main refuses any other). Its Session view is where it is worked with, so
+      // it opens at once rather than only showing the Node on the Canvas.
+      run: async () => {
+        const result = await invoke('sessions.new', { projectId, kind: 'product' })
+        if (!result.ok) return failureReason('sessions.new', result.error)
+        openSession({ nodeId: result.value.nodeId, projectId })
         return undefined
       },
     },

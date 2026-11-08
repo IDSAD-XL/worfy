@@ -4,7 +4,6 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { MIN_SIZE } from '../../src/shared/window/bounds'
 import { expandMachines, launchApp, smallestWindow, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
@@ -360,13 +359,13 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
     const freshEpics = sectionOf(fresh, 'EpicsSection').body
     const freshAdr = sectionOf(fresh, 'AdrSection').body
     // The column is the page less 60 px (toolbar 52, padding 8; shell.css, tokens.css), and the
-    // sections need 442 px with both long lists at their floors. In a page of 800×520 (macOS, where
-    // the window has no frame) the column is 460 px: it does not scroll and is used to its end, the
-    // 18 px left over going to the long lists. On Windows the frame takes part of the smallest window:
-    // the page is 786×458 (measured at 150 %), the column 398 px, so each long list is at its floor
-    // and the column scrolls instead. The else branch is that frame; a page of 502 to 519 px would
-    // fit without scrolling and needs a branch of its own.
-    if (page.height >= MIN_SIZE.height) {
+    // sections need 470 px with both long lists at their floors, 28 px of it the row "New Product
+    // Session" of Sessions (worfy-product-session ticket 06). In a page of 800×520 (macOS, where the
+    // window has no frame) the column is 460 px, and on Windows, whose frame takes part of the
+    // smallest window, the page is 786×458 (measured at 150 %), the column 398 px: either way each
+    // long list is at its floor and the column scrolls. The first branch is a column of 470 px or
+    // more, which is used to its end without scrolling, what is left over going to the long lists.
+    if (page.height - 60 >= 470) {
       expect(fresh.scrollHeight).toBe(fresh.clientHeight)
       expect(freshEpics).toBeGreaterThan(3 * EPIC_ROW)
       expect(freshAdr).toBeGreaterThan(3 * ROW)
