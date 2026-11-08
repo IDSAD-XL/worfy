@@ -6,5 +6,5 @@ flags: m
 match: contains
 ---
 
-The review of the sum-output plan cites the earlier decision it asks to revisit: ADR-0001, by its
+The review of the sum-output plan cites the earlier decision it asks to revisit: ADR 0001, by its
 path or its number.

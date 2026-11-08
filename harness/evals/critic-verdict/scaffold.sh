@@ -14,10 +14,10 @@
 #                 broken sum before a commit, and the project already has test/sum.test.mjs and a
 #                 pre-commit hook (.githooks/pre-commit) that runs every test. The alternative of the
 #                 review must name that check.
-#   epic sum-output a changed condition: ADR-0001 deferred a JSON output of sum-cli because no program
+#   epic sum-output a changed condition: ADR 0001 deferred a JSON output of sum-cli because no program
 #                 read it, "revisit when a program reads the output"; the plan says two programs do now,
 #                 and still keeps JSON out of scope by that ADR. The critic must propose revisiting
-#                 ADR-0001 and cite it.
+#                 ADR 0001 and cite it.
 #
 # The existing feature, check and decision go in one commit before the plans, dated months earlier.
 #
@@ -69,7 +69,7 @@ EOF
 put src/sum-cli.mjs <<'EOF'
 import { sum } from './sum.mjs'
 
-// `node src/sum-cli.mjs 2 3` prints `sum: 5`: plain text only (ADR-0001).
+// `node src/sum-cli.mjs 2 3` prints `sum: 5`: plain text only (ADR 0001).
 const [a, b] = process.argv.slice(2).map(Number)
 console.log(`sum: ${sum(a, b)}`)
 EOF
@@ -111,7 +111,7 @@ EOF
 chmod +x .githooks/pre-commit
 git add src test .githooks README.md docs
 GIT_AUTHOR_DATE=2026-06-01T12:00:00Z GIT_COMMITTER_DATE=2026-06-01T12:00:00Z \
-    git commit -q -m "clamp, sum-cli, a pre-commit hook and ADR-0001"
+    git commit -q -m "clamp, sum-cli, a pre-commit hook and ADR 0001"
 
 mkdir -p .scratch/export/issues .scratch/greet/issues .scratch/limit/issues .scratch/sum-guard/issues .scratch/sum-output/issues
 
@@ -387,9 +387,9 @@ was committed and found a week later. This epic builds a checker that runs befor
 
 ## What we build
 
-1. `checks/sum-cases.json` holds inputs and the expected sums; `scripts/verify-sum.mjs` runs `sum`
+1. `checks/sum-cases.json` holds inputs and the expected sums; `tools/verify-sum.mjs` runs `sum`
    over the table and exits 1 on the first mismatch or on a result that is not a number.
-2. `scripts/install-hook.mjs` writes `.git/hooks/pre-commit`, which runs `node scripts/verify-sum.mjs`
+2. `tools/install-hook.mjs` writes `.git/hooks/pre-commit`, which runs `node tools/verify-sum.mjs`
    and refuses the commit when it exits 1.
 3. A test of the installer: it writes the hook, and the hook refuses a commit with a broken sum.
 
@@ -397,8 +397,8 @@ was committed and found a week later. This epic builds a checker that runs befor
 
 | Ticket | Files of "Where in the code" | Wave |
 | --- | --- | --- |
-| 01 | checks/sum-cases.json, scripts/verify-sum.mjs | 1 |
-| 02 | scripts/install-hook.mjs | 2 |
+| 01 | checks/sum-cases.json, tools/verify-sum.mjs | 1 |
+| 02 | tools/install-hook.mjs | 2 |
 | 03 | test/install-hook.test.mjs | 3 |
 
 ## Out of scope
@@ -415,17 +415,17 @@ Blocked by: —
 
 ## What we do
 
-`checks/sum-cases.json` lists inputs and expected sums; `scripts/verify-sum.mjs` runs `sum` of
+`checks/sum-cases.json` lists inputs and expected sums; `tools/verify-sum.mjs` runs `sum` of
 `src/sum.mjs` over it and exits 1 on the first mismatch or on a result that is not a number.
 
 ## Done when
 
-- [ ] `node scripts/verify-sum.mjs` exits 0 on the current `sum` and 1 on a `sum` that returns a string.
+- [ ] `node tools/verify-sum.mjs` exits 0 on the current `sum` and 1 on a `sum` that returns a string.
 
 ## Where in the code
 
 - `checks/sum-cases.json` — new
-- `scripts/verify-sum.mjs` — new
+- `tools/verify-sum.mjs` — new
 EOF
 
 put .scratch/sum-guard/issues/02-install-hook.md <<'EOF'
@@ -437,16 +437,16 @@ Blocked by: 01
 
 ## What we do
 
-`node scripts/install-hook.mjs` writes `.git/hooks/pre-commit`, which runs
-`node scripts/verify-sum.mjs` and refuses the commit when it exits 1.
+`node tools/install-hook.mjs` writes `.git/hooks/pre-commit`, which runs
+`node tools/verify-sum.mjs` and refuses the commit when it exits 1.
 
 ## Done when
 
-- [ ] After `node scripts/install-hook.mjs`, `.git/hooks/pre-commit` exists and is executable.
+- [ ] After `node tools/install-hook.mjs`, `.git/hooks/pre-commit` exists and is executable.
 
 ## Where in the code
 
-- `scripts/install-hook.mjs` — new
+- `tools/install-hook.mjs` — new
 EOF
 
 put .scratch/sum-guard/issues/03-hook-test.md <<'EOF'
@@ -470,7 +470,7 @@ is refused.
 - `test/install-hook.test.mjs` — new
 EOF
 
-# --- epic sum-output: two programs read the output now, JSON stays out by ADR-0001 -----------------
+# --- epic sum-output: two programs read the output now, JSON stays out by ADR 0001 -----------------
 put .scratch/sum-output/spec.md <<'EOF'
 # Epic sum-output — keep the output of sum-cli stable
 
@@ -492,7 +492,7 @@ alert script, each with a regular expression for `sum: <n>`. On 2026-09-28 a cha
 
 ## Out of scope
 
-A JSON output: deferred by ADR-0001 (`docs/adr/0001-sum-cli-prints-plain-text.md`).
+A JSON output: deferred by ADR 0001 (`docs/adr/0001-sum-cli-prints-plain-text.md`).
 EOF
 
 put .scratch/sum-output/issues/01-pin-output.md <<'EOF'

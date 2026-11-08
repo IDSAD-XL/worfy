@@ -649,7 +649,7 @@ describe('harness/evals: critic-verdict', () => {
     }
   })
 
-  it('the fact graders of the new plans: the duplicate names src/clamp.mjs with a line, the alternative names the existing check, the revisit names ADR-0001', () => {
+  it('the fact graders of the new plans: the duplicate names src/clamp.mjs with a line, the alternative names the existing check, the revisit names ADR 0001', () => {
     const fact = (line: string): string => objection(1, `Fact: ${line}\n\n`)
     expect(passes('limit-names-clamp.md', review(fact('`src/clamp.mjs:2` exports `clamp(value, min, max)`'), 'Defer'))).toBe(true)
     expect(passes('limit-names-clamp.md', review(fact('`src/clamp.mjs` exports `clamp`'), 'Defer'))).toBe(false)
@@ -662,6 +662,7 @@ describe('harness/evals: critic-verdict', () => {
     expect(passes('sum-guard-alternative-names-check.md', review(fact('`test/sum.test.mjs:6`'), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
 
     expect(passes('sum-output-cites-adr.md', review(fact('`docs/adr/0001-sum-cli-prints-plain-text.md:14` (revisit when a program reads the output)'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 deferred `--json`'), 'Defer'))).toBe(true)
     expect(passes('sum-output-cites-adr.md', review(fact('ADR-0001 deferred `--json`'), 'Defer'))).toBe(true)
     expect(passes('sum-output-cites-adr.md', review(fact('`src/sum-cli.mjs:5`'), 'Keep'))).toBe(false)
   })
@@ -702,17 +703,17 @@ describe('harness/evals: critic-verdict', () => {
     expect(line('test/sum.test.mjs', 6)).toBe('  assert.equal(sum(2, 3), 5)')
     expect(line('.githooks/pre-commit', 3)).toBe('exec node --test')
     expect(read('README.md')).toContain('git config core.hooksPath .githooks')
-    expect(read('.scratch/sum-guard/spec.md')).toContain('`scripts/install-hook.mjs`')
+    expect(read('.scratch/sum-guard/spec.md')).toContain('`tools/install-hook.mjs`')
     // An earlier deferral and its condition, and the plan that shows the condition met yet keeps the deferral.
     const adr = 'docs/adr/0001-sum-cli-prints-plain-text.md'
     expect(read(adr)).toContain('`--json` is deferred')
     expect(line(adr, 17)).toBe('A program, not a person, reads the output of `sum-cli`.')
     expect(read('.scratch/sum-output/spec.md')).toContain('two programs read the output of `node src/sum-cli.mjs`')
-    expect(read('.scratch/sum-output/spec.md')).toContain('A JSON output: deferred by ADR-0001')
+    expect(read('.scratch/sum-output/spec.md')).toContain('A JSON output: deferred by ADR 0001')
     // The history is older than the plans: the existing feature, check and decision were there first.
     const log = spawnSync('git', ['log', '--format=%s', '--reverse'], { cwd: work, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH }) })
     expect(log.status, log.stderr).toBe(0)
-    expect(log.stdout.trim().split('\n').slice(-2)).toEqual(['clamp, sum-cli, a pre-commit hook and ADR-0001', 'plans for acceptance'])
+    expect(log.stdout.trim().split('\n').slice(-2)).toEqual(['clamp, sum-cli, a pre-commit hook and ADR 0001', 'plans for acceptance'])
   })
 })
 
