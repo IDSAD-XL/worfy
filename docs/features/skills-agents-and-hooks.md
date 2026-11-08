@@ -149,7 +149,7 @@ Four agents are the same for every Project. Each starts by running `profile`, on
 | `worfy:implementer` | Inherited, high | All | One Ticket's code and tests, in its own worktree or the main checkout | A JSON report |
 | `worfy:reviewer` | Inherited, high | Read, Grep, Glob, Bash, `qmd` | It fixes nothing: it reports, and the implementer fixes | Findings, at most 30 lines |
 | `worfy:scout` | sonnet, medium | Read, Grep, Glob, Bash, `qmd` | Only the code map, outside the repository | The answer: where X is, how Y works, a file map |
-| `worfy:critic` | opus, high | Read, Grep, Glob, Bash, WebSearch, WebFetch, Write | One review file, `docs/product/critic/<epic>-<date>.md` | The path of the review and its verdict, on one line |
+| `worfy:critic` | opus, high | Read, Grep, Glob, Bash, WebSearch, WebFetch, Write | One review file, `critic/<epic>-<date>.md` of the Product Session folder | The path of the review and its verdict, on one line |
 
 **Which model and effort.** The first of these with a valid value wins: the owner's word in a message, an argument of
 the skill, `agents.<role>` of the Profile, the agent's own definition. The roles are `implementer`, `reviewer`
@@ -189,12 +189,14 @@ Other lenses, from `review.lenses`, are read by their names. A UI Ticket needs s
 list of files for a Ticket. It edits no file of a repository and runs no stack.
 
 **The critic.** It gets the path of a spec or a plan and looks for objections, not for reasons to agree. It writes
-`docs/product/critic/<epic>-<YYYY-MM-DD>.md`, adding `-2`, `-3` rather than writing over an earlier review: a verdict
-`Keep`, `Reorder`, `Split` or `Defer` with one sentence why, at most three objections, one alternative and what it cannot
-know (there is no product analytics). Each objection has a `Fact:` line, a `path:line`, a Ticket, a PR or a URL, and an
-empty `Owner decision:` line for the owner's word; an objection without a fact is not written, and a sound plan gets
-`Keep` with none. The field labels stay in English and the text is in `language.team`. It is not one of the roles
-above: Eco mode and `agents.<role>` do not change its model, and Codex does not get it.
+`docs/product/critic/<epic>-<YYYY-MM-DD>.md` in Full mode and `<Workflow folder>/product/critic/<epic>-<YYYY-MM-DD>.md`,
+outside git, in Silent mode (the mode and folders come from `profile`), adding `-2`, `-3` rather than writing over an
+earlier review: a verdict `Keep`, `Reorder`, `Split` or `Defer` with one sentence why, at most three objections, one
+alternative and what it cannot know (there is no product analytics). Each objection has a `Fact:` line, a `path:line`, a
+Ticket, a PR or a URL, and an empty `Owner decision:` line, later `accepted — <reason>` or `rejected — <reason>` by the
+owner's word; an objection without a fact is not written, and a sound plan gets `Keep` with none. The field labels stay
+in English and the text is in `language.team`. It is not one of the roles above: Eco mode and `agents.<role>` do not
+change its model, and Codex does not get it.
 
 **The starting context.** An agent starts with its definition, the common rules of [Hooks](#hooks) and the skill it
 reads at the start. `start-context` estimates this at 2.7 bytes per token, and exits 1 when the parts the Harness writes

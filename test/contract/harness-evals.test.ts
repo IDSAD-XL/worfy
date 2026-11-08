@@ -15,6 +15,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { MIND_MAP_NODE_KINDS } from '../../src/shared/product/mind-map'
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
+import { productCriticFolder, productFolder } from '../../src/shared/product/paths'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { CASES, childEnv, EVALS, HARNESS, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
@@ -488,6 +489,8 @@ describe('harness/evals: product-ideas', () => {
     ['against the roadmap only inside a sentence', reply(idea(1) + idea(2) + idea(3).replace('\n\n', '\n\nThis goes - Against the roadmap: no.\n\n')), 'against-roadmap.md'],
   ])('the reply graders refuse %s', (_, text, name) => {
     expect(passes(name, text)).toBe(false)
+  })
+})
 
 // worfy-product-session ticket 11: the critic (agents/critic.md) writes one review per plan; the
 // graders read its format, and example.md is a review of the case's export plan in that format. The
@@ -505,7 +508,7 @@ describe('harness/evals: critic-verdict', () => {
 
   // Red before the agent exists: the case starts `worfy:critic`, and without harness/agents/critic.md
   // no run can start it, so the critics grader fails every run.
-  it('starts worfy:critic, an agent of the plugin on opus that writes its review into docs/product/critic/', () => {
+  it('starts worfy:critic, an agent of the plugin on opus that writes its review into the critic folder', () => {
     const file = join(HARNESS, 'agents', 'critic.md')
     expect(existsSync(file)).toBe(true)
     const yaml = frontMatter(file)
@@ -515,10 +518,44 @@ describe('harness/evals: critic-verdict', () => {
     expect(field(yaml, 'tools')?.split(/,\s*/).sort()).toEqual(['Bash', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'])
     expect(field(grader('critics.md'), 'input_match')).toContain('worfy:critic')
     const text = readFileSync(file, 'utf8')
-    expect(text).toContain('docs/product/critic/<epic>-<YYYY-MM-DD>.md')
+    expect(text).toContain('`<critic folder>/<epic>-<YYYY-MM-DD>.md`')
     // The four verdicts and the labels the graders read, as the agent writes them.
     for (const word of ['Keep', 'Reorder', 'Split', 'Defer']) expect(text).toContain(`\`${word}\``)
     for (const label of ['Verdict:', 'Fact:', 'Owner decision:', '## Objections', '## Alternative', '## What the critic cannot know']) expect(text).toContain(label)
+  })
+
+  // ADR-0101: the Product Session folder is docs/product in Full mode and <Workflow folder>/product in
+  // Silent mode, critic/ inside it (src/shared/product/paths.ts). The agent names both folders by the
+  // same function, and takes the mode and the folders from bin/profile fields that exist in both modes.
+  it('writes into the critic folder of src/shared/product/paths.ts: docs/product/critic in Full mode, <Workflow folder>/product/critic in Silent mode', () => {
+    const text = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8')
+    const layout = { root: '<Project root>', workflowFolder: '<Workflow folder>' }
+    const full = productCriticFolder(productFolder({ mode: 'full', ...layout }))
+    const silent = productCriticFolder(productFolder({ mode: 'silent', ...layout }))
+    expect([full, silent]).toEqual(['<Project root>/docs/product/critic', '<Workflow folder>/product/critic'])
+    expect(text).toContain(`\n- Full mode: \`${full}/\``)
+    expect(text).toContain(`\n- Silent mode: \`${silent}/\``)
+    for (const name of ['_resolved.mode', '_resolved.workflow_folder', '_resolved.checkout']) expect(text).toContain(`\`--field ${name}\``)
+    // The words of an owner's decision that ticket 14 counts; an empty line is pending.
+    expect(text).toContain('`Owner decision: accepted — <reason>`')
+    expect(text).toContain('`Owner decision: rejected — <reason>`')
+
+    const { work, home } = caseFixtureToChange('critic-verdict')
+    const field = (name: string): string => {
+      const run = harness(home, work, 'profile', ['-C', work, '--field', name])
+      expect(run.status, run.stderr).toBe(0)
+      return run.stdout.trim()
+    }
+    // Full mode: the Project root is the working tree, and so is the Workflow folder.
+    expect(field('_resolved.mode')).toBe('full')
+    expect(realpathSync(field('_resolved.checkout'))).toBe(realpathSync(work))
+    // Silent mode: the Workflow folder lies outside the repository.
+    const profilePath = join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json')
+    writeFileSync(profilePath, JSON.stringify({ ...(JSON.parse(readFileSync(profilePath, 'utf8')) as Record<string, unknown>), mode: 'silent' }))
+    expect(field('_resolved.mode')).toBe('silent')
+    const workflowFolder = field('_resolved.workflow_folder')
+    expect(isAbsolute(workflowFolder)).toBe(true)
+    expect(relative(realpathSync(work), workflowFolder).startsWith('..')).toBe(true)
   })
 
   it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact and an owner decision line', () => {
