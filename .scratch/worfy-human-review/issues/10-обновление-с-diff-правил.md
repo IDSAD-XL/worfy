@@ -1,7 +1,8 @@
 # 10 — Ежемесячное обновление ревьюера с diff правил
 
 Type: task
-Status: open
+Status: done 2026-11-08T12:10Z
+PR: #1662
 Blocked by: 08, 09
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 3, 7, 9; «Как работает» → «Обновление»; «Вопросы владельцу», Q8
 
@@ -30,18 +31,23 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] Contract test: `refresh.md` зовёт `fetch --since` и `estimate` до анализа; без «да» — ничего не меняется.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · b35122e5276cc0f58707ab01b711b6b88822cd74
+  - evidence: review pass · PR #1662 · - - · 0c2e42d148649b4c6b89be731b00131e0c16b3ae
 - [ ] Contract test: diff правил называет добавленные, изменённые и убранные правила с `R<n>`; «Отклонить» не трогает
       `SKILL.md`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · b35122e5276cc0f58707ab01b711b6b88822cd74
+  - evidence: review pass · PR #1662 · - - · 0c2e42d148649b4c6b89be731b00131e0c16b3ae
 - [ ] Contract test: напоминание — только при `SKILL.md` и `meta.json` старше 30 дней, не чаще раза в 30 дней; кнопка
       «Update» открывает Session с `--refresh`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/projects.test.ts test/unit/review-offer-toast.test.ts test/unit/project-settings-shell.test.tsx test/unit/launch.test.ts` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/projects.test.ts test/unit/review-offer-toast.test.ts test/unit/project-settings-shell.test.tsx test/unit/launch.test.ts` exit 0 · mac - · b35122e5276cc0f58707ab01b711b6b88822cd74
+  - evidence: review pass · PR #1662 · - - · 0c2e42d148649b4c6b89be731b00131e0c16b3ae
 - [ ] `node scripts/check-cyrillic.mjs` и `node scripts/eval-harness.mjs --dry-run --changed origin/main` — exit 0.
   - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0, `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · 901f734f8b913c5ebe3680cd2889f5ec0ddde4d6
   - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0, `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · b35122e5276cc0f58707ab01b711b6b88822cd74
+  - evidence: review pass · PR #1662 · - - · 0c2e42d148649b4c6b89be731b00131e0c16b3ae
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42476104330/job/128725524258 · ci - · 0c2e42d148649b4c6b89be731b00131e0c16b3ae
 
 ## Тесты
 
