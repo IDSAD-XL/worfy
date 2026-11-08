@@ -32,6 +32,7 @@ Source: [spec.md](../spec.md), «Готово, когда»; «Соглашен�
 ## Готово, когда
 
 - [ ] Три случая eval проходят; расход записан; `coverage.json` без файлов генератора в `uncovered`.
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --case human-review-setup-* --max-cost-usd 2/2/11` exit 0, 3 of 3 cases at or above 0.8 (0.97, 1.00, 0.93), costUsd 15.33; contract test/contract/harness-evals.test.ts exit 0 · mac - · 34c725e4b0239f8f448d3b04db8b5a35edd7fde1
 - [ ] Живой прогон на публичном репозитории: числа оценки, «совпало K из N» по 5 PR — в «Итог»; ни одного текста
       комментария и логина в репозитории (`evidence-check --changed` — exit 0).
 - [ ] (manual) Владелец на своём проекте: строка при добавлении, «Build», черновик голосом команды, ничего не ушло на
