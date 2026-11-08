@@ -35,15 +35,15 @@ Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
 ## Готово, когда
 
 - [ ] Список отличий от прототипа и что сделано с каждым — в «Итог».
-  - evidence: commit pass · Mind map looks like the prototype: shapes, arrows, legend, background (worfy-product-session 21) · - - · e36d48db837509252a175e655ce7a461682d903c
+  - evidence: commit pass · Mind map Tree grows left to right, as in the prototype (worfy-product-session 21) · - - · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf
 - [ ] Unit test-ы Mind map зелёные; новые test-ы на вид, который несёт смысл (класс или атрибут вида и статуса узла,
       зачёркнутое отклонённое, стрелка «заменило» отличается от обычной связи).
-  - evidence: test-run pass · `pnpm test` exit 0 · mac - · e36d48db837509252a175e655ce7a461682d903c
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf
 - [ ] Снимки экрана в светлой и тёмной теме, просмотренные исполнителем.
-  - evidence: screenshot pass · `../evidence/21-mind-map-light.png` light theme, Tree · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
-  - evidence: screenshot pass · `../evidence/21-mind-map-dark.png` dark theme, Tree · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
-  - evidence: screenshot pass · `../evidence/21-mind-map-dark-graph.png` dark theme, Graph, about 60 % · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
-  - evidence: screenshot pass · `../evidence/21-prototype-dark.png` the prototype at the same zoom · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
+  - evidence: screenshot pass · `../evidence/21-mind-map-light.png` light theme, Tree left to right · mac dev · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/21-mind-map-dark.png` dark theme, Tree left to right · mac dev · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/21-mind-map-dark-graph.png` dark theme, Graph, about 60 % · mac dev · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/21-prototype-dark.png` the prototype at the same zoom · mac dev · 1f67b7b10d1a19ef328b955ad7550d6a1c3e7fdf · scrub: 2026-11-09
 - [ ] (manual) Владелец в Mac Stable: Mind map выглядит как в прототипе.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
