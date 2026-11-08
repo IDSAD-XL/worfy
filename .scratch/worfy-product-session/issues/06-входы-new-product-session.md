@@ -1,7 +1,8 @@
 # 06 — Входы «New Product Session»: sidebar и Command palette
 
 Type: task
-Status: open
+Status: done 2026-11-08T02:14Z
+PR: #1623
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 1 (свой вход), п. 10 (только Claude); research [product-session-основа](../../../docs/research/2026-11-07-product-session-основа.md), раздел 1.4
 
@@ -29,14 +30,19 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Unit test: команда есть в Command palette, вызывает `sessions.new` с `kind: 'product'` и открывает экран Session.
   - evidence: test-run pass · `vitest run test/unit/palette-commands.test.tsx` exit 0 · mac - · da70683c17463293e8b6736599b09ffc145c45d2
+  - evidence: review pass · PR #1623 · - - · f415bcc8591348aabb1d7bd54630a4875f14a09b
 - [ ] Unit test: пункт sidebar делает то же; выбора Vendor-а нет.
   - evidence: test-run pass · `vitest run test/unit/sidebar-section.test.tsx` exit 0 · mac - · da70683c17463293e8b6736599b09ffc145c45d2
+  - evidence: review pass · PR #1623 · - - · f415bcc8591348aabb1d7bd54630a4875f14a09b
 - [ ] Unit test: Node с `kind: 'product'` показывает метку «Product Session».
   - evidence: test-run pass · `vitest run test/unit/session-node-product.test.tsx` exit 0 · mac - · da70683c17463293e8b6736599b09ffc145c45d2
+  - evidence: review pass · PR #1623 · - - · f415bcc8591348aabb1d7bd54630a4875f14a09b
 - [ ] E2e на fake agent: «New Product Session» из Command palette — экран Session открыт, Node на Canvas с меткой.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/new-product-session.spec.ts` exit 0 · mac - · da70683c17463293e8b6736599b09ffc145c45d2
+  - evidence: review pass · PR #1623 · - - · f415bcc8591348aabb1d7bd54630a4875f14a09b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · da70683c17463293e8b6736599b09ffc145c45d2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42434876774/job/128598981152 · ci - · f415bcc8591348aabb1d7bd54630a4875f14a09b
 
 ## Тесты
 
