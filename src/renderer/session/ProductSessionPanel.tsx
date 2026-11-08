@@ -31,6 +31,8 @@ import { SplitDivider } from './SplitDivider'
 // again. Until a topic is known, or while its folder is gone, the pane holds the empty state; when
 // `product.topic` fails, it says why.
 //
+// ProductTopicName is the topic in the Session's header (SessionView.tsx; ticket 19).
+//
 // AcceptedAdvice is the share of accepted advice in the Session's header (SessionView.tsx; ticket 14):
 // main counts it from the Project's Product Session folder on `product.share` (src/shared/product/share.ts)
 // and the header asks again on every `product.changed` of the Project, so a `mind_map_decide` shows at
@@ -86,6 +88,24 @@ function useShownTopic(projectId: string, nodeId: string): string | undefined {
     return () => unsubscribe?.()
   }, [projectId, key])
   return followed?.key === key ? followed.name : readTopicName(key)
+}
+
+/**
+ * The topic of the Node's Mind map in the header of a Product Session (ticket 19, Q3): « · » and its title,
+ * else its folder name while the topic is read; `fallback` (the Project's name) until a topic is known.
+ * It reads the same shared copy of the topic as the Mind map pane (useMindMap).
+ */
+export function ProductTopicName({ projectId, nodeId, fallback }: { projectId: string; nodeId: string; fallback: string | undefined }) {
+  const name = useShownTopic(projectId, nodeId)
+  const { topic } = useMindMap(projectId, name)
+  const shown = topic?.title || name || fallback
+  if (!shown) return null
+  return (
+    <>
+      <span className="w-session__dot"> · </span>
+      <span data-testid="product-session-topic">{shown}</span>
+    </>
+  )
 }
 
 /**

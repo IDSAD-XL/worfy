@@ -18,7 +18,7 @@ import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
-import { AcceptedAdvice, ProductSessionPanel } from './ProductSessionPanel'
+import { AcceptedAdvice, ProductSessionPanel, ProductTopicName } from './ProductSessionPanel'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -45,7 +45,9 @@ import './session.css'
 //
 // A Product Session (a Session Node of kind `product`, worfy-product-session ticket 07) is headed
 // «Product Session» and has its own body (ProductSessionPanel.tsx): the Mind map, a divider and the
-// chat, with an agents strip in place of the rail and no Binding.
+// chat, with an agents strip in place of the rail and no Binding. As in the owner's prototype (ticket 19),
+// its header names the topic and has no Model, Effort, Permissions, Cost or Hide tools, its chat has a
+// heading of its own and draws the conversation only, and its input field has no pickers, meter or queue.
 
 export interface SessionViewProps {
   /** The active Project; undefined while there is none. */
@@ -186,6 +188,9 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
   // A view choice of this screen, kept per Session (worfy-ui ticket 25), not one of the agent's picks above.
   const [hideTools, setHideTools] = useSessionToolsHidden({ projectId, nodeId, liveId: sessionId, sessionId: claudeSessionId })
+  // The kind of a Session Node: its view's, else the one its Node saved, so the body does not change once the view arrives.
+  const savedKind = savedNode?.data.kind
+  const product = orchestrator === undefined && (nodeSession?.kind ?? savedKind) === 'product'
   // ⌘F (worfy-ui ticket 26): the live events and the transcript before them; main searches the part
   // of the file not read yet — only once the window shows a turn from before Resume (pastSettled).
   const logRef = useRef<HTMLDivElement>(null)
@@ -194,6 +199,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
     events,
     firstIndex,
     hideTools,
+    product,
     log: logRef,
     source:
       root === undefined || transcriptId === undefined
@@ -214,9 +220,6 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // default model is «default» until then: only init says which model it stands for.
   // An empty name reads as unknown («—»), as none does (worfy-polish 52).
   const model = headerModel(modelPick, facts.model, view?.model ?? null)
-  // The kind of a Session Node: its view's, else the one its Node saved, so the body does not change once the view arrives.
-  const savedKind = savedNode?.data.kind
-  const product = orchestrator === undefined && (nodeSession?.kind ?? savedKind) === 'product'
   const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : product ? 'Product Session' : 'Session'
   // The Vendor whose agent runs a Session Node (worfy-multi-vendor ticket 24): its view's, else the one
   // its Node saved, Claude Code for a Node saved without one; null for the Orchestrator.
@@ -255,6 +258,14 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const chat = (
     <section className="w-session__main" aria-label="Session" {...drop.handlers}>
       {drop.overlay}
+      {/* The chat's own heading in a Product Session, as in the owner's prototype (worfy-product-session ticket 19, Q5). */}
+      {product && nodeSession !== undefined ? (
+        <div className="w-product__chat-head" data-testid="product-chat-head">
+          <span className="w-product__chat-title">Conversation</span>{' '}
+          <span className="w-product__chat-who">with the advisor</span>
+          <VendorBadge vendor={nodeSession.vendor} muted testId="product-chat-vendor" />
+        </div>
+      ) : null}
       <SessionFind find={find} />
       {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
       <Transcript
@@ -268,8 +279,9 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         hideTools={hideTools}
         find={find.transcript}
         logRef={logRef}
+        working={state === 'busy'}
       />
-      <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
+      <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
     </section>
   )
 
@@ -286,7 +298,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         </span>
         <h1 className="w-session__title" title={projectName ? `${heading} · ${projectName}` : heading}>
           {heading}
-          {projectName ? (
+          {/* A Product Session names the topic its Mind map shows, once there is one (ticket 19, Q3). */}
+          {product ? (
+            <ProductTopicName projectId={projectId} nodeId={nodeId} fallback={projectName} />
+          ) : projectName ? (
             <>
               <span className="w-session__dot"> · </span>
               {projectName}
@@ -300,53 +315,58 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         </span>
         <SessionPicker projectId={projectId} shown={{ nodeId, projectId }} shownTitle={heading} />
         <span className="w-session__divider" aria-hidden="true" />
-        {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
-        <span className="w-session__fact w-session__fact--model">
-          <span className="w-session__fact-label">Model</span>
-          <span
-            className="w-mono w-session__fact-value"
-            data-testid="session-model"
-            title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : (model ?? undefined)}
-          >
-            {model ?? '—'}
-          </span>
-        </span>
-        <span className="w-session__fact" title={effort.title}>
-          <span className="w-session__fact-label">Effort</span>
-          <span
-            className={`w-mono w-session__fact-value${effort.isDefault ? ' w-session__fact-value--default' : ''}`}
-            data-testid="session-effort"
-            data-default={effort.isDefault ? 'true' : undefined}
-          >
-            {effort.text}
-          </span>
-        </span>
-        <span className="w-session__fact">
-          <span className="w-session__fact-label">Permissions</span>
-          {facts.permissionMode !== null ? (
-            <span
-              className={`w-session__mode w-mono${facts.permissionMode === 'bypassPermissions' ? ' w-session__mode--bypass' : ''}`}
-              data-testid="session-permissions"
-            >
-              {permissionLabel(facts.permissionMode)}
+        {/* A Product Session's header has no Model, Effort, Permissions, Cost or Hide tools (ticket 19, Q3). */}
+        {product ? null : (
+          <>
+            {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
+            <span className="w-session__fact w-session__fact--model">
+              <span className="w-session__fact-label">Model</span>
+              <span
+                className="w-mono w-session__fact-value"
+                data-testid="session-model"
+                title={modelPick !== null ? 'Picked for the next turn: its system/init will name the model' : (model ?? undefined)}
+              >
+                {model ?? '—'}
+              </span>
             </span>
-          ) : (
-            <span className="w-mono w-session__fact-value" data-testid="session-permissions">
-              —
+            <span className="w-session__fact" title={effort.title}>
+              <span className="w-session__fact-label">Effort</span>
+              <span
+                className={`w-mono w-session__fact-value${effort.isDefault ? ' w-session__fact-value--default' : ''}`}
+                data-testid="session-effort"
+                data-default={effort.isDefault ? 'true' : undefined}
+              >
+                {effort.text}
+              </span>
             </span>
-          )}
-        </span>
-        <span className="w-session__fact">
-          <span className="w-session__fact-label">Cost</span>
-          <span className="w-mono w-session__cost" data-testid="session-cost">
-            {orchestrator ? formatCost(orchestrator.costUsd) : '—'}
-          </span>
-          <span className="w-session__fact-label">this session</span>
-        </span>
+            <span className="w-session__fact">
+              <span className="w-session__fact-label">Permissions</span>
+              {facts.permissionMode !== null ? (
+                <span
+                  className={`w-session__mode w-mono${facts.permissionMode === 'bypassPermissions' ? ' w-session__mode--bypass' : ''}`}
+                  data-testid="session-permissions"
+                >
+                  {permissionLabel(facts.permissionMode)}
+                </span>
+              ) : (
+                <span className="w-mono w-session__fact-value" data-testid="session-permissions">
+                  —
+                </span>
+              )}
+            </span>
+            <span className="w-session__fact">
+              <span className="w-session__fact-label">Cost</span>
+              <span className="w-mono w-session__cost" data-testid="session-cost">
+                {orchestrator ? formatCost(orchestrator.costUsd) : '—'}
+              </span>
+              <span className="w-session__fact-label">this session</span>
+            </span>
+          </>
+        )}
         {/* The share of the advisor's advice the Product owner accepted (worfy-product-session ticket 14). */}
         {product ? <AcceptedAdvice projectId={projectId} /> : null}
         <span className="w-session__spacer" />
-        <HideToolsButton hidden={hideTools} onChange={setHideTools} />
+        {product ? null : <HideToolsButton hidden={hideTools} onChange={setHideTools} />}
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
       {product ? (

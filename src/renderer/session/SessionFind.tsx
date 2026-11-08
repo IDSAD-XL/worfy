@@ -48,6 +48,11 @@ export function SessionFind({ find }: { find: TranscriptFindState }) {
       <span className="w-session-find__count w-mono" data-testid="session-find-count" aria-live="polite" title={find.note ?? undefined}>
         {find.loading ? 'Loading earlier…' : find.count}
       </span>
+      {find.limit !== null ? (
+        <span className="w-session-find__limit" data-testid="session-find-limit" title="Find looks only in the messages shown; «Load earlier» reads the ones before">
+          {find.limit}
+        </span>
+      ) : null}
       <button type="button" className="w-session-find__button" aria-label="Previous match" title={`Previous match (${label(SHORTCUTS.findPrevious)})`} onClick={() => find.step(true)}>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M4 10l4-4 4 4" />

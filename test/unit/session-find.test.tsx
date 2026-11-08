@@ -22,7 +22,7 @@ import { joinPastAndLive, keepsTurnBeforeResume } from '../../src/renderer/sessi
 import { setView } from '../../src/renderer/session/navigation'
 import { SessionFind } from '../../src/renderer/session/SessionFind'
 import { Transcript } from '../../src/renderer/session/Transcript'
-import { extendAnswer, extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, pastSettled, rowMatches, startingMatch, useTranscriptFind, type FindSource, type RowMatch } from '../../src/renderer/session/transcript-find'
+import { EARLIER_NOT_LOADED, extendAnswer, extensionTypes, FIND_DEBOUNCE_MS, HIGHLIGHT, pastSettled, rowMatches, startingMatch, useTranscriptFind, type FindSource, type RowMatch } from '../../src/renderer/session/transcript-find'
 
 const prompt = (text: string): AgentEvent => ({ type: 'notice', kind: 'user', text })
 const answer = (text: string): AgentEvent => ({ type: 'text', text, messageId: 'm', parentToolUseId: null, synthetic: false })
@@ -74,9 +74,9 @@ afterEach(() => {
 })
 
 /** The Session view's transcript with its find bar, as SessionView.tsx and ExternalSessionPanel.tsx put them together. */
-function View({ events, hideTools = false, source, firstIndex = 0 }: { events: readonly AgentEvent[]; hideTools?: boolean; source?: FindSource; firstIndex?: number }) {
+function View({ events, hideTools = false, source, firstIndex = 0, product = false }: { events: readonly AgentEvent[]; hideTools?: boolean; source?: FindSource; firstIndex?: number; product?: boolean }) {
   const log = useRef<HTMLDivElement>(null)
-  const find = useTranscriptFind({ events, firstIndex, hideTools, source, log })
+  const find = useTranscriptFind({ events, firstIndex, hideTools, product, source, log })
   return (
     <section>
       <SessionFind find={find} />
@@ -385,6 +385,36 @@ const wait = async (ms: number): Promise<void> => {
     await new Promise((done) => setTimeout(done, ms))
   })
 }
+
+// worfy-product-session ticket 19, review of PR #1695: a Product Session's chat searches only the rows it
+// holds and shows; the bar says so when the file has messages before them.
+describe('find in a Product Session\'s chat', () => {
+  const source: FindSource = { root: '/repo', sessionId: 'session-1', earlier: 500, earlierNow: () => 500, loadEarlier: async () => undefined }
+
+  it('does not ask main about the earlier part, and the bar says «Earlier messages not loaded»', async () => {
+    reply = () => ({ ok: true, value: { found: true, hits: [{ offset: 10, count: 1 }], total: 1, skipped: 0 } })
+    render(<View events={[prompt('zebra here'), toolUse('t1', 'Bash', { command: 'grep zebra' })]} source={source} product />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(requests).toEqual([])
+    expect(count()).toBe('1 of 1')
+    expect(screen.getByTestId('session-find-limit').textContent).toBe(EARLIER_NOT_LOADED)
+  })
+
+  it('says nothing when the rows start at the start of the file, and a plain Session never says it', async () => {
+    const { unmount } = render(<View events={[prompt('zebra here')]} source={{ ...source, earlier: 0, earlierNow: () => 0 }} product />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    expect(screen.queryByTestId('session-find-limit')).toBeNull()
+    unmount()
+    render(<View events={[prompt('zebra here')]} source={source} />)
+    await press({ key: 'f', metaKey: true })
+    await type('zebra')
+    await wait(FIND_DEBOUNCE_MS + 50)
+    expect(screen.queryByTestId('session-find-limit')).toBeNull()
+  })
+})
 
 describe('the matches before the rows', () => {
   /**

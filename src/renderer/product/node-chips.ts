@@ -6,12 +6,14 @@
 // was written (src/main/mcp/mind-map-server.ts), so its result names the node, its text and kind, and
 // the chat message (`message`, the uuid of the transcript event) the server stamped it with. A turn — the
 // rows from one prompt to the next — shows the nodes its calls wrote under its last answer, each node
-// once, as its last call left it.
+// once, as its last call left it. The chat draws no tool calls (ticket 19): a turn without an answer
+// shows them under its prompt.
 //
-// The same results tell which row of the chat a node's `message` came in: a card's «Show in the chat»
-// asks for that message (showMessage) and the Product Session's chat that has it scrolls to the row.
+// The same results tell which turn a node's `message` came in: a card's «Show in the chat» asks for that
+// message (showMessage) and the Product Session's chat that has it scrolls to the row with the turn's chips.
 // A chip's click asks the Mind map to select the node and bring it into view (pickNode), its hover to
-// light it (lightNode). The requests carry the Project and the topic: a Mind map acts only on its own.
+// light it (lightNode); the pointer on a message lights the nodes of all its chips (lightNodes). The
+// requests carry the Project and the topic: a Mind map acts only on its own.
 import { create } from 'zustand'
 import { mindMapNodeSchema, type MindMapNode } from '../../shared/product/mind-map'
 import { mindMapToolUseName } from '../../shared/product/tools'
@@ -42,44 +44,86 @@ function writtenNode(call: { name: string; input: unknown; result: { content: st
 }
 
 export interface TranscriptChips {
-  /** The chips of each row that shows any: the key of the turn's last answer (or of its last run of calls without one). */
+  /**
+   * The chips of each row that shows any: the key of the turn's last answer drawn; without one, of its
+   * prompt; without that (the turn starts before the rows held), of its first row drawn. A turn with no
+   * row drawn at all hangs its chips on the next row drawn after it, or, with none after it, on
+   * CHIPS_AT_END: the end of the chat.
+   */
   byRow: ReadonlyMap<string, readonly NodeChip[]>
-  /** The row whose call a chat message (a node's `message`) came in, by the message's uuid. */
+  /** The row with the chips of the turn a chat message (a node's `message`) came in, by the message's uuid. */
   rowOfMessage: ReadonlyMap<string, string>
 }
 
+/** The key of the chips the chat shows at its end, under «Advisor is thinking» while a turn runs (ticket 19). */
+export const CHIPS_AT_END = 'end'
+
 const NONE: TranscriptChips = { byRow: new Map(), rowOfMessage: new Map() }
 
-/** The chips of a transcript's turns, and the rows the nodes' messages came in. */
-export function transcriptChips(items: readonly TranscriptItem[]): TranscriptChips {
+const chipKey = (chip: NodeChip): string => `${chip.topic}\n${chip.node.id}`
+
+/**
+ * The chips of a transcript's turns, and the rows that show the turns the nodes' messages came in.
+ * `shown` tells the rows the chat draws (session/product-session.ts, shownInProductChat): a chip never
+ * hangs on a row that is not drawn.
+ */
+export function transcriptChips(items: readonly TranscriptItem[], shown: (item: TranscriptItem) => boolean): TranscriptChips {
   const byRow = new Map<string, NodeChip[]>()
   const rowOfMessage = new Map<string, string>()
   let turn = new Map<string, NodeChip>()
+  let messages: string[] = []
   let answer: string | null = null
-  let lastCalls: string | null = null
+  let prompt: string | null = null
+  let first: string | null = null
+  // The chips and messages of turns with no row drawn, waiting for the next row drawn.
+  let carried = new Map<string, NodeChip>()
+  let carriedMessages: string[] = []
+  const put = (row: string, chips: ReadonlyMap<string, NodeChip>, of: readonly string[]): void => {
+    if (chips.size > 0) {
+      const merged = new Map((byRow.get(row) ?? []).map((chip) => [chipKey(chip), chip]))
+      for (const [key, chip] of chips) merged.set(key, chip)
+      byRow.set(row, [...merged.values()])
+    }
+    for (const message of of) if (!rowOfMessage.has(message)) rowOfMessage.set(message, row)
+  }
   const close = (): void => {
-    const row = answer ?? lastCalls
-    if (row !== null && turn.size > 0) byRow.set(row, [...turn.values()])
+    const row = answer ?? prompt ?? first
+    if (row !== null) put(row, turn, messages)
+    else {
+      for (const [key, chip] of turn) carried.set(key, chip)
+      carriedMessages.push(...messages)
+    }
     turn = new Map()
+    messages = []
     answer = null
-    lastCalls = null
+    prompt = null
+    first = null
   }
   for (const item of items) {
-    if (item.kind === 'prompt') close()
-    else if (item.kind === 'text' && !item.synthetic) answer = item.key
-    else if (item.kind === 'tools') {
-      for (const call of item.calls) {
-        const chip = writtenNode(call)
-        if (chip === null) continue
-        const key = `${chip.topic}\n${chip.node.id}`
-        // A node written twice in a turn is one chip, where its first call put it, as the last call left it.
-        turn.set(key, chip)
-        lastCalls = item.key
-        if (chip.node.message !== undefined && !rowOfMessage.has(chip.node.message)) rowOfMessage.set(chip.node.message, item.key)
+    if (item.kind === 'prompt') {
+      close()
+      prompt = item.key
+    }
+    if (shown(item)) {
+      first ??= item.key
+      if (item.kind === 'text') answer = item.key
+      if (carried.size > 0 || carriedMessages.length > 0) {
+        put(item.key, carried, carriedMessages)
+        carried = new Map()
+        carriedMessages = []
       }
+    }
+    if (item.kind !== 'tools') continue
+    for (const call of item.calls) {
+      const chip = writtenNode(call)
+      if (chip === null) continue
+      // A node written twice in a turn is one chip, where its first call put it, as the last call left it.
+      turn.set(chipKey(chip), chip)
+      if (chip.node.message !== undefined) messages.push(chip.node.message)
     }
   }
   close()
+  if (carried.size > 0 || carriedMessages.length > 0) put(CHIPS_AT_END, carried, carriedMessages)
   return byRow.size === 0 && rowOfMessage.size === 0 ? NONE : { byRow, rowOfMessage }
 }
 
@@ -93,15 +137,17 @@ export interface NodeRef {
 interface FocusState {
   /** The node a chip's click asked for; `seq` grows with each click, so a second click on it acts again. */
   picked: (NodeRef & { seq: number }) | null
-  /** The node under the pointer or the focus on a chip. */
+  /** The node under the pointer or the focus on a chip; while there is one, it alone is lit. */
   lit: NodeRef | null
+  /** The nodes of the chips of the chat message under the pointer (ticket 19); none: empty. */
+  litMessage: readonly NodeRef[]
   /** The chat message a card asked to see; `seq` as for `picked`. */
   shown: { projectId: string; message: string; seq: number } | null
   /** How many Product Session chats of each Project are on screen: a card offers «Show in the chat» only with one. */
   chats: Readonly<Record<string, number>>
 }
 
-export const useMindMapFocus = create<FocusState>(() => ({ picked: null, lit: null, shown: null, chats: {} }))
+export const useMindMapFocus = create<FocusState>(() => ({ picked: null, lit: null, litMessage: [], shown: null, chats: {} }))
 
 let seq = 0
 
@@ -113,6 +159,11 @@ export function pickNode(ref: NodeRef): void {
 /** Lights the node on its Mind map; null puts the light out. */
 export function lightNode(ref: NodeRef | null): void {
   useMindMapFocus.setState({ lit: ref })
+}
+
+/** Lights the nodes of a chat message's chips on their Mind map; an empty list puts the light out. */
+export function lightNodes(refs: readonly NodeRef[]): void {
+  useMindMapFocus.setState({ litMessage: refs })
 }
 
 /** Asks the Project's Product Session chat to scroll to a message. */

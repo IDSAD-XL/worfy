@@ -132,7 +132,7 @@ interface MindNodeData extends Record<string, unknown> {
   view: MindMapView
   /** A node of mind-map.json with children; null for any other. */
   fold: Fold | null
-  /** A chip under a chat message points at it. */
+  /** A chip under a chat message, or the message under the pointer, points at it. */
   lit: boolean
 }
 
@@ -265,13 +265,15 @@ function replacesSides(view: MindMapView, from: Placed | undefined, to: Placed |
 
 interface Drawn {
   selected: string | null
-  lit: string | null
+  /** The ids of the nodes lit, joined by newlines (a string keeps the memo of the nodes). */
+  lit: string
   folds: ReadonlyMap<string, Fold>
   /** Nodes of mind-map.json may be dragged. */
   movable: boolean
 }
 
 function flowNodes(graph: MapGraph, placement: Placement, view: MindMapView, { selected, lit, folds, movable }: Drawn): MindFlowNode[] {
+  const litIds = new Set(lit === '' ? [] : lit.split('\n'))
   return graph.nodes.flatMap((node) => {
     const place = placement.get(node.id)
     if (place === undefined) return []
@@ -283,7 +285,7 @@ function flowNodes(graph: MapGraph, placement: Placement, view: MindMapView, { s
         width: place.width,
         height: place.height,
         handles: handlesOf(view, place.width, place.height),
-        data: { node, view, fold: folds.get(node.id) ?? null, lit: node.id === lit },
+        data: { node, view, fold: folds.get(node.id) ?? null, lit: litIds.has(node.id) },
         selected: node.id === selected,
         // The topic and the Tickets have no place in mind-map.json to write.
         draggable: movable && node.source !== undefined,
@@ -633,13 +635,15 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const all = useMemo(() => (hideRejected ? buildMindMapGraph(topic, { hideRejected: false }) : whole), [hideRejected, topic, whole])
   const [pickNote, setPickNote] = useState<string | null>(null)
 
+  // A chip under the pointer lights its node alone; else the message under the pointer lights the nodes of its chips (ticket 19).
   const lit = useMindMapFocus((state) => state.lit)
-  const litId = lit !== null && lit.projectId === projectId && lit.topic === topic.name ? (whereIs(all, graph, lit.id)?.shownAs ?? null) : null
+  const litMessage = useMindMapFocus((state) => state.litMessage)
+  const litIds = [...new Set((lit !== null ? [lit] : litMessage).filter((ref) => ref.projectId === projectId && ref.topic === topic.name).flatMap((ref) => whereIs(all, graph, ref.id)?.shownAs ?? []))].join('\n')
   const chatOpen = useMindMapFocus((state) => (state.chats[projectId] ?? 0) > 0)
   const showInChat = onShowMessage ?? (chatOpen ? (message: string) => showMessage(projectId, message) : undefined)
 
   const shown = useMemo(() => withDragged(withFilePlaces(graph, placement), dragged), [graph, placement, dragged])
-  const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litId, folds, movable: readOnly === null }), [graph, shown, view, picked, litId, folds, readOnly])
+  const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
   const edges = useMemo(() => flowEdges(graph, shown, view), [graph, shown, view])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   const flow = useReactFlow()

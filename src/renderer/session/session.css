@@ -263,6 +263,12 @@
   font-size: var(--text-13);
 }
 
+.w-session-find__limit {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+
 .w-session-find__count {
   min-width: 64px;
   color: var(--text-muted);
@@ -487,6 +493,172 @@ body.w-split-dragging * {
   .w-session__spin {
     animation: none;
   }
+}
+
+/* The chat of a Product Session as in the owner's prototype (Transcript.tsx, worfy-product-session ticket
+   19): its own heading, the messages as bubbles under a meta line with the role and the time — the owner's
+   at the right edge, the advisor's at the left — the chips under them on the same side, and «Advisor is
+   thinking…» at the end. The colours are the theme's tokens, so it follows the light and the dark theme. */
+.w-product__chat-head {
+  flex: none;
+  height: 40px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.w-product__chat-who {
+  font-size: var(--text-12);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.w-product__chat-head > :last-child {
+  margin-left: auto;
+}
+
+.w-product .w-tr {
+  padding: 14px 14px var(--space-2);
+  gap: var(--space-3);
+}
+
+.w-pmsg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 92%;
+}
+
+.w-pmsg--you {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.w-pmsg__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 3px;
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-muted);
+}
+
+.w-pmsg__meta .w-tr__time {
+  display: inline;
+}
+
+.w-pmsg__meta .w-tr__date {
+  display: inline;
+  margin-right: 4px;
+}
+
+.w-pmsg__avatar {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--accent);
+}
+
+.w-pmsg--you .w-pmsg__avatar {
+  background: var(--text-secondary);
+}
+
+.w-pmsg__bubble {
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  border-top-left-radius: 3px;
+  background: var(--bg);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s;
+}
+
+.w-pmsg--you .w-pmsg__bubble {
+  border-color: var(--border-strong);
+  border-radius: 10px;
+  border-top-right-radius: 3px;
+  background: var(--selected);
+}
+
+.w-pmsg__text {
+  white-space: pre-wrap;
+}
+
+/* The pointer on a message with chips lights its nodes on the Mind map; the bubble shows it is the one. */
+.w-product .w-tr__item:has(.w-chips):hover .w-pmsg__bubble {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.w-tr__item--you .w-chips {
+  justify-content: flex-end;
+}
+
+.w-pmsg--thinking .w-pmsg__meta {
+  margin-bottom: 0;
+}
+
+.w-pmsg__dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.w-pmsg__dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: w-pmsg-dot 1.2s infinite ease-in-out;
+}
+
+.w-pmsg__dots > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.w-pmsg__dots > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes w-pmsg-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-pmsg__dots > span {
+    animation: none;
+  }
+}
+
+/* A Product Session's field: one line under the text, attaching at the left, Interrupt and Send at the right. */
+.w-composer__line[data-line='product'] {
+  min-height: var(--w-session-button-height);
 }
 
 /* Transcript */

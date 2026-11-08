@@ -9,9 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { CHIPS_AT_END, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
 import { foldTranscript } from '../../src/renderer/session/fold'
-import { ProductSessionContext } from '../../src/renderer/session/product-session'
+import { ProductSessionContext, shownInProductChat } from '../../src/renderer/session/product-session'
 import { Transcript } from '../../src/renderer/session/Transcript'
 
 vi.mock('../../src/renderer/ipc', () => ({ invoke: vi.fn(), subscribe: () => () => undefined, showSubscribeError: () => undefined }))
@@ -66,7 +66,7 @@ const globals = globalThis as { ResizeObserver?: unknown; DOMMatrixReadOnly?: un
 let saved: { observer: unknown; matrix: unknown }
 beforeEach(() => {
   localStorage.clear()
-  useMindMapFocus.setState({ picked: null, lit: null, shown: null, chats: {} })
+  useMindMapFocus.setState({ picked: null, lit: null, litMessage: [], shown: null, chats: {} })
   saved = { observer: globals.ResizeObserver, matrix: globals.DOMMatrixReadOnly }
   globals.ResizeObserver = class {
     constructor(private readonly report: (entries: { target: Element; contentRect: DOMRect }[], observer: unknown) => void) {}
@@ -145,15 +145,97 @@ describe('chips of Mind map nodes under a message', () => {
     expect(nodeOf('idea-teams')!.dataset['lit']).toBeUndefined()
   })
 
-  it('a node’s «Show in the chat» brings the chat to the row of the call its message came in', () => {
+  it('a node’s «Show in the chat» brings the chat to the message that carries its chip: the calls are not drawn', () => {
     render(<ProductBody />)
     fireEvent.click(nodeOf('who-pays')!)
     const card = screen.getByRole('region', { name: 'Node' })
     act(() => fireEvent.click(within(card).getByRole('button', { name: 'Show the message in the chat' })))
     const shown = document.querySelector<HTMLElement>('[data-item][data-shown]')
     expect(shown).not.toBeNull()
-    expect(within(shown!).getAllByTestId('tool-call')).toHaveLength(2)
-    expect(shown!.dataset['item']).toBe('e1')
+    expect(within(shown!).queryAllByTestId('tool-call')).toEqual([])
+    expect(within(shown!).getByTestId('transcript-text').textContent).toContain('Two nodes: an idea and the question it raises.')
+    expect(within(shown!).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['idea-teams', 'who-pays'])
+  })
+
+  // worfy-product-session ticket 19: the calls are not drawn, so a turn that wrote nodes and gave no
+  // answer shows its chips under its prompt, and «Show in the chat» goes there.
+  it('a turn without an answer shows its chips under its prompt, and «Show in the chat» goes to that prompt', () => {
+    const silent: AgentEvent[] = [
+      prompt('Map the question'),
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
+      answer('t1', WHO),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(silent), shownInProductChat)
+    expect([...byRow.keys()]).toEqual(['e0'])
+    expect(rowOfMessage.get('uuid-2')).toBe('e0')
+    render(<ProductBody shown={silent} />)
+    const row = screen.getByTestId('transcript-prompt').closest<HTMLElement>('[data-item]')!
+    expect(within(row).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
+  })
+
+  // Review of PR #1695: a turn whose rows in the window are all hidden (the window starts in its calls).
+  it('a turn with no row drawn hangs its chips on the next row drawn, and «Show in the chat» goes there', () => {
+    const midTurn: AgentEvent[] = [
+      { type: 'thinking', text: 'Mapping', messageId: 'th', parentToolUseId: null },
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
+      answer('t1', WHO),
+      prompt('Next question'),
+      text('Noted.', 'msg-9'),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(midTurn), shownInProductChat)
+    expect([...byRow.keys()]).toEqual(['e3'])
+    expect(rowOfMessage.get('uuid-2')).toBe('e3')
+    render(<ProductBody shown={midTurn} />)
+    const row = screen.getByTestId('transcript-prompt').closest<HTMLElement>('[data-item]')!
+    expect(within(row).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
+  })
+
+  it('a turn with no row drawn and none after it shows its chips at the end of the chat, and «Show in the chat» goes there', () => {
+    const lastTurn: AgentEvent[] = [
+      { type: 'thinking', text: 'Mapping', messageId: 'th', parentToolUseId: null },
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
+      answer('t1', WHO),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(lastTurn), shownInProductChat)
+    expect([...byRow.keys()]).toEqual([CHIPS_AT_END])
+    expect(rowOfMessage.get('uuid-2')).toBe(CHIPS_AT_END)
+    render(
+      <>
+        <MindMap projectId="p1" topic={topic} />
+        <ProductSessionContext value={true}>
+          <Transcript events={lastTurn} projectId="p1" working />
+        </ProductSessionContext>
+      </>,
+    )
+    const end = screen.getByTestId('product-chat-end')
+    expect(within(end).getByTestId('product-thinking')).toBeTruthy()
+    expect(within(end).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
+    act(() => fireEvent.mouseEnter(end))
+    expect(nodeOf('who-pays')!.dataset['lit']).toBe('true')
+    act(() => fireEvent.mouseLeave(end))
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(end.hasAttribute('data-shown')).toBe(true)
+  })
+
+  it('the pointer on a message lights every node of its chips on the Mind map; leaving it puts the light out', () => {
+    render(<ProductBody />)
+    const message = screen.getByText('Two nodes: an idea and the question it raises.').closest<HTMLElement>('[data-item]')!
+    act(() => fireEvent.mouseEnter(message))
+    expect(nodeOf('idea-teams')!.dataset['lit']).toBe('true')
+    expect(nodeOf('who-pays')!.dataset['lit']).toBe('true')
+    act(() => fireEvent.mouseLeave(message))
+    expect(nodeOf('idea-teams')!.dataset['lit']).toBeUndefined()
+    expect(nodeOf('who-pays')!.dataset['lit']).toBeUndefined()
+    // A message without chips lights nothing.
+    act(() => fireEvent.mouseEnter(screen.getByText('Nothing to add.').closest<HTMLElement>('[data-item]')!))
+    expect(document.querySelectorAll('[data-testid="mind-node"][data-lit]')).toHaveLength(0)
   })
 
   it('a chat opened again after «Show in the chat» does not act on that request again: nothing is marked, the log stays at its end', () => {
@@ -182,9 +264,12 @@ describe('chips of Mind map nodes under a message', () => {
       answer('t3', 'The change is refused, nothing was written', true),
       text('Rejected.', 'msg-1'),
     ])
-    const { byRow, rowOfMessage } = transcriptChips(items)
+    const { byRow, rowOfMessage } = transcriptChips(items, shownInProductChat)
     expect([...byRow.values()].map((chips) => chips.map((chip) => [chip.topic, chip.node.id, chip.node.status]))).toEqual([[['demo-roadmap', 'who-pays', 'rejected']]])
-    expect([...rowOfMessage.keys()]).toEqual(['uuid-2', 'uuid-3'])
+    expect([...rowOfMessage.entries()]).toEqual([
+      ['uuid-2', 'e7'],
+      ['uuid-3', 'e7'],
+    ])
   })
 
   it('a plain Session’s chat shows no chips', () => {
