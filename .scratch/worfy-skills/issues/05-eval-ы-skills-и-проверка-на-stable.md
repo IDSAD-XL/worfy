@@ -1,7 +1,8 @@
 # 05 — Eval-ы переименованных skills и проверка на Stable copy
 
 Type: task
-Status: open
+Status: done 2026-11-08T09:15Z
+PR: #1642
 Blocked by: 01, 02, 03
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 7; «Как работает» → «Документация, ADR, eval-ы»; «Риски», п. 2, 4
 
@@ -46,10 +47,13 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   - evidence: test-run pass · `pnpm eval:harness -- --max-cost-usd 10 --case skill-*` exit 0, 4 of 4 cases passed, 4.72 USD · mac - · a5fdef05e5c991e395ca1016174a1d7bdad98e9d
 - [ ] (вручную) На Stable copy Mac: `/worfy:grilling` и `/worfy:code-review` в списке slash-команд поля ввода.
   - needs: mac stable
+  - evidence: owner-check pass · owner on Mac Stable after Update 2026-11-08: /worfy:grilling and /worfy:code-review are in the slash list · mac stable · 40dba2653dd7b31dc29eba098fea59c65c529df8
 - [ ] (вручную) На Stable copy Mac после Update: `mattpocock-skills`, поставленный владельцем до worfy, не удалён.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-08: the own mattpocock-skills was still installed after Update (removed by the owner afterwards) · mac stable · 40dba2653dd7b31dc29eba098fea59c65c529df8
 - [ ] `pnpm lint`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a5fdef05e5c991e395ca1016174a1d7bdad98e9d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42448218940/job/128633210122 · ci - · 685e647b66f502955d78fd13292b1887cd82e8c7
 
 ## Тесты
 
