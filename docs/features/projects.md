@@ -72,6 +72,15 @@ header names five steps: Folder, Mode, Harness, Draft and Review. The footer say
    30 minutes, because the write may index the Project for qmd. A skipped qmd step comes back as a notice, and the Project
    is connected anyway.
 
+**The team reviewer offer.** Once a folder new to the list is added, by Connect or as a folder the Harness knows, worfy runs
+`review-history probe` of the Harness in the background, with the Profile's GitHub account and a 2-minute limit. When the
+team's reviewers left 30 substantive comments in the last 12 months (`voice: yes`), the Project gets an `action` toast
+"Build a reviewer in your team's style?" with "Build" and "Later". "Build" opens a new [Session](sessions.md) in the
+Project's root on Claude Code, whose first message is `/worfy:human-review-setup`. "Later", or closing the toast, saves
+`humanReview.offer: "later"` in the Project's settings, and the offer is not made again, after a restart or a new add
+alike. `voice: no`, no `origin` on GitHub, no gh, a failure or the time limit show nothing; the log gets one line. A Project
+whose reviewer is built already gets no offer.
+
 Esc and Cancel close the dialog and stop a running draft, but not while Connect writes. A click outside closes it only on
 the Mode step.
 
@@ -220,6 +229,12 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   The Project's [Orchestrator](sessions.md) runs on it from its next start: "New conversation", or the next start of
   worfy. "Ship ticket" runs on Claude Code whatever is chosen. A Linked machine on a build without the field saves without it, and
   the saved value stays.
+- "Team reviewer" in "Project settings…" shows the Project's reviewer in its team's voice: `Not built`,
+  `Built <date>, <N> PRs`, or `Too little history: <N> of 30`. Its files live in the private folder of the Profile,
+  `<Profile folder>/state/human-review/`. The reviewer is built when its skill, `.claude/skills/human-review/SKILL.md`, is
+  there, and the date is when that file was written. `<N> PRs` and the short history come from `meta.json` of
+  `review-history`. "Build", or "Rebuild" once built, starts the same Session as the offer and closes the dialog. "Delete"
+  asks first, then erases that folder and nothing else. A read-only Linked machine sees the state without the buttons.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
@@ -278,6 +293,9 @@ it is refused.
   `onChange`, the event for "the active Project switched". `states()` gives the list for this Machine's windows and for a
   Linked machine.
 - `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: the settings of a Project.
+  `src/main/projects/review-offer.ts`: the team reviewer offer after an add, and the state and "Delete" of "Team reviewer";
+  `src/renderer/projects/review-offer.ts`: its toast. `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`)
+  starts the generator's Session.
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` turns a window's choice into a hold.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: the channels and their access. `projects.select` is `local`,
   `projects.pickFolder` is `desktop`, and `projects.list`, `projects.remove`, `projects.add` and `projects.hold` are `project`.
@@ -296,8 +314,10 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
 **Main tests.**
 
 - `test/contract/projects.test.ts`: add, select, remove, persistence, settings, the untouched repository, `projects.browse`,
-  calls from a Linked machine and Projects local to a Machine.
-- `test/e2e/projects.spec.ts`: add, switch, settings, restart and remove in the built app, and a broken `projects.json`.
+  calls from a Linked machine, Projects local to a Machine, and the team reviewer: the offer by the probe's answer,
+  `humanReview.offer`, the state and "Delete".
+- `test/e2e/projects.spec.ts`: add, switch, settings, restart and remove in the built app, a broken `projects.json`, and the
+  team reviewer offer with "Later" and "Build".
 - `test/unit/use-projects.test.tsx`: revisions, the groups by Machine, windows on a Linked machine.
 - `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`: holds. `test/contract/link-access.test.ts`,
   `test/unit/link-access.test.ts`: what a Linked machine may call.

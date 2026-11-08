@@ -1,9 +1,10 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectSettings } from '../../src/renderer/shell/ProjectSettings'
 
 // The shell of a Project's Terminals in "Project settings…" (worfy-windows ticket 10). The field is
 // there only when the Machine of the Project has shells to choose from (terminal.shells): on Windows.
+// "Team reviewer" of the same dialog (worfy-human-review ticket 09): its states and buttons.
 // main is replaced: what it answers is set by each test, and what it was asked is recorded.
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
@@ -78,6 +79,7 @@ beforeEach(() => {
     'projects.settings.get': { ok: true, value: { actionTemplates: TEMPLATES } },
     'projects.settings.set': { ok: true, value: { actionTemplates: TEMPLATES } },
     'terminal.shells': { ok: true, value: WINDOWS_SHELLS },
+    'projects.reviewer.get': { ok: true, value: { status: 'none' } },
   }
 })
 
@@ -246,5 +248,97 @@ describe('the shell of the Terminals in Project settings', () => {
     expect(screen.queryByTestId('project-settings-read-only')).toBeNull()
     await save()
     expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES } })
+  })
+})
+
+// worfy-human-review ticket 09: "Team reviewer" shows the state main reads from the Profile's private
+// folder (projects.reviewer.get), "Build" or "Rebuild", and "Delete" behind a confirmation.
+describe('Team reviewer in Project settings', () => {
+  const section = (): HTMLElement => screen.getByTestId('team-reviewer')
+  const stateText = (): string | null => screen.getByTestId('team-reviewer-state').textContent
+  const button = (name: string): HTMLButtonElement => within(section()).getByRole('button', { name }) as HTMLButtonElement
+  const press = async (name: string): Promise<void> => {
+    await act(async () => {
+      fireEvent.click(button(name))
+    })
+  }
+  const asked = (channel: string) => main.calls.filter((call) => call.channel === channel)
+  // Noon local time: the date the window shows is that day wherever the test runs.
+  const BUILT_AT = new Date(2026, 10, 1, 12).toISOString()
+
+  it('three states: not built, built with its date and pull requests, too little history', async () => {
+    await open()
+    expect(stateText()).toBe('Not built')
+    expect(button('Build').disabled).toBe(false)
+    expect(button('Delete').disabled).toBe(true)
+    cleanup()
+
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: 214 } }
+    await open()
+    expect(stateText()).toBe('Built 2026-11-01, 214 PRs')
+    expect(within(section()).queryByRole('button', { name: 'Build' })).toBeNull()
+    expect(button('Rebuild').disabled).toBe(false)
+    expect(button('Delete').disabled).toBe(false)
+    cleanup()
+
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'short', substantive: 12, threshold: 30 } }
+    await open()
+    expect(stateText()).toBe('Too little history: 12 of 30')
+    expect(button('Build').disabled).toBe(false)
+    expect(button('Delete').disabled).toBe(false)
+  })
+
+  it('a Profile folder that cannot be found says why, without buttons', async () => {
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'unavailable', reason: 'the folder is in no registered project' } }
+    await open()
+    expect(stateText()).toBe('Not available: the folder is in no registered project')
+    expect(within(section()).queryAllByRole('button')).toEqual([])
+  })
+
+  it('"Build" starts the generator\'s Session for the Project and closes the window; a refusal stays on screen', async () => {
+    main.answers['projects.reviewer.build'] = { ok: true, value: { nodeId: 'node-1', sessionId: 'session-1' } }
+    const { onClose } = await open()
+    await press('Build')
+    expect(asked('projects.reviewer.build')).toEqual([{ machine: undefined, channel: 'projects.reviewer.build', input: { id: PROJECT.id } }])
+    expect(onClose).toHaveBeenCalledOnce()
+    cleanup()
+
+    main.answers['projects.reviewer.build'] = { ok: false, error: 'The Project is not in the list' }
+    const refused = await open()
+    await press('Build')
+    expect(refused.onClose).not.toHaveBeenCalled()
+    expect(within(section()).getByRole('alert').textContent).toBe('The Project is not in the list')
+  })
+
+  it('"Delete" asks first: "Keep" deletes nothing, "Delete" erases and shows the state after', async () => {
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: 214 } }
+    main.answers['projects.reviewer.delete'] = { ok: true, value: { status: 'none' } }
+    await open()
+    await press('Delete')
+    const confirm = within(section()).getByRole('group', { name: 'Delete the team reviewer' })
+    expect(confirm.textContent).toContain('Delete the team reviewer? Its files in the Profile folder are erased.')
+    await press('Keep')
+    expect(asked('projects.reviewer.delete')).toEqual([])
+    expect(stateText()).toBe('Built 2026-11-01, 214 PRs')
+
+    await press('Delete')
+    await press('Delete')
+    expect(asked('projects.reviewer.delete')).toEqual([{ machine: undefined, channel: 'projects.reviewer.delete', input: { id: PROJECT.id } }])
+    expect(stateText()).toBe('Not built')
+    expect(button('Build').disabled).toBe(false)
+  })
+
+  it('on a Linked machine asks that Machine; shared read-only, the state shows without buttons', async () => {
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: null } }
+    await open({ machine: 'mini-machine' })
+    expect(asked('projects.reviewer.get')).toEqual([{ machine: 'mini-machine', channel: 'projects.reviewer.get', input: { id: PROJECT.id } }])
+    expect(stateText()).toBe('Built 2026-11-01')
+    expect(button('Rebuild').disabled).toBe(false)
+    cleanup()
+
+    main.readOnly = { 'mini-machine': 'Mini gives this Machine read-only access' }
+    await open({ machine: 'mini-machine' })
+    expect(stateText()).toBe('Built 2026-11-01')
+    expect(within(section()).queryAllByRole('button')).toEqual([])
   })
 })

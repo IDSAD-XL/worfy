@@ -236,6 +236,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // The Pipeline editor reads the Profile's Pipeline through bin/profile-set --read (worfy-pipeline ticket 08).
     'pipeline.read',
     'projects.list',
+    // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
+    'projects.reviewer.get',
     'projects.settings.defaults',
     'projects.settings.get',
     // The Runs of a Project and a Run's timeline, read on the Machine where it ran (worfy-flight-recorder
@@ -337,6 +339,11 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.connect.write',
     'projects.hold',
     'projects.remove',
+    // The team reviewer (worfy-human-review ticket 09): Build starts a Session, Delete erases the private
+    // folder, Later writes the Project's settings.
+    'projects.reviewer.build',
+    'projects.reviewer.delete',
+    'projects.reviewer.later',
     'projects.settings.set',
     'sessions.close',
     'sessions.new',

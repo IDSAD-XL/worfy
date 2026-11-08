@@ -138,6 +138,52 @@ export const projectsSettingsChanged = eventChannel('projects.settings.changed',
 /** Sent to every window after any change of the list or of the active Project. */
 export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project', 'read')
 
+// ── the team reviewer (worfy-human-review ticket 09) ─────────────────────────
+// A Project's reviewer skill in its team's voice lives in the private folder of its Profile,
+// <Profile folder>/state/human-review/ (src/main/projects/review-offer.ts); worfy reads it, starts the
+// generator skill that writes it, and deletes it on the user's word.
+
+/**
+ * The team reviewer as "Project settings…" shows it. `built`: the reviewer skill is there; `builtAt`
+ * is when it was written (ISO), `pullRequests` how many pull requests its history read (null when
+ * meta.json does not say). `short`: the last read found too little history for a voice —
+ * `substantive` of `threshold` comments. `none`: neither. `unavailable`: the Profile folder cannot be
+ * found, with the reason.
+ */
+export const teamReviewerStateSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('none') }),
+  z.object({ status: z.literal('built'), builtAt: z.string().min(1), pullRequests: z.number().int().nonnegative().nullable() }),
+  z.object({ status: z.literal('short'), substantive: z.number().int().nonnegative(), threshold: z.number().int().positive() }),
+  z.object({ status: z.literal('unavailable'), reason: z.string() }),
+])
+export type TeamReviewerState = z.output<typeof teamReviewerStateSchema>
+
+/** The team reviewer of a Project: reads its private folder, changes nothing. */
+export const projectsReviewerGet = invokeChannel('projects.reviewer.get', projectId, teamReviewerStateSchema, 'project', 'read')
+
+/**
+ * "Build" (and "Rebuild"): a new Session Node in the Project's root, on Claude Code, whose first
+ * message is the generator skill (TEAM_REVIEWER_COMMAND), as "Ship ticket" starts one.
+ */
+export const projectsReviewerBuild = invokeChannel('projects.reviewer.build', projectId, z.object({ nodeId: z.string().min(1), sessionId: z.string().min(1) }), 'project', 'write')
+
+/** "Delete": erases the private folder of the team reviewer, and only it; answers the state after. */
+export const projectsReviewerDelete = invokeChannel('projects.reviewer.delete', projectId, teamReviewerStateSchema, 'project', 'write')
+
+/**
+ * "Later", or the offer's toast closed: `humanReview.offer: "later"` in the Project's settings, so the
+ * offer is not made again. Answers the settings as saved; every window hears projects.settings.changed.
+ */
+export const projectsReviewerLater = invokeChannel('projects.reviewer.later', projectId, projectSettingsAnswerSchema, 'project', 'write')
+
+/**
+ * Sent to every window when a Project just added has review history enough for a voice
+ * (`review-history probe`: `voice: yes`) and its offer was never answered: the window shows the
+ * offer's toast. `read`, as every event but a Terminal's output and a Browser's frames: a window on a
+ * Linked machine with read-only access hears it and shows no toast, since its buttons write.
+ */
+export const projectsReviewerOffer = eventChannel('projects.reviewer.offer', z.object({ projectId: z.string().min(1) }), 'project', 'read')
+
 // ── connecting a Project (worfy-harness ticket 24) ─────────────────────────────
 //
 // "Add project" is one dialog in steps: the folder (projects.connect.inspect), the mode and the
@@ -406,6 +452,11 @@ declare module './channels' {
     'projects.hold': typeof projectsHold
     'projects.changed': typeof projectsChanged
     'projects.settings.changed': typeof projectsSettingsChanged
+    'projects.reviewer.get': typeof projectsReviewerGet
+    'projects.reviewer.build': typeof projectsReviewerBuild
+    'projects.reviewer.delete': typeof projectsReviewerDelete
+    'projects.reviewer.later': typeof projectsReviewerLater
+    'projects.reviewer.offer': typeof projectsReviewerOffer
     'projects.connect.inspect': typeof projectsConnectInspect
     'projects.connect.draft': typeof projectsConnectDraft
     'projects.connect.stop': typeof projectsConnectStop

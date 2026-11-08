@@ -10,6 +10,7 @@ import {
   type ActionTemplates,
   type TerminalShellSetting,
 } from '../../shared/projects/action-templates'
+import type { TeamReviewerState } from '../../shared/ipc/projects'
 import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { useReadOnly } from '../projects/useProjects'
@@ -39,6 +40,9 @@ const styles = {
   dialog: {
     width: 480,
     maxWidth: 'calc(100vw - 32px)',
+    // The sections may not fit a small window: the dialog scrolls instead of losing its buttons.
+    maxHeight: 'calc(100vh - 32px)',
+    overflowY: 'auto',
     boxSizing: 'border-box',
     padding: 'var(--space-4)',
     borderRadius: 'var(--radius-popover)',
@@ -100,6 +104,9 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * "Default vendor" (worfy-multi-vendor ticket 24): the Vendor "New session" lists first and a Session
  * started without a pick runs on, and the Vendor of the Project's Orchestrator from its next start
  * (ticket 37). "None" clears it, and Claude Code is then the default.
+ *
+ * "Team reviewer" (worfy-human-review ticket 09, spec Q6 (a)): the state of the Project's reviewer in
+ * its team's voice, with "Build" ("Rebuild" once built) and "Delete"; see TeamReviewerSection.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -267,6 +274,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </div>
         ) : null}
 
+        <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={onClose} />
+
         <p style={{ ...styles.hint, margin: '0 0 var(--space-1)' }}>Placeholders</p>
         <ul style={styles.placeholders} aria-label="Placeholders">
           {PLACEHOLDERS.map((name) => (
@@ -304,5 +313,121 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
       </div>
     </div>,
     document.body,
+  )
+}
+
+/** A date as `YYYY-MM-DD` in the local time of the window. */
+function localDate(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const two = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
+}
+
+/** The state line of "Team reviewer". */
+function teamReviewerText(state: TeamReviewerState): string {
+  switch (state.status) {
+    case 'none':
+      return 'Not built'
+    case 'built':
+      return state.pullRequests === null ? `Built ${localDate(state.builtAt)}` : `Built ${localDate(state.builtAt)}, ${state.pullRequests} PRs`
+    case 'short':
+      return `Too little history: ${state.substantive} of ${state.threshold}`
+    case 'unavailable':
+      return `Not available: ${state.reason}`
+  }
+}
+
+interface TeamReviewerSectionProps {
+  projectId: string
+  /** As ProjectSettingsProps.machine: the calls go to the Project's Machine. */
+  machine: string | null | undefined
+  /** A Project of a Linked machine shared read-only: the state shows, the buttons do not. */
+  readOnly: boolean
+  /** "Build" started the Session: the dialog closes, so the new Session Node is in sight. */
+  onBuilt: () => void
+}
+
+/**
+ * "Team reviewer" of Project settings (worfy-human-review ticket 09): the reviewer skill in the team's
+ * voice that the generator /worfy:human-review-setup builds from the Project's pull request history
+ * and keeps in the private folder of its Profile (projects.reviewer.get reads it). "Build" (or
+ * "Rebuild") starts a new Session with the generator; "Delete" erases the private folder after a
+ * confirmation. "Update" comes with worfy-human-review ticket 10.
+ */
+function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamReviewerSectionProps) {
+  const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
+  const [state, setState] = useState<TeamReviewerState>()
+  const [failure, setFailure] = useState<string>()
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const id = { id: projectId }
+    void (machine === undefined ? invoke('projects.reviewer.get', id) : invokeOn(machine, 'projects.reviewer.get', id)).then((result) => {
+      if (!active) return
+      if (result.ok) setState(result.value)
+      else setFailure(result.error)
+    })
+    return () => {
+      active = false
+    }
+  }, [projectId, machine])
+
+  const build = async (): Promise<void> => {
+    setBusy(true)
+    const result = await call('projects.reviewer.build', { id: projectId })
+    setBusy(false)
+    if (result.ok) onBuilt()
+    else setFailure(result.error)
+  }
+
+  const remove = async (): Promise<void> => {
+    setBusy(true)
+    const result = await call('projects.reviewer.delete', { id: projectId })
+    setBusy(false)
+    setConfirming(false)
+    if (result.ok) {
+      setFailure(undefined)
+      setState(result.value)
+    } else setFailure(result.error)
+  }
+
+  const buttons = !readOnly && state !== undefined && state.status !== 'unavailable'
+  return (
+    <section style={styles.field} aria-label="Team reviewer" data-testid="team-reviewer">
+      <span style={styles.label}>Team reviewer</span>
+      <span data-testid="team-reviewer-state" data-status={state?.status}>
+        {state === undefined ? (failure === undefined ? 'Loading…' : '') : teamReviewerText(state)}
+      </span>
+      <span style={styles.hint}>A review skill in your team&apos;s voice, built from the pull request history. Its files stay in the Profile folder on this machine.</span>
+      {buttons && !confirming ? (
+        <div style={styles.actions}>
+          <button type="button" style={styles.secondary} disabled={busy} onClick={() => void build()}>
+            {state.status === 'built' ? 'Rebuild' : 'Build'}
+          </button>
+          <button type="button" style={styles.secondary} disabled={busy || state.status === 'none'} onClick={() => setConfirming(true)}>
+            Delete
+          </button>
+        </div>
+      ) : null}
+      {buttons && confirming ? (
+        <div style={styles.actions} role="group" aria-label="Delete the team reviewer">
+          <span style={styles.hint}>Delete the team reviewer? Its files in the Profile folder are erased.</span>
+          <button type="button" style={styles.secondary} disabled={busy} onClick={() => void remove()}>
+            Delete
+          </button>
+          <button type="button" style={styles.secondary} disabled={busy} onClick={() => setConfirming(false)}>
+            Keep
+          </button>
+        </div>
+      ) : null}
+      {failure !== undefined ? (
+        <span role="alert" style={styles.error}>
+          {failure}
+        </span>
+      ) : null}
+    </section>
   )
 }

@@ -1,5 +1,6 @@
-// A Project's settings (`<Project data folder>/settings.json`): the action templates and, for
-// Windows, the shell of the Terminals.
+// A Project's settings (`<Project data folder>/settings.json`): the action templates, for
+// Windows the shell of the Terminals, the Default vendor, and the answer to the team reviewer's
+// offer (worfy-human-review ticket 09).
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -11,6 +12,7 @@ import {
   projectSettingsSchema,
   savedProjectSettingsSchema,
   type HarnessKind,
+  type HumanReviewSettings,
   type ProjectSettings,
   type ProjectSettingsInput,
 } from '../../shared/projects/action-templates'
@@ -36,20 +38,33 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * without `gateQueue` (a Linked machine on a build from before "Process gate queue") keep the saved
  * one, or the default when none is saved. Settings without `defaultVendor` keep the saved one (a
  * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
- * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24).
+ * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24). Settings without
+ * `humanReview` keep the saved one: "Save" of Project settings does not send it.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
   const read = (): ProjectSettings => (saved ??= readProjectSettings(projectDataDir, harness))
   const gateQueue = settings.actionTemplates.gateQueue ?? read().actionTemplates.gateQueue
-  const { defaultVendor: asked, ...rest } = settings
+  const { defaultVendor: asked, humanReview: review, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
+  const humanReview = review ?? read().humanReview
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
     ...rest,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
+    ...(humanReview === undefined ? {} : { humanReview }),
     actionTemplates: { ...settings.actionTemplates, gateQueue },
   })
   return readProjectSettings(projectDataDir, harness)
+}
+
+/**
+ * Records the answer to the team reviewer's offer (worfy-human-review ticket 09) and keeps every
+ * other setting as it is saved: `"later"` — the offer made after the Project was added is not made
+ * again. Returns the settings as saved.
+ */
+export function writeHumanReviewOffer(projectDataDir: string, offer: NonNullable<HumanReviewSettings['offer']>, harness: HarnessKind = currentHarness().kind): ProjectSettings {
+  const current = readProjectSettings(projectDataDir, harness)
+  return writeProjectSettings(projectDataDir, { ...current, humanReview: { ...current.humanReview, offer } }, harness)
 }
 
 /**
