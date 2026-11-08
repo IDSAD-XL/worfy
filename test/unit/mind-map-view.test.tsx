@@ -287,8 +287,8 @@ describe('MindMap', () => {
       await waitFor(() => expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
       expect(requests).toHaveLength(1)
 
-      // The advisor adds two nodes while ELK works on the first: both are drawn at once, under their
-      // parent's ELK place, and the others keep theirs.
+      // The advisor adds two nodes while ELK works on the first: both are drawn at once, to the right of
+      // their parent's ELK place (the Tree grows left to right), and the others keep theirs.
       rerender(<MindMap projectId="p1" topic={withNodes('late-1')} />)
       rerender(<MindMap projectId="p1" topic={withNodes('late-1', 'late-2')} />)
       await act(async () => {
@@ -298,7 +298,7 @@ describe('MindMap', () => {
       for (const id of ['late-1', 'late-2']) {
         expect(nodeOf(id)).not.toBeNull()
         const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(at(id))!
-        expect(Number(place[2])).toBeGreaterThan(byElk.y)
+        expect(Number(place[1])).toBeGreaterThan(byElk.x)
       }
       // One request is out (the one for `late-1`); the inputs after it wait for its answer.
       await requested(2)
@@ -390,6 +390,22 @@ describe('MindMap look', () => {
     const accepted = nodeOf('map-split')!
     expect(accepted.classList.contains('w-mind__node--rejected')).toBe(false)
     expect(accepted.querySelector('.w-mind__text s')).toBeNull()
+  })
+
+  it('grows the Tree left to right: a child to the right of its parent, "grew from" from the right side into the left', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const box = (id: string) => {
+      const element = nodeOf(id)!.closest<HTMLElement>('.react-flow__node')!
+      const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(element.style.transform)!
+      return { x: Number(place[1]), width: Number.parseFloat(element.style.width) }
+    }
+    for (const [parent, child] of [['@topic', 'ticket:01'], ['ticket:01', 'idea-teams'], ['idea-teams', 'who-pays']] as const) {
+      expect(box(child).x).toBeGreaterThanOrEqual(box(parent).x + box(parent).width)
+    }
+    const handles = (id: string, type: string) =>
+      Array.from(nodeOf(id)!.querySelectorAll(`.react-flow__handle.${type}:not([data-handleid^="replaces"])`)).map((handle) => handle.getAttribute('data-handlepos'))
+    expect(handles('idea-teams', 'target')).toEqual(['left'])
+    expect(handles('idea-teams', 'source')).toEqual(['right'])
   })
 
   it('draws `replaces` as its own red dashed arrow with its own arrowhead, apart from "grew from"', async () => {

@@ -193,8 +193,9 @@ and the reason.
 
 - The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
   "Fit". The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
-- "Tree" is the default: top to bottom, with text of 15 px. "Graph" runs left to right, with text of 12 px. The view is
-  remembered per topic on this Machine.
+- Both views grow left to right: the topic at the left, each node to the right of the node it grew from. "Tree" is the
+  default, a tidy tree with text of 15 px. "Graph" is a layered layout with text of 12 px. The view is remembered per
+  topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
 - The legend can be collapsed.

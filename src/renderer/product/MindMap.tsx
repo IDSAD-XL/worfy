@@ -216,8 +216,9 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
   const rejected = node.kind === 'decision' && node.status === 'rejected'
   const size = width !== undefined && height !== undefined ? { width, height } : nodeSize(node, view)
   const pad = NODE_PAD[node.kind]
-  const [target, source] = view === 'tree' ? [Position.Top, Position.Bottom] : [Position.Left, Position.Right]
-  const cross = view === 'tree' ? [Position.Left, Position.Right] : [Position.Top, Position.Bottom]
+  // Both views grow left to right (ticket 21): "grew from" enters on the left and leaves on the right.
+  const [target, source] = [Position.Left, Position.Right]
+  const cross = [Position.Top, Position.Bottom]
   return (
     <div
       className={`w-mind__node w-mind__node--${node.kind}${rejected ? ' w-mind__node--rejected' : ''}${selected === true ? ' w-mind__node--selected' : ''}${lit ? ' w-mind__node--lit' : ''}`}
@@ -265,14 +266,14 @@ const nodeTypes: NodeTypes = { mind: MindNodeView }
  * run along the tree's arrows. Given before React Flow measures the node, so the arrows are drawn on
  * the first frame.
  */
-function handlesOf(view: MindMapView, width: number, height: number): NonNullable<Node['handles']> {
+function handlesOf(width: number, height: number): NonNullable<Node['handles']> {
   const [top, bottom, left, right] = [
     { position: Position.Top, x: width / 2, y: 0 },
     { position: Position.Bottom, x: width / 2, y: height },
     { position: Position.Left, x: 0, y: height / 2 },
     { position: Position.Right, x: width, y: height / 2 },
   ]
-  const [tree, cross] = view === 'tree' ? [[top, bottom], [left, right]] : [[left, right], [top, bottom]]
+  const [tree, cross] = [[left, right], [top, bottom]]
   return [
     { type: 'target', ...tree[0]! },
     { type: 'source', ...tree[1]! },
@@ -284,9 +285,9 @@ function handlesOf(view: MindMapView, width: number, height: number): NonNullabl
 }
 
 /** The sides a `replaces` arrow joins: the ones of the two nodes that face each other across the tree. */
-function replacesSides(view: MindMapView, from: Placed | undefined, to: Placed | undefined): { sourceHandle: string; targetHandle: string } {
-  const [before, after] = view === 'tree' ? [Position.Left, Position.Right] : [Position.Top, Position.Bottom]
-  const forward = from !== undefined && to !== undefined && (view === 'tree' ? from.x <= to.x : from.y <= to.y)
+function replacesSides(from: Placed | undefined, to: Placed | undefined): { sourceHandle: string; targetHandle: string } {
+  const [before, after] = [Position.Top, Position.Bottom]
+  const forward = from !== undefined && to !== undefined && from.y <= to.y
   return forward ? { sourceHandle: `replaces-out-${after}`, targetHandle: `replaces-in-${before}` } : { sourceHandle: `replaces-out-${before}`, targetHandle: `replaces-in-${after}` }
 }
 
@@ -311,7 +312,7 @@ function flowNodes(graph: MapGraph, placement: Placement, view: MindMapView, { s
         position: { x: place.x, y: place.y },
         width: place.width,
         height: place.height,
-        handles: handlesOf(view, place.width, place.height),
+        handles: handlesOf(place.width, place.height),
         data: { node, view, fold: folds.get(node.id) ?? null, lit: litIds.has(node.id) },
         selected: node.id === selected,
         // The topic and the Tickets have no place in mind-map.json to write.
@@ -396,7 +397,7 @@ function pendingDrags(dragged: ReadonlyMap<string, { x: number; y: number }>, to
 /** The arrowheads of the two kinds of arrow, drawn by Arrowheads; their colours are mind-map.css's. */
 const arrowheadId = (flowId: string, kind: 'from' | 'replaces'): string => `w-mind-arrow-${kind}-${flowId}`
 
-function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flowId: string): Edge[] {
+function flowEdges(graph: MapGraph, placement: Placement, flowId: string): Edge[] {
   // Curves, as in the prototype: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
   // dashed and ends at the Decision it overturned.
   return graph.edges.map((edge) =>
@@ -406,7 +407,7 @@ function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flo
           id: edge.id,
           source: edge.source,
           target: edge.target,
-          ...replacesSides(view, placement.get(edge.source), placement.get(edge.target)),
+          ...replacesSides(placement.get(edge.source), placement.get(edge.target)),
           type: 'default',
           // No text on the arrow: the legend names the red dashed one.
           className: 'w-mind__edge w-mind__edge--replaces',
@@ -724,7 +725,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
-  const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
+  const edges = useMemo(() => flowEdges(graph, shown, flowId), [graph, shown, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   const flow = useReactFlow()
 
