@@ -235,3 +235,10 @@ folder that holds this file's `bin/`.
   (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field docs.context.path`) is the glossary a skill calls
   `GLOSSARY.md`; ADRs live in `docs.adr_dir`. A profile without `docs.context` has no glossary yet:
   create one only when the user agrees, and name it in the profile through `/worfy:connect-project`.
+
+In a Product Session the tracker of the map is the topic folder `docs/product/<topic>/` (in Silent
+mode `<Workflow folder>/product/<topic>/`): the map is its `map.md`, the tickets of the map are its
+`issues/NN-slug.md`, and the operations are the same. One exception: a Product Session runs no
+`bin/ticket`, which knows only the tickets root, so it writes the `Status:` line of a ticket of the
+map itself, in the form of **Header**, and reads the frontier from the files. A spec it writes is an
+epic draft, `drafts/<epic>.md` of the topic, not `<tickets root>/<epic>/spec.md`.

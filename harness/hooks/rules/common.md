@@ -1,6 +1,6 @@
 # worfy Harness — common rules
 
-Rules for every session and every subagent.
+Rules for every session and every subagent. Only a Product Session writes `docs/product/`.
 
 ## Plain language
 
@@ -69,9 +69,8 @@ from the user's rules file.
 ## Context hygiene
 
 - Quote the minimal fragment; whole files stay out of main context.
-- Editing a file outside the `Edit` tool prints its whole contents back into context, and the
-  bigger the file the bigger that cost. Point edits go through `Edit`; a sweep across many files
-  is an agent's job, not yours.
+- Editing a file outside the `Edit` tool prints its whole contents back into context. Point edits
+  go through `Edit`; a sweep across many files is an agent's job.
 - After each phase, compress: keep conclusions, drop the trail.
 - Unbounded output — logs, curl responses, DB dumps — gets filtered before it lands; delegate the
   run only when no filter does the job.

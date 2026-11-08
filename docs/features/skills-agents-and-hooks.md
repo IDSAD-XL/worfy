@@ -217,8 +217,9 @@ Claude Code runs these commands on its events. The limit is in seconds.
 
 | Event | Command | Limit | What it does |
 |---|---|---|---|
-| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | The rules of a main Session |
+| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | The rules of a main Session; nothing in a Product Session |
 | `SessionStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
+| `SessionStart` | `inject-rules.mjs product` | 10 | The rules of a Product Session; nothing in any other Session |
 | `SessionStart` | `session-start.mjs` | 15 | The context of the Project |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
@@ -294,7 +295,9 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 ### Implementation
 
 - `harness/hooks/hooks.json` wires every hook, through the plugin root.
-- `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md` and `harness/hooks/rules/common.md`.
+- `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md`, `harness/hooks/rules/common.md` and
+  `harness/hooks/rules/product.md`. A Product Session is the one whose environment has `WORFY_SESSION_KIND=product`,
+  which worfy sets when it starts one.
 - `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field
   `session.retro_reminder_after`: it is ignored, and a `state/pending-retro.log` left from then is not read.
 - `harness/hooks/gh-token-env.mjs`, `harness/hooks/guard.mjs` (with `harness/bin/silent-check`) and

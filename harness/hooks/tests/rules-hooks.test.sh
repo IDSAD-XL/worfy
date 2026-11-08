@@ -26,6 +26,9 @@ trap 'rm -rf "$T"' EXIT
 # so the real user rules never reach these checks. Empty until section 3b puts a rules file there.
 export HARNESS_HOME="$T/hh"
 USER_RULES="$HARNESS_HOME/user/rules.md"
+# The kind of Session worfy started (WORFY_SESSION_KIND, section 2b): none, unless a check sets it, so a
+# run of this file inside a Product Session checks the same as anywhere else.
+unset WORFY_SESSION_KIND
 
 # One additionalContext string is cut to a preview above this many characters.
 LIMIT=10000
@@ -47,6 +50,7 @@ if (typeof v === "string") process.stdout.write(v + "\n")' "$T/out" "$1" 2>/dev/
 
 [ -f "$RULES/orchestrator.md" ] && ok "orchestrator.md exists" || bad "orchestrator.md missing"
 [ -f "$RULES/common.md" ] && ok "common.md exists" || bad "common.md missing"
+[ -f "$RULES/product.md" ] && ok "product.md exists" || bad "product.md missing"
 
 parts=()
 for f in "$RULES"/*.md; do [ -f "$f" ] && parts+=("$f"); done
@@ -109,12 +113,72 @@ for ev in SessionStart SubagentStart; do
     done
 done
 
-# The parts still fit when the plugin root is a long install path.
-for part in orchestrator common; do
-    run_inject "$part" '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+# The parts still fit when the plugin root is a long install path. The part product prints only in a
+# Product Session (section 2b), so it is measured with the kind set.
+for part in orchestrator common product; do
+    run_inject "$part" '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT" WORFY_SESSION_KIND="$([ "$part" = product ] && echo product)"
     n="$(ctx | chars)"
-    [ "$n" -le "$LIMIT" ] && ok "$part: $n characters with a long plugin root" || bad "$part: $n characters > $LIMIT with a long plugin root"
+    [ "$n" -gt 0 ] && [ "$n" -le "$LIMIT" ] && ok "$part: $n characters with a long plugin root" || bad "$part: $n characters (empty or > $LIMIT) with a long plugin root"
 done
+
+# --- 2b. The rule set by the kind of Session --------------------------------------------------
+# worfy starts a Product Session with WORFY_SESSION_KIND=product in its environment, and Claude Code
+# hands its environment to the hook. Such a Session gets common + product and not orchestrator; any other Session, as before,
+# orchestrator + common. A part that is not for this Session prints nothing and says nothing on stderr:
+# it is not a failure.
+SS='{"hook_event_name":"SessionStart","cwd":"/tmp"}'
+# $1 description: exit 0, empty stdout, empty stderr
+expect_silent() {
+    [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] \
+        && ok "$1: exit 0, nothing on stdout or stderr" \
+        || bad "$1: rc=$rc, stdout '$(head -c 120 "$T/out")', stderr '$(head -c 120 "$T/err")'"
+}
+run_inject orchestrator "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
+expect_silent "Product Session: orchestrator"
+run_inject product "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
+[ "$rc" -eq 0 ] && [ "$(event)" = SessionStart ] && [ "$(ctx)" = "$(sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/product.md")" ] && [ ! -s "$T/err" ] \
+    && ok "Product Session: product is the part with the plugin root substituted" \
+    || bad "Product Session: product rc=$rc, stderr '$(head -c 200 "$T/err")', first line '$(ctx | head -n 1)'"
+run_inject common "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/common.md")" ] \
+    && ok "Product Session: common as in any Session" || bad "Product Session: common rc=$rc, differs"
+# Without the variable, empty, or with another word: a plain Session.
+for kind in '' plain Product; do
+    run_inject product "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND="$kind"
+    expect_silent "kind '$kind': product"
+    run_inject orchestrator "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND="$kind"
+    [ "$rc" -eq 0 ] && [ "$(ctx)" = "$(sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/orchestrator.md")" ] \
+        && ok "kind '$kind': orchestrator as before" || bad "kind '$kind': orchestrator rc=$rc, first line '$(ctx | head -n 1)'"
+done
+run_inject product "$SS" -u WORFY_SESSION_KIND CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+expect_silent "no WORFY_SESSION_KIND: product"
+# A subagent of a Product Session gets common only (SubagentStart runs no other part), and product or
+# orchestrator asked for on SubagentStart follow the same kind rule.
+run_inject product '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
+[ "$(ctx | head -n 1)" = "# worfy Harness — product rules" ] && ok "SubagentStart/product in a Product Session: the part" || bad "SubagentStart/product: '$(ctx | head -n 1)'"
+# A part not for this Session reads its stdin all the same and is silent on a broken one: the kind
+# decides before the input is checked.
+run_inject orchestrator 'not json' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
+expect_silent "Product Session: orchestrator with stdin that is not JSON"
+
+# What the part product tells the Session: the words the owner decided (the Epic spec, Q3–Q7), the skills
+# by their plugin names, and the tools by theirs. Searched as one line with whitespace runs collapsed.
+pflat="$(tr '\n' ' ' <"$RULES/product.md" 2>/dev/null | tr -s ' ')"
+for p in 'product_save' '`git` command' 'docs/product/<topic>/' 'drafts/<epic>.md' 'Advisor draft' \
+    'worfy:wayfinder' 'worfy:grilling' 'worfy:research' 'worfy:prototype' 'worfy:to-spec' \
+    'worfy:critic' 'worfy:product-ideas' 'mind_map_decide' 'mind_map_add' 'advice: true' \
+    'owner'"'"'s call alone' 'Silent mode' 'no product analytics' 'The orchestrator rules do not apply'; do
+    [[ "$pflat" == *"$p"* ]] && ok "product.md names $p" || bad "product.md does not name $p"
+done
+# The saving rule: "save" from the owner is the tool, and the Session itself never touches git.
+[[ "$pflat" == *'"save"'*'`product_save`'* ]] && ok "product.md: \"save\" from the owner calls product_save" || bad "product.md: no '\"save\" … product_save' rule"
+for p in 'git add' 'commit' 'push' 'pull request'; do
+    [[ "$pflat" == *"$p"* ]] && ok "product.md forbids $p by name" || bad "product.md does not name $p in the git ban"
+done
+# One line of common.md says who writes docs/product/ (the Epic spec, Q7): every session and subagent
+# reads it.
+grep -qF 'Only a Product Session writes `docs/product/`' "$RULES/common.md" 2>/dev/null \
+    && ok "common.md: only a Product Session writes docs/product/" || bad "common.md: no line on who writes docs/product/"
 
 # The plugin root goes in literally: a Windows path (Claude Code spells it C:/…) and characters a
 # replacement pattern would read ($&, $1) arrive as they are.
@@ -555,7 +619,7 @@ for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
 }
 if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
-# The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
+# The hooks of ~/.claude/settings.json:5-109, plus the four inject-rules entries; qmd-refresh came
 # with the qmd server of the plugin. Codex runs the same file (README.md, "On Codex"): SubagentStop,
 # the 900 s of stop.mjs (it runs the gate on Codex) and apply_patch in the guard's matcher are for it;
 # under Claude Code stop.mjs does nothing on SubagentStop and no tool is called apply_patch. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
@@ -573,6 +637,7 @@ SessionStart||$N/hooks/session-start.mjs"|15
 SessionStart||$N/bin/worktree-lock" claim|10
 SessionStart||$N/hooks/inject-rules.mjs" orchestrator|10
 SessionStart||$N/hooks/inject-rules.mjs" common|10
+SessionStart||$N/hooks/inject-rules.mjs" product|10
 SessionStart||$N/hooks/gh-token-env.mjs"|10
 SubagentStart||$N/hooks/inject-rules.mjs" common|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
@@ -631,17 +696,37 @@ while IFS= read -r cmd; do
     fi
 done < <(hj commands)
 
-# The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part.
+# The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part; the part
+# product with the kind of a Product Session, the others without it.
 # On Windows Claude Code gives ${CLAUDE_PLUGIN_ROOT} as C:/…; elsewhere it is the plain path.
 n=0
 while IFS='|' read -r ev cmd; do
     n=$((n + 1))
-    printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" sh -c "$cmd" >"$T/out" 2>/dev/null
     part="${cmd##* }"
+    kind=""; [ "$part" = product ] && kind=product
+    printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>/dev/null
     first="$(ctx | head -n 1)"
     [ "$first" = "# worfy Harness — $part rules" ] && ok "hooks.json $ev runs $part" || bad "hooks.json $ev '$cmd': got '$first'"
 done < <(hj inject)
-[ "$n" -eq 3 ] && ok "hooks.json: three inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 3"
+[ "$n" -eq 4 ] && ok "hooks.json: four inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 4"
+
+# Every inject-rules command of SessionStart together, as Claude Code runs them at the start of a Session:
+# a Product Session gets common + product, without orchestrator; any other, as before, orchestrator +
+# common, and product prints nothing. The labels of what came, sorted, one line.
+session_parts() {
+    local kind="$1" got="" cmd
+    while IFS='|' read -r ev cmd; do
+        [ "$ev" = SessionStart ] || continue
+        printf '{"hook_event_name":"SessionStart"}' | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>"$T/err"
+        [ -s "$T/err" ] && got="$got stderr:${cmd##* }"
+        [ -s "$T/out" ] && got="$got $(ctx | head -n 1 | sed 's/^# worfy Harness — \(.*\) rules$/\1/')"
+    done < <(hj inject)
+    printf '%s\n' $got | sort | tr '\n' ' ' | sed 's/ $//'
+}
+got="$(session_parts product)"
+[ "$got" = "common product" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=product: common + product" || bad "hooks.json SessionStart, Product Session: '$got'"
+got="$(session_parts '')"
+[ "$got" = "common orchestrator" ] && ok "hooks.json SessionStart, no kind: orchestrator + common" || bad "hooks.json SessionStart, no kind: '$got'"
 
 # --- 8. The old rules file is gone --------------------------------------------------------------
 
