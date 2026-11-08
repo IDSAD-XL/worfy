@@ -132,6 +132,11 @@ SessionStart). Все шесть ходов одинаковы: поиск фа�
 $1.14. Grader `ticket-edited` добавлен после этого прогона; по transcript-ам все три хода сделали Edit файла
 `04-delta.md`, так что он прошёл бы 3 из 3 (платно не перепроверялось).
 
+Четвёртый платный прогон, round 2 review (commit `feaa2e549`, новый заголовок строк hook-а и новый порядок Epic-ов):
+балл 1.00, 3 из 3, $0.37 ($0.12 + $0.13 + $0.12). `ends-with-status-block`, `stage-is-epic-status-line` и
+`ticket-edited` — по 3 из 3; в каждом ходе строка Stage — «/to-tickets · demo 0/4 · ticket 01 — alpha: функция double»,
+ни одного вызова `epic-status`. Все четыре платных прогона — $1.51.
+
 Цена: hook работает на каждом prompt-е Session разработчика в проекте с тикетами (не в Product Session, не в
 Subagent-е). Время hook-а `stage-lines.mjs` на этом репозитории (889 тикетов, 38 Epic-ов, macOS): 0.9–1.0 s wall time
 на prompt (три замера: 0.90, 1.00, 1.01 s, машина под нагрузкой других агентов); оба запуска `epic-status` идут
