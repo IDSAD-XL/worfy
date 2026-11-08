@@ -12,6 +12,7 @@ import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
 import { copyLegacyFixture, SANDBOX_GIT_IDENTITY } from '../claude-home-legacy'
+import { NO_GIT_MAINTENANCE } from '../git-env'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { shellStub } from '../shell-stub'
@@ -144,6 +145,8 @@ function describeSandbox(root: string, claudeHome: string): Sandbox {
     TMPDIR: process.env.TMPDIR ?? tmpdir(),
     LANG: process.env.LANG ?? 'C.UTF-8',
     GIT_CONFIG_NOSYSTEM: '1',
+    // No git auto maintenance after the move's commits: its lock file in .git would show up in treeOf (test/git-env.ts).
+    ...NO_GIT_MAINTENANCE,
     ...SANDBOX_GIT_IDENTITY,
   }
   const repos = {

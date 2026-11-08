@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi, type TestContext } from 'vitest'
 import { CI_RETRIES } from './flaky'
 import { gitBash } from './git-bash'
+import { NO_GIT_MAINTENANCE } from './git-env'
 import { atOnce, HARNESS_SCRIPTS_FILES, inFile, inPart, MEASURED_SECONDS, parsePart, shareOf, shellTests, startOrder } from './harness-shell-tests'
 import { removeTestTree } from './remove'
 import { ms } from './time-scale'
@@ -220,6 +221,8 @@ function emptyHomeEnv(home: string): NodeJS.ProcessEnv {
     GIT_COMMITTER_NAME: 'Harness Test',
     GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
     GIT_CONFIG_NOSYSTEM: '1',
+    // No git auto maintenance: its lock file in .git would show up in the trees a shell test compares (test/git-env.ts).
+    ...NO_GIT_MAINTENANCE,
   }
 }
 

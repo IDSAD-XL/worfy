@@ -22,6 +22,7 @@ import { codexSessions } from '../../src/main/vendors/codex/session'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+import { ms } from '../time-scale'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -92,6 +93,13 @@ afterEach(async () => {
   removeTestTree(scratch)
 })
 
+/**
+ * How long a test waits for the fake Codex app-server to answer: the contract test's own limit, so the
+ * wait gives up only with the test. vi.waitFor's default is 1 s, outside the run's multiplier, and the
+ * fake app-server is a new node process: under the load of a full run it started later than that.
+ */
+const UNTIL_CODEX = { timeout: ms(15_000), interval: 20 }
+
 /** The Project's settings.json as worfy writes it, with `defaultVendor` when given. */
 function writeSettings(defaultVendor?: string): void {
   writeFileSync(join(data, PROJECT, 'settings.json'), JSON.stringify({ actionTemplates: DEFAULT_ACTION_TEMPLATES, ...(defaultVendor === undefined ? {} : { defaultVendor }) }))
@@ -123,7 +131,7 @@ describe("the app's Orchestrators run on the Project's defaultVendor (worfy-mult
     writeSettings('codex')
     const onCodex = await sharedOrchestrators().newConversation(PROJECT)
     expect(onCodex).toMatchObject({ vendor: 'codex', model: null })
-    await vi.waitFor(() => expect(threadStarts()).toBe(1))
+    await vi.waitFor(() => expect(threadStarts()).toBe(1), UNTIL_CODEX)
     // Codex has the Harness (ticket 39), and its driver asks whether the hooks are approved: no app-server
     // starts through the app's own options here, so that is unknown, and unknown refuses.
     expect(CODEX_CAPABILITIES.harness).toBe(true)
@@ -140,7 +148,7 @@ describe("the app's Orchestrators run on the Project's defaultVendor (worfy-mult
     // Orchestrator would forget the thread and send thread/start instead.
     const view = await sharedOrchestrators().open(PROJECT)
     expect(view).toMatchObject({ vendor: 'codex', model: null, statusBlock: null })
-    await vi.waitFor(() => expect(readFileSync(log, 'utf8')).toContain('"method":"thread/resume"'))
+    await vi.waitFor(() => expect(readFileSync(log, 'utf8')).toContain('"method":"thread/resume"'), UNTIL_CODEX)
     expect(threadStarts()).toBe(0)
   })
 })

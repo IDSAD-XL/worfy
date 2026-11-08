@@ -22,7 +22,10 @@ let repo: string
 
 // XDG_CONFIG_HOME of the machine (the Linux runners set one) would add its git/config to the config files read.
 const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_CONFIG_GLOBAL: join(scratch, 'global-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '', XDG_CONFIG_HOME: undefined })
-const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', ...args], { cwd, env: gitEnv(), encoding: 'utf8' })
+// No auto maintenance (test/git-env.ts): its detached run writes .git/objects/maintenance.lock after a commit, and the
+// removal of the scratch folder after the test met it there (ENOTEMPTY). On the command line, not in the environment:
+// GIT_CONFIG_COUNT there would change what the policy under test says.
+const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'maintenance.auto=false', ...args], { cwd, env: gitEnv(), encoding: 'utf8' })
 
 beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-aa04-unit-')))
