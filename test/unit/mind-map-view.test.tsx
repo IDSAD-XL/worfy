@@ -261,13 +261,24 @@ describe('MindMap', () => {
     // ELK that answers when the test lets it.
     setElkEngine({ layout: (input) => new Promise((resolve) => (answer = () => resolve(elk.layout(input)))) })
     try {
-      render(<MindMap projectId="p1" topic={topic()} />)
+      const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
       expect(at()).toBe(`translate(${sync.x}px,${sync.y}px)`)
       await act(async () => {
         answer!()
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
       await waitFor(() => expect(at()).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+
+      // A node added: until ELK answers again the others keep its places and the new one waits.
+      const nodes = [...topic().nodes, { id: 'late-idea', kind: 'idea' as const, text: 'Added later', from: 'too-wide' }]
+      rerender(<MindMap projectId="p1" topic={topic({ nodes })} />)
+      expect(at()).toBe(`translate(${byElk.x}px,${byElk.y}px)`)
+      expect(nodeOf('late-idea')).toBeNull()
+      await act(async () => {
+        answer!()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await waitFor(() => expect(nodeOf('late-idea')).not.toBeNull())
     } finally {
       setElkEngine(null)
     }

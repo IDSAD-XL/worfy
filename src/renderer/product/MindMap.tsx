@@ -203,7 +203,8 @@ function flowNodes(graph: MapGraph, placement: Placement, view: MindMapView, sel
 }
 
 function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView): Edge[] {
-  return graph.edges.map((edge) =>
+  // An arrow to a node that waits for its place waits with it.
+  return graph.edges.filter((edge) => placement.has(edge.source) && placement.has(edge.target)).map((edge) =>
     edge.kind === 'from'
       ? { id: edge.id, source: edge.source, target: edge.target, type: 'smoothstep', className: 'w-mind__edge', focusable: false }
       : {
@@ -220,10 +221,16 @@ function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView): Ed
   )
 }
 
-/** ELK's layout of the graph in the window's worker, when it has answered for these inputs; else the synchronous one. */
-function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; key: string; byElk: boolean } {
+/**
+ * Where the nodes go: ELK's layout from the window's worker once it has answered for these inputs; while
+ * a newer request is out, the last answer of this view (a node it does not place waits for the new one),
+ * as the Epic frames keep theirs (../canvas/elk/client.ts); the synchronous layout before ELK's first
+ * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
+ */
+function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; byElk: boolean } {
   const key = layoutKey(graph, view)
-  const [answer, setAnswer] = useState<{ key: string; placement: Placement } | null>(null)
+  // `placement` null: ELK failed on these inputs.
+  const [answer, setAnswer] = useState<{ key: string; view: MindMapView; placement: Placement | null } | null>(null)
   // The inputs of the last request, and those the map wants now: an answer for older inputs is dropped,
   // and a new topic object with the same inputs asks nothing.
   const requested = useRef<string | null>(null)
@@ -236,15 +243,19 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
     requested.current = key
     layoutElk(graph, view, elk).then(
       (placement) => {
-        if (wanted.current === key) setAnswer({ key, placement })
+        if (wanted.current === key) setAnswer({ key, view, placement })
       },
-      // The synchronous layout stays: every node is still drawn.
-      (error: unknown) => console.error('[mind-map] ELK could not lay out the Mind map', error),
+      (error: unknown) => {
+        console.error('[mind-map] ELK could not lay out the Mind map', error)
+        if (wanted.current === key) setAnswer({ key, view, placement: null })
+      },
     )
   }, [key, graph, view])
-  const byElk = answer?.key === key
-  const placement = useMemo(() => (byElk ? answer.placement : layoutSync(graph, view)), [byElk, answer, graph, view])
-  return { placement, key, byElk }
+  // An answer of this view for other inputs means the request for these is out: the effect sends one
+  // for every new key while the window has ELK.
+  const elkPlaces = answer?.view === view ? answer.placement : null
+  const placement = useMemo(() => elkPlaces ?? layoutSync(graph, view), [elkPlaces, graph, view])
+  return { placement, byElk: elkPlaces !== null }
 }
 
 function ZoomControls() {
