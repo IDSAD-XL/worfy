@@ -85,6 +85,5 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - **150 узлов** (Mac, Apple M5 Pro, vitest под Electron Node, `WORFY_MIND_MAP_TIMING=1`): ELK «Tree» (`mrtree`) — 54 ms,
   ELK «Graph» (`layered`) — 195 ms, синхронная раскладка — 0,3 ms; первый render 150 узлов в jsdom — 53 ms. ELK работает в
   Worker-е, первый кадр рисует синхронная раскладка.
-- **Снимки** компонента отдельно от приложения (offscreen Electron, демо-тема): [дерево, светлая
-  тема](../evidence/08-mind-map-tree-light.png), [граф и карточка узла, тёмная
-  тема](../evidence/08-mind-map-graph-card-dark.png). Снимок на Mac Stable — пункт «вручную» остаётся.
+- **Снимки** компонента отдельно от приложения (offscreen Electron, демо-тема, обе темы) — только для ревью, в
+  репозиторий не положены. Снимок на Mac Stable — пункт «вручную» остаётся за Orchestrator-ом.
