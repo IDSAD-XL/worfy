@@ -8,7 +8,6 @@
 // replaced (the two implementers it started still run when the error comes, as in worfy-polish 50).
 import { describe, expect, it, vi } from 'vitest'
 import { CONTINUE_TEXT } from '../../src/main/autopilot/limits-wait'
-import { TASKS_GRACE_MS } from '../../src/shared/autopilot/cycle'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { checkRecovery } from '../autopilot-invariants'
 import { EPIC, faultRun, LIMITS_RESET_MS, PROJECT, until, type FaultRun } from './autopilot-faults-setup'
@@ -31,8 +30,9 @@ const WAVE_1 = '/epic-wave Ticket-ы 01, 02 эпика demo'
  * still run: it stops with turn-error, the error's text in session-error, and gives the Orchestrator
  * back to a person as it runs, the implementers living on in that Session (worfy-autopilot-queue
  * ticket 08). The agent marks no Ticket, so the new start — which waits for that busy Orchestrator
- * (ADR-0099) until the implementers have reported and the grace time has passed — sends Wave 1 again,
- * as a Wave of its own, once. A Force stop then ends the new Run.
+ * (ADR-0099) until the implementers have reported and the turn of the last one's task-notification has ended — sends
+ * Wave 1 again, as a Wave of its own, once: that turn has run, so no grace time is waited (worfy-polish ticket 65).
+ * A Force stop then ends the new Run.
  */
 async function apiFault(script: string, errorText: RegExp): Promise<FaultRun> {
   const h = faultRun({ scripts: [script, 'autopilot-waves'], marks: 'none', processes: 'exit-at-once' })
@@ -48,13 +48,11 @@ async function apiFault(script: string, errorText: RegExp): Promise<FaultRun> {
   expect(first.at(-1)).toMatchObject({ kind: 'orchestrator-returned', tasks: [{ id: 'task_impl_0001' }, { id: 'task_impl_0002' }] })
   expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
 
-  // A new start waits for that Orchestrator; once the implementers have reported and the grace time has passed, it goes through.
+  // A new start waits for that Orchestrator; once the implementers have reported and their last turn has ended, it goes through.
   expect(await h.startAgain()).toEqual({ refusal: null })
   expect(h.state()).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator' })
   h.releases.release('tasks')
   h.releases.release('tasks')
-  await until(() => h.clock.pending().some((timer) => timer.ms === TASKS_GRACE_MS), 'the grace time after the last task')
-  h.clock.advance(TASKS_GRACE_MS)
   await until(() => waveCommands(h).length >= 2 && h.kinds(2).includes('wave-started'), 'the Wave of the new Run')
   expect(h.journal(2)[0]).toMatchObject({ kind: 'run-started', epic: EPIC })
   expect(h.journal(2).filter((event) => event.kind === 'wave-started')).toMatchObject([{ wave: 1, tickets: ['01', '02'] }])

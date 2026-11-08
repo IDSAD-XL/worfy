@@ -111,7 +111,9 @@ async function until(condition: () => boolean | Promise<boolean>, what: string, 
 /**
  * Wave 1 has started and its message has reached the run's Session. The run writes `wave-started` once "Run wave"
  * comes back, and that may be before the unattended Session has started its query: a test that looks at the requests
- * or the Session's messages right after `wave-started` alone races with it.
+ * or the Session's messages right after `wave-started` alone races with it. With the plain script the run may also be over by the
+ * time this returns (wave-finished, run-stopped no-progress, and the Session given back started again attended): a test
+ * that reads the requests, or anything else of the run in its Wave, after this holds the Wave's turn (holdWaveTurn).
  */
 async function waveOne(h: { kinds: () => Promise<string[]>; messages: (unattended: boolean) => string[] }): Promise<void> {
   await until(async () => (await h.kinds()).includes('wave-started') && h.messages(true).length > 0, 'Wave 1 in the run\'s Session')
@@ -156,7 +158,7 @@ const HALT_MS = 100
 
 interface HarnessOptions {
   /** The script of the person's (attended) Orchestrator. */
-  attended?: 'autopilot-wait-person' | 'autopilot-wait-tasks' | 'autopilot-wait-late'
+  attended?: 'autopilot-wait-person' | 'autopilot-wait-tasks' | 'autopilot-wait-late' | 'autopilot-wait-helpers'
   /** What the Linked machines answer when a start asks them; the test may change it meanwhile. */
   linked?: LinkedRuns[]
   /** A run in the Run mode Start window, over this window, with the Limits' clock at `now()`. */
@@ -241,13 +243,35 @@ function harness(options: HarnessOptions = {}) {
   const linked = options.linked
   const window = options.window
   const approvals: FakeApproval[] = []
+  /**
+   * The Sessions' events the run's observer has not got yet, while the test holds them (holdRunEvents): the run then
+   * reads the Orchestrator late, after the events, as it does when its queue or the machine is slow.
+   */
+  let heldEvents: (() => void)[] | null = null
+  const runRegistry = {
+    get: (sessionId: string) => registry.get(sessionId),
+    observeInput: registry.observeInput.bind(registry),
+    observe: (sink: Parameters<SessionRegistry['observe']>[0]) =>
+      registry.observe((sessionId, event) => {
+        if (heldEvents === null) sink(sessionId, event)
+        else heldEvents.push(() => sink(sessionId, event))
+      }),
+  }
+  const holdRunEvents = (): void => {
+    heldEvents = []
+  }
+  const deliverRunEvents = (): void => {
+    const held = heldEvents ?? []
+    heldEvents = null
+    for (const deliver of held) deliver()
+  }
   const autopilot = new Autopilot({
     projectRoot: () => repo,
     selfRefusal: () => Promise.resolve(null),
     workflow,
     watchWorkflow: () => Promise.resolve(() => undefined),
     orchestrators,
-    registry,
+    registry: runRegistry,
     waves: launcher,
     journal: (start) => openRun(start, { env }),
     harness: () => 'plugin',
@@ -299,7 +323,7 @@ function harness(options: HarnessOptions = {}) {
   const beforeUnattended = (fn: () => Promise<void>): void => {
     before = fn
   }
-  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, journal, kinds, session, messages, state, texts, approvals, unattendedCalls, beforeUnattended }
+  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, journal, kinds, session, messages, state, texts, approvals, unattendedCalls, beforeUnattended, holdRunEvents, deliverRunEvents }
 }
 
 /** The person's message starts a turn of the attended Orchestrator that holds until released. */
@@ -313,7 +337,8 @@ async function personInTurn(h: ReturnType<typeof harness>, text = 'how is it goi
 
 describe('a run accepted while the Orchestrator is busy waits for it (worfy-autopilot-queue ticket 07)', () => {
   it('waits for the person\'s turn: run-started and orchestrator-busy at once, then orchestrator-free and the Wave, sent once', async () => {
-    const h = harness()
+    holdWaveTurn()
+    const h = harness({ unattended: 'autopilot-waves-held' })
     await personInTurn(h)
     const first = await h.autopilot.start(PROJECT, EPIC)
     expect(first).toMatchObject({ status: 'waiting', waitingFor: 'orchestrator', busy: { turn: true, queued: 0, tasks: [] }, wave: 0, resumesAt: null })
@@ -396,7 +421,8 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     const lines = readFileSync(join(scriptsDir, 'autopilot-wait-tasks.jsonl'), 'utf8').trim().split('\n')
     const lastChange = lines.findLastIndex((line) => line.includes('"background_tasks_changed"'))
     writeFileSync(join(scriptsDir, 'autopilot-wait-late.jsonl'), `${[...lines.slice(0, lastChange + 1), '{"fake":"wait_release","name":"never"}'].join('\n')}\n`)
-    const h = harness({ attended: 'autopilot-wait-late' })
+    holdWaveTurn()
+    const h = harness({ attended: 'autopilot-wait-late', unattended: 'autopilot-waves-held' })
     const session = await personInTurn(h, 'start the helpers')
     await until(() => session.backgroundTasks().length === 2, 'the two helpers')
     for (const text of ['first queued', 'second queued', 'third queued']) session.send(text)
@@ -412,6 +438,32 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
     h.clock.fire(GRACE_MS)
     await waveOne(h)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+  })
+
+  it('a run that reads the Orchestrator only after the last task\'s task-notification turn has ended takes it at once, with no grace time', async () => {
+    // The person's turn starts the two helpers; no queued turns, then the tasks end on releases of `tasks`.
+    const lines = readFileSync(join(scriptsDir, 'autopilot-wait-tasks.jsonl'), 'utf8').trim().split('\n')
+    const firstEnd = lines.findIndex((line) => line.includes('"type":"result"'))
+    const tasksEnd = lines.findIndex((line) => line.includes('"name":"tasks"'))
+    writeFileSync(join(scriptsDir, 'autopilot-wait-helpers.jsonl'), `${[...lines.slice(0, firstEnd + 1), ...lines.slice(tasksEnd)].join('\n')}\n`)
+    holdWaveTurn()
+    const h = harness({ attended: 'autopilot-wait-helpers', unattended: 'autopilot-waves-held' })
+    const session = await personInTurn(h, 'start the helpers')
+    await until(() => session.backgroundTasks().length === 2, 'the two helpers')
+    await h.autopilot.start(PROJECT, EPIC)
+    h.releases.release('turn')
+    await until(async () => session.state === 'idle' && h.state().busy?.turn === false && h.state().busy?.tasks.length === 2, 'the wait for the tasks alone')
+    // Both tasks end and their task-notification turns run to their end before the run gets any of those events.
+    h.holdRunEvents()
+    h.releases.release('tasks')
+    h.releases.release('tasks')
+    await until(() => h.texts.includes('Both helpers are done.') && session.state === 'idle' && session.backgroundTasks().length === 0, 'the last task-notification turn to end')
+    h.deliverRunEvents()
+    await until(async () => (await h.kinds()).includes('orchestrator-free') || h.clock.pending().includes(GRACE_MS), 'the run to take the Orchestrator, or to wait the grace time')
+    expect(h.clock.pending()).not.toContain(GRACE_MS)
+    await waveOne(h)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true])
+    expect(h.messages(true)).toEqual([WAVE_1])
   })
 
   it('Stop cancels a waiting run: run-stopped start-cancelled; the Session was not started again and its queue is where it was', async () => {
@@ -495,7 +547,8 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
   })
 
   it('a message that lands between the start\'s read of the Orchestrator and its answer: the run waits instead of being refused', async () => {
-    const h = harness({ approval: true })
+    holdWaveTurn()
+    const h = harness({ approval: true, unattended: 'autopilot-waves-held' })
     const session = await h.session()
     await until(() => session.state === 'idle', 'the idle Orchestrator')
     h.beforeUnattended(async () => {
@@ -513,7 +566,8 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
   })
 
   it('a run that waited starts its Session under its Auto-approval policy, with the run\'s TMPDIR', async () => {
-    const h = harness({ approval: true })
+    holdWaveTurn()
+    const h = harness({ approval: true, unattended: 'autopilot-waves-held' })
     await personInTurn(h)
     await h.autopilot.start(PROJECT, EPIC)
     expect(h.approvals).toHaveLength(1)
@@ -543,7 +597,8 @@ describe('a run accepted while the Orchestrator is busy waits for it (worfy-auto
   })
 
   it('Start now: tasks-killed start-now with the tasks, the Session unattended at once, the Wave goes; the queued message stays the person\'s', async () => {
-    const h = harness({ attended: 'autopilot-wait-tasks' })
+    holdWaveTurn()
+    const h = harness({ attended: 'autopilot-wait-tasks', unattended: 'autopilot-waves-held' })
     const session = await personInTurn(h, 'start the helpers')
     await until(() => session.backgroundTasks().length === 2, 'the two helpers')
     session.send('look at the logs later')

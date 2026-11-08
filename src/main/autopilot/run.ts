@@ -353,6 +353,11 @@ export interface AutopilotDeps {
      */
     busy?(projectId: string): OrchestratorBusy | null
     /**
+     * Whether a turn has run in the Orchestrator's Session since its background tasks last went to none
+     * (Orchestrators.turnSinceLastTask, worfy-polish ticket 65). Absent: the run waits the grace time after the last task.
+     */
+    turnSinceLastTask?(projectId: string): boolean
+    /**
      * Start now: the Orchestrator unattended at once, its turn interrupted and its old process closed
      * with its background tasks; answers the view and the tasks that died (Orchestrators.takeNow).
      */
@@ -1282,7 +1287,8 @@ export class Autopilot {
    * `orchestrator-busy` line; once nothing does, `orchestrator-free` and the run takes it (begin).
    * After the last background task the run waits the grace time for the turn its task-notification
    * starts (TASKS_GRACE_MS, as the run's own wait for its tasks): taking the Orchestrator then would
-   * close that turn's process.
+   * close that turn's process. No grace time when that turn has already run and ended before this
+   * read (worfy-polish ticket 65).
    */
   private async recheck(run: Run): Promise<void> {
     const wait = run.wait
@@ -1302,16 +1308,20 @@ export class Autopilot {
     if (wait.busy.tasks.length > 0) {
       // The tasks are over; the state says so, the journal waits for what comes next.
       wait.busy = { turn: false, queued: 0, tasks: [] }
-      const timer = clock.setTimeout(() => {
-        void run.enqueue(async () => {
-          if (run.wait !== wait || wait.grace !== timer) return
-          wait.grace = null
-          await this.recheck(run)
-        })
-      }, this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
-      wait.grace = timer
-      this.publish(run.projectId)
-      return
+      // This read comes after the events that led to it, so the turn of the last task's task-notification may have
+      // started and ended before it (worfy-polish ticket 65): the Orchestrator is free then, with no grace time to wait.
+      if (this.deps.orchestrators.turnSinceLastTask?.(run.projectId) !== true) {
+        const timer = clock.setTimeout(() => {
+          void run.enqueue(async () => {
+            if (run.wait !== wait || wait.grace !== timer) return
+            wait.grace = null
+            await this.recheck(run)
+          })
+        }, this.deps.tasksGraceMs ?? TASKS_GRACE_MS)
+        wait.grace = timer
+        this.publish(run.projectId)
+        return
+      }
     }
     await this.write(run, { kind: 'orchestrator-free' })
     await this.begin(run, false)

@@ -196,6 +196,7 @@ export function sharedAutopilot(): Autopilot {
       newUnattendedSession: (projectId) => sharedOrchestrators().newUnattendedSession(projectId),
       unattendedRefusal: (projectId) => sharedOrchestrators().unattendedRefusal(projectId),
       busy: (projectId) => sharedOrchestrators().busy(projectId),
+      turnSinceLastTask: (projectId) => sharedOrchestrators().turnSinceLastTask(projectId),
       takeNow: (projectId, approval, haltMs) => sharedOrchestrators().takeNow(projectId, approval, haltMs),
       runsOn: (projectId) => sharedOrchestrators().runsOn(projectId),
     },
