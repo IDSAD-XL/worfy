@@ -1,7 +1,8 @@
 # 02 — Ограничения Product Session у Claude: deny в PreToolUse, без `autopilot_start`, сильнейшая модель
 
 Type: task
-Status: open
+Status: done 2026-11-08T04:26Z
+PR: #1626
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 1, 10; «Как работает» → «Ограничения»; «Вопросы владельцу», Q3, Q4, Q6, Q10; research [product-session-основа](../../../docs/research/2026-11-07-product-session-основа.md), разделы 2.2, 2.4
 
@@ -44,18 +45,25 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
       `docs/product/../src/a.ts`, ссылка из `docs/product/` наружу — отказ; на `win32` — `DOCS\PRODUCT\x.md` и
       `C:/…` с другим регистром.
   - evidence: test-run pass · `pnpm test -- test/unit/product-guard.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] Unit test: `bin/ticket done`, `git commit -m x`, `gh pr merge 1`, `pnpm test` — отказ; `git log`, `gh pr view 1`,
       `epic-status` — разрешено.
   - evidence: test-run pass · `pnpm test -- test/unit/product-guard.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] Test `sessionOptions` Product Session: PreToolUse отвечает deny с причиной; обычная Session — `{}`, как раньше.
   - evidence: test-run pass · `pnpm test -- test/unit/agent-options.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] Contract test: у Product Session `autopilot_start` отвечает отказом (`isError`); у обычной — как раньше.
   - evidence: test-run pass · `pnpm test -- test/contract/canvas-tools.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] Test: `env` Product Session несёт `WORFY_SESSION_KIND=product`; модель — `opus`, смена модели отклонена.
   - evidence: test-run pass · `pnpm test -- test/unit/agent-options.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: review pass · PR #1626 · - - · 2de26789811c6c282838349bcb874a3dbd430f63
 - [ ] Те же unit test-ы guard-а на Windows — exit 0.
   - needs: windows
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42444033435/job/128627347006 · ci - · 2de26789811c6c282838349bcb874a3dbd430f63
 
 ## Тесты
 
