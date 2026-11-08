@@ -70,8 +70,8 @@ waits for it as described under "While the Orchestrator is busy" ([Autopilot, St
 
 - a Session that runs unattended, such as the Orchestrator during a run: no one is there to confirm. The Orchestrator of a
   stopped run that still waits for its turn or background tasks is not refused: it gets the window;
-- a Product Session: its canvas server is built without the tool's starter, so the tool answers "Autopilot cannot be
-  started from this Session." (`src/main/mcp/canvas-server.ts`);
+- a Product Session: its canvas server is built without the tool's starter, and the tool answers "A Product Session
+  does not start Autopilot: …" (`src/main/mcp/canvas-server.ts`);
 - a Session worfy cannot find;
 - a Project with a run under way: the same refusal as the command's, with the hint to stop it or use "Add to queue…"; the
   tool never adds an Epic to a running queue, and the journal gets nothing;

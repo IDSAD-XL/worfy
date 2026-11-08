@@ -242,7 +242,8 @@ describe('the shell of a Product Session', () => {
   it.each([
     ['bin/ticket done', 'bin/ticket'],
     ['/Users/me/.claude/worfy-harness/plugin/bin/ticket done .scratch/e/issues/01-x.md', 'bin/ticket'],
-    ['node C:\\h\\bin\\ticket.mjs claim x', 'bin/ticket'],
+    ["node 'C:\\h\\bin\\ticket.mjs' claim x", 'bin/ticket'],
+    ['node /h/bin/ticket.mjs claim x', 'bin/ticket'],
     ['ticket claim x', 'bin/ticket'],
     ['git commit -m x', 'git commit'],
     ['git push', 'git push'],
@@ -264,9 +265,26 @@ describe('the shell of a Product Session', () => {
     ['pnpm test', 'pnpm'],
     ['FOO=1 npm run build', 'npm'],
     ['/usr/local/bin/pnpm i', 'pnpm'],
-    ['C:\\tools\\PNPM.CMD test', 'pnpm'],
+    ["'C:\\tools\\PNPM.CMD' test", 'pnpm'],
     ['npx pnpm test', 'pnpm'],
     ['if true; then git push; fi', 'git push'],
+    // Quoted values before the subcommand, a quoted subcommand, a backslash-newline (review of PR #1626).
+    ['git -C "/p a/repo" commit -m x', 'git commit'],
+    ["git -c 'user.name=a' commit", 'git commit'],
+    ['git --git-dir="x" reset --hard', 'git reset'],
+    ['git "commit" -m x', 'git commit'],
+    ['"git" push', 'git push'],
+    ['git \\\ncommit -m x', 'git commit'],
+    ['git \\\r\n  push', 'git push'],
+    ['g\\it push', 'git push'],
+    ["sh -c 'git push'", 'git push'],
+    ['zsh -c "bash -c \'npm i\'"', 'npm'],
+    ['eval "git commit -m x"', 'git commit'],
+    ['echo `pnpm i`', 'pnpm'],
+    ['echo "$(gh pr merge 1)"', 'gh pr merge'],
+    ['x=$(cd /p && git push)', 'git push'],
+    ['pwsh -Command "git push"', 'git push'],
+    [`${'eval '.repeat(12)}git log`, 'a command nested too deep to read'],
   ])('refuses %s', (command, name) => {
     expect(refusedCommand(command)).toBe(name)
     const decision = bash(command)
@@ -287,14 +305,30 @@ describe('the shell of a Product Session', () => {
     'grep -n pnpm package.json',
     'cat README.md | head',
     'ls docs/product',
+    // A word in quotes is an argument, not a command (review of PR #1626).
+    'grep -rn "pnpm" docs/',
+    'rg "git commit" docs/',
+    "grep -n 'gh pr merge' notes.md",
+    'echo "npm and pnpm are package managers"',
+    'git log --grep "git push"',
+    'grep -rn bin/ticket docs/',
+    'git log # then git push',
+    'ls # ; git push',
+    "bash -c 'git log'",
+    'eval eval git status',
   ])('allows %s', (command) => {
     expect(refusedCommand(command)).toBeNull()
     expect(bash(command)).toEqual(allowed)
   })
 
-  it('judges PowerShell like Bash', () => {
-    expect(productToolDecision('PowerShell', { command: 'git push' }, { productDir: null, cwd: null }, 'win32')).toEqual(refused)
-    expect(productToolDecision('PowerShell', { command: 'git log' }, { productDir: null, cwd: null }, 'win32')).toEqual(allowed)
+  it('judges PowerShell by its own quoting: `\\` is a path separator, the backtick escapes', () => {
+    const ps = (command: string) => productToolDecision('PowerShell', { command }, { productDir: null, cwd: null }, 'win32')
+    expect(ps('git push')).toEqual(refused)
+    expect(ps('C:\\tools\\PNPM.CMD test')).toEqual(refused)
+    expect(ps('node C:\\h\\bin\\ticket.mjs claim x')).toEqual(refused)
+    expect(ps('git `\ncommit -m x')).toEqual(refused)
+    expect(ps('Select-String -Pattern "git push" notes.md')).toEqual(allowed)
+    expect(ps('git log')).toEqual(allowed)
   })
 
   it('fails closed on a command that is not text', () => {

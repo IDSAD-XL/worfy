@@ -14,9 +14,11 @@
 //   rewrites (`x.`, `x:stream`, `PRODUC~1`) are refused.
 // - Bash (and PowerShell, Claude Code's shell tool on Windows) is refused the known commands that write
 //   to the repository or to Tickets: the Ticket CLI (`bin/ticket`), `git add|commit|push|merge|rebase|
-//   reset`, `gh pr create|merge`, `pnpm` and `npm`. This is not a sandbox (spec, risk 2): a command
-//   that writes another way goes through, and the Product Session rules (ticket 10) name the limit in
-//   words.
+//   reset`, `gh pr create|merge`, `pnpm` and `npm`. The command is read as the shell reads it: words
+//   in quotes are one word (`grep "pnpm"` searches, `git -C "a b" commit` commits), a backslash-newline
+//   joins lines, and `$(…)`, backticks, `bash -c` and `eval` are read as commands too. This is not a
+//   sandbox (spec, risk 2): a command that writes another way goes through, and the Product Session
+//   rules (ticket 10) name the limit in words.
 // - Every other tool is allowed.
 //
 // The guard fails closed: input it cannot read, a folder it cannot resolve, or an error of its own is
@@ -55,10 +57,14 @@ const GH_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-R', '--repo', '--hostna
 /** Words before the command itself: shell keywords and commands that run the next word. */
 const LEADING_WORDS: ReadonlySet<string> = new Set([
   'sudo', 'env', 'command', 'builtin', 'exec', 'nohup', 'time', 'nice', 'timeout', 'xargs', 'npx', 'corepack',
-  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!',
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', '}',
 ])
-/** Everything that ends one simple command, and quotes: a quoted `bash -c "git commit"` is judged as a command too. */
-const COMMAND_BREAK = /\$\(|[;&|\n\r()`'"<>{}]/
+/** Shells whose `-c` (PowerShell: `-Command`, cmd: `/c`) runs the next word as a command. */
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'pwsh', 'powershell', 'cmd'])
+/** Programs that run a script file named by their first word that is not an option. */
+const INTERPRETERS: ReadonlySet<string> = new Set(['node', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'pwsh', 'powershell'])
+/** How deep `bash -c`, `eval`, `$(…)` and backticks are followed; deeper is refused. */
+const MAX_NESTING = 8
 
 const FOLDER_REASON =
   'A Product Session writes files only below its Product Session folder'
@@ -82,7 +88,7 @@ export function productToolDecision(
   try {
     const field = Object.hasOwn(FILE_TOOLS, tool) ? FILE_TOOLS[tool] : undefined
     if (field !== undefined) return fileDecision(fieldOf(input, field), place, platform === 'win32', fsys)
-    if (SHELL_TOOLS.has(tool)) return shellDecision(fieldOf(input, 'command'))
+    if (SHELL_TOOLS.has(tool)) return shellDecision(fieldOf(input, 'command'), tool === 'PowerShell' ? 'powershell' : 'bash')
     return ALLOW
   } catch (error) {
     return refuse(`The Product Session guard could not judge this ${tool} call, so it is refused: ${error instanceof Error ? error.message : String(error)}`)
@@ -193,9 +199,12 @@ function topOf(path: string, win: boolean): string {
 
 // --- Shell commands -------------------------------------------------------------------------
 
-function shellDecision(command: unknown): ProductToolDecision {
+/** How a command line is read: Bash's quoting (Git Bash on Windows too), or PowerShell's. */
+export type Shell = 'bash' | 'powershell'
+
+function shellDecision(command: unknown, shell: Shell): ProductToolDecision {
   if (typeof command !== 'string') return refuse(`${SHELL_REASON} (This call names no command.)`)
-  const refused = refusedCommand(command)
+  const refused = refusedCommand(command, shell)
   return refused === null ? ALLOW : refuse(`\`${refused}\`: ${SHELL_REASON}`)
 }
 
@@ -208,27 +217,160 @@ function programOf(word: string): string {
 /** Whether a word is the Ticket CLI of the Harness, in any form (`…/bin/ticket`, `bin\ticket.mjs`). */
 const isTicketCli = (word: string): boolean => /(^|[\\/])bin[\\/]ticket(\.(mjs|cjs|js|cmd|ps1|sh))?$/i.test(word)
 
+/** Thrown past MAX_NESTING: the command is refused. */
+class TooDeep extends Error {}
+
 /** The first known write command in `command`, as a short name; null when there is none. */
-export function refusedCommand(command: string): string | null {
-  for (const segment of command.split(COMMAND_BREAK)) {
-    const words = segment.split(/\s+/).filter((word) => word !== '')
-    if (words.some(isTicketCli)) return 'bin/ticket'
-    const at = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && !word.startsWith('-') && !/^\d+[smhd]?$/.test(word) && !LEADING_WORDS.has(programOf(word)))
-    if (at < 0) continue
-    const program = programOf(words[at] ?? '')
-    const args = words.slice(at + 1)
-    if (program === 'pnpm' || program === 'npm') return program
-    if (program === 'ticket') return 'bin/ticket'
-    if (program === 'git') {
-      const sub = subcommands(args, GIT_VALUE_OPTIONS, 1)[0]
-      if (sub !== undefined && GIT_WRITES.has(sub)) return `git ${sub}`
-    }
-    if (program === 'gh') {
-      const [group, sub] = subcommands(args, GH_VALUE_OPTIONS, 2)
-      if (group === 'pr' && sub !== undefined && GH_PR_WRITES.has(sub)) return `gh pr ${sub}`
-    }
+export function refusedCommand(command: string, shell: Shell = 'bash'): string | null {
+  try {
+    return refusedIn(command, shell, 0)
+  } catch (error) {
+    if (error instanceof TooDeep) return 'a command nested too deep to read'
+    throw error
+  }
+}
+
+function refusedIn(command: string, shell: Shell, depth: number): string | null {
+  if (depth > MAX_NESTING) throw new TooDeep()
+  const nested: string[] = []
+  for (const words of simpleCommands(command, shell, nested)) {
+    const refused = refusedSimple(words, shell, depth)
+    if (refused !== null) return refused
+  }
+  for (const inner of nested) {
+    const refused = refusedIn(inner, shell, depth + 1)
+    if (refused !== null) return refused
   }
   return null
+}
+
+/** The refusal of one simple command (its words, quotes removed), or null. */
+function refusedSimple(words: readonly string[], shell: Shell, depth: number): string | null {
+  const at = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && !word.startsWith('-') && !/^\d+[smhd]?$/.test(word) && !LEADING_WORDS.has(programOf(word)))
+  if (at < 0) return null
+  const program = programOf(words[at] ?? '')
+  const args = words.slice(at + 1)
+  // `…/bin/ticket`, `bin\\ticket.mjs` and the bare name on PATH all name the program `ticket`.
+  if (program === 'ticket') return 'bin/ticket'
+  if (program === 'pnpm' || program === 'npm') return program
+  if (program === 'git') {
+    const sub = subcommands(args, GIT_VALUE_OPTIONS, 1)[0]
+    if (sub !== undefined && GIT_WRITES.has(sub)) return `git ${sub}`
+  }
+  if (program === 'gh') {
+    const [group, sub] = subcommands(args, GH_VALUE_OPTIONS, 2)
+    if (group === 'pr' && sub !== undefined && GH_PR_WRITES.has(sub)) return `gh pr ${sub}`
+  }
+  if (INTERPRETERS.has(program) && isTicketCli(args.find((arg) => !arg.startsWith('-')) ?? '')) return 'bin/ticket'
+  if (program === 'eval' || program === 'invoke-expression' || program === 'iex') return refusedIn(args.join(' '), shell, depth + 1)
+  if (SHELLS.has(program)) {
+    const flag = args.findIndex((arg) => /^(-c|-command|\/c)$/i.test(arg))
+    const script = flag < 0 ? undefined : args[flag + 1]
+    if (script !== undefined) return refusedIn(script, program === 'pwsh' || program === 'powershell' ? 'powershell' : 'bash', depth + 1)
+  }
+  return null
+}
+
+/**
+ * The simple commands of `text` as the shell splits them, each the list of its words with the quotes
+ * removed: `;`, `&`, `|`, `(`, `)` and line ends outside quotes end a command; quotes and escapes join a
+ * word (Bash: `\` escapes the next character and a backslash-newline is no break; PowerShell: the
+ * backtick does, and `\` is a path separator). The text of each `$(…)` in double quotes and of each
+ * backtick substitution goes into `nested`, to be read as commands of its own; outside quotes `(` and `)`
+ * already end a command. A quote left open runs to the end of the text.
+ */
+function simpleCommands(text: string, shell: Shell, nested: string[]): string[][] {
+  const escape = shell === 'bash' ? '\\' : '`'
+  const out: string[][] = []
+  let words: string[] = []
+  let word = ''
+  let inWord = false
+  const endWord = (): void => {
+    if (inWord) words.push(word)
+    word = ''
+    inWord = false
+  }
+  const endCommand = (): void => {
+    endWord()
+    if (words.length > 0) out.push(words)
+    words = []
+  }
+  /** Reads `$(…)` whose `$` is at `i`; returns the index of its `)`. */
+  const substitution = (i: number): number => {
+    const end = closingParen(text, i + 2)
+    nested.push(text.slice(i + 2, end))
+    inWord = true
+    return end
+  }
+  /** Reads a backtick substitution (Bash) whose first backtick is at `i`; returns the index of the second. */
+  const backtick = (i: number): number => {
+    const found = text.indexOf('`', i + 1)
+    const end = found < 0 ? text.length : found
+    nested.push(text.slice(i + 1, end))
+    inWord = true
+    return end
+  }
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i] ?? ''
+    if (c === escape) {
+      // An escaped line end joins the lines; any other character is taken as it is.
+      const next = text[i + 1]
+      i++
+      if (next === '\r' && text[i + 1] === '\n') i++
+      else if (next !== undefined && next !== '\n') {
+        word += next
+        inWord = true
+      }
+    } else if (c === "'") {
+      const found = text.indexOf("'", i + 1)
+      const end = found < 0 ? text.length : found
+      word += text.slice(i + 1, end)
+      inWord = true
+      i = end
+    } else if (c === '"') {
+      inWord = true
+      for (i++; i < text.length && text[i] !== '"'; i++) {
+        const d = text[i] ?? ''
+        if (d === escape && i + 1 < text.length) {
+          const next = text[++i] ?? ''
+          // Bash keeps the backslash in double quotes before anything but $ ` " \ and a line end.
+          if (shell === 'bash' && !'$`"\\\n'.includes(next)) word += d
+          if (next !== '\n') word += next
+        } else if (d === '$' && text[i + 1] === '(') i = substitution(i)
+        else if (d === '`' && shell === 'bash') i = backtick(i)
+        else word += d
+      }
+    } else if (c === '`' && shell === 'bash') {
+      i = backtick(i)
+    } else if (c === '#' && !inWord) {
+      while (i + 1 < text.length && text[i + 1] !== '\n') i++
+    } else if (';&|()\n\r'.includes(c)) {
+      endCommand()
+    } else if (' \t<>'.includes(c)) {
+      endWord()
+    } else {
+      word += c
+      inWord = true
+    }
+  }
+  endCommand()
+  return out
+}
+
+/** The index of the `)` that closes a `$(` whose text starts at `from`, quotes skipped; the text's end when there is none. */
+function closingParen(text: string, from: number): number {
+  let depth = 1
+  for (let i = from; i < text.length; i++) {
+    const c = text[i]
+    if (c === '\\') i++
+    else if (c === "'" || c === '"') {
+      const end = text.indexOf(c, i + 1)
+      if (end < 0) return text.length
+      i = end
+    } else if (c === '(') depth++
+    else if (c === ')' && --depth === 0) return i
+  }
+  return text.length
 }
 
 /** The first `count` words of `args` that are not options, skipping the value of an option in `valued`. */

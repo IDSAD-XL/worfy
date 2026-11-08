@@ -98,3 +98,8 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
 - Сначала падающий: новые test-ы на исходниках `main` (439fdd62a) — 14 failed, `product-guard.test.ts` не
   загружается (модуля нет); среди них PreToolUse Product Session на `Write src/a.ts` отвечал без deny.
 - Mutation testing: 45 mutant-ов (каждое правило отказа, путь fail closed, проводка `kind`) — все убиты (exit 1).
+- Ревью PR #1626, раунд 1: команда Bash читается как её читает shell — слова в кавычках, backslash-newline,
+  `$(…)` в кавычках, backtick-и, `bash -c`, `eval` (`git -C "a b" commit` — отказ, `grep "pnpm"` — можно);
+  PowerShell — своими правилами кавычек. `layoutProductFolder` проверен contract test-ом (Full, Silent, failed,
+  ошибка). У `autopilot_start` Product Session — свой текст отказа. Test на Eco mode. Mutation testing: 59 mutant-ов —
+  все убиты.

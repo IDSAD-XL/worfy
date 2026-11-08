@@ -122,10 +122,15 @@ export interface CanvasContext {
   sessionId: () => string | null
   /** Starts Autopilot once a person confirms it (autopilot_start); without it the tool refuses. */
   autopilotStart?: AutopilotStarter
+  /** The calling Session is a Product Session (worfy-product-session ticket 02): autopilot_start refuses with PRODUCT_AUTOPILOT_MESSAGE. */
+  product?: boolean
 }
 
 /** What autopilot_start answers where nothing can start Autopilot. */
 export const NO_AUTOPILOT_MESSAGE = 'Autopilot cannot be started from this Session.'
+/** What autopilot_start answers a Product Session, which never starts Autopilot. */
+export const PRODUCT_AUTOPILOT_MESSAGE =
+  'A Product Session does not start Autopilot: it advises and drafts Epics. Ask the Orchestrator of the Project to run the Epic.'
 
 export interface ToolResult {
   [key: string]: unknown
@@ -293,6 +298,7 @@ function handlers(context: CanvasContext): Handlers {
     },
 
     autopilot_start: async (args) => {
+      if (context.product === true) throw new ToolError(PRODUCT_AUTOPILOT_MESSAGE)
       if (context.autopilotStart === undefined) throw new ToolError(NO_AUTOPILOT_MESSAGE)
       let target: AutopilotStartTarget
       try {
@@ -529,8 +535,9 @@ async function sessionCanvas(request: CanvasRequest, deps: CanvasDeps): Promise<
     layout: deps.layout,
     workflow: () => deps.workflow(project.path),
     sessionId: () => sessionId,
-    // A Product Session never starts Autopilot: without the starter the tool refuses (NO_AUTOPILOT_MESSAGE).
+    // A Product Session never starts Autopilot: it gets no starter, and the tool refuses (PRODUCT_AUTOPILOT_MESSAGE).
     ...(deps.autopilotStart === undefined || request.kind === 'product' ? {} : { autopilotStart: deps.autopilotStart }),
+    ...(request.kind === 'product' ? { product: true } : {}),
   })
   return {
     projectId: project.id,

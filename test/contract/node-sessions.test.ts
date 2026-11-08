@@ -19,6 +19,7 @@ import { PRODUCT_MODEL_MESSAGE, SessionSettingsStore } from '../../src/main/agen
 import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
 import { familyLinksOf, familyOf } from '../../src/renderer/canvas/family'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
+import { PLAN_PRESETS } from '../../src/shared/agent/plan-preset'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
@@ -537,6 +538,21 @@ describe('the kind of a Session (worfy-product-session ticket 01)', () => {
 // worfy-product-session ticket 02: the kind reaches the driver's request, the model is the strongest and
 // cannot be changed, whatever the Node saved (Eco mode sets only the Profile's Subagent roles).
 describe('the limits of a Product Session on its Node (worfy-product-session ticket 02)', () => {
+  it('stays on opus at the highest effort with Eco mode on: the eco set names only Subagent roles, and a Node saved on its model is overridden', async () => {
+    const eco = PLAN_PRESETS.pro?.profile
+    if (eco === undefined) throw new Error('no Pro preset: no eco set')
+    expect(eco['workflow.agents']).toBe('eco')
+    // Eco mode writes the Profile's Subagent roles; a Product Session takes nothing from them, even a Node saved on the eco model.
+    const { model, effort } = eco.agents.implementer
+    savedLayout([{ id: 'product-eco', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product' } }])
+    const h = harness()
+    h.settings.write(PROJECT, 'product-eco', { model, effort, permissionMode: 'bypassPermissions' })
+    await h.sessions.start(PROJECT, 'product-eco')
+    await h.until('product-eco', 'idle')
+    expect(model).not.toBe('opus')
+    expect(h.requests).toMatchObject([{ kind: 'product', settings: { model: 'opus', effort: 'max' } }])
+  })
+
   it('reaches Claude Code with kind product, on opus at the highest effort, over the picks the Node saved', async () => {
     savedLayout([{ id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product' } }])
     const h = harness()

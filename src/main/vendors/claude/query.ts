@@ -26,7 +26,7 @@ import { browserForSession, type BrowserResolver, type BrowserSession } from '..
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome } from '../../storage/paths'
-import { projectLayouts } from '../../workflow/folder'
+import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readSkillsAllowlist } from '../../workflow/profile'
 import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer } from './options'
 
@@ -99,13 +99,19 @@ const appAutoCompactWindow: AutoCompactWindowReader = (orchestrator) => {
  */
 export type ProductFolderResolver = (cwd: string) => Promise<string | null>
 
+/** Where the layout of a Project comes from: projectLayouts() of src/main/workflow/folder.ts, or a test's. */
+export interface ProjectLayouts {
+  get(root: string): Promise<ProjectLayout>
+}
+
 /**
  * The folder by the Project's layout (`bin/profile`: Full or Silent mode). A layout the Harness did not
  * answer is the Full-mode fallback, which may be wrong for a Silent-mode Project: no folder then.
+ * `layouts`: the app's cache by default.
  */
-const layoutProductFolder: ProductFolderResolver = async (cwd) => {
+export const layoutProductFolder = async (cwd: string, layouts: () => ProjectLayouts = projectLayouts): Promise<string | null> => {
   try {
-    const layout = await projectLayouts().get(cwd)
+    const layout = await layouts().get(cwd)
     return layout.failed ? null : productFolder(layout)
   } catch (error) {
     console.warn(`[agent] no Product Session folder for ${cwd}: the Session writes no file`, error)
@@ -160,7 +166,7 @@ export function sdkQueryFactory(
     loadSdk = importSdk,
     browser = browserForSession,
     skills = profileSkills,
-    productFolder: productFolderOf = layoutProductFolder,
+    productFolder: productFolderOf = (cwd) => layoutProductFolder(cwd),
   }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {

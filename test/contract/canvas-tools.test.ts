@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -14,6 +14,7 @@ import { layoutSchema, type Layout, type LayoutNode, type LayoutOpInput, type La
 import type { LayoutStore } from '../../src/main/layout/store'
 import type { CanvasContext, CanvasDeps, CanvasWorkflow, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { QueryRequest } from '../../src/main/agent/session'
+import type { ProjectLayout } from '../../src/main/workflow/folder'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
@@ -881,8 +882,12 @@ describe('canvas in a Session', () => {
     if (product === null) throw new Error('no canvas for the Project root')
     const refused = await (await connectTo(product.attachment.server as ServerConfig)).call('autopilot_start', { epic: 'worfy-mvp' })
     expect(refused.isError).toBe(true)
-    expect(textOf(refused)).toBe(server.NO_AUTOPILOT_MESSAGE)
+    expect(textOf(refused)).toBe(server.PRODUCT_AUTOPILOT_MESSAGE)
     expect(autopilotStart).not.toHaveBeenCalled()
+    // Without a starter in the deps too: the Product Session's own refusal.
+    const bare = await server.canvasForSession({ cwd: repo, resume: 'session-a', kind: 'product' }, deps())
+    if (bare === null) throw new Error('no canvas for the Project root')
+    expect(textOf(await (await connectTo(bare.attachment.server as ServerConfig)).call('autopilot_start', { epic: 'worfy-mvp' }))).toBe(server.PRODUCT_AUTOPILOT_MESSAGE)
 
     // A plain Session over the same deps still gets it, as before.
     const plain = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, { ...deps(), autopilotStart })
@@ -931,6 +936,23 @@ describe('canvas in a Session', () => {
     const options = sdkOptions() as { hooks: { PreToolUse: { hooks: ((input: unknown, id: string, extra: unknown) => Promise<unknown>)[] }[] } }
     const answer = await options.hooks.PreToolUse[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Write', tool_input: { file_path: join(repo, 'docs', 'product', 'x.md') }, tool_use_id: 't' }, 't', { signal: new AbortController().signal })
     expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } })
+  })
+
+  it('the default Product Session folder comes from the Project layout: Full mode docs/product, Silent mode the Workflow folder, none for a failed or thrown layout (worfy-product-session ticket 02)', async () => {
+    const { layoutProductFolder } = await import('../../src/main/vendors/claude/query')
+    const { failedLayout, fullLayout } = await import('../../src/main/workflow/folder')
+    const workflow = join(scratch, 'workflow-of-demo')
+    const layouts = (layout: () => Promise<ProjectLayout>) => () => ({ get: layout })
+    expect(await layoutProductFolder(repo, layouts(() => Promise.resolve(fullLayout(repo))))).toBe(join(resolve(repo), 'docs', 'product'))
+    expect(await layoutProductFolder(repo, layouts(() => Promise.resolve({ ...fullLayout(repo), mode: 'silent', workflowFolder: workflow })))).toBe(join(workflow, 'product'))
+    // The Full-mode fallback of a failed profile call could be a Silent-mode Project's repository: no folder, every write refused.
+    expect(await layoutProductFolder(repo, layouts(() => Promise.resolve(failedLayout(repo, 'profile exited 1'))))).toBeNull()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    expect(await layoutProductFolder(repo, layouts(() => Promise.reject(new Error('no profile'))))).toBeNull()
+    expect(await layoutProductFolder(repo, () => {
+      throw new Error('no cache')
+    })).toBeNull()
+    warn.mockRestore()
   })
 
   /** The Project id a Session in `cwd` gets its canvas for, or null for none. */
