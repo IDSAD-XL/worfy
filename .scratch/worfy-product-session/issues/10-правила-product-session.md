@@ -1,9 +1,8 @@
 # 10 — Правила Product Session и выбор набора правил по виду Session
 
 Type: task
-Status: blocked 2026-11-07T20:19Z
-Blocked reason: ждёт Epic worfy-skills целиком (spec.md, «Волны»)
-Waits: agent
+Status: done 2026-11-08T08:02Z
+PR: #1650
 Blocked by: 02
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 1–4, 8, 11; «Как работает» → «Harness»; «Вопросы владельцу», Q3–Q7; «Риски», п. 1; карта [worfy-product](../../worfy-product/map.md), «Not yet specified» (содержание правил Product Session); research [product-session-основа](../../../docs/research/2026-11-07-product-session-основа.md), раздел 2.1
 
@@ -55,21 +54,28 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
       как раньше (`orchestrator` + `common`), `product` печатает пусто.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · de61b05b406272207ca1eeb5ec64b3f24a8d62b7
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] `product.md` называет «сохранить» → `product_save` и запрет git (проверка текста в `rules-hooks.test.sh`).
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · de61b05b406272207ca1eeb5ec64b3f24a8d62b7
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] Test: `product.md` ≤ 10000 символов и с длинным корнем plugin-а (`rules-hooks.test.sh`).
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · de61b05b406272207ca1eeb5ec64b3f24a8d62b7
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] Test: hook `SessionStart` видит переменную `env` Session — или «Итог» называет запасной путь и он сделан.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · de61b05b406272207ca1eeb5ec64b3f24a8d62b7
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0 на Mac.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · de61b05b406272207ca1eeb5ec64b3f24a8d62b7
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] Тот же test на Windows (Git Bash) — exit 0.
   - needs: windows
+  - evidence: review pass · PR #1650 · - - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42453856485/job/128651728704 · ci - · 80b4ae17d51e897a50ef1d55292e432ee676e372
 
 ## Тесты
 
