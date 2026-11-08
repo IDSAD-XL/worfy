@@ -7,7 +7,7 @@
 ## Canvas
 
 **Project**:
-Папка одной работы пользователя, над которой идёт workflow — Epic-и, Ticket-ы, HANDOFF, ADR. Это сам git-репозиторий (например, Auction) или папка над несколькими репозиториями (например, Atakama). Файлы workflow лежат в Workflow folder Project-а. У каждого Project ровно один Canvas.
+Папка одной работы пользователя, над которой идёт workflow — Epic-и, Ticket-ы, HANDOFF, ADR. Это сам git-репозиторий (например, worfy) или папка над несколькими репозиториями (например, клиент, сервер и общая библиотека одного продукта). Файлы workflow лежат в Workflow folder Project-а. У каждого Project ровно один Canvas.
 _Avoid_: проект, space, workspace, пространство, репозиторий (как синоним Project)
 
 **Canvas**:

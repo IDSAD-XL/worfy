@@ -8,7 +8,7 @@ implementer до PR, и красный CI, и ревью агентом, и ож
 (решение владельца 2026-10-17, grilling о Pipeline; Epic `worfy-pipeline`).
 
 Порядок шагов у Project-ов разный. У worfy — CI, ревью агентом, вердикт Windows (ADR-0056, пункт 2),
-gate и мерж агентом, выкатка в Stable copy. У Project-а Atakama в Silent mode ревью агентом идёт до
+gate и мерж агентом, выкатка в Stable copy. У рабочего проекта владельца в Silent mode ревью агентом идёт до
 PR, потому что открытый PR передаёт работу людям, а мержат люди. Значит, список Stage — свой у
 каждого Project-а (CONTEXT.md, термин Pipeline).
 
@@ -98,3 +98,7 @@ Harness ждёт вердикта Windows: отметкой `check/windows` на
 - **Каталог Stage в Profile, отметки — commit status в Full mode и локальный JSON в Silent mode
   (выбрано).** Предикаты проверены test-ами, отметки привязаны к SHA, Silent mode не оставляет
   следа.
+
+## Amendments
+
+- 2026-11-08: личные имена заменены нейтральными словами (Epic worfy-scrub), смысл не менялся.

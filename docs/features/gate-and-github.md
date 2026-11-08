@@ -558,7 +558,7 @@ the disk runs low.
 #### Windows
 
 Paths are compared with either separator and without regard to letter case, and the worktree tag is taken from git's spelling
-(`C:/Users/x/worfy`). To place a Gate call in a transcript, a quoted `cd` to `C:\…`, a `cd` to `C:/…`, a UNC path in quotes or Git Bash's `/c/…` is understood.
+(`C:/Users/someone/worfy`). To place a Gate call in a transcript, a quoted `cd` to `C:\…`, a `cd` to `C:/…`, a UNC path in quotes or Git Bash's `/c/…` is understood.
 
 ### Implementation
 

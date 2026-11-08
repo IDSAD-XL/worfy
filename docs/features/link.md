@@ -12,7 +12,7 @@ A Machine is one worfy data folder, not one computer. A dev build and the Stable
 folders, so they are two Machines and can be linked to each other.
 
 **Identity.** The first start over a data folder creates the Machine: an id, a name, a private key and a certificate.
-The folder keeps them. The name is the computer's name without its domain, for example `Alexeys-MacBook-Pro`. An
+The folder keeps them. The name is the computer's name without its domain, for example `someones-mac`. An
 unpacked build adds ` (dev)`, because otherwise the two Machines on one Mac would show the same name. A narrow row
 cuts the name itself and keeps `(dev)` visible. The interface has no action that renames a Machine, and a later rename
 of the computer does not change the stored name.
