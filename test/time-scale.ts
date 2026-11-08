@@ -1,6 +1,8 @@
 // The multiplier of every time limit of the test run: vitest.config.ts, playwright.config.ts,
 // playwright.acceptance.config.ts and each limit a test sets for itself (through ms below).
 // test/contract/test-timeout-scale.test.ts fails on a literal limit that bypasses ms.
+// A wait for a condition that names no timeout — vi.waitFor, vi.waitUntil, expect.poll, Testing
+// Library's waitFor and findBy* — waits 1 s times the multiplier too (test/scaled-waits.ts).
 
 /**
  * The multiplier when WORFY_TEST_TIMEOUT_SCALE is unset: one value on every machine and platform,

@@ -3,7 +3,8 @@
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { scaledTimeoutOf, WAIT_DEFAULT_TIMEOUT } from '../scaled-waits'
 import { DEFAULT_TIMEOUT_SCALE, ms, readTimeoutScale, timeScale } from '../time-scale'
 import { unscaledLimits } from '../timeout-literals'
 
@@ -41,6 +42,12 @@ describe('the multiplier of the time limits of a test run', () => {
   it('ms multiplies a limit by the run\'s multiplier, rounded to whole milliseconds', () => {
     expect(ms(1_000)).toBe(Math.round(1_000 * timeScale))
     expect(timeScale).toBe(readTimeoutScale(process.env.WORFY_TEST_TIMEOUT_SCALE))
+  })
+
+  it('a wait for a condition without a timeout of its own waits 1 s times the multiplier in a contract test too', () => {
+    // test/setup-waits.ts comes before the contract project's own setup file (worfy-polish 70).
+    expect(scaledTimeoutOf(vi.waitFor)).toBe(ms(WAIT_DEFAULT_TIMEOUT))
+    expect(scaledTimeoutOf(vi.waitUntil)).toBe(ms(WAIT_DEFAULT_TIMEOUT))
   })
 })
 
