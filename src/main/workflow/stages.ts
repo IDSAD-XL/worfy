@@ -140,11 +140,12 @@ export class StageReader {
     }
     if (profile.pipelineReason !== null) problems.push(`the default Pipeline stands in: ${profile.pipelineReason}`)
     if (model?.error) problems.push(`the workflow model is empty: ${model.error.message}`)
-    const branchErrors = model?.branchErrors ?? []
-    for (const { branch, message } of branchErrors.slice(0, BRANCH_ERRORS_SHOWN)) {
-      problems.push(`the branch ${branch} could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): ${message}`)
+    // Worktree branches whose `epic-status --ref` failed (the reader); not the gh look-ups of PRs below.
+    const unreadBranches = model?.branchErrors ?? []
+    for (const { branch, message } of unreadBranches.slice(0, BRANCH_ERRORS_SHOWN)) {
+      problems.push(`the worktree branch ${branch} could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): ${message}`)
     }
-    if (branchErrors.length > BRANCH_ERRORS_SHOWN) problems.push(`${branchErrors.length - BRANCH_ERRORS_SHOWN} more branches could not be read`)
+    if (unreadBranches.length > BRANCH_ERRORS_SHOWN) problems.push(`${unreadBranches.length - BRANCH_ERRORS_SHOWN} more worktree branches could not be read`)
     const pipeline = profile.pipeline
     const tickets = model?.tickets ?? []
 

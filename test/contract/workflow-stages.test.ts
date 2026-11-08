@@ -489,14 +489,14 @@ describe('where gh and git run', () => {
     mkdirSync(root)
     const model = { ...claimedModel(root), branchErrors: [{ branch: 'demo/03', message: 'epic-status timed out' }] }
     const snapshot = await readerWithoutProfile([]).read(root, model)
-    expect(snapshot.error).toContain('the branch demo/03 could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): epic-status timed out')
+    expect(snapshot.error).toContain('the worktree branch demo/03 could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): epic-status timed out')
 
     // Many failing branches: the first few by name, the rest counted, so the notice stays short.
     const many = { ...claimedModel(root), branchErrors: [1, 2, 3, 4, 5].map((num) => ({ branch: `demo/0${num}`, message: 'boom' })) }
     const bounded = (await readerWithoutProfile([]).read(root, many)).error ?? ''
     expect(BRANCH_ERRORS_SHOWN).toBe(3)
-    expect(bounded.match(/the branch demo\/0\d could not be read/g)).toEqual(['the branch demo/01 could not be read', 'the branch demo/02 could not be read', 'the branch demo/03 could not be read'])
-    expect(bounded).toContain('2 more branches could not be read')
+    expect(bounded.match(/the worktree branch demo\/0\d could not be read/g)).toEqual(['the worktree branch demo/01 could not be read', 'the worktree branch demo/02 could not be read', 'the worktree branch demo/03 could not be read'])
+    expect(bounded).toContain('2 more worktree branches could not be read')
   })
 
   it('a Profile that could not be read and a root in a git repository: gh runs in the root, as before', async () => {
