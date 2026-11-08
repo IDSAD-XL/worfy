@@ -1,7 +1,8 @@
 # 72 — Test-ы для выживших mutant-ов: pairing, origin wall, Wave и CI
 
 Type: task
-Status: claimed
+Status: done 2026-11-08T04:38Z
+PR: #1643
 Blocked by: —
 Source: аудит mutation testing 2026-11-08, второй прогон (находки M1–M5 уровня medium). Строки перечитаны по main `f306a7e1c`.
 
@@ -52,6 +53,7 @@ Source: аудит mutation testing 2026-11-08, второй прогон (на�
 - [ ] Все unit и contract test-ы link pairing, browser tools, waves и github prs, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0; 51 unit and contract test files of link pairing, browser, waves and github prs exit 0 · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42445388753/job/128624697979 · ci - · b52c527be2c9ee689c02fa5d3368a748d731777c
 
 ## Где в коде
 
