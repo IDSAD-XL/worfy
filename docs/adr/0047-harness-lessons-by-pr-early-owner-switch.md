@@ -52,8 +52,8 @@ E3 и когда машина владельца переходит со ста�
 5. **Что переносится.**
    - В plugin: общие правила `CLAUDE.md`; agents implementer, reviewer, scout; семь skills
      (epic-wave, ship-ticket, retro, qmd, overnight-fix-loop, continuous-audit, tickets-to-tasks);
-     `bin/`, кроме личных скриптов владельца (`telegram-mcp`, `auction-staging-db-mcp`,
-     `agent-time-split`); `hooks/`.
+     `bin/`, кроме личных скриптов владельца (`telegram-mcp`, MCP-сервер базы
+     данных staging другого проекта владельца и скрипт учёта времени агентов); `hooks/`.
    - Из конфигурации пользователя убираются записи hooks в `~/.claude/settings.json`, которые ведут
      в эти файлы, и запись qmd в `~/.claude.json`: MCP-сервер qmd теперь регистрирует plugin, и
      вторая запись запустила бы второй qmd (ADR-0043).
@@ -136,3 +136,5 @@ E3 и когда машина владельца переходит со ста�
 - 2026-11-08 — пункт 5: plugin `worfy` больше не объявляет зависимость `mattpocock-skills`, её skills взяты копией
   внутрь plugin-а, а свой `retro` Harness-а заменён `retro` Matt Pocock (Epic `worfy-skills`, решение владельца
   2026-11-07). Подробно — поправка [ADR-0059](0059-installer-installs-plugin-dependencies.md#amendments).
+
+- 2026-11-08: личные имена заменены нейтральными словами (Epic worfy-scrub), смысл не менялся.

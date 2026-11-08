@@ -7,17 +7,17 @@ Domain vocabulary (use exactly these words in UI): Project, Canvas, Node, Card, 
 
 ## Shared content (identical in every direction — so they compare fairly)
 
-Window: macOS window with traffic lights, title "worfy — auction".
+Window: macOS window with traffic lights, title "worfy — acme".
 
-Sidebar: Projects — auction (active), worfy, atakama. Under auction: Epics list — `audit-2026-09-19` (7/12 done, 1 working), `lot-withdrawal` (done), `payments-v2` (3/9). Sessions: 3 live. ADR (120). Bottom: Settings.
+Sidebar: Projects — acme (active), worfy, globex. Under acme: Epics list — `audit-2026-09-19` (7/12 done, 1 working), `lot-withdrawal` (done), `payments-v2` (3/9). Sessions: 3 live. ADR (120). Bottom: Settings.
 
-Top bar: project "auction" · branch `main` · Limits: 5-hour 62% (resets 14:20), 7-day 38% (resets Thu 09:00) · Gate: green · "⌘K" command palette hint · primary action "Run wave".
+Top bar: project "acme" · branch `main` · Limits: 5-hour 62% (resets 14:20), 7-day 38% (resets Thu 09:00) · Gate: green · "⌘K" command palette hint · primary action "Run wave".
 
 ### Screen 1 — Canvas (file `<X>-canvas.dc.html`)
 Canvas viewport (dotted or plain ground, zoom 85%, minimap bottom-right) containing:
-1. **Epic frame** "audit-2026-09-19 — Auction audit fixes", progress 7/12. Tickets laid out in columns by dependency level:
+1. **Epic frame** "audit-2026-09-19 — Acme audit fixes", progress 7/12. Tickets laid out in columns by dependency level:
    - Done (collapsed stack): "5 done" — 01, 02, 03, 04, 05.
-   - Wave 2 (ready, highlighted as "Ready wave · 3"): 07 "Rate-limit the bid endpoint" (open, Ship ticket button), 08 "Audit log for admin actions" (open, review VERIFIED on PR #409, CI green), 11 "Stale lot cache after auction close" (open).
+   - Wave 2 (ready, highlighted as "Ready wave · 3"): 07 "Rate-limit the bid endpoint" (open, Ship ticket button), 08 "Audit log for admin actions" (open, review VERIFIED on PR #409, CI green), 11 "Stale lot cache after sale close" (open).
    - In progress: 09 "Race in bid placement: unhandled rejection" (claimed — bound to subagent impl-09, PR #412, CI running, gate —), 06 "Withdraw-lot button for moderators" (done → shown done).
    - Blocked: 12 "Idempotent payment webhook" — blocked: "needs Stripe test keys from owner". Blocked by 09.
    - Dependency arrows: 09 → 12, 07 → 10 (10 "Bid throttling metrics", open, waiting).
@@ -26,15 +26,15 @@ Canvas viewport (dotted or plain ground, zoom 85%, minimap bottom-right) contain
    — Сейчас: impl-09 чинит гонку в ставках, PR #412 ждёт CI
    — Дальше: verify-09, затем волна 3
    — Жду: ничего
-   Its subagent children connected by lines: `impl-09` (auction-implementer · sonnet · running 6m · bound to 09), `verify-08` (auction-reviewer · VERIFIED · done), `scout` (auction-scout · done, collapsed).
-3. **External session node** "terminal · ~/Stuff/auction" read-only badge, idle, bound to epic payments-v2.
+   Its subagent children connected by lines: `impl-09` (acme-implementer · sonnet · running 6m · bound to 09), `verify-08` (acme-reviewer · VERIFIED · done), `scout` (acme-scout · done, collapsed).
+3. **External session node** "terminal · ~/Stuff/acme" read-only badge, idle, bound to epic payments-v2.
 4. **HANDOFF node** — rendered markdown: "Сейчас в работе", "Дальше", "Ждёт владельца" (1 item: Stripe test keys), "Риски и долги".
 5. **Card node** "Epic burndown" — an agent-made mini dashboard (simple bar/line chart drawn with divs or inline SVG, 12 → 5 remaining over 6 days).
 6. **Terminal node** small, showing `$ pnpm test --filter bids` with a few lines and exit 0.
 
 ### Screen 2 — Session (file `<X>-session.dc.html`)
 Focused view of the Orchestrator session (canvas dimmed/hidden behind or full-window panel):
-- Header: "Orchestrator · auction", status busy, model "Opus 5.5", effort "high", permissions "bypass", cost this session "$4.12", Interrupt button.
+- Header: "Orchestrator · acme", status busy, model "Opus 5.5", effort "high", permissions "bypass", cost this session "$4.12", Interrupt button.
 - Transcript: user message (Russian) "прогони волну 2 эпика audit-2026-09-19"; assistant text; collapsed tool calls (`Bash epic-status --json` ✓, `Read spec.md`); subagent launch rows (impl-07, impl-08, impl-11 launched → status); a hook result row "Stop hook · gate fast · зелено (12 tests)"; a task-notification row "verify-08 finished · VERIFIED".
 - A **permission request** card inline: Bash `git push origin fix/09-bid-race` — buttons Allow / Always allow / Deny.
 - Composer at bottom: text "/ship" with slash autocomplete open listing `/ship-ticket`, `/epic-wave`, `/retro`, `/qmd`; attachment button; a queued message chip "1 queued".

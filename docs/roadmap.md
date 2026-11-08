@@ -54,7 +54,7 @@ Ticket-ы — в [.scratch/worfy-daily/](../.scratch/worfy-daily/spec.md).
 [docs/adr/](adr/).
 
 **Цель.** worfy версии X ставит и обновляет Harness версии X. Project подключается к worfy без
-ручной правки `~/.claude` — в Full mode, как worfy и Auction, или в Silent mode, когда в
+ручной правки `~/.claude` — в Full mode, как worfy и другой проект владельца, или в Silent mode, когда в
 репозитории не должно остаться следов workflow.
 
 **Готово, когда** (песочница — отдельные `HOME` и `CLAUDE_CONFIG_DIR` во временной папке):
@@ -65,8 +65,8 @@ Ticket-ы — в [.scratch/worfy-daily/](../.scratch/worfy-daily/spec.md).
    репозитории нет файлов workflow, а в ветках, коммитах и PR — номеров Ticket-ов.
 3. На машине владельца в `~/.claude` осталось только личное. Одна Wave в Autopilot прошла на plugin
    без человека.
-4. Auction остаётся в Full mode: его Profile перенесён, worfy показывает его Epic-и. Проверка только
-   на чтение: писать в `/Users/alexey/Work/*` нельзя.
+4. Другой проект владельца остаётся в Full mode: его Profile перенесён, worfy показывает его Epic-и.
+   Проверка только на чтение: писать в `~/Work/*` нельзя.
 5. Ручной прогон под вторым пользователем macOS — шаг владельца.
 
 **Решения.** ADR 0018, 0019 и 0021 остаются в силе. ADR-0020 (Profile из двух частей, общая часть —
@@ -401,7 +401,7 @@ Mind map — [CONTEXT.md](../CONTEXT.md).
    отдельный вид Session, который не меняет код; Mind map — живая схема разговора; агент-критик перед приёмкой spec
    нового Epic-а (Keep, Reorder, Split или Defer, до трёх возражений с фактами); 3–5 идей по просьбе; доля принятых
    советов как мерка пользы. Wave-ы вида Session, Mind map и экрана стартуют сразу; Wave-ы Harness — после
-   `worfy-skills`. Pilot — сначала на этом roadmap, потом на проекте auction.
+   `worfy-skills`. Pilot — сначала на этом roadmap, потом на другом проекте владельца.
 3. Второй Epic — обзор рынка с поиском в сети: кто уже так делает, цены, отзывы, жалобы пользователей из issues
    GitHub. Spec — после pilot-а первого Epic-а.
 4. [`worfy-human-review`](../.scratch/worfy-human-review/map.md) — черновик ревью голосом команды проекта по истории
@@ -432,7 +432,7 @@ machines — это Machine-ы одного пользователя; общег
 **Готово, когда:**
 
 - `worfy-product-session` закрыт: Product Session с Mind map, критиком, идеями и долей принятых работает на Mac;
-- pilot на roadmap worfy и на auction прошли, доля принятых советов записана;
+- pilot на roadmap worfy и на другом проекте владельца прошли, доля принятых советов записана;
 - spec второго Epic-а (обзор рынка) принят владельцем.
 
 **Не в направлении:** аналитика продукта — у worfy её нет, и советник говорит вслух, что не знает, какой функцией
