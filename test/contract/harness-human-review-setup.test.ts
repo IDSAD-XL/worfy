@@ -1,10 +1,10 @@
-// The generator skill /worfy:human-review-setup (Epic worfy-human-review, ticket 06): the order of its steps read
+// The generator skill /worfy:human-review-setup (Epic worfy-human-review, tickets 06-08): the order of its steps read
 // from the text of harness/skills/human-review-setup/SKILL.md — the script's estimate before any reading of raw/ by
 // the model, an explicit "yes", "no" deletes raw/, the short-history branch writes only meta.json — and the format
 // of research.md that analyse.md describes, run through `review-draft-lint --skill` on a fixture built from it.
 // No model runs and nothing reads GitHub here; every run of the lint gets a temporary HOME and Harness home.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +26,8 @@ const write = read('write.md')
 const template = read('template/SKILL.template.md')
 const examplesTemplate = read('template/voice-examples.md')
 const lintTemplate = read('template/lint.json')
+// Read softly: before ticket 08 the file does not exist, and each test of it fails on its own line.
+const check = existsSync(join(DIR, 'check.md')) ? read('check.md') : ''
 
 /** The text of the step `## <n>. …` of a skill text, up to the next `## ` heading. */
 function sectionOf(text: string, n: number, name: string): string {
@@ -148,7 +150,7 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(skill).toContain('meta.json')
   })
 
-  it('sends step 4 to analyse.md, step 5 to write.md and the template, and marks step 6 as not available yet', () => {
+  it('sends step 4 to analyse.md, step 5 to write.md and the template, and step 6 to check.md', () => {
     expect(step(4)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/analyse.md')
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/write.md`')
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/template/`')
@@ -157,7 +159,8 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(step(5)).toContain('`<private folder>/.claude/skills/human-review/`')
     for (const [name, text] of [['SKILL.md', skill], ['write.md', write]]) expect(text, name).not.toContain('<project root>/.claude')
     expect(step(5)).not.toMatch(/not available/i)
-    expect(step(6)).toContain('Not available yet: worfy-human-review 08')
+    expect(step(6)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/check.md')
+    expect(step(6)).not.toMatch(/not available/i)
   })
 
   it('in step 7: keep deletes raw/ and records kept_at in meta.json, refuse deletes the private folder', () => {
@@ -171,6 +174,36 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(keep!.indexOf('`meta.json`'), keep).toBeGreaterThan(clean)
     expect(seven).toMatch(/Refuse/)
     expect(seven).toContain('state/human-review')
+  })
+
+  it('in step 7 offers three choices after showing the result of the check', () => {
+    const seven = step(7)
+    const choices = blocks(seven).filter((b) => /^- \*\*(Keep|Build again|Refuse)\*\*/.test(b))
+    expect(choices.map((b) => /^- \*\*([^*]+)\*\*/.exec(b)![1]), seven).toEqual(['Keep', 'Build again', 'Refuse'])
+    // The check comes first: its total line and its pages are what the person decides on.
+    expect(seven).toContain('a rough measure')
+    expect(seven).toContain('check/')
+    expect(seven.indexOf('a rough measure')).toBeLessThan(seven.indexOf('- **Keep**'))
+    // The person's remarks go to step 5 of the next build.
+    const again = choices[1]!
+    expect(again).toMatch(/remarks/)
+    expect(again).toMatch(/step 5/)
+    expect(again).toContain('`[R<n>]`')
+    // The choice lands in meta.json next to the result of the check.
+    expect(seven).toContain('`decision`')
+  })
+
+  it('"Refuse" deletes only the private folder, with one command and a literal path', () => {
+    const seven = step(7)
+    const refuse = blocks(seven).find((b) => b.startsWith('- **Refuse**'))
+    expect(refuse, seven).toBeDefined()
+    const commands = refuse!.match(/`rm [^`]*`/g) ?? []
+    expect(commands, refuse).toEqual(['`rm -rf "<_resolved.dir>/state/human-review"`'])
+    // The whole step has no other rm, no shell variable and no glob in a deletion.
+    expect(seven.match(/\brm\b/g) ?? [], seven).toHaveLength(1)
+    expect(seven).not.toMatch(/rm [^`\n]*(\$|\*)/)
+    expect(refuse).toMatch(/literal path/)
+    expect(refuse).toMatch(/not a shell variable/)
   })
 
   it('says it works in Claude Code sessions only', () => {
@@ -385,6 +418,232 @@ describe('write.md', () => {
   })
 })
 
+describe('check.md', () => {
+  // The text with its line breaks folded, so a phrase may wrap anywhere.
+  const flat = check.replace(/\s+/g, ' ')
+
+  it('says where the plugin root is, on its third line', () => {
+    expect(check.split('\n')[2]).toMatch(/^Plugin root: `<plugin>`/)
+  })
+
+  it('takes the held-out pull requests from meta.json and builds each draft on the commit_id of the first review', () => {
+    expect(flat).toContain('`held_out`')
+    expect(flat).toContain('`commit_id`')
+    expect(flat).toMatch(/the commit the first review of the team saw/)
+    // Files at that commit without touching the working tree: no checkout, no worktree.
+    expect(flat).toContain('git show "<commit_id>:<path>"')
+    expect(flat).toContain('git diff "<base>" "<commit_id>"')
+    // A three-dot diff against the base branch is empty after a merge by a merge commit.
+    expect(flat).not.toContain('...<commit_id>')
+    expect(flat).not.toMatch(/git (checkout|switch|worktree add)/)
+    expect(flat).toMatch(/no checkout and no worktree/)
+    // The head of the pull request today is not the code the reviewer saw.
+    expect(flat).toMatch(/not `gh pr diff`/)
+  })
+
+  it('briefs one Subagent per pull request with the text of the new SKILL.md and voice-examples.md, and keeps the answers from it', () => {
+    expect(flat).toContain('<private folder>/.claude/skills/human-review/SKILL.md')
+    expect(flat).toContain('<private folder>/.claude/skills/human-review/voice-examples.md')
+    expect(flat).toMatch(/One Subagent per pull request/)
+    expect(flat).toMatch(/pasted in full/)
+    // The drafting Subagent never sees what the team said on that pull request.
+    expect(flat).toMatch(/never reads `raw\/`/)
+    expect(flat).toContain('no `gh` command at all')
+  })
+
+  it('keeps the drafting Subagent off the history after commit_id, where the answers to the review lie', () => {
+    const rule = blocks(check).find((b) => b.startsWith('- no history after `commit_id`'))
+    expect(rule, check).toBeDefined()
+    for (const banned of ['no `git log`', '`git log <commit_id>..`', 'no `FETCH_HEAD`', 'no `pull/<n>/head`', 'no `origin/<baseRefName>`'])
+      expect(rule, banned).toContain(banned)
+  })
+
+  it('puts commit_id in place of headRefOid and into payload.commit_id of the draft', () => {
+    expect(flat).toContain('`commit_id`, not `headRefOid`')
+    expect(flat).toContain('`commit_id` stands wherever the skill says `headRefOid`')
+    expect(flat).toContain('`payload.commit_id` set to `commit_id`')
+  })
+
+  it('posts nothing: no gh call with a method that writes, no gh pr review or comment', () => {
+    expect(flat).toMatch(/posts nothing/i)
+    expect(flat).not.toMatch(/--method\s+(POST|PUT|PATCH|DELETE)|-X\s*(POST|PUT|PATCH|DELETE)/)
+    expect(flat).not.toMatch(/gh pr (review|comment)\b/)
+    expect(flat).toMatch(/no `gh api` call at all/)
+  })
+
+  it('pairs comments by file and lines within ±10, sends pairs and general comments to a judge', () => {
+    expect(flat).toMatch(/the same file/)
+    expect(flat).toContain('±10')
+    expect(flat).toMatch(/at most 10 lines apart/)
+    const judge = blocks(check).filter((b) => /judge/i.test(b))
+    expect(judge.some((b) => /candidate pair/.test(b)), judge.join('\n')).toBe(true)
+    expect(judge.some((b) => /general/.test(b) && /no line/.test(b)), judge.join('\n')).toBe(true)
+    // A line pair further apart is never a match, so the judge cannot widen the measure.
+    expect(flat).toMatch(/never a match/)
+  })
+
+  it('matches one to one, so one draft remark never counts for two remarks of the team', () => {
+    expect(flat).toContain('matches one to one')
+    expect(flat).toContain('each remark of the team keeps at most one draft remark and each draft remark at most one of the team')
+  })
+
+  it('places a remark of the team by path and original_line of the first comment on commit_id, never by the thread line', () => {
+    expect(flat).toContain('`original_line`')
+    expect(flat).toContain('its `path` and its `original_line`')
+    expect(flat).toContain("Never the thread's `line`")
+    expect(flat).toContain('whose own `commit_id`, the commit it was written on, is the held-out `commit_id`')
+    expect(flat).toContain("the team's `original_line`, the draft's `line`")
+    // An outdated thread is no general comment for the judge to pair with anything.
+    expect(flat).not.toMatch(/thread whose `line` is empty/)
+  })
+
+  it('counts only the comments on commit_id and lists the later rounds apart', () => {
+    expect(flat).toContain('the body of a review whose `commit_id` is the held-out `commit_id`')
+    expect(flat).toContain('are not in N')
+    expect(flat).toContain('`## Later rounds`')
+    expect(flat).toContain('not paired and not counted')
+    expect(flat).toContain('"later": L')
+  })
+
+  it('marks a check after Build again as run on pull requests the person already saw', () => {
+    expect(flat).toContain('(after the person saw these PRs)')
+    expect(flat).toContain('`seen` is `true`')
+    const again = blocks(step(7)).find((b) => b.startsWith('- **Build again**'))
+    expect(again).toContain('after the person saw these PRs')
+  })
+
+  it('stops a pull request with an empty diff instead of grading an empty draft', () => {
+    expect(check).toContain('git merge-base --is-ancestor "<commit_id>" "<base>"; echo "EXIT=$?"')
+    expect(check).toContain('git diff --quiet "<base>" "<commit_id>"; echo "EXIT=$?"')
+    expect(flat).toContain('this pull request stops here')
+    expect(flat).toContain('the reason "empty diff"')
+    expect(flat).toContain('An empty draft is never graded')
+  })
+
+  it('reports "matched K of N remarks of the team, M extra" per pull request and in total, as a rough measure', () => {
+    expect(flat).toContain('matched K of N remarks of the team, M extra')
+    expect(flat).toContain('a rough measure')
+    expect(flat).toMatch(/per pull request and in total/)
+  })
+
+  it('writes check/<PR>.md with the real comments on the left and the draft on the right, without logins', () => {
+    expect(flat).toContain('<private folder>/check/<PR>.md')
+    expect(flat).toContain("the team's comments on the left and the draft on the right")
+    for (const field of ['tier', 'length', 'link']) expect(flat).toContain(field)
+    expect(flat).toContain('@someone')
+    expect(flat).toMatch(/No login/)
+  })
+
+  it('records the result of the check in meta.json under its own key', () => {
+    expect(flat).toContain('`meta.json`')
+    expect(flat).toContain('`check`')
+    expect(flat).toMatch(/Change only this key/)
+  })
+
+  it('goes on to step 7 even when there is nothing to check', () => {
+    expect(flat).toMatch(/no `held_out`/)
+    expect(flat).toContain('step 7 of SKILL.md')
+  })
+})
+
+describe('the base rule of check.md on a real git history', () => {
+  // The commands are taken from the text of check.md and run, with their placeholders filled, in a made-up repository
+  // where one pull request branched at A, its reviewed commit C changed f.txt, and the base branch moved on to B.
+  const flat = check.replace(/\s+/g, ' ')
+  const command = (re: RegExp): string => {
+    const m = re.exec(flat)
+    expect(m, String(re)).not.toBeNull()
+    return m?.[1] ?? ''
+  }
+  const merged = (): string => command(/`(git merge-base "<mergeCommit>\^1" "<commit_id>")`/)
+  const open = (): string => command(/`(git merge-base "origin\/<baseRefName>" "<commit_id>")`/)
+  const diff = (): string => command(/`(git diff "<base>" "<commit_id>")`/)
+  const guards = (): string[] => [/^(git merge-base --is-ancestor [^;\n]+);/m, /^(git diff --quiet [^;\n]+);/m].map((re) => re.exec(check)?.[1] ?? '')
+
+  const repo = join(root, 'base-rule')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'no-global-git-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '' }
+  const git = (...args: string[]): { status: number | null; out: string } => {
+    const r = spawnSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, env, encoding: 'utf8' })
+    return { status: r.status, out: (r.stdout ?? '').trim() }
+  }
+  const sha = (...args: string[]): string => {
+    const r = git(...args)
+    expect(r.status, args.join(' ')).toBe(0)
+    return r.out
+  }
+  /** Runs a command of check.md: its quoted words are arguments, `<name>` placeholders take the given values. */
+  const run = (cmd: string, values: Record<string, string>): { status: number | null; out: string } => {
+    const words = [...cmd.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!)
+    expect(words[0]).toBe('git')
+    return git(...words.slice(1).map((w) => w.replace(/<[A-Za-z_]+>/g, (k) => values[k] ?? k)))
+  }
+
+  let A = ''
+  let C = ''
+  const heads: Record<string, string> = {}
+  const setUp = (): void => {
+    if (A) return
+    mkdirSync(repo, { recursive: true })
+    sha('init', '-q')
+    writeFileSync(join(repo, 'a.txt'), 'a\n')
+    sha('add', 'a.txt')
+    sha('commit', '-qm', 'A')
+    A = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'feature')
+    writeFileSync(join(repo, 'f.txt'), 'f\n')
+    sha('add', 'f.txt')
+    sha('commit', '-qm', 'C')
+    C = sha('rev-parse', 'HEAD')
+    sha('switch', '-q', 'main')
+    writeFileSync(join(repo, 'b.txt'), 'b\n')
+    sha('add', 'b.txt')
+    sha('commit', '-qm', 'B')
+    sha('update-ref', 'refs/remotes/origin/main', sha('rev-parse', 'HEAD'))
+    // Merged by a merge commit, by a squash, by a rebase.
+    sha('switch', '-qc', 'by-merge', 'main')
+    sha('merge', '-q', '--no-ff', '-m', 'merge', 'feature')
+    heads.merge = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'by-squash', 'main')
+    sha('merge', '-q', '--squash', 'feature')
+    sha('commit', '-qm', 'squash')
+    heads.squash = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'by-rebase', 'main')
+    sha('cherry-pick', 'feature')
+    heads.rebase = sha('rev-parse', 'HEAD')
+  }
+
+  const expectOneFile = (base: string): void => {
+    expect(base).toBe(A)
+    const d = run(diff().replace('git diff', 'git diff --name-only'), { '<base>': base, '<commit_id>': C })
+    expect(d).toEqual({ status: 0, out: 'f.txt' })
+    for (const guard of guards()) expect(run(guard, { '<base>': base, '<commit_id>': C }).status, guard).toBe(1)
+  }
+
+  it.each(['merge', 'squash', 'rebase'])('a pull request merged by a %s gets the branch point as its base, and the diff of C', { timeout: ms(30_000) }, (how) => {
+    setUp()
+    const base = run(merged(), { '<mergeCommit>': heads[how]!, '<commit_id>': C })
+    expect(base.status).toBe(0)
+    expectOneFile(base.out)
+  })
+
+  it('a pull request not merged gets its merge base with the base branch', { timeout: ms(30_000) }, () => {
+    setUp()
+    const base = run(open(), { '<baseRefName>': 'main', '<commit_id>': C })
+    expect(base.status).toBe(0)
+    expectOneFile(base.out)
+  })
+
+  it('the base branch after a merge commit would give C itself, and the guards of check.md stop it', { timeout: ms(30_000) }, () => {
+    setUp()
+    // The rule check.md forbids: the merge base of the base branch after the merge and C.
+    const wrong = sha('merge-base', heads.merge!, C)
+    expect(wrong).toBe(C)
+    const [ancestor, quiet] = guards()
+    expect(run(ancestor!, { '<base>': wrong, '<commit_id>': C }).status).toBe(0)
+    expect(run(quiet!, { '<base>': wrong, '<commit_id>': C }).status).toBe(0)
+  })
+})
+
 describe('a skill written by write.md from a made-up research.md', () => {
   // Made-up logins: they live in raw/reviewers.json only and must not reach the written files.
   const LOGINS = ['quill-otter', 'marsh-fern', 'tide-lamp']
@@ -539,7 +798,7 @@ describe('a skill written by write.md from a made-up research.md', () => {
 describe('the text of the skill', () => {
   const privacy = createRequire(__filename)(PRIVACY) as { findings: (text: string) => { rule: string }[] }
 
-  it.each(['SKILL.md', 'analyse.md', 'write.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
+  it.each(['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
     const text = read(name)
     expect(privacy.findings(text).map((f) => f.rule)).toEqual([])
     expect(text.match(/(^|[\s(])@[A-Za-z0-9][A-Za-z0-9-]*/g) ?? []).toEqual([])
@@ -547,7 +806,7 @@ describe('the text of the skill', () => {
 
   it('every file of the skill is in the uncovered list of the eval coverage map', () => {
     const map = JSON.parse(readFileSync(COVERAGE, 'utf8')) as { uncovered: Record<string, string> }
-    const files = ['SKILL.md', 'analyse.md', 'write.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
+    const files = ['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
     for (const file of files.map((f) => `skills/human-review-setup/${f}`))
       expect(map.uncovered[file], file).toBe('No case yet: worfy-human-review 12 adds cases')
   })
