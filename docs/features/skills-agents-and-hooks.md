@@ -23,6 +23,7 @@ plugin carries eleven skills of worfy's own and twenty copied from Matt Pocock's
 | `continuous-audit` | "audit", or a scheduled run | An audit Epic of findings. A finding stays a claim until a second agent has reproduced it |
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand only | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
 | `tickets-to-tasks` | After `/worfy:to-tickets` or `/worfy:wayfinder` wrote Tickets, or when the task list is empty | Imports Tickets into Claude Code Tasks and keeps their blockers |
+| `human-review-setup` | `/worfy:human-review-setup`, or "Build" of the team reviewer offer ([Projects](projects.md)), by hand only | Reads the team's review history on GitHub, shows how much a model would read and its token estimate, and after the person agrees writes a private review skill in the team's voice |
 | `product-ideas` | The model, when the Product owner asks for ideas or "what next" | Reads the roadmap, specs, open Tickets and the topic, and answers three to five ideas: for whom, why now, a cost in Tickets and how to tell it worked, at least one of them against a named roadmap item. Each idea becomes a Mind map node with `advice: true`; without the Mind map tools the ideas stay in the reply. It drafts no Epic until the owner says yes to an idea |
 
 **Matt Pocock's skills.** Twenty skills are a copy of Matt Pocock's skills, version 1.3.1 of the plugin

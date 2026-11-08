@@ -10,18 +10,28 @@ skill.
 
 ## 1. Read before you suggest
 
-Read what the project has decided and planned, so that an idea builds on it or argues with it:
+Two folders first. In Silent mode (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.mode`
+prints `silent`) both lie in the Workflow folder, outside the repository, so a path read from the
+repository root finds nothing there.
+
+- The tickets root: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints its absolute path. Only when it
+  fails, `.scratch/` of the repository.
+- The product folder: `docs/product/` of the repository; in Silent mode `<Workflow folder>/product/`,
+  where the Workflow folder is what
+  `"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.workflow_folder` prints. The topic folder is
+  `<product folder>/<topic>/`.
+
+Then read what the project has decided and planned, so that an idea builds on it or argues with it:
 
 - The roadmap: `docs/roadmap.md`, `ROADMAP.md`, or the roadmap section of the README. Glob for
   `**/roadmap*.md` and `**/ROADMAP*.md` when none of them exists. No roadmap: say so, and treat the
   next epic in line as the plan.
-- Specs, accepted and draft: `<tickets.root>/*/spec.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field
-  tickets.root`, `.scratch/` when it fails) and the epic drafts of `docs/product/*/drafts/`.
-- Open tickets: the `Status:` lines of `<tickets.root>/*/issues/*.md`, or
-  `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status"` when you have a shell.
-- The topic: its folder `docs/product/<topic>/` (`map.md`, its tickets, research notes; in Silent
-  mode the folder is `<Workflow folder>/product/<topic>/`) and its Mind map, `mind_map_read` with the
-  `topic`.
+- Specs, accepted and draft: `<tickets root>/*/spec.md`, and the epic drafts of
+  `<product folder>/*/drafts/`.
+- Open tickets: the `Status:` lines of `<tickets root>/*/issues/*.md`, or
+  `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status"`.
+- The topic: the topic folder (`map.md`, its tickets, research notes) and its Mind map,
+  `mind_map_read` with the `topic`.
 - Issues and pull requests on GitHub, `gh issue list` and `gh pr list`, when you have a shell and `gh`
   answers.
 
@@ -80,4 +90,5 @@ usage, as a question for the owner, instead of guessing.
 The owner answers. When the owner accepts or rejects an idea, record it with `mind_map_decide`
 (`accepted` or `rejected`, with the reason in the owner's own words). Draft an epic only after the
 owner says yes to an idea and asks for the draft: then use `worfy:to-spec`, and the draft goes into
-`drafts/<epic>.md` of the topic folder, not into the tickets root. Without that yes, write no draft, no ticket and no code.
+`drafts/<epic>.md` of the topic folder, not into the tickets root. Without that yes, write no draft,
+no ticket and no code.

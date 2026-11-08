@@ -452,6 +452,21 @@ describe('harness/evals: product-ideas', () => {
       expect(text).toMatch(new RegExp(`\`${key}(?:\`|: )`))
     }
     expect(text).toContain('`advice: true`')
+    // The kind the skill passes, as the server takes it.
+    expect(text).toContain('- `kind` — `idea`;')
+  })
+
+  // In Silent mode the tickets root and the product folder lie in the Workflow folder: a relative
+  // tickets.root or docs/product/ read from the repository root finds nothing there.
+  it('reads the tickets root from bin/ticket root and the drafts from the product folder chosen by mode', () => {
+    const text = readFileSync(SKILL, 'utf8')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints its absolute path')
+    expect(text).not.toContain('--field tickets.root')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.mode`')
+    expect(text).toContain('in Silent mode `<Workflow folder>/product/`')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.workflow_folder`')
+    for (const path of ['`<tickets root>/*/spec.md`', '`<tickets root>/*/issues/*.md`', '`<product folder>/*/drafts/`', '`<product folder>/<topic>/`']) expect(text).toContain(path)
+    expect(text).not.toMatch(/docs\/product\/\*|docs\/product\/<topic>/)
   })
 
   it('the reply graders take three to five ideas with the four fields and one against the roadmap, bold labels too', () => {
@@ -470,6 +485,7 @@ describe('harness/evals: product-ideas', () => {
     ['six ideas', reply(idea(1) + idea(2) + idea(3) + idea(4) + idea(5) + idea(6, [...FIELDS, AGAINST])), 'at-most-five.md'],
     ['a field missing from two ideas', reply(idea(1, FIELDS.slice(1)) + idea(2, FIELDS.slice(0, 3)) + idea(3, [...FIELDS, AGAINST])), 'four-fields.md'],
     ['no idea against the roadmap', reply(idea(1) + idea(2) + idea(3)), 'against-roadmap.md'],
+    ['against the roadmap only inside a sentence', reply(idea(1) + idea(2) + idea(3).replace('\n\n', '\n\nThis goes - Against the roadmap: no.\n\n')), 'against-roadmap.md'],
   ])('the reply graders refuse %s', (_, text, name) => {
     expect(passes(name, text)).toBe(false)
   })
