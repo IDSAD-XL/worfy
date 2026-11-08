@@ -12,7 +12,7 @@ import { join, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DeploymentReader } from '../../src/main/github/deployments'
-import { PrTracker, type GhRunner } from '../../src/main/github/prs'
+import { PrTracker, type GhRunner, type TrackedPull } from '../../src/main/github/prs'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { pipelineHandlers } from '../../src/main/ipc/pipeline'
 import { markFilePath } from '../../src/main/workflow/marks'
@@ -444,6 +444,123 @@ describe('Deploy by the commit status deploy (Full mode, no environment)', () =>
     const { hub } = hubOver(world, fullProfile(world), gh.gh)
     await hub.open(world.repo, { id: 1, send: () => undefined })
     expect(gh.calls.every((args) => args[0] === 'pr')).toBe(true)
+  })
+})
+
+describe('the repository of each Ticket and the ancestry of a deployed commit (worfy-polish 71)', () => {
+  const MERGE = '1'.repeat(40)
+  const DEPLOYED = '2'.repeat(40)
+
+  const claimed = (num: number, repo: string | null): Ticket => ({
+    epic: 'demo',
+    num,
+    slug: `t${num}`,
+    title: `0${num} — Ticket ${num}`,
+    statusRaw: 'claimed 2026-10-17T09:00Z',
+    state: 'work',
+    blockedRaw: '—',
+    blockedNums: [],
+    blockedParsed: true,
+    files: [],
+    filesListed: false,
+    fromBranch: null,
+    repo,
+  })
+  const modelOf = (root: string, tickets: Ticket[]): WorkflowModel => ({ root, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] })
+
+  /** A PR as the tracker gives it: open with failing CI, or merged in MERGE. */
+  const tracked = (number: number, branch: string, merged = false): TrackedPull =>
+    ({
+      number,
+      url: `https://github.com/o/r/pull/${number}`,
+      state: merged ? 'MERGED' : 'OPEN',
+      branch,
+      ci: null,
+      verdict: null,
+      headSha: merged ? null : 'a'.repeat(40),
+      reviewDecision: null,
+      mergeCommit: merged ? MERGE : null,
+      mergedAt: merged ? '2026-10-17T12:00:00Z' : null,
+      checks: merged ? [] : [{ name: 'check', state: 'failure', startedAt: null, completedAt: null }],
+      markStatuses: [],
+    }) as unknown as TrackedPull
+
+  /**
+   * A reader over stubs: `pulls` answers the PR read of each folder (recorded in `asked`), `git` answers every
+   * git command (each recorded in `gitCalls`); every folder counts as a git work tree.
+   */
+  const readerOver = (profile: PipelineProfile, pulls: (folder: string, branches: readonly string[]) => TrackedPull[], asked: [string, string[]][], ancestor: () => number | null = () => 1, gitCalls: string[][] = []) =>
+    new StageReader({
+      workflow: { open: () => Promise.reject(new Error('unused')), close: () => Promise.resolve(false), model: () => Promise.resolve(null) },
+      prs: {
+        read: (folder, branches) => {
+          asked.push([folder, [...branches]])
+          return Promise.resolve({ gh: { available: true, error: null, intervalMs: 1 }, pulls: pulls(folder, branches) })
+        },
+      },
+      profile: () => Promise.resolve({ ok: true, profile }),
+      deployments: {
+        environment: () => Promise.resolve([]),
+        deployMarks: () => Promise.resolve([{ sha: DEPLOYED, at: '2026-10-17T14:00:00Z' }]),
+      } as unknown as StageSources['deployments'],
+      harnessHome: join(dir, 'harness-home'),
+      git: async (_cwd, args) => {
+        gitCalls.push([...args])
+        if (args[0] === 'rev-parse') return { code: 0, stdout: 'true\n' }
+        if (args[0] === 'merge-base') return { code: ancestor(), stdout: '' }
+        return { code: 0, stdout: '' }
+      },
+    })
+
+  const severalProfile = (repos: PipelineProfile['repos']): PipelineProfile => ({ name: '', mode: 'full', finish: 'pr-green-ci', pipeline: DEFAULT_PIPELINE as PipelineStage[], pipelineReason: null, e2eLock: null, repos })
+
+  it('a Project over two repositories: each Ticket is read in the repository of its Repo: line, never in the root', async () => {
+    // The root is a git work tree here too (the stub says so): only the Profile's repositories may be read.
+    const root = join(dir, 'workspace')
+    const api = join(root, 'api')
+    const web = join(root, 'web')
+    const asked: [string, string[]][] = []
+    const pulls = (folder: string, branches: readonly string[]): TrackedPull[] =>
+      folder === api && branches.includes('demo/03') ? [tracked(31, 'demo/03')] : folder === web && branches.includes('demo/04') ? [tracked(41, 'demo/04')] : []
+    const reader = readerOver(
+      severalProfile([
+        { name: 'api', path: api },
+        { name: 'web', path: web },
+      ]),
+      pulls,
+      asked,
+    )
+    const snapshot = await reader.read(root, modelOf(root, [claimed(3, 'api'), claimed(4, 'web'), claimed(5, 'gone')]))
+    expect(asked).toEqual([
+      [api, ['demo/03']],
+      [web, ['demo/04']],
+    ])
+    // Each PR gives its Ticket the CI Stage; a Ticket whose Repo: names no repository of the Profile has no PR.
+    expect(ticket(snapshot, 3)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(ticket(snapshot, 4)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(ticket(snapshot, 5)).toMatchObject({ stage: 'implementing' })
+  })
+
+  it('a deployed commit this clone has not fetched (exit code 128) is asked again; once the commit is fetched the Ticket passes Deploy', async () => {
+    const root = join(dir, 'single')
+    const pipeline: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'gate-merge' }, { kind: 'deploy' }, { kind: 'closing' }, { kind: 'done' }]
+    const profile: PipelineProfile = { name: '', mode: 'full', finish: 'pr-green-ci', pipeline, pipelineReason: null, e2eLock: null, repos: [] }
+    let answer: number | null = 128
+    const gitCalls: string[][] = []
+    const reader = readerOver(profile, () => [tracked(4, 'demo/04', true)], [], () => answer, gitCalls)
+    const model = modelOf(root, [claimed(4, null)])
+    const isAncestor = () => gitCalls.filter((args) => args[0] === 'merge-base' && args[1] === '--is-ancestor' && args[2] === MERGE && args[3] === DEPLOYED).length
+
+    expect(ticket(await reader.read(root, model), 4)).toMatchObject({ stage: 'deploy' })
+    expect(isAncestor()).toBe(1)
+    // The user fetched: the deployed commit is now in the clone and contains the merge.
+    answer = 0
+    expect(ticket(await reader.read(root, model), 4)).toMatchObject({ stage: 'closing', enteredAt: '2026-10-17T14:00:00.000Z' })
+    expect(isAncestor()).toBe(2)
+    // A yes (exit code 0) is kept: the next read asks git nothing.
+    answer = null
+    expect(ticket(await reader.read(root, model), 4)).toMatchObject({ stage: 'closing' })
+    expect(isAncestor()).toBe(2)
   })
 })
 

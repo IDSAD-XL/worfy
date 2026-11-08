@@ -13,8 +13,8 @@ export interface StubAccount {
   token: string
 }
 
-/** Per repository `owner/repo`, per login: `permissions.push`, or the HTTP status gh fails with. */
-export type StubRepos = Record<string, Record<string, boolean | number>>
+/** Per repository `owner/repo`, per login: `permissions.push` (null or a text: an odd answer), or the HTTP status gh fails with. */
+export type StubRepos = Record<string, Record<string, boolean | null | string | number>>
 
 export interface GhWorld {
   dir: string
