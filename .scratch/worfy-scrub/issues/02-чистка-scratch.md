@@ -1,7 +1,8 @@
 # 02 — Чистка `.scratch`: Ticket-ы, spec-и, research, evidence
 
 Type: task
-Status: open
+Status: done 2026-11-08T19:13Z
+PR: #1689
 Blocked by: 01
 Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08»; «Как работает» → «Чистка»; «Решено без владельца», п. 2, 6; Q1, Q7
 
@@ -36,11 +37,15 @@ Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08»
 - [x] Отчёт guard-а по `.scratch` — ноль находок, кроме аккаунта репозитория в URL; счёт до и после — в «Итог»
       (без значений).
   - evidence: test-run pass · `node scripts/check-personal.mjs --report --list` exit 0, 0 findings under .scratch outside worfy-scrub · mac - · 15b5256b7c7a3e9be4881f6a531a72ee9469e69c
+  - evidence: review pass · PR #1689 · - - · 3038e9fca3e2886ea56a048aa4ab5fb3cf708acb
 - [x] Ни одна ссылка внутри `.scratch` не ведёт на переименованный или убранный файл.
   - evidence: test-run pass · `git grep` of the 24 removed and 6 renamed file names as link targets in .scratch exit 1 (no match) · mac - · 15b5256b7c7a3e9be4881f6a531a72ee9469e69c
+  - evidence: review pass · PR #1689 · - - · 3038e9fca3e2886ea56a048aa4ab5fb3cf708acb
 - [x] `epic-status` по всем Epic-ам даёт то же число Ticket-ов и те же состояния, что до правки.
   - evidence: test-run pass · `epic-status --json` origin/main copy vs branch: 39 epics, 897 tickets, same state, statusRaw and blockedNums · mac - · 15b5256b7c7a3e9be4881f6a531a72ee9469e69c
+  - evidence: review pass · PR #1689 · - - · 3038e9fca3e2886ea56a048aa4ab5fb3cf708acb
 - [ ] `node harness/bin/evidence-check --changed --root .scratch` — exit 0; `pnpm lint` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42513585636/job/128832348514 · ci - · 3038e9fca3e2886ea56a048aa4ab5fb3cf708acb
 
 ## Тесты
 
