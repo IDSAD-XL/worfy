@@ -1,9 +1,10 @@
 // The `product` domain: the topics of a Project's Product Session folder (ADR-0101; Epic
-// worfy-product-session, ticket 05), read-only. Handled in src/main/ipc/product.ts; the changes come
-// from the documents' watcher (src/main/docs/watch.ts), so a window gets `product.changed` for the
-// Projects whose documents it has open (`docs.open`, src/renderer/docs/useDocs.ts).
+// worfy-product-session, ticket 05). Handled in src/main/ipc/product.ts; the changes come from the
+// documents' watcher (src/main/docs/watch.ts), so a window gets `product.changed` for the Projects whose
+// documents it has open (`docs.open`, src/renderer/docs/useDocs.ts). The one write is `product.layout`
+// (ticket 09): where the owner moved a node and which branch they folded, never what a node says.
 import { z } from 'zod'
-import { mindMapNodeSchema } from '../product/mind-map'
+import { mindMapNodeIdSchema, mindMapNodeSchema } from '../product/mind-map'
 import { isProductTopicName } from '../product/paths'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -43,9 +44,31 @@ export const productTopic = invokeChannel('product.topic', z.object({ projectId:
 /** A file of a topic changed (a tool, an agent or a hand edit): the topic as it reads after the change. */
 export const productChanged = eventChannel('product.changed', productTopicChangeSchema, 'project', 'read')
 
+/**
+ * What the screen changes of one node of mind-map.json by hand: its place (`x` and `y` together) and
+ * whether its branch is folded. Strict: any other field — the text, the kind, the status — is refused
+ * here; the meaning of a node changes only through the advisor's tools.
+ */
+export const productLayoutInputSchema = z
+  .strictObject({
+    projectId: z.string().min(1),
+    name: topicName,
+    id: mindMapNodeIdSchema,
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    collapsed: z.boolean().optional(),
+  })
+  .refine((input) => (input.x === undefined) === (input.y === undefined), 'x and y go together')
+  .refine((input) => input.x !== undefined || input.collapsed !== undefined, 'nothing to change: give x and y, or collapsed')
+export type ProductLayoutInput = z.output<typeof productLayoutInputSchema>
+
+/** Writes a node's place or fold through main's one writer of mind-map.json; the screen sees it come back with `product.changed`. */
+export const productLayout = invokeChannel('product.layout', productLayoutInputSchema, z.null(), 'project', 'write')
+
 declare module './channels' {
   interface IpcContract {
     'product.topic': typeof productTopic
     'product.changed': typeof productChanged
+    'product.layout': typeof productLayout
   }
 }

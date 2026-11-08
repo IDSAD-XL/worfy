@@ -328,6 +328,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // Starts the Orchestrator Session when there is none.
     'orchestrator.open',
     'orchestrator.newConversation',
+    // Moving a Mind map node or folding its branch writes the topic's mind-map.json (worfy-product-session ticket 09).
+    'product.layout',
     'projects.add',
     // Reads the folders of the whole disk, outside every Project.
     'projects.browse',
