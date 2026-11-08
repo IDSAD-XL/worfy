@@ -1,9 +1,8 @@
 # 31 — 1 h prompt cache только тем агентам, у которых простой 5–60 min остался после Ticket-ов 25 и 26
 
 Type: task
-Status: blocked 2026-10-30T03:31Z
-Blocked reason: merged in #1040 (implementer cacheTtl 1h, expected +$562 per 10 days); open: ephemeral_1h_input_tokens > 0 in the first implementer after the Stable update, and the re-measure with agent-cost --idle on 2026-11-06
-Waits: owner
+Status: done 2026-11-08T22:17Z
+PR: #1040
 Blocked by: 19, 25, 26
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-28: процесс», предложение 2, решение 10, раздел
 «Prompt cache на 1 h»;
@@ -40,9 +39,11 @@ https://code.claude.com/docs/en/prompt-caching.md («Cache lifetime», «Subagen
 - [x] Для каждой роли с `cacheTtl: 1h` — `agents-text.test.sh` проверяет поле; в транскрипте первого такого
       агента после обновления Stable copy `usage.cache_creation.ephemeral_1h_input_tokens` > 0 (вручную, в
       «Итог»). *Проверено 2026-10-30 ~06:00Z, Stable 408b25c7, implementer onboarding 05: «Итог».*
+  - evidence: test-run pass · node script over ~/.claude/projects/<repo>/*/subagents/*.jsonl + .meta.json agentType, responses since the Stable build 2026-11-08T15:23Z, deduped by message id: worfy:implementer 8 agents, 892/892 responses with ephemeral_1h_input_tokens>0, 0 with 5m; reviewer/scout/critic/general-purpose 23 agents, 1043 responses all 5m, 0 with 1h; exit 0 · mac - · b41c83c13895f630dc4c0badc998cbd7668fcbcb
 - [x] Shell test-ы Harness — exit 0; условие merge — `ci-ok` (Ticket 35; до него — gate full Orchestrator-а).
 - [ ] Через неделю — перезапись после простоя по Ticket-у 19 против базы, в «Итог». *Не implementer-а: замер Orchestrator-а около
       2026-11-06, `node scripts/agent-cost.mjs --idle --since 2026-10-30`.*
+  - evidence: test-run pass · node scripts/agent-cost.mjs --idle --since 2026-10-30 exit 0: implementer 378 agents, 1028 pauses 5-60 min, 2 rewrites $2.15 (both before the 2026-10-30T04:00Z Stable update); --since 2026-10-30T04:00Z exit 0: 372 agents, 1026 pauses, 0 rewrites $0.00; --since 2026-11-06 exit 0: 115 agents, 521 pauses, 0 rewrites; baseline 2026-10-20..10-29: 782 rewrites $771.79 · mac - · b41c83c13895f630dc4c0badc998cbd7668fcbcb
 
 ## Где в коде
 
@@ -115,3 +116,9 @@ Stable на Mac — 408b25c7 (#1040), `agents/implementer.md` — `experimental.
 обновления (onboarding 05), первые ~10 вызовов: `ephemeral_1h_input_tokens` — 403, 7629, 30842 (> 0),
 `ephemeral_5m_input_tokens` — 0 во всех. Часовой cache включился, пятиминутный implementer не пишет. Merge #1040 был
 по `ci-ok` success.
+
+**Замер 2026-11-09 (Orchestrator).** После 1 h cache перезапись cache implementer-ов после простоя 5–60 min упала с
+$771.79 (782 перезаписи, база 2026-10-20…10-29) до $0.00 за 10 дней после Stable update 2026-10-30T04:00Z (372 agents,
+1026 простоев). Запись cache implementer-ов — $691.65 на 372 agents против $1054.26 на 232 agents в базе. Reviewer-ы
+остались на 5 min: 109 перезаписей ($35.84), с 1 h было бы на $117 дороже — решение по ролям подтверждено. На текущей
+Stable (сборка 2026-11-08) 892 из 892 ответов implementer-ов пишут в 1 h cache, остальные роли — только в 5 min.

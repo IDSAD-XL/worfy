@@ -12,7 +12,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 47 (flaky Windows) ждёт 20 зелёных `windows-e2e`. Влиты 73 (#1663: hook `UserPromptSubmit` со строками Stage, cwd на Windows), 74 (#1668: Electron из `actions/cache`, 3 попытки).
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 57/60; открыты 05, 31, 43; 60 — Eco mode в чате (#1057). 43: eco проверяет друг. 31: замер 2026-11-06.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 59/61; открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
