@@ -1,7 +1,8 @@
 # 07 — Экран Product Session: разделитель 60 / 40, полоса агентов, без Binding
 
 Type: task
-Status: open
+Status: done 2026-11-08T01:14Z
+PR: #1624
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 6; «Что видит владелец»; «Решено без владельца», п. 2, 3; «Вопросы владельцу», Q10; карта [worfy-product](../../worfy-product/map.md), решения 05 (Q4), 06; прототип — Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
 
@@ -36,16 +37,21 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Unit test: Session вида `product` рисует `ProductSessionPanel`; обычная — прежний `w-session__body`.
   - evidence: test-run pass · `pnpm test -- test/unit/session-view.test.tsx` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
+  - evidence: review pass · PR #1624 · - - · 956bd52d74d45529a5eb7e1b6d64e8421d4cae09
 - [ ] Unit test: разделитель по умолчанию 60 / 40; drag на 70 / 30 пишет 0.7 в app settings; двойной click — 0.6;
       стрелки клавиатуры двигают.
   - evidence: test-run pass · `pnpm test -- test/unit/product-session-panel.test.tsx` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
+  - evidence: review pass · PR #1624 · - - · 956bd52d74d45529a5eb7e1b6d64e8421d4cae09
 - [ ] Unit test: полоса агентов показывает число Subagent-ов и раскрывается; блока Binding нет.
   - evidence: test-run pass · `pnpm test -- test/unit/product-session-panel.test.tsx test/unit/session-view.test.tsx` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
+  - evidence: review pass · PR #1624 · - - · 956bd52d74d45529a5eb7e1b6d64e8421d4cae09
 - [ ] Contract test app settings: поле `productSession.split` читается, неверное значение — 0.6.
   - evidence: test-run pass · `pnpm test -- test/contract/app-settings.test.ts` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
+  - evidence: review pass · PR #1624 · - - · 956bd52d74d45529a5eb7e1b6d64e8421d4cae09
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7f045bdd65a4f35671beb0568d70a0331cb2e4e7
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42430639866/job/128585673799 · ci - · 956bd52d74d45529a5eb7e1b6d64e8421d4cae09
 
 ## Тесты
 
