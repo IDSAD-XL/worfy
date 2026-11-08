@@ -1,5 +1,7 @@
 # Step 4 of /worfy:human-review-setup — analyse the comments into research.md
 
+Plugin root: `<plugin>` below is the plugin folder, the one that holds `bin/` and `skills/`: the path you read this file from, without `/skills/human-review-setup/analyse.md`.
+
 The input is what `review-history fetch` wrote into the private folder (`<_resolved.dir>/state/human-review/`):
 `raw/prs.jsonl`, one pull request per line, and `meta.json` with the `held_out` pull requests of step 2. The
 output is `<private folder>/research.md`: sections `## R<n> — <title>`, each with numbers, shares and links to
@@ -17,7 +19,7 @@ author's comments on their own pull request are already gone.
 ## 1. Prepare (this session)
 
 1. Move an existing `research.md` to `<private folder>/previous/research-<YYYY-MM-DD>.md` first.
-2. Save the mechanical numbers: `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" stats > "<private folder>/raw/stats.json"; echo "EXIT=$?"`.
+2. Save the mechanical numbers: `"<plugin>/bin/review-history" stats > "<private folder>/raw/stats.json"; echo "EXIT=$?"`.
    They are the lengths of substantive comments by percentile, the shares of review states, approvals without
    comments by size and by area, remarks repeated in different pull requests (`repeated_remarks`), threads
    outdated or resolved after a comment, and the reviewers' shares as labels.
@@ -167,7 +169,7 @@ Rules for every section:
 
 - Every `## R` line of research.md matches `## R<n> — <title>`, numbered from 1 with no gap.
 - A short Node script finds none of the logins of `raw/reviewers.json` in research.md (case-insensitive).
-- `"${CLAUDE_PLUGIN_ROOT}/bin/evidence-check" "<private folder>/research.md"; echo "EXIT=$?"` — exit 0: no home
+- `"<plugin>/bin/evidence-check" "<private folder>/research.md"; echo "EXIT=$?"` — exit 0: no home
   folder path, host name, email or token.
 
 Fix and check again until all three hold. Then tell the person how many comments were analysed, by tier, and
