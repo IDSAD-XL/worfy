@@ -201,7 +201,6 @@ describe('DocsWatcher reads one topic at a time, on a stand-in watch', () => {
         fire = onEvent
         return { close: () => undefined }
       },
-      isAbsolute: (name) => name.startsWith('/'),
       rootThere: () => Promise.resolve(rootThere),
       onChange: () => undefined,
       onTopic: (name, topic) => events.push({ name, topic }),
@@ -226,7 +225,7 @@ describe('DocsWatcher reads one topic at a time, on a stand-in watch', () => {
     await readAgain(() => fire(join('docs', 'product')))
     await readAgain(() => fire('docs'))
     await readAgain(() => fire(null))
-    // The root is lost (a full path, as Windows names it): read as it is now, while it is waited for.
+    // The root is lost (a full path of this system, as Windows names it): read as it is now, while it is waited for.
     await readAgain(() => fire(join(root, 'gone')))
     // Back, but its watch cannot be made: the topic is read as it is on the disk meanwhile.
     await readAgain(() => {
