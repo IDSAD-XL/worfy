@@ -542,7 +542,7 @@ describe('harness/evals: critic-verdict', () => {
     const flat = text.replaceAll(/\s+/g, ' ')
     expect(flat).toContain('## The input')
     const input = flat.slice(flat.indexOf('## The input'), flat.indexOf('## First: the project'))
-    for (const words of ['the path of a spec or a plan', 'a verdict of its author', 'self-assessment', 'in the brief or in the text of the plan', 'is a claim, not a fact', 'check what it claims yourself', 'never cite it']) {
+    for (const words of ['the path of a spec or a plan', 'verdict of its author', 'self-assessment', 'in the brief or in the text of the plan', 'is a claim, not a fact', 'check what it claims yourself', 'never cite it']) {
       expect(input).toContain(words)
     }
     const before = flat.slice(flat.indexOf('## Before a spec is accepted'))
@@ -691,7 +691,7 @@ describe('harness/evals: critic-verdict', () => {
 
   // What the graders of the three new plans hold the critic to is in the fixture, at the lines they name.
   it('the new plans: limit duplicates src/clamp.mjs, sum-guard rebuilds the test and hook the project has, sum-output leans on a deferral whose condition now holds', () => {
-    const { work } = caseFixture('critic-verdict')
+    const { work, home } = caseFixture('critic-verdict')
     const read = (rel: string): string => readFileSync(join(work, rel), 'utf8').replaceAll('\r\n', '\n')
     const line = (rel: string, n: number): string => read(rel).split('\n')[n - 1] ?? ''
     // A feature the repository has, committed before the plans, and the plan that adds it again.
@@ -710,7 +710,8 @@ describe('harness/evals: critic-verdict', () => {
     expect(read('.scratch/sum-output/spec.md')).toContain('two programs read the output of `node src/sum-cli.mjs`')
     expect(read('.scratch/sum-output/spec.md')).toContain('A JSON output: deferred by ADR-0001')
     // The history is older than the plans: the existing feature, check and decision were there first.
-    const log = spawnSync('git', ['log', '--format=%s', '--reverse'], { cwd: work, encoding: 'utf8' })
+    const log = spawnSync('git', ['log', '--format=%s', '--reverse'], { cwd: work, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH }) })
+    expect(log.status, log.stderr).toBe(0)
     expect(log.stdout.trim().split('\n').slice(-2)).toEqual(['clamp, sum-cli, a pre-commit hook and ADR-0001', 'plans for acceptance'])
   })
 })
