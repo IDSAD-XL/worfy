@@ -24,7 +24,8 @@ describe('file tools of a Product Session on the file system of this machine', (
   const write = (file_path: unknown, tool = 'Write', at: ProductGuardPlace = place) => productToolDecision(tool, { file_path, content: 'x' }, at, host)
 
   beforeAll(() => {
-    top = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-product-guard-')))
+    // The system's own spelling (Windows: `runneradmin`, not `RUNNER~1`), as the guard's real form is.
+    top = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-product-guard-')))
     root = join(top, 'project')
     product = join(root, 'docs', 'product')
     mkdirSync(join(product, 'x'), { recursive: true })
@@ -84,9 +85,14 @@ describe('file tools of a Product Session on the file system of this machine', (
     expect(write(join(product, 'out'))).toEqual(refused)
   })
 
-  it('refuses a `..` after a missing folder: where it leads cannot be told', () => {
-    // Lexically below the folder; the system cannot walk `missing/..`.
+  it.skipIf(host === 'win32')('refuses a `..` after a missing folder: where it leads cannot be told', () => {
+    // Lexically below the folder; a POSIX system cannot walk `missing/..`.
     expect(write(`${product}/missing/../x.md`)).toEqual(refused)
+  })
+
+  it.runIf(host === 'win32')('on Windows takes `missing\\..` as the system does: folded before the walk, so it stays inside', () => {
+    expect(write(`${product}\\missing\\..\\x.md`)).toEqual(allowed)
+    expect(write(`${product}\\missing\\..\\..\\x.md`)).toEqual(refused)
   })
 
   it.skipIf(host === 'win32')('refuses a link that leads nowhere: the write would follow it out', () => {
