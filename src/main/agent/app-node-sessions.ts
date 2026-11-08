@@ -4,7 +4,8 @@
 // belong to the app rather than to a window: their events and views go to every window.
 //
 // Each Node's Session runs on its Vendor's driver (worfy-multi-vendor ticket 23); New session takes the
-// Project's `defaultVendor` from its settings when it names no Vendor.
+// Project's `defaultVendor` from its settings when it names no Vendor. Closing a Product Session gives the
+// save signal of its Project (src/main/product/save-signal.ts, worfy-product-session ticket 04).
 import { stat } from 'node:fs/promises'
 import { agentEvent } from '../../shared/ipc/agent'
 import { sessionsChanged } from '../../shared/ipc/sessions'
@@ -14,6 +15,7 @@ import { ClaudeHomeRegistry, rootPath, type RegistryRoot } from '../claude-home/
 import { emit } from '../ipc/index'
 import { layoutStore } from '../layout/store'
 import { readProjectSettings } from '../projects/settings'
+import { appSaveSignal } from '../product/save-signal'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { appCodexSessions } from '../vendors/codex/sessions-on-canvas'
@@ -66,6 +68,7 @@ export function sharedNodeSessions(): NodeSessions {
       isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
+      productClosed: (projectId) => void appSaveSignal().signal(projectId),
     })
   }
   return shared

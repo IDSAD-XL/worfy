@@ -16,6 +16,8 @@
 // (Start, Resume, after a restart) launches it with that kind (SessionLaunch.kind). A Product Session
 // runs on Claude Code only: another Vendor is refused before a Node is made, and a saved Node of a
 // kind this build does not know, or of a Product Session on another Vendor, is refused before it starts.
+// Closing a Product Session's Node ends its conversation: main then gives the save signal
+// (productClosed, src/main/product/save-signal.ts; worfy-product-session ticket 04), as `product_save` does.
 //
 // The model, effort and permission mode picked on a Node are kept like the Orchestrator's
 // (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
@@ -85,6 +87,11 @@ export interface NodeSessionsDeps {
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
   publish(view: SessionNodeView): void
+  /**
+   * A Product Session of the Project was closed by its Node's Close (worfy-product-session ticket 04): the
+   * save signal of its `docs/product` changes. Absent: nothing.
+   */
+  productClosed?(projectId: string): void
 }
 
 /** What a Vendor's home knows of a Project's Sessions: live processes, and each one's cwd. */
@@ -311,6 +318,13 @@ export class NodeSessions {
     const refusal = closeRefusal(view.state)
     if (refusal !== null) throw new Error(refusal)
     run.session?.close()
+    if (view.kind !== 'product') return
+    try {
+      this.deps.productClosed?.(run.projectId)
+    } catch (error) {
+      // The Session is closed either way; only the request to save its files is lost.
+      console.warn(`[sessions] could not give the save signal of the Product Session on ${nodeId}`, error)
+    }
   }
 
   private running(nodeId: string): SessionNodeView | null {
