@@ -4,9 +4,11 @@
 // fails and closes is in link-pairing-failures.test.ts.
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { createServer as createHttpsServer } from 'node:https'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import tls from 'node:tls'
-import { WebSocket } from 'ws'
+import { WebSocket, WebSocketServer } from 'ws'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { fingerprintOf, generateCertificate } from '../../src/main/link/identity'
@@ -478,6 +480,41 @@ describe('B introduces itself only after A proved the code', () => {
     expect(received).toHaveLength(1)
     for (const detail of [b.service.machine.id, '"beta"', '0.2.0+bench']) expect(received.join('\n')).not.toContain(detail)
     expect(b.service.linkedMachines()).toEqual([])
+  })
+
+  it(`A sends neither its confirmation nor its token to a side whose cB does not hold, and closes with ${PAIRING_CLOSE_FAILED}`, async () => {
+    const a = await bench.machine('alpha')
+    // A stand-in B without the code: it answers pake1 with a valid share and a confirmation that
+    // cannot hold. A captured cA would let it test the code offline, and A's token would open A to it.
+    const own = await generateCertificate(randomUUID())
+    const server = createHttpsServer({ key: own.key, cert: own.certificate })
+    const wss = new WebSocketServer({ server })
+    const received: string[] = []
+    const closed = new Promise<number>((resolve) => {
+      wss.on('connection', (ws) => {
+        ws.on('error', () => undefined)
+        ws.on('close', (closeCode: number) => resolve(closeCode))
+        ws.on('message', (data: Buffer) => {
+          received.push(data.toString('utf8'))
+          if (received.length === 1) {
+            ws.send(JSON.stringify({ t: 'pake2', pB: Buffer.from(spake2Share('B', 123456n, 987654321n)).toString('base64'), cB: randomBytes(32).toString('base64') }))
+          } else ws.close(1000, 'seen enough')
+        })
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const port = (server.address() as AddressInfo).port
+      const error = await rejection(a.service.pair({ host: '127.0.0.1', port, code: '123456' }))
+      expect(error.message).toBe(PAIRING_FAILED)
+      expect(await closed).toBe(PAIRING_CLOSE_FAILED)
+      expect(received.map((frame) => (JSON.parse(frame) as { t: string }).t)).toEqual(['pake1'])
+      for (const detail of [a.service.machine.id, '"alpha"', '"cA"', '"token"']) expect(received.join('\n')).not.toContain(detail)
+      expect(a.service.linkedMachines()).toEqual([])
+    } finally {
+      wss.close()
+      server.close()
+    }
   })
 
   it('a pairing carries B\'s details in pake4, after A\'s confirmation, and A\'s in pake3', async () => {

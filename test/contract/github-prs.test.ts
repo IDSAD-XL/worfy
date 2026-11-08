@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, checksOf, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
 import { appPrOptions, appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -103,6 +103,9 @@ describe('ciOf', () => {
     [[{ __typename: 'StatusContext', state: 'PENDING' }], 'running'],
     [[{ __typename: 'StatusContext', state: 'ERROR' }], 'failing'],
     [[{ __typename: 'StatusContext', state: 'SUCCESS' }], 'passing'],
+    // A required check that has not reported yet is not green, and one that waits for a person is not either.
+    [[{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' }, { __typename: 'StatusContext', context: 'ci/required', state: 'EXPECTED' }], 'running'],
+    [[{ __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' }, { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'ACTION_REQUIRED' }], 'failing'],
   ])('%j → %s', (rollup, expected) => {
     expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected)
   })
@@ -117,6 +120,18 @@ describe('ciOf', () => {
     [[green, status('reviewers', 'PENDING')], 'running'], [[green, status('check', 'FAILURE')], 'failing'],
     [[{ __typename: 'CheckRun', name: 'review', status: 'COMPLETED', conclusion: 'FAILURE' }], 'failing'],
   ])('with marks: %j → %s', (rollup, expected) => expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected))
+
+  it('checksOf: a required status that has not reported is pending, a check run that needs a person\'s action failed', () => {
+    expect(
+      checksOf([
+        { __typename: 'StatusContext', context: 'ci/required', state: 'EXPECTED', startedAt: '2026-11-08T10:00:00Z' },
+        { __typename: 'CheckRun', name: 'deploy-approval', status: 'COMPLETED', conclusion: 'ACTION_REQUIRED', startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:01:00Z' },
+      ] as Parameters<typeof checksOf>[0]),
+    ).toEqual([
+      { name: 'ci/required', state: 'pending', startedAt: '2026-11-08T10:00:00Z', completedAt: null },
+      { name: 'deploy-approval', state: 'failure', startedAt: '2026-11-08T10:00:00Z', completedAt: '2026-11-08T10:01:00Z' },
+    ])
+  })
 
   it('leaves out the same contexts `ticket mark --contexts` prints', () => {
     const run = spawnSync(scriptNode(), [join(__dirname, '..', '..', 'harness', 'bin', 'ticket'), 'mark', '--contexts'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
