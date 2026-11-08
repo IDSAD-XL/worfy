@@ -68,16 +68,12 @@ export function mindMapAdvice(nodes: readonly MindMapNode[]): AdviceCount {
   return count
 }
 
-const DECISION_LINE = /^Owner decision:[ \t]*(.*)$/u
-const DECIDED = /^(accepted|rejected)\b/iu
-
 /**
- * The objections of one critic's review, by their `Owner decision:` lines outside code blocks: one that
- * starts with `accepted` or `rejected` is decided, any other — empty included — waits. Text that is no
- * review has no such line and counts nothing.
+ * The lines of a Markdown text outside its fenced code blocks (``` or ~~~), in order; the fences' own lines
+ * left out too. Shared by the readers of a critic's review: this file and the agents list of a Product Session.
  */
-export function criticAdvice(text: string): AdviceCount {
-  const count = none()
+export function linesOutsideCodeBlocks(text: string): string[] {
+  const lines: string[] = []
   let fence = ''
   for (const line of text.split(/\r?\n/u)) {
     // shortcut: any line of the fence's character, at least as long, closes it, even with text after it
@@ -91,6 +87,22 @@ export function criticAdvice(text: string): AdviceCount {
       fence = marker
       continue
     }
+    lines.push(line)
+  }
+  return lines
+}
+
+const DECISION_LINE = /^Owner decision:[ \t]*(.*)$/u
+const DECIDED = /^(accepted|rejected)\b/iu
+
+/**
+ * The objections of one critic's review, by their `Owner decision:` lines outside code blocks: one that
+ * starts with `accepted` or `rejected` is decided, any other — empty included — waits. Text that is no
+ * review has no such line and counts nothing.
+ */
+export function criticAdvice(text: string): AdviceCount {
+  const count = none()
+  for (const line of linesOutsideCodeBlocks(text)) {
     const decision = DECISION_LINE.exec(line)
     if (decision === null) continue
     const word = DECIDED.exec(decision[1]!.trim())?.[1]?.toLowerCase()

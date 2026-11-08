@@ -44,6 +44,7 @@ function useObjectionCounts(root: string | undefined, session: string | null, ag
         const text = criticReviewOf(result.value.events)
         if (text === undefined) return
         const count = objectionCount(text)
+        if (count === undefined) return
         setCounts((was) => (was.get(agentId) === count ? was : new Map(was).set(agentId, count)))
       })
     for (const [agentId] of entries) read(agentId)

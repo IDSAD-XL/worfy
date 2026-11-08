@@ -356,6 +356,48 @@ describe('the agents strip of a Product Session', () => {
     expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(4)
   })
 
+  // Review of PR #1702: the last Write of the review counts; a Write outside critic/ is no review; a review
+  // whose objections the list cannot read shows no number rather than a wrong one.
+  it('counts the last review the critic wrote, ignores a Write outside the critic folder, and shows no number for a review it cannot read', async () => {
+    const write = (id: string, path: string, content: string) => ({ type: 'tool_use', id, name: 'Write', input: { file_path: path, content }, parentToolUseId: null })
+    const reviewFile = '/demo/docs/product/critic/demo-roadmap-2026-11-09.md'
+    subagents.tree = [
+      agent('critic-rewrote', 'worfy:critic', { status: 'done' }),
+      agent('critic-elsewhere', 'worfy:critic', { status: 'done' }),
+      agent('critic-heading', 'worfy:critic', { status: 'done' }),
+      agent('critic-numbering', 'worfy:critic', { status: 'done' }),
+      agent('critic-fenced', 'worfy:critic', { status: 'done' }),
+    ]
+    transcripts = {
+      // It wrote the review with three objections, then wrote it again with one.
+      'critic-rewrote': [write('w1', reviewFile, review(3)), write('w2', reviewFile, review(1))],
+      // Its review, then a note of its own outside critic/: the note is no review.
+      'critic-elsewhere': [write('w1', reviewFile, review(2)), write('w2', '/demo/docs/product/demo-roadmap/notes.md', review(3))],
+      // A drift of the format: the section's heading, the objections' numbering.
+      'critic-heading': [write('w1', reviewFile, review(2).replace('## Objections', '## Objections (2)'))],
+      'critic-numbering': [write('w1', reviewFile, review(2).replaceAll(/^### (\d+)\./gmu, '### Objection $1:'))],
+      // The whole review in a code block, as the template of harness/agents/critic.md stands.
+      'critic-fenced': [write('w1', reviewFile, ['```markdown', review(2), '```'].join('\n'))],
+    }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    const lines = () => screen.getAllByTestId('product-agent-line').map((line) => line.textContent)
+    await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(5))
+    await vi.waitFor(() => expect(lines()).toEqual(['Critic — done · 1 objection', 'Critic — done · 2 objections', 'Critic — done', 'Critic — done', 'Critic — done']))
+  })
+
+  it('a critic that only wrote outside the critic folder has no number', async () => {
+    subagents.tree = [agent('critic-1', 'worfy:critic', { status: 'done' })]
+    transcripts = { 'critic-1': [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/demo/docs/product/demo-roadmap/notes.md', content: review(3) }, parentToolUseId: null }] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(1))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByTestId('product-agent-line').textContent).toBe('Critic — done')
+  })
+
   it('a running critic gets its number once it writes its review: its transcript is read again while the list is open', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {

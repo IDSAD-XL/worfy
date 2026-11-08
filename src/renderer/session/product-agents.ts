@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../../shared/agent/events'
+import { linesOutsideCodeBlocks } from '../../shared/product/share'
 import { harnessName } from '../../shared/agent/subagent-type'
 import type { SubagentInfo, SubagentStatus } from '../../shared/transcript/subagents'
 
@@ -53,26 +54,21 @@ export function criticReviewOf(events: readonly AgentEvent[]): string | undefine
 }
 
 /**
- * The objections of a review: the `### N.` headings of its `## Objections` section, outside code blocks.
- * `None.` there counts 0.
+ * The objections of a review: the `### N.` headings of its `## Objections` section, outside code blocks;
+ * 0 when that section says `None.`. Undefined when the review has neither — a heading or a numbering
+ * other than the template's (harness/agents/critic.md), or a review wrapped whole in a code block: the
+ * list then shows no number rather than a wrong one.
  */
-export function objectionCount(text: string): number {
+export function objectionCount(text: string): number | undefined {
   let count = 0
+  let none = false
   let section = ''
-  let fence = ''
-  for (const line of text.split(/\r?\n/u)) {
-    const marker = /^[ \t]*(`{3,}|~{3,})/u.exec(line)?.[1]
-    if (fence !== '') {
-      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) fence = ''
-      continue
-    }
-    if (marker !== undefined) {
-      fence = marker
-      continue
-    }
+  for (const line of linesOutsideCodeBlocks(text)) {
     const heading = /^##[ \t]+(.*?)[ \t]*$/u.exec(line)
     if (heading !== null) section = heading[1]!
-    else if (section === 'Objections' && /^###[ \t]+\d+\.(?:[ \t]|$)/u.test(line)) count += 1
+    else if (section !== 'Objections') continue
+    else if (/^###[ \t]+\d+\.(?:[ \t]|$)/u.test(line)) count += 1
+    else if (line.trim() === 'None.') none = true
   }
-  return count
+  return count > 0 ? count : none ? 0 : undefined
 }
