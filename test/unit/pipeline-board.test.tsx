@@ -2,7 +2,7 @@
 // of `pipeline.get` built the way main builds them (src/main/workflow/stages.ts): the columns from a
 // Pipeline with stageId and stageLabel, the Stage of each Ticket from its facts with stageOf.
 // - the board (src/renderer/pipeline/PipelineBoard.tsx): a column per Stage of the Project's
-//   Pipeline, in its order — worfy's and Atakama's from the spec; Done folded into a count that a
+//   Pipeline, in its order — worfy's and Atalaya's from the spec; Done folded into a count that a
 //   click opens; on a card the Ticket, its title, who it waits for, `blocked` with the reason,
 //   `rework` and the caption of its Stage; a click shows the Ticket's Card on the Canvas; a
 //   `pipeline.changed` moves a card without a reload;
@@ -33,8 +33,8 @@ const WORFY: PipelineStage[] = [
   { kind: 'done' },
 ]
 
-/** Atakama (Silent mode): Queued → Implementing → Agent review → CI → Human review → Awaiting merge → Done. */
-const ATAKAMA: PipelineStage[] = [
+/** Atalaya (Silent mode): Queued → Implementing → Agent review → CI → Human review → Awaiting merge → Done. */
+const ATALAYA: PipelineStage[] = [
   { kind: 'queued' },
   { kind: 'implementing' },
   { kind: 'agent-review' },
@@ -45,7 +45,7 @@ const ATAKAMA: PipelineStage[] = [
 ]
 
 const WORFY_ROOT = '/projects/worfy'
-const ATAKAMA_ROOT = '/projects/atakama'
+const ATALAYA_ROOT = '/projects/atalaya'
 const HEAD = 'a'.repeat(40)
 
 const baseFacts = (change: Partial<StageFacts> = {}): StageFacts => ({
@@ -116,8 +116,8 @@ const TITLES: Record<string, string> = {
   'worfy-pipeline/5': 'Stepper on the Card',
   'worfy-pipeline/6': 'Stuck Tickets',
   'worfy-pipeline/7': 'epic-wave by the Pipeline',
-  'atakama/3': 'Login page',
-  'atakama/9': 'Reports export',
+  'atalaya/3': 'Login page',
+  'atalaya/9': 'Reports export',
 }
 
 const worfyModel = (): WorkflowModel =>
@@ -128,13 +128,13 @@ const worfyModel = (): WorkflowModel =>
       .map(([key, title]) => modelTicket('worfy-pipeline', Number(key.split('/')[1]), title)),
   )
 
-const atakamaSnapshot = (): PipelineSnapshot =>
-  snapshotOf(ATAKAMA_ROOT, ATAKAMA, [
-    ticket('atakama', 3, ATAKAMA, { mode: 'silent', status: 'work', headSha: HEAD, marks: [{ kind: 'review', verdict: 'success', sha: HEAD, at: null }], pr: { ...openPr(), reviewDecision: null } }),
-    ticket('atakama', 9, ATAKAMA, { mode: 'silent' }),
+const atalayaSnapshot = (): PipelineSnapshot =>
+  snapshotOf(ATALAYA_ROOT, ATALAYA, [
+    ticket('atalaya', 3, ATALAYA, { mode: 'silent', status: 'work', headSha: HEAD, marks: [{ kind: 'review', verdict: 'success', sha: HEAD, at: null }], pr: { ...openPr(), reviewDecision: null } }),
+    ticket('atalaya', 9, ATALAYA, { mode: 'silent' }),
   ])
 
-const atakamaModel = (): WorkflowModel => modelOf(ATAKAMA_ROOT, [modelTicket('atakama', 3, TITLES['atakama/3']!), modelTicket('atakama', 9, TITLES['atakama/9']!)])
+const atalayaModel = (): WorkflowModel => modelOf(ATALAYA_ROOT, [modelTicket('atalaya', 3, TITLES['atalaya/3']!), modelTicket('atalaya', 9, TITLES['atalaya/9']!)])
 
 const appSettings = (): AppSettings => ({
   interfaceScale: 1,
@@ -205,7 +205,7 @@ function preload(options: { projects: ProjectsState; pipelines: Record<string, P
 const PROJECTS: ProjectsState = {
   projects: [
     { id: 'worfy-00000001', name: 'worfy', path: WORFY_ROOT, branch: 'main' },
-    { id: 'atakama-00000002', name: 'atakama', path: ATAKAMA_ROOT, branch: 'main' },
+    { id: 'atalaya-00000002', name: 'atalaya', path: ATALAYA_ROOT, branch: 'main' },
   ],
   activeId: 'worfy-00000001',
   revision: 1,
@@ -239,14 +239,14 @@ describe('the Pipeline board', () => {
     expect(screen.getAllByTestId('pipeline-column').map((column) => column.dataset.stage)).toEqual(WORFY.map(stageId))
   })
 
-  it("has Atakama's columns in Atakama's order, a label of the Profile replacing the catalogue's name", async () => {
+  it("has Atalaya's columns in Atalaya's order, a label of the Profile replacing the catalogue's name", async () => {
     const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
-    const pipeline = ATAKAMA.map((stage) => (stage.kind === 'human-review' ? { ...stage, label: 'Team review' } : stage))
-    render(<PipelineBoardView name="atakama" snapshot={snapshotOf(ATAKAMA_ROOT, pipeline, atakamaSnapshot().tickets)} titles={{}} onOpenTicket={() => undefined} />)
+    const pipeline = ATALAYA.map((stage) => (stage.kind === 'human-review' ? { ...stage, label: 'Team review' } : stage))
+    render(<PipelineBoardView name="atalaya" snapshot={snapshotOf(ATALAYA_ROOT, pipeline, atalayaSnapshot().tickets)} titles={{}} onOpenTicket={() => undefined} />)
     expect(columnTitles()).toEqual(['Queued', 'Implementing', 'Agent review', 'CI', 'Team review', 'Awaiting merge', 'Done'])
-    // Agent review passed, the PR's CI is green: Atakama 03 stands on Human review, waiting for the team.
-    expect(columnOf(cardOf('atakama', 3))).toBe('human-review')
-    expect(within(cardOf('atakama', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team')
+    // Agent review passed, the PR's CI is green: Atalaya 03 stands on Human review, waiting for the team.
+    expect(columnOf(cardOf('atalaya', 3))).toBe('human-review')
+    expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team')
   })
 
   it('puts open Tickets in Queued and folds Done into a count that a click opens', async () => {
@@ -381,7 +381,7 @@ describe('the Pipeline section of the sidebar', () => {
     }))
 
   it('lists the Tickets in work of every Project, neither Queued nor Done, with the Stage and who they wait for', async () => {
-    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
     const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
     render(<PipelineSection />)
     await waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
@@ -389,11 +389,11 @@ describe('the Pipeline section of the sidebar', () => {
       { project: 'worfy-00000001', ref: 'worfy-pipeline 04', stage: 'Implementing', waits: 'Waits: owner' },
       { project: 'worfy-00000001', ref: 'worfy-pipeline 05', stage: 'Implementing', waits: 'Waits: agent' },
       { project: 'worfy-00000001', ref: 'worfy-pipeline 06', stage: 'CI', waits: 'Waits: agent' },
-      { project: 'atakama-00000002', ref: 'atakama 03', stage: 'Human review', waits: 'Waits: team' },
+      { project: 'atalaya-00000002', ref: 'atalaya 03', stage: 'Human review', waits: 'Waits: team' },
     ])
     // Each Project under its name; the titles come from the workflow model.
     expect(screen.getByText('worfy')).toBeTruthy()
-    expect(screen.getByText('atakama')).toBeTruthy()
+    expect(screen.getByText('atalaya')).toBeTruthy()
     await waitFor(() => expect(screen.getByText('Login page')).toBeTruthy())
     // The blocked one says so on its chip.
     const blocked = screen.getAllByTestId('pipeline-row')[0]!
@@ -404,21 +404,21 @@ describe('the Pipeline section of the sidebar', () => {
 
   it('says "Nothing in work" when no Project has a Ticket in work', async () => {
     const idle = snapshotOf(WORFY_ROOT, WORFY, [ticket('worfy-pipeline', 1, WORFY, { status: 'done' }), ticket('worfy-pipeline', 2, WORFY)])
-    const idleAtakama = snapshotOf(ATAKAMA_ROOT, ATAKAMA, [ticket('atakama', 9, ATAKAMA, { mode: 'silent' })])
-    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: idle, [ATAKAMA_ROOT]: idleAtakama }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    const idleAtalaya = snapshotOf(ATALAYA_ROOT, ATALAYA, [ticket('atalaya', 9, ATALAYA, { mode: 'silent' })])
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: idle, [ATALAYA_ROOT]: idleAtalaya }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
     const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
     render(<PipelineSection />)
     expect(await screen.findByText('Nothing in work')).toBeTruthy()
     expect(screen.queryAllByTestId('pipeline-row')).toHaveLength(0)
     // A Ticket that goes into work shows up without a reload, and the empty line goes.
-    const claimed = snapshotOf(ATAKAMA_ROOT, ATAKAMA, [ticket('atakama', 9, ATAKAMA, { mode: 'silent', status: 'work' })])
+    const claimed = snapshotOf(ATALAYA_ROOT, ATALAYA, [ticket('atalaya', 9, ATALAYA, { mode: 'silent', status: 'work' })])
     act(() => main.emit('pipeline.changed', claimed))
-    expect(rows()).toEqual([{ project: 'atakama-00000002', ref: 'atakama 09', stage: 'Implementing', waits: 'Waits: agent' }])
+    expect(rows()).toEqual([{ project: 'atalaya-00000002', ref: 'atalaya 09', stage: 'Implementing', waits: 'Waits: agent' }])
     expect(screen.queryByText('Nothing in work')).toBeNull()
   })
 
   it("opens the Pipeline board of a clicked row's Project", async () => {
-    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
     const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
     const { useNavigation } = await import('../../src/renderer/session/navigation')
     const { useProjects, activeProject } = await import('../../src/renderer/projects/useProjects')
@@ -435,15 +435,15 @@ describe('the Pipeline section of the sidebar', () => {
     )
     await waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
     expect(useNavigation.getState().view).toBe('canvas')
-    fireEvent.click(screen.getAllByTestId('pipeline-row').find((row) => row.dataset.project === 'atakama-00000002')!)
+    fireEvent.click(screen.getAllByTestId('pipeline-row').find((row) => row.dataset.project === 'atalaya-00000002')!)
     await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
-    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atakama-00000002' } })
-    await waitFor(() => expect(active).toBe('atakama-00000002'))
+    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atalaya-00000002' } })
+    await waitFor(() => expect(active).toBe('atalaya-00000002'))
 
     // A row of the active Project switches the view and selects nothing.
     useNavigation.setState({ view: 'session' })
     const selects = main.calls.filter((call) => call.channel === 'projects.select').length
-    fireEvent.click(screen.getAllByTestId('pipeline-row').find((row) => row.dataset.project === 'atakama-00000002')!)
+    fireEvent.click(screen.getAllByTestId('pipeline-row').find((row) => row.dataset.project === 'atalaya-00000002')!)
     await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
     expect(main.calls.filter((call) => call.channel === 'projects.select')).toHaveLength(selects)
   })
@@ -518,7 +518,7 @@ describe('stuck Tickets on the board and in the section (worfy-pipeline ticket 0
 
   it('a row of the section that passes the threshold gets its frame a minute later, without a new snapshot', async () => {
     atWithClock('2026-10-17T11:59:30Z')
-    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
     const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
     render(<PipelineSection />)
     // vi.waitFor polls with the real timers: setInterval is faked here.
@@ -534,7 +534,7 @@ describe('stuck Tickets on the board and in the section (worfy-pipeline ticket 0
 
   it('a row of the section past the threshold has the frame and the time in its tooltip', async () => {
     at('2026-10-17T13:00:00Z')
-    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATALAYA_ROOT]: atalayaModel() } })
     const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
     render(<PipelineSection />)
     await waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
@@ -552,14 +552,14 @@ describe('a click on a notification of a Ticket that waits for the owner (worfy-
       projects: PROJECTS,
       pipelines: {},
       models: {},
-      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATAKAMA_ROOT, epic: 'atakama', num: 3 } }) },
+      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATALAYA_ROOT, epic: 'atalaya', num: 3 } }) },
     })
     const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
     const { useNavigation } = await import('../../src/renderer/session/navigation')
     expect(useNavigation.getState().view).toBe('canvas')
     render(<NotificationTarget />)
     await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
-    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atakama-00000002' } })
+    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atalaya-00000002' } })
   })
 
   it('of the active Project: only the view changes', async () => {

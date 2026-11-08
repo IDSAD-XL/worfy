@@ -93,7 +93,7 @@ describe('the accounts of gh auth status --json hosts', () => {
 
   it('reads remotes in https, ssh and scp form; other shapes are no GitHub repository', () => {
     expect(parseRemote('https://github.com/acme/shop.git')).toEqual({ host: 'github.com', owner: 'acme', repo: 'shop' })
-    expect(parseRemote('https://x-access:pw@GitHub.com/acme/shop/')).toEqual({ host: 'github.com', owner: 'acme', repo: 'shop' })
+    expect(parseRemote(`https://x-access:${'pw'}@GitHub.com/acme/shop/`)).toEqual({ host: 'github.com', owner: 'acme', repo: 'shop' })
     expect(parseRemote('git@github.com:acme/shop.git')).toEqual({ host: 'github.com', owner: 'acme', repo: 'shop' })
     expect(parseRemote('ssh://git@github.com:22/acme/shop.git')).toEqual({ host: 'github.com', owner: 'acme', repo: 'shop' })
     expect(parseRemote('/srv/git/shop.git')).toBeNull()

@@ -182,12 +182,12 @@ describe('gate runs as facts of a Run', () => {
 
   it('reads one Windows worktree in two spellings as one path, and an 8.3 short name through realpath', async () => {
     const missing = (path: string): Promise<string> => Promise.reject(Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' }))
-    const one = await canonicalWorktree('C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
-    const two = await canonicalWorktree('c:/users/ann/repo/.claude/worktrees/05', { platform: 'win32', realpath: missing })
-    expect(one).toBe('c:/users/ann/repo/.claude/worktrees/05')
+    const one = await canonicalWorktree('C:\\Users\\Someone\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
+    const two = await canonicalWorktree('c:/users/someone/repo/.claude/worktrees/05', { platform: 'win32', realpath: missing })
+    expect(one).toBe('c:/users/someone/repo/.claude/worktrees/05')
     expect(two).toBe(one)
     // Elsewhere `\` is a character of a name and letter case counts.
-    expect(await canonicalWorktree('/Users/Ann/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalWorktree('/users/ann/repo', { platform: 'darwin', realpath: missing }))
+    expect(await canonicalWorktree('/Users/Someone/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalWorktree('/users/someone/repo', { platform: 'darwin', realpath: missing }))
 
     // realpath(3) of the Windows runner expands the 8.3 short name of its home folder.
     const long = 'C:\\Users\\runneradmin\\work\\.claude\\worktrees\\05'
@@ -195,7 +195,7 @@ describe('gate runs as facts of a Run', () => {
     expect(await canonicalWorktree('C:/Users/RUNNER~1/work/.claude/worktrees/05', { platform: 'win32', realpath: shortName })).toBe(await canonicalWorktree(long, { platform: 'win32', realpath: shortName }))
 
     // The gate writes C:/… as git prints it; the reader hands over the same form an agent's C:\… gets.
-    writeRun({ tag: 'cccc3333', end: '11:00', worktree: 'C:/Users/Ann/Repo/.claude/worktrees/05', head: SHA('w') })
+    writeRun({ tag: 'cccc3333', end: '11:00', worktree: 'C:/Users/Someone/Repo/.claude/worktrees/05', head: SHA('w') })
     const read = await readGateLogs({ harnessHome, since: T('10:00'), until: T('14:00'), now: RUN_END, platform: 'win32', realpath: missing })
     expect(read.work.find((fact) => fact.kind === 'gate')?.worktree).toBe(one)
 

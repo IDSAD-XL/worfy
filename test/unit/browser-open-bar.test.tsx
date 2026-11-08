@@ -35,8 +35,8 @@ describe('openBarAddress', () => {
   })
 
   it('does not show user info, which could pass for the host', () => {
-    const { site, head, tail } = openBarAddress('https://bank.example.com:secret@evil.net/login')
-    expect(site).toBe('https://evil.net')
+    const { site, head, tail } = openBarAddress('https://bank.example.com:secret@evil.example.net/login')
+    expect(site).toBe('https://evil.example.net')
     expect(head + tail).toBe('/login')
   })
 

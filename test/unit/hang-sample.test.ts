@@ -40,7 +40,7 @@ interface HangSample {
 }
 const { hangSample, logsFolder, systemDeps } = (await import(pathToFileURL(SCRIPT).href)) as HangSample
 
-const BUNDLE = '/Users/u/Applications/worfy stable.app'
+const BUNDLE = '/Users/someone/Applications/worfy stable.app'
 const MAIN = `${BUNDLE}/Contents/MacOS/worfy`
 const HELPER = `${BUNDLE}/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper`
 const RENDERER = `${BUNDLE}/Contents/Frameworks/worfy Helper (Renderer).app/Contents/MacOS/worfy Helper (Renderer)`
@@ -50,8 +50,8 @@ const TOKEN = 'sk-ant-secret-token'
 /** worfy with a window, a GPU process, a network service, a Session, a Terminal shell and a git call. */
 const PROCESSES: Record<number, Process> = {
   100: { comm: MAIN, args: `${MAIN} --remote-debugging-port=9351` },
-  101: { comm: RENDERER, args: `${RENDERER} --type=renderer --user-data-dir=/Users/u/Library/Application Support/worfy --lang=en-US` },
-  102: { comm: HELPER, args: `${HELPER} --type=gpu-process --user-data-dir=/Users/u/Library/Application Support/worfy` },
+  101: { comm: RENDERER, args: `${RENDERER} --type=renderer --user-data-dir=/Users/someone/Library/Application Support/worfy --lang=en-US` },
+  102: { comm: HELPER, args: `${HELPER} --type=gpu-process --user-data-dir=/Users/someone/Library/Application Support/worfy` },
   103: { comm: HELPER, args: `${HELPER} --type=utility --utility-sub-type=network.mojom.NetworkService` },
   104: { comm: CLAUDE, args: `${CLAUDE} --output-format stream-json --api-key ${TOKEN}` },
   105: { comm: '/bin/zsh', args: '/bin/zsh -l' },
@@ -71,7 +71,7 @@ async function run(args: string[], overrides: Partial<Deps> = {}, processes: Rec
   const deps: Deps = {
     platform: 'darwin',
     env: { WORFY_DATA_DIR: '/data/worfy' },
-    home: '/Users/u',
+    home: '/Users/someone',
     now: () => new Date(Date.UTC(2026, 9, 10, 12, 34, 56, 789)),
     ps: (pid) => processes[pid] ?? null,
     childrenOf: (pid) => (pid === 100 ? Object.keys(processes).map(Number).filter((child) => child !== 100) : []),
@@ -141,8 +141,8 @@ describe('hang-sample: which processes it samples', () => {
   })
 
   it('does not take a child of another .app whose path only starts the same, and compares real paths', async () => {
-    const other = '/Users/u/Applications/worfy stable.app2/Contents/MacOS/tool'
-    const linked = '/private/Users/u/Applications/worfy stable.app/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper'
+    const other = '/Users/someone/Applications/worfy stable.app2/Contents/MacOS/tool'
+    const linked = '/private/Users/someone/Applications/worfy stable.app/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper'
     const processes = { 100: PROCESSES[100] as Process, 201: { comm: other, args: other }, 202: { comm: linked, args: `${linked} --type=utility` } }
     const { out, sampled } = await run(['100'], { realpath: (path) => path.replace(/^\/Users\//, '/private/Users/') }, processes)
     expect(sampled.map((sample) => sample.pid)).toEqual([100, 202])
@@ -211,7 +211,7 @@ describe('hang-sample: what it refuses, with exit code 2 and no sample', () => {
   })
 
   it('an executable named worfy outside a .app, or a dev run of Electron', async () => {
-    for (const comm of ['/usr/local/bin/worfy', '/Users/u/worfy/Contents/MacOS/worfy', '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron']) {
+    for (const comm of ['/usr/local/bin/worfy', '/Users/someone/worfy/Contents/MacOS/worfy', '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron']) {
       expect(await refused(['100'], { ps: () => ({ comm, args: comm }) })).toContain('is not the main process of a packaged worfy')
     }
   })
@@ -232,9 +232,9 @@ describe('hang-sample: what it refuses, with exit code 2 and no sample', () => {
 
 describe('hang-sample: where the files go', () => {
   it('is the logs folder of the packaged worfy, next to process-gone.jsonl; WORFY_DATA_DIR overrides it', () => {
-    expect(logsFolder({ WORFY_DATA_DIR: '/data/worfy' }, '/Users/u')).toBe('/data/worfy/logs')
-    expect(logsFolder({}, '/Users/u')).toBe('/Users/u/Library/Application Support/worfy/logs')
-    expect(logsFolder({ WORFY_DATA_DIR: '' }, '/Users/u')).toBe('/Users/u/Library/Application Support/worfy/logs')
+    expect(logsFolder({ WORFY_DATA_DIR: '/data/worfy' }, '/Users/someone')).toBe('/data/worfy/logs')
+    expect(logsFolder({}, '/Users/someone')).toBe('/Users/someone/Library/Application Support/worfy/logs')
+    expect(logsFolder({ WORFY_DATA_DIR: '' }, '/Users/someone')).toBe('/Users/someone/Library/Application Support/worfy/logs')
   })
 
   // dataRoot() builds the macOS folder with the path rules of the system the test runs on.

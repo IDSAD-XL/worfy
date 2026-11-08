@@ -339,17 +339,17 @@ describe('critical-path: the command line', () => {
   })
 
   it("takes the journals folder from --journals, else WORFY_DATA_DIR, else the app's data folder of the system", () => {
-    expect(journalsFolder({ WORFY_DATA_DIR: 'data' }, '/home/u')).toBe(join(resolve('data'), 'autopilot'))
+    expect(journalsFolder({ WORFY_DATA_DIR: 'data' }, '/home/someone')).toBe(join(resolve('data'), 'autopilot'))
     // The same rules as dataRoot (src/main/storage/paths.ts): macOS, and Windows with or without APPDATA.
-    expect(journalsFolder({}, '/Users/u', 'darwin')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
-    expect(journalsFolder({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u\\AppData\\Roaming', 'worfy'), 'autopilot'))
-    expect(journalsFolder({}, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+    expect(journalsFolder({}, '/Users/someone', 'darwin')).toBe(join(posix.join('/Users/someone', 'Library', 'Application Support', 'worfy'), 'autopilot'))
+    expect(journalsFolder({ APPDATA: 'C:\\Users\\someone\\AppData\\Roaming' }, 'C:\\Users\\someone', 'win32')).toBe(join(win32.join('C:\\Users\\someone\\AppData\\Roaming', 'worfy'), 'autopilot'))
+    expect(journalsFolder({}, 'C:\\Users\\someone', 'win32')).toBe(join(win32.join('C:\\Users\\someone', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
     // APPDATA with a drive letter and a separator, or UNC, is taken as it is; anything else falls back to the home.
     for (const appData of ['D:\\Roam', 'C:/Roam', '\\\\srv\\share\\Roam']) {
-      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join(appData, 'worfy'), 'autopilot'))
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\someone', 'win32'), appData).toBe(join(win32.join(appData, 'worfy'), 'autopilot'))
     }
     for (const appData of ['rel', '\\Roam', 'C:rel', '\\\\srv']) {
-      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\someone', 'win32'), appData).toBe(join(win32.join('C:\\Users\\someone', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
     }
   })
 
@@ -410,10 +410,10 @@ describe('critical-path: --out into the data folder of the platform', () => {
 
   // The guard takes the data folder from defaultFolders; both platforms run on every host, so one of them is never the host's.
   it("names the folders of the platform in deps, not the host's", () => {
-    const winData = win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy')
-    expect(defaultFolders({ env: {}, home: 'C:\\Users\\u', platform: 'win32' })).toEqual({ journals: join(winData, 'autopilot'), data: winData })
-    const macData = posix.join('/Users/u', 'Library', 'Application Support', 'worfy')
-    expect(defaultFolders({ env: {}, home: '/Users/u', platform: 'darwin' })).toEqual({ journals: join(macData, 'autopilot'), data: macData })
+    const winData = win32.join('C:\\Users\\someone', 'AppData', 'Roaming', 'worfy')
+    expect(defaultFolders({ env: {}, home: 'C:\\Users\\someone', platform: 'win32' })).toEqual({ journals: join(winData, 'autopilot'), data: winData })
+    const macData = posix.join('/Users/someone', 'Library', 'Application Support', 'worfy')
+    expect(defaultFolders({ env: {}, home: '/Users/someone', platform: 'darwin' })).toEqual({ journals: join(macData, 'autopilot'), data: macData })
   })
 
   it('refuses an --out inside ~/Library/Application Support/worfy on macOS', async () => {

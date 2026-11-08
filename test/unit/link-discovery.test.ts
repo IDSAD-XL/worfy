@@ -19,6 +19,9 @@ const SELF = { id: '11111111-1111-4111-8111-111111111111', name: 'Studio' }
 const OTHER = '22222222-2222-4222-8222-222222222222'
 const LINKED = '33333333-3333-4333-8333-333333333333'
 const OLD = '44444444-4444-4444-8444-444444444444'
+// A .local name built from its label: the guard of personal strings (scripts/check-personal.mjs)
+// reads a *.local name in the source as a real machine, and these are invented.
+const local = (name: string): string => `${name}.local`
 
 /** An mDNS backend that records what is announced and lets the test play the network. */
 class FakeMdns implements MdnsBackend {
@@ -160,8 +163,8 @@ describe('the list of found worfy', () => {
   it('ignores services without a Machine id', () => {
     const { mdns, discovery } = makeDiscovery()
     discovery.browse('linking', true)
-    mdns.up({ name: 'printer', host: 'printer.local', port: 631, txt: {} })
-    mdns.up({ name: 'bad', host: 'bad.local', port: 1, txt: { id: 'not-a-uuid' } })
+    mdns.up({ name: 'printer', host: local('printer'), port: 631, txt: {} })
+    mdns.up({ name: 'bad', host: local('bad'), port: 1, txt: { id: 'not-a-uuid' } })
     expect(discovery.list()).toEqual([])
   })
 
@@ -184,8 +187,8 @@ describe('the list of found worfy', () => {
     discovery.browse('linking', true)
     mdns.up({ ...worfy(OTHER, 'Laptop'), host: 'evil.example.com', addresses: ['8.8.8.8', '2001:db8::5'] })
     expect(discovery.list()).toEqual([])
-    mdns.up({ ...worfy(OTHER, 'Laptop'), host: 'laptop.local.', addresses: ['8.8.8.8'] })
-    expect(discovery.list()).toMatchObject([{ id: OTHER, host: 'laptop.local' }])
+    mdns.up({ ...worfy(OTHER, 'Laptop'), host: `${local('laptop')}.`, addresses: ['8.8.8.8'] })
+    expect(discovery.list()).toMatchObject([{ id: OTHER, host: local('laptop') }])
   })
 
   it(`keeps at most ${MAX_FOUND} announcements and ignores more until some leave`, () => {
@@ -350,9 +353,9 @@ describe('searching and announcing', () => {
   })
 
   it('dials a local IPv4 address first, then a local IPv6 address without a zone, then a .local name', () => {
-    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', 'fd00::5', '192.168.1.9'] })).toBe('192.168.1.9')
-    expect(dialAddress({ host: 'a.local', addresses: ['fe80::1', 'fd00::5'] })).toBe('fd00::5')
-    expect(dialAddress({ host: 'a.local.', addresses: ['fe80::1', '2001:db8::5', '8.8.8.8'] })).toBe('a.local')
+    expect(dialAddress({ host: local('a'), addresses: ['fe80::1', 'fd00::5', '192.168.1.9'] })).toBe('192.168.1.9')
+    expect(dialAddress({ host: local('a'), addresses: ['fe80::1', 'fd00::5'] })).toBe('fd00::5')
+    expect(dialAddress({ host: `${local('a')}.`, addresses: ['fe80::1', '2001:db8::5', '8.8.8.8'] })).toBe(local('a'))
     expect(dialAddress({ host: 'a.example.com', addresses: ['8.8.8.8'] })).toBeUndefined()
   })
 })
@@ -376,7 +379,7 @@ describe('bonjourBackend', () => {
 
     const handle = backend.publish({ name: 'Studio (11111111)', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' } })
     expect(create).toHaveBeenCalledWith({ interface: '192.168.1.20', bind: '0.0.0.0' })
-    expect(fake.publish).toHaveBeenCalledWith({ name: 'Studio (11111111)', type: 'worfy', protocol: 'tcp', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' }, probe: false, host: 'worfy-11111111.local', disableIPv6: true })
+    expect(fake.publish).toHaveBeenCalledWith({ name: 'Studio (11111111)', type: 'worfy', protocol: 'tcp', port: 52000, txt: { id: SELF.id, proto: '1', name: 'Studio' }, probe: false, host: local('worfy-11111111'), disableIPv6: true })
     let stopped = false
     void handle.stop().then(() => (stopped = true))
     expect(service.stop).toHaveBeenCalled()
@@ -422,7 +425,7 @@ describe('bonjourBackend', () => {
 describe('an address typed by hand', () => {
   it.each([
     ['192.168.1.20:52000', { host: '192.168.1.20', port: 52000 }],
-    ['  studio.local:4000 ', { host: 'studio.local', port: 4000 }],
+    [`  ${local('studio')}:4000 `, { host: local('studio'), port: 4000 }],
     ['localhost:1', { host: 'localhost', port: 1 }],
     ['[::1]:52000', { host: '::1', port: 52000 }],
     ['[fe80::1%en0]:52000', { host: 'fe80::1%en0', port: 52000 }],

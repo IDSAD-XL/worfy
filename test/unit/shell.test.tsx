@@ -71,8 +71,8 @@ describe('ToolbarView', () => {
   const base = { items: [], view: 'canvas' as const, onViewChange: () => {}, sidebarVisible: true, onToggleSidebar: () => {} }
 
   it('shows the project name and branch', () => {
-    render(<ToolbarView {...base} project={{ id: 'auction-00000001', name: 'auction', branch: 'main' }} />)
-    expect(screen.getByText('worfy — auction')).toBeTruthy()
+    render(<ToolbarView {...base} project={{ id: 'auberge-00000001', name: 'auberge', branch: 'main' }} />)
+    expect(screen.getByText('worfy — auberge')).toBeTruthy()
     expect(screen.getByText('main').className).toContain('w-mono')
   })
 

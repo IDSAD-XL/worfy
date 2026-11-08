@@ -265,7 +265,7 @@ describe('layout store: projects.remove of a Project with a change not yet writt
     // projects.add reads which Harness the Claude home has; not the one of the machine running the test.
     vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
     vi.stubEnv('WORFY_HARNESS_HOME', '')
-    gitRepo = join(scratch, 'auction')
+    gitRepo = join(scratch, 'auberge')
     mkdirSync(gitRepo)
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: gitRepo, env })

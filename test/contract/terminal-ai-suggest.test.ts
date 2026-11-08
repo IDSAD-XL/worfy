@@ -413,7 +413,7 @@ describe('what is shown of an answer', () => {
 
 // ---- the handler, without a shell ----------------------------------------------------------------------
 
-const STATE: ShellState = { cwd: '/Users/me/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['ls -la'], lastOutput: null }
+const STATE: ShellState = { cwd: '/Users/someone/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['ls -la'], lastOutput: null }
 
 /** Calls the handler as the link does, with a shell whose state the test gives. */
 async function asked(w: World, line: string, state: ShellState | null = STATE, signal: AbortSignal = new AbortController().signal) {

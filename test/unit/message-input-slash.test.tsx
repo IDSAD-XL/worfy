@@ -289,7 +289,7 @@ describe('the slash menu', () => {
     const { type } = await mount()
     await type('/zzz')
     await type('hello a/sh')
-    await type('cd /Users/x')
+    await type('cd /Users/someone')
     await new Promise((settle) => setTimeout(settle, 20))
     expect(screen.queryByTestId('slash-menu')).toBeNull()
   })

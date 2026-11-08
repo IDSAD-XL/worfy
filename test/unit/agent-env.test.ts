@@ -160,10 +160,10 @@ const BASH = `${GIT}\\bin\\bash.exe`
 const parentEnv: Record<string, string> = {
   Path: `C:\\parent\\only;${GIT}\\mingw64\\bin;C:\\Windows\\System32`,
   SystemRoot: 'C:\\Windows',
-  USERPROFILE: 'C:\\Users\\u',
+  USERPROFILE: 'C:\\Users\\someone',
   ProgramFiles: 'C:\\Program Files',
-  LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local',
-  APPDATA: 'C:\\Users\\u\\AppData\\Roaming',
+  LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local',
+  APPDATA: 'C:\\Users\\someone\\AppData\\Roaming',
   USERNAME: 'u',
   TEMP: 'C:\\parent\\temp',
   ANTHROPIC_API_KEY: 'key',
@@ -234,7 +234,7 @@ describe('captureAgentEnv on win32', () => {
 
   it('takes the session variables Windows sets at sign-in from the process', async () => {
     const { env } = await capture()
-    expect(env).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\u', APPDATA: 'C:\\Users\\u\\AppData\\Roaming', USERNAME: 'u' })
+    expect(env).toMatchObject({ SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\someone', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming', USERNAME: 'u' })
     expect(WINDOWS_SESSION_VARS).toEqual([
       'SystemRoot', 'SystemDrive', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
       'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'HOMESHARE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
@@ -250,8 +250,8 @@ describe('captureAgentEnv on win32', () => {
     const { env } = await capture()
     expect(env.ANTHROPIC_MODEL).toBe('opus')
     expect(env.ComSpec).toBe('C:\\Windows\\system32\\cmd.exe')
-    expect(env.TEMP).toBe('C:\\Users\\u\\AppData\\Local\\Temp')
-    expect(env.NVM_HOME).toBe('C:\\Users\\u\\AppData\\Roaming\\nvm')
+    expect(env.TEMP).toBe('C:\\Users\\someone\\AppData\\Local\\Temp')
+    expect(env.NVM_HOME).toBe('C:\\Users\\someone\\AppData\\Roaming\\nvm')
     expect(env.UNKNOWN_REF).toBe('%NOT_SET%\\x')
     expect(env.EMPTY).toBe('')
     expect(env).not.toHaveProperty('SomeFlag')
@@ -264,31 +264,31 @@ describe('captureAgentEnv on win32', () => {
       name: 'nvm-windows: Path names NVM_HOME and NVM_SYMLINK, which come after it in the key',
       machine: key(['Path', EXPAND, '%SystemRoot%\\system32;%NVM_HOME%;%NVM_SYMLINK%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'], ['NVM_SYMLINK', SZ, 'C:\\Program Files\\nodejs']),
       user: key(),
-      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
+      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\someone\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
     },
     {
       name: 'a forward reference in another case: %nvm_home% before NVM_HOME',
       machine: key(['Path', EXPAND, '%nvm_home%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm']),
       user: key(),
-      expected: { Path: 'C:\\Users\\u\\AppData\\Roaming\\nvm' },
+      expected: { Path: 'C:\\Users\\someone\\AppData\\Roaming\\nvm' },
     },
     {
       name: "nvm-windows for one user: the user's Path names NVM_HOME, set after it in the user's key",
       machine: key(['Path', EXPAND, '%SystemRoot%\\system32']),
       user: key(['Path', EXPAND, '%NVM_HOME%;%NVM_SYMLINK%'], ['NVM_HOME', EXPAND, '%APPDATA%\\nvm'], ['NVM_SYMLINK', SZ, 'C:\\Program Files\\nodejs']),
-      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\u\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
+      expected: { Path: 'C:\\Windows\\system32;C:\\Users\\someone\\AppData\\Roaming\\nvm;C:\\Program Files\\nodejs' },
     },
     {
       name: "the machine's key is final before the user's is read: it does not see a variable set only for the user",
       machine: key(['Path', EXPAND, '%SystemRoot%\\system32;%NVM_HOME%']),
       user: key(['NVM_HOME', EXPAND, '%APPDATA%\\nvm']),
-      expected: { Path: 'C:\\Windows\\system32;%NVM_HOME%', NVM_HOME: 'C:\\Users\\u\\AppData\\Roaming\\nvm' },
+      expected: { Path: 'C:\\Windows\\system32;%NVM_HOME%', NVM_HOME: 'C:\\Users\\someone\\AppData\\Roaming\\nvm' },
     },
     {
       name: 'a chain: Path → TOOLS → BASE → USERPROFILE of the session, each listed before what it names',
       machine: key(),
       user: key(['Path', EXPAND, '%TOOLS%\\bin'], ['TOOLS', EXPAND, '%BASE%\\tools'], ['BASE', EXPAND, '%USERPROFILE%\\base']),
-      expected: { Path: 'C:\\Users\\u\\base\\tools\\bin', TOOLS: 'C:\\Users\\u\\base\\tools', BASE: 'C:\\Users\\u\\base' },
+      expected: { Path: 'C:\\Users\\someone\\base\\tools\\bin', TOOLS: 'C:\\Users\\someone\\base\\tools', BASE: 'C:\\Users\\someone\\base' },
     },
     {
       name: "the user's PATHEXT extends the machine's: %PATHEXT% is the machine's value",
@@ -301,7 +301,7 @@ describe('captureAgentEnv on win32', () => {
       name: "the user's PSModulePath extends the machine's, itself expanded",
       machine: key(['PSModulePath', EXPAND, '%ProgramFiles%\\WindowsPowerShell\\Modules;%SystemRoot%\\system32\\WindowsPowerShell\\v1.0\\Modules']),
       user: key(['PSModulePath', EXPAND, '%PSModulePath%;%USERPROFILE%\\Modules']),
-      expected: { PSModulePath: 'C:\\Program Files\\WindowsPowerShell\\Modules;C:\\Windows\\system32\\WindowsPowerShell\\v1.0\\Modules;C:\\Users\\u\\Modules' },
+      expected: { PSModulePath: 'C:\\Program Files\\WindowsPowerShell\\Modules;C:\\Windows\\system32\\WindowsPowerShell\\v1.0\\Modules;C:\\Users\\someone\\Modules' },
     },
     {
       name: 'REG_SZ stays literal, and so does the text it brings into a REG_EXPAND_SZ value',
@@ -313,7 +313,7 @@ describe('captureAgentEnv on win32', () => {
       name: "the user's value replaces the machine's for any variable but Path, which goes after the machine's",
       machine: key(['Path', SZ, 'C:\\m'], ['TEMP', EXPAND, '%SystemRoot%\\TEMP'], ['EDITOR', SZ, 'notepad']),
       user: key(['Path', SZ, 'C:\\u'], ['TEMP', EXPAND, '%USERPROFILE%\\Temp'], ['EDITOR', SZ, 'code']),
-      expected: { Path: 'C:\\m;C:\\u', TEMP: 'C:\\Users\\u\\Temp', EDITOR: 'code' },
+      expected: { Path: 'C:\\m;C:\\u', TEMP: 'C:\\Users\\someone\\Temp', EDITOR: 'code' },
     },
     {
       name: "the machine's Path and the user's PATH make one Path",
@@ -393,7 +393,7 @@ describe('captureAgentEnv on win32', () => {
     const { env } = await capture()
     expect(Object.keys(env).filter((key) => key.toUpperCase() === 'PATH')).toEqual(['Path'])
     expect(env.Path).toBe(
-      `C:\\Windows\\system32;C:\\Windows;${GIT}\\cmd;C:\\Program Files\\nodejs;C:\\Users\\u\\bin;C:\\Users\\u\\AppData\\Local\\Programs\\tool`,
+      `C:\\Windows\\system32;C:\\Windows;${GIT}\\cmd;C:\\Program Files\\nodejs;C:\\Users\\someone\\bin;C:\\Users\\someone\\AppData\\Local\\Programs\\tool`,
     )
   })
 
@@ -544,7 +544,7 @@ describe('captureAgentEnv elsewhere', () => {
 })
 
 describe('findGitBash', () => {
-  const env = (path: string) => ({ Path: path, ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local', SystemRoot: 'C:\\Windows' })
+  const env = (path: string) => ({ Path: path, ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local', SystemRoot: 'C:\\Windows' })
 
   it.each([
     ['cmd', 'D:\\Git\\cmd\\git.exe'],
@@ -559,13 +559,13 @@ describe('findGitBash', () => {
 
   it('then under %ProgramFiles%, then under %LOCALAPPDATA%\\Programs', () => {
     expect(findGitBash(env('C:\\Windows\\System32'), files(BASH))).toBe(BASH)
-    const userGit = 'C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
+    const userGit = 'C:\\Users\\someone\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
     expect(findGitBash(env('C:\\Windows\\System32'), files(userGit))).toBe(userGit)
   })
 
   it('looks under %ProgramFiles(x86)% too, after %ProgramFiles% and before the folder of the user', () => {
     const x86 = 'C:\\Program Files (x86)\\Git\\bin\\bash.exe'
-    const userGit = 'C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
+    const userGit = 'C:\\Users\\someone\\AppData\\Local\\Programs\\Git\\bin\\bash.exe'
     const withX86 = { ...env('C:\\Windows\\System32'), 'ProgramFiles(x86)': 'C:\\Program Files (x86)' }
     expect(findGitBash(withX86, files(x86, userGit))).toBe(x86)
     expect(findGitBash(withX86, files(BASH, x86))).toBe(BASH)
@@ -608,7 +608,7 @@ describe('findOnPath and the registry reader', () => {
   const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
 
   it('reads the lines of the registry script: name and value in base64 of UTF-8, REG_EXPAND_SZ not expanded', () => {
-    const value = 'C:\\Users\\Алексей\\日本\\😀;%USERPROFILE%\\bin'
+    const value = 'C:\\Users\\someone\\Документы\\日本\\😀;%USERPROFILE%\\bin'
     expect(parseRegistryValues(`ExpandString ${b64('Path')} ${b64(value)}\r\nString ${b64('ANTHROPIC_MODEL')} ${b64('opus')}\r\n`)).toEqual([
       { name: 'Path', type: 'REG_EXPAND_SZ', value },
       { name: 'ANTHROPIC_MODEL', type: 'REG_SZ', value: 'opus' },
@@ -766,7 +766,7 @@ describe.runIf(process.platform === 'win32')('the registry reader on this Window
   })
 
   it('reads Cyrillic, CJK and emoji without loss and REG_EXPAND_SZ unexpanded, where reg query garbles them', async () => {
-    const value = 'C:\\Users\\Алексей\\日本\\😀\\%USERPROFILE%'
+    const value = 'C:\\Users\\someone\\Документы\\日本\\😀\\%USERPROFILE%'
     execFileSync('reg', ['add', SCRATCH, '/v', 'T', '/t', 'REG_EXPAND_SZ', '/d', value, '/f'], { stdio: 'ignore' })
     execFileSync('reg', ['add', SCRATCH, '/v', 'E', '/t', 'REG_SZ', '/d', '', '/f'], { stdio: 'ignore' })
     execFileSync('reg', ['add', SCRATCH, '/v', 'D', '/t', 'REG_DWORD', '/d', '1', '/f'], { stdio: 'ignore' })

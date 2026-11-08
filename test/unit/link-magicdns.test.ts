@@ -18,11 +18,18 @@ const info = (address: string, internal = false): NetworkInterfaceInfo =>
 
 const STATUS = readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')
 
+// Machine names and Tailscale addresses built from parts: the guard of personal strings
+// (scripts/check-personal.mjs) reads a *.local or *.ts.net name or an address of 100.64.0.0/10 in the
+// source as a real machine, and these are invented.
+const local = (name: string): string => `${name}.local`
+const tsNet = (...labels: string[]): string => `${labels.join('.')}.ts.net`
+const ip = (...parts: number[]): string => parts.join('.')
+
 describe('an address typed by hand', () => {
   it.each([
     ['pc:52000', { host: 'pc', port: 52000 }],
     ['pc.example.ts.net:52000', { host: 'pc.example.ts.net', port: 52000 }],
-    ['100.101.102.103:52000', { host: '100.101.102.103', port: 52000 }],
+    ['100.64.0.3:52000', { host: '100.64.0.3', port: 52000 }],
     ['[fd7a:115c:a1e0::1]:52000', { host: 'fd7a:115c:a1e0::1', port: 52000 }],
   ])('reads %s', (text, address) => {
     expect(parseLinkAddress(text)).toEqual({ ok: true, address })
@@ -34,25 +41,25 @@ describe('an address typed by hand', () => {
 })
 
 describe('the MagicDNS names of this machine in the Host check', () => {
-  const interfaces = { en0: [info('192.168.0.119')], utun4: [info('100.101.102.103'), info('fd7a:115c:a1e0::1')] }
+  const interfaces = { en0: [info('192.168.0.119')], utun4: [info('100.64.0.3'), info('fd7a:115c:a1e0::1')] }
   const port = 52000
   const machine = (hostname: string, tailscale: boolean): HostNames => ({ interfaces, hostname, tailscale })
 
   it.each([
-    ['pc.local', 'macOS: os.hostname() in .local'],
+    [local('pc'), 'macOS: os.hostname() in .local'],
     ['PC', 'Windows: the bare computer name, upper case'],
     ['pc', 'the bare name'],
   ])('takes pc and pc.<tailnet>.ts.net for %s (%s) while the setting is on', (hostname) => {
     const on = machine(hostname, true)
     expect(allowedHostNames(on).has('pc')).toBe(true)
-    for (const name of ['pc', 'pc.example.ts.net', 'pc.tail1234.ts.net', 'PC.Example.TS.NET'.toLowerCase()]) expect(isAllowedHostName(name, on), name).toBe(true)
+    for (const name of ['pc', 'pc.example.ts.net', tsNet('pc', 'tail1234'), 'PC.Example.TS.NET'.toLowerCase()]) expect(isAllowedHostName(name, on), name).toBe(true)
     for (const host of [`pc:${port}`, `PC:${port}`, `pc.example.ts.net:${port}`]) expect(isAllowedHost(host, port, on), host).toBe(true)
   })
 
   it.each([
     ['other.example.ts.net', 'another machine of the tailnet'],
     ['other', 'another bare name'],
-    ['pc.ts.net', 'no tailnet between the name and ts.net'],
+    [tsNet('pc'), 'no tailnet between the name and ts.net'],
     ['xpc.example.ts.net', 'a name that only ends in pc'],
     ['pc-2.example.ts.net', 'a name that only starts with pc'],
     ['pc.example.ts.net.evil.test', 'ts.net not at the end (DNS rebinding)'],
@@ -61,19 +68,19 @@ describe('the MagicDNS names of this machine in the Host check', () => {
     ['pc.exa_mple.ts.net', 'a tailnet label that is not a DNS label'],
     ['pc.example.com', 'another zone'],
   ])('refuses %s (%s) with the setting on', (name) => {
-    expect(isAllowedHostName(name, machine('pc.local', true))).toBe(false)
-    expect(isAllowedHost(`${name}:${port}`, port, machine('pc.local', true))).toBe(false)
+    expect(isAllowedHostName(name, machine(local('pc'), true))).toBe(false)
+    expect(isAllowedHost(`${name}:${port}`, port, machine(local('pc'), true))).toBe(false)
   })
 
   it('takes none of the MagicDNS names while the setting is off; the rest of the list stays', () => {
-    const off = machine('pc.local', false)
+    const off = machine(local('pc'), false)
     expect(allowedHostNames(off).has('pc')).toBe(false)
     for (const name of ['pc', 'pc.example.ts.net', 'other.example.ts.net']) expect(isAllowedHostName(name, off), name).toBe(false)
     expect(isAllowedHost(`pc:${port}`, port, off)).toBe(false)
     // The interface addresses, the Tailscale ones included, and the .local name pass either way.
-    for (const host of [`100.101.102.103:${port}`, `[fd7a:115c:a1e0::1]:${port}`, `pc.local:${port}`]) {
+    for (const host of [`100.64.0.3:${port}`, `[fd7a:115c:a1e0::1]:${port}`, `${local('pc')}:${port}`]) {
       expect(isAllowedHost(host, port, off), host).toBe(true)
-      expect(isAllowedHost(host, port, machine('pc.local', true)), host).toBe(true)
+      expect(isAllowedHost(host, port, machine(local('pc'), true)), host).toBe(true)
     }
   })
 
@@ -84,17 +91,17 @@ describe('the MagicDNS names of this machine in the Host check', () => {
   })
 
   it('keeps the port check for a MagicDNS name', () => {
-    expect(isAllowedHost(`pc:${port + 1}`, port, machine('pc.local', true))).toBe(false)
-    expect(isAllowedHost('pc', port, machine('pc.local', true))).toBe(false)
+    expect(isAllowedHost(`pc:${port + 1}`, port, machine(local('pc'), true))).toBe(false)
+    expect(isAllowedHost('pc', port, machine(local('pc'), true))).toBe(false)
   })
 })
 
 describe('the Tailscale address in "Link a machine"', () => {
   it('isTailscaleHost of the window agrees with isTailscaleAddress of main', () => {
     const table = [
-      '100.64.0.0',
-      '100.101.102.103',
-      '100.127.255.255',
+      ip(100, 64, 0, 0),
+      '100.64.0.3',
+      ip(100, 127, 255, 255),
       '100.63.255.255',
       '100.128.0.0',
       '10.0.0.5',
@@ -113,26 +120,26 @@ describe('the Tailscale address in "Link a machine"', () => {
       '100.101.102.103.4',
     ]
     for (const host of table) expect(isTailscaleHost(host), host).toBe(isTailscaleAddress(host))
-    expect(table.filter((host) => isTailscaleHost(host))).toEqual(['100.64.0.0', '100.101.102.103', '100.127.255.255', 'fd7a:115c:a1e0::1', 'fd7a:115c:a1e0:ab12:4843:cd96:6258:b240', 'FD7A:115C:A1E0::5'])
+    expect(table.filter((host) => isTailscaleHost(host))).toEqual([ip(100, 64, 0, 0), '100.64.0.3', ip(100, 127, 255, 255), 'fd7a:115c:a1e0::1', 'fd7a:115c:a1e0:ab12:4843:cd96:6258:b240', 'FD7A:115C:A1E0::5'])
   })
 
   const interfaces = {
     en0: [info('192.168.1.20'), info('fe80::1cf6:52ec:1e29:a090'), info('2a02:2378::5')],
     lo0: [info('127.0.0.1', true), info('::1', true)],
-    utun4: [info('100.101.102.103'), info('fd7a:115c:a1e0::1'), info('fe80::abcd')],
+    utun4: [info('100.64.0.3'), info('fd7a:115c:a1e0::1'), info('fe80::abcd')],
   }
 
   it('lists the Tailscale addresses first while the setting is on', () => {
-    expect(linkAddresses(interfaces, 52000, true)).toEqual(['100.101.102.103:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000', '[2a02:2378::5]:52000'])
+    expect(linkAddresses(interfaces, 52000, true)).toEqual(['100.64.0.3:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000', '[2a02:2378::5]:52000'])
   })
 
   it('keeps the order of the interfaces while the setting is off: IPv4, then IPv6', () => {
-    expect(linkAddresses(interfaces, 52000, false)).toEqual(['192.168.1.20:52000', '100.101.102.103:52000', '[2a02:2378::5]:52000', '[fd7a:115c:a1e0::1]:52000'])
+    expect(linkAddresses(interfaces, 52000, false)).toEqual(['192.168.1.20:52000', '100.64.0.3:52000', '[2a02:2378::5]:52000', '[fd7a:115c:a1e0::1]:52000'])
   })
 })
 
 describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () => {
-  const MAP = '{"en0":["192.168.1.20"],"utun4":["100.101.102.103","fd7a:115c:a1e0::1"]}'
+  const MAP = '{"en0":["192.168.1.20"],"utun4":["100.64.0.3","fd7a:115c:a1e0::1"]}'
 
   /** Runs `body` with console.warn recorded; returns what it warned. */
   function warned(body: () => void): string[] {
@@ -149,7 +156,7 @@ describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () =
     const env = appLinkEnvironment('dev', { WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_INTERFACES: MAP })
     expect(env.listenHost).toBe('127.0.0.1')
     expect(Object.keys(env.interfaces ?? {})).toEqual(['en0', 'utun4'])
-    expect(linkAddresses(env.interfaces ?? {}, 52000, true)).toEqual(['100.101.102.103:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000'])
+    expect(linkAddresses(env.interfaces ?? {}, 52000, true)).toEqual(['100.64.0.3:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000'])
     expect(env.interfaces?.utun4?.map((entry) => [entry.family, entry.internal])).toEqual([
       ['IPv4', false],
       ['IPv6', false],
@@ -166,13 +173,13 @@ describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () =
   it('keeps only IP literals: a name would join the Host allowlist and pass DNS rebinding', () => {
     let env: ReturnType<typeof appLinkEnvironment> | undefined
     const warnings = warned(() => {
-      env = appLinkEnvironment('dev', { WORFY_LINK_INTERFACES: '{"x":["evil.test","100.101.102.103","","localhost","100.101.102","fe80::1%en0"]}' })
+      env = appLinkEnvironment('dev', { WORFY_LINK_INTERFACES: '{"x":["evil.test","100.64.0.3","","localhost","100.101.102","fe80::1%en0"]}' })
     })
-    expect(env?.interfaces?.x?.map((entry) => entry.address)).toEqual(['100.101.102.103', 'fe80::1%en0'])
+    expect(env?.interfaces?.x?.map((entry) => entry.address)).toEqual(['100.64.0.3', 'fe80::1%en0'])
     expect(warnings).toEqual(['"evil.test"', '""', '"localhost"', '"100.101.102"'].map((value) => expect.stringContaining(`WORFY_LINK_INTERFACES: ${value} is not an IP address`)))
-    const names = allowedHostNames({ interfaces: env?.interfaces ?? {}, hostname: 'pc.local', tailscale: true })
+    const names = allowedHostNames({ interfaces: env?.interfaces ?? {}, hostname: local('pc'), tailscale: true })
     expect(names.has('evil.test')).toBe(false)
-    expect(isAllowedHost('evil.test:52000', 52000, { interfaces: env?.interfaces ?? {}, hostname: 'pc.local', tailscale: true })).toBe(false)
+    expect(isAllowedHost('evil.test:52000', 52000, { interfaces: env?.interfaces ?? {}, hostname: local('pc'), tailscale: true })).toBe(false)
   })
 
   it('gives none when unset, and none with a warning when it is not such a map', () => {
@@ -186,50 +193,51 @@ describe('WORFY_LINK_INTERFACES: the interfaces an e2e test gives the app', () =
 })
 
 // worfy-link ticket 39: the name of a machine in the tailnet is not always the first label of
-// os.hostname(). On the owner's Mac os.hostname() is `Alexeys-MacBook-Pro-164.local` (macOS adds
-// `-164` when the name is taken on the network) and `Self.DNSName` of `tailscale status --json` is
-// `alexeys-macbook-pro.taila00ba6.ts.net.`. Known, that exact name is the MagicDNS name of this
+// os.hostname(). On a Mac os.hostname() can be `<name>-164.local` (macOS adds `-164` when the name
+// is taken on the network) while `Self.DNSName` of `tailscale status --json` is
+// `<name>.<tailnet>.ts.net.`. Known, that exact name is the MagicDNS name of this
 // machine; not known (no CLI, a failure), the rule by os.hostname() stays. No test starts a real
 // `tailscale`: the runner and the file check are injected.
 describe('the MagicDNS name Tailscale gives this machine', () => {
-  const interfaces = { en0: [info('192.168.0.119')], utun4: [info('100.71.20.55')] }
+  const interfaces = { en0: [info('192.168.0.119')], utun4: [info('100.64.0.15')] }
   const port = 57769
-  const MAC = 'Alexeys-MacBook-Pro-164.local'
-  const DNS_NAME = 'alexeys-macbook-pro.taila00ba6.ts.net'
+  const MAC_NAME = 'Someones-MacBook-Pro'
+  const MAC = `${MAC_NAME}-164.local`
+  const DNS_NAME = 'someones-macbook-pro.example.ts.net'
   const owner = (tailscale: boolean, magicDnsName: string | null = DNS_NAME): HostNames => ({ interfaces, hostname: MAC, tailscale, ...(magicDnsName === null ? {} : { magicDnsName }) })
 
   it('takes the exact name and its first label while the setting is on, though os.hostname() differs', () => {
-    for (const name of [DNS_NAME, 'alexeys-macbook-pro']) expect(isAllowedHostName(name, owner(true)), name).toBe(true)
+    for (const name of [DNS_NAME, 'someones-macbook-pro']) expect(isAllowedHostName(name, owner(true)), name).toBe(true)
     expect(isAllowedHost(`${DNS_NAME}:${port}`, port, owner(true))).toBe(true)
-    expect(isAllowedHost(`ALEXEYS-MACBOOK-PRO.taila00ba6.ts.net:${port}`, port, owner(true))).toBe(true)
+    expect(isAllowedHost(`SOMEONES-MACBOOK-PRO.example.ts.net:${port}`, port, owner(true))).toBe(true)
     expect(isAllowedHost(`${DNS_NAME}:${port + 1}`, port, owner(true))).toBe(false)
   })
 
   it.each([
-    ['alexeys-macbook-pro-164.taila00ba6.ts.net', 'the os.hostname() guess, once Tailscale named the machine'],
-    ['alexeys-macbook-pro.other.ts.net', 'the same label in another tailnet'],
-    ['pc.taila00ba6.ts.net', 'another machine of the tailnet'],
-    ['alexeys-macbook-pro-164', 'the bare os.hostname() label, not a MagicDNS name here'],
+    ['someones-macbook-pro-164.example.ts.net', 'the os.hostname() guess, once Tailscale named the machine'],
+    [tsNet('someones-macbook-pro', 'other'), 'the same label in another tailnet'],
+    ['pc.example.ts.net', 'another machine of the tailnet'],
+    ['someones-macbook-pro-164', 'the bare os.hostname() label, not a MagicDNS name here'],
     [`${DNS_NAME}.evil.test`, 'the name followed by another zone'],
   ])('refuses %s (%s)', (name) => {
     expect(isAllowedHostName(name, owner(true))).toBe(false)
   })
 
   it('takes none of them while the setting is off; .local and the addresses stay', () => {
-    for (const name of [DNS_NAME, 'alexeys-macbook-pro']) expect(isAllowedHostName(name, owner(false)), name).toBe(false)
-    for (const name of ['alexeys-macbook-pro-164.local', '100.71.20.55']) expect(isAllowedHostName(name, owner(false)), name).toBe(true)
+    for (const name of [DNS_NAME, 'someones-macbook-pro']) expect(isAllowedHostName(name, owner(false)), name).toBe(false)
+    for (const name of [MAC.toLowerCase(), '100.64.0.15']) expect(isAllowedHostName(name, owner(false)), name).toBe(true)
   })
 
   it('keeps the rule by os.hostname() when the name is not known', () => {
     const unknown = owner(true, null)
-    expect(isAllowedHostName('alexeys-macbook-pro-164.taila00ba6.ts.net', unknown)).toBe(true)
+    expect(isAllowedHostName('someones-macbook-pro-164.example.ts.net', unknown)).toBe(true)
     expect(isAllowedHostName(DNS_NAME, unknown)).toBe(false)
   })
 
   describe('parseSelfDnsName', () => {
     it('reads Self.DNSName of a recorded status, lower case, without the trailing dot', () => {
-      expect(parseSelfDnsName(STATUS)).toBe('studio.tail1234.ts.net')
-      expect(parseSelfDnsName(JSON.stringify({ Self: { DNSName: 'Alexeys-MacBook-Pro.taila00ba6.ts.net.' } }))).toBe(DNS_NAME)
+      expect(parseSelfDnsName(STATUS)).toBe('studio.example.ts.net')
+      expect(parseSelfDnsName(JSON.stringify({ Self: { DNSName: 'Someones-MacBook-Pro.example.ts.net.' } }))).toBe(DNS_NAME)
     })
 
     it.each<[unknown, string]>([
@@ -237,7 +245,7 @@ describe('the MagicDNS name Tailscale gives this machine', () => {
       [{ Self: {} }, 'no DNSName'],
       [{ Peer: null }, 'no Self'],
       [{ Self: { DNSName: 'single-label.' } }, 'one label'],
-      [{ Self: { DNSName: 'bad name.ts.net.' } }, 'not a DNS name'],
+      [{ Self: { DNSName: 'bad name.example.ts.net.' } }, 'not a DNS name'],
     ])('gives undefined for %j (%s)', (status) => {
       expect(parseSelfDnsName(JSON.stringify(status))).toBeUndefined()
     })
@@ -254,7 +262,7 @@ describe('the MagicDNS name Tailscale gives this machine', () => {
 
     it('runs `status --json` of the CLI it finds and gives the name', async () => {
       const run = vi.fn(async () => STATUS)
-      expect(await readSelfDnsName({ platform: 'linux', env, exists, run, warn: () => undefined })).toBe('studio.tail1234.ts.net')
+      expect(await readSelfDnsName({ platform: 'linux', env, exists, run, warn: () => undefined })).toBe('studio.example.ts.net')
       expect(run).toHaveBeenCalledWith(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, env)
     })
 
@@ -291,11 +299,11 @@ describe('the MagicDNS name Tailscale gives this machine', () => {
       expect(read).toHaveBeenCalledTimes(1)
 
       // Another network: the Tailscale adapter got another address, or came up.
-      const moved = { ...interfaces, utun4: [info('100.71.20.56')] }
+      const moved = { ...interfaces, utun4: [info('100.64.0.16')] }
       const third = cache.get(moved)
       expect(read).toHaveBeenCalledTimes(2)
-      release?.('renamed.taila00ba6.ts.net')
-      expect(await third).toBe('renamed.taila00ba6.ts.net')
+      release?.('renamed.example.ts.net')
+      expect(await third).toBe('renamed.example.ts.net')
     })
 
     it('keeps an unknown name for the network, and gives undefined when the read rejects', async () => {

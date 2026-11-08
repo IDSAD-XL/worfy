@@ -12,7 +12,7 @@ import { ms } from '../time-scale'
 // Snapping while a Node is dragged or resized (worfy-week ticket 06) against the built app: the
 // guide shows during a drag and goes out on the drop, the outline of the landing place is where the
 // Node stands after the drop, ⌘ turns snapping off, a resized edge stops 16 short of a neighbour,
-// an Epic frame lands on the grid, and a drag over an Auction-sized Canvas keeps its frame rate.
+// an Epic frame lands on the grid, and a drag over an Auberge-sized Canvas keeps its frame rate.
 // The Projects are written into projects.json up front; the Canvas starts at zoom 1, so screen
 // pixels are canvas units.
 
@@ -106,8 +106,8 @@ function writeEpics(dir: string, sizes: readonly number[]): string {
   return JSON.stringify(answer)
 }
 
-/** 42 Epics, 682 Tickets, the biggest 97: the Auction-sized Project of test/e2e/epic-frame.spec.ts. */
-const AUCTION_SIZES = [97, ...Array.from({ length: 41 }, (_, i) => 14 + (i < 11 ? 1 : 0))]
+/** 42 Epics, 682 Tickets, the biggest 97: the Auberge-sized Project of test/e2e/epic-frame.spec.ts. */
+const AUBERGE_SIZES = [97, ...Array.from({ length: 41 }, (_, i) => 14 + (i < 11 ? 1 : 0))]
 
 test.beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-snapping-')))
@@ -324,8 +324,8 @@ test('the guide, the equal gaps and the landing outline in both themes', async (
   }
 })
 
-test('a drag over an Auction-sized Canvas for 2 s keeps the frame rate', async () => {
-  makeProject([noteNode('mover', 40, 300)], { x: 0, y: 0, zoom: 1 }, (dir) => writeEpics(dir, AUCTION_SIZES))
+test('a drag over an Auberge-sized Canvas for 2 s keeps the frame rate', async () => {
+  makeProject([noteNode('mover', 40, 300)], { x: 0, y: 0, zoom: 1 }, (dir) => writeEpics(dir, AUBERGE_SIZES))
   const enforce = process.env.WORFY_PERF === '1'
   const launched = await launch()
   try {
@@ -365,7 +365,7 @@ test('a drag over an Auction-sized Canvas for 2 s keeps the frame rate', async (
     const median = sorted[Math.floor(sorted.length / 2)] ?? Infinity
     const fps = Math.round((1000 / median) * 10) / 10
     const longest = Math.round(Math.max(...frames))
-    console.log(`auction-size drag 2 s: ${frames.length} frames, ${step} moves, median ${fps} fps, longest frame ${longest} ms`)
+    console.log(`auberge-size drag 2 s: ${frames.length} frames, ${step} moves, median ${fps} fps, longest frame ${longest} ms`)
     test.info().annotations.push({ type: 'perf', description: `dragMedianFps=${fps} dragLongestFrame=${longest}ms frames=${frames.length}` })
     // Frame rates depend on the machine: CI only prints them, WORFY_PERF=1 on the developer's Mac checks them.
     if (enforce) {

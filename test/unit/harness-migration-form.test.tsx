@@ -12,9 +12,9 @@ const plan = (extra: Partial<MigrationPlan> = {}): MigrationPlan => ({
   offered: true,
   available: true,
   missing: [],
-  claudeHome: '/Users/me/.claude',
-  harnessHome: '/Users/me/.claude/worfy-harness',
-  claudeJson: '/Users/me/.claude.json',
+  claudeHome: '/Users/someone/.claude',
+  harnessHome: '/Users/someone/.claude/worfy-harness',
+  claudeJson: '/Users/someone/.claude.json',
   rows: [
     { id: 'file:agents/scout.md', group: 'files', label: '~/.claude/agents/scout.md', detail: null, choices: ['remove', 'keep'], defaultChoice: 'remove', note: null },
     { id: 'file:bin/tests', group: 'files', label: '~/.claude/bin/tests', detail: null, choices: ['keep'], defaultChoice: 'keep', note: 'not in the plugin: stays in ~/.claude' },
@@ -218,9 +218,9 @@ describe('MigrationFormView', () => {
   })
 
   it('after the move: the backup and the restore command; Move is gone and Cancel reads Close', () => {
-    renderForm({ result: { outcome: 'done', backupDir: '/Users/me/.claude/worfy-harness/backup-2026-10-08-10-20-30', restoreCommand: 'node /Users/me/.claude/worfy-harness/backup-2026-10-08-10-20-30/restore.mjs' } })
-    expect(screen.getByTestId('migration-backup').textContent).toBe('/Users/me/.claude/worfy-harness/backup-2026-10-08-10-20-30')
-    expect(screen.getByTestId('migration-restore-command').textContent).toBe('node /Users/me/.claude/worfy-harness/backup-2026-10-08-10-20-30/restore.mjs')
+    renderForm({ result: { outcome: 'done', backupDir: '/Users/someone/.claude/worfy-harness/backup-2026-10-08-10-20-30', restoreCommand: 'node /Users/someone/.claude/worfy-harness/backup-2026-10-08-10-20-30/restore.mjs' } })
+    expect(screen.getByTestId('migration-backup').textContent).toBe('/Users/someone/.claude/worfy-harness/backup-2026-10-08-10-20-30')
+    expect(screen.getByTestId('migration-restore-command').textContent).toBe('node /Users/someone/.claude/worfy-harness/backup-2026-10-08-10-20-30/restore.mjs')
     expect(within(screen.getByTestId('migration-actions')).queryByRole('button', { name: 'Move' })).toBeNull()
     expect(screen.getByTestId('migration-close').textContent).toBe('Close')
   })

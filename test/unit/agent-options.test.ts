@@ -20,7 +20,7 @@ const BUNDLED = '/Applications/worfy.app/Contents/Resources/harness'
 vi.mock('../../src/main/harness/bundled', () => ({ bundledHarnessDir: vi.fn(() => '/Applications/worfy.app/Contents/Resources/harness') }))
 
 const runtime: RuntimeInfo ={ packaged: false, resourcesPath: '/nowhere', platform: 'darwin', arch: 'arm64' }
-const env = { PATH: '/usr/bin', HOME: '/Users/me' }
+const env = { PATH: '/usr/bin', HOME: '/Users/someone' }
 const canUseTool: CanUseToolHandler = () => Promise.resolve({ behavior: 'deny', message: 'no' })
 const input = (more: Partial<SessionOptionsInput>): SessionOptionsInput => ({ cwd: '/repo', env, runtime, ...more })
 const settings = (permissionMode: SessionSettings['permissionMode']): SessionSettings => ({ model: null, effort: null, permissionMode })
@@ -610,7 +610,7 @@ describe('toolUseHooks with a guard', () => {
 // Claude Code 2.1.289, the Ticket's summary). A Session without a person at it never gets the folder.
 describe('the private skills folder of a Session', () => {
   const PRIVATE = '/harness home/projects/demo/state/human-review'
-  const WINDOWS = 'C:\\Users\\A B\\Harness home\\projects\\demo\\state\\human-review'
+  const WINDOWS = 'C:\\Users\\someone\\A B\\Harness home\\projects\\demo\\state\\human-review'
 
   it('comes after the Cards folder, which stays first', () => {
     expect(sessionOptions(input({ canvas, privateSkills: PRIVATE })).additionalDirectories).toEqual([canvas.cardsDir, PRIVATE])
@@ -638,8 +638,8 @@ describe('the private skills folder of a Session', () => {
   })
 
   it('is passed as it is spelled: spaces and a Windows drive letter', () => {
-    const options = sessionOptions(input({ cwd: 'C:\\repo', runtime: { ...runtime, platform: 'win32' }, canvas: { ...canvas, cardsDir: 'C:\\Users\\A B\\worfy\\cards' }, privateSkills: WINDOWS }))
-    expect(options.additionalDirectories).toEqual(['C:\\Users\\A B\\worfy\\cards', WINDOWS])
+    const options = sessionOptions(input({ cwd: 'C:\\repo', runtime: { ...runtime, platform: 'win32' }, canvas: { ...canvas, cardsDir: 'C:\\Users\\someone\\A B\\worfy\\cards' }, privateSkills: WINDOWS }))
+    expect(options.additionalDirectories).toEqual(['C:\\Users\\someone\\A B\\worfy\\cards', WINDOWS])
   })
 
   it('stays with skills.allowed [], and the flag settings never turn off its human-review skill', () => {

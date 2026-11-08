@@ -86,11 +86,11 @@ describe('data root of the packaged app and of a dev run', () => {
 })
 
 describe('data root on Windows (worfy-windows ticket 08)', () => {
-  const appData = 'C:\\Users\\u\\AppData\\Roaming'
+  const appData = 'C:\\Users\\someone\\AppData\\Roaming'
 
   it('is %APPDATA%\\worfy for the packaged app and %APPDATA%\\worfy-dev for a dev run', () => {
-    expect(dataRoot({ APPDATA: appData }, 'packaged', 'win32')).toBe('C:\\Users\\u\\AppData\\Roaming\\worfy')
-    expect(dataRoot({ APPDATA: appData }, 'dev', 'win32')).toBe('C:\\Users\\u\\AppData\\Roaming\\worfy-dev')
+    expect(dataRoot({ APPDATA: appData }, 'packaged', 'win32')).toBe('C:\\Users\\someone\\AppData\\Roaming\\worfy')
+    expect(dataRoot({ APPDATA: appData }, 'dev', 'win32')).toBe('C:\\Users\\someone\\AppData\\Roaming\\worfy-dev')
   })
 
   it('without APPDATA, or with one that is not absolute, is <home>\\AppData\\Roaming\\…', () => {

@@ -989,10 +989,10 @@ test('the bordered state chip of an open Ticket has an explicit px line height t
   }
 })
 
-// ── an Auction-sized Project ────────────────────────────────────────────────
+// ── an Auberge-sized Project ────────────────────────────────────────────────
 
 /** 42 Epics, 682 Tickets, the biggest Epic 97 Tickets; returns the epic-status answer. */
-function generateAuction(dir: string): { json: string; biggest: string } {
+function generateAuberge(dir: string): { json: string; biggest: string } {
   const sizes = [97, ...Array.from({ length: 41 }, (_, i) => 14 + (i < 11 ? 1 : 0))]
   expect(sizes.reduce((a, b) => a + b, 0)).toBe(682)
   return generateEpics(dir, sizes)
@@ -1104,7 +1104,7 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
 /** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
-test('an Auction-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
+test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
   // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the
@@ -1124,16 +1124,16 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
         await reference.close()
       }
     }
-    // The Auction-sized Project in a Project folder and app data of its own.
+    // The Auberge-sized Project in a Project folder and app data of its own.
     await removeDir(join(scratch, 'demo'))
-    dataDir = join(scratch, 'data-auction')
+    dataDir = join(scratch, 'data-auberge')
     mkdirSync(dataDir)
   }
   const referenceMs = starts.length > 0 ? [...starts].sort((a, b) => a - b)[Math.floor(starts.length / 2)]! : 0
 
   let generated: { json: string; biggest: string } | undefined
   makeProject((dir) => {
-    generated = generateAuction(dir)
+    generated = generateAuberge(dir)
   })
   writeFileSync(answer, generated!.json)
   const enforce = process.env.WORFY_PERF === '1'
@@ -1190,14 +1190,14 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     await canvasReady({ window })
     await parkPointer(window)
     const hoverMs = await hoverUntilLit(window, generated!.biggest, pane)
-    console.log(`auction-size: hover on a Ticket of ${generated!.biggest} to its lit chain ${hoverMs} ms`)
+    console.log(`auberge-size: hover on a Ticket of ${generated!.biggest} to its lit chain ${hoverMs} ms`)
     test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverMs}ms` })
     if (enforce) expect(hoverMs).toBeLessThanOrEqual(100)
 
     const budget = startBudget(referenceMs, process.env)
     const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms` : 'no one-Ticket reference off GitHub Actions'
     console.log(
-      `auction-size: interactive ${interactiveMs} ms after the window's page started loading (${reference}; budget ${budget} ms); ` +
+      `auberge-size: interactive ${interactiveMs} ms after the window's page started loading (${reference}; budget ${budget} ms); ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms reference=${referenceMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })

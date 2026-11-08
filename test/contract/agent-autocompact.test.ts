@@ -52,7 +52,7 @@ vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
 
 const PROJECT = 'demo-0000000d'
-const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/usr/bin:/bin', SHELL: '/bin/zsh' }
+const LOGIN_ENV = { HOME: '/Users/someone', PATH: '/usr/bin:/bin', SHELL: '/bin/zsh' }
 const SDK_QUERY = { kind: 'sdk query' }
 /** Contents/Resources of the "packaged" app of this file: a folder that does not exist, so no executable is found in it. */
 const NO_RESOURCES = join(tmpdir(), 'worfy-autocompact-no-resources-0d0d0d', 'Contents', 'Resources')
@@ -172,7 +172,7 @@ function sdkOptions(n: number): Record<string, unknown> {
 const windowAsked = (n: number): unknown => (sdkOptions(n).settings as { autoCompactWindow?: unknown } | undefined)?.autoCompactWindow
 
 describe('sessionOptions: the autocompact window', () => {
-  const base = { cwd: '/Users/tester/project', env: LOGIN_ENV, runtime: { packaged: false, resourcesPath: '/nowhere', platform: process.platform, arch: process.arch } }
+  const base = { cwd: '/Users/someone/project', env: LOGIN_ENV, runtime: { packaged: false, resourcesPath: '/nowhere', platform: process.platform, arch: process.arch } }
 
   it('passes a window as the flag settings of query()', () => {
     expect(sessionOptions({ ...base, autoCompactWindow: 400_000 }).settings).toStrictEqual({ autoCompactWindow: 400_000 })

@@ -39,7 +39,7 @@ const WORFY: PipelineStage[] = [
   { kind: 'closing' },
   { kind: 'done' },
 ]
-const ATAKAMA: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'agent-review' }, { kind: 'ci' }, { kind: 'human-review' }, { kind: 'awaiting-merge' }, { kind: 'done' }]
+const ATALAYA: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'agent-review' }, { kind: 'ci' }, { kind: 'human-review' }, { kind: 'awaiting-merge' }, { kind: 'done' }]
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim()
@@ -276,10 +276,10 @@ describe('Stages in Full mode', () => {
 })
 
 describe('Stages in Silent mode', () => {
-  const silentProfile = (world: World): PipelineProfile => ({ name: 'atakama', mode: 'silent', finish: null, pipeline: ATAKAMA, pipelineReason: null, e2eLock: world.lock, repos: [] })
-  const markFile = (world: World, num: number) => markFilePath(world.harnessHome, 'atakama', 'demo', num)
+  const silentProfile = (world: World): PipelineProfile => ({ name: 'atalaya', mode: 'silent', finish: null, pipeline: ATALAYA, pipelineReason: null, e2eLock: world.lock, repos: [] })
+  const markFile = (world: World, num: number) => markFilePath(world.harnessHome, 'atalaya', 'demo', num)
   const writeMarks = (world: World, num: number, marks: unknown) => {
-    mkdirSync(join(world.harnessHome, 'runs', 'atakama', 'marks'), { recursive: true })
+    mkdirSync(join(world.harnessHome, 'runs', 'atalaya', 'marks'), { recursive: true })
     writeFileSync(markFile(world, num), typeof marks === 'string' ? marks : JSON.stringify({ epic: 'demo', num: String(num).padStart(2, '0'), marks }))
   }
 
@@ -587,8 +587,8 @@ describe('where gh and git run', () => {
     })
 
   it('a Profile that could not be read and a root that is a plain folder over repositories: gh runs nowhere', async () => {
-    // Like Atakama: the Project's root holds the repositories and is none itself.
-    const root = join(dir, 'atakama')
+    // Like Atalaya: the Project's root holds the repositories and is none itself.
+    const root = join(dir, 'atalaya')
     for (const name of ['api', 'web']) {
       mkdirSync(join(root, name), { recursive: true })
       git(join(root, name), 'init', '-q', '-b', 'main')
@@ -729,16 +729,16 @@ describe('one computation per Project root, however it is spelled (worfy-pipelin
     const hub = new StageHub(sources)
     cleanups.push(async () => hub.closeAll())
     const sent: string[] = []
-    const fromList = await hub.open('C:/Users/owner/worfy', { id: 'waits-notify', send: () => sent.push('waits-notify') })
-    const fromWindow = await hub.open('C:\\Users\\owner\\worfy', { id: 7, send: () => sent.push('window') })
-    expect(opened).toEqual(['C:\\Users\\owner\\worfy'])
-    expect(hub.roots).toEqual(['C:\\Users\\owner\\worfy'])
+    const fromList = await hub.open('C:/Users/someone/worfy', { id: 'waits-notify', send: () => sent.push('waits-notify') })
+    const fromWindow = await hub.open('C:\\Users\\someone\\worfy', { id: 7, send: () => sent.push('window') })
+    expect(opened).toEqual(['C:\\Users\\someone\\worfy'])
+    expect(hub.roots).toEqual(['C:\\Users\\someone\\worfy'])
     expect(fromWindow).toBe(fromList)
     // Either spelling lets its own subscriber go; the computation stops with the last of them.
-    expect(await hub.close('C:\\Users\\owner\\worfy', 'waits-notify')).toBe(true)
+    expect(await hub.close('C:\\Users\\someone\\worfy', 'waits-notify')).toBe(true)
     expect(closed).toEqual([])
-    expect(await hub.close('C:/Users/owner/worfy', 7)).toBe(true)
-    expect(closed).toEqual(['C:\\Users\\owner\\worfy'])
+    expect(await hub.close('C:/Users/someone/worfy', 7)).toBe(true)
+    expect(closed).toEqual(['C:\\Users\\someone\\worfy'])
     expect(hub.roots).toEqual([])
   })
 })

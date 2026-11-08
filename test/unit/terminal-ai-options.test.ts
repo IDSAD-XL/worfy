@@ -6,10 +6,10 @@ import { ASSIST_SYSTEM_PROMPT, FEATURE_TIMEOUT_MS } from '../../src/main/termina
 import { claimOptions, coldQueryOptions, prewarmOptions } from '../../src/main/vendors/claude/terminal-ai'
 import { DEFAULT_TERMINAL_AI_SETTINGS, TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
 
-const DATA_DIR = '/Users/me/Library/Application Support/worfy'
+const DATA_DIR = '/Users/someone/Library/Application Support/worfy'
 const DEV = { packaged: false, resourcesPath: '/nowhere', platform: 'darwin' as const, arch: 'arm64' }
 const PACKAGED = { packaged: true, resourcesPath: '/Applications/worfy.app/Contents/Resources', platform: 'darwin' as const, arch: 'arm64' }
-const ENV = { HOME: '/Users/me', PATH: '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sk-ant-made-up', ANTHROPIC_AUTH_TOKEN: 'made-up' }
+const ENV = { HOME: '/Users/someone', PATH: '/usr/bin:/bin', ANTHROPIC_API_KEY: 'sk-ant-made-up', ANTHROPIC_AUTH_TOKEN: 'made-up' }
 
 describe('prewarmOptions', () => {
   it('starts the spare without settings, MCP servers, tools or a transcript, one turn, the shared system prompt', () => {
@@ -30,7 +30,7 @@ describe('prewarmOptions', () => {
 
   it('drops the API keys of the environment: Claude Code signs in by subscription', () => {
     const options = prewarmOptions({ env: ENV, runtime: DEV })
-    expect(options.env).toEqual({ HOME: '/Users/me', PATH: '/usr/bin:/bin' })
+    expect(options.env).toEqual({ HOME: '/Users/someone', PATH: '/usr/bin:/bin' })
     expect(ENV.ANTHROPIC_API_KEY).toBe('sk-ant-made-up') // the input is not changed
   })
 

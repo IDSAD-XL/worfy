@@ -46,7 +46,7 @@ const snapshot = (change: Partial<GettingStartedSnapshot> = {}): GettingStartedS
 const twoDone = (): GettingStartedSnapshot =>
   snapshot({
     steps: { '1': '2026-10-30T09:00:00.000Z', '2': '2026-10-30T09:05:00.000Z' },
-    demo: { projectId: DEMO, path: '/Users/u/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' },
+    demo: { projectId: DEMO, path: '/Users/someone/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' },
   })
 
 const appSettings: AppSettings = {

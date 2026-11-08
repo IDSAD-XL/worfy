@@ -236,7 +236,7 @@ const runner: EpicStatusRunner = (cwd) => {
 }
 
 function git(cwd: string, ...args: string[]): void {
-  execFileSync('git', ['-c', 'user.name=worfy test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd, stdio: 'ignore' })
+  execFileSync('git', ['-c', 'user.name=worfy test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd, stdio: 'ignore' })
 }
 
 /** Every file of `root` but `.git`: path → bytes as base64. */

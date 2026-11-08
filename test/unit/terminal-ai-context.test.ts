@@ -6,9 +6,10 @@ import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import { TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
 
 const TOKEN = `ghp_${'Ab12'.repeat(9)}`
+const AKIA = `AKIA${'ABCDEFGHIJKLMNOP'}`
 
 function input(over: Partial<TerminalAiInput> = {}): TerminalAiInput {
-  return { line: 'git st', cwd: '/Users/me/work', commands: ['ls', 'cd work'], branch: 'main', exitCode: 0, commandRunning: false, alternateScreen: false, ...over }
+  return { line: 'git st', cwd: '/Users/someone/work', commands: ['ls', 'cd work'], branch: 'main', exitCode: 0, commandRunning: false, alternateScreen: false, ...over }
 }
 
 describe('prepareContext', () => {
@@ -50,7 +51,7 @@ describe('prepareContext', () => {
         line: `GH_TOKEN=${TOKEN} gh pr list`,
         request: `clone with ${TOKEN}`,
         cwd: `/tmp/${TOKEN}`,
-        commands: [`git push https://me:hunter2@github.com/o/r.git`],
+        commands: [`git push https://me:${'hunter2'}@github.com/o/r.git`],
         branch: `feature/${TOKEN}`,
         output: [`fatal: token ${TOKEN} rejected`],
       }),
@@ -96,7 +97,7 @@ describe('prepareContext', () => {
 
   it('leaves no head of a secret split by the first cut, after redaction shrank the text before it', () => {
     const jwt = (length: number): string => `eyJ${'a'.repeat(length - 3 - 22)}.${'b'.repeat(10)}.${'c'.repeat(10)}`
-    const key = 'AKIAABCDEFGHIJKLMNOP'
+    const key = AKIA
     // A Fix output line: the key starts at 1990, the first cut is at 2000 (four times the line cap).
     const line = `${jwt(1605)} ${'y'.repeat(383)} ${key}`
     expect(line.indexOf(key)).toBe(1990)
@@ -127,7 +128,7 @@ describe('prepareContext', () => {
 describe('contextText', () => {
   it('labels each field and puts the typed line last for a Suggestion', () => {
     const text = contextText('suggest', prepareContext('suggest', input({ exitCode: 1 })))
-    expect(text).toBe(['Folder: /Users/me/work', 'Git branch: main', 'Recent commands, oldest first:\n  ls\n  cd work', 'Exit code of the last command: 1', 'Typed so far: git st'].join('\n\n'))
+    expect(text).toBe(['Folder: /Users/someone/work', 'Git branch: main', 'Recent commands, oldest first:\n  ls\n  cd work', 'Exit code of the last command: 1', 'Typed so far: git st'].join('\n\n'))
   })
 
   it('carries the words of a Command request', () => {

@@ -104,10 +104,10 @@ it('with the CLI and "Link through Tailscale" on, lists the tailnet as the CLI r
   cli.run.mockResolvedValue(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8'))
   const call = await handlers(true)
   expect(await call<TailscalePeerView[]>('link.tailscalePeers')).toEqual([
-    { name: 'Alexeys-iPhone', address: '100.101.102.106', online: true },
+    { name: 'Alices-iPhone', address: '100.64.0.6', online: true },
     { name: 'lab', address: 'fd7a:115c:a1e0::6501:6670', online: true },
-    { name: 'pc', address: '100.101.102.104', online: true },
-    { name: 'nas', address: '100.101.102.105', online: false },
+    { name: 'pc', address: '100.64.0.14', online: true },
+    { name: 'nas', address: '100.64.0.5', online: false },
   ])
   expect(cli.run).toHaveBeenCalledWith(cli.path, ['status', '--json'], expect.any(Number), { PATH: '/usr/bin:/bin' })
 })
@@ -134,19 +134,19 @@ it('leaves out a Linked machine: the peer at the address this Machine remembers 
   expect(remembered).toEqual(['127.0.0.1'])
   // gamma as the tailnet would list it, with the address the link remembers among its TailscaleIPs.
   const status = JSON.parse(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')) as { Peer: Record<string, unknown> }
-  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'gamma.tail1234.ts.net.', TailscaleIPs: ['100.101.102.120', '127.0.0.1'], Online: true }
+  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'gamma.example.ts.net.', TailscaleIPs: ['100.64.0.20', '127.0.0.1'], Online: true }
   cli.run.mockResolvedValue(JSON.stringify(status))
   const peers = await call<TailscalePeerView[]>('link.tailscalePeers')
-  expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
+  expect(peers.map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
 })
 
 it('leaves out a Linked machine remembered by a LAN address and its MagicDNS name', async () => {
   cli.installed = true
-  const call = await handlers(true, 'gamma', { address: '192.168.1.77', tailnetName: 'gamma.tail1234.ts.net' })
+  const call = await handlers(true, 'gamma', { address: '192.168.1.77', tailnetName: 'gamma.example.ts.net' })
   expect(app.link?.service.linkedMachines().map((machine) => machine.address)).toEqual(['192.168.1.77'])
   const status = JSON.parse(readFileSync(join(__dirname, '../fixtures/tailscale/status.json'), 'utf8')) as { Peer: Record<string, unknown> }
-  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'Gamma.tail1234.ts.net.', TailscaleIPs: ['100.101.102.120'], Online: true }
+  status.Peer['nodekey:gamma'] = { HostName: 'gamma', DNSName: 'Gamma.example.ts.net.', TailscaleIPs: ['100.64.0.20'], Online: true }
   cli.run.mockResolvedValue(JSON.stringify(status))
   const peers = await call<TailscalePeerView[]>('link.tailscalePeers')
-  expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
+  expect(peers.map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
 })

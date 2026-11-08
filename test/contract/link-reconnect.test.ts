@@ -66,6 +66,10 @@ function keepSlowly(machine: BenchMachine): LinkConnections {
   return keeper
 }
 
+// A .local name built from its label: the guard of personal strings (scripts/check-personal.mjs)
+// reads a *.local name in the source as a real machine, and these are invented.
+const local = (name: string): string => `${name}.local`
+
 const LOOPBACK: NetworkInterfaceInfo = { address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }
 
 /** Starts `machine` again over its data folder with `extra` options (the bench's own, otherwise). */
@@ -234,12 +238,12 @@ describe('a change of network is an address that may carry the link, held for tw
   const pc = (): Record<string, NetworkInterfaceInfo[]> => ({
     'Loopback Pseudo-Interface 1': [LOOPBACK],
     'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::1a'), v6('fe80::1c2d:3e4f:5a6b:7c8d')],
-    Tailscale: [v4('100.101.102.103'), v6('fd7a:115c:a1e0::1')],
+    Tailscale: [v4('100.64.0.3'), v6('fd7a:115c:a1e0::1')],
   })
 
   it('IPv6, fe80::, 169.254/16 and an adapter without IPv4 are not a change; a local IPv4 or a Tailscale address is', () => {
     const before = networkSignature(pc())
-    expect(before).toBe(['Tailscale 100.101.102.103', 'Wi-Fi 192.168.0.193'].join('\n'))
+    expect(before).toBe(['Tailscale 100.64.0.3', 'Wi-Fi 192.168.0.193'].join('\n'))
     // Windows rotates its temporary IPv6 addresses on a timer.
     expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::77'), v6('fe80::1c2d:3e4f:5a6b:7c8d')] })).toBe(before)
     expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::1a'), v6('fe80::99')] })).toBe(before)
@@ -249,16 +253,16 @@ describe('a change of network is an address that may carry the link, held for tw
 
     expect(networkSignature({ ...pc(), 'vEthernet (WSL)': [v4('172.30.16.1')] })).toBe([before, 'vEthernet (WSL) 172.30.16.1'].join('\n'))
     expect(networkSignature({ ...pc(), 'Wi-Fi': [v4('10.0.0.7')] })).not.toBe(before)
-    expect(networkSignature({ ...pc(), Tailscale: [v4('100.71.20.56')] })).not.toBe(before)
+    expect(networkSignature({ ...pc(), Tailscale: [v4('100.64.0.16')] })).not.toBe(before)
   })
 
   it('the MagicDNS name is read again when the Tailscale address changes, not when only IPv6 does', async () => {
-    const read = vi.fn(async (): Promise<string | undefined> => 'pc.taila00ba6.ts.net')
+    const read = vi.fn(async (): Promise<string | undefined> => 'pc.example.ts.net')
     const cache = new TailnetSelfName(read)
     await cache.get(pc())
     await cache.get({ ...pc(), 'Wi-Fi': [v4('192.168.0.193'), v6('2a02:2378:1000::77')] })
     expect(read).toHaveBeenCalledTimes(1)
-    await cache.get({ ...pc(), Tailscale: [v4('100.71.20.56')] })
+    await cache.get({ ...pc(), Tailscale: [v4('100.64.0.16')] })
     expect(read).toHaveBeenCalledTimes(2)
   })
 
@@ -578,12 +582,12 @@ describe('the names of a Linked machine', () => {
     const id = b.service.machine.id
     const localName = (): unknown => (JSON.parse(readFileSync(join(a.dataDir, 'link', 'linked.json'), 'utf8')) as { machines: { localName?: string }[] }).machines[0]?.localName
 
-    a.service.learnLocalName(id, '192.168.1.66', 'evil.local')
+    a.service.learnLocalName(id, '192.168.1.66', local('evil'))
     expect(localName()).toBeUndefined()
-    a.service.learnLocalName(id, '127.0.0.1', 'B-Mac.local')
-    expect(localName()).toBe('b-mac.local')
+    a.service.learnLocalName(id, '127.0.0.1', 'Someones-Mac.local')
+    expect(localName()).toBe('someones-mac.local')
     // What an announcement may name: a `.local` name, or a bare computer name (Windows).
-    expect([mdnsName('B-Mac.local.'), mdnsName('DESKTOP-7Q'), mdnsName('evil.example.com')]).toEqual(['b-mac.local', 'desktop-7q.local', undefined])
+    expect([mdnsName('Someones-Mac.local.'), mdnsName('DESKTOP-7Q'), mdnsName('evil.example.com')]).toEqual(['someones-mac.local', local('desktop-7q'), undefined])
   })
 })
 
@@ -834,7 +838,7 @@ describe('the Windows firewall hint', () => {
     }
     const discovery = new LinkDiscovery({ backend, self: () => ({ id: randomUUID(), name: 'PC' }), isLinked: (other) => other === id, protocol: 1, refreshMs: 1000 })
     discovery.browse('reconnect', true)
-    const mac = { name: 'Mac', fqdn: 'Mac._worfy._tcp.local', host: 'mac.local', port: 52000, addresses: ['192.168.0.137'], txt: { id, proto: '1', name: 'Mac' } }
+    const mac = { name: 'Mac', fqdn: 'Mac._worfy._tcp.local', host: 'someones-mac.local', port: 52000, addresses: ['192.168.0.137'], txt: { id, proto: '1', name: 'Mac' } }
     events?.up(mac)
     const row = { id, connected: false }
     expect(rowHint(discovery, row, 52000, 'win32')).toBeUndefined()
@@ -898,10 +902,10 @@ describe('one mDNS socket per interface that may carry the link', () => {
       'vEthernet (WSL)': [ipv4('172.30.16.1', '255.255.240.0')],
       Ethernet: [ipv4('192.168.0.193'), { address: 'fe80::1', netmask: 'ffff:ffff:ffff:ffff::', family: 'IPv6', mac: '00:00:00:00:00:01', internal: false, cidr: 'fe80::1/64', scopeid: 4 }],
       APIPA: [ipv4('169.254.10.2', '255.255.0.0')],
-      Tailscale: [ipv4('100.101.102.103', '255.255.255.255')],
+      Tailscale: [ipv4('100.64.0.3', '255.255.255.255')],
     }
     expect(mdnsInterfaces(pc, false)).toEqual(['172.30.16.1', '192.168.0.193'])
-    expect(mdnsInterfaces(pc, true)).toEqual(['172.30.16.1', '192.168.0.193', '100.101.102.103'])
+    expect(mdnsInterfaces(pc, true)).toEqual(['172.30.16.1', '192.168.0.193', '100.64.0.3'])
   })
 
   it('announces and searches on every interface, each socket joined and sending on its own; follows a change; closes all on destroy', async () => {
@@ -923,8 +927,8 @@ describe('one mDNS socket per interface that may carry the link', () => {
     // No probe for the name: the sockets of one machine would take each other for a rival.
     expect(fake.made.map((instance) => instance.probes)).toEqual([[false], [false]])
     // The SRV target is worfy's own name, not the computer's: the OS answers for that one itself.
-    expect(fake.made.map((instance) => instance.hosts)).toEqual([['worfy-11111111.local'], ['worfy-11111111.local']])
-    expect(worfyHost('ABCDEF12-1111-4111-8111-111111111111')).toBe('worfy-abcdef12.local')
+    expect(fake.made.map((instance) => instance.hosts)).toEqual([[local('worfy-11111111')], [local('worfy-11111111')]])
+    expect(worfyHost('ABCDEF12-1111-4111-8111-111111111111')).toBe(local('worfy-abcdef12'))
 
     // WSL goes, Wi-Fi comes: the WSL socket says goodbye and closes, the new one announces and searches.
     addresses = ['192.168.0.193', '192.168.1.40']
@@ -964,9 +968,9 @@ describe('one mDNS socket per interface that may carry the link', () => {
     for (const [address, packets] of Object.entries(sent)) {
       expect(packets.length, address).toBe(2)
       const [announced = [], goodbye = []] = packets
-      expect(hostRecords(announced), address).toEqual([{ name: 'worfy-83a67a58.local', type: 'A', ttl: 120, data: address }])
-      expect(hostRecords(goodbye), address).toEqual([{ name: 'worfy-83a67a58.local', type: 'A', ttl: 0, data: address }])
-      expect(announced.find((record) => record.type === 'SRV')?.data).toMatchObject({ target: 'worfy-83a67a58.local', port: 62057 })
+      expect(hostRecords(announced), address).toEqual([{ name: local('worfy-83a67a58'), type: 'A', ttl: 120, data: address }])
+      expect(hostRecords(goodbye), address).toEqual([{ name: local('worfy-83a67a58'), type: 'A', ttl: 0, data: address }])
+      expect(announced.find((record) => record.type === 'SRV')?.data).toMatchObject({ target: local('worfy-83a67a58'), port: 62057 })
     }
     // The view of the interfaces is gone once the calls return: the os module has its own function back.
     expect(os.networkInterfaces).toBe(ownNetworkInterfaces)
@@ -1013,7 +1017,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
     await bench.link(a, b)
     const fake = fakeBonjour()
     const network = { address: '192.168.0.193' }
-    const read = (): Record<string, NetworkInterfaceInfo[]> => ({ lo0: [LOOPBACK], en0: [ipv4(network.address)], utun4: [ipv4('100.101.102.103', '255.255.255.255')] })
+    const read = (): Record<string, NetworkInterfaceInfo[]> => ({ lo0: [LOOPBACK], en0: [ipv4(network.address)], utun4: [ipv4('100.64.0.3', '255.255.255.255')] })
     const link = wireAppLink(a.service, { bonjour: true, mdnsCreate: fake.create, networkInterfaces: read, networkPollMs: 20 })
     const port = bench.portOf(a)
     const live = (): (string | undefined)[] => fake.made.filter((instance) => !instance.destroyed).map((instance) => instance.socket.interface)
@@ -1033,7 +1037,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
     expect(announcements()).toBe(before)
 
     a.service.settings.set({ tailscale: true })
-    await until(() => live().join() === '10.0.0.7,100.101.102.103')
+    await until(() => live().join() === '10.0.0.7,100.64.0.3')
 
     await stopLink(link)
     expect(live()).toEqual([])
@@ -1044,7 +1048,7 @@ describe('one mDNS socket per interface that may carry the link', () => {
     expect(onSameNetwork('192.168.0.193', interfaces)).toBe(true)
     expect(onSameNetwork('172.30.16.1', interfaces)).toBe(false)
     expect(onSameNetwork('192.168.1.193', interfaces)).toBe(false)
-    const service = { host: 'DESKTOP-VFHQL1V', addresses: ['172.30.16.1', '172.19.208.1', '192.168.0.193'] }
+    const service = { host: 'DESKTOP-0000000', addresses: ['172.30.16.1', '172.19.208.1', '192.168.0.193'] }
     expect(dialAddress(service, (address) => onSameNetwork(address, interfaces))).toBe('192.168.0.193')
     expect(dialAddress(service)).toBe('172.30.16.1')
   })

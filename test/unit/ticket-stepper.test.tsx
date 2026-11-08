@@ -34,8 +34,8 @@ const WORFY = columns([
   { kind: 'done' },
 ])
 
-/** The Pipeline of Atakama, Silent mode: the agent reviews before the PR, people merge. */
-const ATAKAMA = columns([
+/** The Pipeline of Atalaya, Silent mode: the agent reviews before the PR, people merge. */
+const ATALAYA = columns([
   { kind: 'queued' },
   { kind: 'implementing' },
   { kind: 'agent-review' },
@@ -102,8 +102,8 @@ describe('Stepper', () => {
     expect(screen.getByTestId('ticket-stepper').title).toBe('Gate & merge · waiting for gate · waits for agent · Stage 6 of 9\nskipped: Check «windows»')
   })
 
-  it('Atakama: its own order and labels; Human review waits for the team', () => {
-    render(<Stepper pipeline={ATAKAMA} stage={on(ATAKAMA, 'human-review', { waits: 'team' })} />)
+  it('Atalaya: its own order and labels; Human review waits for the team', () => {
+    render(<Stepper pipeline={ATALAYA} stage={on(ATALAYA, 'human-review', { waits: 'team' })} />)
     expect(dots().map(([step]) => step)).toEqual(['queued', 'implementing', 'agent-review', 'ci', 'human-review', 'awaiting-merge', 'done'])
     expect(dots()[4]).toEqual(['human-review', 'current'])
     expect(screen.getByTestId('stepper-label').textContent).toBe('Team review')
@@ -166,8 +166,8 @@ describe('Stepper', () => {
     expect(stepper.title).toBe('Agent review · waits for owner · Stage 4 of 9\nblocked: x')
   })
 
-  it('narrow Atakama on its last Stage: 7/7', () => {
-    render(<Stepper pipeline={ATAKAMA} stage={on(ATAKAMA, 'done')} narrow />)
+  it('narrow Atalaya on its last Stage: 7/7', () => {
+    render(<Stepper pipeline={ATALAYA} stage={on(ATALAYA, 'done')} narrow />)
     expect(screen.getByTestId('stepper-count').textContent).toBe('7/7')
   })
 

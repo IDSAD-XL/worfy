@@ -1118,10 +1118,10 @@ describe('pty helpers', () => {
 
   it('terminalEnv keeps the login shell environment, sets the terminal variables and the Project root', () => {
     // LANG by the system is in test/unit/terminal-shell.test.ts; here the rules of macOS.
-    const env = terminalEnv({ PATH: '/opt/bin:/usr/bin', HOME: '/Users/u', PWD: '/old', OLDPWD: '/older', SHLVL: '2', _: '/usr/bin/env', MY_VAR: 'x' }, '/repo', 'darwin')
+    const env = terminalEnv({ PATH: '/opt/bin:/usr/bin', HOME: '/Users/someone', PWD: '/old', OLDPWD: '/older', SHLVL: '2', _: '/usr/bin/env', MY_VAR: 'x' }, '/repo', 'darwin')
     expect(env).toStrictEqual({
       PATH: '/opt/bin:/usr/bin',
-      HOME: '/Users/u',
+      HOME: '/Users/someone',
       MY_VAR: 'x',
       PWD: '/repo',
       TERM: 'xterm-256color',

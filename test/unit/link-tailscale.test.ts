@@ -24,43 +24,43 @@ describe('parseTailscaleStatus', () => {
   it('lists the peers of a recorded status: MagicDNS names without the trailing dot, IPv4 picked, online first, this Machine left out', () => {
     expect(parseTailscaleStatus(STATUS)).toEqual([
       // HostName when DNSName is empty.
-      { name: 'Alexeys-iPhone', address: '100.101.102.106', online: true },
+      { name: 'Alices-iPhone', address: '100.64.0.6', online: true },
       // An IPv6-only peer keeps its IPv6 address.
       { name: 'lab', address: 'fd7a:115c:a1e0::6501:6670', online: true },
       // IPv4 although IPv6 comes first; the MagicDNS name, not the HostName.
-      { name: 'pc', address: '100.101.102.104', online: true },
-      { name: 'nas', address: '100.101.102.105', online: false },
+      { name: 'pc', address: '100.64.0.14', online: true },
+      { name: 'nas', address: '100.64.0.5', online: false },
       // `expired` has no Tailscale address: left out. `studio` is Self: left out.
     ])
   })
 
   it.each([
-    ['its IPv4', '100.101.102.104'],
+    ['its IPv4', '100.64.0.14'],
     ['an IPv6 that is not the one shown', 'FD7A:115C:A1E0::6501:6668'],
     ['the same IPv6 in brackets', '[fd7a:115c:a1e0::6501:6668]'],
-    ['its full MagicDNS name, with the trailing dot and in another case', 'PC.tail1234.ts.net.'],
-    ['its full MagicDNS name', 'pc.tail1234.ts.net'],
+    ['its full MagicDNS name, with the trailing dot and in another case', 'PC.example.ts.net.'],
+    ['its full MagicDNS name', 'pc.example.ts.net'],
     ['the first label of its MagicDNS name', 'Pc'],
   ])('leaves out a Linked machine remembered by %s', (_case, remembered) => {
-    expect(parseTailscaleStatus(STATUS, [remembered]).map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'nas'])
+    expect(parseTailscaleStatus(STATUS, [remembered]).map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'nas'])
   })
 
   it('keeps a peer whose address only looks like a remembered one: a LAN address, another name, a longer name', () => {
-    expect(parseTailscaleStatus(STATUS, ['192.168.1.30', 'pc2', 'pc.other.example', '100.101.102.10']).map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
+    expect(parseTailscaleStatus(STATUS, ['192.168.1.30', 'pc2', 'pc.other.example', '100.64.0.1']).map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
   })
 
   it('gives no machines for a tailnet without peers (Peer null or absent)', () => {
-    expect(parseTailscaleStatus(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'studio.ts.net.' }, Peer: null }))).toEqual([])
+    expect(parseTailscaleStatus(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'studio.example.ts.net.' }, Peer: null }))).toEqual([])
     expect(parseTailscaleStatus(JSON.stringify({ BackendState: 'NeedsLogin' }))).toEqual([])
   })
 
   it('leaves out a peer of another shape and keeps the rest', () => {
-    const text = JSON.stringify({ Peer: { a: 'nonsense', b: { DNSName: 7 }, c: { DNSName: 'pc.ts.net.', TailscaleIPs: ['100.64.0.2'], Online: true } } })
+    const text = JSON.stringify({ Peer: { a: 'nonsense', b: { DNSName: 7 }, c: { DNSName: 'pc.example.ts.net.', TailscaleIPs: ['100.64.0.2'], Online: true } } })
     expect(parseTailscaleStatus(text)).toEqual([{ name: 'pc', address: '100.64.0.2', online: true }])
   })
 
   it('counts a peer without Online as offline', () => {
-    expect(parseTailscaleStatus(JSON.stringify({ Peer: { a: { DNSName: 'pc.ts.net.', TailscaleIPs: ['100.64.0.2'] } } }))).toEqual([{ name: 'pc', address: '100.64.0.2', online: false }])
+    expect(parseTailscaleStatus(JSON.stringify({ Peer: { a: { DNSName: 'pc.example.ts.net.', TailscaleIPs: ['100.64.0.2'] } } }))).toEqual([{ name: 'pc', address: '100.64.0.2', online: false }])
   })
 
   it('throws on text that is not JSON or not a status', () => {
@@ -142,7 +142,7 @@ describe('readTailscalePeers', () => {
     const warn = vi.fn()
     const peers = await readTailscalePeers({ ...found, run, warn })
     expect(run).toHaveBeenCalledWith(cli, ['status', '--json'], TAILSCALE_TIMEOUT_MS, { PATH: '/usr/bin' })
-    expect(peers.map((peer) => peer.name)).toEqual(['Alexeys-iPhone', 'lab', 'pc', 'nas'])
+    expect(peers.map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
     expect(warn).not.toHaveBeenCalled()
   })
 
@@ -164,7 +164,7 @@ describe('readTailscalePeers', () => {
   })
 
   it('leaves out the Linked machines it is given', async () => {
-    const peers = await readTailscalePeers({ ...found, run: async () => STATUS, linked: ['nas', '100.101.102.106'] })
+    const peers = await readTailscalePeers({ ...found, run: async () => STATUS, linked: ['nas', '100.64.0.6'] })
     expect(peers.map((peer) => peer.name)).toEqual(['lab', 'pc'])
   })
 

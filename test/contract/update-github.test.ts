@@ -123,7 +123,7 @@ describe('the Update service over the stub', () => {
     stub = await startUpdateStub({ head: HEAD, version: '0.6.0' }, { stable: copy })
     mkdirSync(copy)
     writeFileSync(join(temp, 'worfy-stable.json'), JSON.stringify({ commit: RUNNING, dirty: false }))
-    expect(stableCopyPath(process.platform, { WORFY_UPDATE_STABLE: copy }, '/Users/u')).toBe(copy)
+    expect(stableCopyPath(process.platform, { WORFY_UPDATE_STABLE: copy }, '/Users/someone')).toBe(copy)
     const running = runningOf(readStableMetadata(process.platform, copy), '0.3.0+1111111')
     expect(running.commit).toBe(RUNNING)
 
@@ -199,8 +199,8 @@ describe('the Update service over the stub', () => {
   })
 
   it('refuses a Stable copy outside the temporary folder', () => {
-    expect(() => assertTemporaryStableCopy(stableCopyPath('darwin', {}, '/Users/u'))).toThrow(/temporary folder/u)
-    expect(() => assertTemporaryStableCopy('C:\\Users\\u\\AppData\\Local\\worfy-stable')).toThrow(/temporary folder/u)
+    expect(() => assertTemporaryStableCopy(stableCopyPath('darwin', {}, '/Users/someone'))).toThrow(/temporary folder/u)
+    expect(() => assertTemporaryStableCopy('C:\\Users\\someone\\AppData\\Local\\worfy-stable')).toThrow(/temporary folder/u)
   })
 
   it('checks nothing and reads no file when Update is off', async () => {

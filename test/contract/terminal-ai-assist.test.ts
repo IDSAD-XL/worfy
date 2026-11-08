@@ -217,7 +217,7 @@ function world(sdk = new FakeSdk(), branchOf: (cwd: string) => Promise<string | 
 }
 
 function input(over: Partial<TerminalAiInput> = {}): TerminalAiInput {
-  return { line: 'git st', cwd: '/Users/me/work', commands: ['ls'], exitCode: 0, commandRunning: false, alternateScreen: false, ...over }
+  return { line: 'git st', cwd: '/Users/someone/work', commands: ['ls'], exitCode: 0, commandRunning: false, alternateScreen: false, ...over }
 }
 
 /** Starts a request and lets it reach the SDK. The answer is wrapped: an async function would wait for it. */
@@ -323,7 +323,7 @@ describe('the assist process', () => {
 
   it('logs the process and the model, never the request, the context or the answer', async () => {
     const { service, sdk, log } = world()
-    const { answer } = await start(service, 'suggest', { line: 'git sta', cwd: '/Users/me/secret-project' })
+    const { answer } = await start(service, 'suggest', { line: 'git sta', cwd: '/Users/someone/secret-project' })
     sdk.claimedSpare.query?.push({ type: 'system', subtype: 'hook_started', hook_id: 'h1', hook_name: 'builtin-a:remind', hook_event: 'UserPromptSubmit' })
     sdk.claimedSpare.query?.answer('git stash')
     await answer
@@ -838,7 +838,7 @@ describe('the fake backend and the real one', () => {
       {
         feature: 'suggest',
         model: 'haiku',
-        context: { line: 'git st', request: null, cwd: '/Users/me/work', commands: [`GH_TOKEN=${REDACTED} gh pr list`], branch: null, exitCode: 0, output: null },
+        context: { line: 'git st', request: null, cwd: '/Users/someone/work', commands: [`GH_TOKEN=${REDACTED} gh pr list`], branch: null, exitCode: 0, output: null },
         cancelled: false,
         cold: false,
       },

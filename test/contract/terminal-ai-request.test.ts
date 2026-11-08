@@ -359,7 +359,7 @@ describe('the words and the notes', () => {
 // ---- the handler, without a shell ----------------------------------------------------------------------
 
 describe('the handler of the feature', () => {
-  const state: ShellState = { cwd: '/Users/me/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 1, commands: ['ls -la', 'du -sh .'], lastOutput: 'output-of-the-last-command' }
+  const state: ShellState = { cwd: '/Users/someone/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 1, commands: ['ls -la', 'du -sh .'], lastOutput: 'output-of-the-last-command' }
 
   /** Calls the handler as the link does; answers what it sent, in order. */
   async function asked(w: World, line: string, signal: AbortSignal = new AbortController().signal): Promise<string[]> {
@@ -384,7 +384,7 @@ describe('the handler of the feature', () => {
     w.answers(answering(0))
     expect(await asked(w, REQUEST_LINE)).toEqual(['status ', `insert ${ANSWER}`])
     expect(w.requests()).toMatchObject([
-      { feature: 'request', model: 'sonnet', context: { line: '', request: WORDS, cwd: '/Users/me/work', commands: ['ls -la', 'du -sh .'], exitCode: 1, output: null } },
+      { feature: 'request', model: 'sonnet', context: { line: '', request: WORDS, cwd: '/Users/someone/work', commands: ['ls -la', 'du -sh .'], exitCode: 1, output: null } },
     ])
   })
 

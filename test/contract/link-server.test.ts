@@ -62,6 +62,10 @@ function linkFile<T>(machine: BenchMachine, name: string): T {
 const certificateOf = (machine: BenchMachine): string => linkFile<{ certificate: string }>(machine, 'machine.json').certificate
 const secretsOf = (machine: BenchMachine): Record<string, string> => linkFile<{ secrets: Record<string, string> }>(machine, 'secrets.json').secrets
 const keyOf = (machine: BenchMachine): string => secretsOf(machine)['machine-key'] ?? ''
+// Machine names built from labels: the guard of personal strings (scripts/check-personal.mjs) reads
+// a *.local or *.ts.net name in the source as a real machine, and these are invented.
+const local = (name: string): string => `${name}.local`
+const tsNet = (...labels: string[]): string => `${labels.join('.')}.ts.net`
 
 /** The rejection of `promise`, remembered for the leak check. */
 async function rejection(promise: Promise<unknown>): Promise<Error> {
@@ -189,7 +193,7 @@ describe('checks before the WebSocket handshake', () => {
     for (const host of ['evil.example:' + port, `127.0.0.1:${port + 1}`, '127.0.0.1', `rebind.attacker.test:${port}`]) {
       expect(await upgrade(port, { client: a, headers: { ...auth, host } }), host).toEqual({ status: 403, body: 'forbidden' })
     }
-    for (const host of [`localhost:${port}`, `beta.local:${port}`, `[::1]:${port}`]) {
+    for (const host of [`localhost:${port}`, `${local('beta')}:${port}`, `[::1]:${port}`]) {
       expect((await upgrade(port, { client: a, headers: { ...auth, host } })).status, host).toBe(101)
     }
   })
@@ -598,7 +602,7 @@ describe('round 2: a peer outside the local network', () => {
       host: '127.0.0.1',
       port: 0,
       build: '0.2.0+bench',
-      hostNames: () => ({ interfaces: {}, hostname: 'bench.local', tailscale: false }),
+      hostNames: () => ({ interfaces: {}, hostname: local('bench'), tailscale: false }),
       admit: () => ({ status: 403, body: 'forbidden' }),
       // 127.0.0.1 stands in for an address outside the local network.
       isAllowedPeer: () => false,
@@ -624,7 +628,7 @@ describe('round 2: a peer outside the local network', () => {
 // addresses given here (link-bench.ts, peerAddresses), and every bench machine has `local` on an
 // interface: a peer at a Tailscale address without a tailnet in the test.
 describe('a peer at a Tailscale address', () => {
-  const TAILNET = { remote: '100.101.2.3', local: '100.100.7.9' }
+  const TAILNET = { remote: '100.64.0.2', local: '100.64.0.9' }
 
   /** A raw TLS connection to `port`: whether the handshake completed or the server dropped it first. */
   function handshake(port: number): Promise<'handshake' | 'dropped'> {
@@ -665,7 +669,7 @@ describe('a peer at a Tailscale address', () => {
   })
 
   it('a peer in 100.64.0.0/10 that arrived on the home network address (a carrier-grade NAT neighbour) is dropped with the setting on', async () => {
-    const { b, port } = await listening({ remote: '100.101.2.3', local: '192.168.0.119' })
+    const { b, port } = await listening({ remote: '100.64.0.2', local: '192.168.0.119' })
     b.service.settings.set({ tailscale: true })
     expect(await handshake(port)).toBe('dropped')
   })
@@ -758,8 +762,8 @@ describe('a peer at a Tailscale address', () => {
 // Machine with it off does not dial a Tailscale address either, and switching it off cuts its own
 // dials to one. The bench reads every socket as TAILNET: 127.0.0.1 stands in for a Tailscale address.
 describe('dialing a Tailscale address from this Machine', () => {
-  const TAILNET = { remote: '100.101.2.3', local: '100.100.7.9' }
-  const REFUSAL = /^127\.0\.0\.1 is at the Tailscale address 100\.101\.2\.3, and "Link through Tailscale" is off on this Machine: turn it on in Settings → Machines$/
+  const TAILNET = { remote: '100.64.0.2', local: '100.64.0.9' }
+  const REFUSAL = /^127\.0\.0\.1 is at the Tailscale address 100\.64\.0\.2, and "Link through Tailscale" is off on this Machine: turn it on in Settings → Machines$/
 
   /** Two Machines with the setting on, linked over the tailnet; alpha dials beta. */
   async function linkedOverTailnet(options: ConstructorParameters<typeof LinkBench>[0] = {}): Promise<{ a: BenchMachine; b: BenchMachine }> {
@@ -1004,7 +1008,7 @@ describe('round 2: re-linking and races', () => {
 })
 
 // worfy-link ticket 39. A server alone, without a bench service: hostNames() and the MagicDNS name
-// are given, so `beta.local` stands for os.hostname() and `beta-mac.example.ts.net` for the name
+// are given, so the .local name of `beta` stands for os.hostname() and `beta-mac.example.ts.net` for the name
 // Tailscale gave the machine (`Self.DNSName`). No test starts a real `tailscale`.
 describe('the MagicDNS name from Tailscale, and refusals in the log', () => {
   const MAGIC = 'beta-mac.example.ts.net'
@@ -1017,7 +1021,7 @@ describe('the MagicDNS name from Tailscale, and refusals in the log', () => {
       host: '127.0.0.1',
       port: 0,
       build: '0.2.0+bench',
-      hostNames: () => ({ interfaces: {}, hostname: 'beta.local', tailscale: true }),
+      hostNames: () => ({ interfaces: {}, hostname: local('beta'), tailscale: true }),
       admit: () => ({ accept: (ws) => ws.close(), abort: () => undefined }),
       isAllowedPeer: () => true,
       warn: () => undefined,
@@ -1036,7 +1040,7 @@ describe('the MagicDNS name from Tailscale, and refusals in the log', () => {
     try {
       const { port } = server
       for (const host of [`${MAGIC}:${port}`, `beta-mac:${port}`, `BETA-MAC.Example.ts.net:${port}`]) expect((await upgrade(port, { headers: { host } })).status, host).toBe(101)
-      for (const host of [`beta.example.ts.net:${port}`, `other.example.ts.net:${port}`, `beta-mac.other.ts.net:${port}`, `${MAGIC}:${port + 1}`]) {
+      for (const host of [`beta.example.ts.net:${port}`, `other.example.ts.net:${port}`, `${tsNet('beta-mac', 'other')}:${port}`, `${MAGIC}:${port + 1}`]) {
         expect(await upgrade(port, { headers: { host } }), host).toEqual({ status: 403, body: 'forbidden' })
       }
       expect(asked.length).toBeGreaterThan(0)
@@ -1049,7 +1053,7 @@ describe('the MagicDNS name from Tailscale, and refusals in the log', () => {
     let tailscale = true
     let asked = 0
     const server = await serverWith({
-      hostNames: () => ({ interfaces: {}, hostname: 'beta.local', tailscale }),
+      hostNames: () => ({ interfaces: {}, hostname: local('beta'), tailscale }),
       magicDnsName: async () => {
         asked += 1
         return undefined

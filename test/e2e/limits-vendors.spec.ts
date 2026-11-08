@@ -18,8 +18,11 @@ import { profileJsonScript } from '../harness-node'
 // named by its Vendor's logo alone (ticket 24; owner, 2026-11-03), and the compact bars at 72 px, the Project
 // title and its branch line stay whole (ticket 26, rework round 1).
 
-/** The Project of the F mockup (docs/design/F-canvas-light.dc.html): the title reads `worfy — auction`. */
-const PROJECT = 'auction'
+/**
+ * The Project of the F mockup (docs/design/F-canvas-light.dc.html), under an invented name as wide as
+ * the mockup's, so the title `worfy — caution` takes the room the mockup draws.
+ */
+const PROJECT = 'caution'
 const WIDTH = 1280
 
 /**

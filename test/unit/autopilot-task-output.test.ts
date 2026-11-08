@@ -16,8 +16,8 @@ describe('taskOutputFiles', () => {
   })
 
   it('keeps a Windows path whole, spaces and all', () => {
-    const text = 'Command running in background with ID: b9x. Output is being written to: C:\\Users\\John Doe\\AppData\\Local\\Temp\\claude\\F--SWE-worfy\\s1\\tasks\\b9x.output. You will be notified when it completes.'
-    expect(taskOutputFiles(text)).toEqual(new Map([['b9x', 'C:\\Users\\John Doe\\AppData\\Local\\Temp\\claude\\F--SWE-worfy\\s1\\tasks\\b9x.output']]))
+    const text = 'Command running in background with ID: b9x. Output is being written to: C:\\Users\\Someone Doe\\AppData\\Local\\Temp\\claude\\F--SWE-worfy\\s1\\tasks\\b9x.output. You will be notified when it completes.'
+    expect(taskOutputFiles(text)).toEqual(new Map([['b9x', 'C:\\Users\\Someone Doe\\AppData\\Local\\Temp\\claude\\F--SWE-worfy\\s1\\tasks\\b9x.output']]))
   })
 
   it('reads a forward-slash Windows path', () => {

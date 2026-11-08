@@ -28,7 +28,7 @@ const EPIC = 'demo'
 const SESSION = 'e0000000-0000-4000-8000-000000000016'
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 const TITLE =
-  'Rate limit the bids of every lot across the auction house, the night queue and the moderation screens, so that one seller who floods the queue never pushes the others out of the morning wave'
+  'Rate limit the bids of every lot across the auberge house, the night queue and the moderation screens, so that one seller who floods the queue never pushes the others out of the morning wave'
 const LIVE_FAILURE = 'the e2e test refuses the live list'
 
 const SIZES = [

@@ -449,8 +449,8 @@ describe('a wait for the processes of the copy after worfy quit (worfy-polish ti
 })
 
 describe('the functions of the wait for the copy (worfy-polish ticket 53), on either system', () => {
-  const WIN_TARGET = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
-  const MAC_TARGET = '/Users/dev/Applications/worfy-stable.app'
+  const WIN_TARGET = 'C:\\Users\\someone\\AppData\\Local\\worfy-stable'
+  const MAC_TARGET = '/Users/someone/Applications/worfy-stable.app'
   const winListing = (processes: { ProcessId: number; Name: string; ExecutablePath?: string }[]): string => JSON.stringify(processes)
   const claudeExe = { ProcessId: 812, Name: 'claude.exe', ExecutablePath: `${WIN_TARGET}\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe` }
 
@@ -570,8 +570,8 @@ describe.runIf(PLATFORM !== 'linux')('an install that keeps the copy it replaces
 // refusal comes at once and names it. worfy's own processes (Session children, the codex app-server
 // worfy started) are waited for as in ticket 53, also once worfy has quit and they lost their parent.
 describe('processes of the copy started outside worfy (worfy-polish ticket 58)', () => {
-  const MAC = '/Users/dev/Applications/worfy-stable.app'
-  const WIN = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
+  const MAC = '/Users/someone/Applications/worfy-stable.app'
+  const WIN = 'C:\\Users\\someone\\AppData\\Local\\worfy-stable'
   const macCodex = `${MAC}/Contents/Resources/app.asar.unpacked/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`
   const winCodex = `${WIN}\\resources\\app.asar.unpacked\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe`
   const macClaude = `${MAC}/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`

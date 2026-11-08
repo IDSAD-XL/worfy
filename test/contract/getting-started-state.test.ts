@@ -36,7 +36,7 @@ vi.mock('electron', () => ({
 }))
 
 const AGENT_SCRIPTS = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
-const DEMO: DemoRecord = { projectId: 'demo-id', path: '/home/me/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' }
+const DEMO: DemoRecord = { projectId: 'demo-id', path: '/home/someone/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' }
 const NOW = new Date('2026-10-30T10:00:00.000Z')
 
 let data: string

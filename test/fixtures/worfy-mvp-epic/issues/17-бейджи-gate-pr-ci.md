@@ -21,7 +21,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
   `ticket-ref.ts`).
 - **PR и CI** (`src/main/github/prs.ts`): раз в 60 с, только пока окно активно, один вызов
   `gh pr list --state all --limit 100 --json number,headRefName,state,url,statusCheckRollup,comments`
-  в корне Проекта (без `--limit` `gh` отдаёт 30 последних PR, на Auction этого мало). Тикет в
+  в корне Проекта (без `--limit` `gh` отдаёт 30 последних PR, на Auberge этого мало). Тикет в
   работе или с веткой worktree, чьей ветки в этом списке нет, добирается отдельным
   `gh pr list --state all --search "head:<ветка>" --limit 1` — не чаще раза в 5 минут на ветку. Ветка → Тикет через `ticket-ref.ts`. CI сводится к `passing | failing | running`.
   Вердикт ревьюера — последний комментарий, чья первая строка `VERIFIED` или `REJECTED`. Ошибка
@@ -38,7 +38,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 - [ ] Stub `gh` с PR на ветку `worfy-mvp/08`: бейдж «PR #N», CI `running`, комментарий `VERIFIED` → «VERIFIED».
 - [ ] `gh` отсутствует → «gh unavailable», приложение работает, интервал растёт.
 - [ ] Stub `gh` со 150 PR: PR ветки, которой нет среди первых 100, находится через `--search head:<ветка>` (stub записывает аргументы вызовов).
-- [ ] Ручная проверка на Auction: бейджи у Тикетов с открытыми PR; снимок в «Итог».
+- [ ] Ручная проверка на Auberge: бейджи у Тикетов с открытыми PR; снимок в «Итог».
 
 ## Тесты
 

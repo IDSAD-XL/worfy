@@ -101,9 +101,9 @@ describe('the Update check', () => {
 })
 
 describe('updateEnabled', () => {
-  const home = '/Users/u'
+  const home = '/Users/someone'
   const mac = { platform: 'darwin' as const, home, env: {} }
-  const copy = '/Users/u/Applications/worfy-stable.app'
+  const copy = '/Users/someone/Applications/worfy-stable.app'
 
   it('is off in a dev build and on in the packaged Stable copy', () => {
     expect(updateEnabled({ ...mac, packaged: false, execPath: '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron' })).toBe(false)
@@ -113,7 +113,7 @@ describe('updateEnabled', () => {
 
   it('is off in a packaged build elsewhere', () => {
     expect(updateEnabled({ ...mac, packaged: true, execPath: '/tmp/x.app/Contents/MacOS/worfy' })).toBe(false)
-    expect(updateEnabled({ ...mac, packaged: true, execPath: '/Users/u/Applications/worfy-stable.app.old/Contents/MacOS/worfy' })).toBe(false)
+    expect(updateEnabled({ ...mac, packaged: true, execPath: '/Users/someone/Applications/worfy-stable.app.old/Contents/MacOS/worfy' })).toBe(false)
   })
 
   it('is on with WORFY_UPDATE=1, as e2e runs the unpacked build', () => {
@@ -129,15 +129,15 @@ describe('updateEnabled', () => {
   })
 
   it('reads Windows paths with the rules of Windows', () => {
-    const env = { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' }
-    const windows = { platform: 'win32' as const, home: 'C:\\Users\\u', env }
-    expect(stableCopyPath('win32', env, 'C:\\Users\\u')).toBe(win32.join('C:\\Users\\u\\AppData\\Local', 'worfy-stable'))
-    expect(stableCopyPath('win32', {}, 'C:\\Users\\u')).toBe('C:\\Users\\u\\AppData\\Local\\worfy-stable')
-    expect(updateEnabled({ ...windows, packaged: true, execPath: 'C:\\Users\\u\\AppData\\Local\\worfy-stable\\worfy.exe' })).toBe(true)
+    const env = { LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local' }
+    const windows = { platform: 'win32' as const, home: 'C:\\Users\\someone', env }
+    expect(stableCopyPath('win32', env, 'C:\\Users\\someone')).toBe(win32.join('C:\\Users\\someone\\AppData\\Local', 'worfy-stable'))
+    expect(stableCopyPath('win32', {}, 'C:\\Users\\someone')).toBe('C:\\Users\\someone\\AppData\\Local\\worfy-stable')
+    expect(updateEnabled({ ...windows, packaged: true, execPath: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable\\worfy.exe' })).toBe(true)
     // Windows does not tell letters apart by case.
-    expect(updateEnabled({ ...windows, packaged: true, execPath: 'c:\\users\\U\\appdata\\local\\WORFY-STABLE\\worfy.exe' })).toBe(true)
-    expect(updateEnabled({ ...windows, packaged: true, execPath: 'C:\\Users\\u\\AppData\\Local\\Programs\\worfy\\worfy.exe' })).toBe(false)
-    expect(updateEnabled({ ...windows, packaged: false, execPath: 'C:\\Users\\u\\AppData\\Local\\worfy-stable\\worfy.exe' })).toBe(false)
+    expect(updateEnabled({ ...windows, packaged: true, execPath: 'c:\\users\\SOMEONE\\appdata\\local\\WORFY-STABLE\\worfy.exe' })).toBe(true)
+    expect(updateEnabled({ ...windows, packaged: true, execPath: 'C:\\Users\\someone\\AppData\\Local\\Programs\\worfy\\worfy.exe' })).toBe(false)
+    expect(updateEnabled({ ...windows, packaged: false, execPath: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable\\worfy.exe' })).toBe(false)
   })
 })
 

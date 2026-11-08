@@ -1134,7 +1134,7 @@ test.describe('scripts/install-stable.mjs with a stand-in app', () => {
     mkdirSync(join(repo, 'scripts'), { recursive: true })
     cpSync(installScript, join(repo, 'scripts', 'install-stable.mjs'))
     const git = (...args: string[]): string => {
-      const result = spawnSync('git', ['-C', repo, '-c', 'user.name=worfy-test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8' })
+      const result = spawnSync('git', ['-C', repo, '-c', 'user.name=worfy-test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8' })
       expect(result.status).toBe(0)
       return result.stdout.trim()
     }

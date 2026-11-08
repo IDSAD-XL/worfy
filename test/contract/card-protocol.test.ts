@@ -274,7 +274,7 @@ describe('Card addresses', () => {
   })
 
   it('takes the label from the Project id format of the Project store, for any folder name', () => {
-    for (const root of ['/Users/me/My Projects', '/Users/me/Мой проект', '/']) {
+    for (const root of ['/Users/someone/My Projects', '/Users/someone/Мой проект', '/']) {
       const id = projectId(root)
       const hash = projectIdHash(id)
       expect(hash).toMatch(/^[0-9a-f]+$/)

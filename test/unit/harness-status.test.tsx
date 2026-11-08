@@ -16,7 +16,7 @@ const status = (state: HarnessState, canInstall: boolean): Status => ({
   state,
   bundledVersion: '0.2.0+bbbbbbb',
   canInstall,
-  pluginDir: '/Users/me/.claude/worfy-harness/plugin',
+  pluginDir: '/Users/someone/.claude/worfy-harness/plugin',
   dependencies: [{ id: 'example-skills@claude-plugins-official', status: state.kind === 'installed' ? 'installed' : 'unchecked', version: null }],
 })
 
@@ -65,7 +65,7 @@ describe('HarnessStatusView', () => {
   describe('the Harness in Codex (worfy-multi-vendor ticket 35)', () => {
     const installed: HarnessState = { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }
     const withCodex = (state: HarnessState, codex: NonNullable<Status['codex']>): Status => ({ ...status(state, true), codex })
-    const agentsDir = '/Users/me/.codex/agents'
+    const agentsDir = '/Users/someone/.codex/agents'
 
     it('Codex not installed, outdated or failed: a part after the version, and the one action installs it', () => {
       const cases: [NonNullable<Status['codex']>['state'], string, string][] = [
@@ -117,7 +117,7 @@ describe('HarnessStatusView', () => {
       expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('worfy leaves worfy-implementer.toml')
       cleanup()
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents: ['worfy-scout.toml', 'worfy-reviewer.toml'] })} busy={false} failure={undefined} onInstall={() => undefined} />)
-      expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('worfy leaves worfy-scout.toml, worfy-reviewer.toml in /Users/me/.codex/agents as they are')
+      expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('worfy leaves worfy-scout.toml, worfy-reviewer.toml in /Users/someone/.codex/agents as they are')
     })
 
     it('while Claude Code has no Harness of this build, its line alone speaks: Codex comes with the same Install', () => {
@@ -174,7 +174,7 @@ describe('HarnessStatusView', () => {
 
   it('the Install icon names the version and the folder it installs into in its tooltip', () => {
     render(<HarnessStatusView status={status(STATES[0]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
-    expect(screen.getByRole('button', { name: 'Install' }).getAttribute('title')).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/me/.claude/worfy-harness/plugin')
+    expect(screen.getByRole('button', { name: 'Install' }).getAttribute('title')).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/someone/.claude/worfy-harness/plugin')
   })
 
   it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', () => {

@@ -180,7 +180,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const others = (home: string): string[] => [
       join(home, '.claude', 'bin'),
       join(home, '.claude', 'worfy-harness', 'plugin', 'bin'),
-      '/Users/x/Applications/worfy-stable.app/Contents/Resources/harness/bin',
+      '/Users/someone/Applications/worfy-stable.app/Contents/Resources/harness/bin',
     ]
     let home = ''
     const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {

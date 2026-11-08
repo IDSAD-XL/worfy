@@ -15,9 +15,9 @@ const script = (await import(pathToFileURL(join(import.meta.dirname, '..', '..',
 
 /** What path.txt says on each system, and the repository's path there. */
 const SYSTEMS: [NodeJS.Platform, string, string][] = [
-  ['darwin', '/Users/u/update/repo', 'Electron.app/Contents/MacOS/Electron'],
-  ['win32', 'C:\\Users\\u\\AppData\\Roaming\\worfy\\update\\repo', 'electron.exe'],
-  ['linux', '/home/u/update/repo', 'electron'],
+  ['darwin', '/Users/someone/update/repo', 'Electron.app/Contents/MacOS/Electron'],
+  ['win32', 'C:\\Users\\someone\\AppData\\Roaming\\worfy\\update\\repo', 'electron.exe'],
+  ['linux', '/home/someone/update/repo', 'electron'],
 ]
 
 /**

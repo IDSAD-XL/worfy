@@ -695,7 +695,7 @@ const CODEX_CONTEXT_LIMIT_TOKENS = 2500
  * home on Windows. The temporary root of this test is longer than any real one and would count against the
  * rules what a user never has.
  */
-const REAL_PLUGIN_ROOT = 'C:\\Users\\firstname.lastname\\.codex\\plugins\\cache\\worfy-harness\\worfy\\local'
+const REAL_PLUGIN_ROOT = 'C:\\Users\\someone\\.codex\\plugins\\cache\\worfy-harness\\worfy\\local'
 /** Approximate, bytes/4, as Codex's estimator is not in the repo. */
 const approximateTokens = (text: string) => Buffer.byteLength(text, 'utf8') / 4
 /** Where inject-rules.mjs cuts the part common with the user's rules: LIMIT, in characters (code points). */

@@ -296,7 +296,7 @@ describe('FailedCommands', () => {
 })
 
 describe('runFix', () => {
-  const state: ShellState = { cwd: '/Users/me/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 1, commands: ['ls /x'], lastOutput: 'ls: /x: No such file or directory\r\n' }
+  const state: ShellState = { cwd: '/Users/someone/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 1, commands: ['ls /x'], lastOutput: 'ls: /x: No such file or directory\r\n' }
 
   it('an answer that comes after the failed command stopped being the last one is not pushed, even without a signal', async () => {
     const failed = new FailedCommands()

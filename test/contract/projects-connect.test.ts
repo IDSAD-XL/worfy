@@ -266,7 +266,7 @@ afterEach(() => {
 
 describe('the kind of the folder (step 1)', () => {
   it('a folder above two repositories that is not in git itself is multi-repo, with both repositories', async () => {
-    const workspace = join(scratch, 'atakama')
+    const workspace = join(scratch, 'atalaya')
     const server = makeRepo(join(workspace, 'server'))
     const extension = makeRepo(join(workspace, 'extension'))
     mkdirSync(join(workspace, 'notes'))
@@ -328,10 +328,10 @@ describe('the kind of the folder (step 1)', () => {
   // is compared on that one too. Letter case is the spelling a test can make on any machine; on a
   // case-sensitive disk it names another, missing folder.
   it('another spelling of the folder is the same folder: a repository without a notice, a multi-repo folder with its repositories', async () => {
-    const workspace = join(scratch, 'atakama')
+    const workspace = join(scratch, 'atalaya')
     const server = makeRepo(join(workspace, 'server'))
     const extension = makeRepo(join(workspace, 'extension'))
-    const spelled = join(scratch, 'ATAKAMA')
+    const spelled = join(scratch, 'ATALAYA')
     if (!existsSync(spelled)) {
       expect(await inspectFolder(spelled, runGit)).toEqual({ ok: false, reason: `${spelled} does not exist.` })
       return

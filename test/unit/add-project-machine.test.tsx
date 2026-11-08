@@ -42,11 +42,11 @@ const linkedState = (linked: Linked[]): LinkedState => ({
 
 const own: ProjectsState = { projects: [{ id: 'studio-00000001', name: 'studio', path: '/repos/studio', branch: 'main' }], activeId: 'studio-00000001', revision: 1 }
 const miniList = (extra: ProjectsState['projects'] = []): ProjectsState => ({
-  projects: [{ id: 'mini-00000001', name: 'mini', path: '/Users/m/mini', branch: 'main' }, ...extra],
+  projects: [{ id: 'mini-00000001', name: 'mini', path: '/Users/someone/mini', branch: 'main' }, ...extra],
   activeId: 'mini-00000001',
   revision: extra.length + 1,
 })
-const SHOP = { id: 'shop-0000000a', name: 'shop', path: '/Users/m/code/shop', branch: 'main' }
+const SHOP = { id: 'shop-0000000a', name: 'shop', path: '/Users/someone/code/shop', branch: 'main' }
 
 /**
  * This Machine's preload. `answers` answer a Linked machine's calls by channel; this Machine's own
@@ -166,13 +166,13 @@ describe('"Add project" with Linked machines: the Machine first', () => {
 
   it('choosing a Linked machine opens the folder browser over its folders; the system picker is not called', async () => {
     const { calls } = await mount(MACHINES, {
-      'projects.browse': () => ({ ok: true, path: '/Users/m', parent: '/Users', truncated: false, folders: [{ name: 'code', path: '/Users/m/code', hidden: false, gitRepo: false }] }),
+      'projects.browse': () => ({ ok: true, path: '/Users/someone', parent: '/Users', truncated: false, folders: [{ name: 'code', path: '/Users/someone/code', hidden: false, gitRepo: false }] }),
     })
     fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
     await screen.findByTestId('add-project-machine')
     fireEvent.click(option(MINI))
     const browser = await screen.findByTestId('folder-browser')
-    await waitFor(() => expect(within(browser).getByTestId('folder-browser-path').textContent).toBe('/Users/m'))
+    await waitFor(() => expect(within(browser).getByTestId('folder-browser-path').textContent).toBe('/Users/someone'))
     expect(within(browser).getByText(/The folders of Mini/)).toBeTruthy()
     expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.browse', { path: null }])
     expect(calls.map(([channel]) => channel)).not.toContain('projects.pickFolder')
@@ -180,7 +180,7 @@ describe('"Add project" with Linked machines: the Machine first', () => {
 
   it('a folder of the Linked machine its Harness knows: added there, the window opens it on that Machine', async () => {
     const { calls } = await mount(MACHINES, {
-      'projects.browse': () => ({ ok: true, path: '/Users/m/code/shop', parent: '/Users/m/code', truncated: false, folders: [] }),
+      'projects.browse': () => ({ ok: true, path: '/Users/someone/code/shop', parent: '/Users/someone/code', truncated: false, folders: [] }),
       'projects.connect.inspect': () => ({ status: 'added', project: SHOP, notice: null, state: miniList([SHOP]) }),
     })
     fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
@@ -189,7 +189,7 @@ describe('"Add project" with Linked machines: the Machine first', () => {
     await waitFor(() => expect(screen.getByTestId('folder-browser').getAttribute('data-loading')).toBe('no'))
     fireEvent.click(screen.getByRole('button', { name: 'Choose' }))
     await waitFor(() => expect(load).toHaveBeenCalledTimes(1))
-    expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.connect.inspect', { path: '/Users/m/code/shop' }])
+    expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.connect.inspect', { path: '/Users/someone/code/shop' }])
     const url = new URL(load.mock.calls[0]![0] as string)
     expect(url.searchParams.get('machine')).toBe(MINI)
     expect(url.searchParams.get('project')).toBe(SHOP.id)
@@ -198,16 +198,16 @@ describe('"Add project" with Linked machines: the Machine first', () => {
   })
 
   it('a new folder of the Linked machine: the connect dialog runs there — its Workflow folder from its folders, its accounts, no gh sign-in here', async () => {
-    const folder = { kind: 'git', root: '/Users/m/code/shop', repos: [{ name: 'shop', path: '/Users/m/code/shop' }], notice: null }
+    const folder = { kind: 'git', root: '/Users/someone/code/shop', repos: [{ name: 'shop', path: '/Users/someone/code/shop' }], notice: null }
     const draft = { profile: { name: 'shop', mode: 'silent', workflow: { finish: 'local-green' } }, rules: '# shop\n', gate: [] }
     const { calls } = await mount(MACHINES, {
       'projects.browse': (input) => {
         const path = (input as { path: string | null }).path
         return path === null
-          ? { ok: true, path: '/Users/m/code/shop', parent: '/Users/m/code', truncated: false, folders: [] }
-          : { ok: true, path, parent: '/Users/m', truncated: false, folders: [] }
+          ? { ok: true, path: '/Users/someone/code/shop', parent: '/Users/someone/code', truncated: false, folders: [] }
+          : { ok: true, path, parent: '/Users/someone', truncated: false, folders: [] }
       },
-      'projects.connect.inspect': () => ({ status: 'new', folder, harnessHome: '/Users/m/.claude/worfy-harness' }),
+      'projects.connect.inspect': () => ({ status: 'new', folder, harnessHome: '/Users/someone/.claude/worfy-harness' }),
       'projects.connect.draft': () => ({ status: 'draft', draft, issues: [] }),
       'projects.connect.check': () => ({ issues: [] }),
       'projects.connect.accounts': () => ({ status: 'accounts', repos: [{ name: 'shop', host: 'github.com', slug: 'acme/shop' }], skipped: [], accounts: [], selected: null }),
@@ -219,14 +219,14 @@ describe('"Add project" with Linked machines: the Machine first', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose' }))
     const dialog = await screen.findByTestId('connect-project')
     expect(within(dialog).getByTestId('connect-machine').textContent).toContain('On Mini')
-    expect(within(dialog).getByTestId('connect-workflow-folder').textContent).toBe('/Users/m/.claude/worfy-harness/projects/<name>/workflow/')
+    expect(within(dialog).getByTestId('connect-workflow-folder').textContent).toBe('/Users/someone/.claude/worfy-harness/projects/<name>/workflow/')
 
     // The Workflow folder: Mini's folders, not this Machine's picker.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Choose…' }))
     const browser = await screen.findByTestId('folder-browser')
     await waitFor(() => expect(browser.getAttribute('data-loading')).toBe('no'))
     fireEvent.click(within(browser).getByRole('button', { name: 'Choose' }))
-    await waitFor(() => expect(within(dialog).getByTestId('connect-workflow-folder').textContent).toBe('/Users/m/code/shop'))
+    await waitFor(() => expect(within(dialog).getByTestId('connect-workflow-folder').textContent).toBe('/Users/someone/code/shop'))
     expect(screen.queryByTestId('folder-browser')).toBeNull()
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Write draft' }))
@@ -241,14 +241,14 @@ describe('"Add project" with Linked machines: the Machine first', () => {
     await waitFor(() => expect(linkedCalls(calls).map(([, channel]) => channel)).toContain('projects.connect.check'), { timeout: ms(2000) })
     const onMini = linkedCalls(calls).map(([machine, channel]) => `${machine === MINI ? 'Mini' : machine} ${channel}`)
     expect(onMini).toEqual(expect.arrayContaining(['Mini projects.connect.inspect', 'Mini projects.connect.draft', 'Mini projects.connect.accounts', 'Mini projects.connect.check']))
-    expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.connect.draft', expect.objectContaining({ root: '/Users/m/code/shop', workflowFolder: '/Users/m/code/shop' })])
+    expect(linkedCalls(calls)).toContainEqual([MINI, 'projects.connect.draft', expect.objectContaining({ root: '/Users/someone/code/shop', workflowFolder: '/Users/someone/code/shop' })])
     // None of the connection ran on this Machine, and no picker opened here.
     expect(calls.map(([channel]) => channel).filter((channel) => channel.startsWith('projects.connect.') || channel === 'projects.pickFolder')).toEqual([])
   })
 
   it('a Linked machine that goes away mid-way: the reason is shown', async () => {
     const { bridge } = await mount(MACHINES, {
-      'projects.browse': () => ({ ok: true, path: '/Users/m', parent: '/Users', truncated: false, folders: [] }),
+      'projects.browse': () => ({ ok: true, path: '/Users/someone', parent: '/Users', truncated: false, folders: [] }),
     })
     const invoke = bridge.invoke
     bridge.invoke = (channel, input) =>

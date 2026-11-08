@@ -42,7 +42,7 @@ describe('gateTag', () => {
   // The expected tags are the output of `printf %s <path> | shasum | cut -c1-8`, written out so the
   // test needs no /bin/sh (it runs on Windows too) and still checks against a hash made elsewhere.
   it.each([
-    ['/Users/alexey/Stuff/CanvasForAI', '048d88a0'],
+    ['/Users/someone/Stuff/CanvasForAI', '3a2248b4'],
     ['/Users/test/projects/demo/.claude/worktrees/07', '80f45779'],
     ['/tmp/с пробелом и юникодом', '064900bc'],
   ])('equals the first 8 hex digits of `printf %%s <path> | shasum` for %s', (path, expected) => {
@@ -51,7 +51,7 @@ describe('gateTag', () => {
 })
 
 // worfy-windows ticket 03: the Gate hashes the path as `git rev-parse --show-toplevel` prints it,
-// `C:/Users/x/worfy` on Windows, and worfy has it from realpath as `C:\Users\x\worfy`. The platform
+// `C:/Users/someone/worfy` on Windows, and worfy has it from realpath as `C:\Users\someone\worfy`. The platform
 // is a parameter, so these run on macOS and Linux too.
 describe('gateTag on Windows', () => {
   const sha1 = (text: string): string => createHash('sha1').update(text, 'utf8').digest('hex').slice(0, 8)
@@ -101,26 +101,26 @@ describe('gateKey on Windows', () => {
   const config = {
     repos: [
       { key: 'users', match: 'C:\\Users' },
-      { key: 'worfy', match: 'C:\\Users\\x\\worfy' },
-      { key: 'worfy-other', match: 'C:/Users/x/worfy-other' },
+      { key: 'worfy', match: 'C:\\Users\\someone\\worfy' },
+      { key: 'worfy-other', match: 'C:/Users/someone/worfy-other' },
     ],
   }
 
   it('finds a `match` written with `\\` for the root git prints with `/`, and for a worktree under it', async () => {
-    expect(await gateKey(config, 'C:/Users/x/worfy', 'win32')).toBe('worfy')
-    expect(await gateKey(config, 'C:/Users/x/worfy/.claude/worktrees/07', 'win32')).toBe('worfy')
-    expect(await gateKey(config, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07', 'win32')).toBe('worfy')
-    expect(await gateKey(config, 'C:\\Users\\x\\worfy-other\\src', 'win32')).toBe('worfy-other')
+    expect(await gateKey(config, 'C:/Users/someone/worfy', 'win32')).toBe('worfy')
+    expect(await gateKey(config, 'C:/Users/someone/worfy/.claude/worktrees/07', 'win32')).toBe('worfy')
+    expect(await gateKey(config, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07', 'win32')).toBe('worfy')
+    expect(await gateKey(config, 'C:\\Users\\someone\\worfy-other\\src', 'win32')).toBe('worfy-other')
   })
 
   it('does not tell letter case apart, and still takes only a whole folder name', async () => {
-    expect(await gateKey(config, 'c:\\users\\X\\Worfy', 'win32')).toBe('worfy')
-    expect(await gateKey(config, 'C:/Users/x/worfy-third', 'win32')).toBe('users')
-    expect(await gateKey(config, 'D:/Users/x/worfy', 'win32')).toBeNull()
+    expect(await gateKey(config, 'c:\\users\\SOMEONE\\Worfy', 'win32')).toBe('worfy')
+    expect(await gateKey(config, 'C:/Users/someone/worfy-third', 'win32')).toBe('users')
+    expect(await gateKey(config, 'D:/Users/someone/worfy', 'win32')).toBeNull()
   })
 
   it('on macOS a `\\` is a character of a name and letter case counts, as before', async () => {
-    expect(await gateKey(config, 'C:/Users/x/worfy', 'darwin')).toBeNull()
+    expect(await gateKey(config, 'C:/Users/someone/worfy', 'darwin')).toBeNull()
     expect(await gateKey({ repos: [{ key: 'demo', match: '/Users/test/projects/demo' }] }, '/Users/test/projects/Demo', 'darwin')).toBeNull()
   })
 })
@@ -130,7 +130,7 @@ describe('markerOutcome', () => {
     expect(markerOutcome(new Set(['red-worfy-abcdef12']), 'worfy', 'abcdef12')).toBe('red')
     expect(markerOutcome(new Set(['unverified-worfy-abcdef12']), 'worfy', 'abcdef12')).toBe('unverified')
     expect(markerOutcome(new Set(['unverified-worfy-abcdef12', 'red-worfy-abcdef12']), 'worfy', 'abcdef12')).toBe('red')
-    expect(markerOutcome(new Set(['red-auction-abcdef12', 'red-worfy-00000000', 'nokey-broken-abcdef12-s']), 'worfy', 'abcdef12')).toBeNull()
+    expect(markerOutcome(new Set(['red-auberge-abcdef12', 'red-worfy-00000000', 'nokey-broken-abcdef12-s']), 'worfy', 'abcdef12')).toBeNull()
   })
 })
 
@@ -198,7 +198,7 @@ describe('gateRunDir', () => {
     ['bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"', cwd],
     ['~/.claude/hooks/gate.sh fast > /tmp/g.out 2>&1; tail -1 /tmp/g.out', cwd],
     ['cd .claude/worktrees/07 && bash ~/.claude/hooks/gate.sh fast', `${cwd}/.claude/worktrees/07`],
-    ['cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', '/Users/test/Work/Auction'],
+    ['cd /Users/test/Work/Auberge && ~/.claude/hooks/gate.sh fast', '/Users/test/Work/Auberge'],
     ['cd ~/.claude && ls; cd /Users/test/projects/demo && ~/.claude/hooks/gate.sh fast', cwd],
     ["cd '/Users/test/My Projects/x' && gate.sh", '/Users/test/My Projects/x'],
     ['GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full; cd /elsewhere', cwd],
@@ -235,8 +235,8 @@ describe('gateRunDir', () => {
 // worfy-windows ticket 03: the Gate is harness/hooks/gate.mjs, run by node; gate.sh stays in old
 // transcripts and in the old Harness under ~/.claude.
 describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
-  const cwd = 'C:\\Users\\x\\worfy'
-  const gate = 'node "C:\\Users\\x\\plugin\\hooks\\gate.mjs" fast'
+  const cwd = 'C:\\Users\\someone\\worfy'
+  const gate = 'node "C:\\Users\\someone\\plugin\\hooks\\gate.mjs" fast'
 
   it.each([
     [gate, cwd],
@@ -245,15 +245,15 @@ describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
     ['bash ~/.claude/hooks/gate.sh fast', cwd],
     ['cd /c/x && node ./hooks/gate.mjs full', 'C:\\x'],
     ['cd /c && node x/hooks/gate.mjs full', 'C:\\'],
-    [`cd "C:\\Users\\x\\worfy\\.claude\\worktrees\\07" && ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07'],
-    [`cd C:/Users/x/other; ${gate}`, 'C:\\Users\\x\\other'],
+    [`cd "C:\\Users\\someone\\worfy\\.claude\\worktrees\\07" && ${gate}`, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07'],
+    [`cd C:/Users/someone/other; ${gate}`, 'C:\\Users\\someone\\other'],
     [`cd '\\\\srv\\share\\repo' && ${gate}`, '\\\\srv\\share\\repo'],
-    [`cd .claude/worktrees/07 && ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07'],
-    [`cd ".claude\\worktrees\\07"; cd '..\\08'; ${gate}`, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08'],
-    [`cd /c/elsewhere && ls; cd "C:\\Users\\x\\worfy" && ${gate}`, cwd],
-    [`cd 'C:\\Users\\x\\My Projects\\y' && ${gate}`, 'C:\\Users\\x\\My Projects\\y'],
+    [`cd .claude/worktrees/07 && ${gate}`, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07'],
+    [`cd ".claude\\worktrees\\07"; cd '..\\08'; ${gate}`, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\08'],
+    [`cd /c/elsewhere && ls; cd "C:\\Users\\someone\\worfy" && ${gate}`, cwd],
+    [`cd 'C:\\Users\\someone\\My Projects\\y' && ${gate}`, 'C:\\Users\\someone\\My Projects\\y'],
     // In double quotes bash keeps a `\` before an ordinary character and makes one of `\\`.
-    [`cd "C:\\\\Users\\\\x\\\\other" && ${gate}`, 'C:\\Users\\x\\other'],
+    [`cd "C:\\\\Users\\\\someone\\\\other" && ${gate}`, 'C:\\Users\\someone\\other'],
   ])('on Windows %s → %s', (command, dir) => {
     expect(gateRunDir(command, cwd, 'win32')).toBe(dir)
   })
@@ -267,8 +267,8 @@ describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
   })
 
   it('on Windows is null for a cd argument with a `\\` outside quotes: Git Bash reads it as an escape and goes elsewhere or nowhere', () => {
-    // `cd C:\Users\x\worfy` is `cd C:Usersxworfy` to bash: it fails, and after `&&` the Gate does not run.
-    expect(gateRunDir(`cd C:\\Users\\x\\worfy && ${gate}`, cwd, 'win32')).toBeNull()
+    // `cd C:\Users\someone\worfy` is `cd C:Userssomeoneworfy` to bash: it fails, and after `&&` the Gate does not run.
+    expect(gateRunDir(`cd C:\\Users\\someone\\worfy && ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd .claude\\worktrees\\07; ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd \\x && ${gate}`, cwd, 'win32')).toBeNull()
     // An escaped space: the folder is `C:\my repo`, which the argument up to the space does not say.
@@ -291,7 +291,7 @@ describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
       expect(gateRunDir('cat ~/.claude/hooks/gate.sh', cwd, platform)).toBe(cwd)
     }
     // `Set-Location` is not a `cd` here: the run in C:\other is taken for one in the Session's folder.
-    expect(gateRunDir('Set-Location C:\\other; node C:\\Users\\x\\plugin\\hooks\\gate.mjs fast', cwd, 'win32')).toBe(cwd)
+    expect(gateRunDir('Set-Location C:\\other; node C:\\Users\\someone\\plugin\\hooks\\gate.mjs fast', cwd, 'win32')).toBe(cwd)
   })
 
   it('is undefined for a command that runs neither gate.mjs nor gate.sh', () => {
@@ -449,35 +449,35 @@ describe('worktreeOfCwd', () => {
   const gate = { outcome: 'none' as const, source: 'none' as const, at: null }
   const snapshot = (...paths: string[]) => snapshotOf(paths[0]!, paths.map((path) => ({ path, branch: null, gate })))
 
-  // worfy-windows ticket 03: git names a worktree `C:/Users/x/worfy`, Claude Code names the folder
-  // of a Session `C:\Users\x\worfy`, and NTFS does not tell letter case apart.
+  // worfy-windows ticket 03: git names a worktree `C:/Users/someone/worfy`, Claude Code names the folder
+  // of a Session `C:\Users\someone\worfy`, and NTFS does not tell letter case apart.
   it('finds a worktree of Windows for a cwd in the other spelling: either separator, any letter case', () => {
-    const asGit = snapshot('C:/Users/x/worfy', 'C:/Users/x/worfy/.claude/worktrees/07')
-    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\src')?.path).toBe('C:/Users/x/worfy')
-    expect(worktreeOfCwd(asGit, 'c:\\users\\x\\worfy')?.path).toBe('C:/Users/x/worfy')
-    const asRealpath = snapshot('C:\\Users\\x\\worfy', 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07')
-    expect(worktreeOfCwd(asRealpath, 'C:/Users/x/worfy/src')?.path).toBe('C:\\Users\\x\\worfy')
+    const asGit = snapshot('C:/Users/someone/worfy', 'C:/Users/someone/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\someone\\worfy\\src')?.path).toBe('C:/Users/someone/worfy')
+    expect(worktreeOfCwd(asGit, 'c:\\users\\someone\\worfy')?.path).toBe('C:/Users/someone/worfy')
+    const asRealpath = snapshot('C:\\Users\\someone\\worfy', 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07')
+    expect(worktreeOfCwd(asRealpath, 'C:/Users/someone/worfy/src')?.path).toBe('C:\\Users\\someone\\worfy')
     expect(worktreeOfCwd(snapshot('//srv/share/repo'), '\\\\srv\\share\\repo\\src')?.path).toBe('//srv/share/repo')
   })
 
   it('takes the deepest worktree of Windows, and only a whole folder name', () => {
-    const asGit = snapshot('C:/Users/x/worfy', 'C:/Users/x/worfy/.claude/worktrees/07')
-    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07\\src')?.path).toBe('C:/Users/x/worfy/.claude/worktrees/07')
-    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08')?.path).toBe('C:/Users/x/worfy')
-    expect(worktreeOfCwd(asGit, 'C:/Users/x/worfy2')).toBeNull()
-    expect(worktreeOfCwd(asGit, 'C:\\Users\\x\\worfy2\\src')).toBeNull()
-    expect(worktreeOfCwd(asGit, 'D:\\Users\\x\\worfy')).toBeNull()
+    const asGit = snapshot('C:/Users/someone/worfy', 'C:/Users/someone/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07\\src')?.path).toBe('C:/Users/someone/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\08')?.path).toBe('C:/Users/someone/worfy')
+    expect(worktreeOfCwd(asGit, 'C:/Users/someone/worfy2')).toBeNull()
+    expect(worktreeOfCwd(asGit, 'C:\\Users\\someone\\worfy2\\src')).toBeNull()
+    expect(worktreeOfCwd(asGit, 'D:\\Users\\someone\\worfy')).toBeNull()
   })
 
   it('compares a POSIX path exactly as before: letter case counts and a `\\` is a character of a name', () => {
-    const posix = snapshot('/Users/x/worfy', '/Users/x/worfy/.claude/worktrees/07')
-    expect(worktreeOfCwd(posix, '/Users/x/worfy/src')?.path).toBe('/Users/x/worfy')
-    expect(worktreeOfCwd(posix, '/Users/x/worfy/.claude/worktrees/07/src')?.path).toBe('/Users/x/worfy/.claude/worktrees/07')
-    expect(worktreeOfCwd(posix, '/Users/X/worfy')).toBeNull()
-    expect(worktreeOfCwd(posix, '/Users/x/worfy\\src')).toBeNull()
-    expect(worktreeOfCwd(posix, '/Users/x/worfy2')).toBeNull()
-    expect(worktreeOfCwd(snapshot('/Users/x/Wor\\fy'), '/Users/x/Wor\\fy/src')?.path).toBe('/Users/x/Wor\\fy')
-    expect(worktreeOfCwd(snapshot('/Users/x/Wor\\fy'), '/Users/x/wor/fy/src')).toBeNull()
+    const posix = snapshot('/Users/someone/worfy', '/Users/someone/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(posix, '/Users/someone/worfy/src')?.path).toBe('/Users/someone/worfy')
+    expect(worktreeOfCwd(posix, '/Users/someone/worfy/.claude/worktrees/07/src')?.path).toBe('/Users/someone/worfy/.claude/worktrees/07')
+    expect(worktreeOfCwd(posix, '/Users/SOMEONE/worfy')).toBeNull()
+    expect(worktreeOfCwd(posix, '/Users/someone/worfy\\src')).toBeNull()
+    expect(worktreeOfCwd(posix, '/Users/someone/worfy2')).toBeNull()
+    expect(worktreeOfCwd(snapshot('/Users/someone/Wor\\fy'), '/Users/someone/Wor\\fy/src')?.path).toBe('/Users/someone/Wor\\fy')
+    expect(worktreeOfCwd(snapshot('/Users/someone/Wor\\fy'), '/Users/someone/wor/fy/src')).toBeNull()
   })
 })
 
@@ -501,7 +501,7 @@ describe('GateReader', () => {
   it('reads an unverified marker, and nothing for a marker of another key', async () => {
     const { home, root, worktree07, worktrees, marker } = await world()
     await rm(marker)
-    await writeFile(join(home, 'gate', 'state', `red-auction-${gateTag(worktree07)}`), '')
+    await writeFile(join(home, 'gate', 'state', `red-auberge-${gateTag(worktree07)}`), '')
     await writeFile(join(home, 'gate', 'state', `unverified-worfy-${gateTag(worktree07)}`), '')
     const [, wt07] = await new GateReader({ home }).read(root, worktrees)
     expect(wt07!.gate).toEqual({ outcome: 'unverified', source: 'marker', at: null })
@@ -545,7 +545,7 @@ describe('GateReader', () => {
         bashRun('[gate] not verified: fixture of the gate’s tests', '2026-10-05T13:00:00.000Z', { command: 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', cwd: root }),
         bashRun('[gate] red (fast): demo/.:test', '2026-10-05T13:01:00.000Z', { command: 'tail -1 /tmp/scratch/gate-fast.txt', cwd: root }),
         bashRun('[gate] red (fast): demo/.:test', '2026-10-05T13:02:00.000Z', { command: `cd ${worktree07} && bash ~/.claude/hooks/gate.sh fast`, cwd: root }),
-        bashRun('[gate] red (fast): auction/.:test', '2026-10-05T13:03:00.000Z', { command: 'cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', cwd: root }),
+        bashRun('[gate] red (fast): auberge/.:test', '2026-10-05T13:03:00.000Z', { command: 'cd /Users/test/Work/Auberge && ~/.claude/hooks/gate.sh fast', cwd: root }),
         bashRun('[gate] red (fast): demo/.:lint', '2026-10-05T13:04:00.000Z', { cwd: worktree07 }),
         '',
       ].join('\n'),
@@ -793,12 +793,12 @@ describe('GateReader and the verdict file', () => {
 
   it('readVerdictFile on Windows: a file whose `worktree` is in git’s spelling is about the same worktree as realpath spells it', async () => {
     const { home } = await world()
-    const asGit = 'C:/Users/x/worfy/.claude/worktrees/07'
-    const asRealpath = 'C:\\Users\\x\\worfy\\.claude\\worktrees\\07'
+    const asGit = 'C:/Users/someone/worfy/.claude/worktrees/07'
+    const asRealpath = 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\07'
     const file = await writeVerdict(home, { worktree: asGit, outcome: 'red', exit: 2 })
     expect(await readVerdictFile(file, asRealpath, null, 'win32')).toEqual({ verdict: expect.objectContaining({ outcome: 'red', worktree: asGit }) })
-    expect(await readVerdictFile(file, 'c:\\users\\X\\worfy\\.claude\\worktrees\\07', null, 'win32')).toEqual({ verdict: expect.objectContaining({ outcome: 'red' }) })
-    expect(await readVerdictFile(file, 'C:\\Users\\x\\worfy\\.claude\\worktrees\\08', null, 'win32')).toEqual({ problem: `is about another worktree: ${asGit}` })
+    expect(await readVerdictFile(file, 'c:\\users\\SOMEONE\\worfy\\.claude\\worktrees\\07', null, 'win32')).toEqual({ verdict: expect.objectContaining({ outcome: 'red' }) })
+    expect(await readVerdictFile(file, 'C:\\Users\\someone\\worfy\\.claude\\worktrees\\08', null, 'win32')).toEqual({ problem: `is about another worktree: ${asGit}` })
     // On macOS the two spellings are two different names.
     expect(await readVerdictFile(file, asRealpath, null, 'darwin')).toEqual({ problem: `is about another worktree: ${asGit}` })
   })
@@ -878,17 +878,17 @@ describe('TranscriptGateScanner', () => {
 
   it('on Windows reads gate.mjs runs, and tells whose they are by paths in either spelling', async () => {
     const dir = await tempDir()
-    const root = 'C:\\Users\\x\\worfy'
+    const root = 'C:\\Users\\someone\\worfy'
     const worktree07 = `${root}\\.claude\\worktrees\\07`
-    const gate = 'node "C:\\Users\\x\\plugin\\hooks\\gate.mjs" fast </dev/null; echo "EXIT=$?"'
+    const gate = 'node "C:\\Users\\someone\\plugin\\hooks\\gate.mjs" fast </dev/null; echo "EXIT=$?"'
     await writeFile(
       join(dir, 's.jsonl'),
       [
         bashRun('[gate] green (fast): a', '2026-10-13T10:00:00.000Z', { command: gate, cwd: worktree07 }),
         // After `cd` to the checkout, as Git Bash spells it: not about the worktree.
-        bashRun('[gate] not verified: b', '2026-10-13T10:01:00.000Z', { command: `cd /c/Users/x/worfy && ${gate}`, cwd: worktree07 }),
+        bashRun('[gate] not verified: b', '2026-10-13T10:01:00.000Z', { command: `cd /c/Users/someone/worfy && ${gate}`, cwd: worktree07 }),
         // In a subfolder of the worktree, spelled with `/` and other letter case.
-        bashRun('[gate] red (fast): c', '2026-10-13T10:02:00.000Z', { command: `cd c:/users/x/Worfy/.claude/worktrees/07/src && ${gate}`, cwd: root }),
+        bashRun('[gate] red (fast): c', '2026-10-13T10:02:00.000Z', { command: `cd c:/users/someone/Worfy/.claude/worktrees/07/src && ${gate}`, cwd: root }),
         '',
       ].join('\n'),
     )

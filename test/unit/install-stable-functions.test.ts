@@ -10,23 +10,23 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { build, buildCommand, builtApp, checkTarget, ELECTRON_INSTALL, electronMissing, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, removeInRounds, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 import { ms } from '../time-scale'
 
-const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
-const MAC_HOME = '/Users/dev'
-const INSTALLED = 'C:\\Users\\dev\\AppData\\Local\\Programs\\worfy'
+const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local' }
+const MAC_HOME = '/Users/someone'
+const INSTALLED = 'C:\\Users\\someone\\AppData\\Local\\Programs\\worfy'
 
 describe('the target of the stable copy', () => {
   it('by default is ~/Applications/worfy-stable.app on macOS, with worfy-stable.json next to it', () => {
     const target = defaultTarget('darwin', {}, MAC_HOME)
-    expect(target).toBe('/Users/dev/Applications/worfy-stable.app')
+    expect(target).toBe('/Users/someone/Applications/worfy-stable.app')
     expect(checkTarget('darwin', target, {}, MAC_HOME)).toBe(target)
-    expect(metadataPath('darwin', target)).toBe('/Users/dev/Applications/worfy-stable.json')
+    expect(metadataPath('darwin', target)).toBe('/Users/someone/Applications/worfy-stable.json')
   })
 
   it('by default is %LOCALAPPDATA%\\worfy-stable on Windows, with worfy-stable.json next to it: not under Programs, where the installer works', () => {
     const target = defaultTarget('win32', WIN_ENV, WIN_HOME)
-    expect(target).toBe('C:\\Users\\dev\\AppData\\Local\\worfy-stable')
+    expect(target).toBe('C:\\Users\\someone\\AppData\\Local\\worfy-stable')
     expect(checkTarget('win32', target, WIN_ENV, WIN_HOME)).toBe(target)
-    expect(metadataPath('win32', target)).toBe('C:\\Users\\dev\\AppData\\Local\\worfy-stable.json')
+    expect(metadataPath('win32', target)).toBe('C:\\Users\\someone\\AppData\\Local\\worfy-stable.json')
     // Without the variable the folder is the one Windows gives a user by default.
     expect(defaultTarget('win32', {}, WIN_HOME)).toBe(target)
     expect(defaultTarget('win32', { LOCALAPPDATA: 'D:\\Local' }, WIN_HOME)).toBe('D:\\Local\\worfy-stable')
@@ -37,7 +37,7 @@ describe('the target of the stable copy', () => {
   it('the folder of the installer is Programs\\worfy under %LOCALAPPDATA%, or under the default of a user without the variable', () => {
     expect(installerDir(WIN_ENV, WIN_HOME)).toBe(INSTALLED)
     expect(installerDir({ LOCALAPPDATA: 'D:\\Local' }, WIN_HOME)).toBe('D:\\Local\\Programs\\worfy')
-    expect(installerDir({}, 'C:\\Users\\other')).toBe('C:\\Users\\other\\AppData\\Local\\Programs\\worfy')
+    expect(installerDir({}, 'C:\\Users\\user')).toBe('C:\\Users\\user\\AppData\\Local\\Programs\\worfy')
     expect(installerDir({ LOCALAPPDATA: '' }, WIN_HOME)).toBe(INSTALLED)
   })
 
@@ -45,12 +45,12 @@ describe('the target of the stable copy', () => {
     expect(checkTarget('darwin', '/tmp/x/worfy-stable.app/', {}, MAC_HOME)).toBe('/tmp/x/worfy-stable.app')
     expect(() => checkTarget('darwin', '/tmp/not-an-app', {}, MAC_HOME)).toThrow('the target must be a path ending in .app, got: /tmp/not-an-app')
     expect(() => checkTarget('darwin', '/tmp/not-an-app/', {}, MAC_HOME)).toThrow('got: /tmp/not-an-app')
-    expect(() => checkTarget('darwin', '/Users/dev/Applications/worfy-stable', {}, MAC_HOME)).toThrow(/must be a path ending in \.app/)
+    expect(() => checkTarget('darwin', '/Users/someone/Applications/worfy-stable', {}, MAC_HOME)).toThrow(/must be a path ending in \.app/)
   })
 
   it('on Windows is any folder but the one the installer uses, one inside it, one around it, or a whole disk', () => {
     expect(checkTarget('win32', 'D:\\apps\\worfy-stable\\', WIN_ENV, WIN_HOME)).toBe('D:\\apps\\worfy-stable')
-    for (const target of [INSTALLED, 'c:\\users\\DEV\\appdata\\local\\programs\\WORFY\\', `${INSTALLED}\\stable`, 'C:\\Users\\dev\\AppData\\Local\\Programs', 'C:\\Users\\dev']) {
+    for (const target of [INSTALLED, 'c:\\users\\SOMEONE\\appdata\\local\\programs\\WORFY\\', `${INSTALLED}\\stable`, 'C:\\Users\\someone\\AppData\\Local\\Programs', 'C:\\Users\\someone']) {
       expect(() => checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toThrow(/cannot be the folder the installer of worfy uses/)
     }
     expect(() => checkTarget('win32', 'D:\\', WIN_ENV, WIN_HOME)).toThrow(/not a whole disk/)
@@ -60,11 +60,11 @@ describe('the target of the stable copy', () => {
   })
 
   it('on Windows is no path that starts with the path of the installer\'s folder: the installer stops every program whose path starts with it', () => {
-    for (const target of [`${INSTALLED}-2`, `${INSTALLED}-stable`, 'c:\\USERS\\dev\\appdata\\local\\programs\\WORFY2', `${INSTALLED}-stable\\deeper`]) {
+    for (const target of [`${INSTALLED}-2`, `${INSTALLED}-stable`, 'c:\\USERS\\someone\\appdata\\local\\programs\\WORFY2', `${INSTALLED}-stable\\deeper`]) {
       expect(() => checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toThrow(/cannot start with the path of the folder the installer of worfy uses/)
     }
     // A neighbour whose name only shares some letters, or that ends with the name, is fine.
-    for (const target of ['C:\\Users\\dev\\AppData\\Local\\Programs\\wor', 'C:\\Users\\dev\\AppData\\Local\\Programs\\my-worfy', 'C:\\Users\\dev\\AppData\\Local\\Programs\\other']) {
+    for (const target of ['C:\\Users\\someone\\AppData\\Local\\Programs\\wor', 'C:\\Users\\someone\\AppData\\Local\\Programs\\my-worfy', 'C:\\Users\\someone\\AppData\\Local\\Programs\\other']) {
       expect(checkTarget('win32', target, WIN_ENV, WIN_HOME), target).toBe(target)
     }
   })
@@ -92,34 +92,34 @@ describe('a running copy in the list of processes', () => {
   it('on macOS is a line of ps whose command lies inside the target, by either spelling of its path', () => {
     const ps = [
       '  501 /sbin/launchd',
-      ' 9120 /Users/dev/Applications/worfy-stable.app/Contents/MacOS/worfy',
-      ' 9131 /Users/dev/Applications/worfy-stable.app/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper --type=gpu-process',
+      ' 9120 /Users/someone/Applications/worfy-stable.app/Contents/MacOS/worfy',
+      ' 9131 /Users/someone/Applications/worfy-stable.app/Contents/Frameworks/worfy Helper.app/Contents/MacOS/worfy Helper --type=gpu-process',
       ' 9200 /Applications/worfy.app/Contents/MacOS/worfy',
       ' 9300 /private/var/folders/x/worfy-stable.app/Contents/MacOS/worfy',
-      ' 9400 /usr/bin/grep /Users/dev/Applications/worfy-stable.app',
+      ' 9400 /usr/bin/grep /Users/someone/Applications/worfy-stable.app',
       '',
     ].join('\n')
-    const running = runningCopies('darwin', ['/Users/dev/Applications/worfy-stable.app'], ps)
+    const running = runningCopies('darwin', ['/Users/someone/Applications/worfy-stable.app'], ps)
     expect(running.map((line) => line.trim().split(' ')[0])).toEqual(['9120', '9131'])
     // /var is a link to /private/var: a process shows the path it was started by.
     expect(runningCopies('darwin', ['/var/folders/x/worfy-stable.app', '/private/var/folders/x/worfy-stable.app'], ps)).toHaveLength(1)
-    expect(runningCopies('darwin', ['/Users/dev/Applications/worfy-other.app'], ps)).toEqual([])
-    expect(runningCopies('darwin', ['/Users/dev/Applications/worfy-stable.app'], '')).toEqual([])
+    expect(runningCopies('darwin', ['/Users/someone/Applications/worfy-other.app'], ps)).toEqual([])
+    expect(runningCopies('darwin', ['/Users/someone/Applications/worfy-stable.app'], '')).toEqual([])
   })
 
   it('on Windows is a process whose executable lies inside the target folder, in any case of the letters', () => {
     const listing = JSON.stringify([
       { ProcessId: 4, Name: 'System', ExecutablePath: null },
       { ProcessId: 812, Name: 'svchost.exe', ExecutablePath: 'C:\\Windows\\System32\\svchost.exe' },
-      { ProcessId: 9120, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable\\worfy.exe' },
-      { ProcessId: 9131, Name: 'claude.exe', ExecutablePath: 'c:\\users\\dev\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe' },
-      { ProcessId: 9200, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\Programs\\worfy\\worfy.exe' },
-      { ProcessId: 9300, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable-2\\worfy.exe' },
+      { ProcessId: 9120, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable\\worfy.exe' },
+      { ProcessId: 9131, Name: 'claude.exe', ExecutablePath: 'c:\\users\\someone\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe' },
+      { ProcessId: 9200, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\someone\\AppData\\Local\\Programs\\worfy\\worfy.exe' },
+      { ProcessId: 9300, Name: 'worfy.exe', ExecutablePath: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable-2\\worfy.exe' },
     ])
-    const target = 'C:\\Users\\dev\\AppData\\Local\\worfy-stable'
+    const target = 'C:\\Users\\someone\\AppData\\Local\\worfy-stable'
     expect(runningCopies('win32', [target], listing)).toEqual([
-      '9120 C:\\Users\\dev\\AppData\\Local\\worfy-stable\\worfy.exe',
-      '9131 c:\\users\\dev\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe',
+      '9120 C:\\Users\\someone\\AppData\\Local\\worfy-stable\\worfy.exe',
+      '9131 c:\\users\\someone\\appdata\\local\\WORFY-STABLE\\resources\\app.asar.unpacked\\node_modules\\claude.exe',
     ])
     expect(runningCopies('win32', ['D:\\elsewhere'], listing)).toEqual([])
     // PowerShell prints one process as an object, not a list; and nothing at all for none.
@@ -128,7 +128,7 @@ describe('a running copy in the list of processes', () => {
   })
 
   it('on Windows is found by every spelling of the target it is given: neither of these two paths holds the other', () => {
-    const typed = 'C:\\Users\\dev\\links\\stable'
+    const typed = 'C:\\Users\\someone\\links\\stable'
     const onDisk = 'D:\\apps\\worfy-stable'
     const listing = JSON.stringify([
       { ProcessId: 11, Name: 'worfy.exe', ExecutablePath: `${typed}\\worfy.exe` },
@@ -140,13 +140,13 @@ describe('a running copy in the list of processes', () => {
   })
 
   it('on Windows is found when it was started through a `subst` drive: its path is spelled on disk before it is compared', () => {
-    // Windows shows the path a program was started by; W: is a `subst` drive over C:\Users\dev\apps.
+    // Windows shows the path a program was started by; W: is a `subst` drive over C:\Users\someone\apps.
     const listing = JSON.stringify([
       { ProcessId: 21, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-stable\\worfy.exe' },
       { ProcessId: 22, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-other\\worfy.exe' },
     ])
-    const target = 'C:\\Users\\dev\\apps\\worfy-stable'
-    const spell = (path: string): string => path.replace(/^W:\\/, 'C:\\Users\\dev\\apps\\')
+    const target = 'C:\\Users\\someone\\apps\\worfy-stable'
+    const spell = (path: string): string => path.replace(/^W:\\/, 'C:\\Users\\someone\\apps\\')
     expect(runningCopies('win32', [target], listing)).toEqual([])
     expect(runningCopies('win32', [target], listing, spell)).toEqual(['21 W:\\worfy-stable\\worfy.exe'])
   })
@@ -228,7 +228,7 @@ describe('what the script replaces and writes', () => {
 })
 
 describe('the registration of the copy with Launch Services', () => {
-  const target = '/Users/dev/Applications/worfy-stable.app'
+  const target = '/Users/someone/Applications/worfy-stable.app'
 
   it('on macOS is `lsregister -f <copy>`, so Notification Center takes the icon of the copy just installed', () => {
     expect(registerCommand('darwin', target, {})).toEqual({ command: LSREGISTER, args: ['-f', target] })
@@ -241,8 +241,8 @@ describe('the registration of the copy with Launch Services', () => {
   })
 
   it('is no step on Windows and Linux, which have no Launch Services', () => {
-    expect(registerCommand('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable', { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toBeNull()
-    expect(registerCommand('linux', '/home/dev/worfy-stable.app', {})).toBeNull()
+    expect(registerCommand('win32', 'C:\\Users\\someone\\AppData\\Local\\worfy-stable', { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toBeNull()
+    expect(registerCommand('linux', '/home/someone/worfy-stable.app', {})).toBeNull()
   })
 })
 
@@ -560,7 +560,7 @@ describe.runIf(process.platform !== 'linux')('the deploy mark after a whole inst
     mkdirSync(repo)
     writeFileSync(join(repo, 'README.md'), 'a repository\n')
     writeFileSync(join(repo, '.gitignore'), 'dist/\n')
-    const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=worfy test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=worfy test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
     git('init', '-q')
     git('add', '.')
     git('commit', '-q', '-m', 'a repository')
@@ -654,8 +654,8 @@ describe('the arguments of a run', () => {
 
 describe('the previous copy', () => {
   it('lies next to the target as worfy-stable.previous on either system, with worfy-stable.previous.json', () => {
-    expect(flags.previousPaths('darwin', '/Users/dev/Applications/worfy-stable.app')).toEqual({ copy: '/Users/dev/Applications/worfy-stable.previous', metadata: '/Users/dev/Applications/worfy-stable.previous.json' })
-    expect(flags.previousPaths('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable')).toEqual({ copy: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable.previous', metadata: 'C:\\Users\\dev\\AppData\\Local\\worfy-stable.previous.json' })
+    expect(flags.previousPaths('darwin', '/Users/someone/Applications/worfy-stable.app')).toEqual({ copy: '/Users/someone/Applications/worfy-stable.previous', metadata: '/Users/someone/Applications/worfy-stable.previous.json' })
+    expect(flags.previousPaths('win32', 'C:\\Users\\someone\\AppData\\Local\\worfy-stable')).toEqual({ copy: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable.previous', metadata: 'C:\\Users\\someone\\AppData\\Local\\worfy-stable.previous.json' })
   })
 
   it('takes its name from the target, so two targets in one folder keep two previous copies', () => {

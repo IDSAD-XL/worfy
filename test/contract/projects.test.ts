@@ -187,46 +187,46 @@ afterEach(() => {
 
 describe('projects.add', () => {
   it('adds a repository root, makes it active and reports its branch', async () => {
-    const repo = makeRepo('auction', 'trunk')
+    const repo = makeRepo('auberge', 'trunk')
     const result = await addOk(repo)
     expect(result.notice).toBeNull()
-    expect(result.project).toStrictEqual({ id: expect.stringMatching(/^auction-[0-9a-f]{8}$/), name: 'auction', path: repo, branch: 'trunk' })
+    expect(result.project).toStrictEqual({ id: expect.stringMatching(/^auberge-[0-9a-f]{8}$/), name: 'auberge', path: repo, branch: 'trunk' })
     expect(result.state.activeId).toBe(result.project.id)
     expect(await value('projects.list')).toStrictEqual(result.state)
   })
 
   it('creates the Project data folder <name>-<sha256(path)[0:8]> under WORFY_DATA_DIR with default settings', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const { createHash } = await import('node:crypto')
     const { project } = await addOk(repo)
     // The hash is of the root as git prints it: on Windows that is C:/…, not the stored C:\….
     const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
-    expect(project.id).toBe(`auction-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`)
+    expect(project.id).toBe(`auberge-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`)
     const settings = JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')) as unknown
     expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' } })
     expect(existsSync(join(dataDir, 'projects.json'))).toBe(true)
   })
 
   it("keeps the id of a Project saved with git's spelling of the path, shows the resolved path and adds no second entry", async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const { createHash } = await import('node:crypto')
     // projects.json written before the stored path was resolved: on Windows it holds git's C:/… spelling.
     // The trailing `/.` is removed by resolve() on every system, so the check holds on macOS and Linux too.
     const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
-    const id = `auction-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`
+    const id = `auberge-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`
     mkdirSync(dataDir, { recursive: true })
-    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name: 'auction', path: `${gitRoot}/.` }], activeId: id }))
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name: 'auberge', path: `${gitRoot}/.` }], activeId: id }))
     await start()
 
-    expect((await value<State>('projects.list')).projects).toStrictEqual([{ id, name: 'auction', path: repo, branch: 'main' }])
+    expect((await value<State>('projects.list')).projects).toStrictEqual([{ id, name: 'auberge', path: repo, branch: 'main' }])
     const result = await addOk(repo)
-    expect(result.project).toStrictEqual({ id, name: 'auction', path: repo, branch: 'main' })
-    expect(result.notice).toBe('auction is already in the list.')
+    expect(result.project).toStrictEqual({ id, name: 'auberge', path: repo, branch: 'main' })
+    expect(result.notice).toBe('auberge is already in the list.')
     expect(result.state.projects.map((project) => project.id)).toStrictEqual([id])
   })
 
   it('resolves a subfolder to the repository root and says so', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     mkdirSync(join(repo, 'src', 'deep'), { recursive: true })
     const result = await addOk(join(repo, 'src', 'deep'))
     expect(result.project.path).toBe(repo)
@@ -236,12 +236,12 @@ describe('projects.add', () => {
 
   // The folder in the notice reads in the spelling of the root, not as it was typed.
   it.each(['typed with forward slashes', 'reached through a link'] as const)('a subfolder %s is named in the notice in the spelling of the root', async (how) => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const deep = join(repo, 'src', 'deep')
     mkdirSync(deep, { recursive: true })
     let typed = deep.replaceAll('\\', '/')
     if (how === 'reached through a link') {
-      const link = join(scratch, 'auction-src')
+      const link = join(scratch, 'auberge-src')
       symlinkSync(join(repo, 'src'), link, process.platform === 'win32' ? 'junction' : 'dir')
       typed = join(link, 'deep')
     }
@@ -250,8 +250,8 @@ describe('projects.add', () => {
   })
 
   it('resolves a linked worktree to the main repository root and says so', async () => {
-    const repo = makeRepo('auction')
-    const worktree = join(scratch, 'auction-wt')
+    const repo = makeRepo('auberge')
+    const worktree = join(scratch, 'auberge-wt')
     git(repo, 'worktree', 'add', '-q', '-b', 'feature', worktree)
     const result = await addOk(worktree)
     expect(result.project.path).toBe(repo)
@@ -271,16 +271,16 @@ describe('projects.add', () => {
   })
 
   it('adds a folder outside git that the Harness knows as a Project over several repositories (profile: code 0, a workspace)', async () => {
-    const workspace = join(scratch, 'atakama')
+    const workspace = join(scratch, 'atalaya')
     mkdirSync(join(workspace, 'docs'), { recursive: true })
-    const api = makeRepo('atakama/api')
-    const web = makeRepo('atakama/web')
+    const api = makeRepo('atalaya/api')
+    const web = makeRepo('atalaya/web')
     const calls = stubProfile({ code: 0, workspace })
     const status = { api: repoStatus(api), web: repoStatus(web) }
     const before = readdirSync(workspace).sort()
 
     const result = await addOk(workspace)
-    expect(result.project).toStrictEqual({ id: expect.stringMatching(/^atakama-[0-9a-f]{8}$/), name: 'atakama', path: workspace, branch: null })
+    expect(result.project).toStrictEqual({ id: expect.stringMatching(/^atalaya-[0-9a-f]{8}$/), name: 'atalaya', path: workspace, branch: null })
     expect(result.notice).toBeNull()
     expect(result.state.activeId).toBe(result.project.id)
     expect(readFileSync(calls, 'utf8').trim()).toBe(`-C ${workspace} --json`)
@@ -311,27 +311,27 @@ describe('projects.add', () => {
 
   it('asks the Harness only about a folder outside git: a repository is added by git alone', async () => {
     const calls = stubProfile({ code: 0, workspace: scratch })
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     expect((await addOk(repo)).project.path).toBe(repo)
     expect(readFileSync(calls, 'utf8')).toBe('')
   })
 
   it('does not list a repository twice', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     await addOk(repo)
     const again = await addOk(repo)
-    expect(again.notice).toBe('auction is already in the list.')
+    expect(again.notice).toBe('auberge is already in the list.')
     expect(again.state.projects).toHaveLength(1)
   })
 
   it('takes another spelling of the repository root for the root itself: no notice, and one entry', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     // Windows: other letter case and `/` (as a short 8.3 name or a `subst` drive, it is the same folder
     // to git and to the native realpath, not to fs.realpathSync). A case-insensitive disk elsewhere
     // (APFS by default): other letter case. A case-sensitive disk: a symbolic link to the root, which
     // fs.realpathSync resolves too, so there the test does not tell the two realpaths apart.
     let other: string
-    const upper = join(scratch, 'AUCTION')
+    const upper = join(scratch, 'AUBERGE')
     if (process.platform === 'win32') {
       other = repo.toLowerCase().replaceAll('\\', '/')
       expect(realpathSync(other)).not.toBe(repo)
@@ -339,19 +339,19 @@ describe('projects.add', () => {
       other = upper
       expect(realpathSync(other)).not.toBe(repo)
     } else {
-      other = join(scratch, 'auction-link')
+      other = join(scratch, 'auberge-link')
       symlinkSync(repo, other)
     }
     const first = await addOk(other)
     expect(first.notice).toBeNull()
     expect(first.project.path).toBe(repo)
     const again = await addOk(repo)
-    expect(again.notice).toBe('auction is already in the list.')
+    expect(again.notice).toBe('auberge is already in the list.')
     expect(again.state.projects.map((project) => project.id)).toStrictEqual([first.project.id])
   })
 
   it('keeps the settings of a repository that is added again', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const { project } = await addOk(repo)
     const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '', gateQueue: '' } }
     await value('projects.settings.set', { id: project.id, settings: changed })
@@ -377,7 +377,7 @@ describe('projects.add', () => {
 
 describe('projects.select and projects.remove', () => {
   it('switches the active Project and tells every window', async () => {
-    const first = (await addOk(makeRepo('auction'))).project
+    const first = (await addOk(makeRepo('auberge'))).project
     const second = (await addOk(makeRepo('worfy', 'dev'))).project
     const state = await value<State>('projects.select', { id: first.id })
     expect(state.activeId).toBe(first.id)
@@ -389,14 +389,14 @@ describe('projects.select and projects.remove', () => {
     await vi.waitFor(() => expect(forSelect()).toHaveLength(1))
     expect(forSelect()[0]).toStrictEqual({ channel: 'worfy:projects.changed', payload: state })
     expect(state.projects.map((project) => [project.name, project.branch])).toEqual([
-      ['auction', 'main'],
+      ['auberge', 'main'],
       ['worfy', 'dev'],
     ])
     expect(second.branch).toBe('dev')
   })
 
   it('removes a Project from the list and keeps its data folder', async () => {
-    const first = (await addOk(makeRepo('auction'))).project
+    const first = (await addOk(makeRepo('auberge'))).project
     const second = (await addOk(makeRepo('worfy'))).project
     const state = await value<State>('projects.remove', { id: second.id })
     expect(state.projects.map((project) => project.id)).toEqual([first.id])
@@ -407,7 +407,7 @@ describe('projects.select and projects.remove', () => {
   })
 
   it('answers an unknown id with an error and changes nothing', async () => {
-    await addOk(makeRepo('auction'))
+    await addOk(makeRepo('auberge'))
     const before = await value<State>('projects.list')
     for (const channel of ['projects.select', 'projects.remove', 'projects.settings.get']) {
       const result = await call(channel, { id: 'nope-00000000' })
@@ -426,7 +426,7 @@ describe('projects.select and projects.remove', () => {
 
 describe('persistence', () => {
   it('keeps the list and the active Project across a restart', async () => {
-    const first = (await addOk(makeRepo('auction'))).project
+    const first = (await addOk(makeRepo('auberge'))).project
     await addOk(makeRepo('worfy'))
     await value('projects.select', { id: first.id })
     const before = await value<State>('projects.list')
@@ -446,7 +446,7 @@ describe('persistence', () => {
   })
 
   it('answers with the parsed list: keys written into projects.json by hand do not cross the boundary', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const { project } = await addOk(repo)
     const file = join(dataDir, 'projects.json')
     const saved = JSON.parse(readFileSync(file, 'utf8')) as { projects: Record<string, unknown>[] }
@@ -455,14 +455,14 @@ describe('persistence', () => {
 
     await start()
     const state = await value<State>('projects.list')
-    expect(state.projects).toStrictEqual([{ id: project.id, name: 'auction', path: repo, branch: 'main' }])
+    expect(state.projects).toStrictEqual([{ id: project.id, name: 'auberge', path: repo, branch: 'main' }])
     expect(JSON.stringify(state)).not.toContain('secret-from-disk')
   })
 })
 
 describe('projects.settings', () => {
   it('gives a new Project the default templates and keeps a change across a restart', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
       actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' },
     })
@@ -474,7 +474,7 @@ describe('projects.settings', () => {
   })
 
   it('reads a saved old default of Run wave as the new default without writing the file; an own template stays (ticket 30)', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     // What the stable copy has saved: the defaults of before ticket 30.
     const old = `${JSON.stringify({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } }, null, 2)}\n`
@@ -492,7 +492,7 @@ describe('projects.settings', () => {
   })
 
   it('a save without gateQueue (a Linked machine on an older build) keeps the saved template (worfy-windows ticket 17)', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     const own = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '/my-gate-queue' } }
     expect(await value('projects.settings.set', { id: project.id, settings: own })).toStrictEqual(own)
@@ -506,7 +506,7 @@ describe('projects.settings', () => {
   })
 
   it('does not save a template with an unknown placeholder', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     const before = readFileSync(file, 'utf8')
     const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/ship-ticket {foo}', runWave: '', gateQueue: '' } } })
@@ -517,13 +517,13 @@ describe('projects.settings', () => {
 
   it('gives a new Project the plugin\'s templates when the Harness plugin is on the machine (worfy-harness ticket 12)', async () => {
     switchToPlugin()
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
     expect(JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8'))).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
   })
 
   it('reads saved defaults as those of the Harness found now, without writing the file; the owner\'s own template stays', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     const saved = `${JSON.stringify({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave волна {wave} эпика {epic}' } }, null, 2)}\n`
     writeFileSync(file, saved)
@@ -553,7 +553,7 @@ describe('projects.settings', () => {
     switchToPlugin(true)
     const listing = (dir: string) => readdirSync(dir, { recursive: true }).map(String).sort()
     const before = listing(claudeHome)
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     await value('projects.settings.get', { id: project.id })
     await value('projects.settings.defaults')
     await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '' } } })
@@ -561,7 +561,7 @@ describe('projects.settings', () => {
   })
 
   it('adds no shell of the Terminals to settings without one, keeps one that is set, and refuses an unknown one (worfy-windows ticket 10)', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
     // A settings file from before the field: read as it is.
     expect(await value('projects.settings.get', { id: project.id })).not.toHaveProperty('terminalShell')
@@ -579,7 +579,7 @@ describe('projects.settings', () => {
   })
 
   it('stores only the declared keys, whatever else the caller sends', async () => {
-    const { project } = await addOk(makeRepo('auction'))
+    const { project } = await addOk(makeRepo('auberge'))
     const result = await value('projects.settings.set', {
       id: project.id,
       junk: 1,
@@ -594,7 +594,7 @@ describe('projects.settings', () => {
 
 describe('the repository of a Project', () => {
   it('stays untouched: adding, switching, removing and editing settings write nothing into it', async () => {
-    const repo = makeRepo('auction')
+    const repo = makeRepo('auberge')
     const other = makeRepo('worfy')
     const listing = (dir: string) => readdirSync(dir, { recursive: true }).map(String).sort()
     const before = listing(repo)
@@ -615,8 +615,8 @@ describe('the repository of a Project', () => {
 
 describe('projects.pickFolder', () => {
   it('returns the folder the user chose, or null when the dialog was cancelled', async () => {
-    electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/Users/me/code/auction'] })
-    expect(await value('projects.pickFolder')).toStrictEqual({ path: '/Users/me/code/auction' })
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/Users/someone/code/auberge'] })
+    expect(await value('projects.pickFolder')).toStrictEqual({ path: '/Users/someone/code/auberge' })
     electron.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
     expect(await value('projects.pickFolder')).toStrictEqual({ path: null })
   })
@@ -694,7 +694,7 @@ describe('projects.browse', () => {
     expect(parentOf('/', posix)).toBeNull()
     expect(parentOf('/Users', posix)).toBe('/')
     expect(parentOf('C:\\', win32)).toBeNull()
-    expect(parentOf('C:\\Users\\me', win32)).toBe('C:\\Users')
+    expect(parentOf('C:\\Users\\someone', win32)).toBe('C:\\Users')
   })
 
   it('more than 2000 folders: the first 2000 by name and truncated', async () => {
@@ -768,7 +768,7 @@ describe('from a Linked machine (the link adapter)', () => {
   })
 
   it('projects.add from a Linked machine keeps activeId in projects.json; from this Machine\'s window it becomes active as before', async () => {
-    const mine = (await addOk(makeRepo('auction'))).project
+    const mine = (await addOk(makeRepo('auberge'))).project
     const linked = await linkedCaller(true)
     const remote = makeRepo('shop')
     const result = await linked('projects.add', { path: remote })
@@ -795,7 +795,7 @@ describe('from a Linked machine (the link adapter)', () => {
     })
     await start()
     stubProfile({ code: 0, workspace: null })
-    const mine = (await addOk(makeRepo('auction'))).project
+    const mine = (await addOk(makeRepo('auberge'))).project
     const remote = makeRepo('shop')
     const linked = await linkedCaller(true)
     const result = await linked('projects.connect.inspect', { path: remote })

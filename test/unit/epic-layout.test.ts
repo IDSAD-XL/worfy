@@ -221,7 +221,7 @@ describe('layoutEpic by ELK', () => {
 
   // worfy-week ticket 11 (ADR-0039): the done column is one block for ELK, so opening the stack
   // does not pull the open Tickets down to their done blockers. The fixture follows the
-  // notifications-telegram Epic of Auction: more done Tickets than open ones, and the Tickets of
+  // notifications-telegram Epic of Auberge: more done Tickets than open ones, and the Tickets of
   // Level 1–3 blocked by done Tickets low in the done column.
   describe('the open done stack', () => {
     const doneChain = Array.from({ length: 10 }, (_, i) => ticket(i + 1, { ...done, ...(i ? blocked(i) : {}) }))

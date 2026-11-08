@@ -336,8 +336,8 @@ describe('the attachment lines read back (worfy-ui ticket 28)', () => {
   })
 
   it('names a file by the last segment of its path, on either platform, with its extension', () => {
-    expect(baseName('/Users/a/report.final.PDF')).toBe('report.final.PDF')
-    expect(baseName('C:\\Users\\a\\notes.md')).toBe('notes.md')
+    expect(baseName('/Users/someone/report.final.PDF')).toBe('report.final.PDF')
+    expect(baseName('C:\\Users\\someone\\notes.md')).toBe('notes.md')
     expect(fileExtension('report.final.PDF')).toBe('pdf')
     expect(fileExtension('Makefile')).toBe('')
     expect(fileExtension('.env')).toBe('')

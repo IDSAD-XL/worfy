@@ -13,17 +13,17 @@ const mcp = JSON.parse(readFileSync(join(HARNESS, '.mcp.json'), 'utf8')) as unkn
 
 describe('codexPluginManifest', () => {
   it("is Claude Code's manifest with the servers of harness/.mcp.json, the plugin root filled in", () => {
-    expect(codexPluginManifest(claudeManifest, mcp, '/Users/me/.claude/worfy-harness/plugin', 'darwin')).toEqual({
+    expect(codexPluginManifest(claudeManifest, mcp, '/Users/someone/.claude/worfy-harness/plugin', 'darwin')).toEqual({
       ...claudeManifest,
-      mcpServers: { qmd: { command: 'node', args: ['/Users/me/.claude/worfy-harness/plugin/bin/qmd-mcp'] } },
+      mcpServers: { qmd: { command: 'node', args: ['/Users/someone/.claude/worfy-harness/plugin/bin/qmd-mcp'] } },
     })
   })
 
   it('on Windows the path has backslashes after a drive letter, and a folder with spaces stays one argument', () => {
-    const dir = 'C:\\Users\\me\\.claude\\worfy-harness\\plugin'
-    expect(codexPluginManifest(claudeManifest, mcp, dir, 'win32').mcpServers).toEqual({ qmd: { command: 'node', args: ['C:\\Users\\me\\.claude\\worfy-harness\\plugin\\bin\\qmd-mcp'] } })
-    const spaced = 'C:\\Users\\Jane Doe\\.claude\\worfy-harness\\plugin'
-    expect(codexPluginManifest(claudeManifest, mcp, spaced, 'win32').mcpServers).toEqual({ qmd: { command: 'node', args: ['C:\\Users\\Jane Doe\\.claude\\worfy-harness\\plugin\\bin\\qmd-mcp'] } })
+    const dir = 'C:\\Users\\someone\\.claude\\worfy-harness\\plugin'
+    expect(codexPluginManifest(claudeManifest, mcp, dir, 'win32').mcpServers).toEqual({ qmd: { command: 'node', args: ['C:\\Users\\someone\\.claude\\worfy-harness\\plugin\\bin\\qmd-mcp'] } })
+    const spaced = 'C:\\Users\\someone\\My Files\\.claude\\worfy-harness\\plugin'
+    expect(codexPluginManifest(claudeManifest, mcp, spaced, 'win32').mcpServers).toEqual({ qmd: { command: 'node', args: ['C:\\Users\\someone\\My Files\\.claude\\worfy-harness\\plugin\\bin\\qmd-mcp'] } })
   })
 
   it('fills the variable in args, env and cwd, inside a string too, and leaves other strings and values alone', () => {

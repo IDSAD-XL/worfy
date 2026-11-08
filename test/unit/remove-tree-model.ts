@@ -207,10 +207,10 @@ export const WITH_A_LINK: Record<string, Entry> = {
   '/data/card/index.html': { kind: 'file' },
   '/data/card/assets': { kind: 'folder' },
   '/data/card/assets/app.js': { kind: 'file' },
-  '/data/card/linked': { kind: 'link', to: '/home/notes' },
-  '/home': { kind: 'folder' },
-  '/home/notes': { kind: 'folder' },
-  '/home/notes/keep.txt': { kind: 'file' },
+  '/data/card/linked': { kind: 'link', to: '/srv/notes' },
+  '/srv': { kind: 'folder' },
+  '/srv/notes': { kind: 'folder' },
+  '/srv/notes/keep.txt': { kind: 'file' },
 }
 
 /** A Card folder that holds a mount to another volume (worfy-windows ticket 35), and the files of that volume. */
@@ -242,10 +242,10 @@ export const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
   '/data': { kind: 'folder' },
   '/data/card': { kind: 'folder' },
   '/data/card/index.html': { kind: 'file' },
-  '/data/card/linked': { kind: 'mount', to: '/home/notes' },
-  '/home': { kind: 'folder' },
-  '/home/notes': { kind: 'folder' },
-  '/home/notes/keep.txt': { kind: 'file' },
+  '/data/card/linked': { kind: 'mount', to: '/srv/notes' },
+  '/srv': { kind: 'folder' },
+  '/srv/notes': { kind: 'folder' },
+  '/srv/notes/keep.txt': { kind: 'file' },
 }
 /**
  * A folder reached through an ordinary link to another volume: the link is the parent of what is
@@ -260,10 +260,10 @@ export const BEHIND_A_LINK_TO_ANOTHER_VOLUME: Record<string, Entry> = {
   '/vol/r/sub': { kind: 'folder' },
   '/vol/r/sub/f.txt': { kind: 'file' },
   '/vol/r/empty': { kind: 'folder' },
-  '/vol/r/m': { kind: 'mount', to: '/home/notes' },
-  '/home': { kind: 'folder' },
-  '/home/notes': { kind: 'folder' },
-  '/home/notes/keep.txt': { kind: 'file' },
+  '/vol/r/m': { kind: 'mount', to: '/srv/notes' },
+  '/srv': { kind: 'folder' },
+  '/srv/notes': { kind: 'folder' },
+  '/srv/notes/keep.txt': { kind: 'file' },
 }
 /** An entry of the trash whose Card folder is a mount, and one whose Card folder holds a mount. */
 export const TRASH_CARD_IS_A_MOUNT: Record<string, Entry> = {

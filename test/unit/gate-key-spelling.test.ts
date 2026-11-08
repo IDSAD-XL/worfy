@@ -11,9 +11,9 @@ const answers = vi.hoisted(() => {
     // an 8.3 short name
     'C:\\Users\\RUNNER~1\\worfy': { native: 'C:\\Users\\runneradmin\\worfy', plain: 'C:\\Users\\RUNNER~1\\worfy' },
     // a `subst` drive, written with `/`
-    'W:/worfy': { native: 'C:\\Users\\x\\tmp-alias\\worfy', plain: 'W:\\worfy' },
+    'W:/worfy': { native: 'C:\\Users\\someone\\tmp-alias\\worfy', plain: 'W:\\worfy' },
     // a junction: both realpaths follow it
-    'C:\\link\\worfy': { native: 'C:\\Users\\x\\worfy', plain: 'C:\\Users\\x\\worfy' },
+    'C:\\link\\worfy': { native: 'C:\\Users\\someone\\worfy', plain: 'C:\\Users\\someone\\worfy' },
   }
   return folders
 })
@@ -39,12 +39,12 @@ describe('gateKey with a `match` the gate expands', () => {
 
   it('on Windows takes the target folder of a `match` on a `subst` drive', async () => {
     const config = { repos: [{ key: 'subst', match: 'W:/worfy' }] }
-    expect(await gateKey(config, 'C:\\Users\\x\\tmp-alias\\worfy', 'win32')).toBe('subst')
+    expect(await gateKey(config, 'C:\\Users\\someone\\tmp-alias\\worfy', 'win32')).toBe('subst')
   })
 
   it('keeps a `match` that goes through a link as written, as the gate does', async () => {
     const config = { repos: [{ key: 'linked', match: 'C:\\link\\worfy' }] }
-    expect(await gateKey(config, 'C:\\Users\\x\\worfy', 'win32')).toBeNull()
+    expect(await gateKey(config, 'C:\\Users\\someone\\worfy', 'win32')).toBeNull()
   })
 
   it('off Windows keeps a `match` that differs by more than letter case as written', async () => {

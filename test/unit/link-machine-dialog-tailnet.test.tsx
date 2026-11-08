@@ -25,9 +25,9 @@ const linkState = (change: Partial<LinkState> = {}): LinkState => ({
 })
 
 const PEERS: TailscalePeerView[] = [
-  { name: 'pc', address: '100.101.102.104', online: true },
+  { name: 'pc', address: '100.64.0.4', online: true },
   { name: 'lab', address: 'fd7a:115c:a1e0::6501:6670', online: true },
-  { name: 'nas', address: '100.101.102.105', online: false },
+  { name: 'nas', address: '100.64.0.5', online: false },
 ]
 
 type PeersAnswer = { ok: true; value: TailscalePeerView[] } | { ok: false; error: string }
@@ -95,9 +95,9 @@ it('lists the tailnet: online ones can be picked, an offline one is greyed with 
   await main.answer({ ok: true, value: PEERS })
   const list = screen.getByRole('list', { name: 'In your tailnet' })
   expect(within(list).getAllByTestId('link-tailscale-row').map((row) => [row.textContent, row.querySelector('button')?.disabled])).toEqual([
-    ['pc100.101.102.104', false],
+    ['pc100.64.0.4', false],
     ['labfd7a:115c:a1e0::6501:6670', false],
-    ['nas100.101.102.105Offline', true],
+    ['nas100.64.0.5Offline', true],
   ])
   const offline = rows()[2]?.querySelector('button') as HTMLButtonElement
   expect(within(offline).getByTestId('link-tailscale-offline').textContent).toBe('Offline')
@@ -115,7 +115,7 @@ it('picking an online machine puts its address in the field, caret after the col
   // A click moves focus to the row in a browser; jsdom's click does not.
   pc.focus()
   fireEvent.click(pc)
-  expect(field.value).toBe('100.101.102.104:')
+  expect(field.value).toBe('100.64.0.4:')
   expect(document.activeElement).toBe(field)
   expect([field.selectionStart, field.selectionEnd]).toEqual([field.value.length, field.value.length])
   // Still the address step: the port is not known, nothing is linked yet.

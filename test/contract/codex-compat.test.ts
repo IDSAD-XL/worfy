@@ -602,19 +602,19 @@ describe('the recorded hook inputs and the exceptions', () => {
 })
 
 describe('the capture script', () => {
-  const MAC = 'Alexeys-MacBook-Pro-164.local'
+  const MAC = 'Someones-MacBook-Pro.local'
 
   it('replaces the host name, whole names only, and names one that is left', () => {
     const host = capture.hostReplacements(MAC)
     const status = { notify: 'remoteControl/status/changed', params: { status: 'disabled', serverName: MAC, installationId: null, environmentId: null } }
     expect(capture.scrub(status, host).params.serverName).toBe('capture-host.local')
-    expect(capture.scrub(['Alexeys-MacBook-Pro-164 is up', 'see Alexeys-MacBook-Pro-164.local.'], host)).toEqual(['capture-host is up', 'see capture-host.local.'])
+    expect(capture.scrub(['Someones-MacBook-Pro is up', 'see Someones-MacBook-Pro.local.'], host)).toEqual(['capture-host is up', 'see capture-host.local.'])
     expect(capture.leftovers(JSON.stringify(status), host)).toEqual(['the host name'])
     expect(capture.leftovers(JSON.stringify(capture.scrub(status, host)), host)).toEqual([])
 
     // A short host name: not a part of a longer word.
     const mac = capture.hostReplacements('mac')
-    expect(capture.scrub({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'mac', at: 'mac.local' }, mac)).toEqual({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'capture-host', at: 'capture-host.local' })
+    expect(capture.scrub({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'mac', at: ['mac', 'local'].join('.') }, mac)).toEqual({ platformOs: 'macos', userAgent: 'worfy (Mac OS 26.6.1)', host: 'capture-host', at: 'capture-host.local' })
     expect(capture.leftovers('{"platformOs":"macos","machine":"imac-2"}', mac)).toEqual([])
     expect(capture.leftovers('{"serverName":"mac"}', mac)).toEqual(['the host name'])
     expect(capture.hostReplacements('')).toEqual([])

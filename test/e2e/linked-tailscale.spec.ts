@@ -10,7 +10,7 @@ import { ms } from '../time-scale'
 
 test.setTimeout(ms(120_000))
 
-const INTERFACES = { en0: ['192.168.1.20'], utun4: ['100.101.102.103', 'fd7a:115c:a1e0::1'] }
+const INTERFACES = { en0: ['192.168.1.20'], utun4: ['100.64.0.3', 'fd7a:115c:a1e0::1'] }
 
 type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown; error?: string }> }
 
@@ -42,12 +42,12 @@ test('"Link a machine" marks the Tailscale address, lists it first with "Link th
     expect(port).toMatch(/^\d+$/)
 
     // Off (a fresh Machine): the interfaces' order, the Tailscale addresses marked all the same.
-    await expect.poll(() => shownAddresses(window)).toEqual([`192.168.1.20:${port}`, `100.101.102.103:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`])
+    await expect.poll(() => shownAddresses(window)).toEqual([`192.168.1.20:${port}`, `100.64.0.3:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`])
     await expect(window.getByTestId('link-tailscale-mark').first()).toBeVisible()
     await expect(window.getByTestId('link-address-hint')).toHaveText('The address and its port are under the code in Link a machine on the other worfy.')
 
     await setTailscale(window, true)
-    await expect.poll(() => shownAddresses(window)).toEqual([`100.101.102.103:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`, `192.168.1.20:${port}`])
+    await expect.poll(() => shownAddresses(window)).toEqual([`100.64.0.3:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`, `192.168.1.20:${port}`])
     await expect(window.getByTestId('link-address-hint')).toHaveText(
       'The address and its port are under the code in Link a machine on the other worfy. Through Tailscale, type its MagicDNS name or Tailscale address with that port, like pc:52000.',
     )
@@ -61,7 +61,7 @@ test('"Link a machine" marks the Tailscale address, lists it first with "Link th
     await window.getByRole('button', { name: 'Back' }).click()
 
     await setTailscale(window, false)
-    await expect.poll(() => shownAddresses(window)).toEqual([`192.168.1.20:${port}`, `100.101.102.103:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`])
+    await expect.poll(() => shownAddresses(window)).toEqual([`192.168.1.20:${port}`, `100.64.0.3:${port} Tailscale`, `[fd7a:115c:a1e0::1]:${port} Tailscale`])
     await snapshotThemes(window, '29-link-a-machine-tailscale-off')
   } finally {
     await launched.close()

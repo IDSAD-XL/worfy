@@ -35,29 +35,29 @@ describe('parseTicketBranch', () => {
 describe('parseWorktreeFolder', () => {
   it('reads .claude/worktrees/<NN> and .claude/worktrees/<NN>-<slug>', () => {
     expect(parseWorktreeFolder('.claude/worktrees/07')).toEqual({ num: 7, slug: null })
-    expect(parseWorktreeFolder('/Users/a/repo/.claude/worktrees/07/')).toEqual({ num: 7, slug: null })
+    expect(parseWorktreeFolder('/Users/someone/repo/.claude/worktrees/07/')).toEqual({ num: 7, slug: null })
     expect(parseWorktreeFolder('.claude/worktrees/07-движок-сессий')).toEqual({ num: 7, slug: 'движок-сессий' })
-    expect(parseWorktreeFolder('/Users/a/repo/.claude/worktrees/07-движок-сессий')).toEqual({ num: 7, slug: 'движок-сессий' })
+    expect(parseWorktreeFolder('/Users/someone/repo/.claude/worktrees/07-движок-сессий')).toEqual({ num: 7, slug: 'движок-сессий' })
   })
 
   it('reads a Windows path with `\\` (worfy-windows ticket 08)', () => {
     expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05')).toEqual({ num: 5, slug: null })
     expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05-x\\')).toEqual({ num: 5, slug: 'x' })
     expect(parseWorktreeFolder('.claude\\worktrees\\05')).toEqual({ num: 5, slug: null })
-    expect(parseWorktreeFolder('C:\\Users\\a\\.claude\\worfy-harness\\worktrees\\atakama\\05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('C:\\Users\\someone\\.claude\\worfy-harness\\worktrees\\atalaya\\05')).toEqual({ num: 5, slug: null })
     expect(parseWorktreeFolder('C:\\r\\.claude\\worktrees\\05\\src')).toBeNull()
   })
 
   it('reads <Harness home>/worktrees/<project>/<NN>, the tree of a Ticket outside the repository (worfy-harness ticket 23)', () => {
-    expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05')).toEqual({ num: 5, slug: null })
-    expect(parseWorktreeFolder('/Users/a/.claude/worfy-harness/worktrees/atakama/05/')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('/Users/someone/.claude/worfy-harness/worktrees/atalaya/05')).toEqual({ num: 5, slug: null })
+    expect(parseWorktreeFolder('/Users/someone/.claude/worfy-harness/worktrees/atalaya/05/')).toEqual({ num: 5, slug: null })
     expect(parseWorktreeFolder('/tmp/h/worktrees/my.project/12-fix-badge')).toEqual({ num: 12, slug: 'fix-badge' })
     for (const path of [
-      '/Users/a/.claude/worfy-harness/worktrees/atakama',
-      '/Users/a/.claude/worfy-harness/worktrees/atakama/05/src',
-      '/Users/a/.claude/worfy-harness/worktrees/atakama/review-05',
-      '/Users/a/.claude/worfy-harness/worktrees/.hidden/05',
-      '/Users/a/.claude/worfy-harness/worktrees/atakama/05-',
+      '/Users/someone/.claude/worfy-harness/worktrees/atalaya',
+      '/Users/someone/.claude/worfy-harness/worktrees/atalaya/05/src',
+      '/Users/someone/.claude/worfy-harness/worktrees/atalaya/review-05',
+      '/Users/someone/.claude/worfy-harness/worktrees/.hidden/05',
+      '/Users/someone/.claude/worfy-harness/worktrees/atalaya/05-',
     ]) {
       expect(parseWorktreeFolder(path), path).toBeNull()
     }
@@ -65,12 +65,12 @@ describe('parseWorktreeFolder', () => {
 
   it('refuses folders of any other form', () => {
     for (const path of [
-      '/Users/a/repo',
-      '/Users/a/repo/.claude/worktrees/review-02-tests',
-      '/Users/a/repo/.claude/worktrees/worfy-mvp-epic-53fc44',
-      '/Users/a/repo/.claude/worktrees/07/src',
-      '/Users/a/repo/worktrees/07',
-      '/Users/a/repo/.claude/worktrees/07-',
+      '/Users/someone/repo',
+      '/Users/someone/repo/.claude/worktrees/review-02-tests',
+      '/Users/someone/repo/.claude/worktrees/worfy-mvp-epic-53fc44',
+      '/Users/someone/repo/.claude/worktrees/07/src',
+      '/Users/someone/repo/worktrees/07',
+      '/Users/someone/repo/.claude/worktrees/07-',
     ]) {
       expect(parseWorktreeFolder(path), path).toBeNull()
     }

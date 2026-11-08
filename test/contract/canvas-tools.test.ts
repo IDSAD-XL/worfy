@@ -89,7 +89,7 @@ beforeEach(async () => {
   )
   mocks.sent.length = 0
   mocks.query.mockReset().mockImplementation(() => ({ kind: 'sdk query', [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ done: true, value: undefined }) }) }))
-  mocks.agentEnv.mockReset().mockResolvedValue({ env: { HOME: '/Users/tester', PATH: '/usr/bin' }, from: 'login-shell' })
+  mocks.agentEnv.mockReset().mockResolvedValue({ env: { HOME: '/Users/someone', PATH: '/usr/bin' }, from: 'login-shell' })
 
   vi.resetModules()
   process.env.WORFY_DATA_DIR = dataDir

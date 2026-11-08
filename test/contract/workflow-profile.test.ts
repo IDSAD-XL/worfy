@@ -594,8 +594,8 @@ describe('readProfileFolder', () => {
   })
 
   it('takes a Windows path with a drive letter and spaces as it is printed', async () => {
-    const run = stubRun({ code: 0, stdout: 'C:\\Users\\A B\\Harness home\\projects\\demo\r\n', stderr: '' })
-    expect(await readProfileFolder({ root: 'C:\\repo', claudeHome: '/h', env: {}, run, log })).toEqual({ dir: 'C:\\Users\\A B\\Harness home\\projects\\demo', reason: null })
+    const run = stubRun({ code: 0, stdout: 'C:\\Users\\SOMEONE B\\Harness home\\projects\\demo\r\n', stderr: '' })
+    expect(await readProfileFolder({ root: 'C:\\repo', claudeHome: '/h', env: {}, run, log })).toEqual({ dir: 'C:\\Users\\SOMEONE B\\Harness home\\projects\\demo', reason: null })
   })
 
   it.each<[string, ProfileRun | Error, RegExp]>([
@@ -743,16 +743,16 @@ describe("a Session and the Project's private skills", () => {
 // ── where the workflow lives (worfy-harness ticket 23) ──────────────────────
 
 const SILENT_JSON = {
-  name: 'atakama',
+  name: 'atalaya',
   mode: 'silent',
   _resolved: {
-    name: 'atakama',
+    name: 'atalaya',
     mode: 'silent',
-    workflow_folder: '/work/atakama',
-    workspace: '/work/atakama',
+    workflow_folder: '/work/atalaya',
+    workspace: '/work/atalaya',
     repos: [
-      { name: 'api', path: '/work/atakama/api', gate_key: 'api' },
-      { name: 'web', path: '/work/atakama/web', gate_key: null },
+      { name: 'api', path: '/work/atalaya/api', gate_key: 'api' },
+      { name: 'web', path: '/work/atalaya/web', gate_key: null },
     ],
   },
 }
@@ -760,24 +760,24 @@ const SILENT_JSON = {
 describe('readResolvedProfile and readProjectLayout with a stand-in runner', () => {
   it('exit code 0 in Silent mode: the Workflow folder, the repositories and the Tickets root of `ticket root`, run in the Project root', async () => {
     const run = stubRun({ code: 0, stdout: `${JSON.stringify(SILENT_JSON)}\n`, stderr: '' })
-    const runTicket = stubRun({ code: 0, stdout: '/work/atakama/.scratch\n', stderr: '' })
-    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run, runTicket, log })
+    const runTicket = stubRun({ code: 0, stdout: '/work/atalaya/.scratch\n', stderr: '' })
+    const layout = await readProjectLayout({ root: '/work/atalaya', claudeHome: '/h', env: {}, run, runTicket, log })
     expect(layout).toEqual({
       // The root is resolved; the paths the Harness printed are kept as printed.
-      root: resolve('/work/atakama'),
+      root: resolve('/work/atalaya'),
       mode: 'silent',
-      workflowFolder: '/work/atakama',
-      ticketsRoot: '/work/atakama/.scratch',
+      workflowFolder: '/work/atalaya',
+      ticketsRoot: '/work/atalaya/.scratch',
       repos: [
-        { name: 'api', path: '/work/atakama/api' },
-        { name: 'web', path: '/work/atakama/web' },
+        { name: 'api', path: '/work/atalaya/api' },
+        { name: 'web', path: '/work/atalaya/web' },
       ],
-      workspace: '/work/atakama',
+      workspace: '/work/atalaya',
       reason: null,
       failed: false,
     })
-    expect(run.calls).toEqual([[resolve('/work/atakama'), ['-C', resolve('/work/atakama'), '--json']]])
-    expect(runTicket.calls).toEqual([[resolve('/work/atakama'), ['root']]])
+    expect(run.calls).toEqual([[resolve('/work/atalaya'), ['-C', resolve('/work/atalaya'), '--json']]])
+    expect(runTicket.calls).toEqual([[resolve('/work/atalaya'), ['root']]])
     expect(logged).toEqual([])
   })
 
@@ -809,10 +809,10 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
   // Mac review of PR #489 (worfy-windows ticket 59): the roots above are resolved already, so a
   // readProjectLayout that kept the root as given passed them all.
   it('a root that is not in its resolved form (`..`, a trailing separator): the scripts, the layout and the log line get the resolved root', async () => {
-    const given = join('/work', 'atakama', 'sub', '..') + '/'
+    const given = join('/work', 'atalaya', 'sub', '..') + '/'
     const root = resolve(given)
     expect(given).not.toBe(root)
-    const json = { mode: 'full', _resolved: { mode: 'full', workflow_folder: '/private/work/atakama', workspace: null, repos: [{ name: 'atakama', path: '/private/work/atakama' }] } }
+    const json = { mode: 'full', _resolved: { mode: 'full', workflow_folder: '/private/work/atalaya', workspace: null, repos: [{ name: 'atalaya', path: '/private/work/atalaya' }] } }
     const run = stubRun({ code: 0, stdout: JSON.stringify(json), stderr: '' })
     const runTicket = stubRun({ code: 1, stdout: '', stderr: 'usage' })
     const layout = await readProjectLayout({ root: given, claudeHome: '/h', env: {}, run, runTicket, log })
@@ -831,9 +831,9 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     ['a timeout', { code: null, stdout: '', stderr: '' }, /ticket root failed with a timeout/],
     ['a signal', { code: null, signal: 'SIGSEGV', stdout: '', stderr: '' }, /ticket root failed with the signal SIGSEGV/],
   ])('`ticket root` failing (%s): the Tickets root is .scratch of the Workflow folder, and the reason is logged', async (_case, answer, reason) => {
-    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun(answer), log })
+    const layout = await readProjectLayout({ root: '/work/atalaya', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun(answer), log })
     // `.scratch` joined to the Workflow folder as the Harness printed it, by the rules of the system.
-    expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: join('/work/atakama', '.scratch'), reason: null })
+    expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: join('/work/atalaya', '.scratch'), reason: null })
     expect(logged.join('\n')).toMatch(reason)
   })
 

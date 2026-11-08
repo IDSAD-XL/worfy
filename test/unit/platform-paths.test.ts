@@ -44,7 +44,7 @@ describe('sameProjectRoot', () => {
     ['c:/a', 'C:/a'],
     ['C:/a/', 'C:/a'],
     ['C:\\a\\', 'C:/a'],
-    ['C:/Users/Alexey/worfy', 'c:\\Users\\Alexey\\worfy\\'],
+    ['C:/Users/Someone/worfy', 'c:\\Users\\Someone\\worfy\\'],
     ['C:/', 'C:\\'],
     ['\\\\server\\share\\a', '//server/share/a'],
     ['/a/b', '/a/b'],

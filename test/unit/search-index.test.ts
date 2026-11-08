@@ -278,7 +278,7 @@ describe('what the search reads', () => {
   })
 })
 
-describe('work per character on a Project the size of Auction', () => {
+describe('work per character on a Project the size of Auberge', () => {
   // The search is fast because of what it does per character, so that is what the test counts: a
   // wall-clock limit here failed under the load of a full run (112 ms against 100) while the code did
   // the same work. Each character reads each document's lower-cased text at most once and lower-cases

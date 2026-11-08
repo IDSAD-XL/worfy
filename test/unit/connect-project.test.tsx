@@ -57,7 +57,7 @@ describe('the mode cards', () => {
 
 // worfy-windows ticket 61: a folder inside %TEMP% of Windows gets a warning on the Folder step, not an error.
 describe('the Folder step', () => {
-  const inTemp: ConnectFolder = { ...folder, root: 'C:/Users/a/AppData/Local/Temp/shop', insideTemp: true }
+  const inTemp: ConnectFolder = { ...folder, root: 'C:/Users/someone/AppData/Local/Temp/shop', insideTemp: true }
 
   it('a folder inside %TEMP% shows the warning with its reason and advice, and the draft can still be written', async () => {
     ipc.invoke.mockImplementation(() => new Promise(() => undefined))

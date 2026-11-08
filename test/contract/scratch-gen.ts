@@ -1,7 +1,7 @@
 // Lives next to the contract tests, not in test/fixtures/: tsconfig.test.node.json (composite)
 // only lists test/unit and test/contract.
 // Generates a Project's `.scratch` of a given size, together with the answer `epic-status --json`
-// would give for it. Used to measure worfy's own share of a read on an Auction-sized Project
+// would give for it. Used to measure worfy's own share of a read on an Auberge-sized Project
 // (42 Epics, 682 Tickets) without running the real script.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

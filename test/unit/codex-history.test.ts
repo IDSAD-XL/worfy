@@ -46,7 +46,7 @@ function thread(fields: Partial<Thread> & Pick<Thread, 'id' | 'cwd'>): Thread {
 const skill = (name: string, fields: Partial<SkillMetadata> = {}): SkillMetadata => ({
   name,
   description: `The ${name} skill.`,
-  path: `/home/me/.codex/skills/${name}/SKILL.md`,
+  path: `/home/someone/.codex/skills/${name}/SKILL.md`,
   scope: 'user',
   enabled: true,
   pluginId: null,
@@ -67,13 +67,13 @@ describe('the past Sessions of a Project, from thread/list', () => {
 
   it('on Windows takes either separator and ignores case, as the file system does', () => {
     const threads = [
-      thread({ id: 'same', cwd: 'C:\\Users\\Me\\Proj' }),
-      thread({ id: 'case', cwd: 'c:\\users\\me\\proj\\src' }),
-      thread({ id: 'slashes', cwd: 'C:/Users/Me/Proj/test' }),
-      thread({ id: 'other', cwd: 'C:\\Users\\Me\\Proj2' }),
-      thread({ id: 'drive', cwd: 'D:\\Users\\Me\\Proj' }),
+      thread({ id: 'same', cwd: 'C:\\Users\\Someone\\Proj' }),
+      thread({ id: 'case', cwd: 'c:\\users\\someone\\proj\\src' }),
+      thread({ id: 'slashes', cwd: 'C:/Users/Someone/Proj/test' }),
+      thread({ id: 'other', cwd: 'C:\\Users\\Someone\\Proj2' }),
+      thread({ id: 'drive', cwd: 'D:\\Users\\Someone\\Proj' }),
     ]
-    expect(codexHistorySessions(threads, 'C:\\Users\\Me\\Proj', 'win32').map((each) => each.id)).toEqual(['same', 'case', 'slashes'])
+    expect(codexHistorySessions(threads, 'C:\\Users\\Someone\\Proj', 'win32').map((each) => each.id)).toEqual(['same', 'case', 'slashes'])
     // On macOS and Linux case counts.
     expect(codexHistorySessions([thread({ id: 'case', cwd: '/P/Proj' })], '/p/proj', 'darwin')).toEqual([])
   })
@@ -191,7 +191,7 @@ describe('the slash menu of a Codex Session', () => {
     expect(codexCommandOf(message('/compact now please'), skills)).toBeNull()
     expect(codexCommandOf(message('/review'), skills)).toEqual({ kind: 'review', target: { type: 'uncommittedChanges' } })
     expect(codexCommandOf(message('/review  the tests only '), skills)).toEqual({ kind: 'review', target: { type: 'custom', instructions: 'the tests only' } })
-    expect(codexCommandOf(message('/triage the new ones'), skills)).toEqual({ kind: 'skill', name: 'triage', path: '/home/me/.codex/skills/triage/SKILL.md', text: '$triage the new ones' })
+    expect(codexCommandOf(message('/triage the new ones'), skills)).toEqual({ kind: 'skill', name: 'triage', path: '/home/someone/.codex/skills/triage/SKILL.md', text: '$triage the new ones' })
     expect(codexCommandOf(message('/triage'), skills)).toMatchObject({ kind: 'skill', text: '$triage' })
     expect(codexCommandOf(message('/off'), skills)).toBeNull()
     expect(codexCommandOf(message('/model gpt-5'), skills)).toBeNull()

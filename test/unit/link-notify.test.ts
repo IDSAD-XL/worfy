@@ -389,7 +389,7 @@ describe('the note as it travels', () => {
 })
 
 describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 10)', () => {
-  const A_ROOT = '/Users/a/worfy'
+  const A_ROOT = '/Users/someone/worfy'
   const B_ROOT = 'C:/src/worfy'
   const REPO_KEY = projectMatchKey({ id: 'any', origin: 'git.example.com/o/worfy', repoPath: '' })
   const AT = '2026-10-20T09:00Z'
@@ -609,7 +609,7 @@ describe('the note of a Ticket that waits, over the link (worfy-pipeline ticket 
 })
 
 describe('the note of a Ticket over the link: whom it reaches, and the app\'s link (worfy-pipeline ticket 10, round 2)', () => {
-  const A_ROOT = '/Users/a/worfy'
+  const A_ROOT = '/Users/someone/worfy'
   const REPO_KEY = projectMatchKey({ id: 'any', origin: 'git.example.com/o/worfy', repoPath: '' })
   const waiting = (waits: string, num: number, reason = 'acceptance', statusAt = '2026-10-20T09:00Z'): Ticket => ({
     epic: 'worfy-link',
