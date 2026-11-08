@@ -59,6 +59,9 @@ import type { CanvasNodeProps } from './index'
 //   above the Node's input field, and a refusal shows in the Node's problem line. A drop on a Node
 //   whose Session is not running resumes it first: an attachment belongs to a running Session.
 //   A read-only Node takes no files.
+//   A Product Session (`data.kind: 'product'`, worfy-product-session ticket 06) is such a Node too,
+//   told apart by the label «Product Session» under its header and by its name, which says Product
+//   Session where a plain one says Session.
 // - Read-only, of Codex (worfy-multi-vendor ticket 27): a Codex thread of the Project started outside
 //   worfy (`data.vendor: 'codex'`, claude-home/session-nodes.ts). It shows the Codex badge, its
 //   transcript comes from Codex (`history.read`), and Resume continues the thread on a live Node in
@@ -92,6 +95,18 @@ const styles = {
   body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', padding: 'var(--space-2) var(--space-3)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   source: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // The label of a Product Session: an outlined tag, as the Vendor badge beside it is a filled one.
+  kindLabel: {
+    flex: 'none',
+    padding: '0 6px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-button)',
+    fontSize: 'var(--text-11)',
+    lineHeight: '16px',
+    fontWeight: 600,
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
+  },
   readOnly: {
     flex: 'none',
     padding: '0 6px',
@@ -150,6 +165,15 @@ const styles = {
 
 /** The Node's accessible name names its kind (kind-icons.tsx), unless its title already does ("New session", "Session 1a2b3c4d"). */
 const sessionLabel = (title: string): string => (/^(new )?session\b/i.test(title) ? title : `Session ${title}`)
+
+/** The same for a Product Session's Node: «Product Session» where a plain one says «Session». */
+const productSessionLabel = (title: string): string => {
+  if (/^(new )?product session\b/i.test(title)) return title
+  return /^session\b/i.test(title) ? `Product ${title}` : `Product Session ${title}`
+}
+
+/** What a Product Session's Node is called before its Session has an id, where a plain one says «New session». */
+const NEW_PRODUCT_SESSION = 'New Product Session'
 
 /** A drag that carries files, not text or a Node. */
 const hasFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files')
@@ -267,7 +291,9 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
 
   const saved = info.sessionId
   const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
-  const title = worfySessionTitle(saved, history)
+  // A Product Session (worfy-product-session ticket 06): the kind its data keeps, or main's view while it runs.
+  const product = (view?.kind ?? info.kind) === 'product'
+  const title = product && saved === undefined ? NEW_PRODUCT_SESSION : worfySessionTitle(saved, history)
   // Not running (no view, or a closed one) after it has run: finished.
   const finished = !running && saved !== undefined
   const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : finished ? { status: 'done', label: 'finished' } : { status: 'ready', label: 'new' }
@@ -376,10 +402,11 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
       role="group"
       id={titleId}
-      aria-label={sessionLabel(title)}
+      aria-label={product ? productSessionLabel(title) : sessionLabel(title)}
       data-testid="session-node"
       data-live="true"
       data-node-id={id}
+      data-session-kind={product ? 'product' : undefined}
       data-finished={finished || undefined}
       data-session-id={(running ? view.sdkSessionId : null) ?? saved}
       data-cwd={cwd}
@@ -452,6 +479,11 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
       <div style={styles.body}>
         <div style={styles.line}>
           {/* On the line under the header, not in it: the header's chip and buttons leave the title no room for it. */}
+          {product ? (
+            <span style={styles.kindLabel} data-testid="session-node-kind">
+              Product Session
+            </span>
+          ) : null}
           <VendorBadge vendor={view?.vendor ?? info.vendor ?? UNNAMED_VENDOR} form="short" testId="session-node-vendor" />
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={cwd}>
             worfy · {cwd}

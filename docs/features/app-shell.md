@@ -22,7 +22,7 @@ next typing or pick. While a command runs, another pick does nothing.
 
 | Group | Rows |
 |---|---|
-| Action | New session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
+| Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
 | View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
@@ -79,7 +79,7 @@ Inside a Terminal, Ctrl+K belongs to the shell and the palette does not open. Se
 #### On a Linked machine
 
 On a read-only screen, the rows that would change the Project are inactive with the hint "… gives this Machine read-only
-access". These are New session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue,
+access". These are New session, New Product Session, New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Process gate queue,
 Run wave and Ship ticket, and a Go to row of an archived or hidden Node. The views, moving the Canvas and switching Projects
 stay active. The Orchestrator row only shows the Orchestrator and does not start it.
 

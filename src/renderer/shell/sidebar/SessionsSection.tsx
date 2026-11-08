@@ -24,6 +24,8 @@ import { SidebarSection } from '../SidebarSection'
  * (session/HistoryPopover.tsx). A Session worfy runs — the Orchestrator, a Session Node's — is
  * «worfy», with the name and state its Node shows (worfy-daily ticket 24, claude-home/session-nodes.ts,
  * sessionRow); the others are «terminal» or «desktop» by where Claude Code says they were started.
+ * "New Product Session" (worfy-product-session ticket 06) is a row of its own above the list: a
+ * Session of kind `product` on Claude Code, with no Vendor picker, opened in the Session view.
  */
 export const order = 30
 
@@ -58,6 +60,23 @@ const styles = {
     font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
+  },
+  // An action, not a Session: the row's place and height, in the colour of the header's buttons.
+  entry: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    height: 'var(--row-height)',
+    padding: '0 8px',
+    boxSizing: 'border-box',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    font: 'inherit',
+    fontSize: 'var(--text-12)',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
   },
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   source: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
@@ -101,6 +120,19 @@ function Sessions({ project }: { project: ProjectView }) {
     focusSessionNode(project.id, result.value.nodeId)
   }
 
+  // No Vendor to pick: a Product Session runs on Claude Code only, and main refuses any other. Its
+  // Session view is where it is worked with, so it opens there at once (as the palette's command does).
+  const newProductSession = async () => {
+    setVendorOpen(false)
+    setProblem(null)
+    const result = await invoke('sessions.new', { projectId: project.id, kind: 'product' })
+    if (!result.ok) {
+      setProblem(result.error)
+      return
+    }
+    openSession({ nodeId: result.value.nodeId, projectId: project.id })
+  }
+
   // The Node of a Session: the one that names it (worfy's own, e.g. the Orchestrator), else its Session Node.
   const nodeOf = (sessionId: string) => layout?.layout.nodes.find((node) => node.data.sessionId === sessionId) ?? layout?.layout.nodes.find((node) => node.id === sessionNodeId(sessionId))
 
@@ -124,6 +156,21 @@ function Sessions({ project }: { project: ProjectView }) {
       focusSessionNode(project.id, node.id)
     })
   }
+
+  // A row of its own above the list, not a third button of the header: the header has no room left
+  // ("New session" and "History" beside the count), and a Product Session is apart from the
+  // development Sessions the list and "New session" are about.
+  const productEntry = (
+    <button
+      type="button"
+      className="w-row"
+      style={styles.entry}
+      data-testid="sidebar-new-product-session"
+      {...writeAction(readOnly, () => void newProductSession(), "A new Product Session: the Product owner's advisor, on Claude Code")}
+    >
+      New Product Session
+    </button>
+  )
 
   let body = null
   if (error !== undefined) body = <p style={styles.message}>The Sessions could not be read: {readableReason(error)}</p>
@@ -205,6 +252,7 @@ function Sessions({ project }: { project: ProjectView }) {
         </>
       }
     >
+      {productEntry}
       {body}
     </SidebarSection>
   )

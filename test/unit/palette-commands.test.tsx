@@ -147,11 +147,58 @@ describe('palette commands', () => {
 
   it('has New session, the Canvas menu’s New items, the views, the tags and the other Projects', () => {
     const all = ids(context())
-    expect(all.slice(0, 2)).toEqual(['new:session', 'new:terminal'])
+    expect(all.slice(0, 3)).toEqual(['new:session', 'new:product-session', 'new:terminal'])
     expect(all).toEqual(expect.arrayContaining(['view:canvas', 'view:session', 'tag:plan', 'project:p2']))
     expect(all).not.toContain('project:p1')
     expect(all).not.toContain('tag:all')
     expect(ids(context({ tagFilter: { projectId: 'p1', tag: 'plan' } }))).toContain('tag:all')
+  })
+
+  describe('New Product Session (worfy-product-session/06)', () => {
+    /** A preload whose `sessions.new` answers `answer`; records every call. */
+    function preload(answer: { ok: true; value: { nodeId: string } } | { ok: false; error: string }): { channel: string; input: unknown }[] {
+      const asked: { channel: string; input: unknown }[] = []
+      const globals = globalThis as { worfy?: WorfyBridge }
+      globals.worfy = {
+        invoke: (channel: string, input: unknown) => {
+          asked.push({ channel, input })
+          return Promise.resolve(channel === 'sessions.new' ? answer : { ok: false, error: `no ${channel}` })
+        },
+        on: () => 1,
+        off: () => undefined,
+      } as unknown as WorfyBridge
+      onTestFinished(() => {
+        delete globals.worfy
+        useNavigation.setState({ view: 'canvas', opened: {}, offCanvas: {} })
+      })
+      return asked
+    }
+
+    it('is an Action next to New session, and "session" still runs New session first', () => {
+      const command = buildCommands(context()).find((each) => each.id === 'new:product-session')
+      expect(command).toMatchObject({ group: 'Action', title: 'New Product Session' })
+      expect(rankItems(buildCommands(context()), 'product')[0]?.id).toBe('new:product-session')
+      expect(rankItems(buildCommands(context()), 'session')[0]?.id).toBe('new:session')
+    })
+
+    it('asks sessions.new for a Session of kind product, with no Vendor, and opens the Session view on its Node', async () => {
+      const asked = preload({ ok: true, value: { nodeId: 'session-new-1' } })
+      setView('canvas')
+      const command = buildCommands(context()).find((each) => each.id === 'new:product-session')
+      expect(await command!.run()).toBeUndefined()
+      expect(asked[0]).toEqual({ channel: 'sessions.new', input: { projectId: 'p1', kind: 'product' } })
+      expect(useNavigation.getState().view).toBe('session')
+      expect(useNavigation.getState().opened['p1']).toEqual({ nodeId: 'session-new-1', projectId: 'p1' })
+    })
+
+    it("says main's refusal and leaves the view as it was", async () => {
+      preload({ ok: false, error: 'Product Session runs on Claude Code only' })
+      setView('canvas')
+      const command = buildCommands(context()).find((each) => each.id === 'new:product-session')
+      expect(await command!.run()).toContain('Product Session runs on Claude Code only')
+      expect(useNavigation.getState().view).toBe('canvas')
+      expect(useNavigation.getState().opened['p1']).toBeUndefined()
+    })
   })
 
   it('has Tidy up in the Action group, and running it leaves the Canvas a request for the Project (worfy-week/07)', async () => {
@@ -524,7 +571,7 @@ describe('palette commands', () => {
   describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
     const HINT = 'Mini gives this Machine read-only access'
     /** The commands that call a `write` channel of the Project's Machine. */
-    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-all-accepted', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+    const WRITES = ['new:session', 'new:product-session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-all-accepted', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
 
     it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
       const commands = buildCommands(context({ readOnly: HINT }))

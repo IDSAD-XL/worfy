@@ -248,3 +248,93 @@ describe('SidebarSection', () => {
     expect(screen.getByTestId('demo-section')).toBe(region())
   })
 })
+
+// "New Product Session" in the Sessions section (shell/sidebar/SessionsSection.tsx,
+// worfy-product-session ticket 06): an entry of its own beside "New session", with no Vendor picker —
+// a Product Session runs on Claude Code only — that opens the new Session in the Session view.
+describe('Sessions: New Product Session', () => {
+  const PROJECT_ID = 'demo-0000000a'
+  const LIST = { projects: [{ id: PROJECT_ID, name: 'demo', path: '/Users/test/projects/demo', branch: 'main' }], activeId: PROJECT_ID, revision: 1 }
+  const HINT = 'Mini gives this Machine read-only access'
+
+  /** A main that knows the Project and answers `sessions.new` with `answer`; records every call. */
+  function preload(answer: IpcResult<{ nodeId: string }>): { channel: string; input: unknown }[] {
+    const asked: { channel: string; input: unknown }[] = []
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel, input) => {
+        asked.push({ channel, input })
+        if (channel === 'sessions.new') return Promise.resolve(answer)
+        const value: unknown =
+          channel === 'projects.list'
+            ? LIST
+            : channel === 'claudeHome.sessions'
+              ? { live: [], history: [] }
+              : channel === 'claudeHome.live'
+                ? { live: [] }
+                : channel === 'sessions.views'
+                  ? { views: [] }
+                  : channel === 'layout.get'
+                    ? { layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 1 }
+                    : undefined
+        return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    return asked
+  }
+
+  async function draw(readOnly: string | null = null): Promise<HTMLElement> {
+    vi.doMock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
+      useReadOnly: () => readOnly,
+    }))
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(LIST)
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    render(<SessionsSection />)
+    return screen.findByTestId('sidebar-new-product-session')
+  }
+
+  afterEach(() => {
+    vi.doUnmock('../../src/renderer/projects/useProjects')
+  })
+
+  it('asks sessions.new for a Session of kind product with no Vendor, offers no Vendor picker, and opens the Session view on its Node', async () => {
+    const asked = preload({ ok: true, value: { nodeId: 'session-new-1' } })
+    const entry = await draw()
+    expect(entry.textContent).toBe('New Product Session')
+    expect(entry.getAttribute('aria-haspopup')).toBeNull()
+    await act(async () => {
+      fireEvent.click(entry)
+    })
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    await vi.waitFor(() => expect(useNavigation.getState().view).toBe('session'))
+    expect(useNavigation.getState().opened[PROJECT_ID]).toEqual({ nodeId: 'session-new-1', projectId: PROJECT_ID })
+    expect(asked.filter((each) => each.channel === 'sessions.new').map((each) => each.input)).toEqual([{ projectId: PROJECT_ID, kind: 'product' }])
+    // No Vendor picker: it asks main for no Vendors and shows no list.
+    expect(asked.some((each) => each.channel === 'sessions.vendors')).toBe(false)
+    expect(screen.queryByTestId('new-session-vendor-option')).toBeNull()
+  })
+
+  it("shows main's refusal in the section and stays on the Canvas", async () => {
+    preload({ ok: false, error: 'Product Session runs on Claude Code only' })
+    const entry = await draw()
+    await act(async () => {
+      fireEvent.click(entry)
+    })
+    expect((await screen.findByRole('alert')).textContent).toBe('Product Session runs on Claude Code only')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    expect(useNavigation.getState().view).toBe('canvas')
+  })
+
+  it('on a read-only screen it is inactive with the hint of New session, and a click starts nothing', async () => {
+    const asked = preload({ ok: true, value: { nodeId: 'session-new-1' } })
+    const entry = await draw(HINT)
+    expect(entry.getAttribute('aria-disabled')).toBe('true')
+    expect(entry.getAttribute('title')).toBe(HINT)
+    expect(screen.getByTestId('sidebar-new-session').getAttribute('title')).toBe(HINT)
+    fireEvent.click(entry)
+    expect(asked.some((each) => each.channel === 'sessions.new')).toBe(false)
+  })
+})
