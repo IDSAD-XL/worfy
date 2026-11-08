@@ -41,6 +41,7 @@ worfy-feature-docs: каждое утверждение — путь и стро
       файл и строку, проверено вторым агентом.
 - [ ] Поправки ADR-0059, -0047, -0094 — в разделе `## Amendments`, принятый текст не тронут (`git diff` только
       дописывает).
+  - evidence: commit pass · `git diff origin/main -- docs/adr` has 0 removed lines; docs: Matt Pocock's skills inside the worfy plugin (worfy-skills 04) · - - · da25d878ed00c49d47220b935cb204500a219eee
 - [ ] grep `mattpocock`, `retro_reminder_after`, `session-end.mjs` по `docs/features/` и `harness/README.md` — только
       строки об истории и об авторстве.
 - [ ] `node scripts/check-cyrillic.mjs`, `node scripts/check-handoff.mjs` — exit 0; `ci-ok` на PR зелёный.
