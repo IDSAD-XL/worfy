@@ -128,7 +128,7 @@ input-а `mode` на неизменённом workflow.
 
 Ветка `worfy-windows/66` от main `0437d084`. Правка `.github/workflows/windows-tests.yml` — ровно в
 одном коммите, последнем в ветке (токен ПК не пушит `.github/workflows/*`); её патч —
-`C:/Users/Alexey/worfy-wt/pr66-workflow.patch`, его пушит Mac. Все остальные правки — в коммитах
+`C:/Users/<user>/worfy-wt/pr66-workflow.patch`, его пушит Mac. Все остальные правки — в коммитах
 раньше. PR не открыт, push не делался. Круг 1 ревью (замечания Mac) — в последнем разделе.
 
 **Что сделано.**

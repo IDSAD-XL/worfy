@@ -1,4 +1,4 @@
-# 02 — Нейтральный текст plugin: без владельца, Auction, Atakama, номеров ADR и путей worfy
+# 02 — Нейтральный текст plugin: без владельца, Project A, Project B, номеров ADR и путей worfy
 
 Type: task
 Status: done 2026-10-20T01:27Z
@@ -11,7 +11,7 @@ Source: решения владельца 2026-10-19, Q1, Q7 ([spec.md](../spec.
 
 Замер по main `07f17fa3`, `harness/` без test-ов (в скобках — с test-ами и eval-кейсами):
 
-- Auction и Atakama — 41 строка в 16 файлах (165 строк в 23 файлах; больше всего —
+- Project A и Project B (другие проекты владельца) — 41 строка в 16 файлах (165 строк в 23 файлах; больше всего —
   `harness/bin/tests/profile.test.sh`, 54, и `harness/hooks/tests/session-hooks.test.sh`, 34).
 - Пути `/Users/…` — 10 строк в 4 файлах: `harness/bin/profile:172,177,206`, `harness/hooks/gate-resolve.mjs:57`,
   `harness/profiles/README.md:59,65,69,208` и др.
@@ -27,10 +27,10 @@ Source: решения владельца 2026-10-19, Q1, Q7 ([spec.md](../spec.
 1. Ссылка на ADR или Ticket в поставляемом файле `harness/` заменяется самим правилом в одной-двух фразах
    («Platform PRs wait for a full gate run on Windows» вместо «ADR-0056, point 2»). Если правило уже сказано
    рядом — ссылка просто уходит.
-2. Auction, Atakama, имена, учётные записи и пути владельца — общими примерами: `demo`, `acme`,
-   `/home/me/work/acme`, `octo-org`. В test-ах — те же замены; данные test-ов должны проверять то же самое.
+2. Project A, Project B, имена, учётные записи и пути владельца — общими примерами: `demo`, `acme`,
+   `/home/you/work/acme`, `octo-org`. В test-ах — те же замены; данные test-ов должны проверять то же самое.
 3. Пути `src/main/…` и другие внутренности репозитория worfy — описанием («the app's gate reader») или пусто.
-4. Новый test `harness/bin/tests/plugin-neutral.test.sh`: в `harness/` нет `Auction`, `Atakama`, `/Users/`,
+4. Новый test `harness/bin/tests/plugin-neutral.test.sh`: в `harness/` нет `project-a`, `project-b`, `/Users/`,
    имён владельца (список — в test-е), `ADR-\d{4}`, `src/main/`. Исключения — только в самом test-е.
 5. Кириллицу не трогаем: это 03, 04, 07. Языковых правил уже нет (01).
 
@@ -58,12 +58,12 @@ Source: решения владельца 2026-10-19, Q1, Q7 ([spec.md](../spec.
 
 Merged #549 (`96ada892`, 2026-10-20), 68 файлов в `harness/`.
 
-- В поставляемых файлах `harness/` нет Auction, Atakama, `/Users/`, имён и учётных записей владельца, `ADR-NNNN`,
+- В поставляемых файлах `harness/` нет Project A, Project B, `/Users/`, имён и учётных записей владельца, `ADR-NNNN`,
   `src/main/`, номеров Ticket-ов и wave worfy. Ссылка на ADR заменена самим правилом; примеры — `demo`, `acme`,
-  `/home/me/work/acme`, `octo-org`. Бренд `worfy` остался.
+  `/home/you/work/acme`, `octo-org`. Бренд `worfy` остался.
 - Новый test `harness/bin/tests/plugin-neutral.test.sh`: на main до правки — exit 1, на ветке — exit 0. Исключения —
   только в самом test-е, у каждого причина; устаревшее исключение — красный test.
-- Проверки по живым проектам владельца (Auction, Atakama) в `profile.test.sh`, `session-hooks.test.sh`,
+- Проверки по живым проектам владельца (Project A, Project B) в `profile.test.sh`, `session-hooks.test.sh`,
   `skill-blocks.test.sh` стали синтетическими. Удалены только проверки личных значений Profile владельца.
 - Ревью: круг 1 high (смысл сохранён, test-ы, границы модулей) — 2 med + 5 low, исправлены; круг 2 medium — без
   high и med. Поведение скриптов не изменилось: меняются комментарии и три строки-описания.
@@ -82,7 +82,7 @@ Merged #549 (`96ada892`, 2026-10-20), 68 файлов в `harness/`.
   шаблон без исключений можно добавить.
 - Комментарии `harness/bin/tests/agents-text.test.sh:177,265` («spec of worfy-review», «spec of worfy-harness, risk 4»)
   и `epic-wave-ship-ticket.test.sh:173` (`src/shared/agent/status-block.ts`) — шаблоны test-а их не ловят.
-- Вне `harness/`: IDSAD-XL в `scripts/e3-sandbox.sh:50,56`, `test/acceptance/e3.spec.ts:41`,
+- Вне `harness/`: аккаунт репозитория в `scripts/e3-sandbox.sh:50,56`, `test/acceptance/e3.spec.ts:41`,
   `test/contract/e3-sandbox.test.ts`, `github-prs.test.ts:584`, `shell.test.ts:161-163`.
 - Найдено попутно, красно и на main: `test/contract/harness-script-command.test.ts` на Windows-runner-е — 2 test-а
   («skips a relative PATH entry…», «on Windows skips an entry rooted at the current drive…»); Ticket-а нет.

@@ -5,7 +5,7 @@ Status: done 2026-10-23T14:59Z
 PR: #802
 Blocked by: —
 Source: run 39841670369 workflow `windows-tests.yml` в режиме `full` из PR #784 (коммит `53e7ee59` = `main` + #784,
-`windows-latest`), направление Session на Mac 2026-10-23. Журнал упавшего шага — `C:/Users/Alexey/worfy-wt/run-39841670369-failed.log`
+`windows-latest`), направление Session на Mac 2026-10-23. Журнал упавшего шага — `C:/Users/<user>/worfy-wt/run-39841670369-failed.log`
 на ПК.
 
 ## Что происходит
@@ -16,7 +16,7 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 
 1. **Временная папка под короткой 8.3-формой имени** (`TEMP=C:\Users\RUNNER~1\AppData\Local\Temp`). JavaScript
    `fs.realpathSync` короткое имя не разворачивает, а `realpath(3)` (`fs.realpathSync.native`, `fs/promises`
-   `realpath`, Vite, `pwd -W` Git Bash) даёт длинное `C:\Users\runneradmin\…`. На ПК у `C:\Users\Alexey` короткой
+   `realpath`, Vite, `pwd -W` Git Bash) даёт длинное `C:\Users\runneradmin\…`. На ПК у `C:\Users\<user>` короткой
    формы нет, поэтому там разницы не видно.
    - `test/unit/canvas.test.tsx` (41), `test/unit/session-rail-discovery.test.tsx` (2),
      `test/unit/shell-discovery.test.tsx` (2): «Cannot find module '/@id/C:\Users\RUNNER~1\…\worfy-glob-probe-…'».
@@ -78,13 +78,13 @@ EXIT=0; `rules-hooks.test.sh` — 201/201). Runner отличается от П�
 `rules-hooks.test.sh` с пустым HOME — 201/201, EXIT=0. Значит, красное — условия runner-а, а не код на любом Windows.
 
 **Воспроизведение условий runner-а на ПК.** На диске `C:` создание 8.3-имён выключено, но у старых папок короткая
-форма есть: `C:\Users\Alexey\.config` = `C:\Users\Alexey\CONFIG~1`. Временная папка для прогонов —
-`C:\Users\Alexey\CONFIG~1\wt108tmp` (TEMP и TMP; для Git Bash ещё TMPDIR в POSIX-форме: `/tmp` Git Bash на ПК
+форма есть: `C:\Users\<user>\.config` = `C:\Users\<user>\CONFIG~1`. Временная папка для прогонов —
+`C:\Users\<user>\CONFIG~1\wt108tmp` (TEMP и TMP; для Git Bash ещё TMPDIR в POSIX-форме: `/tmp` Git Bash на ПК
 привязан к уже запущенным процессам MSYS и TEMP не следует).
 
 | Группа | Условие | До правки | После |
 | --- | --- | --- | --- |
-| canvas, session-rail-discovery, shell-discovery, shell, tickets-read | TEMP в 8.3-форме | 61 failed из 88, EXIT=1, те же «Cannot find module '/@id/C:\Users\Alexey\CONFIG~1\…'» и пути `CONFIG~1` против `.config` | 87 passed, 1 skipped, EXIT=0 |
+| canvas, session-rail-discovery, shell-discovery, shell, tickets-read | TEMP в 8.3-форме | 61 failed из 88, EXIT=1, те же «Cannot find module '/@id/C:\Users\<user>\CONFIG~1\…'» и пути `CONFIG~1` против `.config` | 87 passed, 1 skipped, EXIT=0 |
 | rules-hooks.test.sh | TMPDIR в 8.3-форме | те же 5 FAIL, что на runner-е, 196/201, EXIT=1 | 201/201, EXIT=0 (и в обычном окружении 201/201) |
 | harness-script-command | TEMP на `D:\wt108-tmp`, checkout на `C:` | 2 failed, EXIT=1 (`expected 'c:' to be 'd:'`, `expected true to be false`) | 10 passed, 4 skipped, EXIT=0 (и с TEMP на `C:`) |
 | harness-evals | `C:\Program Files\Git\bin` первым на PATH | 2 failed (те же два test-а), EXIT=1 | 195 passed, 10 skipped, EXIT=0 (и в обычном PATH) |

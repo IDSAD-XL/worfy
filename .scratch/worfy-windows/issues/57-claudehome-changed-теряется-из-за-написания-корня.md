@@ -73,7 +73,7 @@ Contract test на `src/main/ipc/claude-home.ts` с подменённой пл�
 ## Итог
 
 Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200. Ветка `worfy-windows/57` от main `f7ea055f`,
-worktree `C:/Users/Alexey/worfy-wt/57`. PR не открыт, push не было: по брифу оркестратора — только
+worktree `C:/Users/<user>/worfy-wt/57`. PR не открыт, push не было: по брифу оркестратора — только
 локальные commit-ы.
 
 **Причина.** На main `f7ea055f` handler `claudeHome.sessions` подписывал окно под `resolve(projectRoot)`

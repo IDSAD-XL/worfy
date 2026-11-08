@@ -14,7 +14,7 @@ worfy-week (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её ч
 ## Цель
 
 worfy версии X ставит и обновляет Harness версии X. Project подключается к worfy без ручной правки
-`~/.claude`: в Full mode, как worfy и Auction, или в Silent mode, когда в репозитории не должно
+`~/.claude`: в Full mode, как worfy и Project A (другой проект владельца), или в Silent mode, когда в репозитории не должно
 остаться следов workflow.
 
 Epic готов, когда (Q35; песочница — отдельные `HOME` и `CLAUDE_CONFIG_DIR` во временной папке):
@@ -25,8 +25,8 @@ Epic готов, когда (Q35; песочница — отдельные `HOM
    репозитории нет файлов workflow, а в ветках, коммитах и PR нет номеров Ticket-ов.
 3. На машине владельца в `~/.claude` осталось только личное. Одна Wave в Autopilot прошла на plugin
    без человека.
-4. Auction остаётся в Full mode: его Profile перенесён, worfy показывает его Epic-и. Проверка только
-   на чтение: писать в `/Users/alexey/Work/*` нельзя.
+4. Project A остаётся в Full mode: его Profile перенесён, worfy показывает его Epic-и. Проверка только
+   на чтение: писать в `~/Work/*` нельзя.
 5. Ручной прогон под вторым пользователем macOS — шаг владельца.
 
 Проверку всех пяти пунктов делает Ticket 26.
@@ -69,7 +69,7 @@ Epic готов, когда (Q35; песочница — отдельные `HOM
 - **Full mode и Silent mode** (ADR-0042, Ticket-ы 22 и 23). В Full mode файлы workflow лежат в
   репозитории, Workflow folder — его корень. В Silent mode Workflow folder — папка вне репозитория,
   а ветки, коммиты и PR выглядят как обычная работа. Новый Project по умолчанию — Silent mode.
-  worfy и Auction — Full mode, Atakama — Silent mode.
+  worfy и Project A — Full mode, Project B (другой проект владельца) — Silent mode.
 - **Один Ticket — один репозиторий**
   ([ADR-0045](../../docs/adr/0045-one-ticket-one-repository.md), Ticket 23). Project над
   несколькими репозиториями — всегда Silent mode. Gate, PR и CI идут по репозиторию Ticket-а.
@@ -161,7 +161,7 @@ Session проектирования E3, 2026-10-07. Номер вопроса �
   folder; свои документы Harness пишет только туда. Поле `attribution: on | off`; умолчание зависит
   от режима — `off` в Silent mode, `on` в Full mode, явное значение побеждает (ADR-0061, уточняет
   пункт 6 ADR-0042).
-  Worktree новых Project-ов — `~/.claude/worfy-harness/worktrees/<project>/`; у worfy и Auction —
+  Worktree новых Project-ов — `~/.claude/worfy-harness/worktrees/<project>/`; у worfy и Project A —
   прежние папки. `GH_TOKEN` аккаунта Project-а выдаёт hook `SessionStart` через `CLAUDE_ENV_FILE`;
   сам токен на диск не пишется.
 - **qmd** — ADR-0043 (Q5, Q15, Q16). qmd — часть Harness: `npm install -g @tobilu/qmd`, обёртки
@@ -262,7 +262,7 @@ Session проектирования E3, 2026-10-07. Номер вопроса �
   замороженном `~/.claude`.
 - **Песочница.** Ticket-ы, которые пишут в `~/.claude` (установщик, перенос, qmd), проверяются с
   `HOME` и `CLAUDE_CONFIG_DIR` во временной папке. Вход в Claude в песочнице делает владелец.
-- **Только чтение.** Писать в `/Users/alexey/Work/*` нельзя: Auction и Atakama — только чтение, без
+- **Только чтение.** Писать в `~/Work/*` нельзя: Project A и Project B — только чтение, без
   `git fetch`. Ticket, который читает репозиторий Project-а или `~/.claude`, проверяет test-ом, что
   не пишет туда.
 - **GitHub.** Глобальный `gh` остаётся на рабочем аккаунте. Для репозитория worfy —

@@ -13,23 +13,23 @@ Source: решения владельца 2026-10-07, Q19, Q13, Q33, Q4, Q9, Q11
   `gate/config.json`. Что там Harness (Q19):
   - `agents/implementer.md`, `reviewer.md`, `scout.md`; 7 skills — `epic-wave`, `ship-ticket`,
     `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks`; `bin/` кроме личных
-    `telegram-mcp`, `auction-staging-db-mcp`, `agent-time-split`; `hooks/`; общие правила в `CLAUDE.md`;
+    `telegram-mcp`, `project-a-staging-db-mcp`, `<personal-tool>`; `hooks/`; общие правила в `CLAUDE.md`;
   - в `settings.json` → `hooks` 10 записей, которые ведут в эти файлы: SessionStart
     (`$HOME/.claude/hooks/session-start.sh`, `$HOME/.claude/bin/worktree-lock claim`), TaskCompleted и
     TeammateIdle (`$HOME/.claude/hooks/gate.sh fast`), Stop (`$HOME/.claude/hooks/stop.sh`,
     `$HOME/.claude/bin/worktree-lock beat`, `$HOME/.claude/bin/qmd-refresh --quiet`), SessionEnd
     (`$HOME/.claude/hooks/session-end.sh`, `$HOME/.claude/bin/worktree-lock release`), PreToolUse Bash
     (`$HOME/.claude/hooks/guard.mjs`);
-  - `statusLine.command` — `/Users/alexey/Stuff/CanvasForAI/scripts/statusline-bridge.sh` (мост
+  - `statusLine.command` — `~/Stuff/CanvasForAI/scripts/statusline-bridge.sh` (мост
     Limits в dev-checkout);
-  - `~/.claude.json` → `mcpServers.qmd` запускает `/Users/alexey/.claude/bin/qmd-mcp`: убрать
+  - `~/.claude.json` → `mcpServers.qmd` запускает `~/.claude/bin/qmd-mcp`: убрать
     `bin/qmd-*` и оставить эту запись — сломать qmd;
   - состояние машины: реестр Gate `gate/config.json`, маркеры `gate/state/`, Profile-ы
-    `profiles/{worfy,auction,atakama}/` (schema 1; у atakama ещё `bin/`, `lessons/`, `state/`), замки
+    `profiles/{worfy,project-a,project-b}/` (schema 1; у project-b ещё `bin/`, `lessons/`, `state/`), замки
     worktree `worktree-sessions/` (`~/.claude/bin/worktree-lock:74`).
 - Пути в Profile-ах ведут в старые места: `rules.md` и `profile.json` трёх Profile-ов ссылаются на
   `~/.claude/bin/ticket`, `~/.claude/bin/preflight`, `~/.claude/bin/epic-status`,
-  `~/.claude/hooks/gate.sh`, `~/.claude/gate/config.json`, `~/.claude/profiles/atakama/…` — в сумме 26
+  `~/.claude/hooks/gate.sh`, `~/.claude/gate/config.json`, `~/.claude/profiles/project-b/…` — в сумме 26
   строк на 2026-10-07 (`grep -c '~/.claude/' ~/.claude/profiles/*/rules.md ~/.claude/profiles/*/profile.json`).
 - Личное, которое остаётся (Q19): остальные skills (cloudflare*, sandbox*, wrangler, sentry-cli,
   web-perf, turnstile-spin, agents-sdk, durable-objects и другие), `skills/synced/`, личные
@@ -82,12 +82,12 @@ Source: решения владельца 2026-10-07, Q19, Q13, Q33, Q4, Q9, Q11
    уходят. `mcp.allowed` — по умолчанию из контракта. Новые поля форма предлагает, владелец
    подтверждает:
    - `mode`: `full`, если каталог Ticket-ов (`tickets.root` или `.scratch` по умолчанию) лежит в
-     git-репозитории Project-а, иначе `silent`. У Atakama `.scratch/` и `HANDOFF.md` — в папке над
-     тремя репозиториями, вне git (Q24). Q28: worfy и Auction — Full, Atakama — Silent;
+     git-репозитории Project-а, иначе `silent`. У Project B (другой проект владельца) `.scratch/` и `HANDOFF.md` — в папке над
+     тремя репозиториями, вне git (Q24). Q28: worfy и Project A (другой проект владельца) — Full, Project B — Silent;
    - `language.docs`: значение `language.reports` того же Profile-а;
    - `attribution`: по умолчанию `on`; значение ставит владелец (Q25).
-   Остальные поля, `rules.md`, папки `bin/`, `lessons/`, `state/` (atakama) переносятся как есть.
-   worktree worfy и Auction остаются где были (Q17). Пути в `rules.md` и `profile.json`, которые ведут
+   Остальные поля, `rules.md`, папки `bin/`, `lessons/`, `state/` (project-b) переносятся как есть.
+   worktree worfy и Project A остаются где были (Q17). Пути в `rules.md` и `profile.json`, которые ведут
    в перенесённые места, переписываются: `~/.claude/bin/…` → `~/.claude/worfy-harness/plugin/bin/…`,
    `~/.claude/hooks/…` → `~/.claude/worfy-harness/plugin/hooks/…`, `~/.claude/gate/config.json` →
    `~/.claude/worfy-harness/gate/config.json`, `~/.claude/profiles/<p>/…` →
@@ -137,13 +137,13 @@ hooks, `statusLine` и личными ключами, `.claude.json` с `qmd` и
 три Profile-а schema 1 с путями Harness), установленный plugin (дерево `harness/`), подменённый
 `claude`. На настоящем `~/.claude` перенос в этом Ticket-е не запускается.
 
-- [x] Contract test: план на fixture — ровно строки из «Что делаем», п. 2; ни одной личной (личные skills, `skills/synced/`, `telegram-mcp`, `auction-staging-db-mcp`, `agent-time-split`, личный MCP, `model`, `env`, `effortLevel`).
+- [x] Contract test: план на fixture — ровно строки из «Что делаем», п. 2; ни одной личной (личные skills, `skills/synced/`, `telegram-mcp`, `project-a-staging-db-mcp`, `<personal-tool>`, личный MCP, `model`, `env`, `effortLevel`).
 - [x] Перенос «всё уберу»: Harness-файлы исчезли из `~/.claude` и побайтно лежат в `backup-<дата>/`; личные файлы побайтно прежние; в `settings.json` убраны только записи hooks из плана, остальные ключи равны прежним (deep equal).
 - [x] `statusLine`: скрипт есть в подменённом `resourcesPath` — команда указывает на него и сохраняет аргумент; скрипта нет или dev-сборка — у строки только «оставлю», `statusLine` прежний.
 - [x] Группа qmd: «уберу» — `bin/qmd-*`, запись hook и запись `qmd` в `.claude.json` убраны вместе, личный MCP на месте; «оставлю» — все пять на месте, `.claude.json` побайтно прежний. Plugin без сервера qmd в `.mcp.json` — у строки предупреждение про `qmd.fallback_grep`, plugin с ним — без предупреждения.
 - [x] `worfy-harness/` песочницы — git-репозиторий; Profile-ы и реестр Gate в его последнем коммите.
 - [x] `CLAUDE.md`: разделы с «уберу» исчезли, с «оставлю» — побайтно на месте.
-- [x] Profile-ы: в `worfy-harness/projects/<p>/` у трёх Project-ов `profile.json` schema 2 без полей с путями Harness и с `mode`, `language.docs`, `attribution` из формы; в `rules.md` и `profile.json` нет `~/.claude/bin/`, `~/.claude/hooks/`, `~/.claude/gate/`, `~/.claude/profiles/`; у atakama на месте `bin/`, `lessons/`, `state/`. `bin/profile` из `harness/` (Ticket 11) по fixture-репозиторию Project-а с `--field mode` — код 0 и значение формы.
+- [x] Profile-ы: в `worfy-harness/projects/<p>/` у трёх Project-ов `profile.json` schema 2 без полей с путями Harness и с `mode`, `language.docs`, `attribution` из формы; в `rules.md` и `profile.json` нет `~/.claude/bin/`, `~/.claude/hooks/`, `~/.claude/gate/`, `~/.claude/profiles/`; у project-b на месте `bin/`, `lessons/`, `state/`. `bin/profile` из `harness/` (Ticket 11) по fixture-репозиторию Project-а с `--field mode` — код 0 и значение формы.
 - [x] Gate: реестр и маркеры — в `worfy-harness/gate/`; `hooks/gate.sh` из `harness/` с `HARNESS_HOME` песочницы на fixture-репозитории не отвечает «проект не зарегистрирован».
 - [x] git песочницы: ровно один новый коммит, его файлы — пути переноса; незакоммиченная правка в другом файле осталась незакоммиченной.
 - [x] «оставлю» у строки каждого вида (файл, раздел `CLAUDE.md`, запись hook, `statusLine`, Profile) — этот файл или запись не тронуты.
@@ -309,9 +309,9 @@ hooks, `statusLine` и личными ключами, `.claude.json` с `qmd` и
   копия и команда отката.
 - Снимки (обе темы): toolbar — [светлая](../evidence/14-toolbar-light.png), [тёмная](../evidence/14-toolbar-dark.png);
   форма — [светлая](../evidence/14-form-light.png), [тёмная](../evidence/14-form-dark.png); diff `CLAUDE.md` —
-  [светлая](../evidence/14-form-claude-md-light.png), [тёмная](../evidence/14-form-claude-md-dark.png); diff
-  Profile-а — [светлая](../evidence/14-form-profiles-light.png), [тёмная](../evidence/14-form-profiles-dark.png);
-  после Move — [светлая](../evidence/14-done-light.png), [тёмная](../evidence/14-done-dark.png).
+  светлая (картинка убрана: личное на изображении), тёмная (картинка убрана: личное на изображении); diff
+  Profile-а — светлая (картинка убрана: личное на изображении), тёмная (картинка убрана: личное на изображении);
+  после Move — светлая (картинка убрана: личное на изображении), тёмная (картинка убрана: личное на изображении).
 
 **Влито.** [PR #136](https://github.com/IDSAD-XL/worfy/pull/136) → squash-коммит `95dbc82` в `main`. Ревью —
 три круга:

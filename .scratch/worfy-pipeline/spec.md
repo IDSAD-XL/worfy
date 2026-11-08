@@ -103,7 +103,7 @@ Epic готов, когда:
    Gate & merge (мержит агент) · Awaiting merge (всё зелёное, мержит человек) · Deploy (отметка на
    merge-коммите: GitHub Deployment окружения из Profile-а или commit status `deploy` от скрипта
    деплоя; у worfy его ставит `pnpm install:stable`) · Closing (влит, Status не `done`) · Done.
-   Примеры. Atakama (Silent mode): Queued → Implementing → Agent review → CI → Human review →
+   Примеры. Project B (Silent mode): Queued → Implementing → Agent review → CI → Human review →
    Awaiting merge → Done — ревью агентом локально, до PR, потому что открытый PR передаёт работу
    людям. worfy: Queued → Implementing → CI → Agent review → Check «windows» → Gate & merge →
    Deploy → Closing → Done.
@@ -117,7 +117,7 @@ Epic готов, когда:
    остаются для людей. Метки PR (labels) для Stage не используются.
 6. **Шапка Ticket-а — один факт на строку, детерминированно, разбор минимальный.** `Status: <слово>
    <дата>` и только; `Blocked reason: …` — своя строка; `Waits: owner | team | agent | <имя Machine>`
-   (team — другие люди, например ревьюеры Atakama). Пишет только `bin/ticket` (новые флаги, например
+   (team — другие люди, например ревьюеры Project B (другой проект владельца)). Пишет только `bin/ticket` (новые флаги, например
    `block --waits`). Однократная миграция всех Ticket-ов — `bin/ticket migrate`, один PR на Project
    (Silent mode — в его Workflow folder); после неё читается только новый формат.
 7. **Порог «застрял»** — у каждого Stage в Pipeline. По умолчанию 2 h для Stage агентов

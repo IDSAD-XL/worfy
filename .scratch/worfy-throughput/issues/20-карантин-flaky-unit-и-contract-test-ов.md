@@ -109,7 +109,7 @@ test, не называет эту платформу или просрочен�
 | `link-access-handlers-event-sender` | `test/contract/link-access.test.ts` › access on › handlers that read event.sender… | `win32` | `worfy-throughput 23` | 2026-11-10 |
 | `link-access-switch-off-mid-subscription` | `test/contract/link-access.test.ts` › switching access off › in the middle of a subscription… | `win32` | `worfy-throughput 23` | 2026-11-10 |
 | `link-access-read-only-mid-work` | `test/contract/link-access.test.ts` › read-only access › lowered from all to read-only… | `win32` | `worfy-throughput 23` | 2026-11-10 |
-| `workflow-reader-auction-size` | `test/contract/workflow-reader.test.ts` › … diffs 682 Tickets in ≤ 300 ms… | `win32` | `worfy-throughput 23` | 2026-11-10 |
+| `workflow-reader-project-a-size` | `test/contract/workflow-reader.test.ts` › … diffs 682 Tickets in ≤ 300 ms… | `win32` | `worfy-throughput 23` | 2026-11-10 |
 | `workflow-branches-handles-rounds` | `test/contract/workflow-branches-handles.test.ts` › 16 rounds of a worktree… | `win32` | `worfy-throughput 23` | 2026-11-10 |
 
 **Отклонения от «Что делаем», пункт 3.**

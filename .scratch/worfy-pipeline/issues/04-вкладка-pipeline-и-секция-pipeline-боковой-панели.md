@@ -39,7 +39,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Готово, когда
 
-- [x] `pnpm test test/unit/pipeline-board.test.tsx` — exit 0: колонки по Pipeline worfy и Atakama из
+- [x] `pnpm test test/unit/pipeline-board.test.tsx` — exit 0: колонки по Pipeline worfy и Project B (другой проект владельца) из
       spec-а; Done свёрнут в счётчик; `blocked`, `rework`, «кого ждёт» видны; секция показывает только
       Ticket-ы в работе.
 - [x] `pnpm test:e2e test/e2e/pipeline.spec.ts` — exit 0: переключатель Canvas / Session / Pipeline;
@@ -105,7 +105,7 @@ Ticket не правит.
 - `src/main/workflow/stages.ts` и `test/contract/workflow-stages.test.ts` — после красного gate full
   перед merge, с разрешения Orchestrator-а. Секция Pipeline включила вычисление Stage для каждого
   Project-а. Если Profile не прочитан (`repos: []`), Stage-и читали PR в корне Project-а. У Project-а из
-  нескольких репозиториев (Atakama) корень — обычная папка, и `gh` запускался вне репозитория
+  нескольких репозиториев (Project B) корень — обычная папка, и `gh` запускался вне репозитория
   (`test/e2e/silent-project.spec.ts:302`). В stub-е этого e2e у `_resolved` нет `name`, поэтому
   `readPipelineProfile` отказывает. Теперь корень берётся, только если он внутри git work tree
   (`rev-parse --is-inside-work-tree`). Два contract test-а: плоская папка над репозиториями — `gh`
@@ -114,7 +114,7 @@ Ticket не правит.
 Проверено:
 
 - `pnpm test test/unit/pipeline-board.test.tsx` — exit 0, 13 test-ов. Снимки строятся через
-  `stageOf` и `stageLabel` для Pipeline worfy и Atakama из spec-а. Mutation testing: test-ы краснеют без
+  `stageOf` и `stageLabel` для Pipeline worfy и Project B из spec-а. Mutation testing: test-ы краснеют без
   фильтра «в работе», без свёртки Done, без пометки `rework` и без фокуса Card.
 - e2e под замком: `pipeline.spec.ts`, `sidebar-sections.spec.ts`, `toolbar.spec.ts`, `focus-sidebar.spec.ts`,
   `session-back.spec.ts`, `harness-migrate.spec.ts`, `checks-badges.spec.ts` — 18 passed, exit 0.

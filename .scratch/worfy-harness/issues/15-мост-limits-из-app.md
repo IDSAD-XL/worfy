@@ -14,7 +14,7 @@ Source: решения владельца 2026-10-07, Q19 (мост Limits: ск
   `WORFY_DATA_DIR`), worfy читает файл (`src/main/agent/limits.ts:7-8`, `:22-23`). С аргументом скрипт
   передаёт тот же stdin команде пользователя, её вывод проходит как есть.
 - У владельца `statusLine.command` в `~/.claude/settings.json` —
-  `/Users/alexey/Stuff/CanvasForAI/scripts/statusline-bridge.sh`, файл в dev-checkout. Удалить или
+  `~/Stuff/CanvasForAI/scripts/statusline-bridge.sh`, файл в dev-checkout. Удалить или
   переместить checkout — Limits из терминала пропадут. У другого пользователя такого checkout-а нет.
 - В `.app` скрипта нет: `electron-builder.yml:9-10` берёт только `out/**` и `package.json` (после
   Ticket-а 13 — ещё `harness/`).

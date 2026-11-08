@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const require = createRequire('C:/Users/Alexey/worfy-wt/wt86/package.json')
+const require = createRequire('C:/Users/<user>/worfy-wt/wt86/package.json')
 const pty = require('node-pty')
 
 const [kind, out] = process.argv.slice(2)

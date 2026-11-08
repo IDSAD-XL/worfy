@@ -28,7 +28,7 @@ qmd — локальный поиск по markdown-документам, кот
   появился файл `~/.config/qmd/index.yml`.
 - 01:58 — Project `silent-app` подключён через «Add project». В разделе Projects в сайдбаре появился
   текст: `qmd collections were not set up: qmd-collections failed: qmd-collections:
-  /Users/worfy-test/.config/qmd/index.yml: "collections:" holds an inline value, …` — в отчёте
+  ~worfy-test/.config/qmd/index.yml: "collections:" holds an inline value, …` — в отчёте
   здесь стоит «(дальше обрезано)».
 - В файле стояла строка `collections: {}` и под ней блок `models:`.
 - 02:27 — в окне First run строка «qmd collections» жёлтая: `none for silent-app`, кнопка «Set up…».
@@ -37,7 +37,7 @@ qmd — локальный поиск по markdown-документам, кот
 
 Прочитано на машине после прогона, только чтение (2026-10-14, около 03:00):
 
-- `/Users/worfy-test/.config/qmd/index.yml` — пять строк, время изменения 01:56:18:
+- `~worfy-test/.config/qmd/index.yml` — пять строк, время изменения 01:56:18:
 
   ```
   collections: {}

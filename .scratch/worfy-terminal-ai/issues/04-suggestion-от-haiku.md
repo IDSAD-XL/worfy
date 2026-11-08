@@ -228,7 +228,7 @@ in grey; → takes it»:
 - Новые test-ы Esc до правки: 2 красных — «Esc while the line waits…» (`timer` не пустой) и «Esc in the vi
   keymap…» (`expected [ 'echo worfy-vi-esc' ] to deeply equal []`). После правки — 4 из 4 зелёные.
 - `gate.sh fast` — в отчёте implementer-а.
-- e2e под `/tmp/worfy-e2e.lock`, консоль у `alexey`:
+- e2e под `/tmp/worfy-e2e.lock`, консоль у пользователя владельца:
   `playwright test test/e2e/terminal-ai-suggest.spec.ts test/e2e/terminal-ai-history.spec.ts` — exit 0, 2 passed.
   - Первый прогон был красным: «grey is another colour than what was typed». Цвет брался с ячейки под
     мигающим курсором; исправлен helper `greyText`.

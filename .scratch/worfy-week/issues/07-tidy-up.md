@@ -126,8 +126,8 @@ group…»: на `origin/main` в палитре нет команды `tidy-up`
 
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (120 файлов, 2129 test-ов);
 `gate.sh fast` — код 0, «зелено»; `GATE_SCOPE=all gate.sh full` — код 0, «зелено» (lint, typecheck,
-test, test:e2e, test:package), в том числе бюджет Project-а размера Auction
-(`test/e2e/epic-frame.spec.ts`, test «an Auction-sized Project is interactive within 3 s…», сейчас
+test, test:e2e, test:package), в том числе бюджет Project-а размера Project A (другой проект владельца)
+(`test/e2e/epic-frame.spec.ts`, test «a project-a-sized Project is interactive within 3 s…», сейчас
 строка 885). e2e `test/e2e/tidy-up.spec.ts`: 200 Node-ов — 92 ms от Enter в палитре до последнего
 места на экране (предел 2000 ms).
 

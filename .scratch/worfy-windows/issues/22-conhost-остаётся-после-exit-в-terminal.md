@@ -149,7 +149,7 @@ Session на Windows-ПК, 2026-10-13. Системный Node 24.21.0, pnpm 11.
 
 - **Оба файла консоли в сборке есть:** `resources\app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty\OpenConsole.exe` и `conpty.dll`. Подпись обоих — Microsoft Corporation, статус `Valid`, версия файла 1.23.2510.08001. `conpty.node` и `pty.node` не подписаны — как и раньше.
 - **Установщик их кладёт.** В установленном worfy (сборка `c64a9db`, поставлена установщиком при перепроверке Ticket-а 12) оба файла лежат в `%LOCALAPPDATA%\Programs\worfy\resources\app.asar.unpacked\node_modules\node-pty\prebuilds\win32-x64\conpty`, подпись `Valid`. Шаблон `asarUnpack` в `electron-builder.yml` — `node_modules/node-pty/**`. Установщик этой ветки не запускался.
-- **Terminal Node работает:** приглашение `PS C:\Users\Alexey\worfy>` (pwsh 7), команда выполняется и печатает ответ.
+- **Terminal Node работает:** приглашение `PS C:\Users\<user>\worfy>` (pwsh 7), команда выполняется и печатает ответ.
 - **Под worfy при открытом Terminal:** один `OpenConsole.exe` из папки сборки и один `pwsh.exe`.
 - **После `exit`:** ни `OpenConsole.exe`, ни `pwsh.exe` под worfy нет.
 - **Restart шесть раз подряд, перед каждым `exit`:** приглашение через 374–397 ms. После семи оболочек под worfy один `OpenConsole.exe` и один `pwsh.exe` — от текущей; потоков у главного процесса 47 (с первым Terminal было 51).
@@ -298,7 +298,7 @@ Session на Windows-ПК, 2026-10-13. Системный Node 24.21.0, pnpm 11.
 | Сборка | Запусков | Что на экране после Restart | Строк `tick` | Приглашение новой оболочки и вывод команды |
 |---|---|---|---|---|
 | до правки, `a9011ae` | 1 | строки `tick`; после нажатия пришло ещё 15 | 26 | не показаны; через 8 s тоже нет |
-| с правкой, `1c3b38d` | 2 | `PS C:\Users\Alexey\worfy>` | 0 | показаны оба раза |
+| с правкой, `1c3b38d` | 2 | `PS C:\Users\<user>\worfy>` | 0 | показаны оба раза |
 
 - **Вывод:** случай достижим руками, с первой попытки.
 - **Исправление** (`src/main/terminal/pty.ts`). На Windows Terminal, который сообщил о выходе, больше ничего не доставляет — ни на экраны, ни в сохранённый вывод — каким бы путём выход ни пришёл. То, что прочитано и придержано как возможное начало запроса, отправляется перед сообщением о выходе, как и при событии node-pty.
@@ -323,4 +323,4 @@ Session на Windows-ПК, 2026-10-13. Системный Node 24.21.0, pnpm 11.
 - **Полный `pnpm test` после этого круга не повторялся:** правка — одно условие и один вызов в `pty.ts` и два unit-test-а.
 - `pty.ts` — 1060 строк.
 
-**Дополнение (Ticket 42, 2026-10-22).** Файлы с выводом замеров `probe-t22-*.out` (`conhost`, `da1`, `requests`, `exit`) и runner мутантов `mutants22.cjs` в репозиторий не попали и остались только на ПК; 2026-10-22 их не нашёл и там поиск по `C:\Users\Alexey\worfy-wt`, `C:\Users\Alexey\worfy`, `C:\Users\Alexey\Desktop\Slop` и `%TEMP%\claude`. Счёт «11 из 11» и «41 из 41» в этом «Итоге» по ним не повторить. Мутанты Ticket-а 42 лежат в его «Итоге» списком, с командой запуска.
+**Дополнение (Ticket 42, 2026-10-22).** Файлы с выводом замеров `probe-t22-*.out` (`conhost`, `da1`, `requests`, `exit`) и runner мутантов `mutants22.cjs` в репозиторий не попали и остались только на ПК; 2026-10-22 их не нашёл и там поиск по `C:\Users\<user>\worfy-wt`, `C:\Users\<user>\worfy`, `C:\Users\<user>\Desktop\Slop` и `%TEMP%\claude`. Счёт «11 из 11» и «41 из 41» в этом «Итоге» по ним не повторить. Мутанты Ticket-а 42 лежат в его «Итоге» списком, с командой запуска.

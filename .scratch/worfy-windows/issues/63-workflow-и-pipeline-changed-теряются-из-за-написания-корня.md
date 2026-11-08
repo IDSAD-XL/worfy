@@ -44,7 +44,7 @@ Source: ревью корректности Ticket-а 57 (ПК владельц�
 ## Итог
 
 Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200. Ветка `worfy-windows/63` от main `3770da60`,
-затем merge main `9157c0a4` (Ticket 57 влит). Worktree `C:/Users/Alexey/worfy-wt/63`. Push не было, PR не
+затем merge main `9157c0a4` (Ticket 57 влит). Worktree `C:/Users/<user>/worfy-wt/63`. Push не было, PR не
 открыт: по брифу — только локальные commit-ы.
 
 **Причина подтверждена.** Hub-ы держат Project под `path.resolve`, и всё, что они отдают, несёт этот корень:

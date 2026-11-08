@@ -10,7 +10,7 @@ Source: решения владельца 2026-10-07, вопросы Q11', Q21, 
 ## Что происходит
 
 - Аккаунт GitHub Project-а — поле Profile `github.account`. Сейчас его пишут руками: у worfy и
-  Auction — `IDSAD-XL`, у Atakama — `Oleksii-O-Atakama` (`~/.claude/profiles/<имя>/profile.json`; после
+  Project A (другой проект владельца) — `IDSAD-XL`, у Project B — личный аккаунт GitHub владельца (`~/.claude/profiles/<имя>/profile.json`; после
   Ticket-ов 11 и 14 — `~/.claude/worfy-harness/projects/<имя>/profile.json`). Контракт поля —
   `~/.claude/profiles/README.md:129` (после Ticket-а 02 — `harness/profiles/README.md`).
 - worfy читает поле (`src/main/workflow/profile.ts:143`, `:163-186`) и для своих вызовов `gh` берёт
@@ -22,7 +22,7 @@ Source: решения владельца 2026-10-07, вопросы Q11', Q21, 
 - Подключение Project-а (Ticket 24) ставит в черновик Profile `github.account: null`, а
   `workflow.finish` — только по наличию `origin`. Права аккаунта на `origin` никто не проверяет.
   `workflow.finish` бывает `pr-green-ci` (PR с зелёным CI) и `local-green` (локально зелёные
-  проверки, без PR): у worfy и Auction — первое, у Atakama — второе.
+  проверки, без PR): у worfy и Project A — первое, у Project B — второе.
 - gh 2.97.0 на машине владельца отдаёт аккаунты машинно: `gh auth status --json hosts` — по хосту
   список с полями `active`, `gitProtocol`, `host`, `login`, `scopes`, `state`, `tokenSource`. С
   `--json` код выхода 0 и при проблемах входа (`gh auth status --help`). Токен печатается только с
@@ -105,8 +105,8 @@ ADR не нужен: решения — ADR-0042 (Profile на машине) и 
 - [ ] `GATE_SCOPE=all gate.sh full` на ветке после rebase — код 0 и вердикт Gate «зелено»; e2e и
   `.app` проверяются только здесь, под замком `/tmp/worfy-e2e.lock`.
 - [ ] (вручную) Stable copy после влития: подключение временного репозитория с `origin`
-  `https://github.com/IDSAD-XL/worfy.git` показывает аккаунты машины из `gh auth status`; у IDSAD-XL
-  права есть → `pr-green-ci`; у Oleksii-O-Atakama репозиторий не виден → `local-green` с причиной.
+  `https://github.com/IDSAD-XL/worfy.git` показывает аккаунты машины из `gh auth status`; у аккаунта репозитория
+  права есть → `pr-green-ci`; у личного аккаунта GitHub владельца репозиторий не виден → `local-green` с причиной.
   «Connect» не нажимать: Profile на машине не пишется. Как проверить: окно приложения.
 
 ## Тесты
@@ -242,8 +242,8 @@ e2e нового сценария: gate отдаёт test-ам `CLAUDE_GATE_CONF
 test:e2e test:package».
 
 **Не проверено.**
-- не проверено: ручной пункт со Stable copy после влития (аккаунты машины, IDSAD-XL → `pr-green-ci`,
-  Oleksii-O-Atakama → `local-green`) — GUI-проверки и настоящий gh не мои по брифу.
+- не проверено: ручной пункт со Stable copy после влития (аккаунты машины, аккаунт репозитория → `pr-green-ci`,
+  личный аккаунт GitHub владельца → `local-green`) — GUI-проверки и настоящий gh не мои по брифу.
 - не проверено: настоящий `gh auth login` в терминале диалога — по правилу владельца запускался только
   подменённый gh; форма вывода `gh auth status --json hosts` взята из текста Ticket-а и `gh auth status --help`
   (`.hosts | add`), настоящий вывод не читался.

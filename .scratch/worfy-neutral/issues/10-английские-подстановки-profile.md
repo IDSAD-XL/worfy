@@ -39,7 +39,7 @@ Ticket 07 нашёл русские слова, которые не уходят
 3. Имена lens: plugin не называет конкретных lens — текст говорит о «lens из `review.lenses`». Переименовать
    lens в Profile-е worfy или оставить русскими — шаг владельца, diff — в «Итог».
 4. Временный список `profileWords` правила lint 07 удаляется; `agents-text.test.sh:122-125` — тоже.
-5. **(вручную, Orchestrator после мержа)** Profile-ы worfy, auction и atakama: подстановки в значениях
+5. **(вручную, Orchestrator после мержа)** Profile-ы worfy, project-a и project-b: подстановки в значениях
    (`worktree.*`, `tickets.branch`, `commands.test_one`, `tests.new_file`, `workflow.preflight`) — на
    английские до 08. Diff — в «Итог».
 
@@ -94,12 +94,12 @@ Review: круг 1 — high, три lens (корректность — ниче�
 
 - worfy — `worktree.implementer`, `worktree.reviewer` (`<ветка>`, `<что-ревьюишь>`), `tickets.path`,
   `tickets.spec`, `tickets.branch`, `qmd.fallback_grep` (`<эпик>`).
-- auction — `commands.test_one`, `commands.package.*` (`<файл>`, `<пакет>`), `tests.new_file.*` (`<имя>`,
+- project-a — `commands.test_one`, `commands.package.*` (`<файл>`, `<пакет>`), `tests.new_file.*` (`<имя>`,
   `<каталог модуля>`), `worktree.*` (`<ветка>`, `<имя-тикета>`, `<что-ревьюишь>`), `tickets.*`,
   `qmd.fallback_grep` (`<эпик>`); `rules.md:9` и `:85` — английские заголовки.
-- atakama — `commands.package.test` (`<пакет>`), `tickets.*`, `qmd.fallback_grep` (`<эпик>`); `rules.md:108`.
+- project-b — `commands.package.test` (`<пакет>`), `tickets.*`, `qmd.fallback_grep` (`<эпик>`); `rules.md:108`.
   Свои подстановки проекта `<репозиторий>`, `<сервис>` остаются.
 - По желанию — имена lens в `review.lenses` / `ticket_lenses` по-английски (worfy: `correctness`,
-  `module boundaries`, `tests`; auction и atakama — так же по смыслу).
+  `module boundaries`, `tests`; project-a и project-b — так же по смыслу).
 
 Долг (low): `\r?` в `englishHeadings` лишний (`$` с флагом `m` уже совпадает перед `\r`).

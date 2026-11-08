@@ -9,7 +9,7 @@ Source: решения владельца 2026-10-07: Q11' и Q10 (Profile це�
 ## Что происходит
 
 - Profile (описание Project-а для Harness) лежит в `~/.claude/profiles/<имя>/`: `profile.json`,
-  `rules.md`, у Atakama ещё `lessons/`, `state/`, `bin/`. Читает его один скрипт — `bin/profile`:
+  `rules.md`, у Project B (другой проект владельца) ещё `lessons/`, `state/`, `bin/`. Читает его один скрипт — `bin/profile`:
   пути к реестру Gate, резолверу и папке Profile-ов — `~/.claude/bin/profile:31-34`. После
   Ticket-а 02 (импорт Harness в репозиторий) это `harness/bin/profile`; Ticket 08 (перевод и пути
   `bin/`) переводит пути по умолчанию на `HARNESS_HOME`.
@@ -17,8 +17,8 @@ Source: решения владельца 2026-10-07: Q11' и Q10 (Profile це�
   `harness/profiles/README.md`. Место Profile-а — `README.md:20-35`, поле `schema` — `1` (`:88`).
 - Четыре поля — пути к самому Harness, а не факты Project-а (Q11): `tickets.status_tool`
   (`README.md:116`), `tickets.epic_status` (`:117`), `workflow.preflight` (`:120`),
-  `numbering.reserve_with` (`:125`). У worfy и Auction в них `~/.claude/bin/…`
-  (`workflow.preflight` — `~/.claude/bin/preflight --epic <эпик>`), у Atakama
+  `numbering.reserve_with` (`:125`). У worfy и Project A (другой проект владельца) в них `~/.claude/bin/…`
+  (`workflow.preflight` — `~/.claude/bin/preflight --epic <эпик>`), у Project B
   `workflow.preflight` и `numbering.reserve_with` — `null`. Их читают:
   - skills epic-wave и ship-ticket (`~/.claude/skills/epic-wave/SKILL.md:55-56`, `:335-336`;
     `~/.claude/skills/ship-ticket/SKILL.md:52-53`, `:72`, `:284`) — после Ticket-а 06 (перевод
@@ -74,7 +74,7 @@ Source: решения владельца 2026-10-07: Q11' и Q10 (Profile це�
    - В schema 1 значение `~/.claude/bin/<скрипт>` заменяется тем же путём своего Harness: после
      перехода машины владельца (Ticket 16) в `~/.claude/bin/` Harness-а нет. `null` остаётся
      `null`.
-   - У Atakama сейчас `workflow.preflight: null`. В schema 2 этого выбора в Profile нет (Q11):
+   - У Project B сейчас `workflow.preflight: null`. В schema 2 этого выбора в Profile нет (Q11):
      preflight Harness один для всех Project-ов.
    - Читатели в файлах этого Ticket-а переходят на константы Harness: `harness/bin/preflight`
      берёт `epic-status` рядом с собой, а не из Profile; skills epic-wave и ship-ticket зовут
@@ -94,7 +94,7 @@ Source: решения владельца 2026-10-07: Q11' и Q10 (Profile це�
 ADR не нужен: решения приняты в ADR-0042 (Profile на машине, режимы) и ADR-0044 (язык); этот
 Ticket их выполняет для контракта и `bin/profile`.
 
-**Не входит:** перенос Profile-ов worfy, Auction и Atakama в schema 2 и в `$HARNESS_HOME` —
+**Не входит:** перенос Profile-ов worfy, Project A и Project B в schema 2 и в `$HARNESS_HOME` —
 Ticket 14 (перенос); где worfy ищет `bin/profile` — Ticket 12; поведение Silent mode — Ticket 22;
 коллекции qmd по Profile — Ticket 17.
 
@@ -122,7 +122,7 @@ Ticket 14 (перенос); где worfy ищет `bin/profile` — Ticket 12; �
 как он падал.
 
 - `harness/bin/tests/profile.test.sh` — новые случаи на временных папках; случаи «живого
-  реестра» (Auction) остаются под проверкой `[ -d … ]` и в CI пропускаются, как сейчас.
+  реестра» (Project A) остаются под проверкой `[ -d … ]` и в CI пропускаются, как сейчас.
 - `harness/bin/tests/preflight.test.sh` — `--epic` без поля в Profile.
 
 ## Где в коде
@@ -162,31 +162,31 @@ Ticket-а 05 (части правил для hooks) и `harness/hooks/session-st
   своего Harness), что и `--json`.
 - `harness/bin/preflight` берёт `epic-status` рядом с собой; ветка «нет сводки Epic-а в Profile»
   убрана. Минимальный предполёт skills остаётся только для случая, когда `preflight` не
-  запускается (код 2: не git, например общий каталог Atakama над тремя репозиториями). Прежний
-  путь Atakama (`workflow.preflight: null` — минимальный предполёт в каждом репозитории) не
+  запускается (код 2: не git, например общий каталог Project B над тремя репозиториями). Прежний
+  путь Project B (`workflow.preflight: null` — минимальный предполёт в каждом репозитории) не
   сохранён: её репозитории теперь идут через `preflight` Harness-а. Поэтому при `worktree.base: null`
   `preflight` больше не подставляет `origin/main` вслепую. Порядок такой: `origin/<default_branch>`
   этого репозитория из `layout.repos`, затем ветка, на которую указывает `origin/HEAD`, затем
-  `origin/main`. Иначе Atakama-Browser-Extension и Atakama-Browser-Server (основная ветка
+  `origin/main`. Иначе project-b-Browser-Extension и project-b-Browser-Server (основная ветка
   `master`) вставали на «BLOCKED: no ref origin/main» — находка ревью, круг доработки 1.
-  Проверено на клонах трёх репозиториев Atakama во временном каталоге: `preflight` первого круга —
+  Проверено на клонах трёх репозиториев Project B во временном каталоге: `preflight` первого круга —
   код 1 «BLOCKED: no ref origin/main», нынешний — код 0, база `origin/master`, `GO`.
 - Skills epic-wave и ship-ticket зовут `ticket`, `epic-status`, `preflight` из
   `${CLAUDE_PLUGIN_ROOT}/bin/`; правило о значениях `~/.claude/bin/` (schema 1) оставлено — его
   требует `epic-wave-ship-ticket.test.sh`.
 - Части правил Ticket-а 05 (`harness/hooks/rules/`) имён четырёх полей не содержат — правки не нужно.
-- Проверка на копиях живых Profile-ов worfy, Auction и Atakama (schema 1, во временном `HOME`):
+- Проверка на копиях живых Profile-ов worfy, Project A и Project B (schema 1, во временном `HOME`):
   `--json` старого и нового `bin/profile` различаются только четырьмя путями (стали путями своего
-  Harness; `null` у Atakama остался `null`) и добавленными `mode: full`, `attribution: on`.
+  Harness; `null` у Project B остался `null`) и добавленными `mode: full`, `attribution: on`.
 - Вне Ticket-а: `src/main/workflow/profile.ts:4` в комментарии всё ещё называет место Profile-а
   `<claude home>/profiles/<имя>/` — это Ticket 12.
 
 **Влито.** [PR #115](https://github.com/IDSAD-XL/worfy/pull/115) → squash-коммит `f3fc9e1` в `main`. Ревью —
-REJECTED → VERIFIED, один круг доработки. В первом круге Atakama вставала на предполёте: `preflight`
-подставлял `origin/main`, а Atakama-Browser-Extension и Atakama-Browser-Server на `master` — «BLOCKED: no ref
+REJECTED → VERIFIED, один круг доработки. В первом круге Project B вставала на предполёте: `preflight`
+подставлял `origin/main`, а project-b-Browser-Extension и project-b-Browser-Server на `master` — «BLOCKED: no ref
 origin/main». Исправлено выбором базы: `layout.repos` → `origin/HEAD` → `origin/main` (`preflight:156`,
-`:172-175`). Ревьюер проверил на клонах трёх репозиториев Atakama — `GO` с базами `origin/master`,
-`origin/master`, `origin/main`; вывод для worfy и Auction побайтно тот же. Там же закрыты три находки [low]:
+`:172-175`). Ревьюер проверил на клонах трёх репозиториев Project B — `GO` с базами `origin/master`,
+`origin/master`, `origin/main`; вывод для worfy и Project A побайтно тот же. Там же закрыты три находки [low]:
 непроверенные ветки `bin/profile` (форма `$HOME/.claude/bin/`, `profile.json`, который не объект) и README.
 Проверка «смысл сохранён» по `harness/profiles/README.md`: все правила старого текста на месте. Прогоны во
 втором круге: `preflight.test.sh` 11/11, `profile.test.sh` зелёный, три мутанта красные, `gate fast` exit 0.

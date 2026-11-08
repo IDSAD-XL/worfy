@@ -87,7 +87,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   полос; раздел Claude, первый и всегда присутствующий, остаётся как в макете F, имя — tooltip. Метки у обоих разделов
   сжимали заголовок Project-а в окне 1280 px до 0 px, одна метка Codex — до 56 из 102 px (замер e2e). Поэтому полосы
   компактной панели сужены с 80 до 66 px (`src/renderer/limits/LimitBar.tsx`): `Sat 00:40` и `weekly 40%` целые,
-  заголовок `worfy — auction` и строка ветки целые (`test/e2e/limits-vendors.spec.ts`).
+  заголовок `worfy — project-a` и строка ветки целые (`test/e2e/limits-vendors.spec.ts`).
 - e2e `test/e2e/vendor-picker.spec.ts`: порядок и «Default vendor» с его сбросом (фейк `account-plus`); выбор Codex —
   Node, шапка, rail и подпись `codex` (фейк `turn`: один сценарий играет все процессы фейка, так что проверка входа
   падает и, по правилу `signInRefusal`, ничего не запрещает); без `CODEX_HOME` Codex неактивен с tooltip. Остальные spec-и,
@@ -96,5 +96,5 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   [без входа](../evidence/24/24-vendor-picker-signed-out-light.png) ([тёмная](../evidence/24/24-vendor-picker-signed-out-dark.png)),
   [Node](../evidence/24/24-vendor-node-light.png) ([тёмная](../evidence/24/24-vendor-node-dark.png)),
   [Session view](../evidence/24/24-vendor-session-view-light.png) ([тёмная](../evidence/24/24-vendor-session-view-dark.png)),
-  [Limits](../evidence/24/24-limits-light.png) ([тёмная](../evidence/24/24-limits-dark.png)).
+  Limits (картинка убрана: личное на изображении) (тёмная (картинка убрана: личное на изображении)).
 - Продолжение (решение владельца 2026-11-03, пересмотр Q10, ветка `feat/vendor-logos`): вместо нейтральных значков — логотипы Claude и OpenAI из Simple Icons 15.22.0 (CC0; `openai` убран из Simple Icons в 16.0.0) цветом текста, в Limits у каждого раздела, и у Claude, только знак без подписи; компактные полосы — 72 px, самые широкие, при которых заголовок Project-а целый в окне 1280 px (73 px режут его на 1 px); снимки в `../evidence/24/` заменены.

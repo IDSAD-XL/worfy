@@ -110,7 +110,7 @@ Source: [spec.md](../spec.md), «Codex: бинарник и совместимо
   `SubagentStop` есть `agent_type` (1 из 1) — для фейка hook-ов (Ticket 44).
 - Обезличивание: три значения записей Orchestrator заменил руками — имя Mac-а в `serverName` (`remoteControl/status/changed`),
   `installationId` и `loginId`. Теперь их заменяет скрипт: имя хоста из `os.hostname()` и из `serverName` — на
-  `capture-host.local` (только целое имя: хост `mac` не трогает `macos`), `installationId` —
+  `<host>.local` (только целое имя: хост `mac` не трогает `macos`), `installationId` —
   `00000000-0000-4000-8000-000000000001`, `loginId` — `…0002`; если что-то из них осталось, скрипт ничего не пишет.
   Test сверяет: в сохранённых записях эти значения уже такие, какими их пишет скрипт. Повторно записи не снимались.
 - Под `CI` и `VITEST` скрипт отказывает раньше всего, `--help` тоже (было: `--help` выходил с кодом 0 до отказа).

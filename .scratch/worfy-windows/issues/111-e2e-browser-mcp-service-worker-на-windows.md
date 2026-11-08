@@ -6,7 +6,7 @@ PR: #812
 Branch: worfy-windows/111
 Blocked by: —
 Source: пересчёт e2e на ПК владельца 2026-10-23 (main `f8ada2a3`, масштаб 150 %;
-`C:/Users/Alexey/worfy-wt/recount/e2e.json` на ПК), решение владельца 2026-10-23 по отсечке Epic-а. На Mac
+`C:/Users/<user>/worfy-wt/recount/e2e.json` на ПК), решение владельца 2026-10-23 по отсечке Epic-а. На Mac
 тот же test, по словам Session на Mac, иногда красный. Строки — по main `cf5adbf2`.
 
 ## Что происходит

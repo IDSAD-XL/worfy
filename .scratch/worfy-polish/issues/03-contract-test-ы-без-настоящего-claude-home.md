@@ -134,7 +134,7 @@ test-а); эти три файла отдельно — 108 из 108 и с пр�
 нагрузкой; этот файл отдельно под тем же `HOME` — exit 0, 44 из 44.
 
 **Настоящий `~/.claude` не изменился.** До и после всех прогонов:
-`stat -f '%m %N' ~/.claude/settings.json` → `1792033835 /Users/alexey/.claude/settings.json` оба раза;
+`stat -f '%m %N' ~/.claude/settings.json` → `1792033835 ~/.claude/settings.json` оба раза;
 `diff <(ls -la ~/.claude | awk '{print $NF}') …` — без различий, exit 0.
 
 **Вне скоупа замечено:** project `jsdom` гоняет и `test/contract/**/*.test.tsx`, setup-файл у него

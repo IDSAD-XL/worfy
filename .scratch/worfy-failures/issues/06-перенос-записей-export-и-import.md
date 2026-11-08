@@ -60,7 +60,7 @@ Source: [spec.md](../spec.md), «Цель и что видит пользова�
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10
   - evidence: review pass · PR #1402 · - - · f2bfaa51d3b2e4ff7f2e42c1d1ae8cddc1e6db21
-- [ ] Contract test приватности: запись с `C:\Users\jdoe\…`, hostname машины, UUID и `ghp_…` в `error` — export
+- [ ] Contract test приватности: запись с `C:\Users\someone\…`, hostname машины, UUID и `ghp_…` в `error` — export
       exit 2, вывод пуст; тот же файл в import — отвергнут.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 · mac - · c1af438a5
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/gate-failures-transfer.test.ts test/contract/gate-failures-cli.test.ts test/unit/gate-failures-format.test.ts` exit 0 after the rebase · mac - · 4ae72be10

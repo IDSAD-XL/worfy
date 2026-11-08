@@ -37,7 +37,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Готово, когда
 
-- [ ] `pnpm test test/unit/ticket-stepper.test.tsx` — exit 0: Pipeline worfy и Atakama; текущий Stage
+- [ ] `pnpm test test/unit/ticket-stepper.test.tsx` — exit 0: Pipeline worfy и Project B (другой проект владельца); текущий Stage
       и «кого ждёт» в подписи; `skipped`, `blocked`, `rework`; узкая Card.
 - [ ] `pnpm test test/unit/checks-badges.test.tsx test/contract/github-prs.test.ts` — exit 0: вердикт —
       из отметки; комментарий `VERIFIED` без отметки вердикта не даёт.

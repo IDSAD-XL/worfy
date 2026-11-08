@@ -49,7 +49,7 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
       домашней папки.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
   - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
-- [ ] Shell test: строка reporter-а с `/Users/jdoe/…` в `error` и `name` — в файле run-а `~/…`: gate очистил сам.
+- [ ] Shell test: строка reporter-а с `/Users/someone/…` в `error` и `name` — в файле run-а `~/…`: gate очистил сам.
   - evidence: test-run pass · `bash harness/hooks/tests/gate-failures.test.sh` exit 0 · mac - · 69ff301646015634cec5172df82bb5b0561d215d
   - evidence: review pass · PR #1404 · - - · 146eeec28fdf579387373e194810215b53fb4be0
 - [ ] Shell test: run на дереве с незакоммиченной правкой — `dirty: true`; на чистом — `false`.
@@ -130,7 +130,7 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 - `scripts/windows-verdict-scope.mjs 59a376618 69ff30164` → `runner`: путь `cmd.exe` проверяет Windows job CI
   (`gate-failures.test.sh` на Windows идёт через `.cmd`, случай с SIGTERM там пропущен, как в
   `gate-verdict-signals.test.sh`).
-- `harness/hooks/tests/gate-failures.test.sh`: путь домашней папки macOS собирается из частей (`"/Us""ers/jdoe"`), как в
+- `harness/hooks/tests/gate-failures.test.sh`: путь домашней папки macOS собирается из частей (`"/Us""ers/someone"`), как в
   `evidence-check.test.sh`: `plugin-neutral.test.sh` не пускает такие пути в файлы plugin-а.
 - Проверено локально: `pnpm lint`, `pnpm typecheck`, все `harness/hooks/tests/gate-*.test.sh`, `plugin-neutral.test.sh`,
   vitest-файлы gate (`gate-failures-format`, `gate-failures-cli`, `gate-state`, `flight-recorder-gate`,

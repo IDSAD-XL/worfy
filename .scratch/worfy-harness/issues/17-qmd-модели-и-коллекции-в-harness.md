@@ -16,7 +16,7 @@ MCP-сервер. Сейчас он стоит только на машине в
   `~/.cache/qmd/index.sqlite`, коллекции — `~/.config/qmd/index.yml`. Ставит и обновляет это
   только владелец.
 - **MCP-сервер записан в `~/.claude.json`** (`mcpServers.qmd`, command
-  `/Users/alexey/.claude/bin/qmd-mcp`), а не в plugin. В форме переноса (Ticket 14, шаг владельца —
+  `~/.claude/bin/qmd-mcp`), а не в plugin. В форме переноса (Ticket 14, шаг владельца —
   Ticket 16) эта запись стоит в списке «уберу» (Q19). Исполнитель на момент взятия проверяет
   `jq '.mcpServers.qmd' ~/.claude.json` (только чтение). Если записи уже нет, то до этого Ticket-а у
   агентов нет qmd, и они ищут grep-ом по `qmd.fallback_grep` Profile.
@@ -33,10 +33,10 @@ MCP-сервер. Сейчас он стоит только на машине в
   - Пути и состояние скриптов в `~/.claude/worfy-harness/` (`HARNESS_HOME`) переводит Ticket 08.
     Проверить по `harness/bin/` на момент взятия.
 - **Коллекции владельца** (`~/.config/qmd/index.yml`):
-  - `auction` и `tickets` — копия `~/.cache/qmd/auction-main` с
-    `update: /Users/alexey/.claude/bin/qmd-sync-main auction` (строки 5 и 15);
-  - `memory` — память Claude по Auction;
-  - `lessons` — уроки Profile atakama.
+  - `project-a` и `tickets` — копия `~/.cache/qmd/project-a-main` с
+    `update: ~/.claude/bin/qmd-sync-main project-a` (строки 5 и 15);
+  - `memory` — память Claude по Project A (другой проект владельца);
+  - `lessons` — уроки Profile project-b.
 
   У worfy коллекций нет: в Profile `qmd.collections: []`.
 - **Имена инструментов.** `~/.claude/agents/scout.md:4` и `reviewer.md:4` перечисляют
@@ -98,7 +98,7 @@ MCP-сервер. Сейчас он стоит только на машине в
      - документы — каталог ADR, CONTEXT, HANDOFF и уроки, из полей `docs.*` и `lessons` Profile;
      - Ticket-ы — `.scratch/` в Workflow folder;
      - память Claude по Project — `<CLAUDE_CONFIG_DIR или ~/.claude>/projects/<путь Project, где
-       «/» и «.» заменены на «-»>/memory`, как в `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI`.
+       «/» и «.» заменены на «-»>/memory`, как в `~/.claude/projects/-Users-<user>-Stuff-CanvasForAI`.
    - **Источник:**
      - Full mode — git-копия main (`~/.cache/qmd/<project>-<branch>`, как в `qmd-sync-main`). Копии
        нет — скрипт клонирует её с токеном `github.account`, как это делает `qmd-sync-main`, не
@@ -113,18 +113,18 @@ MCP-сервер. Сейчас он стоит только на машине в
    - **Повторный запуск** ничего не меняет.
    - **Чужая коллекция.** Коллекция с тем же именем и другим путём — отказ, код ≠ 0, `index.yml` не
      меняется.
-   - **Коллекции уже есть.** Profile уже называет коллекции, и они есть в `index.yml` (Auction:
-     `auction`, `tickets`, `memory`). Тогда новые не заводятся — правится только путь `update:`
+   - **Коллекции уже есть.** Profile уже называет коллекции, и они есть в `index.yml` (Project A:
+     `project-a`, `tickets`, `memory`). Тогда новые не заводятся — правится только путь `update:`
      (пункт 6).
    - **Репозиторий Project** скрипт не пишет никогда.
    - **Кто зовёт.** Ticket 24 — при подключении Project. Для уже подключённых Project-ов (worfy,
-     Auction) — шаг qmd экрана первого запуска (Ticket 19), через `src/main/harness/qmd.ts`. Так
+     Project A) — шаг qmd экрана первого запуска (Ticket 19), через `src/main/harness/qmd.ts`. Так
      worfy получает свои коллекции сразу (Q16).
 6. **Старые пути `update:`.** Коллекции, чей `update:` зовёт `qmd-sync-main` не из plugin, получают
    путь `~/.claude/worfy-harness/plugin/bin/qmd-sync-main <profile>`. Сейчас это
-   `/Users/alexey/.claude/bin/qmd-sync-main auction`.
+   `~/.claude/bin/qmd-sync-main project-a`.
    - Перед правкой — копия `index.yml` рядом с датой в имени.
-   - Имена, пути и `pattern` коллекций Auction не меняются: переносятся как есть (Q16).
+   - Имена, пути и `pattern` коллекций Project A не меняются: переносятся как есть (Q16).
 7. **Hook и скрипты.** Stop-hook `qmd-refresh --quiet` живёт в `harness/hooks/hooks.json`; если
    Ticket 05 его не перенёс — добавить. `qmd-refresh` и `qmd-sync-main` находят `qmd-sync-main` и
    `profile` рядом с собой (`$(dirname "$0")`), а не в `~/.claude/bin` — если Ticket 08 этого не
@@ -160,7 +160,7 @@ ADR не нужен: решения — в ADR-0043, имя сервера — �
   - Silent mode: пути в Workflow folder, без `update:`;
   - второй запуск: `index.yml` и Profile побайтно те же;
   - чужая коллекция с тем же именем → код ≠ 0, `index.yml` не изменён;
-  - Profile как у Auction → поменялся только `update:`, рядом копия;
+  - Profile как у Project A → поменялся только `update:`, рядом копия;
   - `git status --porcelain` репозитория Project пуст во всех случаях.
 - [ ] (песочница, локально, не в CI) Каждая команда — код 0:
   - настоящий `npm install -g @tobilu/qmd@2.8.3` во временный `npm_config_prefix`;
@@ -292,12 +292,12 @@ test-ы `harness/bin/tests/` идут в CI worfy на Linux (Ticket 02). `qmd-m
      затем файл `~/.claude/worfy-harness/qmd-models` с первой строкой `downloaded` и URI из вывода `qmd pull`
      (позже это делает экран первого запуска, Ticket 19);
   3. `~/.claude/worfy-harness/plugin/bin/qmd-collections worfy` — коллекции worfy;
-  4. `~/.claude/worfy-harness/plugin/bin/qmd-collections auction` — путь `update:` коллекций `auction` и
-     `tickets` с `/Users/alexey/.claude/bin/qmd-sync-main` (после Ticket-а 16 его нет) на plugin, копия
+  4. `~/.claude/worfy-harness/plugin/bin/qmd-collections project-a` — путь `update:` коллекций `project-a` и
+     `tickets` с `~/.claude/bin/qmd-sync-main` (после Ticket-а 16 его нет) на plugin, копия
      `index.yml` рядом.
 
   Сделано; прочитано на машине 2026-10-12: plugin — `0.2.0+4d3d60c`, первая строка `qmd-models` — `downloaded`,
-  коллекции worfy есть в Profile, путь `update:` у `auction` ведёт в `worfy-harness/plugin/bin/qmd-sync-main`.
+  коллекции worfy есть в Profile, путь `update:` у `project-a` ведёт в `worfy-harness/plugin/bin/qmd-sync-main`.
 
 Гейт волны 8: `VERIFIED` с первого круга (PR #145, влит `282a7c9`). Выход за след — `src/main/agent/options.ts`
 (регистрация серверов plugin-а под `plugin_worfy_<name>` по ADR-0048 п.4) — разрешил оркестратор, «решено без

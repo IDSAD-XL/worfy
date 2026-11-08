@@ -422,7 +422,7 @@ UI в двух темах, Autopilot над worfy — только на Stable c
   временной папке, как в E3. Hooks Ticket 01 проверяет в папке-песочнице через её
   `.claude\settings.local.json`.
 - **Evidence** — `.scratch/worfy-windows/evidence/`: выводы команд и снимки с ПК.
-- **Только чтение.** Писать в `/Users/alexey/Work/*` нельзя.
+- **Только чтение.** Писать в `~/Work/*` нельзя.
 - **Шаги владельца.** Установки через winget — с его согласия. Вход в Claude и в `gh`, системные
   запросы Windows (SmartScreen, Smart App Control) — делает владелец. Чистой Windows 11 для приёмки
   нет (решение владельца 2026-10-09).

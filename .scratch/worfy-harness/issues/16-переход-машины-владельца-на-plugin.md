@@ -48,8 +48,8 @@ Source: решения владельца 2026-10-07, Q13, Q33, Q14, Q19, Q8, Q3
 3. **Шаг владельца (Q33, Q8).** В Stable copy:
    - Install Harness (элемент toolbar Ticket-а 13) → согласие в диалоге;
    - форма переноса (Ticket 14): владелец смотрит строки «уберу / оставлю», ставит `mode`,
-     `language.docs`, `attribution` для worfy, Auction и Atakama (Q28: worfy и Auction — Full,
-     Atakama — Silent; Q25: `attribution` — решение владельца) и подтверждает;
+     `language.docs`, `attribution` для worfy, Project A (другой проект владельца) и Project B (Q28: worfy и Project A — Full,
+     Project B (другой проект владельца) — Silent; Q25: `attribution` — решение владельца) и подтверждает;
    - строка `statusLine` — замена на мост Stable copy
      (`~/Applications/worfy-stable.app/Contents/Resources/statusline-bridge.sh`);
    - группа qmd (`bin/qmd-*`, запись hook `qmd-refresh --quiet`, запись qmd в `~/.claude.json`)
@@ -67,12 +67,12 @@ Source: решения владельца 2026-10-07, Q13, Q33, Q14, Q19, Q8, Q3
    команда отката, что до Ticket-а 17 qmd в Session-ах нет. Дальше все Wave-ы E3 идут на plugin
    (Q33).
 
-Писать в `/Users/alexey/Work/*` нельзя: Auction и Atakama в проверках — только чтение.
+Писать в `~/Work/*` нельзя: Project A и Project B в проверках — только чтение.
 
 ## Готово, когда
 
 - [ ] (владелец) Install Harness и перенос сделаны в Stable copy; путь резервной копии — в «Итог».
-- [ ] `~/.claude` — только личное: снимок до и `ls ~/.claude/agents ~/.claude/skills ~/.claude/bin ~/.claude/hooks` после, сравнение `comm -23` — пропали ровно Harness-файлы Q19 (3 agents, 7 skills, `bin/` без `telegram-mcp`, `auction-staging-db-mcp`, `agent-time-split`, `hooks/`); личные skills, `skills/synced/` и три личных скрипта `bin/` на месте.
+- [ ] `~/.claude` — только личное: снимок до и `ls ~/.claude/agents ~/.claude/skills ~/.claude/bin ~/.claude/hooks` после, сравнение `comm -23` — пропали ровно Harness-файлы Q19 (3 agents, 7 skills, `bin/` без `telegram-mcp`, `project-a-staging-db-mcp`, `<personal-tool>`, `hooks/`); личные skills, `skills/synced/` и три личных скрипта `bin/` на месте.
 - [ ] `jq '[.hooks[][].hooks[].command]' ~/.claude/settings.json` — нет команд, ведущих в `$HOME/.claude/hooks/` или `$HOME/.claude/bin/`; `jq '{model, env, effortLevel}'` совпадает со снимком; `statusLine.command` — мост Stable copy.
 - [ ] `jq '.mcpServers.qmd' ~/.claude.json` — `null`, остальные ключи `mcpServers` — как в снимке. Если владелец оставил группу qmd, этот пункт и qmd в двух пунктах выше заменяет запись в «Итог» и HANDOFF.
 - [ ] `git -C ~/.claude log -1 --stat` — коммит переноса, в нём только пути из формы; `git -C ~/.claude status --short` — тот же вывод, что в «Снимок до» (личное вне git, например `?? skills/synced/`, остаётся как было).
@@ -80,8 +80,8 @@ Source: решения владельца 2026-10-07, Q13, Q33, Q14, Q19, Q8, Q3
 - [ ] Новая Session в терминале видит plugin: `set -o pipefail; claude -p ok --output-format stream-json --verbose | jq -c 'select(.type=="system" and .subtype=="init") | {plugins, slash_commands}'` — код 0, в `plugins` есть `worfy`, в `slash_commands` — `worfy:epic-wave` и `worfy:ship-ticket`.
 - [ ] `~/.claude/worfy-harness/plugin/bin/epic-status worfy-harness` в checkout-е worfy — код 0 и строка Epic-а; с `--json` — код 0 и Ticket-ы `worfy-harness`.
 - [ ] `GATE_SCOPE=all bash ~/.claude/worfy-harness/plugin/hooks/gate.sh fast` в checkout-е worfy — код 0, строка `[gate]` зелёная, файл вердикта (Ticket 09) с тем же исходом; Stable copy показывает этот вердикт.
-- [ ] `~/.claude/worfy-harness/plugin/bin/profile -C /Users/alexey/Stuff/CanvasForAI --field mode` — код 0 и `full`; то же для `/Users/alexey/Work/Auction` — `full`, для `/Users/alexey/Work/Atakama/Atakama-Browser-Server` (реестр Gate сопоставляет Atakama по каждому из трёх репозиториев) — `silent` (только чтение).
-- [ ] Stable copy показывает Epic-и worfy и Auction (окно приложения; только чтение).
+- [ ] `~/.claude/worfy-harness/plugin/bin/profile -C ~/Stuff/CanvasForAI --field mode` — код 0 и `full`; то же для `~/Work/project-a` — `full`, для `~/Work/project-b/project-b-Browser-Server` (реестр Gate сопоставляет Project B по каждому из трёх репозиториев) — `silent` (только чтение).
+- [ ] Stable copy показывает Epic-и worfy и Project A (окно приложения; только чтение).
 - [ ] Limits из терминала: после ответа новой Session в терминале `stat -f %m ~/Library/Application\ Support/worfy/statusline-limits.json` новее времени перехода.
 - [ ] `test -f ~/.claude/worfy-harness/backup-<дата>/restore.mjs` — код 0; команда отката записана в HANDOFF. Сам откат на настоящем `~/.claude` не запускается.
 - [ ] HANDOFF: переход сделан, дата, путь копии, команда отката; до Ticket-а 17 qmd в Session-ах нет.
@@ -99,7 +99,7 @@ Ticket-ах 13, 14 и 15 (песочница). Здесь — проверки �
 
 Кода worfy и файлов `harness/` Ticket не меняет. Вне репозитория меняются ещё `~/.claude.json`
 (запись qmd, если она ушла по форме) и `~/.claude/worfy-harness/`. Читаются
-`~/Applications/worfy-stable.app` и репозитории Auction и Atakama.
+`~/Applications/worfy-stable.app` и репозитории Project A и Project B.
 
 ## Итог
 
@@ -107,29 +107,29 @@ Ticket-ах 13, 14 и 15 (песочница). Здесь — проверки �
 
 **Подготовка.** Прогон Autopilot остановлен обычным Stop (graceful, Ticket 18 worfy-week) после мержа Ticket-а 14. `GATE_SCOPE=all gate.sh full` на main 77e4490 — `[gate] зелено (full)`, exit 0; `pnpm install:stable` — exit 0, Stable copy 77e4490.
 
-**Снимок до** (`~/.claude`): `git status --short` — `?? skills/synced/`; HEAD b5cb2e3; hooks в settings.json — session-start, worktree-lock claim/beat/release, gate.sh fast (TaskCompleted, TeammateIdle), stop.sh, qmd-refresh --quiet, session-end.sh, guard.mjs; statusLine — `/Users/alexey/Stuff/CanvasForAI/scripts/statusline-bridge.sh`; model `opus[1m]`, effortLevel `high`, env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`; mcpServers — freecad, github, qmd, telegram.
+**Снимок до** (`~/.claude`): `git status --short` — `?? skills/synced/`; HEAD b5cb2e3; hooks в settings.json — session-start, worktree-lock claim/beat/release, gate.sh fast (TaskCompleted, TeammateIdle), stop.sh, qmd-refresh --quiet, session-end.sh, guard.mjs; statusLine — `~/Stuff/CanvasForAI/scripts/statusline-bridge.sh`; model `opus[1m]`, effortLevel `high`, env `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`; mcpServers — freecad, github, qmd, telegram.
 
 **Шаг.**
 - Install Harness: системное окно «Install the worfy Harness 0.2.0+77e4490?» → Install. `claude plugin list`: `worfy@worfy-harness` 0.2.0+77e4490, Scope user, enabled, читается из `~/.claude/worfy-harness/plugin`.
-- Форма переноса: группа файлов — 26 строк (23 уходят: 22 в `agents/`, `skills/`, `bin/`, `hooks/` и `profiles/README.md`; `bin/tests`, `bin/ТИКЕТЫ.md`, `hooks/tests` — остаются), группа hooks — 9 строк (десятая запись, `qmd-refresh --quiet`, — в группе qmd), statusLine → мост Stable copy, группа qmd уходит (Q15, Q19; до Ticket-а 17 qmd в Session-ах нет, поиск grep-ом), состояние Gate и worktree-sessions и Profile-ы atakama, auction, worfy → в Harness home; CLAUDE.md — 15 разделов уходят, «Standing authorization» остаётся. Поля Profile-ов: worfy — full, auction — full, atakama — silent; `language.docs` — ru у всех; `attribution` — on у всех (в истории Auction и Atakama строки атрибуции Claude уже есть; для Atakama — подтвердить владельцу).
+- Форма переноса: группа файлов — 26 строк (23 уходят: 22 в `agents/`, `skills/`, `bin/`, `hooks/` и `profiles/README.md`; `bin/tests`, `bin/ТИКЕТЫ.md`, `hooks/tests` — остаются), группа hooks — 9 строк (десятая запись, `qmd-refresh --quiet`, — в группе qmd), statusLine → мост Stable copy, группа qmd уходит (Q15, Q19; до Ticket-а 17 qmd в Session-ах нет, поиск grep-ом), состояние Gate и worktree-sessions и Profile-ы project-b, project-a, worfy → в Harness home; CLAUDE.md — 15 разделов уходят, «Standing authorization» остаётся. Поля Profile-ов: worfy — full, project-a — full, project-b — silent; `language.docs` — ru у всех; `attribution` — on у всех (в истории Project A и Project B строки атрибуции Claude уже есть; для Project B — подтвердить владельцу).
 - Второе системное окно: «26 files and folders … 10 hook records … 15 sections … 6 Profiles and state folders» → Move.
-- Резервная копия: `/Users/alexey/.claude/worfy-harness/backup-2026-10-08-01-54-28`. Откат: `node /Users/alexey/.claude/worfy-harness/backup-2026-10-08-01-54-28/restore.mjs`. Коммит в git `~/.claude`: 41bdcd4 (38 files, 7145 deletions).
+- Резервная копия: `~/.claude/worfy-harness/backup-2026-10-08-01-54-28`. Откат: `node ~/.claude/worfy-harness/backup-2026-10-08-01-54-28/restore.mjs`. Коммит в git `~/.claude`: 41bdcd4 (38 files, 7145 deletions).
 
 **Проверки** (exit code у каждой — 0):
 - Ушло ровно (25 записей: 22 из группы файлов и 3 скрипта `bin/qmd-*` из группы qmd): `continuous-audit`, `epic-board`, `epic-status`, `epic-wave`, `gate-resolve.mjs`, `gate.sh`, `guard.mjs`, `implementer.md`, `overnight-fix-loop`, `preflight`, `profile`, `qmd`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`, `retro`, `reviewer.md`, `scout.md`, `session-end.sh`, `session-start.sh`, `ship-ticket`, `stop.sh`, `ticket`, `tickets-to-tasks`, `worktree-lock`. Новых записей нет. `git -C ~/.claude status --short` — `?? skills/synced/`, как в снимке.
-- `jq` по settings.json: команд hooks в `~/.claude/hooks/` и `~/.claude/bin/` — нет; model, effortLevel, env — как в снимке; statusLine — `/Users/alexey/Applications/worfy-stable.app/Contents/Resources/statusline-bridge.sh`.
+- `jq` по settings.json: команд hooks в `~/.claude/hooks/` и `~/.claude/bin/` — нет; model, effortLevel, env — как в снимке; statusLine — `~/Applications/worfy-stable.app/Contents/Resources/statusline-bridge.sh`.
 - `.mcpServers.qmd` в `~/.claude.json` — `null`; остальные — freecad, github, telegram.
 - `claude plugin list --json`: `worfy@worfy-harness`, version 0.2.0+77e4490, enabled.
 - Новая Session (`claude -p … --output-format stream-json --verbose`): plugins — mattpocock-skills, figma, worfy, …; команды `worfy:` — continuous-audit, epic-wave, overnight-fix-loop, qmd, retro, ship-ticket, tickets-to-tasks.
 - `~/.claude/worfy-harness/plugin/bin/epic-status worfy-harness` в checkout-е worfy — строка Epic-а (15/27).
 - `GATE_SCOPE=all bash ~/.claude/worfy-harness/plugin/hooks/gate.sh fast` — `[gate] зелено (fast)`; файл вердикта `verdict-5c637d80.json` — `outcome: green`.
-- `profile --field mode`: CanvasForAI — full, Auction — full, Atakama-Browser-Server — silent.
+- `profile --field mode`: CanvasForAI — full, Project A — full, project-b-Browser-Server — silent.
 - `test -f …/restore.mjs` — 0.
 
 **Не проверено.**
-- «Stable copy показывает Epic-и Auction»: Auction не подключён в Stable copy как Project (окно показывает только Project worfy со всеми его Epic-ами). Писать в Auction нельзя; подключение — шаг владельца при желании.
+- «Stable copy показывает Epic-и Project A»: Project A не подключён в Stable copy как Project (окно показывает только Project worfy со всеми его Epic-ами). Писать в Project A нельзя; подключение — шаг владельца при желании.
 - Мост Limits из интерактивной Session терминала: `claude -p` statusLine не вызывает. Сам мост из `.app` проверен прямым запуском (exit 0, файл `statusline-limits.json` обновился); в файле пробные значения до первой настоящей Session в терминале.
 
-**Заметки.** В `~/.claude/worfy-harness/gate/state/` перенесены 8 старых маркеров: `red-worfy-44f904e2` (2026-10-07T19:36Z) и 7 `red-auction-*` от 2026-10-01. Их хеши не совпадают с живыми checkout-ами (worfy 048d88a0, дерево Orchestrator-а 5c637d80, test-654d80 f8781e09, Auction 7de8b409): это удалённые worktree, на работу не влияют. Session-ы, начатые до перехода (в том числе Session Orchestrator-а этой ночи), держат в памяти старые записи hooks, а их скрипты удалены: guard (PreToolUse), Gate на TaskCompleted/TeammateIdle и worktree-lock в них молча не работают до перезапуска. Session Orchestrator-а Autopilot поднимает заново при старте прогона — уже с plugin-ом.
+**Заметки.** В `~/.claude/worfy-harness/gate/state/` перенесены 8 старых маркеров: `red-worfy-44f904e2` (2026-10-07T19:36Z) и 7 `red-project-a-*` от 2026-10-01. Их хеши не совпадают с живыми checkout-ами (worfy 048d88a0, дерево Orchestrator-а 5c637d80, test-654d80 f8781e09, Project A 7de8b409): это удалённые worktree, на работу не влияют. Session-ы, начатые до перехода (в том числе Session Orchestrator-а этой ночи), держат в памяти старые записи hooks, а их скрипты удалены: guard (PreToolUse), Gate на TaskCompleted/TeammateIdle и worktree-lock в них молча не работают до перезапуска. Session Orchestrator-а Autopilot поднимает заново при старте прогона — уже с plugin-ом.
 - Ручная проверка `worfy-harness` 12 «на машине с `legacy`» до перехода не сделана: машина перешла этой же ночью; ветку `legacy` покрывают test-ы Ticket-а 12.
-- 2026-10-08, владелец: `attribution: on` у Atakama подтверждён; Limits из интерактивной Session терминала снова приходят в worfy — пункт «Не проверено» про мост Limits закрыт.
+- 2026-10-08, владелец: `attribution: on` у Project B подтверждён; Limits из интерактивной Session терминала снова приходят в worfy — пункт «Не проверено» про мост Limits закрыт.

@@ -6,7 +6,7 @@ PR: #1105
 Branch: worfy-link/39
 Blocked by: —
 Source: приёмка link 31 с владельцем 2026-10-31, шаг 2: «Link a machine» с ПК по адресу
-`alexeys-macbook-pro.taila00ba6.ts.net:57769` — Mac ответил 403; по адресу Tailscale `100.71.20.55:57769` (нашёл
+`someones-mac.<tailnet>.ts.net:57769` — Mac ответил 403; по адресу Tailscale `<адрес Tailscale Mac>:57769` (нашёл
 автопоиск) связь прошла. В `link.log` Mac строки об отказе нет. Ticket заведён Orchestrator-ом; держит приёмку 31.
 
 ## Что происходит
@@ -14,8 +14,8 @@ Source: приёмка link 31 с владельцем 2026-10-31, шаг 2: «L
 - Проверка Host сервера связи (`src/main/link/server.ts:52` → `isAllowedHost`, `src/main/link/checks.ts:229`;
   `isAllowedHostName`, `checks.ts:195`) принимает имя MagicDNS, только если его первая метка равна первой метке
   `os.hostname()` (сокращение в коде, `checks.ts:191-194`, с пометкой «переделать»).
-- На Mac владельца `os.hostname()` — `Alexeys-MacBook-Pro-164.local`, а имя в tailnet — `alexeys-macbook-pro`
-  (`tailscale status --json`, `Self.DNSName` = `alexeys-macbook-pro.taila00ba6.ts.net.`). Метки разные — 403.
+- На Mac владельца `os.hostname()` — `someones-mac-164` (с `.local`), а имя в tailnet — `someones-mac`
+  (`tailscale status --json`, `Self.DNSName` = `someones-mac.<tailnet>.ts.net.`). Метки разные — 403.
   macOS добавляет такой суффикс (`-164`) сам, когда имя в сети уже занято; Tailscale берёт своё имя иначе.
 - `refuse()` (`server.ts:67-73`) пишет 403 в сокет и ничего не печатает: ни причины, ни Host, ни адреса peer-а.
   ADR-0070, п. 5 (`docs/adr/0070-*.md:83`) требует, чтобы проверка Host знала имена MagicDNS этой машины.
@@ -36,7 +36,7 @@ Source: приёмка link 31 с владельцем 2026-10-31, шаг 2: «L
 - [ ] Test: Tailscale не установлен / статус не читается — прежнее правило по hostname (существующие test-ы зелёные).
 - [ ] Test: отказ по Host, по Origin и по peer пишет строку `[link] refused …` с причиной.
 - [ ] Пределы test-ов не подняты; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Windows-job CI зелёный.
-- [ ] (вручную, с владельцем, вместе с link 31) связь с ПК по `alexeys-macbook-pro.taila00ba6.ts.net:57769` проходит.
+- [ ] (вручную, с владельцем, вместе с link 31) связь с ПК по `someones-mac.<tailnet>.ts.net:57769` проходит.
 
 ## Где в коде
 

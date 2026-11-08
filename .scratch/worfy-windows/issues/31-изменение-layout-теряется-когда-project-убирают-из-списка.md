@@ -84,7 +84,7 @@ Windows Session, 2026-10-18, ветка `worfy-windows/31` от main 3c23d7a4. C
 ### Причина (подтверждена на текущем коде)
 
 - `flush()` берёт путь `layout.json` у списка Project-ов в момент записи (`src/main/layout/store.ts:242` до правки). Для убранного Project-а это бросает `No Project with id …`, ошибка уходит в лог (`:245`), запись остаётся «несохранённой».
-- `projects.remove` сразу звал `store.remove` (`src/main/ipc/projects.ts:310` до правки), отложенную запись ничто не дописывало. Red run воспроизвёл это на Windows: в логе та же строка `[layout] could not save the Layout of auction-… No Project with id …`.
+- `projects.remove` сразу звал `store.remove` (`src/main/ipc/projects.ts:310` до правки), отложенную запись ничто не дописывало. Red run воспроизвёл это на Windows: в логе та же строка `[layout] could not save the Layout of project-a-… No Project with id …`.
 
 ### Что сделано
 

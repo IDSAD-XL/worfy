@@ -70,7 +70,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 ## Готово, когда
 
 - [x] `pnpm test test/unit/pipeline.test.ts` — exit 0: таблица случаев на каждый вид каталога и на оба
-      примера Pipeline spec-а (worfy и Atakama), в том числе: отметка на старом SHA не считается;
+      примера Pipeline spec-а (worfy и Project B (другой проект владельца)), в том числе: отметка на старом SHA не считается;
       `review failure` → Implementing `rework`; PR влит без отметок → после мержа; `blocked` на CI;
       Check `skipped` пройден; `gate running` и `waiting for gate`; Deploy по предку.
 - [x] `pnpm test test/contract/workflow-stages.test.ts` — exit 0: временный репозиторий, stub `gh`
@@ -126,7 +126,7 @@ tracker по своему интервалу). Домен IPC `pipeline`: `pipel
   описания в rollup нет: читается как `success`, Stage пройден, но в `skipped[]` не попадает.
   В Silent mode `skipped` виден (`skipped[]` у результата `stageOf`).
 - **CI без check-ов** (workflow.ci `batch`: на PR CI нет) — пройден, если PR есть. Без PR CI не
-  пройден: у Atakama после ревью агентом Ticket ждёт PR на CI, а не Human review.
+  пройден: у Project B после ревью агентом Ticket ждёт PR на CI, а не Human review.
 - **Status `none`** (старая шапка, нет строки) — Queued, как `open`: не известно, что работа идёт.
 - **Замок занят, `holder.json` пустой или нечитаемый** — подпись `gate busy` («gate идёт, PR
   неизвестен»): ни `gate running`, ни `waiting for gate` не утверждается.

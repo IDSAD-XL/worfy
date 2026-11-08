@@ -17,7 +17,7 @@ Source: «Проверки», «Исключения» и «Решено без 
 - Линзу без описания reviewer читает только по имени. Описание живёт в `harness/agents/reviewer.md`, раздел «Lens
   descriptions».
 - `worfy:continuous-audit` берёт линзы из отдельного поля `audit_lenses`. Его форма задана только таблицей
-  `harness/profiles/README.md`: `[{id, title, where[], finding}]`, где `where` — пути (образец — Profile `auction`). В
+  `harness/profiles/README.md`: `[{id, title, where[], finding}]`, где `where` — пути (образец — Profile `project-a`). В
   `draft.schema.json` этого поля нет. У worfy оно `null`, и без него аудит не запускается вообще (Р4 spec-а).
 - Profile worfy лежит вне репозитория: `~/.claude/worfy-harness/projects/worfy/`. На Mac и на Windows-ПК у каждого
   свой `rules.md` (ADR-0042).

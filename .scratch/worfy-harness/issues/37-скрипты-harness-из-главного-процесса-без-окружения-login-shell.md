@@ -203,10 +203,10 @@ Epic-ов.
 - Процесс `worfy-stable.app` владельца, запущен 2026-10-13 21:35:18:
   `PATH=/usr/bin:/bin:/usr/sbin:/sbin` по `ps eww`. `command -v node` с этим PATH — exit code 1.
   Замер Session, которая ведёт приёмку; повторён при проверке черновика 2026-10-14.
-- В списке Project-ов приложения два Project-а: репозиторий worfy и Auction. У их Profile-ов
-  `worfy` и `auction` `mode` — `full`, `tickets.root` — `.scratch/` (прочитано `jq`, только
+- В списке Project-ов приложения два Project-а: репозиторий worfy и Project A (другой проект владельца). У их Profile-ов
+  `worfy` и `project-a` `mode` — `full`, `tickets.root` — `.scratch/` (прочитано `jq`, только
   чтение).
-- Третий Profile владельца, `atakama`, — `silent`. В список Project-ов приложения он не входит.
+- Третий Profile владельца, `project-b`, — `silent`. В список Project-ов приложения он не входит.
 
 ### Что воспроизведено в песочнице
 
@@ -258,7 +258,7 @@ Profile-ами. Скрипты — из worktree на `ff61b06f`. Общий в�
 
 - На Mac, где node стоит через Homebrew или официальный установщик, будет то же: `/opt/homebrew/bin`
   и `/usr/local/bin` не входят в системный PATH (`env.ts:29`). На другом Mac не проверялось.
-- Silent Project над несколькими репозиториями (у владельца такой Profile есть — `atakama`) под PATH
+- Silent Project над несколькими репозиториями (у владельца такой Profile есть — `project-b`) под PATH
   Finder-а, по коду, читается как Full с пустым списком репозиториев. В окне не проверялось.
 - `env -i … PATH=/usr/bin:/bin:/usr/sbin:/sbin open <app>` даёт приложению то же окружение, что
   двойной клик. Отчёт запускал этот вид команды только с nvm в PATH. Этот способ уже записан в

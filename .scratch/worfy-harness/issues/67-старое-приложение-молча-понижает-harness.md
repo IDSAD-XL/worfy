@@ -9,7 +9,7 @@ Source: случай у владельца 2026-10-21 (время Mac 14:08–14
 
 ## Что происходит
 
-Владелец открыл `/Users/worfy-test/Applications/worfy-stable.app` — копию от 2026-10-14 в папке тестового пользователя
+Владелец открыл `~worfy-test/Applications/worfy-stable.app` — копию от 2026-10-14 в папке тестового пользователя
 macOS (Spotlight нашёл её первой). Через минуту эта сборка положила свой Harness в `~/.claude/worfy-harness/plugin`
 поверх более нового: пропали, например, `gate.mjs` и другие файлы.
 

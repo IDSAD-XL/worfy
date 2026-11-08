@@ -18,8 +18,8 @@ Source: решение владельца 2026-10-07, вопрос Q21 ([spec.md
   - `agents/reviewer.md:99-100`;
   - `skills/overnight-fix-loop/SKILL.md:239` — там `export GH_TOKEN=…` перед `git push` и
     `gh pr create`.
-- **Аккаунты на машине владельца.** Глобальный аккаунт `gh` — Oleksii-O-Atakama. Profile-ы worfy и
-  Auction: `github.account: IDSAD-XL`. Агент забыл префикс — `gh` отвечает «Could not resolve to a
+- **Аккаунты на машине владельца.** Глобальный аккаунт `gh` — личный аккаунт GitHub владельца. Profile-ы worfy и
+  Project A (другой проект владельца): `github.account: IDSAD-XL`. Агент забыл префикс — `gh` отвечает «Could not resolve to a
   Repository» (Ticket 01 `worfy-week`, «Что происходит»).
 - **Свой `gh` worfy** токен уже получает: `accountAuth` (`src/main/github/prs.ts:95-112`) берёт его
   командой `gh auth token -u <account>` на каждое чтение. Аккаунт он читает через
@@ -107,8 +107,8 @@ ADR не нужен: выбор между А и Б записан в ADR-0048.
   - без аккаунта — без `GH_TOKEN`;
   - при сбое — без `GH_TOKEN`, строка лога без значения токена.
 - [x] test-ы hooks идут в CI worfy на Linux вместе с остальными (Ticket 02). CI PR-а зелёный.
-- [ ] (вручную, после влития и `pnpm install:stable`, машина владельца уже на plugin) `gh auth status` показывает активным Oleksii-O-Atakama. При этом `gh api user --jq .login` даёт `IDSAD-XL` в двух местах:
-  - в Session `claude` из терминала в `/Users/alexey/Stuff/CanvasForAI`;
+- [ ] (вручную, после влития и `pnpm install:stable`, машина владельца уже на plugin) `gh auth status` показывает активным личный аккаунт GitHub владельца. При этом `gh api user --jq .login` даёт `IDSAD-XL` в двух местах:
+  - в Session `claude` из терминала в `~/Stuff/CanvasForAI`;
   - в Session worfy Project-а worfy.
 
   Команды и ответы (без токена) — в «Итог».
@@ -185,8 +185,8 @@ hook-а нет, файл окружения пуст, test красный. Ка�
   После — exit 0, `passed 103, failed 0`. Мутанты hook-а (без проверки логина; вывод
   `gh auth token` не выброшен; без защиты от второй строки; без `additionalContext` при отсутствии
   входа) — каждый краснит test.
-- **Проверка с настоящим `gh` без Claude Code** (машина владельца, активный аккаунт
-  Oleksii-O-Atakama): hook с `CLAUDE_ENV_FILE` во временном файле и `cwd` репозитория worfy — код 0, в
+- **Проверка с настоящим `gh` без Claude Code** (машина владельца, активный аккаунт —
+  личный аккаунт GitHub владельца): hook с `CLAUDE_ENV_FILE` во временном файле и `cwd` репозитория worfy — код 0, в
   файле одна строка `export GH_TOKEN="$(gh auth token -u IDSAD-XL 2>/dev/null)"`;
   `bash -c 'source <файл>; gh api user --jq .login'` — `IDSAD-XL`, в том числе при заданном
   `GH_TOKEN=dummy-user-token`.

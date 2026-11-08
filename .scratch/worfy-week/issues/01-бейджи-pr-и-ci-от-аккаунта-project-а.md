@@ -11,9 +11,9 @@ Source: решение владельца 2026-10-07 (вопросы 3 и 4); HA
 - Бейджи PR и CI на Node-ах Ticket-ов Project-а IDSAD-XL/worfy всегда показывают «gh unavailable».
 - `appGhRunner` в `src/main/ipc/checks.ts:35-38` запускает `gh` с окружением login shell
   (ADR-0007), то есть от глобального аккаунта gh. Глобальный аккаунт на машине владельца —
-  Oleksii-O-Atakama, ему репозиторий IDSAD-XL/worfy не виден.
+  личный аккаунт GitHub владельца, ему репозиторий IDSAD-XL/worfy не виден.
 - Ревью Ticket-а 17 `worfy-daily` воспроизвело: `gh pr list -R IDSAD-XL/worfy` без `GH_TOKEN` —
-  «Could not resolve to a Repository», с `GH_TOKEN` аккаунта IDSAD-XL — PR виден.
+  «Could not resolve to a Repository», с `GH_TOKEN` аккаунта репозитория — PR виден.
 - [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md): worfy работает с Project
   через `GH_TOKEN` аккаунта Project-а и глобальный `gh` не переключает. Целиком ADR-0020 — этап E3.
   Этот Ticket берёт из него то, что нужно для недели работы сейчас.
@@ -23,7 +23,7 @@ Source: решение владельца 2026-10-07 (вопросы 3 и 4); HA
 1. **Аккаунт — из Profile, только чтение.** worfy читает поле `github.account`:
    `~/.claude/bin/profile -C <корень Project-а> --field github.account`. Скрипт и коды выхода те же,
    что у списка MCP-серверов в `src/main/workflow/profile.ts`: 0 — значение, 3 — Project не
-   зарегистрирован, 4 — поля нет. Сейчас у Project-ов worfy и Auction там `IDSAD-XL`. Profile worfy
+   зарегистрирован, 4 — поля нет. Сейчас у Project-ов worfy и Project A (другой проект владельца) там `IDSAD-XL`. Profile worfy
    не пишет.
 2. **Токен — у gh.** Перед своим вызовом `gh` для Project-а worfy берёт токен командой
    `gh auth token -u <аккаунт>` (окружение login shell, как сейчас) и запускает `gh` с
@@ -139,7 +139,7 @@ renderer-е и схема `checks`.
 
 **Ручная проверка (окно приложения).** Сделана до влития, на сборке ветки, а не на Stable copy: собранное приложение ветки через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и
 `WORFY_CLAUDE_HOME`), настоящий `gh` (`WORFY_GH=/opt/homebrew/bin/gh`), временный репозиторий с
-origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобальный аккаунт gh — Oleksii-O-Atakama.
+origin `IDSAD-XL/worfy` и подменённый `bin/profile`; глобальный аккаунт gh — личный аккаунт GitHub владельца.
 Под Ticket Node-ом на каждом снимке — панель, которую вставляет сам временный spec (подписана
 «inserted by the evidence spec, not app UI»; в коде приложения её нет): в ней текст подсказки
 бейджа, то есть `title`, а в нём `gh.error` из снимка `checks`. Рядом с каждым снимком — `.txt` из
@@ -183,12 +183,12 @@ worfy (CanvasForAI).
 - Рамки `worfy-week` и `worfy-daily` развёрнуты, стопки done раскрыты щелчками мыши ОС, Canvas
   пролистан колесом. На всех 39 Ticket-ах (`worfy-daily` 01–32, `worfy-week` 01–07) видны бейджи
   «PR #N merged», «CI passing» и вердикт. Бейджа «gh unavailable» нет ни на одном экране.
-- Эталон — `gh pr view` от аккаунта IDSAD-XL в 07:00Z. Номер PR, состояние, CI и вердикт совпали у 39
+- Эталон — `gh pr view` от аккаунта репозитория в 07:00Z. Номер PR, состояние, CI и вердикт совпали у 39
   из 39; номер — PR ветки `<epic>/<NN>`.
 - Chip CI лежит внутри Ticket-а и строки бейджей, текст не обрезан. До «●…» обрезан только chip
   вердикта — так задумано (`src/renderer/canvas/badges/checks-badges.css:2-4`).
 - Дочерний процесс `gh pr list` от worfy (родитель — pid 2455) получает `GH_TOKEN`, равный токену
-  `gh auth token -u IDSAD-XL`, а не глобального аккаунта Oleksii-O-Atakama. Глобальный аккаунт без
+  `gh auth token -u IDSAD-XL`, а не глобального аккаунта — личного аккаунта GitHub владельца. Глобальный аккаунт без
   токена получает «Could not resolve to a Repository». Значение токена сравнивалось в памяти и нигде
   не печаталось.
 - Токена нет в выводе main, в журналах Autopilot, в данных Project-а и в ответе `checks.get`:
@@ -198,7 +198,7 @@ worfy (CanvasForAI).
 - После проверки viewport, выделение, стопки и свёрнутость рамок возвращены. Одно отличие: у рамки
   `worfy-week` в `layout.json` теперь явное `collapsed: true` вместо значения по умолчанию.
 - Вердикт: проверено.
-- Снимки: рамка `worfy-daily` с бейджами — [17-badges-stable.png](../../worfy-daily/evidence/17-badges-stable.png).
+- Снимки: рамка `worfy-daily` с бейджами — 17-badges-stable.png (картинка убрана: личное на изображении).
   Остальное — в scratchpad Session Orchestrator-а: `M19-frames.png`, `M19-frame-week.png`,
   `M19-badge-zoom-week01-02.png`, `M19-frame-daily-0.png`, `M19-frame-daily-6.png`,
   `M19-frame-daily-12.png`, `M19-after-restore.png`.

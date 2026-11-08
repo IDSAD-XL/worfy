@@ -143,7 +143,7 @@ e2e): `Expected length: 1, Received length: 2`, вторая запись — `{
   каждый.
 - `test/contract/terminal-ai-zle.test.ts`, `terminal-ai-suggest.test.ts`, `terminal-shell-integration.test.ts` —
   exit 0, 91 test, без правок.
-- e2e под `/tmp/worfy-e2e.lock`, консоль у `alexey`: `playwright test` для `terminal-ai-next-command`, `terminal-ai-suggest`, `terminal-ai-history`, `terminal-ai-settings` — exit 0, 6 passed; `WORFY_EVIDENCE_DIR` не задан.
+- e2e под `/tmp/worfy-e2e.lock`, консоль у пользователя владельца: `playwright test` для `terminal-ai-next-command`, `terminal-ai-suggest`, `terminal-ai-history`, `terminal-ai-settings` — exit 0, 6 passed; `WORFY_EVIDENCE_DIR` не задан.
 - `GATE_SCOPE=all` gate full — не запускал: его запускает Orchestrator.
 
 ### Не проверено

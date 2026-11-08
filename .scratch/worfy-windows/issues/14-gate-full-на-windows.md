@@ -523,9 +523,9 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` и
 
 Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh` вне PATH. Ветка `worfy-windows/wp-paths` от main `62a4c4a`. **На macOS и Linux с ПК ничего не запускалось.**
 
-- **Что падало.** На Windows `test/contract/workflow-profile.test.ts` — 29 падений из 87, все на написании путей в ожидаемых значениях: test ждал `/repo`, `/work/atakama` и `no profile script at /h/bin/profile`, а приложение на Windows пишет `C:\repo`, `C:\work\atakama` и `\h\bin\profile`.
+- **Что падало.** На Windows `test/contract/workflow-profile.test.ts` — 29 падений из 87, все на написании путей в ожидаемых значениях: test ждал `/repo`, `/work/project-b` и `no profile script at /h/bin/profile`, а приложение на Windows пишет `C:\repo`, `C:\work\project-b` и `\h\bin\profile`.
 - **Что сделано (только test).** Ожидаемые пути строятся так же, как их строит приложение. Корень Project-а — `resolve(…)` (`src/main/workflow/folder.ts:123`). Путь скрипта — `join('/h', 'bin', 'profile')` (`src/main/workflow/profile.ts:67`). Строки лога `[workflow] <корень>: …` — регулярное выражение из экранированного `resolve(root)` с тем же якорем `^`. На macOS и Linux каждое ожидание даёт ту же строку, что и раньше. Пути, которые Harness напечатал (`workflowFolder`, `ticketsRoot` от `ticket root`, `repos`), сравниваются с литералами как напечатанные — как и раньше.
-- **`ticketsRoot` без буквы диска** (`\work\atakama\.scratch`) в трёх случаях «`ticket root` failing» — следствие данных test-а, не ошибка приложения. Приложение берёт `workflowFolder` как его напечатал Harness (`folder.ts:137`) и строит `ticketsRoot` через `join(workflowFolder, '.scratch')` (`:140`). Test подаёт POSIX-путь приложению на Windows; Harness на Windows печатает пути `C:\…`. Разрешать `workflowFolder` в приложении — изменение поведения для удалённых и POSIX-корней; срез его не делает.
+- **`ticketsRoot` без буквы диска** (`\work\project-b\.scratch`) в трёх случаях «`ticket root` failing» — следствие данных test-а, не ошибка приложения. Приложение берёт `workflowFolder` как его напечатал Harness (`folder.ts:137`) и строит `ticketsRoot` через `join(workflowFolder, '.scratch')` (`:140`). Test подаёт POSIX-путь приложению на Windows; Harness на Windows печатает пути `C:\…`. Разрешать `workflowFolder` в приложении — изменение поведения для удалённых и POSIX-корней; срез его не делает.
 - **Ревью** — subagent этой Session, линзы «корректность» и «сила test-ов»: ни одно утверждение не ослаблено, пропусков не добавлено, `escapeRegExp` верен, якорь `workflowLine` тот же. На Windows test стал строже: приложение без `resolve()` или с `path.posix` его уронит. Находок нет.
 
 | `vitest run --project contract test/contract/workflow-profile.test.ts` | Exit | Passed | Failed | Skipped |
@@ -555,7 +555,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - **Весь набор на ПК.** `GATE_SCOPE=all gate.sh fast` на main `7ea3fbd`, Windows-ПК, 2026-10-18: exit 2,
   1326 s. lint и typecheck — зелёные. `pnpm test`: упали 30 файлов из 297 и 216 test-ов из 6325;
   5813 passed, 296 skipped. Среди падений: `startup-failure.test.ts:232` (ждёт `ENOTDIR`, исключения
-  нет); `workflow-reader`, чтение размера Auction — 648 ms при пределе 300 ms. Для сравнения: первый
+  нет); `workflow-reader`, чтение размера Project A (другой проект владельца) — 648 ms при пределе 300 ms. Для сравнения: первый
   подсчёт этого Ticket-а — 55 файлов из 157 и 662 test-а из 2995.
 - **gate fast на ПК — `lint` и `typecheck`, пока не закрыт Ticket 14** (решение владельца в чате ПК; Harness
   home `2bb021e`). `pnpm test` в gate fast ПК вернётся, когда весь набор станет зелёным на Windows.
@@ -639,7 +639,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
     - новый `link-pairing.test.ts` «a peer that never answers the 4001 close gets the close frame and is cut off after a second»: frame 4001 пришёл, сокет оборван через ≥ 900 ms и < 3 s;
     - test неверного кода проверяет, что B записал `PAIRING_FAILED`, то есть получил 4001, а не оборванное соединение.
     - Mutant-ы «terminate сразу» и «без fallback» — красные.
-- `workflow-reader.test.ts`, Auction-sized: красный 2/2, 315–417 ms при пороге 300 ms. На Mac — 26–33 ms (Ticket worfy-mvp/10).
+- `workflow-reader.test.ts`, project-a-sized: красный 2/2, 315–417 ms при пороге 300 ms. На Mac — 26–33 ms (Ticket worfy-mvp/10).
   - Замер: с выключенной проверкой ссылок `leadsToRemote` (Ticket-ы 19 и 20) — 179–203 ms; проверка стоила около 140 ms. Она заново проходила по ссылкам каждую папку на пути к каждому файлу Тикета.
   - Правка: `cachedLinks` в `src/main/remote-links.ts`. Ответы `isLink` и `readlink` на каждый путь берутся один раз за одно чтение `enrichSnapshot`. Кэш живёт в одном вызове: ссылка, поставленная между чтениями, видна следующему (test).
   - После правки — 224–231 ms (под нагрузкой). Порог на win32 — 450 ms, на остальных — 300 ms, как было.

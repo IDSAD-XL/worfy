@@ -199,7 +199,7 @@ harness-home.test.sh и не ждёт этот Ticket: worfy не постави
   - `inject-rules` подставляет путь plugin буквально: путь с `Заполняется при закрытии.
 ` и `$1` проверен (`inject-rules.mjs:61`).
   - Сбой внутри hook-а — одна строка в stderr и код 0.
-  - На Windows пути для модели пишутся через `/` (`C:/…`, `~/…`), в том числе вне домашней папки; сокращение до `~` требует границы пути (`/Users/xy` больше не сокращается до `~y`).
+  - На Windows пути для модели пишутся через `/` (`C:/…`, `~/…`), в том числе вне домашней папки; сокращение до `~` требует границы пути (при доме `<home>` путь `<home>2` больше не сокращается до `~2`).
   - Поиск node в nvm и `/opt/homebrew/bin` ушёл: без node в PATH Claude Code hooks не запустит.
 - **`hooks.json`:** каждая команда — `node "${CLAUDE_PLUGIN_ROOT}/…"` для пяти hooks, `bin/worktree-lock` и `guard.mjs`; hook Gate по-прежнему зовёт `gate.sh`. События, matcher-ы и timeout-ы те же. `rules-hooks.test.sh:363`: команда, которая называет скрипт Node, обязана начинаться с `node`.
 - **Ссылки на имена:** READMEs, skills `retro`, `tickets-to-tasks`, а также устаревшие `gh-token-env.sh` в `epic-wave`, `ship-ticket`, `overnight-fix-loop`; комментарии `gate.mjs`, `gate-resolve.mjs`, `gate.sh`, `harness-plugin.test.ts`, `gate-verdict.test.sh`. `git grep -nE '(inject-rules|session-start|session-end|stop)\.sh' -- harness src` пуст; в `harness/hooks` вне test-ов из `.sh` остались только `worktree-create.sh` и `gate.sh`.

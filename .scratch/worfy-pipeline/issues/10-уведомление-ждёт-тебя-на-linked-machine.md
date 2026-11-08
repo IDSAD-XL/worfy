@@ -72,7 +72,7 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
       отправка только ей, у себя ничего; `team`, `agent` — ничего; приём заметки — показ с именем Machine;
       приём заметки Project-а с ключом совпадения из своего списка — показа нет; та же заметка дважды — один
       показ.
-- [ ] Там же: две Machine с одним репозиторием по разным путям (`/Users/a/worfy` и `C:/src/worfy`, `origin`
+- [ ] Там же: две Machine с одним репозиторием по разным путям (`/Users/someone/worfy` и `C:/src/worfy`, `origin`
       `git@github.com:o/worfy.git` и `https://github.com/o/worfy`), обе держат Project в списке, Ticket
       переходит в `Waits: owner` — одно уведомление на каждой Machine (своё), заметка другой Machine
       брошена: не два. Репозиторий без `origin` — совпадение по id Project-а.
@@ -131,7 +131,7 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 - **Ключ совпадения (Q14)** — `projectMatchKey` и `readProjectMatchKey` в `src/main/autopilot/origin.ts`, поверх
   `originKey`/`readOriginKey`: `["origin", <originKey>, <путь внутри репозитория через "/", корень — "">]`, без
   `origin` — `["id", <id Project-а>]`. Путь внутри репозитория — `git rev-parse --show-prefix`. `origin` без хоста
-  (локальный путь `/Users/x/repo.git`, `C:\repos\x.git`, `file://`) считается отсутствующим (`remoteHasHost`): иначе
+  (локальный путь `/Users/user/repo.git`, `C:\repos\x.git`, `file://`) считается отсутствующим (`remoteHasHost`): иначе
   в кадр ушёл бы путь диска (Q16). Ключ Project-а читается git-ом не чаще раза в минуту (`MATCH_KEY_TTL_MS`): смена
   `origin` видна в течение минуты. Сбой git — не «нет `origin`»: ключ по id даётся, только когда git так и ответил
   (`get-url` с exit 2 — нет remote `origin`; exit 128 «not a git repository»). Timeout, сигнал, другой exit code

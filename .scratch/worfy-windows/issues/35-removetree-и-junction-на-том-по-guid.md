@@ -338,13 +338,13 @@ Session на Mac в тот же день измерила то же на том�
 ### Как убрать пробный том (владелец, после merge)
 
 0. Перед запуском с повышением прав посмотреть, что будет выполнено. Скрипт — две команды:
-   `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`. Диск назван полным путём своего файла, не номером и не буквой. Какой диск за этим файлом, показывает PowerShell без повышения прав:
+   `select vdisk file="C:\Users\<user>\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`. Диск назван полным путём своего файла, не номером и не буквой. Какой диск за этим файлом, показывает PowerShell без повышения прав:
    `Get-Disk | Where-Object Location -like '*worfy-scratch.vhdx' | Format-List Number, Location, BusType, Size` — ожидается один диск, `BusType` «File Backed Virtual», 64 MB.
-   Сам файл скрипта печатает `Get-Content 'C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'` — ожидаются ровно эти две строки и ничего больше (добавлено ревью на Mac, второй круг PR #287).
+   Сам файл скрипта печатает `Get-Content 'C:\Users\<user>\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'` — ожидаются ровно эти две строки и ничего больше (добавлено ревью на Mac, второй круг PR #287).
    Перед шагом 1 спросить Session на ПК, созданы ли папки замера 6 (junction по GUID, том которого потом отключён; Ticket 45, пункт 2) и не нужен ли этот том для замера 7 (`mountvol`, там же): после отключения оба замера требуют нового тома и повышения прав (добавлено ревью на Mac).
 1. Отключить виртуальный диск. Нужно повышение прав, появится окно UAC:
-   `powershell.exe -NoProfile -Command "Start-Process diskpart -Verb RunAs -Wait -ArgumentList '/s C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'"`
-   Скрипт состоит из двух команд: `select vdisk file="C:\Users\Alexey\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`.
+   `powershell.exe -NoProfile -Command "Start-Process diskpart -Verb RunAs -Wait -ArgumentList '/s C:\Users\<user>\AppData\Local\Temp\worfy-01\t35-detach-vhd.txt'"`
+   Скрипт состоит из двух команд: `select vdisk file="C:\Users\<user>\AppData\Local\Temp\worfy-01\t35-vhd\worfy-scratch.vhdx"` и `detach vdisk`.
 2. Сказать Session на ПК, что диск отключён. Она проверит, что тома `WORFYSCRATCH` больше нет, и уберёт остатки по полным путям: файл `%TEMP%\worfy-01\t35-vhd\worfy-scratch.vhdx`, папку `%TEMP%\worfy-01\t35-vhd`, два скрипта `diskpart` (`t35-make-vhd.txt`, `t35-detach-vhd.txt`) и рабочую копию ветки `%TEMP%\worfy-01\wt35` (через `git worktree remove`).
    Потом она проверит, что после замеров не осталось junction на том для замера: под `%TEMP%\worfy-01` и в папке данных Project-а шага 5 — ни одной записи с целью `Volume{`. Команда PowerShell (без повышения прав; ищет только записи-ссылки и печатает те, чья цель содержит `Volume{`):
    `Get-ChildItem -LiteralPath "$env:TEMP\worfy-01" -Force -Recurse -Attributes ReparsePoint -ErrorAction SilentlyContinue | Where-Object { "$($_.Target)" -like '*Volume{*' } | Select-Object FullName, LinkType, Target`

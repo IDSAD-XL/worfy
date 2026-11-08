@@ -24,7 +24,7 @@ Source: решения владельца 2026-10-07, Q27, Q29, Q24, Q17; [ADR-0
   (`src/main/docs/watch.ts:29-34`, `:84-107`); корень — `project.path`
   (`src/main/ipc/docs.ts:92`, `:105`, `:107`).
 - Project — только git-репозиторий: папку вне git `ProjectStore.resolve` отвергает с «is not a git
-  repository» (`src/main/projects/store.ts:192-206`). Atakama — папку над тремя репозиториями, саму
+  repository» (`src/main/projects/store.ts:192-206`). Project B (другой проект владельца) — папку над тремя репозиториями, саму
   не git — в worfy добавить нельзя.
 - Бейджи Gate, PR и CI:
   - `checks.get` берёт один `root` и ветки Ticket-ов (`src/main/ipc/checks.ts:21-26`):
@@ -108,7 +108,7 @@ Ticket 22.
 - [ ] Unit test `test/unit/binding.test.ts`: Session на ветке `fix/x`, которую модель называет веткой Ticket-а 05, привязана к нему; ветка, которую модель не называет, — не привязана.
 - [ ] e2e `test/e2e/silent-project.spec.ts` (новый): (1) Silent Project — Canvas показывает рамку Epic-а с заголовком и Ticket-ы из Workflow folder, HANDOFF Node — из Workflow folder; (2) Project над двумя репозиториями — у Ticket-ов chip `ticket-repo` с именем репозитория, бейджи PR и CI — от подменённого `gh` (`WORFY_GH`) своего репозитория. После прогона Workflow folder и оба репозитория не изменились: тот же список файлов с mtime, тот же `git status --porcelain`, те же refs.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; локальный `gate full` под замком `/tmp/worfy-e2e.lock` (правила Profile worfy) — код 0 и вердикт «зелено».
-- [ ] (вручную) Stable copy после влития: Project Atakama (папка над тремя репозиториями, Workflow folder — она сама) добавляется и показывает свои Epic-и. Только чтение: в `/Users/alexey/Work/*` ничего не писать, `git fetch` не делать. Как проверить: окно приложения.
+- [ ] (вручную) Stable copy после влития: Project B (папка над тремя репозиториями, Workflow folder — она сама) добавляется и показывает свои Epic-и. Только чтение: в `~/Work/*` ничего не писать, `git fetch` не делать. Как проверить: окно приложения.
 
 Ручной пункт агент проверяет, только если может посмотреть окно Stable copy. Если не может —
 «не проверено: …» в «Итог» и пункт в HANDOFF, раздел «Ждёт владельца».
@@ -194,8 +194,8 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
 - Chip репозитория на Node Ticket-а (`data-testid="ticket-repo"`, подсказка «repository <имя>», «no repo»
   без `Repo:`) — только когда у Project-а больше одного репозитория. Снимки:
   [Silent Project, светлая](../evidence/23-silent-project-light.png),
-  [тёмная](../evidence/23-silent-project-dark.png); [два репозитория, светлая](../evidence/23-two-repos-light.png),
-  [тёмная](../evidence/23-two-repos-dark.png).
+  [тёмная](../evidence/23-silent-project-dark.png); два репозитория, светлая (картинка убрана: личное на изображении),
+  тёмная (картинка убрана: личное на изображении).
 - Как падал первый test: `test/contract/workflow-reader.test.ts`, «Silent Project: …» — на main
   `model.epics[0].title` был `null` (ожидался «Silent epic: tickets outside the repository»): spec.md
   читался из `<корень>/.scratch`.
@@ -217,8 +217,8 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
   прогон: в первом упали оба test-а `silent-project.spec.ts`, во втором — 25 test-ов `agent…card-runtime`,
   оба раза при параллельных прогонах e2e других агентов: замок снимался как «старше 30 минут» у
   ещё работавшего владельца; отдельно `silent-project.spec.ts` проходил).
-- Не проверено: ручной пункт — Project Atakama в Stable copy (окно Stable copy агенту недоступно,
-  `/Users/alexey/Work/*` не читались). Двойной клик по Ticket-у Silent Project-а открывает путь
+- Не проверено: ручной пункт — Project B в Stable copy (окно Stable copy агенту недоступно,
+  `~/Work/*` не читались). Двойной клик по Ticket-у Silent Project-а открывает путь
   `.scratch/…` относительно корня Project-а (`ticketFile` в `src/renderer/canvas/epic-layout.ts`, вне
   следа) — файла там нет. Бейдж Gate на Session в Project-е над несколькими репозиториями по-прежнему
   спрашивает корень Project-а (папку вне git) — Gate Session-а в таком Project-е не показывается.

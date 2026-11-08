@@ -10,8 +10,8 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 ## Что происходит
 
 - **Форма «Add project» на Windows не проходит ни для какой папки.** Владелец выбрал папку
-  `C:\Users\Alexey\Desktop\Slop\Grim Dawn AI`; шаг 4 «Draft» ответил:
-  `bin/project-connect could not be run: spawn C:\Users\Alexey\.claude\worfy-harness\plugin\bin\project-connect ENOENT`.
+  `C:\Users\<user>\Desktop\Slop\Grim Dawn AI`; шаг 4 «Draft» ответил:
+  `bin/project-connect could not be run: spawn C:\Users\<user>\.claude\worfy-harness\plugin\bin\project-connect ENOENT`.
 - **Причина.** `bin/project-connect` — скрипт на Node с первой строкой `#!/usr/bin/env node`. worfy
   запускает сам файл: `spawn(join(harness.binDir, 'project-connect'), …)`
   (`src/main/ipc/projects.ts:69`). macOS по первой строке находит Node. Windows эту строку не

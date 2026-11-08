@@ -4,7 +4,7 @@ Type: task
 Status: done 2026-10-06
 PR: #41
 Blocked by: —
-Source: первый настоящий прогон Autopilot 2026-10-06 13:17 (стабильная копия `~/Applications/worfy-stable.app`, собрана из main 01a10ea): журнал прогона `~/Library/Application Support/worfy/autopilot/2026-10-06T10-17-22-244Z-2e53b6.jsonl`, транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`; [spec.md](../spec.md), тема A, риск 1; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md)
+Source: первый настоящий прогон Autopilot 2026-10-06 13:17 (стабильная копия `~/Applications/worfy-stable.app`, собрана из main 01a10ea): журнал прогона `~/Library/Application Support/worfy/autopilot/2026-10-06T10-17-22-244Z-2e53b6.jsonl`, транскрипт Orchestrator-а `~/.claude/projects/-Users-<user>-Stuff-CanvasForAI/f6ab7045….jsonl`; [spec.md](../spec.md), тема A, риск 1; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md)
 
 ## Что произошло
 
@@ -387,7 +387,7 @@ Claude Code. Если он не сделан, в «Итог» пишется «�
 Проверял агент, ночь 2026-10-07 (проверка M2 второго круга ручных проверок), только чтение файлов.
 Два прогона Autopilot на Stable copy из 5060858: `2026-10-07T00-32-09-524Z-66ddaf` (Epic `worfy-week`,
 4 Wave, 00:32–04:38Z) и прогон `…-b80351` (Epic `worfy-daily`, 3 Wave, 2026-10-06 21:42–23:42Z).
-Транскрипт Orchestrator-а — `f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`.
+Транскрипт Orchestrator-а — `f6ab7045….jsonl`.
 
 - У всех 7 событий `wave-finished` поле `tasksBefore` равно 0. Каждое пришло после
   `task-notification` со статусом `completed` и после хода Orchestrator-а за ним (`end_turn`),

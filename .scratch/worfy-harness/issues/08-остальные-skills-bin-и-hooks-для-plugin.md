@@ -55,8 +55,8 @@ Source: решения владельца 2026-10-07, вопросы Q4, Q6, Q34
   `~/.config/qmd/index.yml` (`qmd-sync-main:15`), hook `Stop` → `qmd-refresh --quiet`
   (`~/.claude/settings.json:71`). Перенос qmd в plugin — Ticket 17 (ADR-0043).
 - `session-start.sh` подмешивает `rules.md` Profile, уроки и карту Epic-а — до 20 000 байт на раздел
-  (`CLAUDE_SESSION_SECTION_CAP`, `:19`, `:59`). `rules.md` Atakama — 8 632 байта (подмешивание
-  включено только у Atakama). Предел контекста hook-а — 10 000 символов (ADR-0041).
+  (`CLAUDE_SESSION_SECTION_CAP`, `:19`, `:59`). `rules.md` Project B (другой проект владельца) — 8 632 байта (подмешивание
+  включено только у Project B). Предел контекста hook-а — 10 000 символов (ADR-0041).
 
 ## Что делаем
 
@@ -113,8 +113,8 @@ Source: решения владельца 2026-10-07, вопросы Q4, Q6, Q34
 и `ship-ticket` — Ticket 06. Agents — Ticket 07. Gate JSON и новый текст вердикта — Ticket 09.
 Profile schema 2 и каталог Profile-ов — Ticket 11. worfy читает новые места — Ticket-ы 09 и 12.
 Перенос состояния — Ticket 14. qmd — Ticket 17. Silent mode в скриптах — Ticket 22.
-Вывод `session-start.sh` у Atakama может быть длиннее 10 000 символов: исполнитель меряет его на
-копии Profile Atakama (только чтение `~/.claude/profiles/atakama`) и пишет число в «Итог»; предел
+Вывод `session-start.sh` у Project B может быть длиннее 10 000 символов: исполнитель меряет его на
+копии Profile Project B (только чтение `~/.claude/profiles/project-b`) и пишет число в «Итог»; предел
 здесь не меняется.
 
 ## Готово, когда
@@ -127,7 +127,7 @@ Profile schema 2 и каталог Profile-ов — Ticket 11. worfy читае�
 - [ ] `gate.sh` печатает те же четыре строки вердикта (`[gate] зелено (…)` и другие) с теми же кодами выхода. `bash harness/hooks/tests/gate-notverified.test.sh` и `gate-unregistered.test.sh` — код 0.
 - [ ] `skill-blocks.test.sh` проходит на новых SKILL.md под bash и zsh и ждёт `EXIT=` вместо `КОД=`: `bash harness/bin/tests/skill-blocks.test.sh` — код 0.
 - [ ] В файлах этого Ticket-а нет `~/.claude/bin`, `~/.claude/hooks`, `$HOME/.claude/bin`, `$HOME/.claude/hooks` и `КОД=`; кириллица — только в разрешённых местах: слова вердикта Gate, старые русские значения статуса в `epic-status`, плейсхолдеры Profile (`<эпик>`…), русские примеры. Test держит список разрешённых подстрок, вырезает их и другой кириллицы не находит. `harness-home.test.sh`.
-- [ ] Каждый test-файл из «Где в коде»: `bash <файл>; echo "EXIT=$?"` — код 0. Test-ы, которым нужны живые Auction и Atakama (часть `profile.test.sh` и `skill-blocks.test.sh`), без них печатают `skip`, как сейчас.
+- [ ] Каждый test-файл из «Где в коде»: `bash <файл>; echo "EXIT=$?"` — код 0. Test-ы, которым нужны живые Project A (другой проект владельца) и Project B (часть `profile.test.sh` и `skill-blocks.test.sh`), без них печатают `skip`, как сейчас.
 - [ ] `claude plugin validate harness; echo "EXIT=$?"` — код 0, в выводе нет строк про пять skills этого Ticket-а (локально, `claude` из терминала). Не проверено: настоящий Claude Code запускать запрещено.
 - [x] Ревьюер с линзой «смысл сохранён» (Q34; Orchestrator даёт её явно) сравнил старый и новый текст пяти skills и сообщений скриптов: `gh pr view <N> --json comments --jq '[.comments[].body | select(startswith("VERIFIED"))] | length'` — не меньше `1`. Выполнено: VERIFIED в [PR #112](https://github.com/IDSAD-XL/worfy/pull/112).
 - [ ] CI на PR зелёный. Перед мержем — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full` под замком `/tmp/worfy-e2e.lock`: код 0 и строка `[gate] зелено`.
@@ -212,8 +212,8 @@ Test-ы (исходные — `~/.claude/bin/tests/`, `~/.claude/hooks/tests/`):
   реестр, без приоритета `CLAUDE_GATE_CONFIG`/`HARNESS_HOME`, без правила schema 1 в `preflight`): все краснеют
   `harness-home.test.sh`, кроме одного эквивалентного — `profile` без `realpathSync` (Node сам раскрывает
   symlink главного модуля). Мутант слов `worktree-lock status` краснеет на двух проверках `preflight`.
-- **Вывод `session-start.sh` у Atakama** — 7 850 символов `additionalContext` (8 241 байт JSON) на копии
-  `~/.claude/profiles/atakama` во временном `HOME`; карты Epic-а в копии нет (`state/active-epic` отсутствует).
+- **Вывод `session-start.sh` у project-b** — 7 850 символов `additionalContext` (8 241 байт JSON) на копии
+  `~/.claude/profiles/project-b` во временном `HOME`; карты Epic-а в копии нет (`state/active-epic` отсутствует).
   Предел hook-а 10 000 символов не превышен.
 - **`claude plugin validate harness`** — не запускался: бриф волны запретил запуск настоящего Claude Code.
 - **Решено без владельца, подтверждено владельцем 2026-10-12:**

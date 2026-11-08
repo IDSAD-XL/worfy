@@ -46,7 +46,7 @@ Codex 0.166.0 печатает `codex plugin list --json` как `{"installed": 
   (`name@marketplace`), версия — `version`, `enabled` — как есть. Прежние формы (список, `{plugins}`, `{marketplaces}`)
   читаются как раньше.
 - Fixture `test/fixtures/codex-cli/plugin-list-0.166.0.json` — живой ответ владельца, домашняя папка заменена на
-  `/Users/me`, урезан (публичный репозиторий): из 22 plugin-ов в `installed` оставлены 10 локальных и два remote
+  `/Users/you`, урезан (публичный репозиторий): из 22 plugin-ов в `installed` оставлены 10 локальных и два remote
   (`github`, `plugin-management`), их `source.id` заменены на `plugin_connector_example_<n>`; `available` пуст.
   Unit test читает его целиком и находит
   `worfy@worfy-harness`, когда он добавлен в `installed`.

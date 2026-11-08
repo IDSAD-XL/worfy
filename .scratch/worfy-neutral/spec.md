@@ -31,7 +31,7 @@ ADR-0044 перевёл прозу Harness на английский и взял
   `src/shared/projects/action-templates.ts:44`.
 - **Названия разделов — литералы кода.** `scripts/check-handoff.mjs:23`, `scripts/check-lessons.mjs:25`,
   `src/main/workflow/reader.ts:179`, `src/shared/workflow/manual-checks.ts:6,10`, `src/main/docs/watch.ts:121`.
-- **Следы владельца в plugin** (`harness/` без test-ов): Auction и Atakama — 41 строка в 16 файлах,
+- **Следы владельца в plugin** (`harness/` без test-ов): Project A и Project B (другие проекты владельца) — 41 строка в 16 файлах,
   `/Users/` — 10 строк в 4 файлах, имена и учётные записи владельца — 10 строк в 4 файлах, ссылки на ADR —
   67 строк в 31 файле, пути `src/main/` — 10 строк в 5 файлах.
 - **Кириллица в коде:** `harness/` без `.md` — 525 строк в 30 файлах (в `hooks/gate.mjs` — 85) и 1004 строки
@@ -59,7 +59,7 @@ Epic готов, когда:
 1. Язык отчётов берётся из `~/.claude/worfy-harness/user.json`, личные правила — из
    `~/.claude/worfy-harness/user/rules.md`; языковых правил в plugin нет; у владельца — свои файлы,
    отчёты по-прежнему русские (Ticket 01).
-2. В `harness/` нет Auction, Atakama, имён и путей владельца, ссылок на номера ADR и Ticket-ов и путей
+2. В `harness/` нет Project A, Project B, имён и путей владельца, ссылок на номера ADR и Ticket-ов и путей
    `src/main/...`; примеры общие (Ticket 02).
 3. Метки блока статуса — `Stage / Now / Next / Waiting`; приложение читает и их, и старые (Ticket 03).
 4. Строки Gate и слова протокола скриптов Harness — английские; читатели принимают и старые (Ticket 04).
@@ -73,8 +73,8 @@ Epic готов, когда:
 2026-10-19, grilling «worfy-neutral». Все пункты приняты как рекомендованы; заново не решаются.
 
 1. **Q1. Plugin целиком английский и нейтральный.** `harness/` (hooks, `bin/`, правила, skills, agents,
-   README, eval-кейсы) — ничего о конкретном владельце, Mac, внутренностях репозитория worfy, Auction
-   или Atakama; примеры — `demo`, `acme`; пути — из Profile.
+   README, eval-кейсы) — ничего о конкретном владельце, Mac, внутренностях репозитория worfy, Project A
+   или Project B; примеры — `demo`, `acme`; пути — из Profile.
 2. **Q2. Язык отчётов — настройка пользователя** в `~/.claude/worfy-harness/user.json`, для всех Project-ов.
    `team` и `docs` — в Profile. Ничего не задано — английский везде.
 3. **Q3. Языковые правила уходят из plugin** в `~/.claude/worfy-harness/user/rules.md`; hook подмешивает
@@ -87,7 +87,7 @@ Epic готов, когда:
 5. **Q5. Документы Project-а — на его языке** (`docs: ru` у worfy). «Только английский» — для plugin и кода.
 6. **Q6. Без кириллицы в коде** `src/`, `scripts/`, `test/`, `harness/`. Исключения: текст интерфейса — в
    файлах перевода; данные test-ов на русский ввод — с английским комментарием, зачем. Правило lint.
-7. **Q7. Имя `worfy` остаётся.** Ссылки на ADR и Ticket-ы, пути `src/main/...`, Auction и Atakama, пути
+7. **Q7. Имя `worfy` остаётся.** Ссылки на ADR и Ticket-ы, пути `src/main/...`, Project A и Project B, пути
    владельца уходят из поставляемых файлов plugin; правило объясняет себя само.
 8. **Q8. Метки блока статуса всегда английские,** текст после них — на языке пользователя
    (`— Stage: worfy-windows 65, ревью круг 1`).
