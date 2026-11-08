@@ -760,9 +760,12 @@ cat >"$T/limit.js" <<'EOF'
 const r = require("child_process").spawnSync(process.argv[2], process.argv.slice(3), { stdio: "inherit", timeout: 20000, killSignal: "SIGKILL" })
 process.exit(r.error && r.error.code === "ETIMEDOUT" ? 124 : r.status ?? 1)
 EOF
+# A folder as node reads it: C:/… in Git Bash on Windows (`pwd -W`), the same path elsewhere. The hook input
+# carries the session directory as Claude Code gives it, a native path; node on Windows cannot open /tmp/….
+nat() { (cd "$1" && { pwd -W 2>/dev/null || pwd -P; }); }
 # stage <cwd> [VAR=value…]: runs the hook with a UserPromptSubmit input from <cwd>; $T/out, $T/err, $rc.
 stage() {
-    local cwd="$1"; shift
+    local cwd; cwd="$(nat "$1")"; shift
     (printf '{"session_id":"t-1","hook_event_name":"UserPromptSubmit","cwd":"%s","prompt":"fix a typo"}' "$cwd" \
         | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" "$@" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
 }
@@ -782,7 +785,7 @@ stage "$T/plain"
 stage "$DEMO" WORFY_SESSION_KIND=product
 [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a Product Session gets nothing, exit 0" || bad "stage-lines: product kind: exit $rc, out '$(cat "$T/out")'"
 for field in '"agent_id":"a-1"' '"agent_type":"worfy:implementer"'; do
-    (printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s",%s}' "$DEMO" "$field" \
+    (printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s",%s}' "$(nat "$DEMO")" "$field" \
         | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
     [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a Subagent's input ($field alone) gets nothing, exit 0" \
         || bad "stage-lines: subagent $field: exit $rc, out '$(cat "$T/out")'"
@@ -791,6 +794,13 @@ done
 [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && ok "stage-lines: stdin that is not JSON: nothing, one line on stderr, exit 0" \
     || bad "stage-lines: not JSON: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
 
+# A session directory that is not a directory here is said on stderr, not swapped for the hook's own folder:
+# that swap asked bin/profile about another folder and stayed silent (on Windows a Git Bash path did that).
+(printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$(nat "$T")/no-such-folder" \
+    | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && grep -qF 'is not a directory' "$T/err" \
+    && ok "stage-lines: a cwd that is not a directory: nothing, one line on stderr naming it, exit 0" \
+    || bad "stage-lines: missing cwd: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
 # Stand-ins for bin/profile and bin/epic-status. The profile keeps tickets with the branch form <epic>/<NN>,
 # unless FAKE_PROFILE says otherwise; a hanging stand-in writes its pid first, so the test can see it killed.
 cat >"$T/profile-fake.js" <<'EOF'
@@ -805,6 +815,8 @@ EOF
 cat >"$T/es-fake.js" <<'EOF'
 const mode = process.env.FAKE_ES || ""
 const arg = process.argv[2]
+// FAKE_CRLF: line ends as a Windows program may print them.
+if (process.env.FAKE_CRLF) { const write = process.stdout.write.bind(process.stdout); process.stdout.write = (s) => write(String(s).replace(/\n/g, "\r\n")) }
 if (mode === "fail") { process.stderr.write("epic-status: cannot read a ticket\n"); process.exit(1) }
 if (mode === "hang") { require("fs").appendFileSync(process.env.FAKE_PID, process.pid + "\n"); setInterval(() => {}, 1000) }
 else if (mode === "long") {
@@ -842,6 +854,12 @@ got="$(epics)"
     || bad "stage-lines: in play '$got'"
 ctx | sed -n 2p | grep -qF 'e7/05' && ok "stage-lines: the branch's Epic comes with the line of epic-status <epic>, branch included" \
     || bad "stage-lines: the branch's line '$(ctx | sed -n 2p)'"
+stage "$REPO" "${FAKES[@]}" FAKE_CRLF=1
+got="$(epics)"
+cr="$(ctx | tr -cd '\r' | wc -c | tr -d ' ')"
+[ "$got" = "e7 e3 e6 " ] && [ "$cr" -eq 0 ] && ctx | sed -n 2p | grep -qF 'e7/05' \
+    && ok "stage-lines: epic-status printing CRLF: the same Epics and lines, no carriage return in the context" \
+    || bad "stage-lines: CRLF: in play '$got', $cr carriage returns"
 stage "$REPO" "${FAKES[@]}" FAKE_FORM=none FAKE_ES=none
 got="$(epics)"
 [ "$got" = "e3 e4 e5 " ] && ok "stage-lines: with no Epic in play, the Epics that are not closed, blocked ones last" || bad "stage-lines: fallback '$got'"
@@ -896,7 +914,7 @@ for who in profile epic-status; do
 done
 # The command of hooks.json, run the way Claude Code runs it, gives the line too.
 cmd="$(hj hooks | grep '^UserPromptSubmit|' | cut -d'|' -f3)"
-(printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$DEMO" | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" \
+(printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$(nat "$DEMO")" | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" \
     CLAUDE_PLUGIN_ROOT="$HARNESS_N" sh -c "$cmd" >"$T/out" 2>"$T/err"); rc=$?
 first="$(ctx | sed -n 2p)"
 [ "$rc" -eq 0 ] && [ "${first#"$DEMO_LINE"}" != "$first" ] && ok "hooks.json UserPromptSubmit runs stage-lines.mjs and gives the line" || bad "hooks.json UserPromptSubmit '$cmd': exit $rc, line '$first'"

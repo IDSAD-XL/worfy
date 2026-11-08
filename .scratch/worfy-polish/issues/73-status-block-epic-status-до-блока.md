@@ -51,7 +51,8 @@ Case не прошёл ни разу с тех пор, как написан. К
    нет — Epic-и, которые не closed, с blocked следующим Ticket-ом в конце. Не больше 3 строк, строка — до 300 символов
    (обрезка с «…»).
 2. Ничего не печатает: без `tickets.path`, вне зарегистрированного проекта (`bin/profile` exit 3), в Product Session
-   (`WORFY_SESSION_KIND=product`), для Subagent-а (`agent_id` или `agent_type` во входе). Ошибка — stdin не JSON,
+   (`WORFY_SESSION_KIND=product`), для Subagent-а (`agent_id` или `agent_type` во входе). Ошибка — stdin не JSON, `cwd`
+   входа не папка,
    `bin/profile` или `epic-status` упал или висит дольше 2.5 s (тогда он убит) — одна строка в stderr и exit 0: prompt
    не задерживается. Codex знает этот event (`UserPromptSubmit` с additionalContext) — там hook отвечает так же.
 3. `orchestrator.md`, «Phase 3»: строка Stage — строка Epic-а текущей работы из тех, что hook дал с prompt-ом этого
@@ -72,6 +73,15 @@ Review round 1 (REJECTED, три medium): порядок Epic-ов на main д�
 отрезал активные; обрезка и предел текста без test-ов; test зависания не проверял, что процесс убит. Исправлено в
 round 2: порядок выше, правило «строка Epic-а текущей работы», test-ы обрезки и убитого процесса; общий предел
 1200 символов убран — при 3 строках по 300 он не достигался.
+
+Round 3 — первый прогон CI на Windows, дошедший до test-ов (run 42476104695, job `windows (harness-scripts 2/2)`):
+5 из 271 проверок `rules-hooks.test.sh` красные — hook молчал в проекте с тикетами и не видел веток fixture. Причина:
+`stage-lines.mjs` подменял `cwd` входа, который не открывается как папка, папкой своего процесса — молча
+(`isDir(hook.cwd) ? hook.cwd : process.cwd()`). Test передавал путь Git Bash (`/tmp/…`); node на Windows его не
+открывает, и hook спрашивал `bin/profile` о checkout-е CI — exit 3, тишина; git читал ветки того же checkout-а.
+Исправлено: такой `cwd` — одна строка в stderr («cwd … is not a directory»), без подмены; test-ы передают путь, как
+его читает node (`pwd -W` в Git Bash); новые test-ы — `cwd`, которого нет (красный со старым кодом на любой ОС), и
+`epic-status` с CRLF в выводе.
 
 Prompt case-а на ход со сменой статуса не меняем: так case проверял бы только узкое прочтение и спрятал бы дефект.
 Глубина review — `medium`. **Платформенный**: меняется hook, вердикт — job-ы Windows в CI.

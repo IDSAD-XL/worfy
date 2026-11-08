@@ -26,7 +26,8 @@
 // Codex runs the same hooks.json and has the event too (UserPromptSubmit, with additionalContext): the hook
 // answers there as it does under Claude Code.
 //
-// A broken hook must not hold the prompt back: every failure — stdin that is not JSON, bin/profile failing
+// A broken hook must not hold the prompt back: every failure — stdin that is not JSON, a `cwd` that is not a
+// directory, bin/profile failing
 // (other than exit 3, a directory of no registered project) or epic-status failing, or either running past
 // STEP_MS (then it is killed) — is one line on stderr and exit 0. Nothing is written anywhere.
 //
@@ -156,7 +157,11 @@ async function main() {
     }
     if (hook?.agent_id || hook?.agent_type) return
     const event = typeof hook?.hook_event_name === "string" && hook.hook_event_name ? hook.hook_event_name : "UserPromptSubmit"
-    const cwd = typeof hook?.cwd === "string" && isDir(hook.cwd) ? hook.cwd : process.cwd()
+    // The session directory names the project. A `cwd` that is no directory here is not replaced by this
+    // process's folder: that would ask about another project and stay silent (a Git Bash path such as /tmp/x,
+    // which node on Windows cannot open, did exactly that).
+    if (hook?.cwd !== undefined && !(typeof hook.cwd === "string" && isDir(hook.cwd))) throw new Quiet(`cwd ${JSON.stringify(hook.cwd)} is not a directory`)
+    const cwd = typeof hook?.cwd === "string" ? hook.cwd : process.cwd()
 
     const bin = path.join(path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))), "bin")
     const profile = await node(process.env.CLAUDE_PROFILE_BIN || path.join(bin, "profile"), ["-C", cwd, "--json"], cwd)
