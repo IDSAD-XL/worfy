@@ -143,10 +143,8 @@ const NOT_TAKEN = [
   'writing-shape',
 ]
 
-// Files of harness/ that may still name the upstream plugin. THIRD_PARTY.md names it on purpose.
-// plugin.json declares the dependency until ticket 03 drops it, and README.md describes that
-// dependency until ticket 04 rewrites it; each of those tickets removes its line here.
-const MAY_NAME_UPSTREAM = new Set(['skills/THIRD_PARTY.md', '.claude-plugin/plugin.json', 'README.md'])
+// The one file of harness/ that may name the upstream plugin: THIRD_PARTY.md names it on purpose.
+const MAY_NAME_UPSTREAM = new Set(['skills/THIRD_PARTY.md'])
 
 const listFiles = (dir: string, base: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

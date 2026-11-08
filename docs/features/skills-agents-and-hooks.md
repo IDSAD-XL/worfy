@@ -9,7 +9,8 @@ three roles they start, and **Hooks** are what runs by itself around a Session. 
 ### Behaviour
 
 A skill is a procedure in Markdown that an agent follows. worfy's actions, Autopilot and the user start them as
-`/worfy:<name>`, and the model may pick all but `overnight-fix-loop` by their descriptions.
+`/worfy:<name>`, and the model may pick by their descriptions all but the skills marked "by hand only" below. The
+plugin carries nine skills of worfy's own and twenty copied from Matt Pocock's skills.
 
 | Skill | When | What it does |
 |---|---|---|
@@ -18,11 +19,42 @@ A skill is a procedure in Markdown that an agent follows. worfy's actions, Autop
 | `connect-project` | `/worfy:connect-project <folder> <full\|silent>`, or the draft of "Add project" | Reads the code, drafts a Profile, its rules and registry entries, and writes them after confirmation |
 | `gate-queue` | `/worfy:gate-queue`, on the Machine whose Profile serves the queue | See [the cross-machine gate queue](gate-and-github.md) |
 | `max-review` | On request, or for a Ticket marked as risky | Two lenses over a whole branch, optionally on two models, a synthesis and sceptic agents. Edits and merges nothing |
-| `retro` | `/worfy:retro`, by hand only | Matt Pocock's retrospective, copied unchanged but for its references (`harness/skills/THIRD_PARTY.md`): suggests changes to the agent's environment and writes nothing |
 | `qmd` | Before planning, or for "why was it decided so" | The rules of searching decisions and lessons |
 | `continuous-audit` | "audit", or a scheduled run | An audit Epic of findings. A finding stays a claim until a second agent has reproduced it |
-| `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
-| `tickets-to-tasks` | After Tickets are written, or when the task list is empty | Imports Tickets into Claude Code Tasks and keeps their blockers |
+| `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand only | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
+| `tickets-to-tasks` | After `/worfy:to-tickets` or `/worfy:wayfinder` wrote Tickets, or when the task list is empty | Imports Tickets into Claude Code Tasks and keeps their blockers |
+
+**Matt Pocock's skills.** Twenty skills are a copy of Matt Pocock's skills, version 1.3.1 of the plugin
+`mattpocock-skills`, under the MIT licence. `harness/skills/THIRD_PARTY.md` names the author, the upstream commit and
+the licence file, and lists every line that differs from 1.3.1. A reference to another skill names it `worfy:<name>`.
+Where a skill asked for its upstream setup skill, it now reads the Project's Ticket folder (`tickets.root` of the
+Profile) as its tracker, with the operations of `harness/bin/TICKETS.md`, and points a Project without a Profile to
+`/worfy:connect-project`. `to-tickets` writes worfy's Ticket header (`Type`, `Status: open`, `Blocked by`), and
+neither it nor `to-spec` applies a triage label. The copy is frozen: nothing syncs it with upstream, and a newer version
+comes in only as a PR of its own.
+
+| Skill | When | What it does |
+|---|---|---|
+| `code-review` | The model, or `/worfy:code-review` | Reviews the changes since a fixed point on two axes, the repository's standards and the spec, in two Subagents |
+| `codebase-design` | The model | The vocabulary of deep modules: interface, seam, depth |
+| `diagnosing-bugs` | The model | A diagnosis loop for a hard bug or a performance regression |
+| `domain-modeling` | The model | The Project's glossary and ADRs, kept while designing |
+| `grill-with-docs` | `/worfy:grill-with-docs`, by hand only | A grilling that records the glossary and ADRs as it goes |
+| `improve-codebase-architecture` | `/worfy:improve-codebase-architecture`, by hand only | Finds modules to deepen, shows them in an HTML report, then grills the one picked |
+| `prototype` | The model | A throwaway prototype of logic or UI for a design question |
+| `research` | The model | Research against primary sources, written to a Markdown file in the repository |
+| `retro` | `/worfy:retro`, by hand only | A retrospective of a Session: suggests changes to the agent's environment and writes nothing |
+| `tdd` | The model | Red-green-refactor, with integration tests |
+| `to-spec` | `/worfy:to-spec`, by hand only | Writes a spec from the conversation into the tracker |
+| `to-tickets` | `/worfy:to-tickets`, by hand only | Cuts a plan into Tickets, each with its `Blocked by` |
+| `wayfinder` | `/worfy:wayfinder`, by hand only | A map of decision Tickets for work larger than one Session, resolved one at a time |
+| `grill-me` | `/worfy:grill-me`, by hand only | A grilling of a plan, through `grilling` |
+| `grilling` | The model | Questions about a plan, one at a time |
+| `handoff` | `/worfy:handoff`, by hand only | Compacts the conversation into a document for the next agent |
+| `teach` | `/worfy:teach`, by hand only | Teaches a topic inside the working folder |
+| `to-questionnaire` | `/worfy:to-questionnaire`, by hand only | A questionnaire for the person who knows the answer |
+| `wait-what` | `/worfy:wait-what`, by hand only | Says the last message again, another way |
+| `writing-for-agents` | The model | How to write skills, `AGENTS.md` and `CLAUDE.md` |
 
 **`ship-ticket`.** The finish comes from `workflow.finish`. Steps 7 and 8 go in the order of the Pipeline: with
 `agent-review` after `ci`, the default, step 8 comes first and step 7 runs on the PR's head. The other steps run as
@@ -88,7 +120,11 @@ says what branches, commits and PR texts may not carry.
 ### Implementation
 
 - `harness/skills/` has a folder with a `SKILL.md` for each skill, such as `harness/skills/epic-wave/SKILL.md`.
-  `harness/skills/overnight-fix-loop/SKILL.md` sets `disable-model-invocation`.
+  A skill marked "by hand only" sets `disable-model-invocation`, as `harness/skills/overnight-fix-loop/SKILL.md` does.
+- The twenty copied folders sit flat next to worfy's own, with their upstream names. `harness/skills/THIRD_PARTY.md`
+  holds their source, the list of edited lines and the way a newer version comes in;
+  `harness/skills/LICENSE.mattpocock-skills` is the upstream licence. `test/contract/harness-third-party-skills.test.ts`
+  pins the sha256 of every copied file, unedited or edited, and which of them are by hand only.
 - `harness/skills/ship-ticket/` also holds `step-*.md`, `silent-mode.md`, `review-of-another-pr.md` and
   `pipeline-stages.md`, and the `implementer-*.md` files that the agent definition names.
 - `src/shared/projects/action-templates.ts` holds the commands worfy's actions send: `/worfy:ship-ticket`,

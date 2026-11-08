@@ -130,3 +130,9 @@ E3 и когда машина владельца переходит со ста�
 - **Проверять установщик и перенос на настоящем `~/.claude`.** Не выбрано: ошибка переноса сломала
   бы Harness, на котором идут Wave-ы. Песочница с отдельными `HOME` и `CLAUDE_CONFIG_DIR` даёт ту же
   проверку без этого риска, ценой одного `/login`.
+
+## Amendments
+
+- 2026-11-08 — пункт 5: plugin `worfy` больше не объявляет зависимость `mattpocock-skills`, её skills взяты копией
+  внутрь plugin-а, а свой `retro` Harness-а заменён `retro` Matt Pocock (Epic `worfy-skills`, решение владельца
+  2026-11-07). Подробно — поправка [ADR-0059](0059-installer-installs-plugin-dependencies.md#amendments).
