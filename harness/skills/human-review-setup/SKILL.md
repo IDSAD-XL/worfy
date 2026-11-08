@@ -28,10 +28,11 @@ What it costs and who sees what:
 This skill works in Claude Code sessions. In a Codex session the private folder is not attached, so the
 skill it writes would not load there: say so and stop.
 
-`RH` below is `"${CLAUDE_PLUGIN_ROOT}/bin/review-history"`, run in the project root. Its exit codes: 0 —
+`review-history` (`"${CLAUDE_PLUGIN_ROOT}/bin/review-history"`, run in the project root) has these exit codes: 0 —
 done, 1 — failed (the rate limit after three retries, a `gh` error), 2 — usage, 3 — not available (no
-registered project, no `origin` on GitHub, no `gh`, no access to the repository). On 1 or 3 show its
-one stderr line and stop; there is nothing to clean.
+registered project, no `origin` on GitHub, no `gh`, no access to the repository). On 1 or 3 show its one
+stderr line, run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"` — a `raw/` an earlier
+command of this run wrote is already on disk — and stop.
 
 ## 1. The profile and the private folder
 
@@ -50,43 +51,49 @@ This skill adds `research.md` (step 4). Logins of colleagues appear in `ignore.j
 
 ## 2. Read the history and ask
 
-1. Run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" fetch --passes 2; echo "EXIT=$?"`. It reads the window —
-   pull requests updated in the last 12 months that have a review of the team, at most 500 per repository —
-   into `raw/`, drops bots, the logins and prefixes of `ignore.json` and an author's comments on their own
-   pull request. `--passes 2`: the analysis Subagents read every comment once, and joining their results into
-   `research.md` reads them a second time in short form.
-2. Run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" estimate --passes 2; echo "EXIT=$?"` and
-   `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" stats; echo "EXIT=$?"`. Both are the script reading `raw/`:
-   numbers and links, no text of a comment reaches this session. Do not open, read or search anything in
-   `raw/` yourself before the person's "yes" below — not even to check the counts.
-3. If `reviewers.top_share` of the stats is 0.8 or more, say it plainly: "80% or more of the team's comments
-   come from one reviewer, so the voice will mostly be that person's." The voice is still built from
-   everyone's numbers, and step 4 keeps one reviewer to at most a third of the examples of a tier.
-4. The last line of the estimate is the verdict. `voice: no (N of 30)` — go to step 3; there is nothing to
-   ask, because no model will read anything.
-5. `voice: yes` — show the person, in this order:
-   - the output of `estimate` as it is: pull requests, reviews by state, comments by kind, substantive
-     comments, reviewers, characters and the token estimate (the word "estimate" stays);
-   - the content of `ignore.json` (`<private folder>/ignore.json`): the person may add logins of service
-     accounts or prefixes of agent reports there; after an edit run steps 1 and 2 of this section again;
-   - that the texts of the colleagues' comments will go to the vendor of the model, as any code of this
-     session does, and stay on this machine afterwards in the private folder only.
+The parts below run in this order; "step <n>" in this file always means a `## <n>.` heading.
 
-   Then ask whether to read and analyse them, and wait for an explicit "yes". Do not read on silence, on a
-   question back or on a "maybe".
-6. Anything else — "no", silence, a session that has no person to answer — run
-   `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"`, which deletes `raw/`, tell the person
-   nothing was read by a model, and stop.
+- **Fetch.** Run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" fetch --passes 2; echo "EXIT=$?"`. It reads the
+  window — pull requests updated in the last 12 months that have a review of the team, at most 500 per
+  repository — into `raw/`, drops bots, the logins and prefixes of `ignore.json` and an author's comments on
+  their own pull request. `--passes 2`: the analysis Subagents read every comment once, and joining their
+  results into `research.md` reads them a second time in short form.
+- **Estimate.** Run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" estimate --passes 2; echo "EXIT=$?"` and
+  `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" stats; echo "EXIT=$?"`. Both are the script reading `raw/`:
+  numbers and links, no text of a comment reaches this session. Do not open, read or search anything in
+  `raw/` yourself before the person's "yes" below — not even to check the counts.
+- **One reviewer.** `reviewers.top_share` of the stats is the share of the team's comments — every review
+  body with text, line comment and conversation comment of the team, substantive or not — written by the
+  reviewer with the most. If it is 0.8 or more, say it plainly: "80% or more of the team's comments come
+  from one reviewer, so the voice will mostly be that person's." The voice is still built from everyone's
+  numbers, and step 4 keeps one reviewer to at most a third of the examples of a tier.
+- **The verdict** is the last line of the estimate. On `voice: no (N of 30)` go to step 3 (Too little
+  history) below and ask nothing: no model will read anything.
+- **The question**, on `voice: yes`. Show the person, in this order:
+  - the output of `estimate` as it is: pull requests, reviews by state, comments by kind, substantive
+    comments, reviewers, characters and the token estimate (the word "estimate" stays);
+  - the content of `ignore.json` (`<private folder>/ignore.json`): the person may add logins of service
+    accounts or prefixes of agent reports there; after an edit run the fetch and the estimate again;
+  - that the texts of the colleagues' comments will go to the vendor of the model, as any code of this
+    session does, and stay on this machine afterwards in the private folder only.
+
+  Then ask whether to read and analyse them, and wait for an explicit "yes". A question back ("what is
+  ignore.json?") gets its answer, then ask again; do not read on silence, on a question or on a "maybe".
+- **No.** On "no", on no answer, or in a session that has no person to answer, run
+  `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"`, which deletes `raw/`, tell the person
+  nothing was read by a model, and stop.
 
 After the "yes", before the analysis, hold 5 pull requests out of it for the check of step 6, so the check
 does not grade the skill on answers it has already seen:
 
-- the newest pull requests of the window with a substantive comment of the team, from different areas of
-  code (top-level folders, or repositories when there are several), and at least one with a
-  `CHANGES_REQUESTED` review of the team when the window has one;
+- the newest pull requests of the window with a comment of the team at least 20 characters long (the
+  length `review-history` takes for a substantive comment), from different areas of code (top-level
+  folders, or repositories when there are several), and at least one with a `CHANGES_REQUESTED` review of
+  the team when the window has one;
 - with fewer than 15 such pull requests, hold out a third of them, rounded down, and say so;
 - pick them with a short Node script over `raw/prs.jsonl` that reads only `repo`, `number`, `updated_at`,
-  `files` and `reviews[].state`, `reviews[].role`, `reviews[].commit_id` — the texts stay unread here;
+  `files`, `reviews[].state`, `reviews[].role`, `reviews[].commit_id`, and the `role` and the length of
+  `body` of `reviews[]`, `threads[].comments[]` and `comments[]` — the length only: it prints no text;
 - record them in `meta.json` under the key `held_out`: `[{"repo": "<owner>/<name>", "number": <n>,
   "commit_id": "<sha>"}]`, where `commit_id` is the commit the first review of the team saw. Change only
   this key; `review-history` keeps the keys of other writers.

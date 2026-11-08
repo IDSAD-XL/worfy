@@ -22,10 +22,14 @@ author's comments on their own pull request are already gone.
 2. Save the mechanical numbers: `"<plugin>/bin/review-history" stats > "<private folder>/raw/stats.json"; echo "EXIT=$?"`.
    They are the lengths of substantive comments by percentile, the shares of review states, approvals without
    comments by size and by area, remarks repeated in different pull requests (`repeated_remarks`), threads
-   outdated or resolved after a comment, and the reviewers' shares as labels.
+   outdated or resolved after a comment, and the reviewers' shares as labels. `stats` has no filter: its numbers
+   include the `held_out` pull requests, while the numbers of the analysis (section 5) do not. research.md says so.
 3. Labels instead of logins: write `raw/reviewers.json`, a map from each team login (lower case) to
-   `reviewer A`, `reviewer B`, … in the order of `reviewers.shares` of the stats — most comments first. Every
-   output of this step names reviewers by these labels; no login leaves `raw/`.
+   `reviewer A`, `reviewer B`, … by the count `stats` uses — every review body with text, line comment and
+   conversation comment of `role` `team`, substantive or not — most comments first, a tie by login in
+   alphabetical order. So the labels match `reviewers.shares` of the stats, except that reviewers with equal
+   counts may swap labels, and their shares are equal anyway. Every output of this step names reviewers by these
+   labels; no login leaves `raw/`.
 4. Batches by area of code: the area of a pull request is its repository (when the window has several) and the
    top-level folder that holds most of its `files` (`.` for files at the root). An area with fewer than 3 pull
    requests joins one area `other`. One batch per area; an area with more than about 150 team comments splits by
@@ -106,7 +110,7 @@ order written, with no gap.
 # Research — review history of <project>
 
 Window: <from> to <to>, <N> pull requests, <M> substantive comments of the team, <K> reviewers.
-Held out for the check: <repo>#<number>, … (not analysed).
+Held out for the check: <repo>#<number>, … (not analysed; the numbers marked `stats.` include them).
 Reviewers: reviewer A <share>, reviewer B <share>, …
 
 ## R1 — Triage: approved without comments

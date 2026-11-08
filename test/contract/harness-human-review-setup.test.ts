@@ -98,6 +98,24 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(no.some((b) => b.includes('review-history" clean') && /stop/i.test(b)), no.join('\n')).toBe(true)
   })
 
+  it('sends the verdict voice: no from step 2 to step 3 by its title, before the question', () => {
+    expect(skill).toMatch(/^## 3\. Too little history$/m)
+    const two = step(2)
+    // No numbered sub-items in step 2: "step 3" there can only mean the heading.
+    expect(two).not.toMatch(/^\s*\d+\.\s/m)
+    const route = blocks(two).find((b) => b.includes('`voice: no (N of 30)`') && b.includes('step 3 (Too little history)'))
+    expect(route, two).toBeDefined()
+    expect(route).toMatch(/ask nothing/)
+    expect(two.indexOf('step 3 (Too little history)')).toBeLessThan(two.indexOf('explicit "yes"'))
+  })
+
+  it('picks the held-out pull requests by the role and length of the comments, never their text', () => {
+    const two = step(2)
+    for (const field of ['reviews[].role', 'reviews[].commit_id', 'threads[].comments[]', '`role` and the length of\n  `body`'])
+      expect(two, field).toContain(field)
+    expect(two).toMatch(/prints no text/)
+  })
+
   it('in the short-history branch writes only meta.json, names "N of 30" and offers /worfy:code-review', () => {
     const three = step(3)
     expect(three).toContain('voice: no (N of 30)')
