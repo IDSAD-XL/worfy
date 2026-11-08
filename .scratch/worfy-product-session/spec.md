@@ -15,7 +15,7 @@ Mind map, Session, Orchestrator, Eco mode, Vendor; ADR [0002](../../docs/adr/000
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md), [0021](../../docs/adr/0021-mcp-servers-allowlist-in-profile.md),
 [0056](../../docs/adr/0056-windows-checks-and-two-sessions.md), [0074](../../docs/adr/0074-harness-neutral-by-language-and-project.md),
 [0094](../../docs/adr/0094-vendor-seam.md), [0100](../../docs/adr/0100-run-epic-queue.md); [TICKETS.md](../../harness/bin/TICKETS.md).
-Ticket-ы: Epic `worfy-product-session`, 17 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
+Ticket-ы: Epic `worfy-product-session`, 18 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
 `Source:`, как у worfy-skills.
 
 **Wave-ы Harness (10–14) ждут Epic `worfy-skills` целиком.** Их Status — `blocked` с причиной «ждёт Epic worfy-skills»
@@ -85,6 +85,21 @@ Epic даёт **Product Session** — отдельный вид Session-сове
 11. **Против лёгкого согласия** (решение 03, Q5): отдельный агент ищет возражения; за каждым возражением — факт; доля
     принятых советов — мерка.
 12. **Pilot** (решение 03, Q4): сначала на roadmap самого worfy, потом на проекте auction.
+
+## Решения владельца 2026-11-08 (PR #1666)
+
+Владелец ответил «да» на все вопросы research
+[«Product Session: качество решений»](../../docs/research/2026-11-08-product-session-decision-quality.md) (PR #1666).
+
+- **Q1.** Ticket 11 (агент-критик, PR #1654) вливается как есть.
+- **Q2.** Pilot 15: перед Решением — 2–5 предположений со статусом, у Решения — отклонённые альтернативы и «Revisit
+  when»; свободный текст в `map.md` темы, схема Mind map не меняется.
+- **Q3.** Pilot 17: польза критика против baseline (тот же план без критика), число ложных возражений и расход
+  токенов; доля принятых — не мерка качества.
+- **Q4.** Новый Ticket 18: критик без вердикта автора, `Fact:` отдельно от `Judgement:`, три новых случая eval
+  `critic-verdict`.
+- **Q5.** Hypothesis Validation и Product Memory отложены до итогов pilot-ов 15 и 17 («Не в этом Epic-е»).
+- **Q6.** PR #1666 вливается как research note, без изменения принятых решений spec-а.
 
 ## Что видит владелец
 
@@ -298,6 +313,8 @@ Watcher документов уже держит один рекурсивный
 - **16 — Страница Feature `docs/features/product-session.md` и `ru/` копия.** Blocked by: 09, 13, 14. Не платформенный.
   Ревью `low` и сверка утверждений страницы с кодом.
 - **17 — Pilot на проекте auction.** Blocked by: 15. Не платформенный. Ревью `low`.
+- **18 — Критик: вход без вердикта автора, факты отдельно от суждений.** Blocked by: 11. Не платформенный. Ревью
+  `medium`.
 
 ## Волны
 
@@ -324,6 +341,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 15 | `.scratch/worfy-product-session/evidence/15-*`, `docs/product/roadmap-worfy/**`, `docs/product/critic/**` | 5 |
 | 16 | `docs/features/product-session.md`, `docs/features/ru/product-session.md`, `docs/features/README.md`, `docs/features/sessions.md`, `docs/features/ru/sessions.md` | 5 |
 | 17 | `.scratch/worfy-product-session/evidence/17-*` | 6 |
+| 18 | `harness/agents/critic.md`, `harness/evals/critic-verdict/**`, `test/contract/harness-evals.test.ts` | H3 |
 
 - **Wave 1 — 01, 03.** Стартуют сразу: вид Session и формат файла не зависят ни от чего.
 - **Wave 2 — 02, 05, 06, 07.** 02, 06 и 07 ждут поле вида (01), 05 — схему (03). Общих файлов нет.
@@ -332,7 +350,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - **Wave 4 — 09.** Руками и чипы: пишет положения через сервер 04 и правит отрисовку 08.
 - **Wave-ы Harness — после закрытия Epic-а `worfy-skills`.** H1 — 10 (нужна переменная вида из 02) и 11. H2 — 12
   (имена tools из 04) и 13 (критик 11; общий файл `critic.md`, поэтому после 11). H3 — 14 (шапка 07, правила 10,
-  файл критика 11, идеи 12). 11 и 12 оба правят `harness/evals/lib/coverage.json`, поэтому в разных Wave-ах.
+  файл критика 11, идеи 12) и 18 (критик 11; общий с 13 файл `critic.md`, поэтому после 13). 11 и 12 оба правят `harness/evals/lib/coverage.json`, поэтому в разных Wave-ах.
   Если `worfy-skills` закроется раньше, чем дойдут Wave-ы 2–4, 11 может идти вместе с ними: общих файлов нет.
 - **Wave 5 — 15, 16.** Pilot на worfy и страница Feature — после экрана (09) и Harness (13, 14).
 - **Wave 6 — 17.** Pilot на auction — после pilot на worfy.
@@ -354,6 +372,11 @@ Wave — Ticket-ы, которые можно брать параллельно:
   следующих Epic-ов (раздел roadmap).
 - **Команда на большом многолетнем проекте** — своя карта позже (решение владельца 2026-11-07).
 - **Card как экран Product Session** — Card не читает файлы Project-а (research, раздел 4); Card остаётся прототипом.
+- **Hypothesis Validation** — прогноз до решения и наблюдаемый результат после него — и **Product Memory** — lessons
+  из проверенных итогов решений, с областью действия и сроком устаревания. Отложены, пока pilot-ы 15 и 17 не покажут
+  пользу (решение владельца 2026-11-08, Q5); источник — research
+  [«Product Session: качество решений»](../../docs/research/2026-11-08-product-session-decision-quality.md), разделы
+  4, 5 (PR #1666).
 
 ## Риски
 
@@ -368,7 +391,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
 4. **Две быстрые записи подряд.** Watcher документов идёт через `fs.watch`, не chokidar, и потери второго изменения за
    50 мс у него не ждём — но это вывод по коду (research, 3.3). Ticket 05 пишет test на две записи подряд.
 5. **Критик соглашается.** Мерка — доля принятых советов (Ticket 14) и pilot-ы 15, 17; eval Ticket-а 11 проверяет, что
-   на плане с заложенной ошибкой критик её находит.
+   на плане с заложенной ошибкой критик её находит; Ticket 18 добавляет случаи дубля, дешёвой альтернативы и
+   изменившегося условия, pilot 17 сравнивает с baseline без критика.
 6. **Правила Orchestrator-а у предела 10000 символов.** Строка Ticket-а 13 — не длиннее 300 символов; test
    `rules-hooks.test.sh` проверяет предел.
 7. **Файлы `docs/product/` в рабочем дереве.** Product Session пишет в checkout Project-а; до сигнала «сохранить» или
@@ -451,5 +475,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 - [ ] Product Session получает правила `product`, а не `orchestrator`; критик пишет разбор в `docs/product/critic/`;
       идеи — 3–5 с полями и хотя бы одной против roadmap (10, 11, 12).
 - [ ] Orchestrator зовёт критика перед приёмкой spec; доля принятых — в шапке (13, 14).
+- [ ] Критик не получает вердикта автора и отделяет `Fact:` от `Judgement:`; eval `critic-verdict` — пять случаев
+      (11, 18).
 - [ ] Pilot на roadmap worfy и на auction прошли, доля принятых записана (15, 17).
 - [ ] Страница Feature и её `ru/` копия (16).
