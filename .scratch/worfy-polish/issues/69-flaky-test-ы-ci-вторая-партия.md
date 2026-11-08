@@ -41,9 +41,13 @@ code. Что не воспроизвелось или не исправилос�
 ## Готово, когда
 
 - [ ] Каждый исправленный test воспроизведён до правки и проходит после неё: счёт до и после в «Итог».
+  - evidence: test-run pass · `pnpm test <the test with the injected delay, slow touch or ps, or the git wrapper>` before red, after exit 0 (counts in Итог) · mac - · 71d13cb13a886e35dce03936712ece818adc9b47
 - [ ] Исправленные test-ы — 20 прогонов подряд зелёные; все unit и contract test-ы затронутых модулей, затронутые
       shell test-ы Harness, `plugin-neutral.test.sh`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; 20-run loops 20 of 20 (vitest files, wave-gate-heartbeat.test.sh, wave-brief.test.sh); plugin-neutral.test.sh exit 0 · mac - · 71d13cb13a886e35dce03936712ece818adc9b47
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 71d13cb13a886e35dce03936712ece818adc9b47
 - [ ] Не исправленные — в «Итог», с причиной или с тем, почему её не нашли.
+  - evidence: commit pass · Fix eight causes of flaky tests: git maintenance lock, heartbeat races, wall-clock limits (polish 69) · - - · 71d13cb13a886e35dce03936712ece818adc9b47
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
