@@ -47,6 +47,7 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
       `pnpm lint`, `pnpm typecheck`, `pnpm test`, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 · mac - · 39570471a
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 · mac - · 65b9c08e7
+  - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 after the rebase onto 64c8946c2 · mac - · 282e33bd2
 - [ ] ci-ok зелёный на head PR.
 
 ## Где в коде
