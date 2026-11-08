@@ -1,5 +1,5 @@
 ---
-description: 'Every working turn of the main session ends with the four-line status block Stage / Now / Next / Waiting, the Stage line from epic-status (hooks/rules/orchestrator.md, "Phase 3").'
+description: 'Every working turn of the main session ends with the four-line status block Stage / Now / Next / Waiting, the Stage line a line of epic-status, as hooks/stage-lines.mjs hands it in with the prompt (hooks/rules/orchestrator.md, "Phase 3").'
 tags: [main]
 runs: 3
 max_turns: 40

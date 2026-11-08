@@ -118,15 +118,16 @@ parallel when the change is large. Do not substitute your own self-check for thi
 **Every turn that does work ends with a four-line status block**, in the language of reports,
 after the prose.
 
-**Right before the block, run `epic-status`** when the project keeps tickets (`tickets.path`), after
-any ticket status change of this turn: `${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>`, bare with no
-single epic in play. The Stage line is the line of that run for the work at hand; only then write
-the block. With no tickets the Stage line is one plain phrase naming the stage of the work.
+**The Stage line is a line of `epic-status`** when the project keeps tickets (`tickets.path`): a
+hook hands this turn's lines in with the prompt. Copy the line of the epic of the work at hand. When
+it is not among them, or a ticket status changed this turn, run
+`${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>` and copy its line; only then write the block. With
+no tickets it is one plain phrase naming the stage.
 
 The four labels are fixed English tokens whatever the language of reports — worfy parses them;
 only the text after each label follows that language:
 
-    — Stage: <a line of epic-status output, or one phrase naming the stage>
+    — Stage: <this turn's epic-status line; a phrase only with no tickets>
     — Now: <what is true right now>
     — Next: <the single next step>
     — Waiting: <what is needed from the user, or "nothing" in the language of reports>

@@ -513,9 +513,11 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
     && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
     || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
-# "Phase 3": running epic-status is a step of its own that comes before the status block, and the
-# rule is written once. As a condition in the list of rules under the block, sessions skipped the
-# run and wrote the Stage line in their own words.
+# "Phase 3": the Stage line comes from epic-status — the lines hooks/stage-lines.mjs hands in with the
+# prompt, or a run of its own after a status change — and the rule stands before the status block, once.
+# As a condition in the list of rules under the block, sessions skipped the run and wrote the Stage line
+# in their own words; as a step of its own they still skipped it on a small turn (eval case
+# status-block), which is why the hook gives the lines.
 phase3="$(awk '/^## Phase 3/ { on = 1; next } on && /^## / { exit } on' "$RULES/orchestrator.md" 2>/dev/null)"
 run_at="$(printf '%s\n' "$phase3" | grep -nF '${CLAUDE_PLUGIN_ROOT}/bin/epic-status' | head -n 1 | cut -d: -f1)"
 block_at="$(printf '%s\n' "$phase3" | grep -nE '^[[:space:]]*(—|–|-)[[:space:]]*Stage[[:space:]]*:' | head -n 1 | cut -d: -f1)"
@@ -529,6 +531,10 @@ after="$(printf '%s\n' "$phase3" | awk -v from="${block_at:-0}" 'from > 0 && NR 
 [ "$runs" -eq 1 ] && [ -n "$block_at" ] && [ "$after" -eq 0 ] \
     && ok "orchestrator.md Phase 3: the epic-status run is written once" \
     || bad "orchestrator.md Phase 3: the epic-status run is written more than once (path $runs times, $after mentions after the Stage line)"
+flat3="$(printf '%s\n' "$phase3" | tr '\n' ' ' | tr -s ' ')"
+[[ "$flat3" == *'hook hands this turn'"'"'s lines in with the prompt. Copy the line of the epic of the work at hand. When it is not among them, or a ticket status changed this turn, run'* ]] \
+    && ok "orchestrator.md Phase 3: the Stage line is the hook's line of the epic at hand; a run of its own when it is missing or stale" \
+    || bad "orchestrator.md Phase 3: no word of the hook's line of the epic at hand, or of the run when it is missing or stale"
 # "only then write the block" belongs to the step itself: between the run and the Stage line.
 step_flat="$(printf '%s\n' "$phase3" | awk -v a="${run_at:-0}" -v b="${block_at:-0}" 'a > 0 && NR >= a && NR < b' | tr '\n' ' ' | tr -s ' ')"
 [[ "$step_flat" == *'only then write the block'* ]] \
@@ -646,6 +652,7 @@ SessionStart||$N/hooks/inject-rules.mjs" common|10
 SessionStart||$N/hooks/inject-rules.mjs" product|10
 SessionStart||$N/hooks/gh-token-env.mjs"|10
 SubagentStart||$N/hooks/inject-rules.mjs" common|10
+UserPromptSubmit||$N/hooks/stage-lines.mjs"|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
 Stop||$N/hooks/stop.mjs"|900
@@ -733,6 +740,184 @@ got="$(session_parts product)"
 [ "$got" = "common product" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=product: common + product" || bad "hooks.json SessionStart, Product Session: '$got'"
 got="$(session_parts '')"
 [ "$got" = "common orchestrator" ] && ok "hooks.json SessionStart, no kind: orchestrator + common" || bad "hooks.json SessionStart, no kind: '$got'"
+
+# --- 9. The Stage lines with each prompt (hooks/stage-lines.mjs) --------------------------------------
+# UserPromptSubmit runs hooks/stage-lines.mjs: in a project that keeps tickets it hands the session the
+# lines of bin/epic-status for the Epics in play; anywhere else, in a Product Session, for a Subagent, or
+# when bin/profile or epic-status fails or hangs, it prints nothing on stdout and exits 0 — the prompt goes on.
+STAGE="$HOOKS/stage-lines.mjs"
+DEMO="$T/demo"
+mkdir -p "$DEMO" "$T/demo-home" "$T/plain"
+# The fixture of the eval cases: project demo with four open tickets, registered in its own state folder.
+(cd "$DEMO" && env -u HARNESS_HOME HOME="$T/demo-home" EVAL_HARNESS_HOME="$DEMO/.git/worfy-harness" \
+    bash "$HARNESS/evals/lib/demo-project.sh" local-green none >"$T/demo.log" 2>&1) \
+    && ok "stage-lines: the demo project is built" || bad "stage-lines: demo-project.sh failed: $(tail -n 3 "$T/demo.log" | tr '\n' ' ')"
+# The demo line as bin/epic-status prints it, up to the ticket number: /to-tickets · demo 0/4 · …
+DEMO_LINE='/to-tickets · demo 0/4 · '
+# Every run of the hook gets an outer limit of its own: a hook that waited for a hung child would otherwise
+# hold this whole file. Exit 124 when the limit is hit.
+cat >"$T/limit.js" <<'EOF'
+const r = require("child_process").spawnSync(process.argv[2], process.argv.slice(3), { stdio: "inherit", timeout: 20000, killSignal: "SIGKILL" })
+process.exit(r.error && r.error.code === "ETIMEDOUT" ? 124 : r.status ?? 1)
+EOF
+# A folder as node reads it: C:/… in Git Bash on Windows (`pwd -W`), the same path elsewhere. The hook input
+# carries the session directory as Claude Code gives it, a native path; node on Windows cannot open /tmp/….
+nat() { (cd "$1" && { pwd -W 2>/dev/null || pwd -P; }); }
+# stage <cwd> [VAR=value…]: runs the hook with a UserPromptSubmit input from <cwd>; $T/out, $T/err, $rc.
+stage() {
+    local cwd; cwd="$(nat "$1")"; shift
+    (printf '{"session_id":"t-1","hook_event_name":"UserPromptSubmit","cwd":"%s","prompt":"fix a typo"}' "$cwd" \
+        | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" "$@" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
+}
+# Lines of the hook's stderr, and how many of them are its own one line.
+err_lines() { grep -c '' "$T/err" 2>/dev/null || true; }
+own_err() { grep -c '^stage-lines: ' "$T/err" 2>/dev/null || true; }
+stage "$DEMO"
+first="$(ctx | sed -n 2p)"
+[ "$rc" -eq 0 ] && [ "$(event)" = UserPromptSubmit ] && [ "${first#"$DEMO_LINE"}" != "$first" ] && [ ! -s "$T/err" ] \
+    && ok "stage-lines: a project with tickets gets the epic-status line of its Epic" \
+    || bad "stage-lines: tickets project: exit $rc, event '$(event)', line '$first', stderr '$(cat "$T/err")'"
+ctx | head -n 1 | grep -qF 'Copy the line of the epic of the work at hand into the Stage line of the status block' \
+    && ok "stage-lines: the lines come under a heading that says which one to copy" || bad "stage-lines: heading '$(ctx | head -n 1)'"
+stage "$T/plain"
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a directory of no project gets nothing, no stderr, exit 0" \
+    || bad "stage-lines: no project: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
+stage "$DEMO" WORFY_SESSION_KIND=product
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a Product Session gets nothing, exit 0" || bad "stage-lines: product kind: exit $rc, out '$(cat "$T/out")'"
+for field in '"agent_id":"a-1"' '"agent_type":"worfy:implementer"'; do
+    (printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s",%s}' "$(nat "$DEMO")" "$field" \
+        | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
+    [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a Subagent's input ($field alone) gets nothing, exit 0" \
+        || bad "stage-lines: subagent $field: exit $rc, out '$(cat "$T/out")'"
+done
+(printf 'not json' | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && ok "stage-lines: stdin that is not JSON: nothing, one line on stderr, exit 0" \
+    || bad "stage-lines: not JSON: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
+
+# A session directory that is not a directory here is said on stderr, not swapped for the hook's own folder:
+# that swap asked bin/profile about another folder and stayed silent (on Windows a Git Bash path did that).
+(printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$(nat "$T")/no-such-folder" \
+    | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" node "$T/limit.js" node "$STAGE" >"$T/out" 2>"$T/err"); rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && grep -qF 'is not a directory' "$T/err" \
+    && ok "stage-lines: a cwd that is not a directory: nothing, one line on stderr naming it, exit 0" \
+    || bad "stage-lines: missing cwd: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
+# Stand-ins for bin/profile and bin/epic-status. The profile keeps tickets with the branch form <epic>/<NN>,
+# unless FAKE_PROFILE says otherwise; a hanging stand-in writes its pid first, so the test can see it killed.
+cat >"$T/profile-fake.js" <<'EOF'
+const mode = process.env.FAKE_PROFILE || ""
+if (mode === "fail") { process.stderr.write("profile: broken registry\n"); process.exit(1) }
+if (mode === "hang") { require("fs").appendFileSync(process.env.FAKE_PID, process.pid + "\n"); setInterval(() => {}, 1000) }
+else {
+    const tickets = mode === "no-tickets" ? { root: ".scratch/" } : { path: ".scratch/<epic>/issues/NN-*.md", branch: process.env.FAKE_FORM || "<epic>/<NN>" }
+    process.stdout.write(JSON.stringify({ name: "fake", tickets }))
+}
+EOF
+cat >"$T/es-fake.js" <<'EOF'
+const mode = process.env.FAKE_ES || ""
+const arg = process.argv[2]
+// FAKE_CRLF: line ends as a Windows program may print them.
+if (process.env.FAKE_CRLF) { const write = process.stdout.write.bind(process.stdout); process.stdout.write = (s) => write(String(s).replace(/\n/g, "\r\n")) }
+if (mode === "fail") { process.stderr.write("epic-status: cannot read a ticket\n"); process.exit(1) }
+if (mode === "hang") { require("fs").appendFileSync(process.env.FAKE_PID, process.pid + "\n"); setInterval(() => {}, 1000) }
+else if (mode === "long") {
+    const lines = ["main:", ...["e2", "e3", "e4", "e5", "e6"].map((e) => `/implement · ${e} 0/1 · next ` + "x".repeat(500))]
+    process.stdout.write(arg === "--json" ? JSON.stringify({ ref: "main", tickets: [] }) : lines.join("\n") + "\n")
+} else {
+    const lines = ["e7/05:", "closed · e1 2/2", "/implement · e2 1/3 · next two · blocked", "/implement · e3 0/1 · next three",
+        "/implement · e4 1/2 · next four", "/implement · e5 0/2 · next five", "/implement · e6 0/2 · next six", "/implement · e7 0/2 · next seven", ""]
+    const tickets = mode === "none" ? [] : [{ epic: "e3", num: 1, state: "work" }, { epic: "e5", num: 2, state: "done" }, { epic: "e2", num: 1, state: "blocked" }]
+    if (arg === "--json") process.stdout.write(JSON.stringify({ ref: "e7/05", tickets }))
+    else if (arg === "e7") process.stdout.write("/implement · e7 0/2 · e7/05 · next seven\n")
+    else process.stdout.write(lines.join("\n"))
+}
+EOF
+# A repository whose local branches, newest commit first, are e7/05 (checked out), e5/02 (its ticket done),
+# e6/03 and e4/01; main is the oldest.
+REPO="$T/fake-repo"
+mkdir -p "$REPO"
+(
+    cd "$REPO" && git init -q -b main . && git config user.email t@example.invalid && git config user.name t
+    n=1
+    for b in main e4/01 e6/03 e5/02 e7/05; do
+        [ "$b" = main ] || git checkout -q -b "$b"
+        GIT_COMMITTER_DATE="2026-01-0${n}T00:00:00Z" GIT_AUTHOR_DATE="2026-01-0${n}T00:00:00Z" git commit -q --allow-empty -m "$b"
+        n=$((n + 1))
+        [ "$b" = e7/05 ] || git checkout -q main
+    done
+) >"$T/repo.log" 2>&1 && ok "stage-lines: the branch fixture is built" || bad "stage-lines: branch fixture: $(tail -n 3 "$T/repo.log" | tr '\n' ' ')"
+FAKES=(CLAUDE_PROFILE_BIN="$T/profile-fake.js" CLAUDE_EPIC_STATUS_BIN="$T/es-fake.js")
+epics() { ctx | sed 1d | sed 's/^[^·]* · \([^ ]*\) .*/\1/' | tr '\n' ' '; }
+
+stage "$REPO" "${FAKES[@]}"
+got="$(epics)"
+[ "$got" = "e7 e3 e6 " ] && ok "stage-lines: the branch's Epic, then claimed tickets' Epics, then branches with a ticket not done; three lines at most" \
+    || bad "stage-lines: in play '$got'"
+ctx | sed -n 2p | grep -qF 'e7/05' && ok "stage-lines: the branch's Epic comes with the line of epic-status <epic>, branch included" \
+    || bad "stage-lines: the branch's line '$(ctx | sed -n 2p)'"
+stage "$REPO" "${FAKES[@]}" FAKE_CRLF=1
+got="$(epics)"
+cr="$(ctx | tr -cd '\r' | wc -c | tr -d ' ')"
+[ "$got" = "e7 e3 e6 " ] && [ "$cr" -eq 0 ] && ctx | sed -n 2p | grep -qF 'e7/05' \
+    && ok "stage-lines: epic-status printing CRLF: the same Epics and lines, no carriage return in the context" \
+    || bad "stage-lines: CRLF: in play '$got', $cr carriage returns"
+stage "$REPO" "${FAKES[@]}" FAKE_FORM=none FAKE_ES=none
+got="$(epics)"
+[ "$got" = "e3 e4 e5 " ] && ok "stage-lines: with no Epic in play, the Epics that are not closed, blocked ones last" || bad "stage-lines: fallback '$got'"
+stage "$REPO" "${FAKES[@]}" FAKE_FORM=none FAKE_ES=long
+heading="$(ctx | head -n 1)"
+# ctx ends with the line break out_field adds.
+total=$(( $(ctx | chars) - 1 ))
+want=$(( $(printf '%s' "$heading" | chars) + 3 * 301 ))
+long_ok=1
+while IFS= read -r line; do
+    [ "$(printf '%s' "$line" | chars)" -eq 300 ] && [ "${line%…}" != "$line" ] || long_ok=0
+done < <(ctx | sed 1d)
+[ "$long_ok" -eq 1 ] && [ "$(ctx | sed 1d | grep -c '')" -eq 3 ] && [ "$total" -eq "$want" ] \
+    && ok "stage-lines: a line over 300 characters is cut to 300 with …; five long Epics give three lines, $total characters in all" \
+    || bad "stage-lines: long lines: $(ctx | sed 1d | grep -c '') lines, $total characters (want $want)"
+mkdir -p "$T/plain/.scratch/x/issues" && printf '# 01 — a\n\nStatus: open\n' >"$T/plain/.scratch/x/issues/01-a.md"
+stage "$T/plain" CLAUDE_PROFILE_BIN="$T/profile-fake.js" FAKE_PROFILE=no-tickets
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ ! -s "$T/err" ] && ok "stage-lines: a profile without tickets.path gets nothing, even with a .scratch folder; no stderr" \
+    || bad "stage-lines: no tickets.path: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
+stage "$REPO" "${FAKES[@]}" FAKE_PROFILE=fail
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && grep -qF 'bin/profile exit 1' "$T/err" \
+    && ok "stage-lines: bin/profile failing: nothing, exactly one line on stderr, exit 0" || bad "stage-lines: failing profile: exit $rc, err '$(cat "$T/err")'"
+stage "$REPO" "${FAKES[@]}" FAKE_ES=fail
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && [ "$(err_lines)" -eq 1 ] && grep -qF 'bin/epic-status exit 1' "$T/err" \
+    && ok "stage-lines: epic-status failing (and writing to its stderr): nothing, exactly one line on stderr, exit 0" \
+    || bad "stage-lines: failing epic-status: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")'"
+# gone <pid file>: exit 0 once every process the file names is gone, within 3 s; process.kill(pid, 0) works on
+# Windows too. One still running after that is killed here, so a failure leaves nothing behind.
+gone() {
+    node -e '
+const pids = require("fs").readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(Number)
+const alive = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
+const until = Date.now() + 3000
+const tick = () => {
+    const left = pids.filter(alive)
+    if (left.length === 0) process.exit(0)
+    if (Date.now() > until) { for (const pid of left) try { process.kill(pid, "SIGKILL") } catch {} process.exit(1) }
+    setTimeout(tick, 50)
+}
+tick()' "$1" 2>/dev/null
+}
+for who in profile epic-status; do
+    rm -f "$T/hung.pid"
+    started="$(date +%s)"
+    if [ "$who" = profile ]; then stage "$REPO" "${FAKES[@]}" FAKE_PROFILE=hang FAKE_PID="$T/hung.pid" CLAUDE_STAGE_STEP_MS=300
+    else stage "$REPO" "${FAKES[@]}" FAKE_ES=hang FAKE_PID="$T/hung.pid" CLAUDE_STAGE_STEP_MS=300; fi
+    took=$(( $(date +%s) - started ))
+    [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$took" -lt 8 ] && [ "$(own_err)" -eq 1 ] \
+        && ok "stage-lines: $who hanging: given up after its step limit, one line on stderr, exit 0 (${took} s)" \
+        || bad "stage-lines: hanging $who: exit $rc after ${took} s (124: the outer limit), out '$(cat "$T/out")', err '$(cat "$T/err")'"
+    [ -s "$T/hung.pid" ] && gone "$T/hung.pid" && ok "stage-lines: the hung $who is killed, not left behind" || bad "stage-lines: the hung $who is still running (or never wrote its pid)"
+done
+# The command of hooks.json, run the way Claude Code runs it, gives the line too.
+cmd="$(hj hooks | grep '^UserPromptSubmit|' | cut -d'|' -f3)"
+(printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$(nat "$DEMO")" | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" \
+    CLAUDE_PLUGIN_ROOT="$HARNESS_N" sh -c "$cmd" >"$T/out" 2>"$T/err"); rc=$?
+first="$(ctx | sed -n 2p)"
+[ "$rc" -eq 0 ] && [ "${first#"$DEMO_LINE"}" != "$first" ] && ok "hooks.json UserPromptSubmit runs stage-lines.mjs and gives the line" || bad "hooks.json UserPromptSubmit '$cmd': exit $rc, line '$first'"
 
 # --- 8. The old rules file is gone --------------------------------------------------------------
 

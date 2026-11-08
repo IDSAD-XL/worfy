@@ -804,8 +804,8 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
   // from one case folder to another changes both cases.
   it('picks both cases of a file moved between case folders, staged', () => {
     const { repo, git } = changedRepo()
-    const from = 'harness/evals/status-block/graders/epic-status-ran.md'
-    expect(git('mv', from, 'harness/evals/implementer-report/graders/epic-status-ran.md').status).toBe(0)
+    const from = 'harness/evals/status-block/graders/stage-is-epic-status-line.md'
+    expect(git('mv', from, 'harness/evals/implementer-report/graders/stage-is-epic-status-line.md').status).toBe(0)
     const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
     expect(run.status, run.stderr).toBe(0)
     expect(caseArgs(calls)).toEqual([['implementer-report'], ['status-block']])
@@ -814,7 +814,7 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
   it('picks both cases of a file moved between case folders, committed on the branch', () => {
     const { repo, git } = changedRepo()
     expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
-    expect(git('mv', 'harness/evals/status-block/graders/epic-status-ran.md', 'harness/evals/implementer-report/graders/epic-status-ran.md').status).toBe(0)
+    expect(git('mv', 'harness/evals/status-block/graders/stage-is-epic-status-line.md', 'harness/evals/implementer-report/graders/stage-is-epic-status-line.md').status).toBe(0)
     expect(git('commit', '-q', '-m', 'move a grader').status).toBe(0)
     const { run, calls } = evalIn(repo, ['--changed', 'main'])
     expect(run.status, run.stderr).toBe(0)
@@ -823,13 +823,13 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
 
   it('picks the case of a file removed from its folder, staged and committed', () => {
     const staged = changedRepo()
-    expect(staged.git('rm', '-q', 'harness/evals/status-block/graders/epic-status-ran.md').status).toBe(0)
+    expect(staged.git('rm', '-q', 'harness/evals/status-block/graders/stage-is-epic-status-line.md').status).toBe(0)
     const first = evalIn(staged.repo, ['--changed', 'HEAD'])
     expect(first.run.status, first.run.stderr).toBe(0)
     expect(caseArgs(first.calls)).toEqual([['status-block']])
     const committed = changedRepo()
     expect(committed.git('checkout', '-q', '-b', 'topic').status).toBe(0)
-    expect(committed.git('rm', '-q', 'harness/evals/status-block/graders/epic-status-ran.md').status).toBe(0)
+    expect(committed.git('rm', '-q', 'harness/evals/status-block/graders/stage-is-epic-status-line.md').status).toBe(0)
     expect(committed.git('commit', '-q', '-m', 'remove a grader').status).toBe(0)
     const second = evalIn(committed.repo, ['--changed', 'main'])
     expect(second.run.status, second.run.stderr).toBe(0)
