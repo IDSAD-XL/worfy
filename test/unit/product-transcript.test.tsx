@@ -147,7 +147,7 @@ describe('the chat of a Product Session', () => {
     const thinking = screen.getByTestId('product-thinking')
     expect(thinking.textContent).toContain('Advisor is thinking')
     const log = screen.getByTestId('transcript')
-    expect(log.lastElementChild).toBe(thinking)
+    expect(log.lastElementChild?.contains(thinking)).toBe(true)
     rerender(<Product events={[...events, text('Sell to small teams first.'), result(false)]} working={false} />)
     expect(screen.queryByTestId('product-thinking')).toBeNull()
   })

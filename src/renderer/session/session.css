@@ -263,6 +263,12 @@
   font-size: var(--text-13);
 }
 
+.w-session-find__limit {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+
 .w-session-find__count {
   min-width: 64px;
   color: var(--text-muted);

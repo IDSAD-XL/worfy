@@ -46,14 +46,21 @@ function writtenNode(call: { name: string; input: unknown; result: { content: st
 export interface TranscriptChips {
   /**
    * The chips of each row that shows any: the key of the turn's last answer drawn; without one, of its
-   * prompt; without that (the turn starts before the rows held), of its first row drawn.
+   * prompt; without that (the turn starts before the rows held), of its first row drawn. A turn with no
+   * row drawn at all hangs its chips on the next row drawn after it, or, with none after it, on
+   * CHIPS_AT_END: the end of the chat.
    */
   byRow: ReadonlyMap<string, readonly NodeChip[]>
   /** The row with the chips of the turn a chat message (a node's `message`) came in, by the message's uuid. */
   rowOfMessage: ReadonlyMap<string, string>
 }
 
+/** The key of the chips the chat shows at its end, under «Advisor is thinking» while a turn runs (ticket 19). */
+export const CHIPS_AT_END = 'end'
+
 const NONE: TranscriptChips = { byRow: new Map(), rowOfMessage: new Map() }
+
+const chipKey = (chip: NodeChip): string => `${chip.topic}\n${chip.node.id}`
 
 /**
  * The chips of a transcript's turns, and the rows that show the turns the nodes' messages came in.
@@ -68,10 +75,24 @@ export function transcriptChips(items: readonly TranscriptItem[], shown: (item: 
   let answer: string | null = null
   let prompt: string | null = null
   let first: string | null = null
+  // The chips and messages of turns with no row drawn, waiting for the next row drawn.
+  let carried = new Map<string, NodeChip>()
+  let carriedMessages: string[] = []
+  const put = (row: string, chips: ReadonlyMap<string, NodeChip>, of: readonly string[]): void => {
+    if (chips.size > 0) {
+      const merged = new Map((byRow.get(row) ?? []).map((chip) => [chipKey(chip), chip]))
+      for (const [key, chip] of chips) merged.set(key, chip)
+      byRow.set(row, [...merged.values()])
+    }
+    for (const message of of) if (!rowOfMessage.has(message)) rowOfMessage.set(message, row)
+  }
   const close = (): void => {
     const row = answer ?? prompt ?? first
-    if (row !== null && turn.size > 0) byRow.set(row, [...turn.values()])
-    if (row !== null) for (const message of messages) if (!rowOfMessage.has(message)) rowOfMessage.set(message, row)
+    if (row !== null) put(row, turn, messages)
+    else {
+      for (const [key, chip] of turn) carried.set(key, chip)
+      carriedMessages.push(...messages)
+    }
     turn = new Map()
     messages = []
     answer = null
@@ -86,17 +107,23 @@ export function transcriptChips(items: readonly TranscriptItem[], shown: (item: 
     if (shown(item)) {
       first ??= item.key
       if (item.kind === 'text') answer = item.key
+      if (carried.size > 0 || carriedMessages.length > 0) {
+        put(item.key, carried, carriedMessages)
+        carried = new Map()
+        carriedMessages = []
+      }
     }
     if (item.kind !== 'tools') continue
     for (const call of item.calls) {
       const chip = writtenNode(call)
       if (chip === null) continue
       // A node written twice in a turn is one chip, where its first call put it, as the last call left it.
-      turn.set(`${chip.topic}\n${chip.node.id}`, chip)
+      turn.set(chipKey(chip), chip)
       if (chip.node.message !== undefined) messages.push(chip.node.message)
     }
   }
   close()
+  if (carried.size > 0 || carriedMessages.length > 0) put(CHIPS_AT_END, carried, carriedMessages)
   return byRow.size === 0 && rowOfMessage.size === 0 ? NONE : { byRow, rowOfMessage }
 }
 

@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
-import { attachChat, lightNodes, transcriptChips, useMindMapFocus, type NodeRef } from '../product/node-chips'
+import { attachChat, CHIPS_AT_END, lightNodes, transcriptChips, useMindMapFocus, type NodeChip, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
@@ -267,6 +267,11 @@ function Thinking() {
       </div>
     </div>
   )
+}
+
+/** The Mind map nodes of a message's chips, for the light on the pointer; none without chips. */
+function refsOf(projectId: string, chips: readonly NodeChip[] | undefined): NodeRef[] | undefined {
+  return chips?.map((chip) => ({ projectId, topic: chip.topic, id: chip.node.id }))
 }
 
 /**
@@ -907,6 +912,16 @@ export function Transcript(props: TranscriptProps) {
     const element = log.current
     if (element === null || chips === null || shownMessage === null || shownMessage.projectId !== product || shownSeq.current === shownMessage.seq) return
     const key = chips.rowOfMessage.get(shownMessage.message)
+    // The chips of a turn with no row drawn stand at the end of the chat (node-chips.ts, CHIPS_AT_END).
+    const end = key === CHIPS_AT_END ? element.querySelector<HTMLElement>(':scope > [data-chips-end]') : null
+    if (end !== null) {
+      shownSeq.current = shownMessage.seq
+      for (const was of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-shown]'))) was.removeAttribute('data-shown')
+      end.setAttribute('data-shown', '')
+      element.scrollTop = element.scrollHeight
+      track()
+      return
+    }
     if (key === undefined || !index.has(key)) {
       shownSeq.current = shownMessage.seq
       return
@@ -963,7 +978,7 @@ export function Transcript(props: TranscriptProps) {
     if (row > next) rows.push(space(item.key, next, row))
     const rowChips = product === null ? undefined : chips?.byRow.get(item.key)
     // The pointer on a message of a Product Session lights the nodes of its chips (ticket 19, Q5).
-    const refs: NodeRef[] | undefined = product === null ? undefined : rowChips?.map((chip) => ({ projectId: product, topic: chip.topic, id: chip.node.id }))
+    const refs = product === null ? undefined : refsOf(product, rowChips)
     rows.push(
       <div
         key={item.key}
@@ -981,7 +996,24 @@ export function Transcript(props: TranscriptProps) {
     next = row + 1
   }
   if (next < n) rows.push(space('', next, n))
-  if (inProduct && working) rows.push(<Thinking key="thinking" />)
+  // The end of a Product Session's chat: «Advisor is thinking» while a turn runs, and the chips of a turn with no row drawn.
+  const endChips = product === null ? undefined : chips?.byRow.get(CHIPS_AT_END)
+  if (inProduct && (working || endChips !== undefined)) {
+    const refs = product === null ? undefined : refsOf(product, endChips)
+    rows.push(
+      <div
+        key="end"
+        className="w-tr__item"
+        data-chips-end=""
+        data-testid="product-chat-end"
+        onMouseEnter={refs === undefined ? undefined : () => lightNodes(refs)}
+        onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
+      >
+        {working ? <Thinking /> : null}
+        {product !== null && endChips !== undefined ? <NodeChips projectId={product} chips={endChips} /> : null}
+      </div>,
+    )
+  }
 
   return (
     <div
@@ -1006,7 +1038,7 @@ export function Transcript(props: TranscriptProps) {
         </div>
       ) : null}
       <NowContext.Provider value={now}>
-        <Lines.Provider value={lines}>{items.length === 0 && !(inProduct && working) ? <div className="w-tr__empty">No messages yet</div> : rows}</Lines.Provider>
+        <Lines.Provider value={lines}>{rows.length === 0 ? <div className="w-tr__empty">No messages yet</div> : rows}</Lines.Provider>
       </NowContext.Provider>
     </div>
   )

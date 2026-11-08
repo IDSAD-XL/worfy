@@ -54,7 +54,7 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
   adds, "Turn finished" and slash commands are not shown. The whole log is in the Flight Recorder.
 - While a turn runs, "Advisor is thinking" stands at the end of the chat. There is no switch to show the details.
 - Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
-  file behind "Load earlier" is not searched.
+  file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
 - The input field keeps the text, Send, Interrupt while a turn runs, and attaching a file or a picture. It has no
   pickers, context meter, queue chip or hints. A message sent while a turn runs still waits in the queue.
 
@@ -213,7 +213,8 @@ to type in.
 
 **Chips in the chat.** Under the advisor's last answer of a turn, each node that the turn's `mind_map_add`,
 `mind_map_update` or `mind_map_decide` calls wrote gets a chip, once per node. A turn without an answer shows its chips
-under the owner's message that started it. A click on a chip selects the node on the Mind map and brings it into view. A
+under the owner's message that started it; a turn none of whose rows is shown (the loaded part starts in its tool calls)
+shows them under the next message, or at the end of the chat. A click on a chip selects the node on the Mind map and brings it into view. A
 hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing at a chip or
 focusing it lights its node; pointing at a message lights the nodes of all its chips. "Show in the chat" on a card
 scrolls the chat to the message that carries the node's chip.

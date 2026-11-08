@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { CHIPS_AT_END, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { ProductSessionContext, shownInProductChat } from '../../src/renderer/session/product-session'
 import { Transcript } from '../../src/renderer/session/Transcript'
@@ -174,6 +174,54 @@ describe('chips of Mind map nodes under a message', () => {
     fireEvent.click(nodeOf('who-pays')!)
     act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
     expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
+  })
+
+  // Review of PR #1695: a turn whose rows in the window are all hidden (the window starts in its calls).
+  it('a turn with no row drawn hangs its chips on the next row drawn, and «Show in the chat» goes there', () => {
+    const midTurn: AgentEvent[] = [
+      { type: 'thinking', text: 'Mapping', messageId: 'th', parentToolUseId: null },
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
+      answer('t1', WHO),
+      prompt('Next question'),
+      text('Noted.', 'msg-9'),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(midTurn), shownInProductChat)
+    expect([...byRow.keys()]).toEqual(['e3'])
+    expect(rowOfMessage.get('uuid-2')).toBe('e3')
+    render(<ProductBody shown={midTurn} />)
+    const row = screen.getByTestId('transcript-prompt').closest<HTMLElement>('[data-item]')!
+    expect(within(row).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(document.querySelector<HTMLElement>('[data-item][data-shown]')).toBe(row)
+  })
+
+  it('a turn with no row drawn and none after it shows its chips at the end of the chat, and «Show in the chat» goes there', () => {
+    const lastTurn: AgentEvent[] = [
+      { type: 'thinking', text: 'Mapping', messageId: 'th', parentToolUseId: null },
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
+      answer('t1', WHO),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(lastTurn), shownInProductChat)
+    expect([...byRow.keys()]).toEqual([CHIPS_AT_END])
+    expect(rowOfMessage.get('uuid-2')).toBe(CHIPS_AT_END)
+    render(
+      <>
+        <MindMap projectId="p1" topic={topic} />
+        <ProductSessionContext value={true}>
+          <Transcript events={lastTurn} projectId="p1" working />
+        </ProductSessionContext>
+      </>,
+    )
+    const end = screen.getByTestId('product-chat-end')
+    expect(within(end).getByTestId('product-thinking')).toBeTruthy()
+    expect(within(end).getAllByTestId('node-chip').map((chip) => chip.dataset['id'])).toEqual(['who-pays'])
+    act(() => fireEvent.mouseEnter(end))
+    expect(nodeOf('who-pays')!.dataset['lit']).toBe('true')
+    act(() => fireEvent.mouseLeave(end))
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(end.hasAttribute('data-shown')).toBe(true)
   })
 
   it('the pointer on a message lights every node of its chips on the Mind map; leaving it puts the light out', () => {

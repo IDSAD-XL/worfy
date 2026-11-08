@@ -2,7 +2,7 @@
 // renderer's event store, the input field's keys and prompt history, its pickers and queue chip
 // (composer/, ticket 19), the rail made of files in rail/, and opening the view by a double click
 // on the Orchestrator's Node.
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
@@ -1038,6 +1038,33 @@ describe('SessionPanel', () => {
       expect(within(header).getByTestId('session-state').textContent).toBe('idle')
       expect(within(header).getByTestId('product-session-accepted')).toBeTruthy()
       expect(within(header).getByTestId('session-interrupt')).toBeTruthy()
+    })
+
+    // Review of PR #1695: the topic in the header (Q3) — its title from map.md, the folder name while it has
+    // none, the Project's name before a topic is known (the test above: «Product Session · alpha»).
+    it('the header of a Product Session names the topic its Mind map shows: the title of map.md, else the folder name', async () => {
+      vi.doMock('../../src/renderer/product/MindMap', () => ({ MindMap: () => <p>the Mind map</p> }))
+      localStorage.setItem('worfy.productSession.topic:alpha:node-1', 'pricing-demo')
+      let title: string | null = 'Pricing for small teams'
+      answers['product.topic'] = (input) => ({
+        projectId: 'alpha',
+        name: (input as { name: string }).name,
+        topic: { name: 'pricing-demo', folder: 'docs/product/pricing-demo', title, sections: [], tickets: [], nodes: [], errors: [] },
+      })
+      try {
+        await mountKind('product')
+        const heading = screen.getByRole('heading', { level: 1 })
+        await vi.waitFor(() => expect(heading.textContent).toBe('Product Session · Pricing for small teams'))
+        expect(screen.getByTestId('product-session-topic').textContent).toBe('Pricing for small teams')
+        cleanup()
+        title = null
+        vi.resetModules()
+        await mountKind('product')
+        await vi.waitFor(() => expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Product Session · pricing-demo'))
+      } finally {
+        localStorage.removeItem('worfy.productSession.topic:alpha:node-1')
+        vi.doUnmock('../../src/renderer/product/MindMap')
+      }
     })
 
     it('the chat of a Product Session is headed «Conversation with the advisor», with the Vendor', async () => {

@@ -36,6 +36,9 @@ export function findItems(events: readonly AgentEvent[], firstIndex: number, pro
   return product ? items.filter(shownInProductChat) : items
 }
 
+/** The find bar's note in a Product Session's chat whose earlier messages are not read (findItems). */
+export const EARLIER_NOT_LOADED = 'Earlier messages not loaded'
+
 /** Pause after typing before main is asked about the history the view has not read. */
 export const FIND_DEBOUNCE_MS = 150
 
@@ -257,6 +260,11 @@ export interface TranscriptFindState {
   count: string
   /** Why the count may miss matches; null when it counts them all. */
   note: string | null
+  /**
+   * Shown in the bar: a Product Session's chat with messages before the ones read, which find does not
+   * search (EARLIER_NOT_LOADED); null otherwise.
+   */
+  limit: string | null
   /** True while windows are loaded to reach a match. */
   loading: boolean
   /** What the Transcript draws; undefined while the bar is closed or the query too short. */
@@ -432,11 +440,13 @@ export function useTranscriptFind({ events, firstIndex, hideTools, product = fal
     else count = `${total}${more} ${total === 1 && more === '' ? 'match' : 'matches'}`
   }
   const note = needle !== '' && searchable && failed !== null ? `The history before the shown messages was not searched: ${failed}` : null
+  // A Product Session's chat does not ask main (the shortcut above): the bar says the earlier part is left out.
+  const limit = product && needle !== '' && (given?.earlier ?? 0) > 0 ? EARLIER_NOT_LOADED : null
 
   const parts = useMemo(() => new Set(found.map((match) => match.part)), [found])
   // One object while nothing changed: the Transcript paints again only when it does.
   const transcript = useMemo(() => (needle === '' ? undefined : { needle, parts, current: shown, seq }), [needle, parts, shown, seq])
-  return { open, query, setQuery, focusSeq, close, step, count, note, loading: target !== null, transcript }
+  return { open, query, setQuery, focusSeq, close, step, count, note, limit, loading: target !== null, transcript }
 }
 
 // ── painting in the log ─────────────────────────────────────────────────────
