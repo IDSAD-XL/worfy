@@ -147,7 +147,8 @@ the team really said. A check that could not run says so. Then ask: keep, build 
 - **Build again** — take the person's remarks on the rules and on the pages of the check, and run steps 5 and 6
   again with them: in step 5 the remarks are one more input — a rule the person rejects is dropped, a change they
   ask for is made, as long as every rule still ends with `[R<n>]` of a section of `research.md` that supports
-  it. Then this step again.
+  it. The check of step 6 then runs on the same pull requests, which the person has already read: show its result
+  marked "after the person saw these PRs", as `check.md` writes it. Then this step again.
 - **Refuse** — delete the private folder and nothing else, with one command and its literal path:
   `rm -rf "<_resolved.dir>/state/human-review"`, with `<_resolved.dir>` written out in full as step 1 printed it,
   not a shell variable, and nothing after the path. Say what was deleted.

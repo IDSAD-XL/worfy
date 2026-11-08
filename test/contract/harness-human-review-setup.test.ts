@@ -432,7 +432,9 @@ describe('check.md', () => {
     expect(flat).toMatch(/the commit the first review of the team saw/)
     // Files at that commit without touching the working tree: no checkout, no worktree.
     expect(flat).toContain('git show "<commit_id>:<path>"')
-    expect(flat).toContain('git diff "origin/<baseRefName>...<commit_id>"')
+    expect(flat).toContain('git diff "<base>" "<commit_id>"')
+    // A three-dot diff against the base branch is empty after a merge by a merge commit.
+    expect(flat).not.toContain('...<commit_id>')
     expect(flat).not.toMatch(/git (checkout|switch|worktree add)/)
     expect(flat).toMatch(/no checkout and no worktree/)
     // The head of the pull request today is not the code the reviewer saw.
@@ -446,7 +448,20 @@ describe('check.md', () => {
     expect(flat).toMatch(/pasted in full/)
     // The drafting Subagent never sees what the team said on that pull request.
     expect(flat).toMatch(/never reads `raw\/`/)
-    for (const field of ['reviews', 'comments', 'latestReviews']) expect(flat).toContain(`no \`${field}\``)
+    expect(flat).toContain('no `gh` command at all')
+  })
+
+  it('keeps the drafting Subagent off the history after commit_id, where the answers to the review lie', () => {
+    const rule = blocks(check).find((b) => b.startsWith('- no history after `commit_id`'))
+    expect(rule, check).toBeDefined()
+    for (const banned of ['no `git log`', '`git log <commit_id>..`', 'no `FETCH_HEAD`', 'no `pull/<n>/head`', 'no `origin/<baseRefName>`'])
+      expect(rule, banned).toContain(banned)
+  })
+
+  it('puts commit_id in place of headRefOid and into payload.commit_id of the draft', () => {
+    expect(flat).toContain('`commit_id`, not `headRefOid`')
+    expect(flat).toContain('`commit_id` stands wherever the skill says `headRefOid`')
+    expect(flat).toContain('`payload.commit_id` set to `commit_id`')
   })
 
   it('posts nothing: no gh call with a method that writes, no gh pr review or comment', () => {
@@ -465,6 +480,44 @@ describe('check.md', () => {
     expect(judge.some((b) => /general/.test(b) && /no line/.test(b)), judge.join('\n')).toBe(true)
     // A line pair further apart is never a match, so the judge cannot widen the measure.
     expect(flat).toMatch(/never a match/)
+  })
+
+  it('matches one to one, so one draft remark never counts for two remarks of the team', () => {
+    expect(flat).toContain('matches one to one')
+    expect(flat).toContain('each remark of the team keeps at most one draft remark and each draft remark at most one of the team')
+  })
+
+  it('places a remark of the team by path and original_line of the first comment on commit_id, never by the thread line', () => {
+    expect(flat).toContain('`original_line`')
+    expect(flat).toContain('its `path` and its `original_line`')
+    expect(flat).toContain("Never the thread's `line`")
+    expect(flat).toContain('whose own `commit_id`, the commit it was written on, is the held-out `commit_id`')
+    expect(flat).toContain("the team's `original_line`, the draft's `line`")
+    // An outdated thread is no general comment for the judge to pair with anything.
+    expect(flat).not.toMatch(/thread whose `line` is empty/)
+  })
+
+  it('counts only the comments on commit_id and lists the later rounds apart', () => {
+    expect(flat).toContain('the body of a review whose `commit_id` is the held-out `commit_id`')
+    expect(flat).toContain('are not in N')
+    expect(flat).toContain('`## Later rounds`')
+    expect(flat).toContain('not paired and not counted')
+    expect(flat).toContain('"later": L')
+  })
+
+  it('marks a check after Build again as run on pull requests the person already saw', () => {
+    expect(flat).toContain('(after the person saw these PRs)')
+    expect(flat).toContain('`seen` is `true`')
+    const again = blocks(step(7)).find((b) => b.startsWith('- **Build again**'))
+    expect(again).toContain('after the person saw these PRs')
+  })
+
+  it('stops a pull request with an empty diff instead of grading an empty draft', () => {
+    expect(check).toContain('git merge-base --is-ancestor "<commit_id>" "<base>"; echo "EXIT=$?"')
+    expect(check).toContain('git diff --quiet "<base>" "<commit_id>"; echo "EXIT=$?"')
+    expect(flat).toContain('this pull request stops here')
+    expect(flat).toContain('the reason "empty diff"')
+    expect(flat).toContain('An empty draft is never graded')
   })
 
   it('reports "matched K of N remarks of the team, M extra" per pull request and in total, as a rough measure', () => {
@@ -490,6 +543,104 @@ describe('check.md', () => {
   it('goes on to step 7 even when there is nothing to check', () => {
     expect(flat).toMatch(/no `held_out`/)
     expect(flat).toContain('step 7 of SKILL.md')
+  })
+})
+
+describe('the base rule of check.md on a real git history', () => {
+  // The commands are taken from the text of check.md and run, with their placeholders filled, in a made-up repository
+  // where one pull request branched at A, its reviewed commit C changed f.txt, and the base branch moved on to B.
+  const flat = check.replace(/\s+/g, ' ')
+  const command = (re: RegExp): string => {
+    const m = re.exec(flat)
+    expect(m, String(re)).not.toBeNull()
+    return m?.[1] ?? ''
+  }
+  const merged = (): string => command(/`(git merge-base "<mergeCommit>\^1" "<commit_id>")`/)
+  const open = (): string => command(/`(git merge-base "origin\/<baseRefName>" "<commit_id>")`/)
+  const diff = (): string => command(/`(git diff "<base>" "<commit_id>")`/)
+  const guards = (): string[] => [/^(git merge-base --is-ancestor [^;\n]+);/m, /^(git diff --quiet [^;\n]+);/m].map((re) => re.exec(check)?.[1] ?? '')
+
+  const repo = join(root, 'base-rule')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'no-global-git-config'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_PARAMETERS: '' }
+  const git = (...args: string[]): { status: number | null; out: string } => {
+    const r = spawnSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, env, encoding: 'utf8' })
+    return { status: r.status, out: (r.stdout ?? '').trim() }
+  }
+  const sha = (...args: string[]): string => {
+    const r = git(...args)
+    expect(r.status, args.join(' ')).toBe(0)
+    return r.out
+  }
+  /** Runs a command of check.md: its quoted words are arguments, `<name>` placeholders take the given values. */
+  const run = (cmd: string, values: Record<string, string>): { status: number | null; out: string } => {
+    const words = [...cmd.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!)
+    expect(words[0]).toBe('git')
+    return git(...words.slice(1).map((w) => w.replace(/<[A-Za-z_]+>/g, (k) => values[k] ?? k)))
+  }
+
+  let A = ''
+  let C = ''
+  const heads: Record<string, string> = {}
+  const setUp = (): void => {
+    if (A) return
+    mkdirSync(repo, { recursive: true })
+    sha('init', '-q')
+    writeFileSync(join(repo, 'a.txt'), 'a\n')
+    sha('add', 'a.txt')
+    sha('commit', '-qm', 'A')
+    A = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'feature')
+    writeFileSync(join(repo, 'f.txt'), 'f\n')
+    sha('add', 'f.txt')
+    sha('commit', '-qm', 'C')
+    C = sha('rev-parse', 'HEAD')
+    sha('switch', '-q', 'main')
+    writeFileSync(join(repo, 'b.txt'), 'b\n')
+    sha('add', 'b.txt')
+    sha('commit', '-qm', 'B')
+    sha('update-ref', 'refs/remotes/origin/main', sha('rev-parse', 'HEAD'))
+    // Merged by a merge commit, by a squash, by a rebase.
+    sha('switch', '-qc', 'by-merge', 'main')
+    sha('merge', '-q', '--no-ff', '-m', 'merge', 'feature')
+    heads.merge = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'by-squash', 'main')
+    sha('merge', '-q', '--squash', 'feature')
+    sha('commit', '-qm', 'squash')
+    heads.squash = sha('rev-parse', 'HEAD')
+    sha('switch', '-qc', 'by-rebase', 'main')
+    sha('cherry-pick', 'feature')
+    heads.rebase = sha('rev-parse', 'HEAD')
+  }
+
+  const expectOneFile = (base: string): void => {
+    expect(base).toBe(A)
+    const d = run(diff().replace('git diff', 'git diff --name-only'), { '<base>': base, '<commit_id>': C })
+    expect(d).toEqual({ status: 0, out: 'f.txt' })
+    for (const guard of guards()) expect(run(guard, { '<base>': base, '<commit_id>': C }).status, guard).toBe(1)
+  }
+
+  it.each(['merge', 'squash', 'rebase'])('a pull request merged by a %s gets the branch point as its base, and the diff of C', { timeout: ms(30_000) }, (how) => {
+    setUp()
+    const base = run(merged(), { '<mergeCommit>': heads[how]!, '<commit_id>': C })
+    expect(base.status).toBe(0)
+    expectOneFile(base.out)
+  })
+
+  it('a pull request not merged gets its merge base with the base branch', { timeout: ms(30_000) }, () => {
+    setUp()
+    const base = run(open(), { '<baseRefName>': 'main', '<commit_id>': C })
+    expect(base.status).toBe(0)
+    expectOneFile(base.out)
+  })
+
+  it('the base branch after a merge commit would give C itself, and the guards of check.md stop it', { timeout: ms(30_000) }, () => {
+    setUp()
+    // The rule check.md forbids: the merge base of the base branch after the merge and C.
+    const wrong = sha('merge-base', heads.merge!, C)
+    expect(wrong).toBe(C)
+    const [ancestor, quiet] = guards()
+    expect(run(ancestor!, { '<base>': wrong, '<commit_id>': C }).status).toBe(0)
+    expect(run(quiet!, { '<base>': wrong, '<commit_id>': C }).status).toBe(0)
   })
 })
 
