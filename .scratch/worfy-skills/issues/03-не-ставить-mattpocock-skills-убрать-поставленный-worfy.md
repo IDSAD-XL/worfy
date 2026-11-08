@@ -1,7 +1,8 @@
 # 03 — Не ставить `mattpocock-skills`; при обновлении убрать plugin, поставленный worfy
 
 Type: task
-Status: open
+Status: done 2026-11-08T02:05Z
+PR: #1611
 Blocked by: 01
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 4; «Как работает» → «Зависимость больше не ставится», «Удаление plugin-а, поставленного worfy»; «Решено без владельца», п. 4, 5; «Риски», п. 1, 2; «Вопросы владельцу», Q5; [ADR-0059](../../../docs/adr/0059-installer-installs-plugin-dependencies.md), п. 4, 5, 7, 8
 
@@ -57,30 +58,41 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] В «Итог» — откуда worfy читает `installedAt` (Claude Code) и есть ли время установки у Codex, с версией и
       местом, где искал.
   - evidence: commit pass · wip: test and ticket result · - - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: установка на пустом stub-е не зовёт ни одной команды `mattpocock-skills` и marketplace
       `claude-plugins-official`; строка «Plugin dependencies» — `none`.
   - evidence: test-run pass · `pnpm test` exit 0 (test/contract/first-run-checks.test.ts, the Harness of this repository) · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: `installedAt` зависимости за 2 минуты до `worfy@worfy-harness` — после Update ровно одна команда
       `plugin uninstall mattpocock-skills@claude-plugins-official --scope user`, после установки `worfy`, не до неё.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: зависимость поставлена раньше окна, позже `worfy`, без даты, дата не читается, plugin не в списке — ни
       одной команды удаления.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: `uninstall` упал — Harness `installed`, в итоге строка с хвостом stderr; повтор на следующем Update.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: Linked machine удаление не запускает.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test Codex: fake Codex с временным `CODEX_HOME` — без времени установки и без записи worfy plugin остаётся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Test: установка зависимости из fixture-копии пишет запись worfy (Claude Code и Codex); plugin с записью worfy
       удаляется без окна времени, запись без plugin-а в списке — ничего.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-dependency-cleanup.test.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Contract и e2e установщика зелёные на fixture-копии с зависимостью; `test/contract/harness-plugin.test.ts`
       проверяет, что у настоящего `plugin.json` зависимостей нет.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/harness-install.spec.ts test/e2e/first-run.spec.ts` exit 0 · mac - · cd7ab231e07e5cd16deb9dac88471ae16dac3941
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] Windows: contract-test-ы установщика и `test/e2e/harness-install.spec.ts` — exit 0.
   - needs: windows
+  - evidence: review pass · PR #1611 · - - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42432197215/job/128596862104 · ci - · 05966e2d553ce93692d42e9eb5359d5685a10fe3
 
 ## Тесты
 
