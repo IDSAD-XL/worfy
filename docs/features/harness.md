@@ -65,7 +65,7 @@ command that installs a dependency 600 s.
 in (Update Harness in the toolbar, or the install after an app Update), worfy removes that plugin with
 `claude plugin uninstall mattpocock-skills@claude-plugins-official --scope user`, only when worfy installed it: its own
 record says so, or Claude Code lists the plugin as installed at most 10 minutes before `worfy@worfy-harness`, and
-before it. A plugin the user installed at another time, one without a readable install time, and one on a first
+before it. A record of a plugin that is gone, or that Claude Code lists as installed later than the record, is dropped. A plugin the user installed at another time, one without a readable install time, and one on a first
 install stay. Codex follows the same rule with `codex plugin remove <id>`; Codex lists no install time for such a
 plugin, so there only worfy's record removes it. The marketplace stays. The toolbar line then shows
 `· removed mattpocock-skills`, and its tooltip names the command that puts it back. A failed removal shows

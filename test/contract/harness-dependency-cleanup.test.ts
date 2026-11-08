@@ -49,7 +49,8 @@ const UPDATE_WORFY = `claude plugin update ${HARNESS_PLUGIN_ID} --scope user`
 
 // Claude Code 2.1.289: `plugin list --json` lists { id, version, scope, enabled, installedAt, lastUpdated, errors }
 // (the SDK's binary); `plugin install` sets installedAt, `plugin update` keeps it. STUB_CLAUDE_FAIL: a
-// command line prefix that exits 1 with an error on stderr.
+// command line prefix that exits 1 with an error on stderr. STUB_CLAUDE_LIST_AFTER_UPDATE: once
+// `plugin update` ran, every `plugin list` prints junk (`junk`) or exits 1 (`fail`).
 const CLAUDE_STUB = `
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
@@ -71,7 +72,12 @@ else if (command === 'plugin install' || command === 'plugin update') {
   const now = new Date().toISOString()
   const before = state.plugins[args[2]]
   state.plugins[args[2]] = command === 'plugin update' && before ? { ...before, version, lastUpdated: now } : { version, installedAt: now, lastUpdated: now }
+  if (command === 'plugin update') state.updated = true
 } else if (command === 'plugin uninstall') delete state.plugins[args[2]]
+else if (command === 'plugin list' && state.updated && process.env.STUB_CLAUDE_LIST_AFTER_UPDATE === 'fail') {
+  process.stderr.write('plugin list failed: stub error\\n')
+  process.exit(1)
+} else if (command === 'plugin list' && state.updated && process.env.STUB_CLAUDE_LIST_AFTER_UPDATE === 'junk') process.stdout.write('Loading plugins… <not json>')
 else if (command === 'plugin list') {
   process.stdout.write(JSON.stringify(Object.entries(state.plugins).map(([id, p]) => ({ id, version: p.version, scope: p.scope ?? 'user', enabled: true, errors: [], ...(p.installedAt === undefined ? {} : { installedAt: p.installedAt }) }))))
 }
@@ -345,6 +351,20 @@ describe('Update Harness in Claude Code', () => {
     expect(removals()).toEqual([])
   })
 
+  it('a plugin of the same name from another marketplace stays', async () => {
+    const other = 'mattpocock-skills@someone-else'
+    cpSync(makeBundle(V1), sb.pluginDir, { recursive: true })
+    writeState(sb.claudeState, {
+      marketplaces: { 'worfy-harness': sb.pluginDir },
+      plugins: { [HARNESS_PLUGIN_ID]: { version: V1, installedAt: iso(WORFY_AT) }, [other]: { version: '1.4.0', installedAt: iso(WORFY_AT - minutes(2)) } },
+    })
+    recorded({ id: other, vendor: 'claude' })
+    const result = await installer(makeBundle(V2)).install(yes)
+    expect(removals()).toEqual([])
+    expect(result.status.cleanup).toBeUndefined()
+    expect(readState(sb.claudeState).plugins[other]).toBeDefined()
+  })
+
   it('a build that declares the plugin again never removes it', async () => {
     machine({ version: '1.4.0', installedAt: iso(WORFY_AT - minutes(2)) })
     await installer(makeBundle(V2, [MP])).install(yes)
@@ -406,12 +426,43 @@ describe("worfy's record of its own dependency installs", () => {
     expect(readDependencyInstalls(sb.recordFile)).toEqual([])
   })
 
-  it('a record without the plugin in the list: nothing', async () => {
+  it('a record without the plugin in the list: no command, and the stale record is dropped', async () => {
     machine(undefined)
+    recorded({ id: MP, vendor: 'claude' }, { id: MP, vendor: 'codex' })
+    const result = await installer(makeBundle(V2)).install(yes)
+    expect(removals()).toEqual([])
+    expect(result.status.cleanup).toBeUndefined()
+    expect(readDependencyInstalls(sb.recordFile).map(({ id, vendor }) => ({ id, vendor }))).toEqual([{ id: MP, vendor: 'codex' }])
+  })
+
+  it('a stale record — the plugin installed again after worfy’s install (the user’s own copy): no removal, and the record is dropped', async () => {
+    machine({ version: '1.4.0', installedAt: iso(WORFY_AT + minutes(60 * 24)) })
     recorded({ id: MP, vendor: 'claude' })
     const result = await installer(makeBundle(V2)).install(yes)
     expect(removals()).toEqual([])
     expect(result.status.cleanup).toBeUndefined()
+    expect(readDependencyInstalls(sb.recordFile)).toEqual([])
+  })
+
+  it('a record within a minute of the install time still holds', async () => {
+    machine({ version: '1.4.0', installedAt: iso(WORFY_AT + 30_000) })
+    recorded({ id: MP, vendor: 'claude' })
+    await installer(makeBundle(V2)).install(yes)
+    expect(removals()).toEqual([UNINSTALL_MP])
+  })
+
+  it.each([
+    ['prints junk', 'junk'],
+    ['fails', 'fail'],
+  ])('`plugin list` after the update %s with worfy’s record present: no removal, no line of the result, the record kept', async (_name, mode) => {
+    machine({ version: '1.4.0', installedAt: iso(WORFY_AT - minutes(2)) })
+    recorded({ id: MP, vendor: 'claude' })
+    sb.env.STUB_CLAUDE_LIST_AFTER_UPDATE = mode
+    const result = await installer(makeBundle(V2)).install(yes)
+    expect(calls()).toContain(UPDATE_WORFY)
+    expect(removals()).toEqual([])
+    expect(result.status.cleanup).toBeUndefined()
+    expect(readDependencyInstalls(sb.recordFile).map(({ id, vendor }) => ({ id, vendor }))).toEqual([{ id: MP, vendor: 'claude' }])
   })
 
   it('a record of Codex does not remove the plugin from Claude Code', async () => {
@@ -423,6 +474,45 @@ describe("worfy's record of its own dependency installs", () => {
 })
 
 describe('Update Harness in Codex (fake Codex, temporary CODEX_HOME)', () => {
+  const old = (): Plugin => ({ version: '1.4.0', installedAt: iso(WORFY_AT - minutes(60 * 24 * 60)) })
+  const left = (): { id: string; vendor: string }[] => readDependencyInstalls(sb.recordFile).map(({ id, vendor }) => ({ id, vendor }))
+
+  it('records of both Vendors: a removal in Claude Code keeps the record of Codex, and the Update with Codex removes it there too', async () => {
+    machine(old(), { mp: { version: '1.4.0' } })
+    recorded({ id: MP, vendor: 'claude' }, { id: MP, vendor: 'codex' })
+    await installer(makeBundle(V2)).install(yes)
+    expect(removals()).toEqual([UNINSTALL_MP])
+    expect(left()).toEqual([{ id: MP, vendor: 'codex' }])
+
+    await installer(makeBundle(V3), { codex: true }).install(yes)
+    expect(removals()).toEqual([UNINSTALL_MP, `codex plugin remove ${MP}`])
+    expect(left()).toEqual([])
+  })
+
+  it('records of both Vendors, one install: a failed removal in Claude Code keeps its record, the removal in Codex drops only the Codex one', async () => {
+    machine(old(), { mp: { version: '1.4.0' } })
+    recorded({ id: MP, vendor: 'claude' }, { id: MP, vendor: 'codex' })
+    sb.env.STUB_CLAUDE_FAIL = 'plugin uninstall'
+    const result = await installer(makeBundle(V2), { codex: true }).install(yes)
+    expect(result.status.cleanup).toMatchObject([
+      { vendor: 'claude', outcome: 'failed' },
+      { vendor: 'codex', outcome: 'removed' },
+    ])
+    expect(left()).toEqual([{ id: MP, vendor: 'claude' }])
+    expect(readState(sb.claudeState).plugins[MP]).toBeDefined()
+    expect(readState(sb.codexState).plugins[MP]).toBeUndefined()
+  })
+
+  it('a failed `codex plugin add worfy@worfy-harness` removes nothing from Codex, even with worfy’s record', async () => {
+    machine(undefined, { mp: { version: '1.4.0' } })
+    recorded({ id: MP, vendor: 'codex' })
+    sb.env.STUB_CODEX_FAIL = `plugin add ${HARNESS_PLUGIN_ID}`
+    const result = await installer(makeBundle(V2), { codex: true }).install(yes)
+    expect(result.status.codex?.state).toMatchObject({ kind: 'error', step: 'plugin add' })
+    expect(removals()).toEqual([])
+    expect(left()).toEqual([{ id: MP, vendor: 'codex' }])
+  })
+
   it('without an install time and without worfy’s record the plugin stays', async () => {
     machine(undefined, { mp: { version: '1.4.0' } })
     const result = await installer(makeBundle(V2), { codex: true }).install(yes)

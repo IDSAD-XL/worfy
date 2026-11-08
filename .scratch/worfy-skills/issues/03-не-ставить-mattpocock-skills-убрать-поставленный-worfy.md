@@ -163,7 +163,10 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 2. **Повторного `plugin list` нет, если удаляемого plugin-а не было в списке до установки** — Update без него идёт
    прежними командами.
 3. **Запись в Codex с другим Vendor не считается** — запись `codex` не удаляет plugin из Claude Code, и наоборот.
-4. `src/renderer/shell/toolbar/HarnessStatus.tsx` и `test/contract/harness-evals-run.test.ts` вне раздела «Где в коде»:
+4. **Устаревшая запись worfy** (ревью, раунд 1). Запись не считается и удаляется, если plugin-а нет в списке или Vendor
+   показывает `installedAt` позже времени записи больше чем на минуту: пользователь удалил копию worfy и поставил свою.
+   Codex времени не отдаёт — там запись живёт, пока plugin в списке. Запись одного Vendor-а не трогает запись другого.
+5. `src/renderer/shell/toolbar/HarnessStatus.tsx` и `test/contract/harness-evals-run.test.ts` вне раздела «Где в коде»:
    первый показывает итог (п. 5 «Что делаем»), второй проверял, что у настоящего `plugin.json` есть `dependencies`.
    `docs/features/harness.md` — абзац об удалении и строка о зависимости.
 

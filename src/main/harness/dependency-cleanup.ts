@@ -13,6 +13,8 @@
 //   Code lists `installedAt` of every plugin in `claude plugin list --json` (Claude Code 2.1.289,
 //   the SDK's binary); Codex 0.166.0 lists no install time for a plugin of a local marketplace, so
 //   there the record alone decides.
+// A record whose plugin is gone, or was installed again later than the record (the user removed
+// worfy's copy and installed their own), is stale: it is dropped and decides nothing.
 // A plugin that is not listed, or whose time or worfy's is missing or does not read, stays. So does
 // a retired id the build's plugin.json names again. It runs only after the Harness of this build is
 // in place by an update of an installed `worfy` (the install after Update and Update Harness in the
@@ -101,9 +103,24 @@ export function claudeInstallsOf(parsed: unknown): Map<string, ListedInstall> | 
   return installs
 }
 
+/** How much later than worfy's record the Vendor's install time may be and still be that install (the record is written as the command ends). */
+export const RECORD_SLACK_MS = 60_000
+
 /**
- * Whether worfy installed `id` in `vendor`, by its record or by the window before `harness`: `record`,
- * `window`, or null — not listed, or nothing says worfy installed it.
+ * Whether worfy's record still describes the plugin the Vendor lists: no install time to compare
+ * (Codex), or one no later than the record (plus RECORD_SLACK_MS). A later one means the plugin was
+ * installed again after worfy's install — by the user, after removing worfy's copy — so the record
+ * is stale. A record whose time does not read describes nothing.
+ */
+export function recordHolds(record: DependencyInstall, entry: ListedInstall): boolean {
+  const recorded = installTimeOf(record.at)
+  if (recorded === null) return false
+  return entry.installedAt === null || entry.installedAt <= recorded + RECORD_SLACK_MS
+}
+
+/**
+ * Whether worfy installed `id` in `vendor`, by its record (recordHolds) or by the window before
+ * `harness`: `record`, `window`, or null — not listed, or nothing says worfy installed it.
  */
 export function installedByWorfy(
   id: string,
@@ -114,7 +131,7 @@ export function installedByWorfy(
 ): 'record' | 'window' | null {
   const entry = listed.get(id)
   if (entry === undefined) return null
-  if (records.some((each) => each.id === id && each.vendor === vendor)) return 'record'
+  if (records.some((each) => each.id === id && each.vendor === vendor && recordHolds(each, entry))) return 'record'
   const dependency = entry.installedAt
   const worfy = listed.get(harness)?.installedAt ?? null
   if (dependency === null || worfy === null) return null
@@ -156,7 +173,10 @@ export interface RetireOptions {
  * line for each removal and each failed one. A list that cannot be read removes nothing.
  */
 export async function retireDependencies({ vendor, harness, list, remove, needed, recordFile, retired = RETIRED_DEPENDENCIES, listedBefore }: RetireOptions): Promise<HarnessCleanup[]> {
-  const candidates = retired.filter((id) => !needed.includes(id) && (listedBefore === undefined || listedBefore.has(id)))
+  const retiredHere = retired.filter((id) => !needed.includes(id))
+  // worfy's record of a plugin the list before the install did not name is stale: the plugin is gone.
+  if (recordFile !== undefined && listedBefore !== undefined) for (const id of retiredHere.filter((each) => !listedBefore.has(each))) forgetDependencyInstall(recordFile, id, vendor)
+  const candidates = retiredHere.filter((id) => listedBefore === undefined || listedBefore.has(id))
   if (candidates.length === 0) return []
   let listed: ReadonlyMap<string, ListedInstall>
   try {
@@ -168,6 +188,10 @@ export async function retireDependencies({ vendor, harness, list, remove, needed
   const records = recordFile === undefined ? [] : readDependencyInstalls(recordFile)
   const lines: HarnessCleanup[] = []
   for (const id of candidates) {
+    // A record that no longer describes a listed plugin — the plugin is gone, or installed again later — is dropped.
+    const record = records.find((each) => each.id === id && each.vendor === vendor)
+    const entry = listed.get(id)
+    if (recordFile !== undefined && record !== undefined && (entry === undefined || !recordHolds(record, entry))) forgetDependencyInstall(recordFile, id, vendor)
     if (installedByWorfy(id, vendor, listed, records, harness) === null) continue
     try {
       await remove(id)
