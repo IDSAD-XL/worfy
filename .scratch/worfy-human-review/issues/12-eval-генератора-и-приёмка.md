@@ -48,3 +48,20 @@ Source: [spec.md](../spec.md), «Готово, когда»; «Соглашен�
 - `harness/evals/human-review-setup-*/**` (новые)
 - `harness/evals/lib/coverage.json`
 - `.scratch/worfy-human-review/evidence/12-*` (новые)
+
+## Итог
+
+- Три случая eval в `harness/evals/`: `human-review-setup-short-history` (8 из 30, «голос не собрать»,
+  `/worfy:code-review`, в частной папке — `meta.json` и пустой `ignore.json`, который создаёт `fetch`),
+  `human-review-setup-refresh-declined` («нет» после оценки — на обновлении `--refresh`: `fetch --since`, `clean`,
+  установленный skill не тронут) и `human-review-setup-full` (полная сборка: анализ Subagent-ами, `review-draft-lint
+  --skill` — exit 0, ни одного логина, ни одной записи в GitHub). Общий fixture — `harness/evals/human-review-setup-fixture/`:
+  выдуманная история `quillwork/ledger` (12 PR, 34 содержательных комментария трёх ревьюеров), коммиты PR в
+  репозитории, stand-in `gh` (`gh.mjs`), который run находит первым на PATH через rc-файлы `$HOME`, отказывает в любой
+  записи и пишет каждый вызов в `gh-calls.log`. Случай «нет» сделан на `--refresh`, чтобы `refresh.md` получил случай:
+  ветка «no» первого запуска — тот же текст шага 2 `SKILL.md`.
+- `coverage.json`: все восемь файлов генератора — в случаях, в `uncovered` их нет.
+- Платный прогон 2026-11-08: 0.97 / 1.00 / 0.93, три случая из трёх прошли порог 0.8; расход **15.33 USD**
+  (0.60 + 0.95 + 13.78) — на 0.33 USD больше разрешённых брифом 15 USD: второй run `full` вышел за свой cap. Числа и
+  непрошедшие grader-ы — [12-eval-run.md](../evidence/12-eval-run.md).
+- Не сделано: живой прогон на публичном репозитории (пункт 2) и ручная приёмка владельцем (пункт 3).

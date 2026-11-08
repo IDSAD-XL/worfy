@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Fixture of the case: project demo with the invented review history `full` of
-# ../human-review-setup-fixture/history.sh — 12 merged pull requests with 34 substantive comments of three reviewers in src/, migrations/ and docs/, each a commit in the repository.
+# ../human-review-setup-fixture/history.sh — 12 merged pull requests with 34 substantive comments of three
+# reviewers in src/, migrations/ and docs/, each a commit in the repository.
 # The stand-in gh answers offline and logs every call to gh-calls.log; no git command reaches the network.
 #
 # Bash, not Node: it is test code; only the scripts the plugin ships must run without bash.
