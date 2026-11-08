@@ -29,11 +29,15 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] Contract test: запись `docs/product/t/mind-map.json` — событие `product.changed` с темой `t` в пределах
       debounce; запись `src/a.ts` — события нет.
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
 - [ ] Test: две записи одного файла за 50 мс — последнее событие несёт второе содержимое.
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
 - [ ] Test: удаление `docs/product/` целиком не даёт бесконечного потока событий (как `watch-gone`).
+  - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
 - [ ] Test-ы watcher-а на Windows — exit 0.
   - needs: windows
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
 
 ## Тесты
 
