@@ -40,7 +40,10 @@ Card «Прототип: Product Session + Mind map» (`card-2dffdc46`)
       зачёркнутое отклонённое, стрелка «заменило» отличается от обычной связи).
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · e36d48db837509252a175e655ce7a461682d903c
 - [ ] Снимки экрана в светлой и тёмной теме, просмотренные исполнителем.
-  - evidence: screenshot pass · ../evidence/21-mind-map-light.png, ../evidence/21-mind-map-dark.png, ../evidence/21-mind-map-dark-graph.png, ../evidence/21-prototype-dark.png · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
+  - evidence: screenshot pass · `../evidence/21-mind-map-light.png` light theme, Tree · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
+  - evidence: screenshot pass · `../evidence/21-mind-map-dark.png` dark theme, Tree · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
+  - evidence: screenshot pass · `../evidence/21-mind-map-dark-graph.png` dark theme, Graph, about 60 % · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
+  - evidence: screenshot pass · `../evidence/21-prototype-dark.png` the prototype at the same zoom · mac dev · e36d48db837509252a175e655ce7a461682d903c · scrub: 2026-11-08
 - [ ] (manual) Владелец в Mac Stable: Mind map выглядит как в прототипе.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
