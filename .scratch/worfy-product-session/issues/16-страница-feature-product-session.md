@@ -1,7 +1,8 @@
 # 16 — Страница Feature `docs/features/product-session.md` и `ru/` копия
 
 Type: task
-Status: open
+Status: done 2026-11-08T18:01Z
+PR: #1684
 Blocked by: 09, 13, 14
 Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/README.md](../../../docs/features/README.md) (шаблон страницы и «Form of paths»)
 
@@ -28,9 +29,12 @@ Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/READ
 - [ ] Обе страницы есть; `node scripts/check-feature-docs.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 2c9ddf438a3ca00fed08aa81923a9fb9a3fb9111
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 0c5e624fbeb82e4560bacb6014a00bdbafb01c5d
+  - evidence: review pass · PR #1684 · - - · 6a5afea6aa4a1e9b9063464b0eecde70a4227a9d
 - [ ] Каждое утверждение страницы сверено с кодом; список сверки — в «Итог».
   - evidence: commit pass · Add the Feature page Product Session and its Russian copy (worfy-product-session 16) · - - · 2c9ddf438a3ca00fed08aa81923a9fb9a3fb9111
+  - evidence: review pass · PR #1684 · - - · 6a5afea6aa4a1e9b9063464b0eecde70a4227a9d
 - [ ] `node scripts/check-cyrillic.mjs` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42507571282/job/128814188592 · ci - · 6a5afea6aa4a1e9b9063464b0eecde70a4227a9d
 
 ## Тесты
 
