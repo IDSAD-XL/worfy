@@ -119,10 +119,10 @@ parallel when the change is large. Do not substitute your own self-check for thi
 after the prose.
 
 **The Stage line is a line of `epic-status`** when the project keeps tickets (`tickets.path`): a
-hook hands this turn's lines in with the prompt. After a ticket status change of this turn, or with
-no lines, run `${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>` yourself (bare with no single epic).
-Copy the Stage line; only then write the block. With no tickets it is one plain phrase naming the
-stage.
+hook hands this turn's lines in with the prompt. Copy the line of the epic of the work at hand. When
+it is not among them, or a ticket status changed this turn, run
+`${CLAUDE_PLUGIN_ROOT}/bin/epic-status <epic>` and copy its line; only then write the block. With
+no tickets it is one plain phrase naming the stage.
 
 The four labels are fixed English tokens whatever the language of reports — worfy parses them;
 only the text after each label follows that language:

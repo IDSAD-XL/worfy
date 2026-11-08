@@ -10,37 +10,48 @@
 //   - the Session is not a Product Session (WORFY_SESSION_KIND=product): its rules have no status block;
 //   - the input is not of a Subagent (no agent_id or agent_type): a Subagent reports to its caller;
 //   - the session directory (`cwd` of the input) belongs to a project whose profile keeps tickets
-//     (`bin/profile --field tickets.path`), Silent mode included;
+//     (`tickets.path` of `bin/profile --json`), Silent mode included;
 //   - bin/epic-status answers, and some Epic is in play.
-// Epics in play, in this order, at most MAX_LINES: the Epic of the current branch (`<epic>/<NN>`), Epics
-// with a claimed ticket, Epics with a blocked ticket; when none of these, the Epics that are not closed.
-// Each line is the line bare epic-status prints for that Epic, cut at MAX_LINE characters; the whole text
-// stays under MAX_CHARS.
+//
+// Epics in play, in this order, at most MAX_LINES:
+//   1. the Epic of the current branch, when the branch has the profile's form (`tickets.branch`, e.g.
+//      `<epic>/<NN>`); its line comes from `epic-status <epic>`, which also names the branch;
+//   2. Epics with a claimed ticket in this tree (Silent mode, or a claim committed where the session is);
+//   3. Epics of the local branches of that form, newest commit first, whose ticket is not done in this tree:
+//      a claim lives on its ticket branch, so the main checkout sees only the branch, not the claim;
+//   4. only when 1–3 found none: the Epics that are not closed, those whose next ticket is blocked last.
+// Each line is the line epic-status prints for that Epic, cut to MAX_LINE characters with "…"; so the
+// whole text is at most the heading and MAX_LINES × (MAX_LINE + 1) characters.
 //
 // Codex runs the same hooks.json and has the event too (UserPromptSubmit, with additionalContext): the hook
 // answers there as it does under Claude Code.
 //
-// A broken hook must not hold the prompt back: every failure — stdin that is not JSON, a script that fails or
-// hangs past STEP_MS — is one line on stderr and exit 0. Nothing is written anywhere.
+// A broken hook must not hold the prompt back: every failure — stdin that is not JSON, bin/profile failing
+// (other than exit 3, a directory of no registered project) or epic-status failing, or either running past
+// STEP_MS (then it is killed) — is one line on stderr and exit 0. Nothing is written anywhere.
 //
 // For tests: CLAUDE_HOOK_STDIN_WAIT_MS shortens the wait for the input (hook-stdin.mjs);
-// CLAUDE_EPIC_STATUS_BIN replaces bin/epic-status and CLAUDE_STAGE_STEP_MS shortens STEP_MS.
-// Tests: hooks/tests/rules-hooks.test.sh, section 9.
+// CLAUDE_PROFILE_BIN replaces bin/profile, CLAUDE_EPIC_STATUS_BIN replaces bin/epic-status, and
+// CLAUDE_STAGE_STEP_MS shortens STEP_MS. Tests: hooks/tests/rules-hooks.test.sh, section 9.
 
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { git as GIT } from "./eval-env.cjs"
 import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 const MAX_LINES = 3
 const MAX_LINE = 300
-const MAX_CHARS = 1200
-// Each script the hook starts gets this long: 2 s for the input, bin/profile, then the two epic-status runs
-// side by side stay within the 10 s hooks.json gives the hook.
+// Each program the hook starts gets this long: 2 s for the input, bin/profile and git, then the epic-status
+// runs side by side stay within the 10 s hooks.json gives the hook.
 const STEP_MS = 2500
+// bin/profile: the directory belongs to no registered project.
+const NOT_REGISTERED = 3
 const HEADING =
-    "Stage lines of bin/epic-status for this turn. Copy one into the Stage line of the status block; after a ticket status change in this turn, run epic-status again:"
+    "Stage lines of bin/epic-status for this turn. Copy the line of the epic of the work at hand into the Stage line of the status block. If that epic has no line here, or a ticket status changed in this turn, run epic-status <epic> and copy its line:"
+
+class Quiet extends Error {}
 
 const isDir = (p) => {
     try {
@@ -56,40 +67,43 @@ function stepMs() {
 }
 
 /**
- * stdout of `node <script> <args>` in `cwd`, or null when it failed, exited non-zero or ran past stepMs()
- * (then it is killed and not waited for: a hung script must not hold the prompt).
+ * Runs `command args` in `cwd`: {code, out}, code null when it could not start or ran past stepMs() (then it
+ * is killed and not waited for: a hung program must not hold the prompt).
  */
-function run(script, args, cwd) {
+function run(command, args, cwd) {
     return new Promise((resolve) => {
         let child
         try {
-            child = spawn(process.execPath, [script, ...args], { cwd, stdio: ["ignore", "pipe", "ignore"], windowsHide: true })
+            child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "ignore"], windowsHide: true })
         } catch {
-            resolve(null)
+            resolve({ code: null, out: "", timedOut: false })
             return
         }
         let out = ""
         let settled = false
-        const done = (value) => {
+        const done = (code, timedOut = false) => {
             if (settled) return
             settled = true
             clearTimeout(timer)
             child.stdout?.destroy()
             child.unref()
-            resolve(value)
+            resolve({ code, out, timedOut })
         }
         const timer = setTimeout(() => {
             child.kill("SIGKILL")
-            done(null)
+            done(null, true)
         }, stepMs())
         child.stdout.setEncoding("utf8")
         child.stdout.on("data", (chunk) => {
             out += chunk
         })
         child.on("error", () => done(null))
-        child.on("close", (code) => done(code === 0 ? out : null))
+        child.on("close", (code) => done(code))
     })
 }
+
+const node = (script, args, cwd) => run(process.execPath, [script, ...args], cwd)
+const why = (r) => (r.timedOut ? `ran past ${stepMs()} ms` : r.code === null ? "did not start" : `exit ${r.code}`)
 
 /** The Epic a bare epic-status line is about: the first word of its second field. */
 function epicOf(line) {
@@ -97,18 +111,36 @@ function epicOf(line) {
     return field.split(" ")[0] ?? ""
 }
 
-/** The Epics in play, in order, without repeats. */
-function inPlay(json, lines) {
-    const known = new Set(lines.keys())
+/** A matcher of the profile's branch form (`<epic>/<NN>`): branch name -> {epic, num}, or null. */
+function branchForm(template) {
+    if (typeof template !== "string" || !template.includes("<epic>") || !template.includes("<NN>")) return () => null
+    const epicFirst = template.indexOf("<epic>") < template.indexOf("<NN>")
+    const source = template
+        .split(/(<epic>|<NN>)/)
+        .map((part) => (part === "<epic>" ? "([^/\\s]+)" : part === "<NN>" ? "(\\d+)" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+        .join("")
+    const re = new RegExp(`^${source}$`)
+    return (name) => {
+        const m = re.exec(name)
+        if (!m) return null
+        return epicFirst ? { epic: m[1], num: Number(m[2]) } : { epic: m[2], num: Number(m[1]) }
+    }
+}
+
+/** The Epics in play, in order, without repeats (see the header). */
+function inPlay({ lines, tickets, current, branches }) {
     const order = []
     const add = (epic) => {
-        if (known.has(epic) && !order.includes(epic)) order.push(epic)
+        if (lines.has(epic) && !order.includes(epic)) order.push(epic)
     }
-    const branch = /^(.+)\/\d+$/.exec(typeof json?.ref === "string" ? json.ref : "")
-    if (branch) add(branch[1])
-    const tickets = Array.isArray(json?.tickets) ? json.tickets : []
-    for (const state of ["work", "blocked"]) for (const t of tickets) if (t?.state === state) add(t.epic)
-    if (order.length === 0) for (const [epic, line] of lines) if (!line.startsWith("closed")) add(epic)
+    if (current) add(current.epic)
+    for (const t of tickets) if (t?.state === "work") add(t.epic)
+    const done = new Set(tickets.filter((t) => t?.state === "done").map((t) => `${t.epic}/${t.num}`))
+    for (const b of branches) if (!done.has(`${b.epic}/${b.num}`)) add(b.epic)
+    if (order.length > 0) return order
+    const open = [...lines].filter(([, line]) => !line.startsWith("closed"))
+    for (const [epic, line] of open) if (!line.endsWith(" · blocked")) add(epic)
+    for (const [epic] of open) add(epic)
     return order
 }
 
@@ -120,44 +152,66 @@ async function main() {
     try {
         hook = JSON.parse(input)
     } catch {
-        throw new Error("stdin is not JSON")
+        throw new Quiet("stdin is not JSON")
     }
     if (hook?.agent_id || hook?.agent_type) return
     const event = typeof hook?.hook_event_name === "string" && hook.hook_event_name ? hook.hook_event_name : "UserPromptSubmit"
     const cwd = typeof hook?.cwd === "string" && isDir(hook.cwd) ? hook.cwd : process.cwd()
 
     const bin = path.join(path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))), "bin")
-    const tickets = await run(path.join(bin, "profile"), ["-C", cwd, "--field", "tickets.path"], cwd)
-    if (!tickets || !tickets.trim()) return
-    // The lines and the ticket states at once: two runs one after the other cost a second on a large project.
+    const profile = await node(process.env.CLAUDE_PROFILE_BIN || path.join(bin, "profile"), ["-C", cwd, "--json"], cwd)
+    if (profile.code === NOT_REGISTERED) return
+    if (profile.code !== 0) throw new Quiet(`bin/profile ${why(profile)}`)
+    let tickets
+    try {
+        tickets = JSON.parse(profile.out)?.tickets
+    } catch {
+        throw new Quiet("bin/profile --json printed no JSON")
+    }
+    if (typeof tickets?.path !== "string" || !tickets.path.trim()) return
+
+    const form = branchForm(tickets.branch)
+    const [head, refs] = await Promise.all([
+        run(GIT, ["rev-parse", "--abbrev-ref", "HEAD"], cwd),
+        run(GIT, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/heads"], cwd),
+    ])
+    const current = head.code === 0 ? form(head.out.trim()) : null
+    const branches = refs.code === 0 ? refs.out.split("\n").map((name) => form(name.trim())).filter(Boolean) : []
+
+    // The lines, the ticket states and the current branch's own line at once: one after the other they cost
+    // a second on a large project.
     const epicStatus = process.env.CLAUDE_EPIC_STATUS_BIN || path.join(bin, "epic-status")
-    const [bare, raw] = await Promise.all([run(epicStatus, [], cwd), run(epicStatus, ["--json"], cwd)])
-    if (bare === null) throw new Error("epic-status gave no answer")
+    const [bare, raw, own] = await Promise.all([
+        node(epicStatus, [], cwd),
+        node(epicStatus, ["--json"], cwd),
+        current ? node(epicStatus, [current.epic], cwd) : Promise.resolve(null),
+    ])
+    if (bare.code !== 0) throw new Quiet(`bin/epic-status ${why(bare)}`)
     const lines = new Map()
-    for (const line of bare.split("\n")) {
+    for (const line of bare.out.split("\n")) {
         const epic = line.includes(" · ") ? epicOf(line) : ""
         if (epic && !lines.has(epic)) lines.set(epic, line.trimEnd())
     }
     if (lines.size === 0) return
-    let json = null
+    const ownLine = own?.code === 0 ? own.out.split("\n").find((l) => epicOf(l) === current.epic) : undefined
+    if (ownLine) lines.set(current.epic, ownLine.trimEnd())
+    let all = []
     try {
-        json = raw === null ? null : JSON.parse(raw)
+        const parsed = raw.code === 0 ? JSON.parse(raw.out) : null
+        if (Array.isArray(parsed?.tickets)) all = parsed.tickets
     } catch {}
 
     const cut = (s) => ([...s].length > MAX_LINE ? `${[...s].slice(0, MAX_LINE - 1).join("")}…` : s)
-    let text = HEADING
-    for (const epic of inPlay(json, lines).slice(0, MAX_LINES)) {
-        const line = cut(lines.get(epic))
-        if ([...text].length + 1 + [...line].length > MAX_CHARS) break
-        text += `\n${line}`
-    }
-    if (text === HEADING) return
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } }) + "\n")
+    const chosen = inPlay({ lines, tickets: all, current, branches }).slice(0, MAX_LINES)
+    if (chosen.length === 0) return
+    const additionalContext = [HEADING, ...chosen.map((epic) => cut(lines.get(epic)))].join("\n")
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext } }) + "\n")
 }
 
 try {
     await main()
 } catch (e) {
-    process.stderr.write(`stage-lines: ${String(e?.message ?? e).split("\n")[0]}\n`)
+    const message = e instanceof Quiet ? e.message : `internal error: ${String(e?.message ?? e).split("\n")[0]}`
+    process.stderr.write(`stage-lines: ${message}\n`)
 }
 process.exitCode = 0

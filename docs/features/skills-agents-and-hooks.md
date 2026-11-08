@@ -226,7 +226,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
 | `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
-| `UserPromptSubmit` | `stage-lines.mjs` | 10 | In a Project that keeps Tickets, the `epic-status` lines of the Epics in play, for the Stage line of the status block: the Epic of the branch, then Epics with a claimed Ticket, then with a blocked one, three lines at most; with none of these, the Epics that are not closed. Nothing in a Product Session, for a Subagent, or when `epic-status` fails or takes over 2.5 s |
+| `UserPromptSubmit` | `stage-lines.mjs` | 10 | In a Project that keeps Tickets, the `epic-status` lines of the Epics in play, for the Stage line of the status block: the Epic of the current branch (its line names the branch), then Epics with a claimed Ticket, then Epics of local Ticket branches, newest first, whose Ticket is not done; three lines at most. With none of these, the Epics that are not closed, those whose next Ticket is blocked last. Nothing in a Product Session or for a Subagent. When `bin/profile` or `epic-status` fails or takes over 2.5 s, nothing and one line on stderr; the slow one is killed |
 | `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 900 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md). Under Claude Code it runs no checks and the limit is only a ceiling; on Codex it runs the Gate first |
@@ -303,8 +303,9 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
   which worfy sets when it starts one.
 - `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field
   `session.retro_reminder_after`: it is ignored, and a `state/pending-retro.log` left from then is not read.
-- `harness/hooks/stage-lines.mjs`, which asks `bin/profile` whether the Project keeps Tickets and runs `bin/epic-status`
-  twice side by side, for the lines and for the Ticket states.
+- `harness/hooks/stage-lines.mjs`, which asks `bin/profile` whether the Project keeps Tickets and how its branches are
+  named, lists the local branches with git, and runs `bin/epic-status` side by side for the lines, the Ticket states and
+  the line of the current branch's Epic.
 - `harness/hooks/gh-token-env.mjs`, `harness/hooks/guard.mjs` (with `harness/bin/silent-check`) and
   `harness/bin/worktree-lock`, whose registry is `worktree-sessions/` in the Harness home. A file there goes when
   it has no entries or when none of the tree folders its entries name exists; `worktree-lock prune` removes them at once.

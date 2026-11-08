@@ -43,32 +43,43 @@ Case не прошёл ни разу с тех пор, как написан. К
 текста правил (см. «Итог») не сдвинули ни одного хода.
 
 1. Hook `UserPromptSubmit` — `harness/hooks/stage-lines.mjs` (в `harness/hooks/hooks.json`, limit 10 s). В проекте,
-   который ведёт тикеты (`bin/profile --field tickets.path`; Silent mode тоже), он запускает `bin/epic-status` и отдаёт
-   строки как additionalContext под заголовком «Stage lines of bin/epic-status for this turn…». Строки — только Epic-ов
-   в работе: Epic текущей ветки (`<epic>/<NN>`), потом Epic-и с claimed Ticket-ом, потом с blocked; если таких нет —
-   Epic-и, которые не closed. Не больше 3 строк, строка — до 300 символов, весь текст — до 1200.
-2. Ничего не печатает: без тикетов, в Product Session (`WORFY_SESSION_KIND=product`), для Subagent-а (`agent_id` или
-   `agent_type` во входе). Любая ошибка — stdin не JSON, `epic-status` упал или висит дольше 2.5 s — одна строка в
-   stderr и exit 0: prompt не задерживается. Codex знает этот event (`UserPromptSubmit` с additionalContext) — там hook
-   отвечает так же.
-3. `orchestrator.md`, «Phase 3»: строка Stage — строка `epic-status`, которую hook дал с prompt-ом этого хода. Самому
-   запускать `epic-status` — только после смены статуса тикета в этом ходе или когда hook строк не дал. Шаблон Stage:
+   который ведёт тикеты (`tickets.path` из `bin/profile --json`; Silent mode тоже), он запускает `bin/epic-status` и отдаёт
+   строки как additionalContext под заголовком «Stage lines of bin/epic-status for this turn. Copy the line of the epic of
+   the work at hand…». Epic-и в работе, по порядку: Epic текущей ветки (строка из `epic-status <epic>`, с полем ветки);
+   Epic-и с claimed Ticket-ом в этом дереве; Epic-и локальных веток вида `tickets.branch` (`<epic>/<NN>`), новые сначала,
+   чей Ticket в этом дереве не done — claim живёт в ветке тикета, и main checkout видит только ветку. Только если таких
+   нет — Epic-и, которые не closed, с blocked следующим Ticket-ом в конце. Не больше 3 строк, строка — до 300 символов
+   (обрезка с «…»).
+2. Ничего не печатает: без `tickets.path`, вне зарегистрированного проекта (`bin/profile` exit 3), в Product Session
+   (`WORFY_SESSION_KIND=product`), для Subagent-а (`agent_id` или `agent_type` во входе). Ошибка — stdin не JSON,
+   `bin/profile` или `epic-status` упал или висит дольше 2.5 s (тогда он убит) — одна строка в stderr и exit 0: prompt
+   не задерживается. Codex знает этот event (`UserPromptSubmit` с additionalContext) — там hook отвечает так же.
+3. `orchestrator.md`, «Phase 3»: строка Stage — строка Epic-а текущей работы из тех, что hook дал с prompt-ом этого
+   хода. Если её среди них нет или статус тикета в этом ходе сменился — запустить `epic-status <epic>` и скопировать
+   его строку. Шаблон Stage:
    «<this turn's epic-status line; a phrase only with no tickets>».
 4. Eval case `status-block`: grader `epic-status-ran` заменён на `stage-is-epic-status-line` — строка Stage ответа равна
    строке `epic-status` проекта scaffold-а (`/to-tickets · demo 0/4 · ticket 01 — alpha: …`). `ends-with-status-block`
    остаётся. Новый grader `ticket-edited` (`tool_used`, Edit файла `04-delta.md`): у каждого case-а должен быть
    grader `tool_used` (`test/contract/harness-evals.test.ts`), и он же показывает, что ход рабочий. Prompt и scaffold
    не меняются.
-5. Test-ы в `rules-hooks.test.sh`, раздел 9: проект с тикетами — строка есть; без тикетов, Product Session, Subagent —
-   ничего; `epic-status` падает или висит — prompt не задержан, exit 0; порядок Epic-ов и предел в 3 строки.
+5. Test-ы в `rules-hooks.test.sh`, раздел 9: проект с тикетами — строка есть; вне проекта, без `tickets.path` (с папкой
+   `.scratch`), Product Session, Subagent (`agent_id` и `agent_type` по отдельности) — ничего; `bin/profile` или
+   `epic-status` падает — ровно одна строка в stderr; висит — убит, prompt не задержан, у каждого запуска hook-а свой
+   внешний limit; порядок Epic-ов на fixture из нескольких веток, обрезка строки до 300 символов и предел в 3 строки.
+
+Review round 1 (REJECTED, три medium): порядок Epic-ов на main давал три приостановленных Epic-а с blocked тикетами и
+отрезал активные; обрезка и предел текста без test-ов; test зависания не проверял, что процесс убит. Исправлено в
+round 2: порядок выше, правило «строка Epic-а текущей работы», test-ы обрезки и убитого процесса; общий предел
+1200 символов убран — при 3 строках по 300 он не достигался.
 
 Prompt case-а на ход со сменой статуса не меняем: так case проверял бы только узкое прочтение и спрятал бы дефект.
 Глубина review — `medium`. **Платформенный**: меняется hook, вердикт — job-ы Windows в CI.
 
 ## Готово, когда
 
-- [ ] Hook `stage-lines.mjs` в проекте с тикетами отдаёт строки `epic-status` Epic-ов в работе (не больше 3); без
-  тикетов, в Product Session и для Subagent-а — ничего.
+- [ ] Hook `stage-lines.mjs` в проекте с тикетами отдаёт строки `epic-status` Epic-ов в работе (не больше 3, Epic
+  текущей ветки и ветки тикетов раньше остальных); без тикетов, в Product Session и для Subagent-а — ничего.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; section 9: tickets project gets the line, no project, Product Session and Subagent get nothing, in-play order and three-line cap · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
 - [ ] `epic-status`, который падает или висит, не задерживает prompt: exit 0, ничего в stdout.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; failing and hanging epic-status: nothing on stdout, exit 0 · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
@@ -123,8 +134,9 @@ $1.14. Grader `ticket-edited` добавлен после этого прого�
 
 Цена: hook работает на каждом prompt-е Session разработчика в проекте с тикетами (не в Product Session, не в
 Subagent-е). Время hook-а `stage-lines.mjs` на этом репозитории (889 тикетов, 38 Epic-ов, macOS): 0.9–1.0 s wall time
-на prompt (три замера: 0.90, 1.00, 1.01 s); оба запуска `epic-status` идут параллельно — по очереди было 1.8–2.1 s. На
-проекте demo — около 1 s, почти всё — старт трёх процессов node.
+на prompt (три замера: 0.90, 1.00, 1.01 s, машина под нагрузкой других агентов); оба запуска `epic-status` идут
+параллельно — по очереди было 1.8–2.1 s. Round 2 (ещё `git`, `for-each-ref` и третий запуск `epic-status <epic>`, всё
+параллельно): 0.36–0.38 s на менее загруженной машине, round 1 в те же минуты — 0.32–0.35 s.
 
 ## Где в коде
 
