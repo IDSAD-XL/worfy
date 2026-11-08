@@ -8,6 +8,8 @@
 //   beat     Stop         — mark this session alive; speak up if the set of sessions changed
 //   release  SessionEnd   — unregister
 //   status   by hand      — show the tree's sessions to a human
+//   prune    by hand      — remove the registry files of trees that are gone, now; prints
+//                           "removed N of M registry files". claim does the same at most once a day.
 //
 // THE FIRST PROPERTY is to stay out of the way. Any failure in hook mode ends with exit 0 and
 // silence: the lock is advisory, and failing a session start because of it is unacceptable.
@@ -17,6 +19,13 @@
 // own directory. A session counts as alive if it marked itself within the last WORKTREE_LOCK_TTL_MIN minutes
 // (default 60): Stop fires on every turn, so silence longer than
 // an hour means the session was abandoned or crashed.
+//
+// A tree removed after its merge would leave its registry file behind forever, so the registry prunes
+// itself: a file is removed when it holds no entries, or when every entry names its tree folder (root;
+// cwd for an entry written before root was recorded) and none of those folders exists. A file with one
+// existing folder stays whole, a file that is not a JSON object stays, and so does a file with an entry
+// whose folder cannot be decided. The removal happens under the file's mutex, after reading the file and
+// checking the folders again, and a busy mutex skips the file without waiting.
 
 import fs from "node:fs"
 import os from "node:os"
@@ -36,6 +45,107 @@ if (HOOK) process.on("uncaughtException", () => process.exit(0))
 // An abandoned mutex: the critical section takes milliseconds, so anything
 // older than this is a trace of a crashed process.
 const MUTEX_STALE_MS = 15000
+// claim prunes the registry at most this often (the mtime of worktree-sessions/.pruned), and spends at
+// most PRUNE_BUDGET_MS on it: a session start must not wait for the cleanup; the rest goes next time.
+const PRUNE_EVERY_MS = 24 * 60 * 60000
+const PRUNE_BUDGET_MS = 200
+
+// The state of the folder an entry names: "gone" only when the operating system says there is no such
+// path. A relative path, a non-string or any other error (no permission, a disconnected share answering
+// with something else) is "unknown", and an unknown folder keeps the file. On Windows a path must carry
+// a drive letter or be a UNC path: /c/… of Git Bash resolves against the current drive there.
+const folderState = (p) => {
+    if (typeof p !== "string" || !p) return "unknown"
+    const absolute = process.platform === "win32" ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(p) : path.isAbsolute(p)
+    if (!absolute) return "unknown"
+    try {
+        fs.statSync(p)
+        return "present"
+    } catch (e) {
+        return e.code === "ENOENT" || e.code === "ENOTDIR" ? "gone" : "unknown"
+    }
+}
+
+// Whether a registry file with this text is to be removed: a JSON object with no entries, or one whose
+// every entry is an object that names a folder that is gone.
+const prunable = (raw) => {
+    let all
+    try {
+        all = JSON.parse(raw)
+    } catch {
+        return false
+    }
+    if (!all || typeof all !== "object" || Array.isArray(all)) return false
+    return Object.values(all).every(
+        (e) => e && typeof e === "object" && !Array.isArray(e) && folderState(typeof e.root === "string" ? e.root : e.cwd) === "gone",
+    )
+}
+
+// A test seam for the window between the first check and the mutex: with WORKTREE_LOCK_PRUNE_PAUSE set to
+// a path, prune creates <path>.ready once a file passed its first check and waits (at most 10 s) until
+// <path>.go exists. The tests re-create the tree in that window, which is what a racing claim does.
+const pauseForTest = () => {
+    const at = process.env.WORKTREE_LOCK_PRUNE_PAUSE
+    if (!at) return
+    fs.writeFileSync(`${at}.ready`, "")
+    const until = Date.now() + 10000
+    while (!fs.existsSync(`${at}.go`) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+}
+
+// Removes the registry files of trees that are gone from dir, until the clock passes deadline. Counts
+// every *.json file it sees in total, also those left for next time.
+const pruneRegistry = (dir, deadline) => {
+    let removed = 0
+    let total = 0
+    for (const name of fs.readdirSync(dir)) {
+        if (!name.endsWith(".json")) continue
+        total++
+        if (Date.now() > deadline) continue
+        const file = path.join(dir, name)
+        try {
+            if (!prunable(fs.readFileSync(file, "utf8"))) continue
+        } catch {
+            continue
+        }
+        pauseForTest()
+        // The same mutex withRegistry takes, but without waiting: a busy file waits for the next prune.
+        // A mutex older than MUTEX_STALE_MS is a trace of a crashed process, as there.
+        const mutex = `${file}.lock`
+        let held = false
+        try {
+            fs.mkdirSync(mutex)
+            held = true
+        } catch {
+            try {
+                if (Date.now() - fs.statSync(mutex).mtimeMs > MUTEX_STALE_MS) {
+                    fs.rmdirSync(mutex)
+                    fs.mkdirSync(mutex)
+                    held = true
+                }
+            } catch {
+                /* taken or removed by someone else */
+            }
+        }
+        if (!held) continue
+        try {
+            // Again under the mutex: a claim in a tree re-created at the same path may have written meanwhile,
+            // and the folder may be back.
+            if (prunable(fs.readFileSync(file, "utf8"))) {
+                fs.unlinkSync(file)
+                removed++
+            }
+        } catch {
+            /* changed or removed by someone else — leave it */
+        } finally {
+            try {
+                fs.rmdirSync(mutex)
+            } catch {
+                /* already removed */
+            }
+        }
+    }
+    return { removed, total }
+}
 
 const main = () => {
     const TTL_MS = Math.max(0, Number(process.env.WORKTREE_LOCK_TTL_MIN ?? 60)) * 60000
@@ -65,6 +175,15 @@ const main = () => {
     if (typeof payload !== "object" || payload === null) payload = {}
 
     const cwd = typeof payload.cwd === "string" ? payload.cwd : process.cwd()
+
+    // prune needs no repository: it cleans the whole registry of this machine (of the eval run).
+    if (cmd === "prune") {
+        const dir = path.join(harnessHome(cwd), "worktree-sessions")
+        const { removed, total } = fs.existsSync(dir) ? pruneRegistry(dir, Infinity) : { removed: 0, total: 0 }
+        console.log(`removed ${removed} of ${total} registry files`)
+        return
+    }
+
     const root = git(["rev-parse", "--show-toplevel"], cwd)
     if (!root) return // not a repository — nothing for the lock to hold on to
 
@@ -245,11 +364,29 @@ const main = () => {
 
     if (cmd === "claim") {
         withRegistry((all) => {
-            all[me] = { started: sane(all[me]) ? all[me].started : now, seen: now, cwd, branch }
+            all[me] = { started: sane(all[me]) ? all[me].started : now, seen: now, cwd, root, branch }
             const said = describe(all)
             say("SessionStart", said)
             all[me].told = said ? said.ids : ""
         })
+        // Once a day, after this session is registered, the files of trees that are gone. Silent like the
+        // rest of hook mode; the mark is set before the pass, so parallel session starts do not all prune.
+        try {
+            const mark = path.join(dir, ".pruned")
+            let age = Infinity
+            try {
+                age = now - fs.statSync(mark).mtimeMs
+            } catch (e) {
+                if (e.code !== "ENOENT") return
+            }
+            // A mark from the future (a clock moved back) counts as old: otherwise it would stop pruning for good.
+            if (age >= 0 && age < PRUNE_EVERY_MS) return
+            fs.writeFileSync(mark, `${new Date(now).toISOString()}\n`)
+            fs.utimesSync(mark, now / 1000, now / 1000)
+            pruneRegistry(dir, Date.now() + PRUNE_BUDGET_MS)
+        } catch {
+            /* the next session start tries again */
+        }
         return
     }
 
@@ -260,6 +397,7 @@ const main = () => {
                 started: sane(all[me]) ? all[me].started : now,
                 seen: now,
                 cwd,
+                root,
                 branch: (sane(all[me]) && all[me].branch) || branch,
                 told: prev,
             }
@@ -279,7 +417,7 @@ const main = () => {
         return
     }
 
-    process.stderr.write("usage: worktree-lock <claim|beat|release|status>\n")
+    process.stderr.write("usage: worktree-lock <claim|beat|release|status|prune>\n")
     process.exitCode = 1
 }
 

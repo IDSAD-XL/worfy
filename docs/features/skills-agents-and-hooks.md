@@ -185,7 +185,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SessionStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
 | `SessionStart` | `session-start.mjs` | 15 | The context of the Project |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
-| `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there |
+| `SessionStart` | `worktree-lock claim` | 10 | Registers in the tree, and says who is already there; once a day removes the registry files of deleted trees |
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules and the user's rules |
 | `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
@@ -262,7 +262,8 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 - `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field
   `session.retro_reminder_after`: it is ignored, and a `state/pending-retro.log` left from then is not read.
 - `harness/hooks/gh-token-env.mjs`, `harness/hooks/guard.mjs` (with `harness/bin/silent-check`) and
-  `harness/bin/worktree-lock`, whose registry is `worktree-sessions/` in the Harness home.
+  `harness/bin/worktree-lock`, whose registry is `worktree-sessions/` in the Harness home. A file there goes when
+  it has no entries or when none of the tree folders its entries name exists; `worktree-lock prune` removes them at once.
 - `harness/hooks/stop.mjs`, `harness/hooks/gate.mjs`, `harness/hooks/gate.sh` and the modules next to them: see the
   [Gate](gate-and-github.md).
 - `harness/hooks/eval-env.cjs` gives the scripts their git and state folder, with the variables of an eval run.
