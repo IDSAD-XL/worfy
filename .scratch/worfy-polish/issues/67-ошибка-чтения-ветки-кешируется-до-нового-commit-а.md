@@ -1,7 +1,8 @@
 # 67 — Ошибка чтения ветки кешируется до нового commit-а
 
 Type: bug
-Status: claimed 2026-11-07T22:06Z
+Status: done 2026-11-08T03:13Z
+PR: #1613
 Blocked by: —
 Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Строки перечитаны по main `3bb9e0778`.
 
@@ -49,6 +50,7 @@ Source: аудит кода 2026-11-08 (Orchestrator), находка MED. Ст�
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 · mac - · 65b9c08e7
   - evidence: gate pass · `gate fast` exit 0; `pnpm lint`, `pnpm typecheck`, `pnpm test` exit 0 after the rebase onto 64c8946c2 · mac - · 282e33bd2
 - [ ] ci-ok зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42432788499/job/128595935797 · ci - · 9196a54bb44d0574217a89ada4708e11db687c01
 
 ## Где в коде
 
