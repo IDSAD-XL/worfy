@@ -46,6 +46,8 @@
 // ```suggestion block, and not a plain approval. 30 of them make a voice. A plain approval is a text that only
 // approves or thanks, however long: LGTM, +1, thanks (for the fix), looks good (to me), nice work, ship it, ok, an
 // emoji (APPROVAL below), and nothing else. The estimate counts the plain approvals of the team on a line of their own.
+// The script knows approval words only: an approval that reports a check ("tested locally, works") is substantive
+// here, and the analysis (skills/human-review-setup/analyse.md, section 3) still gives it no tier.
 //
 // The token estimate: Latin and other characters / 4, Cyrillic / 2, of the texts and the diff context of the
 // threads, times the number of model passes (--passes, default 1). It is an estimate and the output says so.

@@ -29,7 +29,7 @@
 // of the template of skills/human-review-setup/ (`rules`, `examples`); any other `{{`, such as a Go composite
 // literal in a quoted comment, is text. With --prs, every link to a pull request (`…/pull/<n>…`) in SKILL.md,
 // research.md and voice-examples.md must be a `url` of <prs.jsonl> — of a pull request, a review, a line comment or
-// a conversation comment — as it is; --known <file> (repeatable) adds the links written in that file, the
+// a conversation comment — as it is, or a link the `body` of one of them holds (a quote of that comment); --known <file> (repeatable) adds the links written in that file, the
 // research.md of before that an update keeps. A link built by hand is a finding.
 //
 // Exit codes: 0 — clean; 1 — findings; 2 — usage error or broken input (a file not read, not JSON, an unknown
@@ -164,8 +164,11 @@ function knownLinks() {
             die(2, `prs.jsonl ${prsFile}:${i + 1} is not JSON: ${e.message}`)
         }
         if (!isObject(pull)) die(2, `prs.jsonl ${prsFile}:${i + 1} is not an object`)
+        // Its own url, and every link its body quotes: a verbatim quote of a comment may carry a link of its own.
         const add = (x) => {
-            if (isObject(x) && typeof x.url === "string") known.add(x.url)
+            if (!isObject(x)) return
+            if (typeof x.url === "string") known.add(x.url)
+            if (typeof x.body === "string") for (const link of linksOf(x.body)) known.add(link)
         }
         add(pull)
         for (const r of Array.isArray(pull.reviews) ? pull.reviews : []) add(r)

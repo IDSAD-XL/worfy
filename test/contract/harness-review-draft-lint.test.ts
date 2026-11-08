@@ -388,6 +388,16 @@ describe('review-draft-lint', () => {
         expect(run.status, run.stdout + run.stderr).toBe(0)
       })
 
+      it('accepts a link that a comment of prs.jsonl quotes in its body, so a verbatim quote of it passes', { timeout: ms(30_000) }, () => {
+        const quoted = 'https://github.com/other/repo/pull/5'
+        const prs = PRS.replace('"body":"One question."', `"body":"Same bug as ${quoted}, see there."`)
+        expect(prs).toContain(quoted)
+        const dir = skill(FULL, RESEARCH)
+        writeFileSync(join(dir, 'voice-examples.md'), `# Voice examples\n\n## heads-up\n\n- [acme/shop#12](${PR}#issuecomment-903) — reviewer A, 40 chars\n  > Same bug as ${quoted}, see there.\n`)
+        const run = lint(['--skill', dir, '--prs', file(prs, 'prs.jsonl')], outside)
+        expect(run.status, run.stdout + run.stderr).toBe(0)
+      })
+
       it('gives exit 2 for a prs.jsonl that does not read as JSON lines', { timeout: ms(30_000) }, () => {
         const run = lint(['--skill', skill(FULL, RESEARCH), '--prs', file('{"repo": "acme/shop"\n', 'prs.jsonl')], outside)
         expect(run.status, run.stdout + run.stderr).toBe(2)

@@ -34,11 +34,12 @@ and say so. For each pull request of `held_out`:
 
 ```bash
 gh pr view <n> --repo <owner>/<name> --json number,url,title,body,baseRefName,mergeCommit,closingIssuesReferences; echo "EXIT=$?"
-git fetch origin "pull/<n>/head" "<baseRefName>"; echo "EXIT=$?"
+git fetch origin "pull/<n>/head" "+refs/heads/<baseRefName>:refs/remotes/origin/<baseRefName>"; echo "EXIT=$?"
 git cat-file -e "<commit_id>^{commit}"; echo "EXIT=$?"
 ```
 
-When the commit is still missing (the branch was force-pushed after the review), `git fetch origin "<commit_id>"`
+The base branch is fetched with a refspec of its own: a clone made by `git clone --depth 1` tracks one branch only,
+and a bare `<baseRefName>` would leave `origin/<baseRefName>` missing. When the commit is still missing (the branch was force-pushed after the review), `git fetch origin "<commit_id>"`
 once more; still missing, skip this pull request and say so. A merged pull request has `mergeCommit`
 (`mergeCommit.oid`, below `<mergeCommit>`); check it is here the same way and fetch it by its sha when it is not.
 
@@ -50,9 +51,9 @@ for every pull request:
   merge, and a squash or a rebase writes new commits instead of the pull request's own;
 - not merged (open, or closed without a merge): `git merge-base "origin/<baseRefName>" "<commit_id>"`.
 
-Step 2 of SKILL.md made a shallow clone whole before the analysis. A `git merge-base` that still exits 1 found no
-common history: this pull request goes into `skipped` of section 6 with the reason "no common history", and the
-person hears it.
+Step 2 of SKILL.md made a shallow clone whole before the analysis. A `git merge-base` that still exits non-zero —
+1, no common history, or 128, a commit or a branch missing: this pull request goes into `skipped` of section 6 with
+the reason "no common history" or the last line of git, and the person hears it.
 
 Never the merge base of `origin/<baseRefName>` and `commit_id` for a merged pull request: after a merge by a merge
 commit, `commit_id` is itself an ancestor of `origin/<baseRefName>`, the merge base is `commit_id`, and the diff is

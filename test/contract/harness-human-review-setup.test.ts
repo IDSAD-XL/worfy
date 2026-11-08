@@ -1061,44 +1061,61 @@ describe('the fixes of the live run (worfy-human-review 13)', () => {
       const r = spawnSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, env, encoding: 'utf8' })
       return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
     }
-    /** A command of the step without its `; echo "EXIT=$?"`, run by git in `cwd`. */
-    const run = (cwd: string, cmd: string): { status: number | null; out: string } => {
-      const words = cmd.replace(/; echo "EXIT=\$\?"$/, '').split(' ')
+    /** A command of SKILL.md or check.md without its `; echo "EXIT=$?"`: quoted words are arguments, `<name>` takes its value. */
+    const run = (cwd: string, cmd: string, values: Record<string, string> = {}): { status: number | null; out: string } => {
+      const words = [...cmd.replace(/; echo "EXIT=\$\?"$/, '').matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!)
       expect(words[0]).toBe('git')
-      return git(cwd, ...words.slice(1))
+      return git(cwd, ...words.slice(1).map((w) => w.replace(/<[A-Za-z_]+>/g, (k) => values[k] ?? k)))
     }
-    /** An origin with main A-B and a branch feature A-C, and a clone of depth 1: B and C share no history there. */
-    const shallowClone = (name: string): string => {
+    /** check.md's fetch of the pull request's head and its base branch. */
+    const checkFetch = check.split('\n').find((l) => l.startsWith('git fetch origin "pull/<n>/head"'))
+    /**
+     * An origin with main A-B, a base branch release A-C and pull request 7 (refs/pull/7/head) A-D on release, and a
+     * clone as `git clone --depth 1` makes it: of main only, one commit deep.
+     */
+    const shallowClone = (name: string): { clone: string; head: string } => {
       const origin = join(dir, `${name}-origin`)
       const clone = join(dir, `${name}-clone`)
       mkdirSync(origin, { recursive: true })
-      const ok = (cwd: string, ...args: string[]): void => expect(git(cwd, ...args).status, args.join(' ')).toBe(0)
+      const ok = (cwd: string, ...args: string[]): string => {
+        const r = git(cwd, ...args)
+        expect(r.status, `${args.join(' ')}: ${r.out}`).toBe(0)
+        return r.out
+      }
       ok(origin, 'init', '-q')
-      for (const [file, branch] of [['a', null], ['b', null], ['c', 'feature']] as const) {
-        if (branch) ok(origin, 'switch', '-qc', branch, 'HEAD~1')
+      for (const [file, from] of [['a', null], ['b', null], ['c', 'release'], ['d', 'pr']] as const) {
+        if (from) ok(origin, 'switch', '-qc', from, 'main~1')
         writeFileSync(join(origin, `${file}.txt`), `${file}\n`)
         ok(origin, 'add', `${file}.txt`)
         ok(origin, 'commit', '-qm', file)
       }
-      ok(dir, 'clone', '-q', '--depth', '1', '--no-single-branch', pathToFileURL(origin).href, clone)
-      return clone
+      const head = ok(origin, 'rev-parse', 'HEAD')
+      ok(origin, 'update-ref', 'refs/pull/7/head', head)
+      ok(origin, 'switch', '-q', 'main')
+      ok(origin, 'branch', '-qD', 'pr')
+      ok(dir, 'clone', '-q', '--depth', '1', pathToFileURL(origin).href, clone)
+      return { clone, head }
     }
 
-    it('in a shallow clone the base of a pull request is not found, and after the step it is', { timeout: ms(60_000) }, () => {
-      const clone = shallowClone('fetch')
+    it('in a default shallow clone the base of a pull request on another branch is found after the step and the fetch of check.md', { timeout: ms(60_000) }, () => {
+      const { clone, head } = shallowClone('fetch')
       expect(run(clone, shallowCmd!).out).toBe('true')
-      // What the live run met: no common history, exit 1.
-      expect(git(clone, 'merge-base', 'origin/main', 'origin/feature').status).toBe(1)
       const fetched = run(clone, unshallowCmd!)
       expect(fetched.status, fetched.out).toBe(0)
       expect(run(clone, shallowCmd!).out).toBe('false')
-      const base = git(clone, 'merge-base', 'origin/main', 'origin/feature')
+      // A default clone fetches main only: the fetch of check.md must still give origin/<baseRefName>.
+      expect(checkFetch, check).toBeDefined()
+      const pr = run(clone, checkFetch!, { '<n>': '7', '<baseRefName>': 'release' })
+      expect(pr.status, pr.out).toBe(0)
+      const base = git(clone, 'merge-base', 'origin/release', head)
       expect(base.status, base.out).toBe(0)
       expect(base.out).toBe(git(clone, 'rev-parse', 'origin/main~1').out)
+      // Any other failure of git merge-base (128 for a missing ref) skips the pull request too.
+      expect(flat(check)).toMatch(/A `git merge-base` that still exits non-zero[^.]*: this pull request goes into `skipped`/)
     })
 
     it('when the origin cannot be read the fetch fails with a non-zero exit, which the step turns into a stop', { timeout: ms(60_000) }, () => {
-      const clone = shallowClone('gone')
+      const { clone } = shallowClone('gone')
       expect(git(clone, 'remote', 'set-url', 'origin', pathToFileURL(join(dir, 'no-such-origin')).href).status).toBe(0)
       const fetched = run(clone, unshallowCmd!)
       expect(fetched.status, fetched.out).not.toBe(0)

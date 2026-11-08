@@ -2,7 +2,8 @@
 // requests, logins and texts only. Each page goes to <dir>/page-<cursor>.json, the first one to page-1.json.
 //
 //   node make-pages.cjs <dir> voice <n>                    one pull request with n substantive comments of the
-//                                                          team (n - 1 plain, one short ```suggestion block) and six
+//                                                          team (n - 3 plain, two approvals with a remark, one short
+//                                                          ```suggestion block) and six
 //                                                          that do not count (LGTM, +1 thanks, an emoji, too short,
 //                                                          and two plain approvals over 20 characters)
 //   node make-pages.cjs <dir> cap <total>                  <total> reviewed pull requests, 100 a page
@@ -69,7 +70,7 @@ const [dir, kind, ...args] = process.argv.slice(2)
 const nums = args.map(Number)
 if (kind === "voice") {
     const n = nums[0]
-    const bodies = [...Array.from({ length: n - 1 }, (_, i) => say(i + 1)), "```suggestion\nx\n```", "LGTM 👍", "+1 thanks!", "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉", "> a quoted line that is long enough\nok", "LGTM, thanks for the fix! Looks good to me.", "Thanks a lot, looks great. Nice work!"]
+    const bodies = [...Array.from({ length: n - 3 }, (_, i) => say(i + 1)), "LGTM, but rename retryLimit to maxRetries here.", "Thanks! One thing: the timeout should be a named constant.", "```suggestion\nx\n```", "LGTM 👍", "+1 thanks!", "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉", "> a quoted line that is long enough\nok", "LGTM, thanks for the fix! Looks good to me.", "Thanks a lot, looks great. Nice work!"]
     writePages(dir, [[pull(1, day(10), bodies)]])
 } else if (kind === "cap") {
     const total = nums[0]

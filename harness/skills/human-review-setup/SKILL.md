@@ -83,8 +83,9 @@ The parts below run in this order; "step <n>" in this file always means a `## <n
   history) below and ask nothing: no model will read anything.
 - **The question**, on `voice: yes`. Show the person, in this order:
   - the output of `estimate` as it is: pull requests, reviews by state, comments by kind, substantive
-    comments, plain approvals of the team ("LGTM", "thanks", an emoji: not substantive however long), reviewers,
-    characters and the token estimate (the word "estimate" stays);
+    comments, plain approvals of the team (a text of approval words only — "LGTM", "thanks", an emoji: not
+    substantive however long; the script knows those words only, and an approval that reports a check, "tested
+    locally, works", is left to the analysis of step 4), reviewers, characters and the token estimate (the word "estimate" stays);
   - the content of `ignore.json` (`<private folder>/ignore.json`): the person may add logins of service
     accounts or prefixes of agent reports there; after an edit run the fetch and the estimate again;
   - that the texts of the colleagues' comments will go to the vendor of the model, as any code of this
