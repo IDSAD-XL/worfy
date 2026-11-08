@@ -70,6 +70,28 @@ Grader и scaffold не меняются. Глубина review — `medium`. Н
 - `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` — сначала
   `--dry-run`.
 
+## Итог
+
+Два платных прогона case-а `status-block` (3 раза каждый, model claude-sonnet-5, judge claude-haiku-4-5,
+claude 2.1.289), оба — балл 0.50, 0 из 3 прошли:
+
+- Формулировка 1 (абзац «on every working turn … whether or not a ticket status changed», commit `cfca4096d`):
+  $0.37. `ends-with-status-block` 3 из 3, `epic-status-ran` 0 из 3.
+- Формулировка 2 (Phase 3 — два шага по порядку: 1 — `epic-status`, 2 — блок; commit `cc7e6e3bf`): $0.40.
+  `ends-with-status-block` 3 из 3, `epic-status-ran` 0 из 3.
+
+Итого $0.77. Балл тот же, что у main (0 из 3 на `d84a7b91e`).
+
+Что видно в transcript-ах (`--keep-temp`): новый текст правил дошёл до модели в обоих прогонах (вывод hook-а
+SessionStart). Все шесть ходов одинаковы: поиск файла → Read → Edit → ответ → блок, Stage — своя фраза («правка
+внесена, не закоммичена»). В 4 из 6 ходов модель сама вызвала `bin/profile --field tickets.path`, получила путь —
+и всё равно не запустила `epic-status`. В первом прогоне Stage одного хода — «тикеты не менялись по статусу»: модель
+по-прежнему связывает запуск со сменой статуса. Формат блока модель держит всегда; лишний вызов инструмента после
+сделанной работы — нет. Текстом правила это не лечится: обе формулировки не сдвинули ни одного хода.
+
+Решение — за Orchestrator-ом: механическая проверка (hook, который видит строку Stage без вызова `epic-status`
+в проекте с тикетами) или сузить case.
+
 ## Где в коде
 
 - `harness/hooks/rules/orchestrator.md:121-124` — шаг запуска `epic-status`; `:129` — шаблон строки Stage.
