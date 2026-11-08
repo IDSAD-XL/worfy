@@ -12,18 +12,19 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { MindMapNode } from '../../src/shared/product/mind-map'
-import { adviceShare, adviceTotals, criticAdvice, mindMapAdvice, type AdviceShare } from '../../src/shared/product/share'
+import { adviceShare, adviceTotals, criticAdvice, fromCriticReview, mindMapAdvice, type AdviceShare } from '../../src/shared/product/share'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
-const where = vi.hoisted(() => ({ root: '' }))
+const where = vi.hoisted(() => ({ root: '', mode: 'full' as 'full' | 'silent', workflowFolder: '' }))
 
 vi.mock('electron', () => ({ app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' }, BrowserWindow: { getAllWindows: () => [] } }))
-vi.mock('../../src/main/projects/store', () => ({ projectStore: () => ({ get: () => ({ id: 'p1', path: where.root }) }) }))
-// The Project's folders as docsSource answers them for a Full-mode Project: docs/product under its root.
-vi.mock('../../src/main/ipc/docs', () => ({
-  docsSource: () => Promise.resolve({ root: where.root, adrStatusLabel: undefined, productDir: ['docs', 'product'] }),
-  docsHub: { topic: () => Promise.resolve(undefined) },
+// src/main/ipc/docs.ts follows the active Project from its import on: there is none here.
+vi.mock('../../src/main/projects/store', () => ({ projectStore: () => ({ get: () => ({ id: 'p1', path: where.root }), active: () => undefined, onChange: () => () => undefined }) }))
+// The Project's layout as the Harness would answer it; the real docsSource (src/main/ipc/docs.ts) turns it
+// into the Product Session folder: docs/product under the root in Full mode, <Workflow folder>/product in Silent mode.
+vi.mock('../../src/main/workflow/folder', () => ({
+  projectLayouts: () => ({ get: () => Promise.resolve({ root: where.root, mode: where.mode, workflowFolder: where.mode === 'silent' ? where.workflowFolder : where.root }) }),
 }))
 
 /** Topic one: two pieces of advice decided, one waiting, and two nodes of the owner's that are no advice. */
@@ -112,6 +113,36 @@ describe('adviceShare', () => {
     expect(criticAdvice('Owner decision: maybe later\r\nOwner decision: Accepted — fine\r\n')).toEqual({ accepted: 1, rejected: 0, pending: 1 })
   })
 
+  describe('an objection of a critic’s review put on the Mind map is counted once, by the review (the spec of worfy-product-session, decided without the owner, item 10)', () => {
+    const review = 'Verdict: Reorder — x\n\n## Objections\n\n### 1. Ticket 03 needs 05\n\nFact: `issues/03.md:12`\n\nOwner decision: accepted — I missed that\n'
+    // The objection on the map, decided by mind_map_decide as well as in the review.
+    const onMap = (advice: boolean, source: string): MindMapNode => ({ id: 'c-1', kind: 'decision', text: 'Ticket 03 needs 05', from: null, advice, source, status: 'accepted', reason: 'I missed that' })
+    const totals = (node: MindMapNode) => adviceTotals(adviceShare({ topics: [topic('pricing', [node])], reviews: [{ file: 'worfy-pricing-2026-11-08.md', text: review }] }))
+
+    it('advice: false and the review file as source, decided once: exactly 1 of 1', () => {
+      expect(totals(onMap(false, 'docs/product/critic/worfy-pricing-2026-11-08.md'))).toEqual({ accepted: 1, rejected: 0, pending: 0, decided: 1 })
+    })
+
+    it('a node that still carries advice: true is left out by its source: 1 of 1, in every spelling of the review file', () => {
+      for (const source of [
+        'docs/product/critic/worfy-pricing-2026-11-08.md',
+        'critic/worfy-pricing-2026-11-08.md#1',
+        '/Users/someone/workflow/product/critic/worfy-pricing-2026-11-08.md:14',
+        'C:\\work\\product\\critic\\worfy-pricing-2026-11-08.md',
+      ]) {
+        expect(fromCriticReview(onMap(true, source))).toBe(true)
+        expect(totals(onMap(true, source))).toEqual({ accepted: 1, rejected: 0, pending: 0, decided: 1 })
+      }
+    })
+
+    it('a source that is no critic’s review leaves the advice counted', () => {
+      for (const source of ['docs/product/critics.md', 'docs/product/critic/notes.mdx', '.scratch/worfy-pricing/spec.md', 'https://example.com/critic']) {
+        expect(fromCriticReview(onMap(true, source))).toBe(false)
+      }
+      expect(totals(onMap(true, '.scratch/worfy-pricing/issues/03.md:12'))).toEqual({ accepted: 2, rejected: 0, pending: 0, decided: 2 })
+    })
+  })
+
   it('a Decision that is no advice is the owner’s own, not counted; advice decided later counts by its current status', () => {
     expect(mindMapAdvice([{ id: 'd', kind: 'decision', text: 'x', from: null, status: 'rejected', reason: 'r' }])).toEqual({ accepted: 0, rejected: 0, pending: 0 })
     const changed: MindMapNode = {
@@ -164,6 +195,8 @@ describe('product.share', () => {
   beforeEach(async () => {
     scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-product-share-')))
     where.root = join(scratch, 'repo')
+    where.mode = 'full'
+    where.workflowFolder = join(scratch, 'workflow')
     mkdirSync(where.root, { recursive: true })
     handlers = new Map()
     const { registerIpc, appUrlMatcher } = await import('../../src/main/ipc/index')
@@ -190,6 +223,20 @@ describe('product.share', () => {
     expect(share.critic).toEqual({ accepted: 1, rejected: 1, pending: 1 })
     expect(share.skipped.map((each) => each.file)).toEqual(['broken/mind-map.json'])
     expect(snapshot()).toEqual(before)
+  })
+
+  it('in Silent mode reads <Workflow folder>/product, not docs/product of the repository', async () => {
+    where.mode = 'silent'
+    const silent = join(where.workflowFolder, 'product')
+    mkdirSync(join(silent, 'pricing'), { recursive: true })
+    writeFileSync(join(silent, 'pricing', 'map.md'), '# pricing\n')
+    writeFileSync(join(silent, 'pricing', 'mind-map.json'), JSON.stringify({ version: 1, nodes: PRICING }))
+    mkdirSync(join(silent, 'critic'), { recursive: true })
+    writeFileSync(join(silent, 'critic', 'worfy-pricing-2026-11-08.md'), REVIEW)
+    // A Full-mode folder left in the repository is not this Project's Product Session folder now.
+    writeMap('roadmap', ROADMAP)
+    const result = await call({ projectId: 'p1' })
+    expect(result).toEqual({ ok: true, value: { mindMap: { accepted: 1, rejected: 0, pending: 1 }, critic: { accepted: 1, rejected: 1, pending: 1 }, skipped: [] } })
   })
 
   it('a Project without a Product Session folder has no advice yet', async () => {

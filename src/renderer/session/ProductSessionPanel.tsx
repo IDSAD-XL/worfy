@@ -138,6 +138,8 @@ function adviceTitle(share: AdviceShare): string {
     `Waiting for a decision: ${totals.pending} (${share.mindMap.pending} in the Mind map, ${share.critic.pending} in the critic’s reviews).`,
   ]
   if (share.skipped.length > 0) lines.push(`Not counted: ${share.skipped.map(({ file, message }) => `${file} (${message})`).join(', ')}.`)
+  // The documents' watcher follows topics only (src/main/docs/watch.ts): see the shortcut in useAdviceShare.
+  lines.push('A decision written in a critic’s review shows after the next change of a topic.')
   lines.push(NOT_A_GRADE)
   return lines.join('\n')
 }

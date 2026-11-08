@@ -178,7 +178,9 @@ docs/product/
     `ticket:NN` — Ticket карты, или `null` — от темы);
   - у `decision` обязательны `status` (`accepted` | `rejected`) и `reason`; у `objection` — `source` (факт: путь
     документа, Ticket, PR, URL);
-  - `advice: true` — узел предложил советник (идея, возражение критика), считается в доле принятых (Q9);
+  - `advice: true` — узел предложил советник сам (идея, своё возражение), считается в доле принятых по
+    `mind_map_decide` (Q9); возражение из разбора критика на Mind map — `advice: false`, `source` — файл разбора, в
+    доле оно считается один раз, по строке `Owner decision:` разбора (п. 10 «Решено без владельца»);
   - `replaces` — id Решения, которое это Решение отменило (стрелка «заменило»);
   - `history` — прежние `status` и `reason` Решения;
   - `message` — id сообщения чата (uuid события транскрипта), где узел появился или менялся;
@@ -282,6 +284,10 @@ Watcher документов уже держит один рекурсивный
    chokidar.
 9. **Codex не входит** в Epic (решение 08, Q5): Product Session на Codex — отдельный Ticket позже (в «Не в этом
    Epic-е»).
+10. **Возражение критика считается один раз** (Orchestrator, 2026-11-08; ревью PR #1672 Ticket-а 14): по строке
+    `Owner decision:` его разбора. Product Session, вынося такое возражение на Mind map, ставит узлу `advice: false`, а в
+    `source` — файл разбора; узел с `source` в `critic/` доля не считает, даже с `advice: true`. Совет не из разбора
+    критика (идея, своё возражение Session) — `advice: true`, считается по `mind_map_decide`.
 
 ## Ticket-ы
 

@@ -372,6 +372,7 @@ describe('the share of accepted advice in the header of a Product Session', () =
     expect(title).toContain('3 accepted, 2 rejected')
     expect(title).toContain('Waiting for a decision: 3 (2 in the Mind map, 1 in the critic’s reviews)')
     expect(title).toContain('not a measure of how good the advice is')
+    expect(title).toContain('A decision written in a critic’s review shows after the next change of a topic.')
     expect(header().textContent).not.toMatch(/score|quality|rate/iu)
   })
 

@@ -158,8 +158,10 @@ a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. 
 Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
 decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its
 status, and the objections of every critic's review in `critic/` by their `Owner decision:` lines; advice still waiting
-is not in the share. The tooltip gives how many wait for a decision, in the Mind map and in the critic's reviews, names
-the files it could not read, and says that the share counts the owner's decisions and is no measure of how good the
+is not in the share. A critic's objection is counted once, by its review: a Mind map node whose source is a file of
+`critic/` is not counted, whatever its `advice`. The tooltip gives how many wait for a decision, in the Mind map and in
+the critic's reviews, names the files it could not read, says that a decision written in a critic's review shows after
+the next change of a topic, and says that the share counts the owner's decisions and is no measure of how good the
 advice is. main counts it from the files on `product.share` and the header asks again on every `product.changed` of the
 Project, so a `mind_map_decide` shows at once; a change of a critic's review alone shows with the next change of a topic
 or the next open of the Session. Nothing of it is stored. The view shows

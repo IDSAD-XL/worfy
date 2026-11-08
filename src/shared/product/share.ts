@@ -3,7 +3,9 @@
 // two things, in every file of the Project's Product Session folder (ADR-0101):
 //
 //   - the Mind map nodes with `advice: true` of every topic: a Decision is accepted or rejected by its
-//     status now (mind_map_decide), any other node waits;
+//     status now (mind_map_decide), any other node waits. A node whose source is a critic's review is an
+//     objection of that review put on the map: the review counts it, so the node does not, even with
+//     `advice: true` — one objection is counted once (the spec of worfy-product-session, decided without the owner, item 10);
 //   - the objections of every critic's review (`critic/<epic>-<YYYY-MM-DD>.md`, harness/agents/critic.md):
 //     each `Owner decision:` line, `accepted — <reason>` or `rejected — <reason>`, empty while it waits.
 //
@@ -43,11 +45,23 @@ export type ShareReview = { file: string; text: string } | { file: string; error
 
 const none = (): AdviceCount => ({ accepted: 0, rejected: 0, pending: 0 })
 
-/** The advice of one Mind map: nodes with `advice: true`, by the status of a Decision; any other kind waits. */
+/**
+ * A source that names a file of the critic's folder: `docs/product/critic/<file>.md`, `critic/<file>.md`
+ * or the absolute path of Silent mode, with `/` or `\\`, maybe followed by a line or an anchor.
+ */
+const CRITIC_SOURCE = /(?:^|[\\/])critic[\\/][^\\/]+\.md(?![^\s#:,;)])/u
+
+/** True when the node is an objection of a critic's review put on the Mind map: the review counts it. */
+export const fromCriticReview = (node: MindMapNode): boolean => node.source !== undefined && CRITIC_SOURCE.test(node.source)
+
+/**
+ * The advice of one Mind map: nodes with `advice: true`, by the status of a Decision; any other kind waits.
+ * A node taken from a critic's review is left out: its review's `Owner decision:` line counts it.
+ */
 export function mindMapAdvice(nodes: readonly MindMapNode[]): AdviceCount {
   const count = none()
   for (const node of nodes) {
-    if (node.advice !== true) continue
+    if (node.advice !== true || fromCriticReview(node)) continue
     if (node.kind === 'decision' && node.status !== undefined) count[node.status] += 1
     else count.pending += 1
   }
