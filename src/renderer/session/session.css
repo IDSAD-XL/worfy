@@ -479,6 +479,83 @@ body.w-split-dragging * {
   color: var(--text);
 }
 
+/* The agents by name and state (ProductAgentsList.tsx, ticket 20), as the prototype's list has them. */
+.w-product__agents-list {
+  margin: 0 calc(-1 * var(--space-4));
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.w-product__agent {
+  padding: 10px var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.w-product__agent-line {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.w-product__agent-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.w-product__agent-state {
+  min-width: 0;
+}
+
+.w-product__agent-dot {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.w-product__agent-dot[data-status='running'] {
+  background: var(--working-dot);
+  animation: w-product-agent-blink 1.2s infinite;
+}
+
+.w-product__agent-dot[data-status='done'] {
+  background: var(--primary);
+}
+
+.w-product__agent-dot[data-status='error'] {
+  background: var(--blocked-ring);
+}
+
+.w-product__agent-about {
+  margin-top: 3px;
+  margin-left: 15px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.w-product__agents-empty {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--text-muted);
+}
+
+@keyframes w-product-agent-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-product__agent-dot[data-status='running'] {
+    animation: none;
+  }
+}
+
 @keyframes w-session-spin {
   to {
     transform: rotate(360deg);

@@ -41,8 +41,12 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
   5 %, and with Home and End to its edges. A double click puts it back to 60 / 40. Each side keeps at least 10 %.
 - The split is one per Machine. It is saved in the app settings when a drag or a key press ends, so every window and the
   next start of worfy show it.
-- A click on the agents strip opens the rail blocks of a plain Session over the chat; Escape or "›" closes them. The
-  Binding block is left out: a Product Session is bound to no Ticket and no Epic.
+- A click on the agents strip opens over the chat the list of the Session's agents, the hidden ones left out: a status
+  dot, a name and a state, such as "Critic — working · 3 objections" or "Idea generator — done", and the task under
+  it. `worfy:critic` reads "Critic", `worfy:product-ideas` "Idea generator", any other Subagent its type. The states
+  are "working", "done", "error" and "interrupted". The critic's number of objections comes from the review it wrote,
+  read from its transcript; until it has written one, no number shows. Escape or "›" closes the list. The rail
+  blocks of a plain Session are not shown: a Product Session is bound to no Ticket and no Epic.
 
 **The chat.** It is headed "Conversation with the advisor", with the Vendor, and shows the conversation only:
 
@@ -130,6 +134,7 @@ changes make one message. One signal runs at a time per Project.
 | `src/shared/product/paths.ts` | `productFolder` and the names of a topic folder |
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | The two entries "New Product Session" |
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
+| `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | The agents list: names, states, the critic's objections |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles and "Advisor is thinking" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |

@@ -1,8 +1,8 @@
 // The body of a Product Session (src/renderer/session/ProductSessionPanel.tsx, worfy-product-session
 // ticket 07): the divider between the Mind map and the chat — 60 / 40 by default, moved by a drag and by
 // the keyboard, back to 60 / 40 on a double click, its share written to the app settings — and the
-// agents strip with the number of Subagents, which opens the rail blocks without the Binding — and the
-// share of accepted advice in the Session's header (ticket 14), asked again on every `product.changed`.
+// agents strip with the number of Subagents, which opens the list of the agents by name and state
+// (ticket 20) — and the share of accepted advice in the Session's header (ticket 14), asked again on every `product.changed`.
 // Against a fake bridge that keeps the app settings as main would; the Subagent tree is given by the test.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,13 +13,12 @@ import { adviceShare, type AdviceShare } from '../../src/shared/product/share'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
-import type { RailBlockProps } from '../../src/renderer/session/rail/index'
 
-const subagents = vi.hoisted(() => ({ tree: [] as unknown[] }))
+const subagents = vi.hoisted(() => ({ tree: [] as unknown[], hidden: {} as Record<string, string[]> }))
 
 vi.mock('../../src/renderer/claude-home/subagents', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/renderer/claude-home/subagents')>()
-  return { ...actual, useSubagentTree: () => subagents.tree, useHiddenSubagents: () => ({}) }
+  return { ...actual, useSubagentTree: () => subagents.tree, useHiddenSubagents: () => subagents.hidden }
 })
 
 const subagent = (id: string, children: SubagentInfo[] = []): SubagentInfo => ({
@@ -48,6 +47,8 @@ let settings: AppSettings
 let topicFails: string | undefined
 /** What `product.share` answers: main counts it from the files each time it is asked. */
 let share: () => AdviceShare | { error: string }
+/** The events of each Subagent's transcript (`claudeHome.subagentTranscript`), by agent id; none — the read fails. */
+let transcripts: Record<string, unknown[]>
 /** The handlers the panel subscribed through the bridge, by channel. */
 const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
 const emit = (channel: string, payload: unknown) => {
@@ -70,6 +71,8 @@ beforeEach(() => {
   topicFails = undefined
   share = () => adviceShare({ topics: [], reviews: [] })
   subagents.tree = []
+  subagents.hidden = {}
+  transcripts = {}
   settings = defaultAppSettings()
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -79,6 +82,14 @@ beforeEach(() => {
         const patch = input as Partial<AppSettings>
         settings = { ...settings, ...patch, revision: settings.revision + 1 }
         return Promise.resolve({ ok: true, value: settings })
+      }
+      if (channel === 'projects.list') {
+        return Promise.resolve({ ok: true, value: { projects: [{ id: 'alpha', name: 'demo', path: '/demo', branch: 'main' }], activeId: 'alpha', revision: 1 } })
+      }
+      if (channel === 'claudeHome.subagentTranscript') {
+        const events = transcripts[(input as { agentId: string }).agentId]
+        if (events === undefined) return Promise.resolve({ ok: false, error: 'no such transcript' })
+        return Promise.resolve({ ok: true, value: { found: true, events, cursor: { offset: 1, fileId: null }, reset: false, more: false, earlier: 0 } })
       }
       if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
       if (channel === 'product.share') {
@@ -114,16 +125,10 @@ afterEach(() => {
   localStorage.clear()
 })
 
-const blocks = {
-  './BindingRail.tsx': { default: (props: RailBlockProps) => <p>{`bound to ${props.nodeId}`}</p>, order: 10 },
-  './SubagentsRail.tsx': { default: (props: RailBlockProps) => <p>{`subagents of ${props.sessionId}`}</p>, order: 20 },
-}
-
 async function mount() {
   const { ProductSessionPanel } = await import('../../src/renderer/session/ProductSessionPanel')
-  const { collectRailBlocks } = await import('../../src/renderer/session/rail/index')
   render(
-    <ProductSessionPanel blocks={collectRailBlocks(blocks)} projectId="alpha" nodeId="node-1" sessionId="live-1">
+    <ProductSessionPanel projectId="alpha" nodeId="node-1" sessionId="live-1">
       <section aria-label="Session">chat</section>
     </ProductSessionPanel>,
   )
@@ -263,9 +268,44 @@ describe('the divider of a Product Session', () => {
   })
 })
 
+/** A critic's review as harness/agents/critic.md has it written, with `count` objections. */
+const review = (count: number): string =>
+  [
+    '# Critic: demo-roadmap — 2026-11-09',
+    '',
+    'Plan: `docs/product/demo-roadmap/map.md`',
+    'Verdict: Reorder — the pricing question comes first',
+    '',
+    '## Objections',
+    '',
+    ...(count === 0
+      ? ['None.', '']
+      : Array.from({ length: count }, (_, index) => [`### ${index + 1}. Objection ${index + 1}`, '', 'Fact: `CONTEXT.md:1` says so', '', 'Judgement: it costs a week', '', 'Owner decision:', '']).flat()),
+    '```markdown',
+    '### 9. a heading quoted in a code block is no objection',
+    '```',
+    '',
+    '## Alternative',
+    '',
+    '### 1. a numbered heading outside the objections is no objection',
+    '',
+  ].join('\n')
+
+/** The critic's transcript: it read the plan, wrote its review into the critic folder and answered. */
+const criticWrote = (text: string): unknown[] => [
+  { type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/demo-roadmap/map.md' }, parentToolUseId: null },
+  { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: '/demo/docs/product/critic/demo-roadmap-2026-11-09.md', content: text }, parentToolUseId: null },
+]
+
+const agent = (id: string, type: string | null, more: Partial<SubagentInfo> = {}): SubagentInfo => ({ ...subagent(id), name: null, subagentType: type, transcript: true, ...more })
+
 describe('the agents strip of a Product Session', () => {
-  it('shows the number of Subagents, the nested ones too, and opens the rail blocks without the Binding over the chat', async () => {
-    subagents.tree = [subagent('critic', [subagent('scout')]), subagent('ideas')]
+  it('shows the number of Subagents, the nested ones too, and opens the list of the agents by name and state over the chat', async () => {
+    subagents.tree = [
+      agent('critic-1', 'worfy:critic', { description: 'Find objections to the roadmap', children: [agent('scout-1', 'worfy:scout', { depth: 2, status: 'error' })] }),
+      agent('ideas-1', 'worfy:product-ideas', { status: 'done' }),
+    ]
+    transcripts = { 'critic-1': criticWrote(review(3)) }
     await mount()
     const toggle = screen.getByTestId('product-agents-toggle')
     expect(screen.getByTestId('product-agents-count').textContent).toBe('3')
@@ -276,9 +316,15 @@ describe('the agents strip of a Product Session', () => {
     fireEvent.click(toggle)
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     const panel = screen.getByTestId('product-agents-panel')
-    expect(within(panel).getByText('subagents of live-1')).toBeTruthy()
-    expect(screen.queryByText('bound to node-1')).toBeNull()
-    expect(panel.querySelector('[data-block="BindingRail"]')).toBeNull()
+    const lines = () => within(panel).getAllByTestId('product-agent-line').map((line) => line.textContent)
+    await vi.waitFor(() => expect(lines()).toEqual(['Critic — working · 3 objections', 'worfy:scout — error', 'Idea generator — done']))
+    expect(within(panel).getByText('Find objections to the roadmap')).toBeTruthy()
+    expect(within(panel).getAllByTestId('product-agent').map((row) => row.dataset.status)).toEqual(['running', 'error', 'done'])
+    // The critic's own transcript is read, of this Session; no other one.
+    const reads = asked.filter((each) => each.channel === 'claudeHome.subagentTranscript').map((each) => each.input as { projectRoot: string; sessionId: string; agentId: string })
+    expect(reads.map(({ projectRoot, sessionId, agentId }) => ({ projectRoot, sessionId, agentId }))).toEqual([{ projectRoot: '/demo', sessionId: 'live-1', agentId: 'critic-1' }])
+    // No rail block of a plain Session is drawn in the list.
+    expect(panel.querySelector('.w-session__rail-block')).toBeNull()
 
     // Escape and the collapse button close it; so does the strip button.
     fireEvent.keyDown(panel, { key: 'Escape' })
@@ -291,9 +337,40 @@ describe('the agents strip of a Product Session', () => {
     expect(screen.queryByTestId('product-agents-panel')).toBeNull()
   })
 
-  it('shows 0 while the Session has no Subagents', async () => {
+  it('a critic whose review is not written yet, or cannot be read, shows no number; one objection and none are worded', async () => {
+    subagents.tree = [
+      agent('critic-early', 'critic'),
+      agent('critic-unread', 'worfy:critic', { status: 'done' }),
+      agent('critic-one', 'worfy:critic', { status: 'done' }),
+      agent('critic-none', 'worfy:critic', { status: 'interrupted' }),
+    ]
+    transcripts = {
+      'critic-early': criticWrote(review(2)).slice(0, 1),
+      'critic-one': criticWrote(review(1)),
+      'critic-none': criticWrote(review(0)),
+    }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    const lines = () => screen.getAllByTestId('product-agent-line').map((line) => line.textContent)
+    await vi.waitFor(() => expect(lines()).toEqual(['Critic — working', 'Critic — done', 'Critic — done · 1 objection', 'Critic — interrupted · no objections']))
+    expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(4)
+  })
+
+  it('leaves the hidden Subagents out of the list, as out of the count', async () => {
+    subagents.tree = [agent('critic-1', 'worfy:critic'), agent('old-1', 'worfy:implementer', { status: 'done' })]
+    subagents.hidden = { 'live-1': ['old-1'] }
+    await mount()
+    expect(screen.getByTestId('product-agents-count').textContent).toBe('1')
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    expect(screen.getAllByTestId('product-agent-line').map((line) => line.textContent)).toEqual(['Critic — working'])
+  })
+
+  it('shows 0 while the Session has no Subagents, and says so in the list', async () => {
     await mount()
     expect(screen.getByTestId('product-agents-count').textContent).toBe('0')
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    expect(screen.getByTestId('product-agents-empty').textContent).toBe('No agents yet')
+    expect(asked.some((each) => each.channel === 'claudeHome.subagentTranscript')).toBe(false)
   })
 })
 

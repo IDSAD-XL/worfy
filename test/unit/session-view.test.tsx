@@ -1013,7 +1013,9 @@ describe('SessionPanel', () => {
       expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Product Session · alpha')
       expect(screen.getByTestId('product-session-accepted')).toBeTruthy()
       fireEvent.click(screen.getByTestId('product-agents-toggle'))
-      expect(within(screen.getByTestId('product-agents-panel')).getByText('subagents list')).toBeTruthy()
+      // The strip opens the list of the agents by name (ticket 20), not the rail blocks of a plain Session.
+      expect(within(screen.getByTestId('product-agents-panel')).getByTestId('product-agents-empty')).toBeTruthy()
+      expect(screen.queryByText('subagents list')).toBeNull()
       expect(screen.queryByText('bound to node-1')).toBeNull()
     })
 
@@ -1022,6 +1024,8 @@ describe('SessionPanel', () => {
       expect(container.querySelector('.w-session__body')).not.toBeNull()
       expect(screen.queryByTestId('product-session-panel')).toBeNull()
       expect(within(screen.getByTestId('session-rail')).getByText('bound to node-1')).toBeTruthy()
+      expect(within(screen.getByTestId('session-rail')).getByText('subagents list')).toBeTruthy()
+      expect(screen.queryByTestId('product-agents-panel')).toBeNull()
       expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Session · alpha')
       expect(screen.queryByTestId('product-session-accepted')).toBeNull()
     })
