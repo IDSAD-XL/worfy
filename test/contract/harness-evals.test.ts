@@ -18,7 +18,7 @@ import { productCriticFolder, productFolder } from '../../src/shared/product/pat
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
-import { CASES, childEnv, EVALS, HARNESS, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
+import { CASES, childEnv, EVALS, HARNESS, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
 import { ms } from '../time-scale'
 
 /**
@@ -826,8 +826,39 @@ describe('harness/evals: human-review-setup', () => {
     expect([...block.matchAll(/"([a-z-]+)": \[/g)].map((match) => match[1]).sort()).toEqual([...LOGINS].sort())
   })
 
+  // test/fixtures/human-review-setup/built-SKILL.md is the SKILL.md the generator wrote in run 1 of the paid run of
+  // 2026-11-08, for the invented team of the fixture. An llm judge failed it three times on its length although both
+  // habits are rules there ([R1] and [R19] for docs, [R15] for the down migration); the graders are regexes now.
+  it('the habit graders take the rules of a skill the generator wrote, and fail the same skill without them', () => {
+    const full = 'human-review-setup-full'
+    const built = readFileSync(join(REPO, 'test', 'fixtures', 'human-review-setup', 'built-SKILL.md'), 'utf8')
+    const migration = pattern(full, 'migration-rule.md')
+    const docs = pattern(full, 'docs-rule.md')
+    for (const text of [built, built.replaceAll('\n', '\r\n')]) {
+      expect(text).toMatch(migration)
+      expect(text).toMatch(docs)
+      expect(text).not.toMatch(pattern(full, 'skill-no-login.md'))
+    }
+    /** The skill without each list item whose text holds `marker`: the item ends at the next item or a blank line. */
+    const without = (text: string, ...markers: string[]): string =>
+      text.replace(/^- (?:(?!\n- |\n\n)[\s\S])*/gm, (item) => (markers.some((marker) => item.includes(marker)) ? '' : item))
+    const noMigration = without(built, '[R15]')
+    expect(noMigration).not.toBe(built)
+    expect(noMigration).not.toMatch(migration)
+    expect(noMigration).toMatch(docs)
+    const noDocs = without(built, '[R1]', '[R19]')
+    expect(noDocs).not.toMatch(docs)
+    expect(noDocs).toMatch(migration)
+    // A rule without its reference does not count, and neither does a mention outside a list item.
+    expect('- Ask for a down migration on every migration.\n').not.toMatch(migration)
+    expect('Every migration needs a down step. [R4]\n').not.toMatch(migration)
+    expect('- Ask for a rollback step on every\n  migration: 3 of 3 got one. [R4]\n').toMatch(migration)
+    expect("- Don't raise anything on dependency bumps. [R2]\n").toMatch(docs)
+    expect('- Approve docs changes after a typo check.\n').not.toMatch(docs)
+  })
+
   it('the fixture and the cases pass the privacy check: no home folder path, host name, email or token', () => {
-    const files = [join(FIXTURE, 'history.sh'), join(FIXTURE, 'history.cjs'), join(FIXTURE, 'gh.mjs')]
+    const files = [join(FIXTURE, 'history.sh'), join(FIXTURE, 'history.cjs'), join(FIXTURE, 'gh.mjs'), join(REPO, 'test', 'fixtures', 'human-review-setup', 'built-SKILL.md')]
     for (const name of ['human-review-setup-short-history', 'human-review-setup-refresh-declined', 'human-review-setup-full']) {
       files.push(join(EVALS, name, 'prompt.md'), join(EVALS, name, 'scaffold.sh'), ...graderFiles(name))
     }

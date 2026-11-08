@@ -22,9 +22,13 @@ claude 2.1.289, модель `claude-sonnet-5`, judge `claude-haiku-4-5`, пор
 - `short-history`, run 2: `n-of-30` — в последнем сообщении нет слов «8 of 30». Последним действием prompt просит
   сохранить список частной папки, и ответ мог закончиться им; transcript прошедшего run-а не сохраняется, причина
   не проверена.
-- `full`, run 1: `habits` (llm judge, FAIL ×3 на `SKILL.md` в 11 232 символа) — есть ли в skill-е правила «down
-  migration» и «docs и bump-ы без комментариев», по прогону не видно; сам judge предупреждает, что на длинном файле
-  он шумит. Run 2: `habits` пропущен по cost ceiling.
+- `full`, run 1: `habits` (llm judge `claude-haiku-4-5`, FAIL ×3 на `SKILL.md` в 11 232 символа) — ошибся judge, а не
+  генератор: в этом `SKILL.md` есть оба правила — «migrations/: a down migration that fully reverses the up
+  migration — the most-repeated blocker in the window (28.6% of migrations/ comments). [R15]» и «Do not raise
+  anything about docs-only edits — typo fixes, linter version bumps — the team approves these without a word every
+  time it has seen one alone in the window. [R19]». После прогона grader `habits` заменён двумя regex-grader-ами
+  (`migration-rule`, `docs-rule`); на этом тексте (`test/fixtures/human-review-setup/built-SKILL.md`) они проходят,
+  а без этих правил — нет (contract test). Run 2: `habits` пропущен по cost ceiling.
 
 Остальные grader-ы — во всех run-ах: fetch через stand-in, ни одной записи в GitHub (`gh-calls.log` без `WRITE`,
 ни одной команды записи `gh`), Subagent-ы анализа (11 и 5 вызовов `Agent`), `review-draft-lint --skill` на
