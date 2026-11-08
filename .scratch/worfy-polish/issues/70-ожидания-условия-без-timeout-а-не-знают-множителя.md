@@ -39,10 +39,15 @@ Source: находка `worfy-polish` 69 (2026-11-08): в `test/contract` и `te
 
 - [ ] `vi.waitFor` и `vi.waitUntil` без своего timeout-а ждут 1 s × множитель во всех project-ах vitest; свой timeout
       вызова и interval не меняются; обёртка не удваивается.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/scaled-waits.test.ts test/unit/scaled-waits-dom.test.tsx test/contract/test-timeout-scale.test.ts` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
 - [ ] `expect.poll` и `waitFor` / `findBy*` Testing Library без своего timeout-а ждут 1 s × множитель.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/scaled-waits.test.ts test/unit/scaled-waits-dom.test.tsx` exit 0 (expect.poll and asyncUtilTimeout checks) · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
 - [ ] Unit test на fake timers: при множителе 2,5 ожидание без timeout-а не кончается к 2499 ms и кончается к 2500 ms;
       при множителе 4 вызов со своим timeout-ом 400 ms кончается к 400 ms.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/scaled-waits.test.ts` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
 - [ ] `pnpm test` (все unit и contract), `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
+  - evidence: test-run pass · `pnpm test` exit 0 (687 files passed); `pnpm lint` exit 0; `pnpm typecheck` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -55,3 +60,20 @@ Source: находка `worfy-polish` 69 (2026-11-08): в `test/contract` и `te
 - `test/unit/scaled-waits.test.ts`, `test/unit/scaled-waits-dom.test.tsx` (новые), `test/contract/test-timeout-scale.test.ts` — test-ы.
 - `tsconfig.node.json`, `tsconfig.test.node.json`, `tsconfig.test.web.json` — новые файлы в `include`.
 - Только чтение: `test/timeout-literals.ts` (сканер чисел-пределов), `node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:7139-7235`.
+
+## Итог
+
+Ожидание условия без своего timeout-а теперь ждёт 1 s × множитель (по умолчанию 3 s): `vi.waitFor` и `vi.waitUntil` —
+через обёртки `test/scaled-waits.ts`, которые `test/setup-waits.ts` ставит во всех трёх project-ах (node, contract,
+jsdom); `expect.poll` — через `expect.poll.timeout` в `vitest.config.ts`; Testing Library — через `asyncUtilTimeout` в
+`test/setup-dom.ts`. Ни один из 1192 вызовов `vi.waitFor` не правился.
+
+Вызовы со своим timeout-ом не тронуты. Сканер `test/timeout-literals.ts` уже не пускает в них число мимо `ms()`; без `ms()`
+остались только пределы, выведенные из времени продукта, и это намеренно — test проверяет, что событие пришло раньше
+срока продукта:
+
+- `test/unit/epic-arrangement-record.test.tsx:537` — `FIRST_OPENING_WAIT_MS / 3` (`src/renderer/canvas/arrangement-record.ts:193`, 3000 ms).
+- `test/contract/terminal-ai-zle-prompt.test.ts:319`, `:331` — `ASK_KEPT_MS / 2` (`src/main/terminal-ai/shell-link.ts:33`, 2000 ms).
+
+Цена: test, который ждёт условие, которое не наступит, без своего timeout-а теперь падает через 3 s, а не через 1 s.
+Test-ов, которые ждут такого отказа нарочно, в `test/` нет (поиск `rejects` рядом с `waitFor`, `waitUntil`, `poll`, `findBy`).
