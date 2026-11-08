@@ -1,7 +1,8 @@
 # 07 — Шаблон сгенерированного skill-а и его запись в частную папку
 
 Type: task
-Status: open
+Status: done 2026-11-08T05:44Z
+PR: #1649
 Blocked by: 04, 06
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 2, 8, 9, 10; «Как работает» → «Частная папка», «Генератор», шаг 5, «Сгенерированный skill», «Проверка черновика» (форматы); «Сгенерированное и решения без владельца», п. 2–6; «Риски», п. 4, 5
 
@@ -38,15 +39,20 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] Contract test: в `template/SKILL.md` восемь разделов в порядке решения владельца; уровни — те же семь, что в
       `analyse.md`.
   - evidence: test-run pass · `npx vitest run test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 8e4ed4dbd901d58ab5597faccd2f20d7c3f1a36f
+  - evidence: review pass · PR #1649 · - - · fa77757758ad36286a3f1b40658681406588f91c
 - [ ] Contract test: шаг 8 шаблона не отправляет ничего без «да»; в тексте нет `gh pr review --approve` и нет
       отправки в ветке «no human in the session».
   - evidence: test-run pass · `npx vitest run test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 8e4ed4dbd901d58ab5597faccd2f20d7c3f1a36f
+  - evidence: review pass · PR #1649 · - - · fa77757758ad36286a3f1b40658681406588f91c
 - [ ] Contract test: fixture, собранный по `write.md` (выдуманный `research.md`), проходит `review-draft-lint --skill`
       с exit 0; в `voice-examples.md` fixture-а нет логинов.
   - evidence: test-run pass · `npx vitest run test/contract/harness-human-review-setup.test.ts` exit 0 · mac - · 8e4ed4dbd901d58ab5597faccd2f20d7c3f1a36f
+  - evidence: review pass · PR #1649 · - - · fa77757758ad36286a3f1b40658681406588f91c
 - [ ] `node scripts/check-cyrillic.mjs` и `node scripts/eval-harness.mjs --dry-run --changed origin/main` — exit 0.
   - evidence: test-run pass · `node scripts/check-cyrillic.mjs` exit 0; `node scripts/eval-harness.mjs --dry-run --changed origin/main` exit 0 · mac - · 8e4ed4dbd901d58ab5597faccd2f20d7c3f1a36f
+  - evidence: review pass · PR #1649 · - - · fa77757758ad36286a3f1b40658681406588f91c
 - [ ] `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42451389750/job/128642658220 · ci - · fa77757758ad36286a3f1b40658681406588f91c
 
 ## Тесты
 
