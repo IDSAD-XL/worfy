@@ -221,14 +221,16 @@ for d in "$SKILLS_DIR"/*/; do
     [[ "$THIRD_PARTY" == *" $sk "* ]] && continue
     for f in "$d"/*; do
         n="$(basename "$f")"; [ "$n" = SKILL.md ] && continue
+        # A folder of parts (a template) is named with its trailing slash.
+        [ -d "$f" ] && n="$n/"
         step_files=$((step_files + 1))
         cat "$d/SKILL.md" "$AGENTS_DIR"/*.md | grep -qF "\${CLAUDE_PLUGIN_ROOT}/skills/$sk/$n\`" \
             && ok "skill $sk: $n is named by SKILL.md or an agent" || bad "skill $sk: $n lies next to SKILL.md, but neither SKILL.md nor an agent names it — the part is lost"
     done
 done
 for f in "$SKILLS_DIR"/*/SKILL.md "$AGENTS_DIR"/*.md; do
-    for p in $(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/skills/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+' "$f" | sed 's|^${CLAUDE_PLUGIN_ROOT}/skills/||' | sort -u); do
-        [ -f "$SKILLS_DIR/$p" ] && ok "$(basename "$(dirname "$f")")/$(basename "$f") names skills/$p, and it exists" || bad "$f names skills/$p, which is not there"
+    for p in $(grep -oE '\$\{CLAUDE_PLUGIN_ROOT\}/skills/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/?' "$f" | sed 's|^${CLAUDE_PLUGIN_ROOT}/skills/||' | sort -u); do
+        { [ -f "$SKILLS_DIR/$p" ] || { [ "${p%/}" != "$p" ] && [ -d "$SKILLS_DIR/$p" ]; }; } && ok "$(basename "$(dirname "$f")")/$(basename "$f") names skills/$p, and it exists" || bad "$f names skills/$p, which is not there"
     done
 done
 [ "$step_files" -gt 0 ] && ok "the skills have step files ($step_files)" || bad "no step file next to any SKILL.md"

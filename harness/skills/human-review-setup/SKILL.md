@@ -1,6 +1,6 @@
 ---
 name: human-review-setup
-description: Build a private review skill that writes pull request reviews in the voice of the project's team — read the team's review history on GitHub, show how much a model would read and its token estimate, and only once the person agrees sort every comment by tier and theme into an evidence file. Use when the person asks for it ("/worfy:human-review-setup", "build a reviewer in our team's style") or worfy's "Build" button sends it.
+description: Build a private review skill that writes pull request reviews in the voice of the project's team — read the team's review history on GitHub, show how much a model would read and its token estimate, and only once the person agrees sort every comment by tier and theme into an evidence file and write the skill from it. Use when the person asks for it ("/worfy:human-review-setup", "build a reviewer in our team's style") or worfy's "Build" button sends it.
 disable-model-invocation: true
 ---
 
@@ -47,7 +47,8 @@ The private folder is `<_resolved.dir>/state/human-review/`. `review-history` cr
   person's account; the person edits it;
 - `raw/` — the answers of GitHub of this run.
 
-This skill adds `research.md` (step 4). Logins of colleagues appear in `ignore.json` and in `raw/` only.
+This skill adds `research.md` (step 4), `lint.json` and the review skill itself in
+`.claude/skills/human-review/` (step 5). Logins of colleagues appear in `ignore.json` and in `raw/` only.
 
 ## 2. Read the history and ask
 
@@ -119,7 +120,11 @@ team by tier and theme, and the results with the numbers of `review-history stat
 
 ## 5. Write the skill
 
-Not available yet: worfy-human-review 07. Until it is, go to step 7 with `research.md` as the result.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/write.md` at this step and follow it: fill the template
+`${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/template/` from `research.md`, every rule ending with `[R<n>]`,
+check it with `review-draft-lint --skill` until it is clean, then write `SKILL.md` and `voice-examples.md` into
+`<private folder>/.claude/skills/human-review/` and `lint.json` next to `research.md`. A skill written before
+moves to `previous/` first.
 
 ## 6. Check it on the held-out pull requests
 
@@ -127,13 +132,12 @@ Not available yet: worfy-human-review 08.
 
 ## 7. The person decides
 
-Show the person what the run produced (until step 5 exists, `research.md`: its section headings and the
-numbers of the triage and review-states sections) and ask: keep, build again, or refuse.
+Show the person what the run produced — the rules of the written skill by step, each with its `[R<n>]`, and
+the section headings of `research.md` — and ask: keep, build again, or refuse.
 
 - **Keep** — run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"` to delete `raw/`, and
   record the date in `meta.json` under the key `kept_at` (ISO date; change only this key).
-- **Build again** — steps 5 and 6 again, with the person's remarks in the brief. While step 5 is not
-  available: step 4 again with the remarks.
+- **Build again** — steps 5 and 6 again, with the person's remarks.
 - **Refuse** — delete the whole private folder, by its literal path:
   `rm -rf "<_resolved.dir>/state/human-review"`. Say what was deleted.
 
