@@ -356,6 +356,34 @@ describe('the agents strip of a Product Session', () => {
     expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(4)
   })
 
+  it('a running critic gets its number once it writes its review: its transcript is read again while the list is open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      // Known from the Session's live events only: the tree has not read the critic's files yet.
+      subagents.tree = [agent('critic-1', 'worfy:critic', { transcript: false })]
+      transcripts = { 'critic-1': criticWrote(review(2)).slice(0, 1) }
+      await mount()
+      fireEvent.click(screen.getByTestId('product-agents-toggle'))
+      const line = () => screen.getByTestId('product-agent-line').textContent
+      await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(1))
+      expect(line()).toBe('Critic — working')
+      transcripts = { 'critic-1': criticWrote(review(2)) }
+      await act(async () => {
+        vi.advanceTimersByTime(5000)
+      })
+      await vi.waitFor(() => expect(line()).toBe('Critic — working · 2 objections'))
+      // Closed, the list reads nothing more.
+      fireEvent.click(screen.getByTestId('product-agents-close'))
+      const reads = asked.filter((each) => each.channel === 'claudeHome.subagentTranscript').length
+      await act(async () => {
+        vi.advanceTimersByTime(15000)
+      })
+      expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(reads)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('leaves the hidden Subagents out of the list, as out of the count', async () => {
     subagents.tree = [agent('critic-1', 'worfy:critic'), agent('old-1', 'worfy:implementer', { status: 'done' })]
     subagents.hidden = { 'live-1': ['old-1'] }

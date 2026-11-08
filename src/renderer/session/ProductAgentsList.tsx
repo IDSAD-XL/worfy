@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SubagentInfo } from '../../shared/transcript/subagents'
-import { INTERRUPTED_TOOLTIP } from '../claude-home/subagents'
+import { INTERRUPTED_TOOLTIP, TREE_POLL_MS } from '../claude-home/subagents'
 import { invoke } from '../ipc'
 import { criticReviewOf, isCritic, objectionCount, productAgentName, productAgentState } from './product-agents'
 
@@ -12,25 +12,33 @@ import { criticReviewOf, isCritic, objectionCount, productAgentName, productAgen
 /** The end of a critic's transcript read for its review: the Write of the review comes just before its answer. */
 const REVIEW_WINDOW_BYTES = 2 * 1024 * 1024
 
+/** How often the transcript of a running critic is read again while the list is open: the Subagent tree's pace. */
+const RUNNING_READ_MS = TREE_POLL_MS
+
 /**
  * The number of objections of each critic in `agents`, by agent id, once its transcript holds the Write of
- * its review. Read when the list opens and again when a critic's state changes; a read that fails leaves
- * that critic without a number.
+ * its review. Read when the list opens and when a critic's state changes, and every RUNNING_READ_MS while a
+ * critic runs: it writes its review before it answers. The agent id is enough — the live events of the
+ * Session name it before the Subagent tree has read the critic's files. A read that fails, or a transcript
+ * not written yet, leaves that critic without a number.
  */
 function useObjectionCounts(root: string | undefined, session: string | null, agents: readonly SubagentInfo[]): ReadonlyMap<string, number> {
   const [counts, setCounts] = useState<ReadonlyMap<string, number>>(new Map())
-  const critics = agents.filter((info) => isCritic(info) && info.agentId !== null && info.transcript)
+  const critics = agents.filter((info) => isCritic(info) && info.agentId !== null)
   // The critics and their states, as one value: a new tree with the same critics in the same states reads nothing.
   const key = JSON.stringify(critics.map((info) => [info.agentId, info.status]))
   useEffect(() => {
-    const ids = (JSON.parse(key) as [string, string][]).map(([agentId]) => agentId)
-    if (root === undefined || session === null || ids.length === 0) return
+    const entries = JSON.parse(key) as [string, SubagentInfo['status']][]
+    if (root === undefined || session === null || entries.length === 0) return
     let live = true
-    for (const agentId of ids) {
+    const failed = new Set<string>()
+    const read = (agentId: string) =>
       void invoke('claudeHome.subagentTranscript', { projectRoot: root, sessionId: session, agentId, back: { bytes: REVIEW_WINDOW_BYTES } }).then((result) => {
         if (!live) return
         if (!result.ok) {
-          console.error(`claudeHome.subagentTranscript ${session}/${agentId} failed:`, result.error)
+          // Once per opening: a running critic is read again and again.
+          if (!failed.has(agentId)) console.error(`claudeHome.subagentTranscript ${session}/${agentId} failed:`, result.error)
+          failed.add(agentId)
           return
         }
         const text = criticReviewOf(result.value.events)
@@ -38,9 +46,12 @@ function useObjectionCounts(root: string | undefined, session: string | null, ag
         const count = objectionCount(text)
         setCounts((was) => (was.get(agentId) === count ? was : new Map(was).set(agentId, count)))
       })
-    }
+    for (const [agentId] of entries) read(agentId)
+    const running = entries.filter(([, status]) => status === 'running').map(([agentId]) => agentId)
+    const timer = running.length > 0 ? setInterval(() => running.forEach(read), RUNNING_READ_MS) : undefined
     return () => {
       live = false
+      if (timer !== undefined) clearInterval(timer)
     }
   }, [root, session, key])
   return counts
