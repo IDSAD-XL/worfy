@@ -50,14 +50,19 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`: е�
 
 - [ ] Contract test: каждая операция на fixture-теме меняет `mind-map.json` как ожидается; неверный узел — `isError`,
       файл байт в байт прежний.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/mind-map-tools.test.ts test/contract/product-save-signal.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · 1aaf4b9ee12f4d1977e7140b09462ccd5a072e38
 - [ ] Test: две `mind_map_add` подряд без ожидания — оба узла в файле.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/mind-map-tools.test.ts test/contract/product-save-signal.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · 1aaf4b9ee12f4d1977e7140b09462ccd5a072e38
 - [ ] Test: Product Session получает сервер `worfy-mind-map`; обычная Session и Orchestrator — нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/mind-map-tools.test.ts test/contract/product-save-signal.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · 1aaf4b9ee12f4d1977e7140b09462ccd5a072e38
 - [ ] Contract test сигнала: изменения под `docs/product/` + `product_save` — одно сообщение в очереди Orchestrator-а
       со списком файлов; закрытие Node-а Product Session — то же; без изменений и в Silent mode — сообщения нет;
       ни одна команда git, кроме `status`, не вызывается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/mind-map-tools.test.ts test/contract/product-save-signal.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · 1aaf4b9ee12f4d1977e7140b09462ccd5a072e38
 - [ ] Test записи на Windows: файл, открытый на чтение другим процессом, не ломает запись (retry), exit 0.
   - needs: windows
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1aaf4b9ee12f4d1977e7140b09462ccd5a072e38
 
 ## Тесты
 
