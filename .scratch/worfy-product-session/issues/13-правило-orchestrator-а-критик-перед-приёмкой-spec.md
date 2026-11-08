@@ -32,10 +32,14 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] `orchestrator.md` со строкой ≤ 10000 символов и с длинным корнем plugin-а (`rules-hooks.test.sh` exit 0).
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (287 passed; orchestrator 9990 characters with a long plugin root) · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
 - [ ] `critic.md` описывает вход и выход для Orchestrator-а; test-ы plugin-а зелёные.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh`, start-context, plugin-neutral, agents-text and contract tests harness-plugin, codex-parity, harness-evals, harness-evals-run exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
 - [ ] Проверка на Mac Stable: Orchestrator перед приёмкой черновика spec-а сам зовёт критика, разбор лежит в
       `docs/product/critic/`, spec ссылается на него — ссылка на транскрипт в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
 
 ## Тесты
 
