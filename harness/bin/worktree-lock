@@ -21,8 +21,9 @@
 // an hour means the session was abandoned or crashed.
 //
 // A tree removed after its merge would leave its registry file behind forever, so the registry prunes
-// itself: a file is removed when it holds no entries, or when every entry names its tree folder (root;
-// cwd for an entry written before root was recorded) and none of those folders exists. A file with one
+// itself: a file is removed when it holds no entries, or when every entry names its tree folder (root; for
+// an entry written before root was recorded, the folder at or above its cwd whose slug is the file's name)
+// and none of those folders exists. A file with one
 // existing folder stays whole, a file that is not a JSON object stays, and so does a file with an entry
 // whose folder cannot be decided. The removal happens under the file's mutex, after reading the file and
 // checking the folders again, and a busy mutex skips the file without waiting.
@@ -66,9 +67,33 @@ const folderState = (p) => {
     }
 }
 
-// Whether a registry file with this text is to be removed: a JSON object with no entries, or one whose
-// every entry is an object that names a folder that is gone.
-const prunable = (raw) => {
+// The registry file name of a tree, without .json: the path of its top folder with every run of non-letters
+// as "-", and a hash suffix of the full path: on its own the first part collapses acme-sale-loop,
+// acme/sale-loop and acme_sale_loop into one name.
+const slugOf = (root) =>
+    `${root.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.createHash("sha1").update(root).digest("hex").slice(0, 8)}`
+
+// The folder an entry stands for. An entry with root names its tree. An entry written before root was
+// recorded has only cwd, which may be a folder inside the tree: a deleted subfolder of a live tree must not
+// count as a deleted tree. So the tree is cwd or the nearest folder above it whose slug is the file's name;
+// on Windows git spells the top folder C:/… and Claude Code passes C:\…, so both spellings are tried.
+// No folder matches — null, and the file stays.
+const folderOf = (e, slug) => {
+    if (typeof e.root === "string") return e.root
+    if (typeof e.cwd !== "string" || !e.cwd) return null
+    for (let at = e.cwd; ; ) {
+        const spellings = process.platform === "win32" ? [at, at.replace(/\\/g, "/")] : [at]
+        const hit = spellings.find((s) => slugOf(s) === slug)
+        if (hit) return hit
+        const up = path.dirname(at)
+        if (up === at) return null
+        at = up
+    }
+}
+
+// Whether the registry file of the tree slug, with this text, is to be removed: a JSON object with no
+// entries, or one whose every entry is an object whose folder (folderOf) is gone.
+const prunable = (raw, slug) => {
     let all
     try {
         all = JSON.parse(raw)
@@ -77,7 +102,7 @@ const prunable = (raw) => {
     }
     if (!all || typeof all !== "object" || Array.isArray(all)) return false
     return Object.values(all).every(
-        (e) => e && typeof e === "object" && !Array.isArray(e) && folderState(typeof e.root === "string" ? e.root : e.cwd) === "gone",
+        (e) => e && typeof e === "object" && !Array.isArray(e) && folderState(folderOf(e, slug)) === "gone",
     )
 }
 
@@ -102,8 +127,9 @@ const pruneRegistry = (dir, deadline) => {
         total++
         if (Date.now() > deadline) continue
         const file = path.join(dir, name)
+        const slug = name.slice(0, -".json".length)
         try {
-            if (!prunable(fs.readFileSync(file, "utf8"))) continue
+            if (!prunable(fs.readFileSync(file, "utf8"), slug)) continue
         } catch {
             continue
         }
@@ -130,7 +156,7 @@ const pruneRegistry = (dir, deadline) => {
         try {
             // Again under the mutex: a claim in a tree re-created at the same path may have written meanwhile,
             // and the folder may be back.
-            if (prunable(fs.readFileSync(file, "utf8"))) {
+            if (prunable(fs.readFileSync(file, "utf8"), slug)) {
                 fs.unlinkSync(file)
                 removed++
             }
@@ -191,9 +217,7 @@ const main = () => {
     // __proto__ as a key would set the prototype instead of an own field.
     const me = rawMe === "__proto__" || rawMe === "constructor" ? "" : String(rawMe)
     const branch = HOOK ? git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) : ""
-    // A hash suffix of the full path: on its own the slug collapses acme-sale-loop,
-    // acme/sale-loop and acme_sale_loop into one name.
-    const slug = `${root.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.createHash("sha1").update(root).digest("hex").slice(0, 8)}`
+    const slug = slugOf(root)
     // Harness state on this machine: $HARNESS_HOME/worktree-sessions (HARNESS_HOME defaults to
     // ~/.claude/worfy-harness); in an eval run, EVAL_HARNESS_HOME of the tree's repository.
     const dir = path.join(harnessHome(cwd), "worktree-sessions")
