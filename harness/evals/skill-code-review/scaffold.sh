@@ -8,7 +8,8 @@
 #   demo/01, checked out     one commit: src/alpha.mjs with `export default function double(n)`
 #                            and no JSDoc line — two breaches of CODING_STANDARDS.md (the Standards
 #                            axis) — and no test/alpha.test.mjs, which the ticket asks for (the Spec
-#                            axis). double itself returns n * 2.
+#                            axis). double itself returns n * 2. The standards say nothing of tests,
+#                            so each defect belongs to one axis only.
 #
 # Bash, not Node: it is test code; only the scripts the plugin ships must run without bash.
 # Writes only into the current folder and $HOME.
@@ -33,7 +34,6 @@ cat >CODING_STANDARDS.md <<'STANDARDS'
 
 1. Named exports only: no `export default`.
 2. Every exported function has a one-line JSDoc comment (`/** … */`) right above it.
-3. Every module in `src/` has its tests in `test/<module>.test.mjs`.
 STANDARDS
 git add CODING_STANDARDS.md
 git commit -q -m "Coding standards"

@@ -7,4 +7,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, TaskCreate, TaskGet, TaskList, TaskUpdate]
 ---
 
-Grill me on this plan before I start: I want to replace the four small functions of `src/` with one module, `src/math.mjs`, that exports all of them, delete the old files, and keep the tests passing. Do not change any file yet.
+Grill me on this plan before I start: instead of one file per function, `src/sum.mjs` and the four functions the tickets of epic demo add (double, square, negate, triple) go into one module, `src/math.mjs`, with one test file, and the tickets change to match. Do not change any file yet.

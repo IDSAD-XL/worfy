@@ -6,4 +6,7 @@ min: 0
 max: 0
 ---
 
-No Skill call named a skill of another plugin: every reference of the copied skills names `worfy:`.
+No Skill call named a skill of another plugin. Only worfy is installed in a run, so such a call is
+refused, but the refused call is still a tool call of the trace, and this grader fails on it. It
+catches a reference of wayfinder that still names the upstream plugin, which the two "called"
+graders miss when the model falls back to the `worfy:` name after the refusal.

@@ -781,6 +781,15 @@ describe('harness/evals: the cases of the copied skills', () => {
   /** The input of a Write call as the grader reads it: the JSON of the tool input. */
   const write = (path: string, content: string): string => JSON.stringify({ file_path: path, content })
   const skill = (name: string): string => JSON.stringify({ skill: name })
+  /** The input of an Edit call, its fields in the order Claude Code sends them. */
+  const edit = (path: string, before: string, after: string): string => JSON.stringify({ file_path: path, old_string: before, new_string: after })
+  /** File name -> statusError of each ticket of `epic`, as `epic-status --json` reads the fixture. */
+  const statusErrors = (home: string, work: string, epic: string): Map<string, string | null> => {
+    const status = harness(home, work, 'epic-status', ['--json'])
+    expect(status.status, status.stderr).toBe(0)
+    const tickets = (JSON.parse(status.stdout) as { tickets: { epic: string; num: number; slug: string; statusError: string | null }[] }).tickets
+    return new Map(tickets.filter((t) => t.epic === epic).map((t) => [`${String(t.num).padStart(2, '0')}-${t.slug}.md`, t.statusError]))
+  }
 
   it('are the four cases of the ticket', () => {
     expect(SKILL_CASES.sort()).toEqual(['skill-code-review', 'skill-grilling-trigger', 'skill-to-tickets-format', 'skill-wayfinder-refs'])
@@ -833,7 +842,7 @@ describe('harness/evals: the cases of the copied skills', () => {
   })
 
   // The header grader and epic-status read the same lines: a ticket the grader takes is one epic-status
-  // reads with no error, and an old header epic-status refuses is one the other grader catches.
+  // reads with no error, and an old header epic-status refuses is one the other graders catch.
   it('skill-to-tickets-format: a ticket the header grader takes is read by epic-status, an old header is caught', () => {
     const { work, home, run } = caseFixtureToChange('skill-to-tickets-format')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -841,6 +850,7 @@ describe('harness/evals: the cases of the copied skills', () => {
     expect(existsSync(join(work, '.scratch', 'greet', 'issues'))).toBe(false)
     const header = inputMatch('skill-to-tickets-format', 'ticket-header.md')
     const old = inputMatch('skill-to-tickets-format', 'no-old-header.md')
+    const oldByEdit = inputMatch('skill-to-tickets-format', 'no-old-header-by-edit.md')
     const tickets: [file: string, content: string, ok: boolean][] = [
       ['01-greeting.md', '# 01: Greeting\n\nType: task\nStatus: open\nBlocked by: None — can start immediately\n\nThe function.\n', true],
       ['02-command.md', '# 02: Command\n\nType: task\nStatus: open 2026-10-01T12:00Z\nBlocked by: 01\n\nThe command.\n', true],
@@ -850,52 +860,97 @@ describe('harness/evals: the cases of the copied skills', () => {
     ]
     mkdirSync(join(work, '.scratch', 'greet', 'issues'))
     for (const [file, content] of tickets) writeFileSync(join(work, '.scratch', 'greet', 'issues', file), content)
-    const status = harness(home, work, 'epic-status', ['--json'])
-    expect(status.status, status.stderr).toBe(0)
-    const read = (JSON.parse(status.stdout) as { tickets: { epic: string; slug: string; statusError: string | null }[] }).tickets.filter((t) => t.epic === 'greet')
-    expect(read).toHaveLength(tickets.length)
+    const errors = statusErrors(home, work, 'greet')
+    expect(errors.size).toBe(tickets.length)
     for (const [file, content, ok] of tickets) {
       const path = `/tmp/run/.scratch/greet/issues/${file}`
-      const errorOf = read.find((ticket) => `${file.slice(0, 3)}${ticket.slug}.md` === file)?.statusError
-      expect(errorOf, file).toBe(ok ? null : 'old header')
+      expect(errors.get(file), file).toBe(ok ? null : 'old header')
       expect(header.test(write(path, content)), file).toBe(ok || file === '04-tail.md')
       expect(old.test(write(path, content)), file).toBe(!ok)
+      // An Edit counts by the text it writes, not by the text it replaces.
+      expect(oldByEdit.test(edit(path, 'Status: claimed 2026-10-01T12:00Z', content)), file).toBe(!ok)
+      expect(oldByEdit.test(edit(path, content, '# 01: Greeting\n')), file).toBe(false)
     }
+    expect(oldByEdit.test(edit('/tmp/run/.scratch/greet/issues/01-greeting.md', 'x', 'Status: open'))).toBe(false)
     // A file outside the epic's tickets is none of the graders' business.
     expect(header.test(write('/tmp/run/.scratch/greet/spec.md', tickets[0]?.[1] ?? ''))).toBe(false)
     expect(old.test(write('/tmp/run/notes.md', '**Status:** draft\n'))).toBe(false)
+    expect(oldByEdit.test(edit('/tmp/run/notes.md', 'x', '**Status:** draft\n'))).toBe(false)
   })
 
-  it('skill-wayfinder-refs: the ticket grader takes a map ticket with a Type line and Status open, and a resolved one is caught', () => {
+  it('skill-wayfinder-refs: the ticket grader takes the Type words of bin/TICKETS.md, and its tickets are read by epic-status; a resolved one is caught', () => {
     const header = inputMatch('skill-wayfinder-refs', 'ticket-header.md')
     const other = inputMatch('skill-wayfinder-refs', 'no-other-status-word.md')
-    const ticket = (type: string, status: string): string => `# 01 — Command name\n\nType: ${type}\nStatus: ${status}\nBlocked by: —\n\n## Question\n\nWhat is the command called?\n`
+    const otherByEdit = inputMatch('skill-wayfinder-refs', 'no-other-status-word-by-edit.md')
+    // The four ticket types of the grader are the four words of the Type line in bin/TICKETS.md.
+    const glossary = readFileSync(join(HARNESS, 'bin', 'TICKETS.md'), 'utf8').replace(/\r?\n\s*/g, ' ')
+    const typesLine = /The ticket type is the `Type:` line — (.*?) — in place of/.exec(glossary)?.[1] ?? ''
+    const types = [...typesLine.matchAll(/`([a-z]+)`/g)].map((match) => match[1] ?? '')
+    expect(types).toEqual(['research', 'prototype', 'grilling', 'task'])
+    const graded = /Type: \(\?:([a-z|]+)\)/.exec(field(frontMatter(join(EVALS, 'skill-wayfinder-refs', 'graders', 'ticket-header.md')), 'input_match') ?? '')?.[1]
+    expect(graded?.split('|')).toEqual(types)
+
+    const { work, home, run } = caseFixtureToChange('skill-wayfinder-refs')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const ticket = (type: string, status: string): string => `# 0x — A question\n\nType: ${type}\nStatus: ${status}\nBlocked by: —\n\n## Question\n\nWhat is the command called?\n`
+    mkdirSync(join(work, '.scratch', 'cli', 'issues'), { recursive: true })
+    writeFileSync(join(work, '.scratch', 'cli', 'map.md'), '# Map: cli\n\n## Destination\n\nA command.\n')
+    const files = types.map((type, i) => [`0${i + 1}-${type}.md`, ticket(type, 'open')] as const)
+    const resolved = ['05-resolved.md', ticket('grilling', 'resolved')] as const
+    for (const [file, content] of [...files, resolved]) writeFileSync(join(work, '.scratch', 'cli', 'issues', file), content)
+    const errors = statusErrors(home, work, 'cli')
+    for (const [file, content] of files) {
+      const path = `/tmp/run/.scratch/cli/issues/${file}`
+      expect(errors.get(file), file).toBe(null)
+      expect(write(path, content)).toMatch(header)
+      expect(write(path, content)).not.toMatch(other)
+      expect(edit(path, 'Status: open', content)).not.toMatch(otherByEdit)
+    }
+    expect(errors.get(resolved[0])).toBe('old header')
+    expect(write(`/tmp/run/.scratch/cli/issues/${resolved[0]}`, resolved[1])).toMatch(other)
+    expect(edit(`/tmp/run/.scratch/cli/issues/${resolved[0]}`, 'Status: open', 'Status: resolved')).toMatch(otherByEdit)
+    expect(edit(`/tmp/run/.scratch/cli/issues/${resolved[0]}`, 'Status: resolved', 'Status: done')).not.toMatch(otherByEdit)
     const path = '/tmp/run/.scratch/cli/issues/01-command-name.md'
-    for (const type of ['research', 'prototype', 'grilling', 'task']) expect(write(path, ticket(type, 'open'))).toMatch(header)
-    expect(write(path, ticket('grilling', 'open'))).not.toMatch(other)
     expect(write(path, ticket('wayfinder:grilling', 'open'))).not.toMatch(header)
     expect(write('/tmp/run/.scratch/cli/map.md', ticket('grilling', 'open'))).not.toMatch(header)
-    expect(write(path, ticket('grilling', 'resolved'))).toMatch(other)
     expect(write(path, ticket('grilling', 'done 2026-10-01T12:00Z'))).not.toMatch(other)
     expect(readFileSync(join(EVALS, 'skill-wayfinder-refs', 'prompt.md'), 'utf8')).toContain('/worfy:wayfinder ')
   })
 
-  it('skill-code-review: the change breaks the standards and misses the test the ticket asks for', () => {
+  it('skill-code-review: the change breaks the standards and misses the test the ticket asks for, each defect on one axis', () => {
     const { work, home, run } = caseFixture('skill-code-review')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const git = (...args: string[]): string => inFixture(home, work, 'git', args).stdout
     expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('demo/01')
     expect(git('status', '--porcelain')).toBe('')
     expect(git('diff', '--name-only', 'origin/main...HEAD').trim()).toBe('src/alpha.mjs')
-    expect(git('show', 'origin/main:CODING_STANDARDS.md')).toMatch(/no `export default`[\s\S]*JSDoc/)
+    const standards = git('show', 'origin/main:CODING_STANDARDS.md')
+    expect(standards).toMatch(/no `export default`[\s\S]*JSDoc/)
+    // The standards say nothing of tests: the missing test is a Spec finding only.
+    expect(standards).not.toMatch(/test/i)
     expect(readFileSync(join(work, 'src', 'alpha.mjs'), 'utf8')).toBe('export default function double(n) {\n  return n * 2\n}\n')
     expect(git('show', 'origin/main:.scratch/demo/issues/01-alpha.md')).toContain('test/alpha.test.mjs')
     expect(existsSync(join(work, 'test', 'alpha.test.mjs'))).toBe(false)
 
-    const headings = new RegExp(field(frontMatter(join(EVALS, 'skill-code-review', 'graders', 'two-headings.md')), 'pattern') ?? '<none>', 'm')
-    expect('## Standards\n\n- default export\n\n## Spec\n\n- no test\n\nStandards: 1, Spec: 1.').toMatch(headings)
-    expect('## Standards\n\n- default export').not.toMatch(headings)
+    // Each regex grader as `claude plugin eval` builds it: its own pattern and flags.
+    const grader = (file: string): RegExp => {
+      const yaml = frontMatter(join(EVALS, 'skill-code-review', 'graders', file))
+      expect(field(yaml, 'type'), file).toBe('regex')
+      return new RegExp(field(yaml, 'pattern') ?? '<none>', field(yaml, 'flags') ?? '')
+    }
+    const headings = grader('two-headings.md')
+    const onStandards = grader('standards-names-its-breach.md')
+    const onSpec = grader('spec-names-the-missing-test.md')
+    const good = '## Standards\n\n1. `export default function double` breaks rule 1.\n\n## Spec\n\n- No `test/alpha.test.mjs`.\n\nStandards: 1, Spec: 1.'
+    const specFirst = '## Spec\n\n- No `test/alpha.test.mjs`.\n\n## Standards\n\n- No JSDoc line over `double`.'
+    for (const reply of [good, specFirst]) for (const pattern of [headings, onStandards, onSpec]) expect(reply).toMatch(pattern)
+    expect('## Standards\n\n1. `export default` breaks rule 1.').not.toMatch(headings)
     expect('Standards and Spec are both fine.').not.toMatch(headings)
+    // A finding under the other heading does not count for an axis.
+    const swapped = '## Standards\n\n- No `test/alpha.test.mjs`.\n\n## Spec\n\n- `export default` and no JSDoc.'
+    expect(swapped).not.toMatch(onStandards)
+    expect(swapped).not.toMatch(onSpec)
+    expect('## Standards\n\nNothing.\n\n## Spec\n\nNothing.\n\nSummary: export default, alpha.test.').not.toMatch(onStandards)
     expect(readFileSync(join(HARNESS, 'skills', 'code-review', 'SKILL.md'), 'utf8')).toMatch(/`## Standards` and `## Spec`/)
   })
 })
