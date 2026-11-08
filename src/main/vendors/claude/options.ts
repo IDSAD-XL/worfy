@@ -27,6 +27,9 @@
 // The Browser server `worfy-browser` (worfy-browser ticket 04, src/main/mcp/browser-server.ts) is
 // passed the same way, only when the list names it; a Profile list that names `worfy-canvas` names
 // it too (withBrowserServer, the owner's decision 6: the existing lists get it without an edit).
+// The Mind map server `worfy-mind-map` (worfy-product-session ticket 04, src/main/mcp/mind-map-server.ts)
+// goes to a Product Session only, whatever its Profile's list names (withMindMapServer): a plain Session
+// and the Orchestrator never get it, so they have no tool that changes a Mind map (the owner's answer Q2).
 //
 // Plugins and skills (ADR-0084, worfy-throughput ticket 38): a Session in a Project whose Profile
 // has `skills.allowed` gets, of the user's plugins and own skills, only those on the list; worfy's
@@ -79,6 +82,7 @@ import { DEFAULT_SETTINGS, EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, t
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { SessionKind } from '../../../shared/ipc/sessions'
+import { MIND_MAP_SERVER_NAME } from '../../../shared/product/tools'
 import type { HarnessKind } from '../../../shared/projects/action-templates'
 import type { Env } from '../../agent/env'
 import type { CanUseToolHandler } from '../../agent/permissions'
@@ -218,6 +222,19 @@ export interface BrowserAttachment {
   instructions: string
 }
 
+/** The Mind map server a Product Session changes its topics' Mind maps with (worfy-product-session ticket 04). */
+export interface MindMapAttachment {
+  /** The `worfy-mind-map` MCP server bound to the Project's Product Session folder (mindMapForSession). */
+  server: ClaudeMcpServer
+  /** Appended to the claude_code system prompt after the other servers' (src/main/mcp/agent-instructions-mind-map.md). */
+  instructions: string
+}
+
+/** A Profile's list of MCP servers with `worfy-mind-map` in it: a Product Session's own server, whatever the list names. */
+export function withMindMapServer(allowlist: readonly string[]): readonly string[] {
+  return allowlist.includes(MIND_MAP_SERVER_NAME) ? allowlist : [...allowlist, MIND_MAP_SERVER_NAME]
+}
+
 /**
  * A Profile's list of MCP servers with `worfy-browser` in it when it names `worfy-canvas` (the
  * owner's decision 6 of worfy-browser ticket 04): the lists Profiles already have — written before
@@ -259,6 +276,8 @@ export interface SessionOptionsInput {
   canvas?: CanvasAttachment | null | undefined
   /** The Browser server of the Session's Project; absent outside a Project. */
   browser?: BrowserAttachment | null | undefined
+  /** The Mind map server of a Product Session (worfy-product-session ticket 04); read only with `kind: 'product'`. */
+  mindMap?: MindMapAttachment | null | undefined
   /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
   settings?: SessionSettings | undefined
   /** Answers permission requests outside bypassPermissions; without it Claude Code's own default applies. */
@@ -628,6 +647,10 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.browser && allowed(BROWSER_SERVER_NAME)) {
     servers[BROWSER_SERVER_NAME] = sdkServerConfig(input.browser.server)
     appended.push(input.browser.instructions)
+  }
+  if (input.kind === 'product' && input.mindMap && allowed(MIND_MAP_SERVER_NAME)) {
+    servers[MIND_MAP_SERVER_NAME] = sdkServerConfig(input.mindMap.server)
+    appended.push(input.mindMap.instructions)
   }
   if (input.instructions !== undefined && input.instructions !== '') appended.push(input.instructions)
   if (appended.length > 0) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: appended.join('\n') }

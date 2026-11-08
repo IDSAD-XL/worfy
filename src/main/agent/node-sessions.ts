@@ -16,6 +16,10 @@
 // (Start, Resume, after a restart) launches it with that kind (SessionLaunch.kind). A Product Session
 // runs on Claude Code only: another Vendor is refused before a Node is made, and a saved Node of a
 // kind this build does not know, or of a Product Session on another Vendor, is refused before it starts.
+// Closing a Product Session's Node, or archiving it (the automatic archive and the user's alike: both are an
+// `archive` operation of the Layout), ends its conversation: main then gives the save signal of the Node's
+// Project (productEnded, src/main/product/save-signal.ts; worfy-product-session ticket 04), as `product_save`
+// does. The signal itself sends the same changes once, so a Close and a later archive make one message.
 //
 // The model, effort and permission mode picked on a Node are kept like the Orchestrator's
 // (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
@@ -42,6 +46,7 @@ import {
   type WorfySessionNodeData,
 } from '../../shared/ipc/sessions'
 import { isArchived, type LayoutNode, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
+import type { LayoutChange } from '../layout/store'
 import type { RegistryRoot } from '../claude-home/registry'
 import { placeDownFrom, placeNewNode } from '../layout/place'
 import type { AccountPart } from '../vendors/account'
@@ -54,6 +59,8 @@ export interface NodeSessionsDeps {
     get(projectId: string): LayoutState
     /** `options.sessionStays`: see LayoutStore.apply. */
     apply(projectId: string, op: LayoutOpInput, screen?: string | null, options?: { sessionStays?: boolean }): LayoutState
+    /** Every applied operation, whoever sent it (LayoutStore.onChange): an archive of a Product Session's Node is watched. */
+    onChange?(listener: (change: LayoutChange) => void): () => void
   }
   /** The Project's repository root; throws for a Project that is not in the list. */
   projectPath(projectId: string): string
@@ -85,6 +92,11 @@ export interface NodeSessionsDeps {
   broadcast: EventSink
   /** Gets every new view, e.g. to send it to the windows. */
   publish(view: SessionNodeView): void
+  /**
+   * A Product Session of Project `projectId` ended: its Node's Close, or an archive of its Node
+   * (worfy-product-session ticket 04). The save signal of its `docs/product` changes. Absent: nothing.
+   */
+  productEnded?(projectId: string): void
 }
 
 /** What a Vendor's home knows of a Project's Sessions: live processes, and each one's cwd. */
@@ -190,7 +202,9 @@ export class NodeSessions {
   private readonly inFlight = new Map<string, Promise<SessionNodeView>>()
   private version = 0
 
-  constructor(private readonly deps: NodeSessionsDeps) {}
+  constructor(private readonly deps: NodeSessionsDeps) {
+    if (deps.productEnded !== undefined) deps.layout.onChange?.((change) => this.archived(change))
+  }
 
   /**
    * "New session": a new Node with a new Session of `vendor`, or of the Project's `defaultVendor`
@@ -311,6 +325,25 @@ export class NodeSessions {
     const refusal = closeRefusal(view.state)
     if (refusal !== null) throw new Error(refusal)
     run.session?.close()
+    if (view.kind === 'product') this.productEnded(run.projectId, nodeId)
+  }
+
+  /** An archive that took a Product Session's Node off the Canvas: the save signal of the Node's Project, once per operation. */
+  private archived(change: LayoutChange): void {
+    if (change.op.op !== 'archive') return
+    const ids = new Set(change.op.nodes.map((each) => each.id))
+    const product = change.layout.nodes.find((node) => ids.has(node.id) && isWorfyNode(node) && node.data.kind === 'product')
+    if (product !== undefined) this.productEnded(change.projectId, product.id)
+  }
+
+  /** Gives the save signal of Project `projectId`; a failure is logged, the Close or the archive goes on. */
+  private productEnded(projectId: string, nodeId: string): void {
+    try {
+      this.deps.productEnded?.(projectId)
+    } catch (error) {
+      // The Session ended either way; only the request to save its files is lost.
+      console.warn(`[sessions] could not give the save signal of the Product Session on ${nodeId}`, error)
+    }
   }
 
   private running(nodeId: string): SessionNodeView | null {

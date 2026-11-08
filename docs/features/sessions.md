@@ -38,6 +38,18 @@ refuses any other Vendor with `Product Session runs on Claude Code only`. The ne
 once. Its Node stays a Session Node on the Canvas, with the label "Product Session" under its header, and its name says
 "Product Session" where a plain one says "Session" ("New Product Session" before its Session has an id).
 
+A Product Session in a Project also gets the MCP server `worfy-mind-map`; a plain Session and the Orchestrator never
+do. Its tools `mind_map_read`, `mind_map_add`, `mind_map_update`, `mind_map_decide` and `mind_map_remove` read and
+change `mind-map.json` of a topic folder in the Product Session folder (`docs/product/<topic>/`, in Silent mode
+`<Workflow folder>/product/<topic>/`). main checks the whole file against its format before every write and writes it
+atomically, one write at a time per file. A refused change is an error the agent reads, and the file stays as it was.
+`mind_map_decide` keeps the earlier status and reason of a Decision in its history; `mind_map_remove` takes only a node
+without children that is not a Decision; `mind_map_add` refuses a topic that has no folder yet. The Product Session
+never runs git: its tool `product_save`, the Close of its Node and the archive of its Node (automatic or by hand) check `git status` of the Project's `docs/product/<topic>` folders and, when files there changed, send the Project's Orchestrator a
+message with the changed files and the request to save them with a docs PR. The same changes are asked for once. With
+no changes, and in Silent mode, nothing is sent; `product_save` answers "nothing to save" or "Silent mode: nothing to
+save". While Autopilot runs the Orchestrator, nothing is sent and `product_save` says so.
+
 **States.** A Session is in one of six states, shown as a chip.
 
 | State | Chip status | Meaning |
@@ -253,6 +265,7 @@ for a process also asks the system.
 | Queue, permissions, saved settings | `src/main/agent/queue.ts`, `src/main/agent/permissions.ts`, `src/main/agent/session-settings.ts` |
 | Rules of Resume and closing | `src/main/agent/resume.ts` |
 | Live Session Nodes, Orchestrator | `src/main/agent/node-sessions.ts`, `src/main/agent/orchestrator.ts` |
+| Mind map tools and the save signal of a Product Session | `src/shared/product/tools.ts`, `src/main/mcp/mind-map-server.ts`, `src/main/product/save-signal.ts` |
 | Attachments | `src/main/agent/attachments.ts`, `src/shared/agent/attachments.ts` |
 | Events, settings and channels | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |

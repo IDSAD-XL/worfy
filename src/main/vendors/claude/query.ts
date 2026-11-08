@@ -7,6 +7,9 @@
 // e2e runs can see the control calls. The fake agent's Browser tools are exposed by the Session
 // registry (src/main/agent/app-registry.ts), which this driver never imports.
 //
+// A Product Session (worfy-product-session ticket 04) also gets the Mind map server `worfy-mind-map`, bound
+// to its Project's Product Session folder, next to its canvas; no other Session gets it.
+//
 // The autocompact window (worfy-polish ticket 24) is read from the app settings of this Machine
 // each time a Session starts Claude Code — the Orchestrator's for a Project's Orchestrator, the
 // other one for any other Session — so a change reaches the next start, never a running process.
@@ -24,11 +27,12 @@ import { readUserAutoCompactWindow } from '../../claude-home/user-model'
 import { currentHarness } from '../../harness/locate'
 import { browserForSession, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
+import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome } from '../../storage/paths'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readSkillsAllowlist } from '../../workflow/profile'
-import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer } from './options'
+import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, withMindMapServer } from './options'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -46,6 +50,16 @@ async function browserOrNull(browser: BrowserResolver, request: QueryRequest): P
     return await browser({ cwd: request.cwd, resume: request.resume, autopilot: request.unattended === true })
   } catch (error) {
     console.warn(`[agent] no Browser tools for ${request.cwd}`, error)
+    return null
+  }
+}
+
+/** The Mind map server of a Product Session (worfy-product-session ticket 04); a failure leaves the Session without it rather than without a Session. */
+async function mindMapOrNull(mindMap: MindMapResolver, cwd: string, productFolder: string | null): Promise<MindMapSession | null> {
+  try {
+    return await mindMap({ cwd, productFolder })
+  } catch (error) {
+    console.warn(`[agent] no Mind map tools for ${cwd}`, error)
     return null
   }
 }
@@ -144,6 +158,8 @@ export interface SdkQueryFactoryOptions {
   skills?: SkillsAllowlistResolver
   /** The Product Session folder of a Product Session's Project; by the Project's layout by default. */
   productFolder?: ProductFolderResolver
+  /** The Mind map server of a Product Session; mindMapForSession by default. Never asked for another Session. */
+  mindMap?: MindMapResolver
 }
 
 /**
@@ -167,6 +183,7 @@ export function sdkQueryFactory(
     browser = browserForSession,
     skills = profileSkills,
     productFolder: productFolderOf = (cwd) => layoutProductFolder(cwd),
+    mindMap = mindMapForSession,
   }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
@@ -181,12 +198,15 @@ export function sdkQueryFactory(
     // unattended one (Autopilot) gets it in Autopilot mode: only the Browser profiles marked
     // «Available to Autopilot» exist for it (worfy-browser ticket 08, ADR-0078 item 10).
     const browsing = attached ? browserOrNull(browser, request) : Promise.resolve(null)
-    const [listed, browserSession, skillsAllowlist] = attached
-      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env)])
-      : [null, null, null]
+    // The Mind map goes with the canvas too, and only to a Product Session.
+    const mapping = attached && product ? mindMapOrNull(mindMap, request.cwd, folder) : Promise.resolve(null)
+    const [listed, browserSession, skillsAllowlist, mindMapSession] = attached
+      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env), mapping])
+      : [null, null, null, null]
     // worfy-browser joins the Profile's list only with the server it names: not when the Browser
-    // server could not be made.
-    const allowlist = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
+    // server could not be made. worfy-mind-map likewise, whatever the list names.
+    const withBrowser = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
+    const allowlist = withBrowser !== null && mindMapSession !== null ? withMindMapServer(withBrowser) : withBrowser
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
@@ -197,6 +217,7 @@ export function sdkQueryFactory(
       spawned: request.spawned,
       canvas: attached?.attachment,
       browser: browserSession?.attachment,
+      mindMap: mindMapSession?.attachment,
       settings: request.settings,
       canUseTool: request.canUseTool,
       unattended: request.unattended,
@@ -216,7 +237,8 @@ export function sdkQueryFactory(
     request.processEnv?.(options.env ?? environment.env)
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
     const observed = attached ? attached.observe(handle) : handle
-    return browserSession ? browserSession.observe(observed) : observed
+    const browsed = browserSession ? browserSession.observe(observed) : observed
+    return mindMapSession ? mindMapSession.observe(browsed) : browsed
   }
 }
 
