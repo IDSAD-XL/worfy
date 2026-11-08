@@ -1,7 +1,9 @@
 # 13 — Правило Orchestrator-а: критик перед приёмкой spec
 
 Type: task
-Status: done 2026-11-08T13:16Z
+Status: blocked 2026-11-08T13:22Z
+Blocked reason: PR #1675 смержен; пункт 3 — живая проверка на Mac Stable после следующего Update: Orchestrator сам зовёт критика перед приёмкой spec
+Waits: owner
 PR: #1675
 Blocked by: 11
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 7; «Решено без владельца», п. 6; «Вопросы владельцу», Q8; «Риски», п. 6; карта [worfy-product](../../worfy-product/map.md), решения 03 (Q3), 08 (Q1)
