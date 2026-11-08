@@ -90,20 +90,20 @@ Prompt case-а на ход со сменой статуса не меняем: �
 
 - [ ] Hook `stage-lines.mjs` в проекте с тикетами отдаёт строки `epic-status` Epic-ов в работе (не больше 3, Epic
   текущей ветки и ветки тикетов раньше остальных); без тикетов, в Product Session и для Subagent-а — ничего.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (271 passed); section 9: Epic order on a branch fixture, three-line cap, no project, no tickets.path, Product Session, agent_id and agent_type alone get nothing · mac - · d01deae26bde47620ed97885992061c2db5e54e9
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (273 passed); section 9 with native cwd paths: Epic order, three-line cap, CRLF output, silent cases · mac - · 2108cd082d21bce3d9621aeb3154aa1761d59bfc
 - [ ] `epic-status`, который падает или висит, не задерживает prompt: exit 0, ничего в stdout.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; failing profile and epic-status: one stderr line; hanging ones killed (pids checked), exit 0, each run under an outer limit · mac - · d01deae26bde47620ed97885992061c2db5e54e9
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; a cwd that is not a directory, failing profile and epic-status: one stderr line; hanging ones killed · mac - · 2108cd082d21bce3d9621aeb3154aa1761d59bfc
 - [ ] «Phase 3» в `orchestrator.md`: Stage копируется из строк hook-а; свой запуск — после смены статуса или без строк.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; Phase 3 checks: the line of the epic at hand, epic-status <epic> when missing or stale, only then write the block · mac - · d01deae26bde47620ed97885992061c2db5e54e9
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; Phase 3 checks: the line of the epic at hand, epic-status <epic> when missing or stale · mac - · 2108cd082d21bce3d9621aeb3154aa1761d59bfc
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/bin/tests/start-context.test.sh` — exit 0
   (предел 10000 символов и проверки «Phase 3»).
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (orchestrator 9993 of 10000 characters); `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · d01deae26bde47620ed97885992061c2db5e54e9
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (orchestrator 9993 of 10000 characters); `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · 2108cd082d21bce3d9621aeb3154aa1761d59bfc
 - [ ] `test/contract/harness-plugin.test.ts`, `test/contract/codex-parity.test.ts`, `test/contract/harness-hook-stdin.test.ts`,
   `test/contract/harness-evals-run.test.ts`, `check-cyrillic`, lint, typecheck, gate fast — exit 0.
-  - evidence: gate pass · `gate fast` exit 0; harness-plugin, codex-parity, harness-hook-stdin, harness-evals-run, harness-evals, codex-harness-hooks contract tests, check-cyrillic, lint, typecheck exit 0 · mac - · d01deae26bde47620ed97885992061c2db5e54e9
+  - evidence: gate pass · `gate fast` exit 0; six harness and codex contract test files, check-cyrillic, lint, typecheck exit 0 · mac - · 2108cd082d21bce3d9621aeb3154aa1761d59bfc
 - [ ] Платный прогон `status-block` (3 раза) с hook-ом: стоимость и балл записаны в «Итог»; время hook-а на этом
   репозитории записано в «Итог».
-  - evidence: test-run pass · `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` exit 0, score 1.00, 3 of 3, 0.37 USD · mac - · f46cb109142d10f04b17f77e2cdf47c14ec3d1d9
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` exit 0, score 1.00, 3 of 3, 0.37 USD · mac - · 349ed2fecd7931ce3611dc9999c9b71a26e49e25
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
 
 ## Тесты
@@ -142,7 +142,7 @@ SessionStart). Все шесть ходов одинаковы: поиск фа�
 $1.14. Grader `ticket-edited` добавлен после этого прогона; по transcript-ам все три хода сделали Edit файла
 `04-delta.md`, так что он прошёл бы 3 из 3 (платно не перепроверялось).
 
-Четвёртый платный прогон, round 2 review (commit `f46cb1091` после rebase, новый заголовок строк hook-а и новый порядок Epic-ов):
+Четвёртый платный прогон, round 2 review (commit `349ed2fec` после rebase-ов, новый заголовок строк hook-а и новый порядок Epic-ов):
 балл 1.00, 3 из 3, $0.37 ($0.12 + $0.13 + $0.12). `ends-with-status-block`, `stage-is-epic-status-line` и
 `ticket-edited` — по 3 из 3; в каждом ходе строка Stage — «/to-tickets · demo 0/4 · ticket 01 — alpha: функция double»,
 ни одного вызова `epic-status`. Все четыре платных прогона — $1.51.
