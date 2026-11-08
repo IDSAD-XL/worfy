@@ -1,7 +1,8 @@
 # 01 — Guard личных строк в режиме отчёта
 
 Type: task
-Status: open
+Status: done 2026-11-08T18:40Z
+PR: #1685
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Guard личных строк»; «Решено без владельца», п. 1–4; Q3, Q6
 
@@ -46,18 +47,23 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard личн�
 - [ ] Test-ы guard-а: красный до скрипта, зелёный после; каждое правило, stand-in-ы, маска, исключения, оба exit code.
   - evidence: test-run pass · `pnpm test test/unit/check-personal.test.ts` exit 0 (18 passed; exit 1 with 16 failed before the script) · mac - · 83b0d0fee4fe673514abe8e20c127a3ca5468ded
   - evidence: test-run pass · `pnpm test test/unit/check-personal.test.ts` exit 0 (21 passed; review round 1: exit 1 with 2 failed before the fix) · mac - · 8e89c26d1ed63923f9b11fa9eb5a78c7b0425156
+  - evidence: review pass · PR #1685 · - - · 84077367d3dc9e6106cbaf6a33cac84487763808
 - [ ] Test-ы `--hash-from`: запись с `.`, `_` или пробелом находится в тексте так же, как через `-`; запись из
       четырёх частей и пустая запись — отказ с exit 1.
   - evidence: test-run pass · `pnpm test test/unit/check-personal.test.ts` exit 0 (describe check-personal --hash-from) · mac - · 83b0d0fee4fe673514abe8e20c127a3ca5468ded
   - evidence: test-run pass · `pnpm test test/unit/check-personal.test.ts` exit 0 (describe check-personal --hash-from, non-string entry too) · mac - · 8e89c26d1ed63923f9b11fa9eb5a78c7b0425156
+  - evidence: review pass · PR #1685 · - - · 84077367d3dc9e6106cbaf6a33cac84487763808
 - [ ] Ни в скрипте, ни в хэш-списке, ни в test-е нет открытого личного слова; test использует вымышленные слова и их
       хэши.
   - evidence: test-run pass · `node scripts/check-personal.mjs --report` exit 0, no finding in the script, the hash list, the allow list and the test · mac - · 83b0d0fee4fe673514abe8e20c127a3ca5468ded
   - evidence: test-run pass · `node scripts/check-personal.mjs --report --list` exit 0, no finding in the script, the hash list, the allow list and the test · mac - · 8e89c26d1ed63923f9b11fa9eb5a78c7b0425156
+  - evidence: review pass · PR #1685 · - - · 84077367d3dc9e6106cbaf6a33cac84487763808
 - [ ] `node scripts/check-personal.mjs --report` на `main` — exit 0, отчёт по папкам в «Итог».
   - evidence: test-run pass · `node scripts/check-personal.mjs --report` exit 0, 6717 findings in 436 files, counts in the summary · mac - · 83b0d0fee4fe673514abe8e20c127a3ca5468ded
   - evidence: test-run pass · `node scripts/check-personal.mjs --report` exit 0, 6717 findings in 436 files, counts in the summary · mac - · 8e89c26d1ed63923f9b11fa9eb5a78c7b0425156
+  - evidence: review pass · PR #1685 · - - · 84077367d3dc9e6106cbaf6a33cac84487763808
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42508841739/job/128823614990 · ci - · 84077367d3dc9e6106cbaf6a33cac84487763808
 
 ## Тесты
 
