@@ -135,9 +135,16 @@ export class StubProcesses {
     return most
   }
 
-  /** Processes alive now. */
+  /**
+   * Processes alive now, by the same exits as `events`: worfy's exitOf, which settles at the system's
+   * word while worfy waits for the exit (waitForExit). worfy starts the next Orchestrator process only
+   * after that word (ADR-0064), and Force stop answers after it; Node's own `exit` event, which sets
+   * exitCode and signalCode, can come seconds later on Windows. Counted by those two fields, the
+   * process that worfy already saw exit still looked alive there: 2 instead of 1 right after Force
+   * stop (worfy-polish 47, CI run 42296063770).
+   */
   alive(): number {
-    return this.children.filter((child) => child.exitCode === null && child.signalCode === null).length
+    return this.events.reduce((alive, event) => alive + (event.kind === 'spawn' ? 1 : -1), 0)
   }
 
   /** Kills every process still alive and waits for each exit. */
