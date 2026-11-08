@@ -29,26 +29,34 @@ vi.mock('electron', () => ({
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
 const PROJECT = 'demo-0000000d'
+const OTHER = 'other-0000000e'
 
 let scratch: string
 let repo: string
+let otherRepo: string
 let registries: SessionRegistry[] = []
 
-/** git in the fixture repository, with a fixed identity and no hooks of the machine. */
-const git = (...args: string[]): string =>
-  execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: join(scratch, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } })
+/** git in a fixture repository (the first by default), with a fixed identity and no hooks of the machine. */
+const git = (...args: string[]): string => gitIn(repo, ...args)
+const gitIn = (root: string, ...args: string[]): string =>
+  execFileSync('git', ['-C', root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: join(scratch, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } })
 
 beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-save-signal-')))
   repo = join(scratch, 'repo')
   mkdirSync(join(repo, 'docs', 'product', 'roadmap'), { recursive: true })
   writeFileSync(join(scratch, 'gitconfig'), '')
-  writeFileSync(join(repo, 'README.md'), '# demo\n')
-  writeFileSync(join(repo, 'docs', 'product', 'roadmap', 'map.md'), '# Roadmap\n')
-  git('init', '-q', '-b', 'main')
-  git('add', '-A')
-  git('commit', '-q', '-m', 'start')
+  otherRepo = join(scratch, 'other')
+  mkdirSync(join(otherRepo, 'docs', 'product', 'pricing'), { recursive: true })
+  for (const [root, topic] of [[repo, 'roadmap'], [otherRepo, 'pricing']] as const) {
+    writeFileSync(join(root, 'README.md'), '# demo\n')
+    writeFileSync(join(root, 'docs', 'product', topic, 'map.md'), `# ${topic}\n`)
+    gitIn(root, 'init', '-q', '-b', 'main')
+    gitIn(root, 'add', '-A')
+    gitIn(root, 'commit', '-q', '-m', 'start')
+  }
   mkdirSync(join(scratch, 'data', PROJECT), { recursive: true })
+  mkdirSync(join(scratch, 'data', OTHER), { recursive: true })
   mkdirSync(join(scratch, 'claude-home'))
   vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
   vi.stubEnv('GIT_CONFIG_GLOBAL', join(scratch, 'gitconfig'))
@@ -61,24 +69,42 @@ afterEach(() => {
   removeTestTree(scratch)
 })
 
-/** A save signal over the fixture repository; the Orchestrator's queue is a MessageQueue of a busy Orchestrator. */
+/** The roots of the two fixture Projects; any other id is not in the list. */
+const rootOf = (projectId: string): string => {
+  if (projectId === PROJECT) return repo
+  if (projectId === OTHER) return otherRepo
+  throw new Error(`${projectId} is not in the Project list`)
+}
+
+/**
+ * A save signal over the fixture repositories. The queue is the first Project's Orchestrator's, a
+ * MessageQueue of a busy Orchestrator; `sentTo` records the Project of every message.
+ */
 function signal(overrides: Partial<SaveSignalDeps> = {}) {
   const gitCalls: string[][] = []
   const queue = new MessageQueue(() => undefined)
+  const sentTo: string[] = []
   const save = new SaveSignal({
-    projectRoot: () => repo,
+    projectRoot: rootOf,
     layout: () => Promise.resolve({ mode: 'full', failed: false }),
     git: (args) => (gitCalls.push([...args]), runGit(args)),
     unattended: () => false,
-    send: (_projectId, text) => (queue.add(text), Promise.resolve()),
+    send: (projectId, text) => {
+      sentTo.push(projectId)
+      if (projectId === PROJECT) queue.add(text)
+      return Promise.resolve()
+    },
     ...overrides,
   })
-  return { save, queue, gitCalls }
+  return { save, queue, gitCalls, sentTo }
 }
 
-/** Every git call asked only `status`, in the Project root. */
+/** Every git call asked only `status`, in a Project root. */
 function onlyStatus(calls: readonly string[][]): void {
-  for (const call of calls) expect(call.slice(0, 3)).toEqual(['-C', repo, 'status'])
+  for (const call of calls) {
+    expect([repo, otherRepo]).toContain(call[1])
+    expect([call[0], call[2]]).toEqual(['-C', 'status'])
+  }
 }
 
 describe('the save signal', () => {
@@ -155,25 +181,53 @@ describe('the save signal', () => {
   })
 })
 
-describe('closing a Product Session', () => {
-  function harness(productClosed: (projectId: string) => void) {
+describe('the save signal of two Projects', () => {
+  it("goes to the Orchestrator of the Project it was given, with that Project's files only", async () => {
+    const { save, sentTo, gitCalls } = signal()
+    const texts: string[] = []
+    const both = new SaveSignal({
+      projectRoot: rootOf,
+      layout: () => Promise.resolve({ mode: 'full', failed: false }),
+      git: (args) => runGit(args),
+      unattended: () => false,
+      send: (projectId, text) => (sentTo.push(projectId), texts.push(text), Promise.resolve()),
+    })
+    writeFileSync(join(otherRepo, 'docs', 'product', 'pricing', 'map.md'), '# pricing, edited\n')
+    expect(await both.signal(OTHER)).toMatchObject({ kind: 'sent', topics: ['pricing'] })
+    expect(sentTo).toEqual([OTHER])
+    expect(texts[0]).toContain('- docs/product/pricing/map.md (modified)')
+    expect(texts[0]).not.toContain('roadmap')
+    // The first Project has no changes: nothing goes to its Orchestrator.
+    expect(await both.signal(PROJECT)).toEqual({ kind: 'nothing' })
+    expect(sentTo).toEqual([OTHER])
+    // Remembered per Project: the same files changed in the first Project are sent there too.
+    writeFileSync(join(repo, 'docs', 'product', 'roadmap', 'map.md'), '# roadmap, edited\n')
+    expect((await save.signal(PROJECT)).kind).toBe('sent')
+    expect(sentTo).toEqual([OTHER, PROJECT])
+    onlyStatus(gitCalls)
+  })
+})
+
+describe('closing or archiving a Product Session', () => {
+  function harness(productEnded: (projectId: string) => void) {
     const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
     const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script: 'turn' }))
     registries.push(registry)
     const views: SessionNodeView[] = []
     const sessions = new NodeSessions({
       layout,
-      projectPath: () => repo,
+      projectPath: rootOf,
       registry,
       settings: new SessionSettingsStore((projectId) => join(scratch, 'data', projectId)),
       claude: () => Promise.resolve({ live: [], history: [] }),
       isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
       broadcast: () => undefined,
       publish: (view) => views.push(view),
-      productClosed,
+      productEnded,
     })
-    const until = (nodeId: string, state: SessionNodeView['state']) => vi.waitFor(() => expect(sessions.list(PROJECT).find((each) => each.nodeId === nodeId)?.state).toBe(state), { timeout: ms(2000) })
-    return { sessions, until }
+    const until = (nodeId: string, state: SessionNodeView['state'], projectId = PROJECT) =>
+      vi.waitFor(() => expect(sessions.list(projectId).find((each) => each.nodeId === nodeId)?.state).toBe(state), { timeout: ms(2000) })
+    return { sessions, until, layout }
   }
 
   it("Close of a Product Session's Node puts the same message into the Orchestrator's queue; a plain Session's Close does not", async () => {
@@ -194,6 +248,46 @@ describe('closing a Product Session', () => {
     expect(pending).toHaveLength(1)
     expect(queue.snapshot().items.map((item) => item.text)).toEqual([expect.stringContaining('- docs/product/roadmap/map.md (modified)')])
     onlyStatus(gitCalls)
+  })
+
+  it("Close of a Product Session's Node in the second Project gives the signal of that Project, not of another", async () => {
+    const ended: string[] = []
+    const h = harness((projectId) => void ended.push(projectId))
+    const product = await h.sessions.open(OTHER, undefined, 'product')
+    await h.until(product.nodeId, 'idle', OTHER)
+    h.sessions.close(product.nodeId)
+    expect(ended).toEqual([OTHER])
+  })
+
+  it("archiving a Product Session's Node gives the signal of its Project once; a plain Node's archive does not; Close then archive make one message", async () => {
+    const { save, queue, sentTo } = signal()
+    const ended: string[] = []
+    const pending: Promise<unknown>[] = []
+    const h = harness((projectId) => {
+      ended.push(projectId)
+      pending.push(save.signal(projectId))
+    })
+    writeFileSync(join(repo, 'docs', 'product', 'roadmap', 'map.md'), '# Roadmap, edited\n')
+    // A Product Session that ended without Close: its Node is archived, as the automatic archive does.
+    h.layout.apply(PROJECT, { op: 'create', node: { id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: 'f0000000-0000-4000-8000-0000000000f1' } } })
+    h.layout.apply(PROJECT, { op: 'create', node: { id: 'plain-1', kind: 'session', x: 400, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', sessionId: 'f0000000-0000-4000-8000-0000000000f2' } } })
+    h.layout.apply(PROJECT, { op: 'archive', batch: 'batch-1', nodes: [{ id: 'plain-1', rule: 'idle' }] }, null)
+    expect(ended).toEqual([])
+    h.layout.apply(PROJECT, { op: 'archive', batch: 'batch-2', nodes: [{ id: 'product-1', rule: 'idle' }] }, null)
+    expect(ended).toEqual([PROJECT])
+    await Promise.all(pending)
+    expect(queue.snapshot().items.map((item) => item.text)).toEqual([expect.stringContaining('- docs/product/roadmap/map.md (modified)')])
+
+    // The second Project's Product Session: closed, then its Node archived by the user — one message.
+    writeFileSync(join(otherRepo, 'docs', 'product', 'pricing', 'map.md'), '# pricing, edited\n')
+    const product = await h.sessions.open(OTHER, undefined, 'product')
+    await h.until(product.nodeId, 'idle', OTHER)
+    h.sessions.close(product.nodeId)
+    await h.until(product.nodeId, 'closed', OTHER)
+    h.layout.apply(OTHER, { op: 'archive', batch: 'batch-3', nodes: [{ id: product.nodeId, rule: 'idle' }] }, 'screen-1')
+    expect(ended).toEqual([PROJECT, OTHER, OTHER])
+    await Promise.all(pending)
+    expect(sentTo).toEqual([PROJECT, OTHER])
   })
 
   it('a save signal that throws does not stop the Close', async () => {

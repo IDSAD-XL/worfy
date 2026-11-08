@@ -4,8 +4,8 @@
 // belong to the app rather than to a window: their events and views go to every window.
 //
 // Each Node's Session runs on its Vendor's driver (worfy-multi-vendor ticket 23); New session takes the
-// Project's `defaultVendor` from its settings when it names no Vendor. Closing a Product Session gives the
-// save signal of its Project (src/main/product/save-signal.ts, worfy-product-session ticket 04).
+// Project's `defaultVendor` from its settings when it names no Vendor. Closing or archiving a Product Session's
+// Node gives the save signal of its Project (src/main/product/save-signal.ts, worfy-product-session ticket 04).
 import { stat } from 'node:fs/promises'
 import { agentEvent } from '../../shared/ipc/agent'
 import { sessionsChanged } from '../../shared/ipc/sessions'
@@ -68,7 +68,7 @@ export function sharedNodeSessions(): NodeSessions {
       isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
-      productClosed: (projectId) => void appSaveSignal().signal(projectId),
+      productEnded: (projectId) => void appSaveSignal().signal(projectId),
     })
   }
   return shared

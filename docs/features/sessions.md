@@ -44,8 +44,8 @@ change `mind-map.json` of a topic folder in the Product Session folder (`docs/pr
 `<Workflow folder>/product/<topic>/`). main checks the whole file against its format before every write and writes it
 atomically, one write at a time per file. A refused change is an error the agent reads, and the file stays as it was.
 `mind_map_decide` keeps the earlier status and reason of a Decision in its history; `mind_map_remove` takes only a node
-without children that is not a Decision. The Product Session never runs git: its tool `product_save`, and the Close of
-its Node, check `git status` of the Project's `docs/product/<topic>` folders and, when files there changed, send the Project's Orchestrator a
+without children that is not a Decision; `mind_map_add` refuses a topic that has no folder yet. The Product Session
+never runs git: its tool `product_save`, the Close of its Node and the archive of its Node (automatic or by hand) check `git status` of the Project's `docs/product/<topic>` folders and, when files there changed, send the Project's Orchestrator a
 message with the changed files and the request to save them with a docs PR. The same changes are asked for once. With
 no changes, and in Silent mode, nothing is sent; `product_save` answers "nothing to save" or "Silent mode: nothing to
 save". While Autopilot runs the Orchestrator, nothing is sent and `product_save` says so.

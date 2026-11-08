@@ -160,6 +160,9 @@ describe('the mind_map_* tools on a fixture topic', () => {
     expect(idea).toMatchObject({ kind: 'idea', advice: false })
     expect(idea).not.toHaveProperty('source')
     expect(nodesOnDisk().find((node) => node.id === objection.id)).toEqual(idea)
+    // A Decision's text may change; its status, reason and history stay, and the old message goes.
+    const decision = json<MindMapNode>(await rpc.call('mind_map_update', { topic: TOPIC, id: 'd-1', text: 'Per Project, in the header' }))
+    expect(decision).toEqual({ id: 'd-1', kind: 'decision', text: 'Per Project, in the header', from: 'q-1', status: 'accepted', reason: 'the owner reads one figure' })
   })
 
   it('mind_map_decide makes a node a Decision; deciding again moves the old status, reason and message to history', async () => {
@@ -167,6 +170,8 @@ describe('the mind_map_* tools on a fixture topic', () => {
     expect(json(await rpc.call('mind_map_decide', { topic: TOPIC, id: 'q-1', status: 'accepted', reason: 'asked twice' }))).toMatchObject({ id: 'q-1', kind: 'decision', status: 'accepted', reason: 'asked twice' })
     const again = json<MindMapNode>(await rpc.call('mind_map_decide', { topic: TOPIC, id: 'd-1', status: 'rejected', reason: 'per topic after all' }))
     expect(again).toMatchObject({ status: 'rejected', reason: 'per topic after all', history: [{ status: 'accepted', reason: 'the owner reads one figure', message: 'msg-old' }] })
+    // No chat message reached this call: the node keeps none, not the old one.
+    expect(again).not.toHaveProperty('message')
     expect(nodesOnDisk().find((node) => node.id === 'd-1')).toEqual(again)
     // A new Decision may overturn one.
     const replacing = json<MindMapNode>(await rpc.call('mind_map_add', { topic: TOPIC, kind: 'decision', text: 'Per topic', from: 'q-1', status: 'accepted', reason: 'owner', replaces: 'd-1' }))
@@ -204,6 +209,7 @@ describe('the mind_map_* tools on a fixture topic', () => {
       ['mind_map_add', { topic: '../escape', kind: 'idea', text: 'x', from: null }],
       ['mind_map_add', { topic: 'critic', kind: 'idea', text: 'x', from: null }],
       ['mind_map_add', { topic: 'a/b', kind: 'idea', text: 'x', from: null }],
+      ['mind_map_add', { topic: 'nosuch', kind: 'idea', text: 'x', from: null }],
     ]
     for (const [name, args] of refused) {
       const answer = await rpc.call(name, args)
@@ -224,8 +230,14 @@ describe('the mind_map_* tools on a fixture topic', () => {
     expect(readFileSync(mapFile, 'utf8')).toBe(broken)
   })
 
-  it('a new topic gets its folder and a mind-map.json of its own', async () => {
+  it('mind_map_add refuses a topic without a folder, so a misspelled one makes none; a topic folder without mind-map.json gets one', async () => {
     const { rpc } = await session()
+    const answer = await rpc.call('mind_map_add', { topic: 'roadmapp', kind: 'question', text: 'Free tier?', from: null })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toContain('There is no topic roadmapp yet')
+    expect(existsSync(join(product, 'roadmapp'))).toBe(false)
+    mkdirSync(join(product, 'pricing'))
+    writeFileSync(join(product, 'pricing', 'map.md'), '# Pricing\n')
     const node = json<MindMapNode>(await rpc.call('mind_map_add', { topic: 'pricing', kind: 'question', text: 'Free tier?', from: null }))
     expect(JSON.parse(readFileSync(join(product, 'pricing', 'mind-map.json'), 'utf8'))).toEqual({ version: 1, nodes: [node] })
   })
@@ -237,6 +249,9 @@ describe('the mind_map_* tools on a fixture topic', () => {
     const { rpc } = await session()
     const answer = await rpc.call('mind_map_add', { topic: 'linked', kind: 'idea', text: 'x', from: null })
     expect(answer.isError, textOf(answer)).toBe(true)
+    // The writer itself, as the screen will call it (ticket 09), refuses it by the Write guard.
+    const { updateMindMap } = await server()
+    await expect(updateMindMap(product, 'linked', (map) => ({ map: { ...map, nodes: [{ id: 'n', kind: 'idea', text: 'x', from: null }] }, answer: null }))).rejects.toThrow(/not written/)
     expect(existsSync(join(outside, 'mind-map.json'))).toBe(false)
   })
 
@@ -288,6 +303,26 @@ describe('the mind_map_* tools on a fixture topic', () => {
     expect(json(await rpc.call('mind_map_add', input))).toMatchObject({ message: 'uuid-of-the-message' })
     // Taken once: the same call again, with no new message, has none.
     expect(json(await rpc.call('mind_map_add', input))).not.toHaveProperty('message')
+  })
+})
+
+describe('the tool caller without the SDK', () => {
+  it('answers a wrong argument, a wrong node and a missing node with isError and never throws', async () => {
+    const { mindMapToolCaller } = await server()
+    const call = mindMapToolCaller({ productFolder: product, save: () => Promise.resolve('nothing to save') })
+    const before = readFileSync(mapFile)
+    const answers = await Promise.all([
+      call('mind_map_add', { topic: TOPIC, kind: 'plan', text: 'x', from: null }),
+      call('mind_map_add', { topic: '../escape', kind: 'idea', text: 'x', from: null }),
+      call('mind_map_add', { topic: TOPIC, kind: 'decision', text: 'x', from: null, status: 'accepted' }),
+      call('mind_map_decide', { topic: TOPIC, id: 'missing', status: 'accepted', reason: 'x' }),
+      call('mind_map_remove', { topic: TOPIC, id: 'd-1' }),
+      call('mind_map_read', 'not an object'),
+    ])
+    for (const answer of answers) expect(answer.isError, textOf(answer)).toBe(true)
+    expect(textOf(answers[0]!)).toMatch(/^Invalid arguments for mind_map_add/)
+    expect(textOf(answers[2]!)).toContain('a decision needs a reason')
+    expect(readFileSync(mapFile).equals(before)).toBe(true)
   })
 })
 

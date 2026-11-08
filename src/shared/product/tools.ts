@@ -63,9 +63,11 @@ const ANSWER = ' Answers the node as written; the file is checked first and stay
 export const mindMapToolDescriptions: Record<MindMapToolName, string> = {
   mind_map_read: 'Read one topic (its map title, map Tickets, Mind map nodes and format errors), or without topic list the topics of docs/product.',
   mind_map_add:
-    'Add a node to a topic\'s Mind map: kind idea | question | decision | objection, text, from (parent node id, ticket:NN, or null for the topic). A decision needs status and reason, an objection a source (the fact: a path, Ticket, PR or URL). advice: true for your own advice.' +
+    'Add a node to the Mind map of an existing topic (one with a folder): kind idea | question | decision | objection, text, from (parent node id, ticket:NN, or null for the topic). A decision needs status and reason, an objection a source (the fact: a path, Ticket, PR or URL). advice: true for your own advice.' +
     ANSWER,
-  mind_map_update: 'Change a node\'s text, kind, source or advice. A decision is changed only with mind_map_decide.' + ANSWER,
+  mind_map_update:
+    'Change a node\'s text, kind, source or advice. A Decision may change its text and advice here; its status and reason change only with mind_map_decide, which keeps the earlier ones in history.' +
+    ANSWER,
   mind_map_decide: 'Make a node a Decision: status accepted | rejected and the reason; its earlier status and reason go to history. replaces: the Decision it overturns.' + ANSWER,
   mind_map_remove: 'Remove a node added by mistake: only one without children, never a Decision (reject it with mind_map_decide instead).',
   product_save: 'The owner asked to save: asks the Project\'s Orchestrator to save the changed docs/product files with a docs PR. You never use git yourself.',

@@ -8,7 +8,8 @@ nodes) and the Mind map `mind-map.json` (the small nodes). Change the Mind map o
 they write, and the owner's screen redraws from it at once.
 
 - `mind_map_read` lists the topics, or reads one: its map Tickets, its nodes and any format errors.
-  Read a topic before you change it.
+  Read a topic before you change it. A new topic begins with its `map.md`, written with Write;
+  `mind_map_add` refuses a topic that has no folder yet.
 - `mind_map_add` adds one node: `idea`, `question`, `decision` or `objection`, a short `text`, and
   `from`, the node it grew out of — a node id, `ticket:NN` for a Ticket of the topic's map, or
   `null` for the topic itself. A decision needs `status` (`accepted` or `rejected`) and `reason`; an
@@ -18,8 +19,8 @@ they write, and the owner's screen redraws from it at once.
 - `mind_map_decide` records the owner's decision on a node: `accepted` or `rejected`, always with the
   reason. A rejected decision stays on the map. Deciding again keeps the earlier status and reason in
   the node's history; `replaces` names the Decision a new one overturns.
-- `mind_map_update` changes a node's text, kind, source or advice; a Decision changes only through
-  `mind_map_decide`. `mind_map_remove` is for a node added by mistake: one without children, never a
+- `mind_map_update` changes a node's text, kind, source or advice. A Decision keeps its kind; its
+  status and reason change only through `mind_map_decide`. `mind_map_remove` is for a node added by mistake: one without children, never a
   Decision.
 - A refused call changes nothing: read its error, fix the arguments and call again.
 - The owner moves nodes and folds branches by hand; you change what a node says, and only when the

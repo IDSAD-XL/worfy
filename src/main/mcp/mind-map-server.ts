@@ -102,6 +102,9 @@ export class MindMapWriter {
     const broken = topic.errors.filter((error) => error.file === MIND_MAP_FILE)
     if (broken.length > 0) throw new ToolError(`${MIND_MAP_FILE} of topic ${topic.name} has errors; mend them first, nothing was written:\n${broken.map((error) => `- ${error.message}`).join('\n')}`)
     const tickets = topic.tickets.map((ticket) => ticket.number)
+    // shortcut: the file is read and written through mindMapSchema, which drops keys it does not declare, so
+    // a key a later format adds by hand is lost on the next write; redo with a passthrough node schema when
+    // ADR-0101 gets a version 2 or a field the tools do not write.
     const { map, answer } = change({ version: MIND_MAP_VERSION, nodes: topic.nodes }, tickets)
     const checked = checkMindMap(map, tickets)
     if (!checked.ok) throw new ToolError(`The change is refused, nothing was written:\n${checked.errors.map((error) => `- ${error.message}`).join('\n')}`)
@@ -167,6 +170,12 @@ function handlers(context: MindMapContext): Handlers {
     return context.productFolder
   }
   const stamp = (message: string | null): { message?: string } => (message === null ? {} : { message })
+  /** `node` as changed in chat message `message`: a change whose message is not known leaves none, not the old one. */
+  const restamped = (node: MindMapNode, message: string | null): MindMapNode => {
+    const next: MindMapNode = { ...node, ...stamp(message) }
+    if (message === null) delete next.message
+    return next
+  }
 
   return {
     mind_map_read: async ({ topic }) => {
@@ -184,8 +193,11 @@ function handlers(context: MindMapContext): Handlers {
       return { topics }
     },
 
-    mind_map_add: (args, message) =>
-      writer.update(folder(), args.topic, (map) => {
+    mind_map_add: async (args, message) => {
+      // A misspelled topic would make a stray folder: a topic begins with its map, made with Write.
+      const names = await topicNames(folder())
+      if (!names.includes(args.topic)) throw new ToolError(`There is no topic ${args.topic} yet: write its map.md first. Topics: ${names.length === 0 ? '(none)' : names.join(', ')}.`)
+      return writer.update(folder(), args.topic, (map) => {
         if (args.kind !== 'decision' && (args.status !== undefined || args.reason !== undefined || args.replaces !== undefined)) {
           throw new ToolError('status, reason and replaces belong to a decision: add it with kind "decision", or decide the node later with mind_map_decide.')
         }
@@ -196,7 +208,8 @@ function handlers(context: MindMapContext): Handlers {
         delete fields.topic
         const node: MindMapNode = { id, kind: args.kind, text: args.text, from: args.from, ...fields, ...stamp(message) }
         return { map: { ...map, nodes: [...map.nodes, node] }, answer: node }
-      }),
+      })
+    },
 
     mind_map_update: (args, message) =>
       writer.update(folder(), args.topic, (map) => {
@@ -206,16 +219,18 @@ function handlers(context: MindMapContext): Handlers {
         if (node.kind !== 'decision' && args.kind === 'decision') throw new ToolError('A node becomes a Decision only with mind_map_decide, which gives it a status and a reason.')
         const kind = args.kind ?? node.kind
         if (kind !== 'objection' && args.source !== undefined) throw new ToolError('source belongs to an objection: the fact it rests on.')
-        const changed: MindMapNode = {
-          ...node,
-          kind,
-          ...(args.text === undefined ? {} : { text: args.text }),
-          ...(args.advice === undefined ? {} : { advice: args.advice }),
-          ...(args.source === undefined ? {} : { source: args.source }),
-          ...stamp(message),
-        }
-        // Only an objection rests on a source: a node that stops being one drops it.
-        if (kind !== 'objection') delete changed.source
+        const changed: MindMapNode = restamped(
+          {
+            ...node,
+            kind,
+            ...(args.text === undefined ? {} : { text: args.text }),
+            ...(args.advice === undefined ? {} : { advice: args.advice }),
+            ...(args.source === undefined ? {} : { source: args.source }),
+          },
+          message,
+        )
+        // Only an objection rests on a source: one that turns into an idea or a question drops it.
+        if (node.kind === 'objection' && kind !== 'objection') delete changed.source
         return { map: replaced(map, changed), answer: changed }
       }),
 
@@ -226,15 +241,17 @@ function handlers(context: MindMapContext): Handlers {
           node.kind === 'decision' && node.status !== undefined && node.reason !== undefined
             ? [...(node.history ?? []), { status: node.status, reason: node.reason, ...(node.message === undefined ? {} : { message: node.message }) }]
             : node.history
-        const decided: MindMapNode = {
-          ...node,
-          kind: 'decision',
-          status: args.status,
-          reason: args.reason,
-          ...(args.replaces === undefined ? {} : { replaces: args.replaces }),
-          ...(history === undefined ? {} : { history }),
-          ...stamp(message),
-        }
+        const decided: MindMapNode = restamped(
+          {
+            ...node,
+            kind: 'decision',
+            status: args.status,
+            reason: args.reason,
+            ...(args.replaces === undefined ? {} : { replaces: args.replaces }),
+            ...(history === undefined ? {} : { history }),
+          },
+          message,
+        )
         return { map: replaced(map, decided), answer: decided }
       }),
 
