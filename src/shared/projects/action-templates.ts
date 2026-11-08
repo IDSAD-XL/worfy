@@ -150,16 +150,25 @@ export const SHIP_TICKET_VENDOR: VendorId = 'claude'
  */
 export const TEAM_REVIEWER_COMMAND = '/worfy:human-review-setup'
 
+/**
+ * The first message of the Session "Update" starts (worfy-human-review ticket 10): the same skill on the
+ * pull requests since its last read, which shows the diff of the rules before anything is replaced.
+ */
+export const TEAM_REVIEWER_REFRESH_COMMAND = `${TEAM_REVIEWER_COMMAND} --refresh`
+
 /** The Vendor of that Session: Claude Code only (spec decision 11 of worfy-human-review). */
 export const TEAM_REVIEWER_VENDOR: VendorId = 'claude'
 
 /**
  * The team reviewer's part of a Project's settings (worfy-human-review ticket 09). `offer: "later"`:
  * the user answered the offer made after the Project was added with "Later" or closed it, and worfy
- * does not offer again; "Build" in Project settings stays. Absent until then.
+ * does not offer again; "Build" in Project settings stays. Absent until then. `remindedAt`
+ * (worfy-human-review ticket 10): when the reminder to update the reviewer was last shown, as an ISO
+ * date; the next one comes 30 days later at the earliest. Absent until the first one.
  */
 export const humanReviewSettingsSchema = z.object({
   offer: z.enum(['later']).optional(),
+  remindedAt: z.iso.datetime().optional(),
 })
 export type HumanReviewSettings = z.output<typeof humanReviewSettingsSchema>
 
@@ -183,8 +192,8 @@ export const projectSettingsSchema = z.object({
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
 /**
- * The settings as `settings.json` is read: a `terminalShell`, a `defaultVendor` or a `humanReview.offer`
- * this version does not know (a data folder of a later worfy, a hand edit) reads as not chosen, and
+ * The settings as `settings.json` is read: a `terminalShell`, a `defaultVendor`, a `humanReview.offer`
+ * or a `humanReview.remindedAt` this version does not know (a data folder of a later worfy, a hand edit) reads as not chosen, and
  * the rest of the file stays. A file
  * saved before "Process gate queue" existed has no `gateQueue`: migrateProjectSettings gives it the
  * default. What is saved goes through projectSettingsSchema, which refuses such a value.
@@ -193,7 +202,10 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
   terminalShell: terminalShellSettingSchema.optional().catch(undefined),
   defaultVendor: vendorIdSchema.optional().catch(undefined),
-  humanReview: humanReviewSettingsSchema.extend({ offer: humanReviewSettingsSchema.shape.offer.catch(undefined) }).optional().catch(undefined),
+  humanReview: humanReviewSettingsSchema
+    .extend({ offer: humanReviewSettingsSchema.shape.offer.catch(undefined), remindedAt: humanReviewSettingsSchema.shape.remindedAt.catch(undefined) })
+    .optional()
+    .catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 

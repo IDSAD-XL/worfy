@@ -252,7 +252,7 @@ describe('the shell of the Terminals in Project settings', () => {
 })
 
 // worfy-human-review ticket 09: "Team reviewer" shows the state main reads from the Profile's private
-// folder (projects.reviewer.get), "Build" or "Rebuild", and "Delete" behind a confirmation.
+// folder (projects.reviewer.get), "Build" or, once built, "Update" (ticket 10), and "Delete" behind a confirmation.
 describe('Team reviewer in Project settings', () => {
   const section = (): HTMLElement => screen.getByTestId('team-reviewer')
   const stateText = (): string | null => screen.getByTestId('team-reviewer-state').textContent
@@ -277,7 +277,7 @@ describe('Team reviewer in Project settings', () => {
     await open()
     expect(stateText()).toBe('Built 2026-11-01, 214 PRs')
     expect(within(section()).queryByRole('button', { name: 'Build' })).toBeNull()
-    expect(button('Rebuild').disabled).toBe(false)
+    expect(button('Update').disabled).toBe(false)
     expect(button('Delete').disabled).toBe(false)
     cleanup()
 
@@ -308,6 +308,16 @@ describe('Team reviewer in Project settings', () => {
     await press('Build')
     expect(refused.onClose).not.toHaveBeenCalled()
     expect(within(section()).getByRole('alert').textContent).toBe('The Project is not in the list')
+  })
+
+  it('"Update" of a built reviewer starts the generator with refresh and closes the window (worfy-human-review ticket 10)', async () => {
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: 214 } }
+    main.answers['projects.reviewer.build'] = { ok: true, value: { nodeId: 'node-1', sessionId: 'session-1' } }
+    const { onClose } = await open()
+    expect(within(section()).queryByRole('button', { name: 'Rebuild' })).toBeNull()
+    await press('Update')
+    expect(asked('projects.reviewer.build')).toEqual([{ machine: undefined, channel: 'projects.reviewer.build', input: { id: PROJECT.id, refresh: true } }])
+    expect(onClose).toHaveBeenCalledOnce()
   })
 
   it('"Build" with an edit not saved keeps the window open with the edit, and says where the Session is', async () => {
@@ -357,7 +367,7 @@ describe('Team reviewer in Project settings', () => {
     await open({ machine: 'mini-machine' })
     expect(asked('projects.reviewer.get')).toEqual([{ machine: 'mini-machine', channel: 'projects.reviewer.get', input: { id: PROJECT.id } }])
     expect(stateText()).toBe('Built 2026-11-01')
-    expect(button('Rebuild').disabled).toBe(false)
+    expect(button('Update').disabled).toBe(false)
     cleanup()
 
     main.readOnly = { 'mini-machine': 'Mini gives this Machine read-only access' }

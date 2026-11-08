@@ -1410,4 +1410,145 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
     expect(() => deleteTeamReviewer('')).toThrow('the Profile folder is not an absolute path')
     expect(existsSync(folder)).toBe(true)
   })
+
+  // worfy-human-review ticket 10: the monthly reminder to update the reviewer (spec Q8 (a)). The clock is
+  // vitest's fake Date, which the handler reads; the Harness stubs are real processes with their own clock.
+  describe('the reminder to update it (worfy-human-review ticket 10)', () => {
+    const DAY = 86_400_000
+    const KEPT = Date.parse('2026-10-01T09:00:00Z')
+    /** Asks main, at the time `at`, whether the reminder is due now. */
+    async function remindAt(id: string, at: number): Promise<{ due: boolean }> {
+      vi.setSystemTime(at)
+      return value<{ due: boolean }>('projects.reviewer.remind', { id })
+    }
+    const savedReview = (id: string): unknown => (JSON.parse(readFileSync(join(dataDir, id, 'settings.json'), 'utf8')) as { humanReview?: unknown }).humanReview
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('comes on the 31st day after the reviewer was kept, is recorded in the settings, and not again for 30 days; "Later" waits for the next one', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      const folder = builtReviewer('shop', { kept_at: new Date(KEPT).toISOString(), fetched_at: new Date(KEPT - DAY).toISOString(), counts: { pull_requests: 7 } })
+      expect(await remindAt(project.id, KEPT + 30 * DAY - 60_000)).toEqual({ due: false })
+      expect(savedReview(project.id)).toBeUndefined()
+
+      const first = KEPT + 30 * DAY + 60_000
+      expect(await remindAt(project.id, first)).toEqual({ due: true })
+      expect(savedReview(project.id)).toEqual({ remindedAt: new Date(first).toISOString() })
+      // Shown once: the next activation, another window, 29 days later — nothing ("Later" only closes the toast).
+      expect(await remindAt(project.id, first)).toEqual({ due: false })
+      expect(await remindAt(project.id, first + 29 * DAY)).toEqual({ due: false })
+      const second = first + 30 * DAY + 60_000
+      expect(await remindAt(project.id, second)).toEqual({ due: true })
+      expect(savedReview(project.id)).toEqual({ remindedAt: new Date(second).toISOString() })
+
+      // An update kept since (kept_at of the refresh): the reviewer is new again.
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ kept_at: new Date(second + 31 * DAY).toISOString() }))
+      expect(await remindAt(project.id, second + 40 * DAY)).toEqual({ due: false })
+      // Without kept_at, fetched_at dates the reviewer, as projects.reviewer.get reads it.
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ fetched_at: new Date(second).toISOString() }))
+      expect(await remindAt(project.id, second + 31 * DAY)).toEqual({ due: true })
+    })
+
+    it('keeps the other answers of the settings, and the Save of the dialog keeps the reminder', async () => {
+      stubProbe(VOICE_YES)
+      const project = await addKnown(makeRepo('shop'))
+      await value('projects.reviewer.later', { id: project.id })
+      builtReviewer('shop', { kept_at: new Date(KEPT).toISOString() })
+      const at = KEPT + 31 * DAY
+      expect(await remindAt(project.id, at)).toEqual({ due: true })
+      expect(savedReview(project.id)).toEqual({ offer: 'later', remindedAt: new Date(at).toISOString() })
+      const settings = await value<{ actionTemplates: unknown }>('projects.settings.get', { id: project.id })
+      await value('projects.settings.set', { id: project.id, settings: { actionTemplates: settings.actionTemplates } })
+      expect(savedReview(project.id)).toEqual({ offer: 'later', remindedAt: new Date(at).toISOString() })
+      // A remindedAt this version cannot read is no reminder: the next one is due.
+      const file = join(dataDir, project.id, 'settings.json')
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), humanReview: { offer: 'later', remindedAt: 'soon' } }))
+      expect(await remindAt(project.id, at + DAY)).toEqual({ due: true })
+    })
+
+    it('never comes without a built reviewer: no skill, a short history, no Profile folder; nothing is written', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      const folder = join(profileDir, 'state', 'human-review')
+      const late = KEPT + 90 * DAY
+      expect(await remindAt(project.id, late)).toEqual({ due: false })
+      mkdirSync(folder, { recursive: true })
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ kept_at: new Date(KEPT).toISOString(), voice: 'voice: yes' }))
+      expect(await remindAt(project.id, late)).toEqual({ due: false })
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ fetched_at: new Date(KEPT).toISOString(), voice: 'voice: no (12 of 30)' }))
+      expect(await remindAt(project.id, late)).toEqual({ due: false })
+      builtReviewer('shop', { kept_at: new Date(KEPT).toISOString() })
+      harnessStubs({ dirCode: 3 })
+      expect(await remindAt(project.id, late)).toEqual({ due: false })
+      expect(savedReview(project.id)).toBeUndefined()
+    })
+
+    it('reads only the private folder: the Harness asks no review-history, and the Profile folder is unchanged', async () => {
+      stubProbe(VOICE_YES)
+      const project = (await addOk(makeRepo('shop'))).project
+      const folder = builtReviewer('shop', { kept_at: new Date(KEPT).toISOString() })
+      const before = readdirSync(profileDir, { recursive: true, encoding: 'utf8' }).sort()
+      const meta = readFileSync(join(folder, 'meta.json'), 'utf8')
+      expect(await remindAt(project.id, KEPT + 31 * DAY)).toEqual({ due: true })
+      expect(probes()).toEqual([])
+      expect(readdirSync(profileDir, { recursive: true, encoding: 'utf8' }).sort()).toEqual(before)
+      expect(readFileSync(join(folder, 'meta.json'), 'utf8')).toBe(meta)
+    })
+
+    it('a reviewer dated in the future, as a clock set back, is not due', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      builtReviewer('shop', { kept_at: new Date(KEPT + 10 * DAY).toISOString() })
+      expect(await remindAt(project.id, KEPT)).toEqual({ due: false })
+    })
+
+    it('refreshDue: the rule itself, with the clock passed in', async () => {
+      const { refreshDue, REFRESH_AFTER_DAYS } = await import('../../src/main/projects/review-offer')
+      expect(REFRESH_AFTER_DAYS).toBe(30)
+      const built = { status: 'built' as const, builtAt: new Date(KEPT).toISOString(), pullRequests: 3 }
+      expect(refreshDue(built, undefined, new Date(KEPT + 30 * DAY))).toBe(false)
+      expect(refreshDue(built, undefined, new Date(KEPT + 30 * DAY + 1))).toBe(true)
+      expect(refreshDue(built, new Date(KEPT + 40 * DAY).toISOString(), new Date(KEPT + 69 * DAY))).toBe(false)
+      expect(refreshDue(built, new Date(KEPT + 40 * DAY).toISOString(), new Date(KEPT + 71 * DAY))).toBe(true)
+      expect(refreshDue({ status: 'none' }, undefined, new Date(KEPT + 90 * DAY))).toBe(false)
+      expect(refreshDue({ status: 'short', substantive: 4, threshold: 30 }, undefined, new Date(KEPT + 90 * DAY))).toBe(false)
+    })
+
+    it('"Update" starts the generator with --refresh; "Build" stays the first run', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      const built: unknown[] = []
+      vi.doMock('../../src/main/ipc/actions', () => ({
+        sharedLauncher: () => ({
+          buildTeamReviewer: (projectId: string, options?: unknown) => {
+            built.push([projectId, options])
+            return { nodeId: 'node-1', sessionId: 'session-1', text: '' }
+          },
+        }),
+      }))
+      try {
+        expect(await value('projects.reviewer.build', { id: project.id, refresh: true })).toEqual({ nodeId: 'node-1', sessionId: 'session-1' })
+        await value('projects.reviewer.build', { id: project.id })
+        expect(built).toEqual([
+          [project.id, { refresh: true }],
+          [project.id, { refresh: false }],
+        ])
+      } finally {
+        vi.doUnmock('../../src/main/ipc/actions')
+      }
+    })
+
+    it('a Linked machine reaches the reminder only while access is on: it writes the Project settings', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      builtReviewer('shop', { kept_at: new Date(KEPT).toISOString() })
+      vi.setSystemTime(KEPT + 31 * DAY)
+      const off = await linkedCaller(false)
+      expect(await off('projects.reviewer.remind', { id: project.id })).toMatchObject({ ok: false })
+      expect(savedReview(project.id)).toBeUndefined()
+      const on = await linkedCaller(true)
+      expect(await on('projects.reviewer.remind', { id: project.id })).toStrictEqual({ ok: true, value: { due: true } })
+    })
+  })
 })

@@ -28,6 +28,8 @@ const examplesTemplate = read('template/voice-examples.md')
 const lintTemplate = read('template/lint.json')
 // Read softly: before ticket 08 the file does not exist, and each test of it fails on its own line.
 const check = existsSync(join(DIR, 'check.md')) ? read('check.md') : ''
+// Read softly as well: before ticket 10 there is no refresh.md.
+const refresh = existsSync(join(DIR, 'refresh.md')) ? read('refresh.md') : ''
 
 /** The text of the step `## <n>. …` of a skill text, up to the next `## ` heading. */
 function sectionOf(text: string, n: number, name: string): string {
@@ -546,6 +548,146 @@ describe('check.md', () => {
   })
 })
 
+describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)', () => {
+  const flat = refresh.replace(/\s+/g, ' ')
+  const part = (n: number): string => sectionOf(refresh, n, 'refresh.md')
+  const choice = (name: string): string => {
+    const found = blocks(part(8)).find((b) => b.startsWith(`- **${name}**`))
+    expect(found, part(8)).toBeDefined()
+    return found!
+  }
+
+  it('SKILL.md sends --refresh to refresh.md after step 1, before any fetch of step 2', () => {
+    const update = skill.search(/^## Update: `--refresh`$/m)
+    expect(update, 'no "## Update: `--refresh`" heading in SKILL.md').toBeGreaterThan(skill.search(/^## 1\. /m))
+    expect(update).toBeLessThan(skill.search(/^## 2\. /m))
+    const section = skill.slice(update, skill.search(/^## 2\. /m))
+    expect(section).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/refresh.md')
+    expect(section).toMatch(/instead of steps 2 to 7/)
+    expect(skill.split('\n').slice(0, 5).join('\n')).toMatch(/--refresh/)
+  })
+
+  it('says where the plugin root is, on its third line, and has steps 1 to 8 in order', () => {
+    expect(refresh.split('\n')[2]).toMatch(/^Plugin root: `<plugin>`/)
+    const at = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => refresh.search(new RegExp(`^## ${n}\\. `, 'm')))
+    expect(at.every((i) => i > -1), JSON.stringify(at)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+  })
+
+  it('takes the date from meta.json: analysed_through, else fetched_at; without either it stops', () => {
+    const one = part(1)
+    expect(one).toContain('`analysed_through`')
+    expect(one).toContain('`fetched_at`')
+    expect(one.indexOf('`analysed_through`')).toBeLessThan(one.indexOf('`fetched_at`'))
+    expect(blocks(one).some((b) => /neither/i.test(b) && /stop/i.test(b))).toBe(true)
+    // No reviewer to update: the first run instead.
+    expect(blocks(one).some((b) => b.includes('SKILL.md') && b.includes('/worfy:human-review-setup') && /without `--refresh`/.test(b))).toBe(true)
+  })
+
+  it('runs fetch --since and estimate before the analysis, and analyses only after an explicit "yes"', () => {
+    const fetch = refresh.indexOf('review-history" fetch --since')
+    const estimate = refresh.indexOf('review-history" estimate')
+    const yes = refresh.indexOf('explicit "yes"')
+    expect(fetch, 'fetch --since').toBeGreaterThan(-1)
+    expect(estimate, 'estimate').toBeGreaterThan(fetch)
+    expect(yes, 'explicit "yes"').toBeGreaterThan(estimate)
+    for (const reading of ['prs.jsonl', 'analyse.md', 'write.md', 'check.md']) expect(refresh.indexOf(reading), reading).toBeGreaterThan(yes)
+    expect(blocks(part(2)).some((b) => /do not (open|read)[^.]*raw\//i.test(b) && /before/i.test(b))).toBe(true)
+  })
+
+  it('without a "yes" changes nothing: raw/ is deleted and the skill, research.md and lint.json stay', () => {
+    const no = blocks(part(2)).find((b) => b.startsWith('- **No.**'))
+    expect(no, part(2)).toBeDefined()
+    expect(no).toContain('review-history" clean')
+    expect(no).toMatch(/stop/i)
+    expect(no).toMatch(/nothing (else )?changes/i)
+    expect(no).toMatch(/session that has no person/)
+  })
+
+  it('with no new pull request reviewed by the team says so, deletes raw/ and spends no tokens', () => {
+    const none = blocks(part(2)).find((b) => b.startsWith('- **Nothing new.**'))
+    expect(none, part(2)).toBeDefined()
+    expect(none).toContain('`pull requests: 0`')
+    expect(none).toMatch(/No new pull request with a review of the team since/)
+    expect(none).toContain('review-history" clean')
+    expect(none).toMatch(/no model reads anything/i)
+    // The voice line of a slice does not stop an update: the voice was found by the first run.
+    expect(part(2)).toMatch(/`voice: no/)
+  })
+
+  it('holds 5 new pull requests out of the new slice, in raw/, not over the held_out of meta.json', () => {
+    const three = part(3)
+    expect(three).toMatch(/5 pull requests/)
+    expect(three).toContain('`raw/refresh/held_out.json`')
+    expect(three).toMatch(/step 2 of SKILL\.md/)
+    expect(three).toMatch(/not (in|into) `meta\.json`/)
+  })
+
+  it('analyses the new comments together with the research.md of before, keeping the numbers of its sections', () => {
+    const four = part(4)
+    expect(four).toContain('`<plugin>/skills/human-review-setup/analyse.md`')
+    expect(four).toMatch(/section 1, item 1/)
+    expect(four).toContain('`raw/refresh/research-before.md`')
+    expect(four).toContain('`raw/refresh/research.md`')
+    expect(four).toMatch(/never renumber/i)
+    expect(four).toMatch(/`created_at`|`submitted_at`/)
+  })
+
+  it('writes the draft in raw/skill/ and installs nothing before Accept', () => {
+    const five = part(5)
+    expect(five).toContain('`<plugin>/skills/human-review-setup/write.md`')
+    expect(five).toContain('`raw/skill/`')
+    expect(five).toMatch(/section 6[^.]*(does not run|not now)/i)
+    expect(five).toMatch(/Accept/)
+  })
+
+  it('the diff of the rules names the added, changed and removed rules, each with [R<n>] and its numbers "before → now"', () => {
+    const six = part(6)
+    for (const kind of ['Added', 'Changed', 'Removed']) expect(six, kind).toContain(`**${kind}**`)
+    expect(six).toContain('`[R<n>]`')
+    expect(six).toContain('→')
+    expect(six).toContain('`raw/refresh/diff.md`')
+    // Between the installed skill and the draft.
+    expect(six).toContain('`<private folder>/.claude/skills/human-review/SKILL.md`')
+    expect(six).toContain('`raw/skill/SKILL.md`')
+  })
+
+  it('checks the draft, not the installed skill, on the new held-out pull requests, with its pages kept in raw/', () => {
+    const seven = part(7)
+    expect(seven).toContain('`<plugin>/skills/human-review-setup/check.md`')
+    expect(seven).toContain('`raw/refresh/held_out.json`')
+    expect(seven).toContain('`raw/skill/SKILL.md`')
+    expect(seven).toContain('`raw/refresh/check/<PR>.md`')
+    expect(seven).toContain('`raw/refresh/check.json`')
+  })
+
+  it('shows the diff and the check, then offers Accept and Reject', () => {
+    const eight = part(8)
+    expect(eight).toContain('a rough measure')
+    expect(eight.indexOf('diff.md')).toBeLessThan(eight.indexOf('- **Accept**'))
+    expect(blocks(eight).filter((b) => /^- \*\*(Accept|Reject)\*\*/.test(b)).map((b) => /^- \*\*([^*]+)\*\*/.exec(b)![1])).toEqual(['Accept', 'Reject'])
+  })
+
+  it('"Accept" moves the old files to previous/, puts the new ones in place and records kept_at and analysed_through', () => {
+    const accept = choice('Accept')
+    expect(accept).toContain('previous/')
+    for (const file of ['SKILL.md', 'voice-examples.md', 'research.md', 'lint.json']) expect(accept, file).toContain(file)
+    expect(accept.indexOf('previous/')).toBeLessThan(accept.indexOf('raw/skill/SKILL.md'))
+    for (const key of ['`kept_at`', '`analysed_through`', '`held_out`', '`check`', '`decision`']) expect(accept, key).toContain(key)
+    expect(accept).toContain('review-history" clean')
+  })
+
+  it('"Reject" leaves SKILL.md and the rest as they are and only deletes raw/', () => {
+    const reject = choice('Reject')
+    expect(reject).toContain('review-history" clean')
+    expect(reject).not.toContain('previous/')
+    expect(reject).toContain('`SKILL.md`, `voice-examples.md`, `research.md`, `lint.json`, `check/` and the keys of `meta.json` above stay as they were')
+    // No deletion command anywhere in the update but the script's own clean.
+    expect(refresh).not.toMatch(/\brm\s/)
+    expect(flat).toMatch(/Without an answer, do what \*\*Reject\*\* does/)
+  })
+})
+
 describe('the base rule of check.md on a real git history', () => {
   // The commands are taken from the text of check.md and run, with their placeholders filled, in a made-up repository
   // where one pull request branched at A, its reviewed commit C changed f.txt, and the base branch moved on to B.
@@ -798,7 +940,7 @@ describe('a skill written by write.md from a made-up research.md', () => {
 describe('the text of the skill', () => {
   const privacy = createRequire(__filename)(PRIVACY) as { findings: (text: string) => { rule: string }[] }
 
-  it.each(['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
+  it.each(['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'refresh.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json'])('%s carries no personal data and no @login', (name) => {
     const text = read(name)
     expect(privacy.findings(text).map((f) => f.rule)).toEqual([])
     expect(text.match(/(^|[\s(])@[A-Za-z0-9][A-Za-z0-9-]*/g) ?? []).toEqual([])
@@ -806,7 +948,7 @@ describe('the text of the skill', () => {
 
   it('every file of the skill is in the uncovered list of the eval coverage map', () => {
     const map = JSON.parse(readFileSync(COVERAGE, 'utf8')) as { uncovered: Record<string, string> }
-    const files = ['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
+    const files = ['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'refresh.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
     for (const file of files.map((f) => `skills/human-review-setup/${f}`))
       expect(map.uncovered[file], file).toBe('No case yet: worfy-human-review 12 adds cases')
   })

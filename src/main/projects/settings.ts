@@ -1,6 +1,6 @@
 // A Project's settings (`<Project data folder>/settings.json`): the action templates, for
-// Windows the shell of the Terminals, the Default vendor, and the answer to the team reviewer's
-// offer (worfy-human-review ticket 09).
+// Windows the shell of the Terminals, the Default vendor, the answer to the team reviewer's
+// offer (worfy-human-review ticket 09) and the date of the last reminder to update it (ticket 10).
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -65,6 +65,15 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
 export function writeHumanReviewOffer(projectDataDir: string, offer: NonNullable<HumanReviewSettings['offer']>, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   const current = readProjectSettings(projectDataDir, harness)
   return writeProjectSettings(projectDataDir, { ...current, humanReview: { ...current.humanReview, offer } }, harness)
+}
+
+/**
+ * Records when the reminder to update the team reviewer was shown (worfy-human-review ticket 10), as
+ * an ISO date, and keeps every other setting as it is saved. Returns the settings as saved.
+ */
+export function writeHumanReviewReminder(projectDataDir: string, at: Date, harness: HarnessKind = currentHarness().kind): ProjectSettings {
+  const current = readProjectSettings(projectDataDir, harness)
+  return writeProjectSettings(projectDataDir, { ...current, humanReview: { ...current.humanReview, remindedAt: at.toISOString() } }, harness)
 }
 
 /**

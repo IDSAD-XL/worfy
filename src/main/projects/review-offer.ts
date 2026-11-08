@@ -14,6 +14,12 @@
 //   its skill is there (.claude/skills/human-review/SKILL.md); `meta.json` gives its date (`kept_at` of the
 //   generator, else `fetched_at` of `review-history`) and the counts. worfy only reads the folder (ADR-0005: the Harness's scripts and the generator skill
 //   write it) and erases it on "Delete", nothing else.
+// - The reminder (ticket 10, spec Q8 (a)). A window asks when it makes a Project active
+//   (projects.reviewer.remind): the reminder is due when the reviewer is built, its date is more than
+//   30 days old, and the last reminder, `humanReview.remindedAt` of the Project's settings in worfy's
+//   data folder, is more than 30 days old or absent. A due reminder is recorded there before the
+//   answer, so another window or the next activation gets none for 30 days. It reads the private
+//   folder only: no Harness script, no GitHub, no model.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import type { TeamReviewerState } from '../../shared/ipc/projects'
@@ -83,6 +89,57 @@ export function readTeamReviewer(folder: string): TeamReviewerState {
     return { status: 'short', substantive: Math.min(substantive, threshold), threshold }
   }
   return { status: 'none' }
+}
+
+/** How old the reviewer and the last reminder must be for the reminder to update it (spec decision 7: once a month). */
+export const REFRESH_AFTER_DAYS = 30
+
+const REFRESH_AFTER_MS = REFRESH_AFTER_DAYS * 86_400_000
+
+/** Whether the time `at` (ms) lies more than REFRESH_AFTER_DAYS before `now`; a time after `now` (a clock set back) is not old. */
+const olderThanAMonth = (at: number, now: Date): boolean => now.getTime() - at > REFRESH_AFTER_MS
+
+/**
+ * Whether the reminder to update the reviewer is due at `now`: the reviewer `state` is built and dated
+ * more than 30 days before `now`, and the last reminder `remindedAt` is absent, does not read as a
+ * date, or is more than 30 days old.
+ */
+export function refreshDue(state: TeamReviewerState, remindedAt: string | undefined, now: Date): boolean {
+  if (state.status !== 'built' || !olderThanAMonth(Date.parse(state.builtAt), now)) return false
+  const last = remindedAt === undefined ? Number.NaN : Date.parse(remindedAt)
+  return Number.isNaN(last) || olderThanAMonth(last, now)
+}
+
+export interface ReviewReminderDeps {
+  /** The Profile folder of the Project at `root` (readProfileDir). */
+  profileDir: (root: string) => Promise<string>
+  /** `humanReview.remindedAt` of the Project's settings. */
+  remindedAt: (projectId: string) => string | undefined
+  /** Records `at` as `humanReview.remindedAt` of the Project's settings. */
+  remember: (projectId: string, at: Date) => void
+  /** The clock; `new Date()` when absent. */
+  now?: () => Date
+  /** Where the one line about a Profile folder that cannot be found goes; console.warn by default. */
+  log?: (line: string) => void
+}
+
+/**
+ * The reminder for Project `projectId` at `root`, made active now: resolves with whether it is due,
+ * and records a due one first (refreshDue). Never rejects: a Profile folder that cannot be found is
+ * one line in the log and no reminder.
+ */
+export async function remindTeamReviewer(deps: ReviewReminderDeps, projectId: string, root: string): Promise<boolean> {
+  const now = deps.now?.() ?? new Date()
+  let folder: string
+  try {
+    folder = privateFolder(await deps.profileDir(root))
+  } catch (error) {
+    ;(deps.log ?? ((line: string) => console.warn(line)))(`[review-offer] ${root}: no reminder to update the team reviewer, because ${error instanceof Error ? error.message : String(error)}`)
+    return false
+  }
+  if (!refreshDue(readTeamReviewer(folder), deps.remindedAt(projectId), now)) return false
+  deps.remember(projectId, now)
+  return true
 }
 
 /**

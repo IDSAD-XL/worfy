@@ -162,10 +162,17 @@ export type TeamReviewerState = z.output<typeof teamReviewerStateSchema>
 export const projectsReviewerGet = invokeChannel('projects.reviewer.get', projectId, teamReviewerStateSchema, 'project', 'read')
 
 /**
- * "Build" (and "Rebuild"): a new Session Node in the Project's root, on Claude Code, whose first
- * message is the generator skill (TEAM_REVIEWER_COMMAND), as "Ship ticket" starts one.
+ * "Build": a new Session Node in the Project's root, on Claude Code, whose first message is the
+ * generator skill (TEAM_REVIEWER_COMMAND), as "Ship ticket" starts one. `refresh: true` — "Update"
+ * (worfy-human-review ticket 10): the first message is TEAM_REVIEWER_REFRESH_COMMAND instead.
  */
-export const projectsReviewerBuild = invokeChannel('projects.reviewer.build', projectId, z.object({ nodeId: z.string().min(1), sessionId: z.string().min(1) }), 'project', 'write')
+export const projectsReviewerBuild = invokeChannel(
+  'projects.reviewer.build',
+  projectId.extend({ refresh: z.boolean().optional() }),
+  z.object({ nodeId: z.string().min(1), sessionId: z.string().min(1) }),
+  'project',
+  'write',
+)
 
 /** "Delete": erases the private folder of the team reviewer, and only it; answers the state after. */
 export const projectsReviewerDelete = invokeChannel('projects.reviewer.delete', projectId, teamReviewerStateSchema, 'project', 'write')
@@ -175,6 +182,14 @@ export const projectsReviewerDelete = invokeChannel('projects.reviewer.delete', 
  * offer is not made again. Answers the settings as saved; every window hears projects.settings.changed.
  */
 export const projectsReviewerLater = invokeChannel('projects.reviewer.later', projectId, projectSettingsAnswerSchema, 'project', 'write')
+
+/**
+ * Asked by a window that made the Project active (worfy-human-review ticket 10): whether to show the
+ * reminder to update the team reviewer. `due` when the reviewer is built and more than 30 days old,
+ * and no reminder was shown in the last 30 days; a due one is recorded as `humanReview.remindedAt`
+ * in the Project's settings before the answer, so it comes once. `write`: it writes those settings.
+ */
+export const projectsReviewerRemind = invokeChannel('projects.reviewer.remind', projectId, z.object({ due: z.boolean() }), 'project', 'write')
 
 /**
  * Sent to every window when a Project just added has review history enough for a voice
@@ -456,6 +471,7 @@ declare module './channels' {
     'projects.reviewer.build': typeof projectsReviewerBuild
     'projects.reviewer.delete': typeof projectsReviewerDelete
     'projects.reviewer.later': typeof projectsReviewerLater
+    'projects.reviewer.remind': typeof projectsReviewerRemind
     'projects.reviewer.offer': typeof projectsReviewerOffer
     'projects.connect.inspect': typeof projectsConnectInspect
     'projects.connect.draft': typeof projectsConnectDraft

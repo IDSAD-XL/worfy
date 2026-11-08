@@ -1,6 +1,6 @@
 ---
 name: human-review-setup
-description: Build a private review skill that writes pull request reviews in the voice of the project's team — read the team's review history on GitHub, show how much a model would read and its token estimate, and only once the person agrees sort every comment by tier and theme into an evidence file and write the skill from it. Use when the person asks for it ("/worfy:human-review-setup", "build a reviewer in our team's style") or worfy's "Build" button sends it.
+description: Build a private review skill that writes pull request reviews in the voice of the project's team — read the team's review history on GitHub, show how much a model would read and its token estimate, and only once the person agrees sort every comment by tier and theme into an evidence file and write the skill from it. Use when the person asks for it ("/worfy:human-review-setup", "build a reviewer in our team's style") or worfy's "Build" button sends it; with --refresh ("Update" in worfy, or its monthly reminder) read only the pull requests since, show the diff of the rules and replace nothing without the person's "Accept".
 disable-model-invocation: true
 ---
 
@@ -50,6 +50,16 @@ The private folder is `<_resolved.dir>/state/human-review/`. `review-history` cr
 This skill adds `research.md` (step 4), `lint.json` and the review skill itself in
 `.claude/skills/human-review/` (step 5), and `check/`, the drafts of the check beside the team's comments
 (step 6). Logins of colleagues appear in `ignore.json` and in `raw/` only.
+
+## Update: `--refresh`
+
+With the argument `--refresh` the reviewer is built already and gets updated: run step 1 above, then read
+`${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/refresh.md` and follow it instead of steps 2 to 7. It reads with
+`review-history fetch --since` only the pull requests updated since the last analysis, asks the same "yes" after
+the estimate, analyses them together with the `research.md` of before, writes the new skill as a draft in `raw/`,
+shows the rules it adds, changes and removes, each with its `[R<n>]`, checks the draft on 5 of the new pull
+requests, and replaces the installed files only when the person accepts. Without `--refresh` a skill built
+before is replaced by a whole new build, as below.
 
 ## 2. Read the history and ask
 

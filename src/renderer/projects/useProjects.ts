@@ -101,6 +101,18 @@ export function activeProject(state: ProjectsState | undefined): ProjectView | u
   return state?.projects.find((project) => project.id === state.activeId)
 }
 
+/**
+ * Calls `listener` with the id of the window's active Project each time another one becomes active,
+ * the first one the list answers included; returns the unsubscribe. Starts nothing itself: the list
+ * comes as useProjects() loads it.
+ */
+export function followActiveProject(listener: (projectId: string) => void): () => void {
+  return useProjectsStore.subscribe((next, previous) => {
+    const id = next.state?.activeId ?? null
+    if (id !== null && id !== (previous.state?.activeId ?? null)) listener(id)
+  })
+}
+
 /** The window's address for Machine `machine` (null — this Machine) and Project `projectId`. */
 export function addressFor(machine: string | null, projectId: string | null): string {
   const url = new URL(window.location.href)
