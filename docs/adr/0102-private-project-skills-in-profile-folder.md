@@ -39,6 +39,10 @@
 6. **`skills.allowed` (ADR-0084) не трогает частную папку.** `skillOverrides` называет только skills из
    `~/.claude/skills`, `enabledPlugins` — только plugin-ы. Исключение — совпадение имён: skill `human-review` в
    `~/.claude/skills`, которого нет в списке, выключит по имени и частный.
+7. **Последствие: частная папка — рабочий каталог Session.** Claude Code считает каталог из `additionalDirectories`
+   таким же рабочим, как cwd. В режиме `acceptEdits` он правит там файлы без вопроса: Session может переписать
+   `SKILL.md` или `research.md`. Это полномочия самого пользователя в его же Session, поэтому отдельной защиты нет.
+   Session Project-а без собранного ревьюера папку не получает.
 
 **Почему не репозиторий и не `~/.claude/skills`.**
 
