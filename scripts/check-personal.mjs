@@ -4,10 +4,11 @@
 // email address, a token or a word of the owner's personal list must not be in a tracked file, in
 // its text or in its path.
 //
-//   node scripts/check-personal.mjs [--report] [--root <dir>]
+//   node scripts/check-personal.mjs [--report [--list]] [--root <dir>]
 //       Checks the files of `git ls-files` under <dir> (default: the repository of this script).
 //       One line per finding, `<path>:<line>: <rule>: <mask>` (`name` in place of the line for a
-//       finding in the path), then the counts by rule and by top folder. Exit 0 with no findings, 1
+//       finding in the path), then the total and the counts by rule and by top folder. Under
+//       --report only the counts, unless --list asks for the lines too. Exit 0 with no findings, 1
 //       with findings, 0 with findings under --report, 2 when the guard cannot run.
 //   node scripts/check-personal.mjs --hash-from <privacy.json>
 //       Prints the hash list (the content of scripts/check-personal.hashes.json) of the personal list
@@ -59,10 +60,19 @@ const ALLOW = 'scripts/check-personal.allow.json'
 const RULES = new Set(['home-path', 'host', 'tailscale-ip', 'email', 'token'])
 const MAX_WORDS = 3
 
-// Stand-in hosts of fixtures (owner decision Q6), by their first label in lower case: an invented
-// machine in every form the host rules catch (someones-mac.local, someones-MacBook-Pro, someones-PC).
-// Hosts with an `example` label (<host>.example.ts.net) are stand-ins in privacy.cjs already.
+// Stand-in hosts of fixtures (owner decision Q6), in lower case: an invented machine in every form
+// the host rules catch (someones-MacBook-Pro, someones-PC, and with .local). Only the whole value is
+// a stand-in (standInHost): the same name under a tailnet (<name>.<tailnet>.ts.net) names a real
+// tailnet and stays a finding. Hosts with an `example` label (<host>.example.ts.net) are stand-ins in
+// privacy.cjs already.
 const STAND_IN_HOSTS = new Set(['someones-mac', 'someones-macbook', 'someones-macbook-pro', 'someones-macbook-air', 'someones-pc', 'desktop-0000000'])
+
+/** A host value that is a stand-in as a whole: a name of STAND_IN_HOSTS, alone or with .local. */
+function standInHost(value) {
+  const host = value.toLowerCase()
+  const name = host.endsWith('.local') ? host.slice(0, -'.local'.length) : host
+  return STAND_IN_HOSTS.has(name)
+}
 // Stand-in Tailscale addresses: 100.100.100.100, the DNS server of Tailscale itself (quad-100), and
 // 100.64.0.1–100.64.0.20, the first addresses of the range, for tests that need more than one peer.
 const STAND_IN_TAILSCALE = new Set(['100.100.100.100', ...Array.from({ length: 20 }, (_, i) => `100.64.0.${i + 1}`)])
@@ -99,7 +109,7 @@ function scan(text, deny) {
   for (const f of privacy.findings(text)) {
     if (!RULES.has(f.rule)) continue
     const value = text.slice(f.index, f.index + f.length)
-    if (f.rule === 'host' && STAND_IN_HOSTS.has(value.split('.')[0].toLowerCase())) continue
+    if (f.rule === 'host' && standInHost(value)) continue
     if (f.rule === 'tailscale-ip' && STAND_IN_TAILSCALE.has(value)) continue
     found.push({ rule: f.rule, index: f.index, length: f.length, key: value })
   }
@@ -212,7 +222,7 @@ function hashFrom(file) {
   process.stdout.write(`${JSON.stringify({ sha256: [...hashes].sort(), first: [...first].sort() }, null, 2)}\n`)
 }
 
-function check(root, report) {
+function check(root, report, list) {
   const hashList = readJson(join(root, HASHES), HASHES)
   if (!Array.isArray(hashList?.sha256) || !Array.isArray(hashList?.first)) fail(`${HASHES} needs a "sha256" and a "first" array`)
   const deny = { full: new Set(hashList.sha256.map((h) => String(h).toLowerCase())), first: new Set(hashList.first.map((h) => String(h).toLowerCase())) }
@@ -277,7 +287,9 @@ function check(root, report) {
       .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .map(([k, n]) => `${k} ${n}`)
       .join(', ')
-  let out = lines.map((l) => `${l}\n`).join('')
+  // The lines go out in strict mode always, under --report only with --list: pnpm lint runs the
+  // report on every call and needs the counts, not thousands of lines.
+  let out = !report || list ? lines.map((l) => `${l}\n`).join('') : ''
   if (lines.length === 0) {
     out += `check-personal: no findings in ${checked} files\n`
   } else {
@@ -291,17 +303,19 @@ function check(root, report) {
 
 function main(argv) {
   let report = false
+  let list = false
   let root = REPO
   let from
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--report') report = true
+    else if (arg === '--list') list = true
     else if (arg === '--root' && i + 1 < argv.length) root = resolve(argv[++i])
     else if (arg === '--hash-from' && i + 1 < argv.length) from = resolve(argv[++i])
-    else fail(`unknown argument ${JSON.stringify(arg)}; usage: check-personal.mjs [--report] [--root <dir>] | --hash-from <privacy.json>`)
+    else fail(`unknown argument ${JSON.stringify(arg)}; usage: check-personal.mjs [--report [--list]] [--root <dir>] | --hash-from <privacy.json>`)
   }
   if (from !== undefined) hashFrom(from)
-  else check(root, report)
+  else check(root, report, list)
 }
 
 main(process.argv.slice(2))

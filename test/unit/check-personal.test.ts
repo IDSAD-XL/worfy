@@ -114,6 +114,16 @@ describe('check-personal: the rules of harness/lib/privacy.cjs', () => {
     expect(stdout).not.toContain(EMAIL)
   })
 
+  it('takes a file for binary by either sign alone: a NUL byte without an image extension, an image extension without a NUL byte', () => {
+    const text = `mail ${EMAIL}\n`
+    const root = repo({
+      'data/blob': Buffer.concat([Buffer.from('head\0'), Buffer.from(text)]),
+      'docs/no-nul.png': text,
+      'docs/plain.txt': text,
+    })
+    expect(findings(run(['--root', root]).stdout)).toEqual([`docs/plain.txt:1: email: ${mask(EMAIL)}`])
+  })
+
   // Git on Windows checks a link out as a plain file unless core.symlinks is on.
   it.skipIf(process.platform === 'win32')('reads the target of a symbolic link as its text', () => {
     const root = repo({ 'docs/link.md': { link: HOME } })
@@ -154,6 +164,15 @@ describe('check-personal: stand-ins', () => {
   it('still finds a Tailscale address next to the stand-in ones', () => {
     const root = repo({ 'test/fixtures/peers.md': `peers 100.64.0.1 ${IP}\n` })
     expect(findings(run(['--root', root]).stdout)).toEqual([`test/fixtures/peers.md:1: tailscale-ip: ${mask(IP)}`])
+  })
+
+  it('finds the stand-in host name under a tailnet that is not an example one: only the whole value is a stand-in', () => {
+    // An invented tailnet, built at run time so that this file carries no host whole.
+    const onTailnet = ['someones-mac', 'tailzq7', 'ts', 'net'].join('.')
+    const root = repo({ 'test/fixtures/peer.md': `peer ${onTailnet}\n` })
+    const { status, stdout } = run(['--root', root])
+    expect(findings(stdout)).toEqual([`test/fixtures/peer.md:1: host: ${mask(onTailnet)}`])
+    expect(status).toBe(1)
   })
 })
 
@@ -221,16 +240,19 @@ describe('check-personal: exceptions', () => {
 })
 
 describe('check-personal: exit codes and the summary', () => {
-  it('exits 0 on findings with --report and 1 without it; the summary counts rules and top folders', () => {
+  it('exits 0 on findings with --report and 1 without it; --report prints the counts only, --list adds the lines', () => {
     const root = repo({ 'docs/a.md': `mail ${EMAIL}\nZorblax\n`, 'test/b.md': `ping ${IP}\n`, 'README.md': 'the Vex Moor plan\n' })
     const report = run(['--report', '--root', root])
+    const listed = run(['--report', '--list', '--root', root])
     const strict = run(['--root', root])
     expect(report.status).toBe(0)
+    expect(listed.status).toBe(0)
     expect(strict.status).toBe(1)
-    expect(report.stdout).toBe(strict.stdout)
-    expect(report.stdout).toContain('check-personal: 4 findings in 3 of 5 files\n')
-    expect(report.stdout).toContain('  by rule: deny-word 2, email 1, tailscale-ip 1\n')
-    expect(report.stdout).toContain('  by top folder: docs 2, (root) 1, test 1\n')
+    const summary = ['check-personal: 4 findings in 3 of 5 files', '  by rule: deny-word 2, email 1, tailscale-ip 1', '  by top folder: docs 2, (root) 1, test 1', ''].join('\n')
+    expect(report.stdout).toBe(summary)
+    expect(findings(strict.stdout)).toHaveLength(4)
+    expect(strict.stdout.endsWith(summary)).toBe(true)
+    expect(listed.stdout).toBe(strict.stdout)
   })
 
   it('exits 0 and says so on a clean tree', () => {
@@ -275,6 +297,15 @@ describe('check-personal --hash-from', () => {
     expect(stderr).toContain('deny[2]: no words')
     expect(stderr).toContain('deny[3]: no words')
     expect(stderr).not.toMatch(/zorblax|quux/i)
+  })
+
+  it('refuses an entry that is not a string with exit 1 and its index', () => {
+    const { status, stdout, stderr } = run(['--hash-from', list(['Zorblax', 42, { word: 'Zorblax' }])])
+    expect(status).toBe(1)
+    expect(stdout).toBe('')
+    expect(stderr).toContain('deny[1]: not a string')
+    expect(stderr).toContain('deny[2]: not a string')
+    expect(stderr).not.toMatch(/zorblax/i)
   })
 
   it('a personal list that is not JSON fails with exit 2 and quotes none of it', () => {
