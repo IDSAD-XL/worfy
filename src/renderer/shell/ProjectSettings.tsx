@@ -116,6 +116,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   // The Vendor as saved (undefined: none), and as chosen in the dialog.
   const [savedVendor, setSavedVendor] = useState<VendorId>()
   const [vendor, setVendor] = useState<VendorChoice>('none')
+  // The fields as loaded: "Build" of the team reviewer closes the window only when none was edited since.
+  const [loadedFields, setLoadedFields] = useState<string>()
   const [shells, setShells] = useState<ShellOptions>([])
   const [failure, setFailure] = useState<string>()
   const [saving, setSaving] = useState(false)
@@ -137,6 +139,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         setTerminalShell(result.value.terminalShell)
         setSavedVendor(result.value.defaultVendor)
         setVendor(result.value.defaultVendor ?? 'none')
+        setLoadedFields(fieldsKey(result.value.actionTemplates, result.value.terminalShell, result.value.defaultVendor ?? 'none'))
       } else setFailure(result.error)
     })
     // No answer, or a failure, leaves the list empty: the field is not shown.
@@ -149,6 +152,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   }, [project.id, machine])
 
   const loaded = templates !== undefined
+  const edited = templates !== undefined && loadedFields !== undefined && fieldsKey(templates, terminalShell, vendor) !== loadedFields
   useEffect(() => {
     if (loaded) firstField.current?.focus()
   }, [loaded])
@@ -274,7 +278,12 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </div>
         ) : null}
 
-        <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={onClose} />
+        <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={() => {
+            if (edited) return false
+            onClose()
+            return true
+          }}
+        />
 
         <p style={{ ...styles.hint, margin: '0 0 var(--space-1)' }}>Placeholders</p>
         <ul style={styles.placeholders} aria-label="Placeholders">
@@ -316,6 +325,11 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   )
 }
 
+/** The editable fields of the dialog as one string, to tell whether any was edited since the load. */
+function fieldsKey(templates: ActionTemplates, terminalShell: TerminalShellSetting | undefined, vendor: VendorChoice): string {
+  return JSON.stringify([templates, terminalShell ?? null, vendor])
+}
+
 /** A date as `YYYY-MM-DD` in the local time of the window. */
 function localDate(iso: string): string {
   const date = new Date(iso)
@@ -344,8 +358,11 @@ interface TeamReviewerSectionProps {
   machine: string | null | undefined
   /** A Project of a Linked machine shared read-only: the state shows, the buttons do not. */
   readOnly: boolean
-  /** "Build" started the Session: the dialog closes, so the new Session Node is in sight. */
-  onBuilt: () => void
+  /**
+   * "Build" started the Session: the dialog closes, so the new Session Node is in sight, and answers
+   * true. A dialog with edits not saved stays open and answers false, so the edits are not lost.
+   */
+  onBuilt: () => boolean
 }
 
 /**
@@ -361,6 +378,7 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
   const [failure, setFailure] = useState<string>()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [started, setStarted] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -379,8 +397,8 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
     setBusy(true)
     const result = await call('projects.reviewer.build', { id: projectId })
     setBusy(false)
-    if (result.ok) onBuilt()
-    else setFailure(result.error)
+    if (!result.ok) setFailure(result.error)
+    else if (!onBuilt()) setStarted(true)
   }
 
   const remove = async (): Promise<void> => {
@@ -422,6 +440,11 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
             Keep
           </button>
         </div>
+      ) : null}
+      {started ? (
+        <span role="status" style={styles.hint}>
+          The Session has started on the Canvas. Save or Cancel your changes to see it.
+        </span>
       ) : null}
       {failure !== undefined ? (
         <span role="alert" style={styles.error}>

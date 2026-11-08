@@ -232,8 +232,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 - "Team reviewer" in "Project settings…" shows the Project's reviewer in its team's voice: `Not built`,
   `Built <date>, <N> PRs`, or `Too little history: <N> of 30`. Its files live in the private folder of the Profile,
   `<Profile folder>/state/human-review/`. The reviewer is built when its skill, `.claude/skills/human-review/SKILL.md`, is
-  there, and the date is when that file was written. `<N> PRs` and the short history come from `meta.json` of
-  `review-history`. "Build", or "Rebuild" once built, starts the same Session as the offer and closes the dialog. "Delete"
+  there. The date is `kept_at` of `meta.json`, written when the person keeps the generator's result, else
+  `fetched_at`, the last read of the history, and only without either the time the skill file was written. `<N> PRs`
+  and the short history come from `meta.json` of `review-history`. "Build", or "Rebuild" once built, starts the same Session as the offer and closes the dialog. "Delete"
   asks first, then erases that folder and nothing else. A read-only Linked machine sees the state without the buttons.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.

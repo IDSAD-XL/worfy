@@ -66,15 +66,6 @@ Ticket-ов лежит внутри git-репозитория, и Silent mode �
 6. **Connect.** Harness записывает Profile, папка входит в список и становится активной. Это может занять до 30 минут, потому что
    запись может индексировать Project для qmd. Пропущенный шаг qmd возвращается как notice, а Project всё равно подключён.
 
-**Предложение ревьюера команды.** Когда в список добавлена новая для него папка — через Connect или как папка, которую Harness
-уже знает, — worfy в фоне запускает `review-history probe` из Harness с аккаунтом GitHub из Profile и пределом в 2 минуты. Если
-ревьюеры команды оставили за последние 12 месяцев 30 содержательных комментариев (`voice: yes`), у Project-а появляется
-`action`-toast «Build a reviewer in your team's style?» с «Build» и «Later». «Build» открывает новую [Session](sessions.md) в корне
-Project-а на Claude Code с первым сообщением `/worfy:human-review-setup`. «Later» или закрытие toast-а записывает
-`humanReview.offer: "later"` в настройки Project-а, и предложение больше не появляется — ни после перезапуска, ни при новом
-добавлении. `voice: no`, нет `origin` на GitHub, нет gh, сбой или предел времени — ничего не показывают, в log идёт одна строка.
-Project, у которого ревьюер уже собран, предложения не получает.
-
 Esc и Cancel закрывают диалог и останавливают идущий черновик, но не во время записи Connect. Клик вне диалога закрывает его
 только на шаге Mode.
 
@@ -208,12 +199,6 @@ Project Machine этого окна. Строка секции Pipeline или n
   `{NN}`, `{wave}`, `{slug}`, `{branch}` и `{tickets}`. Неизвестная подстановка показывает ошибку под полем и выключает Save.
   «Reset to default» ставит значения по умолчанию из Harness, который сейчас найден на Machine. На Windows в диалоге есть ещё
   [Terminal shell](terminal.md).
-- «Team reviewer» в «Project settings…» показывает ревьюера Project-а голосом команды: `Not built`, `Built <дата>, <N> PRs` или
-  `Too little history: <N> of 30`. Его файлы лежат в частной папке Profile-а, `<папка Profile-а>/state/human-review/`. Ревьюер
-  собран, когда там есть его skill, `.claude/skills/human-review/SKILL.md`; дата — время записи этого файла. `<N> PRs` и короткая
-  история берутся из `meta.json` скрипта `review-history`. «Build», а у собранного — «Rebuild», запускает ту же Session, что и
-  предложение, и закрывает диалог. «Delete» сначала переспрашивает, потом стирает эту папку и ничего больше. Linked machine с
-  доступом только на чтение видит состояние без кнопок.
 - «Process gate queue» есть только тогда, когда роль Project-а в межмашинной очереди Gate — `serve`. Пункт отправляет шаблон
   Orchestrator-у Project-а.
 - «Remove from list» действует сразу, без вопроса. Project уходит из списка. Если он был активным, активным становится первый из
@@ -272,9 +257,6 @@ Project, отмеченный как локальный для своей Machin
 - `src/main/projects/store.ts`: `ProjectStore`, список в `<data root>/projects.json`, ветка через `git` и `onChange`, событие
   «активный Project переключился». `states()` даёт список для окон этой Machine и для Linked machine.
 - `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: настройки Project-а.
-  `src/main/projects/review-offer.ts`: предложение ревьюера команды после добавления, состояние и «Delete» раздела «Team reviewer»;
-  `src/renderer/projects/review-offer.ts`: его toast. `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`) запускает
-  Session генератора.
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` превращает выбор окна в удержание.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: каналы и их доступ. `projects.select` — `local`,
   `projects.pickFolder` — `desktop`, а `projects.list`, `projects.remove`, `projects.add` и `projects.hold` — `project`.
@@ -293,10 +275,9 @@ Project, отмеченный как локальный для своей Machin
 **Основные тесты.**
 
 - `test/contract/projects.test.ts`: добавление, выбор, удаление, сохранение, настройки, нетронутый репозиторий, `projects.browse`,
-  вызовы с Linked machine, Project-ы, локальные для Machine, и ревьюер команды: предложение по ответу probe, `humanReview.offer`,
-  состояние и «Delete».
-- `test/e2e/projects.spec.ts`: добавление, переключение, настройки, перезапуск и удаление в собранном приложении, сломанный
-  `projects.json` и предложение ревьюера команды с «Later» и «Build».
+  вызовы с Linked machine и Project-ы, локальные для Machine.
+- `test/e2e/projects.spec.ts`: добавление, переключение, настройки, перезапуск и удаление в собранном приложении и сломанный
+  `projects.json`.
 - `test/unit/use-projects.test.tsx`: revision, группы по Machine, окна на Linked machine.
 - `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`: удержания. `test/contract/link-access.test.ts`,
   `test/unit/link-access.test.ts`: что может вызывать Linked machine.

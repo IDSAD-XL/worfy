@@ -1117,21 +1117,32 @@ describe('the draft Session of Connect (worfy-multi-vendor ticket 15)', () => {
 // `bin/profile` and `bin/review-history` are Node stand-ins written here; the probe records its
 // arguments and answers as each test says. Nothing here reaches GitHub.
 describe('the team reviewer (worfy-human-review ticket 09)', () => {
-  /** The Profile folder `bin/profile --dir` names: inside a temporary Harness home. */
+  /** The Profiles of the temporary Harness home: `bin/profile -C <root> --dir` names <profiles>/<folder name of root>. */
+  let profiles: string
+  /** The Profile folder of the repository `shop`. */
   let profileDir: string
   /** One line per probe run: its arguments. */
   let probeCalls: string
+  /** GH_TOKEN and REVIEW_HISTORY_GH of the last probe run. */
+  let probeEnv: string
 
-  /** `bin/profile`: `--dir` prints the Profile folder (or fails with `dirCode`), `--json` a known folder, a field is absent (exit 4). */
-  function harnessStubs(dirCode = 0): void {
+  /**
+   * `bin/profile`: `--dir` prints the Profile folder of the `-C` folder (or fails with `dirCode`),
+   * `--json` a known folder, `--field github.account` prints `account` (absent, exit 4, without one),
+   * any other field is absent (exit 4).
+   */
+  function harnessStubs(options: { dirCode?: number; account?: string } = {}): void {
     const json = JSON.stringify({ _resolved: { mode: 'full', workflow_folder: scratch, workspace: null, repos: [] } })
+    const account = options.account ?? ''
     writeFileSync(
       join(claudeHome, 'bin', 'profile'),
       nodeScript(
         [
           'const args = process.argv.slice(2)',
-          `if (args.includes('--dir')) { if (${dirCode} === 0) process.stdout.write(${JSON.stringify(`${profileDir}\n`)}); else { process.stderr.write('profile: no project\\n'); process.exitCode = ${dirCode} } }`,
+          "const name = (args[args.indexOf('-C') + 1] || '').split(/[\\\\/]/).filter(Boolean).pop()",
+          `if (args.includes('--dir')) { if (${options.dirCode ?? 0} === 0) process.stdout.write(${JSON.stringify(join(profiles, '-').slice(0, -1))} + name + '\\n'); else { process.stderr.write('profile: no project\\n'); process.exitCode = ${options.dirCode ?? 0} } }`,
           `else if (args.includes('--json')) process.stdout.write(${JSON.stringify(`${json}\n`)})`,
+          `else if (args.includes('github.account') && ${JSON.stringify(account)} !== '') process.stdout.write(${JSON.stringify(`${account}\n`)})`,
           'else process.exitCode = 4',
         ].join('\n'),
       ),
@@ -1145,6 +1156,7 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
       nodeScript(
         [
           `fs.appendFileSync(${JSON.stringify(probeCalls)}, process.argv.slice(2).join(' ') + '\\n')`,
+          `fs.writeFileSync(${JSON.stringify(probeEnv)}, JSON.stringify({ GH_TOKEN: process.env.GH_TOKEN ?? null, REVIEW_HISTORY_GH: process.env.REVIEW_HISTORY_GH ?? null }))`,
           `process.stdout.write(${JSON.stringify(answer.stdout)})`,
           `process.exitCode = ${answer.code}`,
         ].join('\n'),
@@ -1173,8 +1185,10 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
       ...(await importOriginal<typeof import('../../src/main/agent/env')>()),
       agentEnv: () => Promise.resolve({ env: { ...process.env }, from: 'login-shell', error: null }),
     }))
-    profileDir = join(scratch, 'harness-home', 'projects', 'shop')
+    profiles = join(scratch, 'harness-home', 'projects')
+    profileDir = join(profiles, 'shop')
     probeCalls = join(scratch, 'probe-calls.txt')
+    probeEnv = join(scratch, 'probe-env.json')
     harnessStubs()
     await start()
   })
@@ -1215,8 +1229,10 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
     expect(offers()).toEqual([])
     expect(probes()).toHaveLength(1)
 
-    mkdirSync(join(profileDir, 'state', 'human-review', '.claude', 'skills', 'human-review'), { recursive: true })
-    writeFileSync(join(profileDir, 'state', 'human-review', '.claude', 'skills', 'human-review', 'SKILL.md'), '---\nname: human-review\n---\n')
+    // The Profile of `cart` has its reviewer already.
+    const cartSkill = join(profiles, 'cart', 'state', 'human-review', '.claude', 'skills', 'human-review', 'SKILL.md')
+    mkdirSync(dirname(cartSkill), { recursive: true })
+    writeFileSync(cartSkill, '---\nname: human-review\n---\n')
     await addKnown(makeRepo('cart'))
     expect(offers()).toEqual([])
     expect(probes()).toHaveLength(1)
@@ -1276,7 +1292,7 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
     expect(built).toMatchObject({ status: 'built', pullRequests: 214 })
     expect(Math.abs(Date.parse(built.builtAt) - Date.now())).toBeLessThan(60_000)
 
-    harnessStubs(3)
+    harnessStubs({ dirCode: 3 })
     const unavailable = await value<{ status: string; reason: string }>('projects.reviewer.get', { id: project.id })
     expect(unavailable.status).toBe('unavailable')
     expect(unavailable.reason).toContain('exit code 3')
@@ -1302,5 +1318,96 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
     expect(left(profileDir)).toEqual(['profile.json', 'rules.md', 'state', 'state/human-review.json', 'state/other', 'state/other/keep.json'])
     // A second Delete finds nothing to erase and answers the same.
     expect(await value('projects.reviewer.delete', { id: project.id })).toEqual({ status: 'none' })
+  })
+
+  /** A private folder of Profile `name` with a skill and meta.json; its path. */
+  function builtReviewer(name: string, meta: Record<string, unknown>): string {
+    const folder = join(profiles, name, 'state', 'human-review')
+    mkdirSync(join(folder, '.claude', 'skills', 'human-review'), { recursive: true })
+    writeFileSync(join(folder, '.claude', 'skills', 'human-review', 'SKILL.md'), 'skill')
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify(meta))
+    return folder
+  }
+
+  it("the date of a built reviewer is kept_at of meta.json, else fetched_at, and the skill file's time only without either", async () => {
+    const project = (await addOk(makeRepo('shop'))).project
+    const folder = builtReviewer('shop', { kept_at: '2026-10-02T09:00:00Z', fetched_at: '2026-10-01T08:00:00Z', counts: { pull_requests: 7 } })
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-10-02T09:00:00.000Z', pullRequests: 7 })
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify({ fetched_at: '2026-10-01T08:00:00Z', kept_at: 'not a date' }))
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-10-01T08:00:00.000Z', pullRequests: null })
+    writeFileSync(join(folder, 'meta.json'), '{}')
+    const byFile = await value<{ builtAt: string }>('projects.reviewer.get', { id: project.id })
+    expect(Math.abs(Date.parse(byFile.builtAt) - Date.now())).toBeLessThan(60_000)
+  })
+
+  it('get, Delete and Build go to the Project named by id, not to another one in the list', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const cart = (await addOk(makeRepo('cart'))).project
+    const shopFolder = builtReviewer('shop', { kept_at: '2026-10-02T09:00:00Z', counts: { pull_requests: 7 } })
+    const cartFolder = builtReviewer('cart', { kept_at: '2026-09-01T09:00:00Z', counts: { pull_requests: 3 } })
+    expect(await value('projects.reviewer.get', { id: cart.id })).toEqual({ status: 'built', builtAt: '2026-09-01T09:00:00.000Z', pullRequests: 3 })
+    expect(await value('projects.reviewer.get', { id: shop.id })).toEqual({ status: 'built', builtAt: '2026-10-02T09:00:00.000Z', pullRequests: 7 })
+
+    expect(await value('projects.reviewer.delete', { id: cart.id })).toEqual({ status: 'none' })
+    expect(existsSync(cartFolder)).toBe(false)
+    expect(existsSync(join(shopFolder, '.claude', 'skills', 'human-review', 'SKILL.md'))).toBe(true)
+    expect(await value('projects.reviewer.get', { id: shop.id })).toMatchObject({ status: 'built' })
+
+    // Build: the launcher of src/main/ipc/actions.ts is replaced; it records the Project it starts the Session for.
+    const built: string[] = []
+    vi.doMock('../../src/main/ipc/actions', () => ({
+      sharedLauncher: () => ({
+        buildTeamReviewer: (projectId: string) => {
+          built.push(projectId)
+          return { nodeId: `node-${projectId}`, sessionId: `session-${projectId}`, text: '/worfy:human-review-setup' }
+        },
+      }),
+    }))
+    try {
+      expect(await value('projects.reviewer.build', { id: cart.id })).toEqual({ nodeId: `node-${cart.id}`, sessionId: `session-${cart.id}` })
+      expect(await value('projects.reviewer.build', { id: shop.id })).toEqual({ nodeId: `node-${shop.id}`, sessionId: `session-${shop.id}` })
+      expect(built).toEqual([cart.id, shop.id])
+    } finally {
+      vi.doUnmock('../../src/main/ipc/actions')
+    }
+  })
+
+  it('Connect writing a Profile (projects.connect.write) offers too when the probe answers voice: yes', async () => {
+    stubProbe(VOICE_YES)
+    const written = join(scratch, 'connect-stdin.json')
+    // bin/project-connect of the old Harness: takes the draft on stdin, keeps it aside and answers success.
+    writeFileSync(
+      join(claudeHome, 'bin', 'project-connect'),
+      nodeScript([`fs.writeFileSync(${JSON.stringify(written)}, fs.readFileSync(0, 'utf8'))`, "process.stdout.write('{}\\n')"].join('\n')),
+    )
+    const shop = makeRepo('shop')
+    const draft = { profile: { name: 'shop', mode: 'full' }, rules: '', gate: [] }
+    const added = await value<{ status: string; project: View }>('projects.connect.write', { root: shop, draft })
+    expect(added.status).toBe('added')
+    expect(JSON.parse(readFileSync(written, 'utf8'))).toEqual(draft)
+    const { settleReviewOffers } = await import('../../src/main/ipc/projects')
+    await settleReviewOffers()
+    expect(offers()).toEqual([{ projectId: added.project.id }])
+    expect(probes()).toEqual([`probe -C ${shop} --json`])
+  })
+
+  it("the probe runs with GH_TOKEN of the Profile's GitHub account, and with the gh stand-in of the tests as its gh", async () => {
+    const { ghWorld } = await import('./gh-world')
+    const gh = ghWorld(join(scratch, 'gh'), { accounts: [{ login: 'alice', token: 'gho_alice_TEST' }, { login: 'bob', token: 'gho_bob_TEST', active: true }] })
+    vi.stubEnv('WORFY_GH', gh.command)
+    for (const [key, val] of Object.entries(gh.env)) vi.stubEnv(key, val)
+    harnessStubs({ account: 'alice' })
+    stubProbe(VOICE_YES)
+    await addKnown(makeRepo('shop'))
+    expect(JSON.parse(readFileSync(probeEnv, 'utf8'))).toEqual({ GH_TOKEN: 'gho_alice_TEST', REVIEW_HISTORY_GH: gh.command })
+    expect(gh.calls()).toContainEqual(['auth', 'token', '-u', 'alice'])
+  })
+
+  it('deleteTeamReviewer refuses a Profile folder that is not an absolute path and removes nothing', async () => {
+    const { deleteTeamReviewer } = await import('../../src/main/projects/review-offer')
+    const folder = builtReviewer('shop', {})
+    expect(() => deleteTeamReviewer(relative(process.cwd(), profileDir))).toThrow('the Profile folder is not an absolute path')
+    expect(() => deleteTeamReviewer('')).toThrow('the Profile folder is not an absolute path')
+    expect(existsSync(folder)).toBe(true)
   })
 })

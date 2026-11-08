@@ -11,8 +11,8 @@
 //   and leaves one line in the log. A Project whose reviewer is built already gets no offer.
 // - The private folder: <Profile folder>/state/human-review/ (`bin/profile -C <root> --dir` names the
 //   Profile folder). `state/` is outside the git history of the Harness home. The reviewer is built when
-//   its skill is there (.claude/skills/human-review/SKILL.md); `meta.json`, which `review-history` writes,
-//   gives the counts. worfy only reads the folder (ADR-0005: the Harness's scripts and the generator skill
+//   its skill is there (.claude/skills/human-review/SKILL.md); `meta.json` gives its date (`kept_at` of the
+//   generator, else `fetched_at` of `review-history`) and the counts. worfy only reads the folder (ADR-0005: the Harness's scripts and the generator skill
 //   write it) and erases it on "Delete", nothing else.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
@@ -52,9 +52,19 @@ function readMeta(folder: string): Record<string, unknown> | null {
   }
 }
 
+/** A date of meta.json as ISO, or null when the key is missing or is not a date. */
+function metaDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const at = Date.parse(value)
+  return Number.isNaN(at) ? null : new Date(at).toISOString()
+}
+
 /**
- * The team reviewer of the private folder `folder`. Built: the skill is there; its date is when the
- * skill file was written, the pull requests those of meta.json's history (`counts.pull_requests`).
+ * The team reviewer of the private folder `folder`. Built: the skill is there (spec: its presence is
+ * "built"). Its date is meta.json's `kept_at` — the person's "Keep" of the generator (skill
+ * human-review-setup, step 7) — else `fetched_at`, the last whole read of `review-history`, and only
+ * when meta.json gives neither the time the skill file was written: a restored or copied Harness home
+ * makes that time "today". The pull requests are those of meta.json's history (`counts.pull_requests`).
  * Short: no skill, and meta.json's last verdict is `voice: no (N of 30)`. None otherwise.
  */
 export function readTeamReviewer(folder: string): TeamReviewerState {
@@ -62,7 +72,8 @@ export function readTeamReviewer(folder: string): TeamReviewerState {
   const counts = isRecord(meta?.counts) ? meta.counts : {}
   const skill = reviewerSkill(folder)
   if (existsSync(skill)) {
-    return { status: 'built', builtAt: statSync(skill).mtime.toISOString(), pullRequests: count(counts.pull_requests) }
+    const builtAt = metaDate(meta?.kept_at) ?? metaDate(meta?.fetched_at) ?? statSync(skill).mtime.toISOString()
+    return { status: 'built', builtAt, pullRequests: count(counts.pull_requests) }
   }
   const voice = typeof meta?.voice === 'string' ? meta.voice : ''
   if (voice.startsWith('voice: no')) {

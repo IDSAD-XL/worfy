@@ -310,6 +310,30 @@ describe('Team reviewer in Project settings', () => {
     expect(within(section()).getByRole('alert').textContent).toBe('The Project is not in the list')
   })
 
+  it('"Build" with an edit not saved keeps the window open with the edit, and says where the Session is', async () => {
+    main.answers['projects.reviewer.build'] = { ok: true, value: { nodeId: 'node-1', sessionId: 'session-1' } }
+    const { onClose } = await open()
+    const field = screen.getAllByRole('textbox')[0]!
+    fireEvent.change(field, { target: { value: '/ship-ticket {epic} {NN} now' } })
+    await press('Build')
+    expect(asked('projects.reviewer.build')).toHaveLength(1)
+    expect(onClose).not.toHaveBeenCalled()
+    expect((screen.getAllByRole('textbox')[0] as HTMLInputElement).value).toBe('/ship-ticket {epic} {NN} now')
+    expect(within(section()).getByRole('status').textContent).toBe('The Session has started on the Canvas. Save or Cancel your changes to see it.')
+  })
+
+  it('"Build" and "Delete" of a Project on a Linked machine go to that Machine', async () => {
+    main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: 4 } }
+    main.answers['projects.reviewer.build'] = { ok: true, value: { nodeId: 'node-1', sessionId: 'session-1' } }
+    main.answers['projects.reviewer.delete'] = { ok: true, value: { status: 'none' } }
+    await open({ machine: 'mini-machine' })
+    await press('Delete')
+    await press('Delete')
+    expect(asked('projects.reviewer.delete')).toEqual([{ machine: 'mini-machine', channel: 'projects.reviewer.delete', input: { id: PROJECT.id } }])
+    await press('Build')
+    expect(asked('projects.reviewer.build')).toEqual([{ machine: 'mini-machine', channel: 'projects.reviewer.build', input: { id: PROJECT.id } }])
+  })
+
   it('"Delete" asks first: "Keep" deletes nothing, "Delete" erases and shows the state after', async () => {
     main.answers['projects.reviewer.get'] = { ok: true, value: { status: 'built', builtAt: BUILT_AT, pullRequests: 214 } }
     main.answers['projects.reviewer.delete'] = { ok: true, value: { status: 'none' } }
