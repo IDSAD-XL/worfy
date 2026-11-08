@@ -80,20 +80,20 @@ Prompt case-а на ход со сменой статуса не меняем: �
 
 - [ ] Hook `stage-lines.mjs` в проекте с тикетами отдаёт строки `epic-status` Epic-ов в работе (не больше 3, Epic
   текущей ветки и ветки тикетов раньше остальных); без тикетов, в Product Session и для Subagent-а — ничего.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; section 9: tickets project gets the line, no project, Product Session and Subagent get nothing, in-play order and three-line cap · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (271 passed); section 9: Epic order on a branch fixture, three-line cap, no project, no tickets.path, Product Session, agent_id and agent_type alone get nothing · mac - · f7d228a3ae4581b50849b187a92be09511c577c7
 - [ ] `epic-status`, который падает или висит, не задерживает prompt: exit 0, ничего в stdout.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; failing and hanging epic-status: nothing on stdout, exit 0 · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; failing profile and epic-status: one stderr line; hanging ones killed (pids checked), exit 0, each run under an outer limit · mac - · f7d228a3ae4581b50849b187a92be09511c577c7
 - [ ] «Phase 3» в `orchestrator.md`: Stage копируется из строк hook-а; свой запуск — после смены статуса или без строк.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; Phase 3 checks: the hook lines, the run after a status change, only then write the block · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; Phase 3 checks: the line of the epic at hand, epic-status <epic> when missing or stale, only then write the block · mac - · f7d228a3ae4581b50849b187a92be09511c577c7
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/bin/tests/start-context.test.sh` — exit 0
   (предел 10000 символов и проверки «Phase 3»).
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (262 passed, orchestrator 9981 of 10000 characters); `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (orchestrator 9993 of 10000 characters); `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · f7d228a3ae4581b50849b187a92be09511c577c7
 - [ ] `test/contract/harness-plugin.test.ts`, `test/contract/codex-parity.test.ts`, `test/contract/harness-hook-stdin.test.ts`,
   `test/contract/harness-evals-run.test.ts`, `check-cyrillic`, lint, typecheck, gate fast — exit 0.
-  - evidence: gate pass · `gate fast` exit 0; harness-plugin, codex-parity, harness-hook-stdin, harness-evals-run contract tests, check-cyrillic, lint, typecheck exit 0 · mac - · 1924a2e07dc50015c098782ecc7706324e74b8bf
+  - evidence: gate pass · `gate fast` exit 0; harness-plugin, codex-parity, harness-hook-stdin, harness-evals-run, harness-evals, codex-harness-hooks contract tests, check-cyrillic, lint, typecheck exit 0 · mac - · f7d228a3ae4581b50849b187a92be09511c577c7
 - [ ] Платный прогон `status-block` (3 раза) с hook-ом: стоимость и балл записаны в «Итог»; время hook-а на этом
   репозитории записано в «Итог».
-  - evidence: test-run pass · `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` exit 0, score 1.00, 3 of 3, 0.37 USD · mac - · 4bc10474a76689d6c06fa52f5e1847d1544fb243
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` exit 0, score 1.00, 3 of 3, 0.37 USD · mac - · feaa2e549787d74846604d5aa33d7cb2b718ec0e
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
 
 ## Тесты
