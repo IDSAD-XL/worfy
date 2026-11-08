@@ -35,8 +35,11 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] `harness/skills/product-ideas/SKILL.md` есть; test-ы plugin-а зелёные (имя, frontmatter, ссылки `worfy:`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts test/contract/harness-evals-run.test.ts test/contract/harness-plugin.test.ts test/contract/harness-third-party-skills.test.ts test/contract/harness-migrate.test.ts` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
 - [ ] Eval `product-ideas`: dry run exit 0; платный прогон прошёл, расход записан в «Итог».
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --case product-ideas --max-cost-usd 10` exit 0, 3 of 3 runs, 0.68 USD; `--dry-run --changed origin/main` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
 
 ## Тесты
 
@@ -51,3 +54,17 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - `harness/evals/lib/coverage.json`
 
 Только читать: `harness/skills/research/SKILL.md`, `src/shared/product/tools.ts`, `docs/roadmap.md`.
+
+## Итог
+
+- Skill `harness/skills/product-ideas/SKILL.md`: модель зовёт его по просьбе владельца («идеи», «что дальше»). Он
+  читает roadmap, spec-и, открытые Ticket-ы и тему, даёт 3–5 идей в одном формате (`### Idea <N>:`, поля `For whom:`,
+  `Why now:`, `Cost:`, `How we will know it worked:`, `Grew from:`, у идеи против roadmap — `Against the roadmap:`),
+  кладёт каждую в Mind map через `mind_map_add` (`kind: idea`, `advice: true`, `from`), говорит, чего не знает, и не
+  пишет черновик Epic-а без «да» владельца. Без tools `mind_map_*` идеи остаются в ответе.
+- Eval `harness/evals/product-ideas/`: fixture — проект demo с `docs/roadmap.md` и темой `docs/product/growth/`, без
+  сервера `worfy-mind-map`; 8 grader-ов (вызов skill-а, чтение roadmap, нет `worfy:to-spec`, 3–5 идей, четыре поля, строка
+  против roadmap, llm judge).
+- Платный прогон 2026-11-08: `node scripts/eval-harness.mjs --case product-ideas --max-cost-usd 10` — exit 0,
+  casesPassed 1 of 1, overallScore 1, 3 run-а из 3, **расход 0.68 USD**, claude 2.1.289. Dry run
+  `--dry-run --changed origin/main` — exit 0.

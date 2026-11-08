@@ -13,6 +13,8 @@ import { homedir, tmpdir, userInfo } from 'node:os'
 import { dirname, isAbsolute, join, relative } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
+import { MIND_MAP_NODE_KINDS } from '../../src/shared/product/mind-map'
+import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { CASES, childEnv, EVALS, HARNESS, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
@@ -202,7 +204,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the fourteen cases', () => {
+  it('holds exactly the fifteen cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -400,6 +402,92 @@ describe('harness/evals: the cases', () => {
     expect(grade('VERIFIED')).toBe(false)
     expect(grade(`Verdict: REJECTED: ${claim}`)).toBe(false)
     expect(grade(`**REJECTED:** ${claim}`)).toBe(false)
+  })
+})
+
+// worfy-product-session ticket 12: the skill product-ideas (skills/product-ideas/SKILL.md) answers
+// 3-5 ideas in one format, each with four fields, at least one against the roadmap, and puts each
+// idea on the Mind map with mind_map_add. The regex graders of the case read that format; they run
+// the way `claude plugin eval` runs a regex grader: new RegExp(pattern, flags) on the reply as it is.
+describe('harness/evals: product-ideas', () => {
+  const CASE = join(EVALS, 'product-ideas')
+  const SKILL = join(HARNESS, 'skills', 'product-ideas', 'SKILL.md')
+  const FIELDS = ['For whom:', 'Why now:', 'Cost:', 'How we will know it worked:']
+  const AGAINST = 'Against the roadmap:'
+  const grader = (name: string): string => frontMatter(join(CASE, 'graders', name))
+  const pattern = (name: string): RegExp => new RegExp(field(grader(name), 'pattern') ?? '<none>', field(grader(name), 'flags') ?? '')
+  /** Whether the reply passes a regex grader, `match: not_contains` included. */
+  const passes = (name: string, reply: string): boolean => (field(grader(name), 'match') === 'not_contains') !== pattern(name).test(reply)
+  const idea = (n: number, fields: string[] = FIELDS, bold = false): string =>
+    `### Idea ${n}: A title\n\n${fields.map((label) => `- ${bold ? `**${label}**` : label} some text.`).join('\n')}\n\n`
+  const reply = (ideas: string): string => `Here are the ideas.\n\n${ideas}## What I do not know\n\nThere are no product analytics.\n`
+  const REPLY_GRADERS = ['three-ideas.md', 'at-most-five.md', 'four-fields.md', 'against-roadmap.md']
+
+  // Red before the skill exists: the case asks for ideas, and without skills/product-ideas/SKILL.md
+  // no run can call worfy:product-ideas, so the skill-called grader fails every run.
+  it('is a skill of the plugin the model may call: name product-ideas, a description, no disable-model-invocation', () => {
+    expect(existsSync(SKILL)).toBe(true)
+    const yaml = frontMatter(SKILL)
+    expect(field(yaml, 'name')).toBe('product-ideas')
+    expect(field(yaml, 'description')?.length ?? 0).toBeGreaterThan(40)
+    expect(field(yaml, 'disable-model-invocation')).toBeUndefined()
+    expect(field(grader('skill-called.md'), 'input_match')).toContain('worfy:product-ideas')
+  })
+
+  it('writes each idea under the heading and with the labels the graders read', () => {
+    const text = readFileSync(SKILL, 'utf8')
+    expect(text).toContain('### Idea <N>: ')
+    for (const label of [...FIELDS, AGAINST]) expect(text).toContain(`- ${label}`)
+  })
+
+  it('names only tools of the worfy-mind-map server, and an idea node as mind_map_add takes it', () => {
+    const text = readFileSync(SKILL, 'utf8')
+    const named = [...new Set([...text.matchAll(/\b(?:mind_map_[a-z_]+|product_[a-z_]+)\b/g)].map((match) => match[0]))]
+    expect(named).toContain('mind_map_add')
+    for (const name of named) expect(MIND_MAP_TOOL_NAMES as string[]).toContain(name)
+    expect(MIND_MAP_NODE_KINDS as readonly string[]).toContain('idea')
+    for (const key of ['topic', 'kind', 'text', 'from', 'advice']) {
+      expect(Object.keys(mindMapToolShapes.mind_map_add)).toContain(key)
+      // `topic`, or `advice: true` with its value.
+      expect(text).toMatch(new RegExp(`\`${key}(?:\`|: )`))
+    }
+    expect(text).toContain('`advice: true`')
+    // The kind the skill passes, as the server takes it.
+    expect(text).toContain('- `kind` — `idea`;')
+  })
+
+  // In Silent mode the tickets root and the product folder lie in the Workflow folder: a relative
+  // tickets.root or docs/product/ read from the repository root finds nothing there.
+  it('reads the tickets root from bin/ticket root and the drafts from the product folder chosen by mode', () => {
+    const text = readFileSync(SKILL, 'utf8')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" root` prints its absolute path')
+    expect(text).not.toContain('--field tickets.root')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.mode`')
+    expect(text).toContain('in Silent mode `<Workflow folder>/product/`')
+    expect(text).toContain('`"${CLAUDE_PLUGIN_ROOT}/bin/profile" --field _resolved.workflow_folder`')
+    for (const path of ['`<tickets root>/*/spec.md`', '`<tickets root>/*/issues/*.md`', '`<product folder>/*/drafts/`', '`<product folder>/<topic>/`']) expect(text).toContain(path)
+    expect(text).not.toMatch(/docs\/product\/\*|docs\/product\/<topic>/)
+  })
+
+  it('the reply graders take three to five ideas with the four fields and one against the roadmap, bold labels too', () => {
+    for (const ideas of [
+      idea(1) + idea(2) + idea(3, [...FIELDS, AGAINST]),
+      idea(1, FIELDS, true) + idea(2, FIELDS, true) + idea(3, FIELDS, true) + idea(4, [...FIELDS, AGAINST], true) + idea(5, FIELDS, true),
+      reply(idea(1) + idea(2) + idea(3) + idea(4, [...FIELDS, AGAINST])).replaceAll('\n', '\r\n'),
+    ]) {
+      const text = ideas.startsWith('Here') ? ideas : reply(ideas)
+      for (const name of REPLY_GRADERS) expect(passes(name, text), `${name}\n${text}`).toBe(true)
+    }
+  })
+
+  it.each([
+    ['two ideas', reply(idea(1) + idea(2, [...FIELDS, AGAINST])), 'three-ideas.md'],
+    ['six ideas', reply(idea(1) + idea(2) + idea(3) + idea(4) + idea(5) + idea(6, [...FIELDS, AGAINST])), 'at-most-five.md'],
+    ['a field missing from two ideas', reply(idea(1, FIELDS.slice(1)) + idea(2, FIELDS.slice(0, 3)) + idea(3, [...FIELDS, AGAINST])), 'four-fields.md'],
+    ['no idea against the roadmap', reply(idea(1) + idea(2) + idea(3)), 'against-roadmap.md'],
+    ['against the roadmap only inside a sentence', reply(idea(1) + idea(2) + idea(3).replace('\n\n', '\n\nThis goes - Against the roadmap: no.\n\n')), 'against-roadmap.md'],
+  ])('the reply graders refuse %s', (_, text, name) => {
+    expect(passes(name, text)).toBe(false)
   })
 })
 
