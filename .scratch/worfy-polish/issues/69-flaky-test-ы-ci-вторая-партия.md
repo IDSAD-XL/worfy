@@ -1,7 +1,8 @@
 # 69 — Flaky test-ы CI, вторая партия
 
 Type: bug
-Status: claimed 2026-11-08
+Status: done 2026-11-08T03:13Z
+PR: #1629
 Blocked by: —
 Source: таблица flaky test-ов worfy-polish 66 (PR #1617)
 
@@ -49,6 +50,7 @@ code. Что не воспроизвелось или не исправилос�
 - [ ] Не исправленные — в «Итог», с причиной или с тем, почему её не нашли.
   - evidence: commit pass · Fix eight causes of flaky tests: git maintenance lock, heartbeat races, wall-clock limits (polish 69) · - - · 71d13cb13a886e35dce03936712ece818adc9b47
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42433584107/job/128589817780 · ci - · 3212e52f09b1dde1d54e4c642896224692aba8ca
 
 ## Где в коде
 

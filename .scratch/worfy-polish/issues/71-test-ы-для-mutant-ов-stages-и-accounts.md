@@ -1,7 +1,8 @@
 # 71 — Test-ы для выживших mutant-ов: Stage-и и GitHub-аккаунты
 
 Type: task
-Status: claimed 2026-11-08T12:00Z
+Status: done 2026-11-08T03:13Z
+PR: #1637
 Blocked by: —
 Source: аудит mutation testing 2026-11-08 (находки M1–M4 уровня medium). Строки перечитаны по main `39b0ee7ac`.
 
@@ -49,6 +50,7 @@ Mutation testing нашёл четыре места, где поломка ко�
 - [ ] Все unit и contract test-ы `src/main/workflow/stages.ts` и `src/main/github/accounts.ts`, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0; 16 test files of stages, accounts and the gh stand-in exit 0 · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42438701856/job/128610811664 · ci - · 49359f3f1a2e1a3b0d45b179f56520e89fac667c
 
 ## Где в коде
 

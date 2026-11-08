@@ -1,7 +1,8 @@
 # 70 — Ожидания условия без timeout-а не знают множителя
 
 Type: bug
-Status: claimed 2026-11-08T01:38Z
+Status: done 2026-11-08T03:13Z
+PR: #1633
 Branch: worfy-polish/70
 Blocked by: —
 Source: находка `worfy-polish` 69 (2026-11-08): в `test/contract` и `test/unit` около 349 вызовов `vi.waitFor(...)` без
@@ -49,6 +50,7 @@ Source: находка `worfy-polish` 69 (2026-11-08): в `test/contract` и `te
   - evidence: test-run pass · `pnpm test` exit 0 (687 files passed); `pnpm lint` exit 0; `pnpm typecheck` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
   - evidence: gate pass · `gate fast` exit 0 · mac - · 3de0f4d56a306b5682d13274421c14600e24f3a6
 - [ ] `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42436887541/job/128608156924 · ci - · 16d6cc4d0ac649c03a497f3fe9f376dcea0a271a
 
 ## Где в коде
 
