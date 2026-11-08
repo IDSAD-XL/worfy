@@ -85,3 +85,15 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
   `docs/features/projects.md`.
 - Сначала падающие test-ы: напоминание (31-й день и др.) — 8 failed из 9 новых в `test/contract/projects.test.ts`;
   `refresh.md` — 16 failed в `test/contract/harness-human-review-setup.test.ts`; после правки все зелёные.
+- Ревью PR #1662, раунд 1 (REJECTED), исправлено:
+  - «Нового нет» и отложенные PR — по комментариям команды с `submitted_at` / `created_at` после даты, не по числу PR
+    среза: `fetch --since` берёт PR по `updatedAt`, и PR с ревью до даты и merge после неё попадает в срез со старыми
+    комментариями. Счёт — Node-скриптом без текста в `raw/refresh/new.json` до вопроса; `"comments": 0` — «Nothing
+    new», `clean`, токенов нет. `commit_id` отложенного PR — коммит первого ревью команды после даты.
+  - Дата чтения — более поздняя из `analysed_through` и `fetched_at`: после целой пересборки старый `analysed_through`
+    остаётся в `meta.json`, и чтение от него посчитало бы комментарии дважды.
+  - Diff правил: пары по шагу — тот же набор `[R<n>]` и текст, тот же набор, затем наборы с общим `[R<n>]`, так что
+    `[R3]` → `[R3] [R12]` — одно изменённое правило. «Accept» уносит старый `check/` в `previous/check-<stamp>/`.
+  - Число PR после принятого обновления — `analysed_pull_requests` (история + PR обновлений), пока `analysed_through`
+    позже `fetched_at`; `readTeamReviewer` показывает его в «Team reviewer».
+  - Test-ы на даты в будущем дальше 30 дней (выживший mutant `Math.abs`).

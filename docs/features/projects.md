@@ -244,7 +244,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   `<Profile folder>/state/human-review/`. The reviewer is built when its skill, `.claude/skills/human-review/SKILL.md`, is
   there. The date is `kept_at` of `meta.json`, written when the person keeps the generator's result, else
   `fetched_at`, the last read of the history, and only without either the time the skill file was written. `<N> PRs`
-  and the short history come from `meta.json` of `review-history`. "Build" starts the same Session as the offer and closes the dialog. Once built, "Update" takes its place and starts the
+  and the short history come from `meta.json` of `review-history`. After an update the person accepted, the date is
+  that of the update and `<N>` adds the pull requests it read (`analysed_pull_requests`), until a whole build reads the
+  history again. "Build" starts the same Session as the offer and closes the dialog. Once built, "Update" takes its place and starts the
   Session of the reminder, with `--refresh`. "Delete"
   asks first, then erases that folder and nothing else. A read-only Linked machine sees the state without the buttons.
   Once built, the reviewer reaches every Claude Code Session of the Project that a person is at, as `/human-review`: the

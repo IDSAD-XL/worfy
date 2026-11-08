@@ -574,11 +574,16 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect([...at].sort((a, b) => a - b)).toEqual(at)
   })
 
-  it('takes the date from meta.json: analysed_through, else fetched_at; without either it stops', () => {
+  it('takes the date from meta.json: the later of analysed_through and fetched_at; without either it stops', () => {
     const one = part(1)
-    expect(one).toContain('`analysed_through`')
-    expect(one).toContain('`fetched_at`')
-    expect(one.indexOf('`analysed_through`')).toBeLessThan(one.indexOf('`fetched_at`'))
+    const date = blocks(one).find((b) => b.startsWith('- The date the update reads from'))
+    expect(date, one).toBeDefined()
+    // A whole build after an update keeps the older analysed_through: the later date wins, never the key alone.
+    expect(date).toMatch(/the later of two dates/)
+    expect(date).toContain('`analysed_through`')
+    expect(date).toContain('`fetched_at`')
+    expect(date).toMatch(/twice/)
+    expect(date).not.toMatch(/`analysed_through`[^.]*when it is there[^.]*else `fetched_at`/)
     expect(blocks(one).some((b) => /neither/i.test(b) && /stop/i.test(b))).toBe(true)
     // No reviewer to update: the first run instead.
     expect(blocks(one).some((b) => b.includes('SKILL.md') && b.includes('/worfy:human-review-setup') && /without `--refresh`/.test(b))).toBe(true)
@@ -591,7 +596,11 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(fetch, 'fetch --since').toBeGreaterThan(-1)
     expect(estimate, 'estimate').toBeGreaterThan(fetch)
     expect(yes, 'explicit "yes"').toBeGreaterThan(estimate)
-    for (const reading of ['prs.jsonl', 'analyse.md', 'write.md', 'check.md']) expect(refresh.indexOf(reading), reading).toBeGreaterThan(yes)
+    // Before the answer only scripts read raw/: the estimate, and the count of new comments, which prints no text.
+    const fresh = blocks(part(2)).find((b) => b.startsWith('- **New comments.**')) ?? ''
+    const model = blocks(refresh).filter((b) => b !== fresh).join('\n')
+    const yesInModel = model.indexOf('explicit "yes"')
+    for (const reading of ['prs.jsonl', 'analyse.md', 'write.md', 'check.md']) expect(model.indexOf(reading), reading).toBeGreaterThan(yesInModel)
     expect(blocks(part(2)).some((b) => /do not (open|read)[^.]*raw\//i.test(b) && /before/i.test(b))).toBe(true)
   })
 
@@ -604,10 +613,24 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(no).toMatch(/session that has no person/)
   })
 
-  it('with no new pull request reviewed by the team says so, deletes raw/ and spends no tokens', () => {
+  it('counts as new only the team comments dated after the date, by a script that prints no text', () => {
+    const fresh = blocks(part(2)).find((b) => b.startsWith('- **New comments.**'))
+    expect(fresh, part(2)).toBeDefined()
+    // A pull request reviewed before the date and merged after it is in the slice with old comments only.
+    expect(fresh).toMatch(/updated since `<date>`/)
+    expect(fresh).toMatch(/merged after it/)
+    for (const field of ['`submitted_at`', '`created_at`', '`role`']) expect(fresh, field).toContain(field)
+    expect(fresh).toMatch(/the length only: it prints no text/)
+    expect(fresh).toContain('`raw/refresh/new.json`')
+    // Counted before the question, so the person is never asked about a slice with nothing new.
+    expect(refresh.indexOf('**New comments.**')).toBeLessThan(refresh.indexOf('explicit "yes"'))
+  })
+
+  it('with no new comment of the team says so, deletes raw/ and spends no tokens, however many pull requests the slice has', () => {
     const none = blocks(part(2)).find((b) => b.startsWith('- **Nothing new.**'))
     expect(none, part(2)).toBeDefined()
-    expect(none).toContain('`pull requests: 0`')
+    expect(none).toContain('`"comments": 0`')
+    expect(none).toContain('`raw/refresh/new.json`')
     expect(none).toMatch(/No new pull request with a review of the team since/)
     expect(none).toContain('review-history" clean')
     expect(none).toMatch(/no model reads anything/i)
@@ -616,8 +639,13 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
   })
 
   it('holds 5 new pull requests out of the new slice, in raw/, not over the held_out of meta.json', () => {
-    const three = part(3)
+    const three = part(3).replace(/\s+/g, ' ')
     expect(three).toMatch(/5 pull requests/)
+    // Picked by the new comments only: a pull request with old comments only is never held out.
+    expect(three).toMatch(/counting only the new comments/)
+    expect(three).toMatch(/whose team comments are all from before `<date>` is never held out/)
+    expect(three).toMatch(/`CHANGES_REQUESTED` review of the team submitted after `<date>`/)
+    expect(three).toMatch(/first review of the team after `<date>`/)
     expect(three).toContain('`raw/refresh/held_out.json`')
     expect(three).toMatch(/step 2 of SKILL\.md/)
     expect(three).toMatch(/not (in|into) `meta\.json`/)
@@ -647,6 +675,10 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(six).toContain('`[R<n>]`')
     expect(six).toContain('→')
     expect(six).toContain('`raw/refresh/diff.md`')
+    // A rule whose references grew is one changed rule: sets that share a number pair before Added and Removed.
+    expect(six).toMatch(/share at least one `\[R<n>\]`/)
+    expect(six).toMatch(/not a removed one and an added one/)
+    expect(six.indexOf('the same set;')).toBeLessThan(six.indexOf('share at least one'))
     // Between the installed skill and the draft.
     expect(six).toContain('`<private folder>/.claude/skills/human-review/SKILL.md`')
     expect(six).toContain('`raw/skill/SKILL.md`')
@@ -673,7 +705,10 @@ describe('refresh.md: the update with --refresh (worfy-human-review ticket 10)',
     expect(accept).toContain('previous/')
     for (const file of ['SKILL.md', 'voice-examples.md', 'research.md', 'lint.json']) expect(accept, file).toContain(file)
     expect(accept.indexOf('previous/')).toBeLessThan(accept.indexOf('raw/skill/SKILL.md'))
-    for (const key of ['`kept_at`', '`analysed_through`', '`held_out`', '`check`', '`decision`']) expect(accept, key).toContain(key)
+    for (const key of ['`kept_at`', '`analysed_through`', '`analysed_pull_requests`', '`held_out`', '`check`', '`decision`']) expect(accept, key).toContain(key)
+    // The old pages of the check go aside before the new ones are copied.
+    expect(accept).toContain('`previous/check-<stamp>/`')
+    expect(accept.indexOf('`previous/check-<stamp>/`')).toBeLessThan(accept.indexOf('pages of `raw/refresh/check/` into `check/`'))
     expect(accept).toContain('review-history" clean')
   })
 

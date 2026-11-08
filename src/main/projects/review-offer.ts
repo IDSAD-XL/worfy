@@ -70,7 +70,10 @@ function metaDate(value: unknown): string | null {
  * "built"). Its date is meta.json's `kept_at` — the person's "Keep" of the generator (skill
  * human-review-setup, step 7) — else `fetched_at`, the last whole read of `review-history`, and only
  * when meta.json gives neither the time the skill file was written: a restored or copied Harness home
- * makes that time "today". The pull requests are those of meta.json's history (`counts.pull_requests`).
+ * makes that time "today". The pull requests are those of meta.json's history (`counts.pull_requests`),
+ * or, after an update the person accepted (ticket 10), its `analysed_pull_requests`: the history's and
+ * those of the updates since. An update counts only while its `analysed_through` is later than
+ * `fetched_at`: a whole build after it reads the history again, and its count replaces the update's.
  * Short: no skill, and meta.json's last verdict is `voice: no (N of 30)`. None otherwise.
  */
 export function readTeamReviewer(folder: string): TeamReviewerState {
@@ -79,7 +82,11 @@ export function readTeamReviewer(folder: string): TeamReviewerState {
   const skill = reviewerSkill(folder)
   if (existsSync(skill)) {
     const builtAt = metaDate(meta?.kept_at) ?? metaDate(meta?.fetched_at) ?? statSync(skill).mtime.toISOString()
-    return { status: 'built', builtAt, pullRequests: count(counts.pull_requests) }
+    const updated = metaDate(meta?.analysed_through)
+    const fetched = metaDate(meta?.fetched_at)
+    const sinceUpdate = updated !== null && (fetched === null || Date.parse(updated) > Date.parse(fetched))
+    const pullRequests = (sinceUpdate ? count(meta?.analysed_pull_requests) : null) ?? count(counts.pull_requests)
+    return { status: 'built', builtAt, pullRequests }
   }
   const voice = typeof meta?.voice === 'string' ? meta.voice : ''
   if (voice.startsWith('voice: no')) {

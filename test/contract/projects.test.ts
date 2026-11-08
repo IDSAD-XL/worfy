@@ -1499,10 +1499,31 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
       expect(readFileSync(join(folder, 'meta.json'), 'utf8')).toBe(meta)
     })
 
-    it('a reviewer dated in the future, as a clock set back, is not due', async () => {
+    it('a reviewer or a reminder dated in the future, as a clock set back, is not due, even more than 30 days ahead', async () => {
       const project = (await addOk(makeRepo('shop'))).project
-      builtReviewer('shop', { kept_at: new Date(KEPT + 10 * DAY).toISOString() })
+      const folder = builtReviewer('shop', { kept_at: new Date(KEPT + 10 * DAY).toISOString() })
       expect(await remindAt(project.id, KEPT)).toEqual({ due: false })
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ kept_at: new Date(KEPT + 40 * DAY).toISOString() }))
+      expect(await remindAt(project.id, KEPT)).toEqual({ due: false })
+      // A reminder recorded 40 days ahead of the clock waits for that date and 30 days more.
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ kept_at: new Date(KEPT - 60 * DAY).toISOString() }))
+      const file = join(dataDir, project.id, 'settings.json')
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), humanReview: { remindedAt: new Date(KEPT + 40 * DAY).toISOString() } }))
+      expect(await remindAt(project.id, KEPT)).toEqual({ due: false })
+      expect(await remindAt(project.id, KEPT + 71 * DAY)).toEqual({ due: true })
+    })
+
+    it('after an accepted update the reviewer counts the pull requests of the history and of the update, until a whole build reads it again', async () => {
+      const project = (await addOk(makeRepo('shop'))).project
+      const meta = { kept_at: '2026-11-02T09:00:00Z', fetched_at: '2026-10-01T08:00:00Z', analysed_through: '2026-11-02T08:00:00Z', analysed_pull_requests: 260, counts: { pull_requests: 214 } }
+      const folder = builtReviewer('shop', meta)
+      expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-11-02T09:00:00.000Z', pullRequests: 260 })
+      // A whole build since: fetched_at is later, its counts replace the update's.
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ ...meta, fetched_at: '2026-12-01T08:00:00Z', kept_at: '2026-12-01T09:00:00Z', counts: { pull_requests: 230 } }))
+      expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-12-01T09:00:00.000Z', pullRequests: 230 })
+      // A count that does not read falls back to the history's.
+      writeFileSync(join(folder, 'meta.json'), JSON.stringify({ ...meta, analysed_pull_requests: 'many' }))
+      expect(await value('projects.reviewer.get', { id: project.id })).toMatchObject({ pullRequests: 214 })
     })
 
     it('refreshDue: the rule itself, with the clock passed in', async () => {
@@ -1513,6 +1534,9 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
       expect(refreshDue(built, undefined, new Date(KEPT + 30 * DAY + 1))).toBe(true)
       expect(refreshDue(built, new Date(KEPT + 40 * DAY).toISOString(), new Date(KEPT + 69 * DAY))).toBe(false)
       expect(refreshDue(built, new Date(KEPT + 40 * DAY).toISOString(), new Date(KEPT + 71 * DAY))).toBe(true)
+      // Dates ahead of the clock are not old, however far ahead.
+      expect(refreshDue({ ...built, builtAt: new Date(KEPT + 40 * DAY).toISOString() }, undefined, new Date(KEPT))).toBe(false)
+      expect(refreshDue({ ...built, builtAt: new Date(KEPT - 60 * DAY).toISOString() }, new Date(KEPT + 40 * DAY).toISOString(), new Date(KEPT))).toBe(false)
       expect(refreshDue({ status: 'none' }, undefined, new Date(KEPT + 90 * DAY))).toBe(false)
       expect(refreshDue({ status: 'short', substantive: 4, threshold: 30 }, undefined, new Date(KEPT + 90 * DAY))).toBe(false)
     })
