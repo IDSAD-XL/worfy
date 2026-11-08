@@ -38,11 +38,16 @@ Mutation testing нашёл четыре места, где поломка ко�
 ## Готово, когда
 
 - [ ] Test Project-а над двумя репозиториями красный на обоих mutant-ах M1 и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-stages.test.ts` exit 0; mutants drop routing and repos.length > 2: exit 1, the new test red · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] Test повторного `merge-base` красный на mutant-е M2 и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-stages.test.ts` exit 0; mutant cache any exit code: exit 1, the new test red · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] Test ответов `null`, пустого и другого текста красный на mutant-е M3 и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/github-accounts.test.ts` exit 0; mutant !== false: exit 1, the new test red · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] Test GitHub Enterprise красный на обоих mutant-ах M4 и на mutant-е без проверки хоста (`:139`), зелёный на
       исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/github-accounts.test.ts` exit 0; mutants github.com only, no --hostname, no host guard: exit 1, new tests red · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] Все unit и contract test-ы `src/main/workflow/stages.ts` и `src/main/github/accounts.ts`, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0; 16 test files of stages, accounts and the gh stand-in exit 0 · mac - · a5e8525b81962be48a575096ed865ade33cd6e5f
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
