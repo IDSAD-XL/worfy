@@ -28,14 +28,14 @@ describe('parseTailscaleStatus', () => {
       // An IPv6-only peer keeps its IPv6 address.
       { name: 'lab', address: 'fd7a:115c:a1e0::6501:6670', online: true },
       // IPv4 although IPv6 comes first; the MagicDNS name, not the HostName.
-      { name: 'pc', address: '100.64.0.4', online: true },
+      { name: 'pc', address: '100.64.0.14', online: true },
       { name: 'nas', address: '100.64.0.5', online: false },
       // `expired` has no Tailscale address: left out. `studio` is Self: left out.
     ])
   })
 
   it.each([
-    ['its IPv4', '100.64.0.4'],
+    ['its IPv4', '100.64.0.14'],
     ['an IPv6 that is not the one shown', 'FD7A:115C:A1E0::6501:6668'],
     ['the same IPv6 in brackets', '[fd7a:115c:a1e0::6501:6668]'],
     ['its full MagicDNS name, with the trailing dot and in another case', 'PC.example.ts.net.'],
@@ -46,7 +46,7 @@ describe('parseTailscaleStatus', () => {
   })
 
   it('keeps a peer whose address only looks like a remembered one: a LAN address, another name, a longer name', () => {
-    expect(parseTailscaleStatus(STATUS, ['192.168.1.30', 'pc2', 'pc.other.example', '100.64.0.10']).map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
+    expect(parseTailscaleStatus(STATUS, ['192.168.1.30', 'pc2', 'pc.other.example', '100.64.0.1']).map((peer) => peer.name)).toEqual(['Alices-iPhone', 'lab', 'pc', 'nas'])
   })
 
   it('gives no machines for a tailnet without peers (Peer null or absent)', () => {

@@ -106,7 +106,7 @@ it('with the CLI and "Link through Tailscale" on, lists the tailnet as the CLI r
   expect(await call<TailscalePeerView[]>('link.tailscalePeers')).toEqual([
     { name: 'Alices-iPhone', address: '100.64.0.6', online: true },
     { name: 'lab', address: 'fd7a:115c:a1e0::6501:6670', online: true },
-    { name: 'pc', address: '100.64.0.4', online: true },
+    { name: 'pc', address: '100.64.0.14', online: true },
     { name: 'nas', address: '100.64.0.5', online: false },
   ])
   expect(cli.run).toHaveBeenCalledWith(cli.path, ['status', '--json'], expect.any(Number), { PATH: '/usr/bin:/bin' })

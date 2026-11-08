@@ -22,7 +22,7 @@
       "DNSName": "pc.example.ts.net.",
       "OS": "windows",
       "UserID": 1001,
-      "TailscaleIPs": ["fd7a:115c:a1e0::6501:6668", "100.64.0.4"],
+      "TailscaleIPs": ["fd7a:115c:a1e0::6501:6668", "100.64.0.14"],
       "Online": true,
       "Active": true
     },

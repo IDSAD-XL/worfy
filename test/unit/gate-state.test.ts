@@ -267,7 +267,7 @@ describe('gateRunDir: gate.mjs, gate.sh and Windows paths', () => {
   })
 
   it('on Windows is null for a cd argument with a `\\` outside quotes: Git Bash reads it as an escape and goes elsewhere or nowhere', () => {
-    // `cd C:\Users\someone\worfy` is `cd C:Usersxworfy` to bash: it fails, and after `&&` the Gate does not run.
+    // `cd C:\Users\someone\worfy` is `cd C:Userssomeoneworfy` to bash: it fails, and after `&&` the Gate does not run.
     expect(gateRunDir(`cd C:\\Users\\someone\\worfy && ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd .claude\\worktrees\\07; ${gate}`, cwd, 'win32')).toBeNull()
     expect(gateRunDir(`cd \\x && ${gate}`, cwd, 'win32')).toBeNull()

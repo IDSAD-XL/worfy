@@ -63,7 +63,8 @@ Test-ы и fixture переноса старого Harness — не здесь, 
 Все 33 оставшиеся — подстановки, которые пишет `scripts/codex-capture.mjs` (строка 721 и имя хоста записи) вместо
 домашней папки и хоста: записи `test/fixtures/codex-messages/*.jsonl`, их `README.md` и проверки
 `test/contract/codex-compat.test.ts`, которые сверяют вывод скрипта. Заменить их можно только вместе со скриптом, а
-он вне «Где в коде» этого Ticket-а; вопрос передан Orchestrator-у. Пункт 1 «Готово, когда» поэтому не закрыт.
+он вне «Где в коде» этого Ticket-а. Ревью, раунд 1: Orchestrator принял эти 33 находки как остаток, они переходят в
+Ticket 06 вместе со скриптом.
 
 Поиск подстрокой по открытому списку (`git grep -i -F` по каждой записи, те же файлы), находки по номеру записи
 0–9: до — 63, 0, 0, 188, 164, 4, 0, 0, 0, 0; после — все 0.
@@ -94,3 +95,14 @@ Test-ы и fixture переноса старого Harness — не здесь, 
 - `pnpm test:e2e` по тронутым spec-ам (`browser-mcp`, `done-stack`, `epic-frame`, `limits-vendors`,
   `linked-tailscale`, `packaged`, `projects`, `silent-project`, `snapping`, `toast-placement`) — 45 passed, 1 skipped,
   1 failed (`limits-vendors`: заголовок шире места); после замены имени `limits-vendors.spec.ts` — exit 0, 2 passed.
+
+### Ревью, раунд 1
+
+- `test/unit/link-tailscale.test.ts`: test «keeps a peer whose address only looks like a remembered one» снова
+  проверяет адрес, который начинается с запомненного. У `pc` в `test/fixtures/tailscale/status.json` теперь
+  stand-in-адрес Tailscale, который начинается с запомненного stand-in-адреса; ожидания с адресом `pc` поправлены. Mutant `known.has(key)` →
+  `[...known].some((k) => key.startsWith(k))` в `src/main/link/tailscale.ts:93` — красный (exit 1,
+  `Tests 1 failed | 27 passed (28)`), правка `src` откачена.
+- `test/contract/shell.test.ts:251`: путь `/wf/../Users/someone/../someone/wf` снова ведёт в домашнюю папку.
+- `test/unit/gate-state.test.ts:270`: комментарий — по новому пути.
+- Тронутые test-ы — exit 0, `Tests 235 passed (235)`.

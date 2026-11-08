@@ -248,7 +248,7 @@ describe('shell.openInEditor in a Silent Project', () => {
     expect(await places('/Users/someone', '/Users/someone/', '/Users/someone')).toEqual([])
     expect(await places('/Users/someone/wf', '/Users/someone/wf/.scratch', '/Users/someone/')).toEqual(['/Users/someone/wf/.scratch', '/Users/someone/wf'])
     // A folder above the home folder holds it, and so does a path that only reads as another folder.
-    expect(await places('/Users', '/wf/../Users/someone/../a/wf', '/Users/someone')).toEqual(['/wf/../Users/someone/../a/wf'])
+    expect(await places('/Users', '/wf/../Users/someone/../someone/wf', '/Users/someone')).toEqual(['/wf/../Users/someone/../someone/wf'])
     // review of PR #826: a symlink to the home folder, and the home folder in another letter case,
     // which realpath gives as the disk keeps it, pass a check of the text alone.
     expect(await places('/tmp/x/link', '/tmp/x/link/.scratch', '/Users/someone', { '/tmp/x/link': '/Users/someone', '/tmp/x/link/.scratch': '/Users/someone/.scratch' })).toEqual(['/tmp/x/link/.scratch'])
