@@ -22,17 +22,18 @@ Product Session предлагает и никогда не ставит Epic в
 `Product Session runs on Claude Code only`. Новая Session сразу открывается в Session view. Её Node остаётся Session Node
 на Canvas, с меткой «Product Session» под заголовком. На read-only экране Linked machine вход неактивен.
 
-**Модель.** Product Session всегда работает на сильнейшей модели, `opus`, и стартует с самым высоким effort. Выбор модели
-в ней неактивен, tooltip — «Product Session always runs on the strongest model», а смена модели отклоняется. Eco mode до
-неё не доходит, и в её строке ввода нет меню Modes: оно есть только у Orchestrator-а.
+**Модель.** Product Session всегда работает на сильнейшей модели, `opus`, и стартует с самым высоким effort. В её строке
+ввода нет выбора модели, а смена модели отклоняется. Eco mode до неё не доходит, и в её строке ввода нет меню Modes: оно
+есть только у Orchestrator-а.
 
-**Экран.** Session view у Product Session озаглавлен «Product Session», а в шапке показана доля принятых советов (см.
-последний раздел). Тело — три части рядом:
+**Экран.** Session view у Product Session построен так, как его рисует прототип владельца. В шапке — «Product Session»,
+тема Mind map (пока темы нет — имя Project-а), Vendor, состояние, переключатель Session, доля принятых советов (см.
+последний раздел) и Interrupt. Model, Effort, Permissions, Cost и «Hide tools» в ней нет. Тело — три части рядом:
 
 | Часть | Что в ней |
 |---|---|
 | Mind map, слева | Mind map темы, над которой работает советник (следующий раздел) |
-| Чат, справа | Тот же transcript и та же строка ввода, что у любой Session |
+| Чат, справа | Разговор с советником и строка ввода |
 | Полоса агентов, у правого края | Значок с числом Subagent-ов Session, скрытые не считаются |
 
 - Разделитель между Mind map и чатом стоит на 60 / 40. Он двигается мышью, клавишами ← и → шагом 5 %, Home и End — до
@@ -41,6 +42,20 @@ Product Session предлагает и никогда не ставит Epic в
   видят все окна и следующий запуск worfy.
 - Click по полосе агентов открывает поверх чата блоки rail обычной Session; Escape или «›» их закрывают. Блока Binding
   нет: Product Session не привязана ни к Ticket-у, ни к Epic-у.
+
+**Чат.** Заголовок — «Conversation with the advisor», рядом Vendor; в чате только разговор:
+
+- Сообщения владельца — пузыри у правого края, над ними «You» и время. Ответы советника — пузыри у левого края, над
+  ними «Advisor» и время. Чипы узлов Mind map стоят под сообщением, к которому они относятся.
+- Упавший ход показывает свою ошибку, прерванный — «Interrupted», ошибка Session тоже видна. Запросы разрешений и вопросы
+  советника с вариантами — карточки в чате, как у любой Session.
+- Thinking, вызовы tool-ов и их вывод (и упавший вызов), Subagent-ы, hook-и, notice Claude Code и добавленные им
+  сообщения, «Turn finished» и slash-команды не показываются. Полный журнал — во Flight Recorder.
+- Пока идёт ход, в конце чата стоит «Advisor is thinking». Переключателя деталей нет.
+- Поиск (⌘F) ищет только в том, что показывает чат, и только в прочитанных сообщениях: часть файла transcript-а за
+  «Load earlier» не ищется.
+- В строке ввода — текст, Send, Interrupt во время хода и прикрепление файла или картинки. Pickers, context meter, чипа
+  очереди и подсказок нет. Сообщение, отправленное во время хода, по-прежнему ждёт в очереди.
 
 **Чего она не делает.** Product Session не меняет код, не берёт Ticket-ы, не запускает Autopilot и не меняет репозиторий через git. Это
 держат три слоя, все — для Claude Code:
@@ -112,7 +127,10 @@ Harness читает эту переменную: с ней печатаются
 | `src/main/product/save-signal.ts` | `SaveSignal`: чтение `git status`, сообщение Orchestrator-у, ответы |
 | `src/shared/product/paths.ts` | `productFolder` и имена в папке темы |
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | Два входа «New Product Session» |
-| `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Заголовок, тело и полоса агентов |
+| `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Шапка, тело, заголовок чата и полоса агентов |
+| `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны |
+| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями и «Advisor is thinking» |
+| `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | Строка ввода в одну линию, поиск по показанным строкам |
 | `src/renderer/session/SplitDivider.tsx` | Разделитель |
 | `src/shared/settings/app-settings.ts` | Сохранённая доля, `productSession.split` |
 | `harness/hooks/rules/product.md`, `harness/hooks/inject-rules.mjs` | Правила Product Session и их выбор по переменной |
@@ -123,6 +141,8 @@ Harness читает эту переменную: с ней печатаются
 - `test/unit/product-guard.test.ts`, `test/unit/agent-options.test.ts`: правила файлов и shell, hook и окружение.
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` в Product Session, папка Product Session по режиму.
 - `test/contract/product-save-signal.test.ts`: сигнал сохранения и его ответы, в том числе при Close и архиве.
+- `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: какие строки чат показывает и прячет,
+  пузыри, «Advisor is thinking», поиск, шапка и строка ввода против обычной Session.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: экран, разделитель, полоса и
   Node.
 - `test/e2e/new-product-session.spec.ts`: вход из Command palette в работающем приложении.
@@ -186,10 +206,12 @@ map:» и причина.
   показывает, сколько узлов она прячет. Сворачивание сохраняется в файле.
 - Если изменение не удалось сохранить, карта пишет «Could not save the change:» и причину.
 
-**Чипы в чате.** Под ответом советника каждый узел, который записали вызовы `mind_map_add`, `mind_map_update` или
-`mind_map_decide` этого ответа, получает чип, один на узел. Click по чипу выделяет узел на Mind map и показывает его.
-Скрытый узел сначала становится видимым: «Hide rejected» выключается, свёрнутые ветки над ним разворачиваются. Наведение
-на чип или фокус на нём подсвечивают узел. «Show in the chat» в карточке прокручивает чат к сообщению, где появился узел.
+**Чипы в чате.** Под последним ответом советника в ходе каждый узел, который записали вызовы `mind_map_add`,
+`mind_map_update` или `mind_map_decide` этого хода, получает чип, один на узел. Ход без ответа показывает чипы под
+сообщением владельца, с которого он начался. Click по чипу выделяет узел на Mind map и показывает его. Скрытый узел
+сначала становится видимым: «Hide rejected» выключается, свёрнутые ветки над ним разворачиваются. Наведение на чип или
+фокус на нём подсвечивают его узел; наведение на сообщение подсвечивает узлы всех его чипов. «Show in the chat» в
+карточке прокручивает чат к сообщению с чипом узла.
 
 **Вживую.** Изменение файлов темы перерисовывает Mind map без перезагрузки: вызов tool-а, правка руками, запись другого
 агента. Файл, который не прошёл проверку формата, не показывается пустым: строка над картой называет файл и каждую ошибку
@@ -247,7 +269,7 @@ map:» и причина.
 | `src/shared/ipc/product.ts`, `src/main/ipc/product.ts` | `product.topic`, `product.changed`, `product.layout` и `product.share` |
 | `src/renderer/product/useMindMap.ts` | Одна тема, которую окно держит свежей |
 | `src/renderer/product/MindMap.tsx`, `src/renderer/product/mind-map-layout.ts` | Карта, карточка, перетаскивание и сворачивание, раскладка |
-| `src/renderer/product/NodeChips.tsx`, `src/renderer/product/node-chips.ts`, `src/renderer/session/Transcript.tsx` | Чипы под ответом |
+| `src/renderer/product/NodeChips.tsx`, `src/renderer/product/node-chips.ts`, `src/renderer/session/Transcript.tsx` | Чипы под сообщением, подсветка на Mind map |
 
 **Главные test-ы:**
 

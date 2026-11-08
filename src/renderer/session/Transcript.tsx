@@ -3,12 +3,12 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
-import { attachChat, transcriptChips, useMindMapFocus } from '../product/node-chips'
+import { attachChat, lightNodes, transcriptChips, useMindMapFocus, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
-import { ProductSessionContext } from './product-session'
+import { ProductSessionContext, shownInProductChat } from './product-session'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
@@ -24,7 +24,10 @@ import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type
 // `data-row` and every searched part its id in `data-find`. In a Product Session's chat
 // (ProductSessionContext, worfy-product-session ticket 09) a turn's answer carries the chips of the Mind
 // map nodes its `mind_map_*` calls wrote (../product/node-chips.ts), and a node card's «Show in the chat»
-// scrolls to the row of the call its message came in, marked with `data-shown`.
+// scrolls to the row with the chips of the turn its message came in, marked with `data-shown`. That chat
+// draws only the conversation (ticket 19, product-session.ts, shownInProductChat): the messages are bubbles
+// with the role and the time, as in the owner's prototype; the pointer on a message lights the nodes of
+// its chips; while a turn runs, «Advisor is thinking…» stands at the end.
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -51,6 +54,8 @@ export interface TranscriptProps {
   find?: TranscriptFind | undefined
   /** Gets the log element, for find to tell where the reader is. */
   logRef?: RefObject<HTMLDivElement | null> | undefined
+  /** The Session runs a turn: a Product Session's chat shows «Advisor is thinking…» at its end (ticket 19). */
+  working?: boolean | undefined
 }
 
 export interface EarlierControl {
@@ -168,6 +173,27 @@ function rowTime(at: number, now: number): { date: string | null; clock: string;
  * the label when `time` is `shown`, only in the label's tooltip when it is `tooltip`. The user's
  * row (`labelKind` `user`) is drawn mirrored, at the right edge (worfy-polish ticket 57).
  */
+/** When a row happened (rowTime), against the transcript's today; null without a time Date can hold. */
+function useRowTime(at: number | null): ReturnType<typeof rowTime> | null {
+  const now = useContext(NowContext)
+  // A time Date cannot hold (out of its range) is shown as none rather than thrown on.
+  return at === null || !Number.isFinite(new Date(at).getTime()) ? null : rowTime(at, now)
+}
+
+/** The time under a row's label, or in a message's meta line: the date for another day, then the clock. */
+function RowTime({ at, when }: { at: number; when: NonNullable<ReturnType<typeof rowTime>> }) {
+  return (
+    <time className="w-tr__time" dateTime={new Date(at).toISOString()} title={when.full} data-testid="transcript-time">
+      {when.date !== null ? (
+        <span className="w-tr__date" data-testid="transcript-date">
+          {when.date}
+        </span>
+      ) : null}
+      <span data-testid="transcript-clock">{when.clock}</span>
+    </time>
+  )
+}
+
 function Row({
   label,
   labelKind,
@@ -183,26 +209,62 @@ function Row({
   children: ReactNode
   testId: string
 }) {
-  const now = useContext(NowContext)
   const rowKey = useContext(RowKey)
-  // A time Date cannot hold (out of its range) is shown as none rather than thrown on.
-  const when = at === null || !Number.isFinite(new Date(at).getTime()) ? null : rowTime(at, now)
+  const when = useRowTime(at)
   return (
     <div className={`w-tr__row${labelKind === 'user' ? ' w-tr__row--user' : ''}`} data-testid={testId} data-row={rowKey}>
       <div className={`w-tr__who w-mono${labelKind ? ` w-tr__who--${labelKind}` : ''}`} title={when !== null && time === 'tooltip' ? when.full : undefined}>
         {label !== undefined ? <span className="w-tr__label">{label}</span> : null}
-        {when !== null && time === 'shown' ? (
-          <time className="w-tr__time" dateTime={new Date(at as number).toISOString()} title={when.full} data-testid="transcript-time">
-            {when.date !== null ? (
-              <span className="w-tr__date" data-testid="transcript-date">
-                {when.date}
-              </span>
-            ) : null}
-            <span data-testid="transcript-clock">{when.clock}</span>
-          </time>
-        ) : null}
+        {when !== null && time === 'shown' ? <RowTime at={at as number} when={when} /> : null}
       </div>
       <div className="w-tr__body">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * A message of a Product Session's chat (ticket 19, Q5): a bubble, the owner's at the right edge and the
+ * advisor's at the left, under a meta line with the role and the time, as the owner's prototype draws them.
+ */
+function Message({ who, at, testId, children }: { who: 'you' | 'advisor'; at: number | null; testId: string; children: ReactNode }) {
+  const rowKey = useContext(RowKey)
+  const when = useRowTime(at)
+  return (
+    <div className={`w-pmsg w-pmsg--${who}`} data-testid={testId} data-row={rowKey} data-who={who}>
+      <div className="w-pmsg__meta">
+        <span className="w-pmsg__avatar" aria-hidden="true">
+          {who === 'you' ? 'Y' : 'A'}
+        </span>
+        <span data-testid="product-message-role">{who === 'you' ? 'You' : 'Advisor'}</span>
+        {when !== null ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <RowTime at={at as number} when={when} />
+          </>
+        ) : null}
+      </div>
+      <div className="w-pmsg__bubble" data-testid="product-message-bubble">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** «Advisor is thinking…» at the end of a Product Session's chat while a turn runs (ticket 19, Q2). */
+function Thinking() {
+  return (
+    <div className="w-pmsg w-pmsg--advisor w-pmsg--thinking" role="status" data-testid="product-thinking">
+      <div className="w-pmsg__meta">
+        <span className="w-pmsg__avatar" aria-hidden="true">
+          A
+        </span>
+        <span>Advisor is thinking</span>
+        <span className="w-pmsg__dots" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+      </div>
     </div>
   )
 }
@@ -373,7 +435,7 @@ function ResultRow({ event }: { event: Extract<AgentEvent, { type: 'result' }> }
   )
 }
 
-function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps }) {
+function Item({ item, props, product }: { item: TranscriptItem; props: TranscriptProps; product: boolean }) {
   const assistant = props.assistantLabel ?? 'claude'
   const current = props.find?.current
   // What find's current match opens in this row: its line «N tools» or the row's closed line.
@@ -381,6 +443,27 @@ function Item({ item, props }: { item: TranscriptItem; props: TranscriptProps })
   const seq = props.find?.seq ?? 0
   const reveal = (what: string): string | null => (revealing !== null && revealing.reveal === what ? `${revealing.part}#${revealing.occurrence}#${seq}` : null)
   const find = (part: string): string => partId(item.key, part)
+  if (product && item.kind === 'prompt') {
+    return (
+      <Message who="you" at={item.at} testId="transcript-prompt">
+        {item.text !== '' || item.attachments.length === 0 ? (
+          <div className="w-pmsg__text" data-find={find('prompt')}>
+            {item.text}
+          </div>
+        ) : null}
+        <MessageAttachments attachments={item.attachments} />
+      </Message>
+    )
+  }
+  if (product && item.kind === 'text') {
+    return (
+      <Message who="advisor" at={item.at} testId="transcript-text">
+        <div data-streaming={item.streaming || undefined} data-find={find('text')}>
+          <Markdown text={item.text} projectId={props.projectId} breaks />
+        </div>
+      </Message>
+    )
+  }
   switch (item.kind) {
     case 'prompt':
       return (
@@ -587,14 +670,19 @@ function firstVisibleRow(log: HTMLElement): { row: HTMLElement; offset: number }
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null } = props
-  const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
+  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false } = props
+  const inProduct = useContext(ProductSessionContext)
+  const folded = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
+  // A Product Session's chat draws the conversation only; the rows are folded as for any Session.
+  const items = useMemo(() => (inProduct ? folded.filter(shownInProductChat) : folded), [inProduct, folded])
   const index = useMemo(() => new Map(items.map((item, at) => [item.key, at])), [items])
-  // The chips of a Product Session's chat; none in any other.
-  const product = useContext(ProductSessionContext) && props.projectId !== undefined ? props.projectId : null
-  const chips = useMemo(() => (product === null ? null : transcriptChips(items)), [product, items])
+  // The chips of a Product Session's chat, from all its rows; none in any other.
+  const product = inProduct && props.projectId !== undefined ? props.projectId : null
+  const chips = useMemo(() => (product === null ? null : transcriptChips(folded, shownInProductChat)), [product, folded])
   const shownMessage = useMindMapFocus((state) => state.shown)
   useEffect(() => (product === null ? undefined : attachChat(product)), [product])
+  // A chat that goes while the pointer is on one of its messages leaves no node lit.
+  useEffect(() => (product === null ? undefined : () => lightNodes([])), [product])
   const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
   const now = useToday()
   const [lines] = useState(() => new Map<string, LineState>())
@@ -873,17 +961,27 @@ export function Transcript(props: TranscriptProps) {
   for (const row of shown) {
     const item = items[row]!
     if (row > next) rows.push(space(item.key, next, row))
+    const rowChips = product === null ? undefined : chips?.byRow.get(item.key)
+    // The pointer on a message of a Product Session lights the nodes of its chips (ticket 19, Q5).
+    const refs: NodeRef[] | undefined = product === null ? undefined : rowChips?.map((chip) => ({ projectId: product, topic: chip.topic, id: chip.node.id }))
     rows.push(
-      <div key={item.key} className="w-tr__item" data-item={item.key}>
+      <div
+        key={item.key}
+        className={`w-tr__item${inProduct && item.kind === 'prompt' ? ' w-tr__item--you' : ''}`}
+        data-item={item.key}
+        onMouseEnter={refs === undefined ? undefined : () => lightNodes(refs)}
+        onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
+      >
         <RowKey.Provider value={item.key}>
-          <Item item={item} props={props} />
+          <Item item={item} props={props} product={inProduct} />
         </RowKey.Provider>
-        {product !== null && chips?.byRow.has(item.key) === true ? <NodeChips projectId={product} chips={chips.byRow.get(item.key)!} /> : null}
+        {product !== null && rowChips !== undefined ? <NodeChips projectId={product} chips={rowChips} /> : null}
       </div>,
     )
     next = row + 1
   }
   if (next < n) rows.push(space('', next, n))
+  if (inProduct && working) rows.push(<Thinking key="thinking" />)
 
   return (
     <div
@@ -908,7 +1006,7 @@ export function Transcript(props: TranscriptProps) {
         </div>
       ) : null}
       <NowContext.Provider value={now}>
-        <Lines.Provider value={lines}>{items.length === 0 ? <div className="w-tr__empty">No messages yet</div> : rows}</Lines.Provider>
+        <Lines.Provider value={lines}>{items.length === 0 && !(inProduct && working) ? <div className="w-tr__empty">No messages yet</div> : rows}</Lines.Provider>
       </NowContext.Provider>
     </div>
   )

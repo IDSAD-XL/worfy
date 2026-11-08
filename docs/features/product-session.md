@@ -22,17 +22,19 @@ Command palette. Neither offers a Vendor: a Product Session runs on Claude Code 
 Node on the Canvas, with the label "Product Session" under its header. On a read-only screen of a Linked machine the
 entry is inactive.
 
-**Model.** A Product Session always runs on the strongest model, `opus`, and starts at the highest effort. Its model
-picker is inactive, with the tooltip "Product Session always runs on the strongest model", and a change of the model is
-refused. Eco mode does not reach it, and its input field has no Modes menu: that menu belongs to the Orchestrator.
+**Model.** A Product Session always runs on the strongest model, `opus`, and starts at the highest effort. Its input
+field has no model picker, and a change of the model is refused. Eco mode does not reach it, and its input field has no
+Modes menu: that menu belongs to the Orchestrator.
 
-**The screen.** The Session view of a Product Session is headed "Product Session" and shows the share of accepted advice
-in its header (see the last section). Its body is three parts side by side:
+**The screen.** The Session view of a Product Session is built as the owner's prototype draws it. Its header holds
+"Product Session", the topic of the Mind map (the Project's name until a topic is known), the Vendor, the state, the
+Session switcher, the share of accepted advice (see the last section) and Interrupt. It has no Model, Effort,
+Permissions, Cost or "Hide tools". Its body is three parts side by side:
 
 | Part | What it holds |
 |---|---|
 | Mind map, on the left | The Mind map of the topic the advisor works on (next section) |
-| Chat, on the right | The same transcript and input field as any Session |
+| Chat, on the right | The conversation with the advisor and the input field |
 | Agents strip, at the right edge | An icon with the number of the Session's Subagents, hidden ones left out |
 
 - The divider between the Mind map and the chat starts at 60 / 40. It moves with the mouse, with ← and → in steps of
@@ -41,6 +43,20 @@ in its header (see the last section). Its body is three parts side by side:
   next start of worfy show it.
 - A click on the agents strip opens the rail blocks of a plain Session over the chat; Escape or "›" closes them. The
   Binding block is left out: a Product Session is bound to no Ticket and no Epic.
+
+**The chat.** It is headed "Conversation with the advisor", with the Vendor, and shows the conversation only:
+
+- The owner's messages are bubbles at the right edge, under "You" and the time. The advisor's answers are bubbles at the
+  left edge, under "Advisor" and the time. The chips of Mind map nodes stand under the message that carries them.
+- A turn that failed shows its error, an interrupted turn shows "Interrupted", and an error of the Session shows too.
+  Permission requests and the advisor's questions with options are cards in the chat, as in any Session.
+- Thinking, tool calls and their output (a failed call too), Subagents, hooks, Claude Code's notices and the messages it
+  adds, "Turn finished" and slash commands are not shown. The whole log is in the Flight Recorder.
+- While a turn runs, "Advisor is thinking" stands at the end of the chat. There is no switch to show the details.
+- Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
+  file behind "Load earlier" is not searched.
+- The input field keeps the text, Send, Interrupt while a turn runs, and attaching a file or a picture. It has no
+  pickers, context meter, queue chip or hints. A message sent while a turn runs still waits in the queue.
 
 **What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never changes the repository with git.
 Three layers hold this, all for Claude Code:
@@ -113,7 +129,10 @@ changes make one message. One signal runs at a time per Project.
 | `src/main/product/save-signal.ts` | `SaveSignal`: the `git status` read, the message to the Orchestrator, the answers |
 | `src/shared/product/paths.ts` | `productFolder` and the names of a topic folder |
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | The two entries "New Product Session" |
-| `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The heading, the body and the agents strip |
+| `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
+| `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out |
+| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles and "Advisor is thinking" |
+| `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
 | `src/renderer/session/SplitDivider.tsx` | The divider |
 | `src/shared/settings/app-settings.ts` | The saved split, `productSession.split` |
 | `harness/hooks/rules/product.md`, `harness/hooks/inject-rules.mjs` | The rules of a Product Session and their choice by the variable |
@@ -126,6 +145,8 @@ changes make one message. One signal runs at a time per Project.
   environment.
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` in a Product Session, the Product Session folder by mode.
 - `test/contract/product-save-signal.test.ts`: the save signal and its answers, also on Close and archive.
+- `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: the rows the chat shows and hides, the
+  bubbles, "Advisor is thinking", find, the header and the input field against a plain Session.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
@@ -190,10 +211,12 @@ to type in.
   many nodes it hides. The fold is saved in the file.
 - When the change cannot be saved, the map says "Could not save the change:" and the reason.
 
-**Chips in the chat.** Under the advisor's answer, each node that the answer's `mind_map_add`, `mind_map_update` or
-`mind_map_decide` calls wrote gets a chip, once per node. A click on a chip selects the node on the Mind map and brings it
-into view. A hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing
-at a chip or focusing it lights the node. "Show in the chat" on a card scrolls the chat to the message the node came in.
+**Chips in the chat.** Under the advisor's last answer of a turn, each node that the turn's `mind_map_add`,
+`mind_map_update` or `mind_map_decide` calls wrote gets a chip, once per node. A turn without an answer shows its chips
+under the owner's message that started it. A click on a chip selects the node on the Mind map and brings it into view. A
+hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing at a chip or
+focusing it lights its node; pointing at a message lights the nodes of all its chips. "Show in the chat" on a card
+scrolls the chat to the message that carries the node's chip.
 
 **Live.** A change of a topic's files redraws the Mind map without a reload: a tool call, an edit by hand, another
 agent's write. A file that fails the format check is not shown as empty: a line above the map names the file and each
@@ -253,7 +276,7 @@ the file says.
 | `src/shared/ipc/product.ts`, `src/main/ipc/product.ts` | `product.topic`, `product.changed`, `product.layout` and `product.share` |
 | `src/renderer/product/useMindMap.ts` | One topic kept current in the window |
 | `src/renderer/product/MindMap.tsx`, `src/renderer/product/mind-map-layout.ts` | The map, its card, drag and fold, and its layout |
-| `src/renderer/product/NodeChips.tsx`, `src/renderer/product/node-chips.ts`, `src/renderer/session/Transcript.tsx` | The chips under an answer |
+| `src/renderer/product/NodeChips.tsx`, `src/renderer/product/node-chips.ts`, `src/renderer/session/Transcript.tsx` | The chips under a message, the light on the Mind map |
 
 **Main tests:**
 

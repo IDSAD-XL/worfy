@@ -21,10 +21,20 @@ import { invoke } from '../ipc'
 import { matches as matchesShortcut } from '../shortcuts/match'
 import { foldTranscript, rowOrder, toolSegments, type TranscriptItem } from './fold'
 import { useNavigation } from './navigation'
+import { shownInProductChat } from './product-session'
 import { rowTypes } from './rows/index'
 
 /** The event types drawn by a row file (rows/index.ts): the same set the Transcript folds with. */
 export const extensionTypes: ReadonlySet<string> = new Set(rowTypes.keys())
+
+/**
+ * The rows find looks in: the rows of the events, as the Transcript folds them; of a Product Session's
+ * chat, only the ones it draws (product-session.ts, shownInProductChat; worfy-product-session ticket 19).
+ */
+export function findItems(events: readonly AgentEvent[], firstIndex: number, product: boolean): TranscriptItem[] {
+  const items = foldTranscript(events, extensionTypes, firstIndex)
+  return product ? items.filter(shownInProductChat) : items
+}
 
 /** Pause after typing before main is asked about the history the view has not read. */
 export const FIND_DEBOUNCE_MS = 150
@@ -226,6 +236,8 @@ export interface TranscriptFindOptions {
   events: readonly AgentEvent[]
   firstIndex: number
   hideTools: boolean
+  /** A Product Session's chat: find looks only in the rows it draws (findItems). */
+  product?: boolean | undefined
   /** The transcript file behind the events, when the view reads one; undefined without. */
   source: FindSource | undefined
   /** The Transcript's log (Transcript.tsx, `logRef`): where a new query starts. */
@@ -255,7 +267,11 @@ export interface TranscriptFindState {
  * Find in the Session view's transcript: the bar's state, ⌘F (Ctrl+F on Windows and Linux) while
  * the Session view is on screen, the matches of the rows and of the file before them.
  */
-export function useTranscriptFind({ events, firstIndex, hideTools, source, log }: TranscriptFindOptions): TranscriptFindState {
+export function useTranscriptFind({ events, firstIndex, hideTools, product = false, source: given, log }: TranscriptFindOptions): TranscriptFindState {
+  // shortcut: main counts matches in every line of the file before the rows (tool output too), so a Product
+  // Session's chat does not ask it and searches only the rows it holds; redo when claudeHome.transcriptFind
+  // can be told to look in the conversation only.
+  const source = product ? undefined : given
   const [open, setOpen] = useState(false)
   const [query, setQueryState] = useState('')
   const [focusSeq, setFocusSeq] = useState(0)
@@ -269,14 +285,14 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
   const partial = (source?.earlier ?? 0) > 0
 
   // The rows are folded only while the bar is open.
-  const items = useMemo(() => (open ? foldTranscript(events, extensionTypes, firstIndex) : []), [open, events, firstIndex])
+  const items = useMemo(() => (open ? findItems(events, firstIndex, product) : []), [open, events, firstIndex, product])
   const found = useMemo(() => rowMatches(items, needle, hideTools, partial), [items, needle, hideTools, partial])
 
   // What the handlers and the effects read of the last render: the panel makes a new source each
   // render, so the effects follow its key and read the source here.
-  const latest = useRef({ source, events, firstIndex, hideTools, found, open, query })
+  const latest = useRef({ source, events, firstIndex, hideTools, product, found, open, query })
   useLayoutEffect(() => {
-    latest.current = { source, events, firstIndex, hideTools, found, open, query }
+    latest.current = { source, events, firstIndex, hideTools, product, found, open, query }
   })
 
   /** Where a query starts: near what the reader looks at (startingMatch). */
@@ -285,7 +301,7 @@ export function useTranscriptFind({ events, firstIndex, hideTools, source, log }
     const wanted = findNeedle(next)
     if (wanted === '') return setCurrent(null)
     const now = latest.current
-    const start = startingMatch(log.current, rowMatches(foldTranscript(now.events, extensionTypes, now.firstIndex), wanted, now.hideTools, (now.source?.earlier ?? 0) > 0))
+    const start = startingMatch(log.current, rowMatches(findItems(now.events, now.firstIndex, now.product), wanted, now.hideTools, (now.source?.earlier ?? 0) > 0))
     setCurrent(start === null ? null : { kind: 'row', match: start })
     },
     [log],

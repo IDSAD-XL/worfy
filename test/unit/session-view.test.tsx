@@ -997,7 +997,8 @@ describe('SessionPanel', () => {
         version: 1,
       })
       const view = render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="node-1" blocks={collect(blocks)} />)
-      await vi.waitFor(() => expect(screen.getByTestId('session-model').textContent).toBe('claude-opus-5-5'))
+      await vi.waitFor(() => expect(screen.getByTestId('session-vendor').textContent).toBe('Claude Code'))
+      if (kind === undefined) await vi.waitFor(() => expect(screen.getByTestId('session-model').textContent).toBe('claude-opus-5-5'))
       return view.container
     }
 
@@ -1025,20 +1026,49 @@ describe('SessionPanel', () => {
       expect(screen.queryByTestId('product-session-accepted')).toBeNull()
     })
 
-    it('locks the model picker of a Product Session with the tooltip of Q10', async () => {
+    // worfy-product-session ticket 19 (Q3, Q4 and Q5 of the owner's decisions of 2026-11-08): the header keeps
+    // «Product Session», the topic, the Vendor, the state and the share of accepted advice; the chat has its
+    // own heading; the input field keeps the text, Send, Interrupt and attaching.
+    it('the header of a Product Session has no Model, Effort, Permissions, Cost or Hide tools; the Vendor, the state and the advice stay', async () => {
       await mountKind('product')
-      const model = await screen.findByTestId<HTMLButtonElement>('picker-model')
-      await vi.waitFor(() => expect(model.title).toBe('Product Session always runs on the strongest model'))
-      expect(model.disabled).toBe(true)
-      // The effort and the permission mode stay open.
-      await vi.waitFor(() => expect(screen.getByTestId<HTMLButtonElement>('picker-permissions').disabled).toBe(false))
-      expect(screen.getByTestId<HTMLButtonElement>('picker-effort').disabled).toBe(false)
+      const header = screen.getByRole('banner')
+      for (const testId of ['session-model', 'session-effort', 'session-permissions', 'session-cost', 'session-hide-tools']) expect(within(header).queryByTestId(testId), testId).toBeNull()
+      for (const label of ['Model', 'Effort', 'Permissions', 'Cost']) expect(within(header).queryByText(label), label).toBeNull()
+      expect(within(header).getByTestId('session-vendor').textContent).toBe('Claude Code')
+      expect(within(header).getByTestId('session-state').textContent).toBe('idle')
+      expect(within(header).getByTestId('product-session-accepted')).toBeTruthy()
+      expect(within(header).getByTestId('session-interrupt')).toBeTruthy()
     })
 
-    it('a plain Session can pick a model', async () => {
+    it('the chat of a Product Session is headed «Conversation with the advisor», with the Vendor', async () => {
+      await mountKind('product')
+      const head = screen.getByTestId('product-chat-head')
+      expect(head.textContent).toContain('Conversation with the advisor')
+      expect(within(head).getByTestId('product-chat-vendor').textContent).toBe('Claude Code')
+    })
+
+    it('the input field of a Product Session keeps the text, Send and attaching; no pickers, context meter, queue or hint', async () => {
+      await mountKind('product')
+      const input = screen.getByTestId('message-input')
+      expect(within(input).getByRole('textbox', { name: 'Message Product Session' })).toBeTruthy()
+      expect(within(input).getByTestId('input-send')).toBeTruthy()
+      expect(within(input).getByTestId('input-attach')).toBeTruthy()
+      for (const testId of ['picker-model', 'picker-effort', 'picker-permissions', 'context-meter', 'queue']) expect(within(input).queryByTestId(testId), testId).toBeNull()
+      expect(input.querySelector('.w-composer__hint')).toBeNull()
+      expect(input.querySelector('[data-item="Pickers"], [data-item="ContextMeter"], [data-item="Queue"]')).toBeNull()
+    })
+
+    it('a plain Session keeps its header facts, Hide tools, the input field\'s bar and no chat heading', async () => {
       await mountKind(undefined)
-      await vi.waitFor(() => expect(screen.getByTestId<HTMLButtonElement>('picker-model').disabled).toBe(false))
-      expect(screen.getByTestId('picker-model').title).not.toBe('Product Session always runs on the strongest model')
+      const header = screen.getByRole('banner')
+      for (const testId of ['session-model', 'session-effort', 'session-permissions', 'session-cost', 'session-hide-tools', 'session-vendor', 'session-state']) expect(within(header).getByTestId(testId), testId).toBeTruthy()
+      expect(screen.queryByTestId('product-chat-head')).toBeNull()
+      const input = screen.getByTestId('message-input')
+      await vi.waitFor(() => expect(within(input).getByTestId<HTMLButtonElement>('picker-model').disabled).toBe(false))
+      expect(within(input).getByTestId('picker-effort')).toBeTruthy()
+      expect(within(input).getByTestId('context-meter')).toBeTruthy()
+      expect(input.querySelector('.w-composer__hint')).not.toBeNull()
+      expect(input.querySelector('[data-item="Queue"]')).not.toBeNull()
     })
   })
 })

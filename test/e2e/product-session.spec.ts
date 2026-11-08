@@ -87,8 +87,14 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(field).toBeEnabled()
     await field.fill('What could we sell?')
     await field.press('Enter')
-    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    // The chat draws the conversation only (ticket 19): the turn has ended once the answer is there and
+    // «Advisor is thinking» has gone; neither the call nor «Turn finished» is drawn.
     await expect(view.getByTestId('transcript-text').last()).toContainText('One idea on the map')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.getByTestId('product-thinking')).toHaveCount(0)
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(0)
+    await expect(view.getByTestId('tool-call')).toHaveCount(0)
+    await expect(view.getByTestId('product-chat-head')).toContainText('Conversation with the advisor')
 
     // What the tool writes; the fake agent called none.
     writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: [NODE] }, null, 2)}\n`)
@@ -100,6 +106,9 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     const chip = view.locator(`[data-testid="node-chip"][data-id="${NODE.id}"]`)
     await expect(chip).toBeVisible()
     await expect(chip).toContainText(NODE.text)
+    // The pointer on the message lights its node too.
+    await view.getByTestId('transcript-text').last().hover()
+    await expect(node).toHaveAttribute('data-lit', 'true')
     await chip.hover()
     await expect(node).toHaveAttribute('data-lit', 'true')
     await chip.click()
