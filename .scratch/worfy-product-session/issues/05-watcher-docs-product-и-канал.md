@@ -1,7 +1,8 @@
 # 05 — Watcher `docs/product/` и канал `product.changed`
 
 Type: task
-Status: open
+Status: done 2026-11-08T04:32Z
+PR: #1625
 Blocked by: 03
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 5 (экран перерисовывается сразу); «Как работает» → «Живая перерисовка»; «Риски», п. 4; research [product-session-основа](../../../docs/research/2026-11-07-product-session-основа.md), раздел 3.3
 
@@ -31,17 +32,22 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
       debounce; запись `src/a.ts` — события нет.
   - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
+  - evidence: review pass · PR #1625 · - - · fb5f146ab41e695879ea81eceeaae4e7562dbee7
 - [ ] Test: две записи одного файла за 50 мс — последнее событие несёт второе содержимое.
   - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
+  - evidence: review pass · PR #1625 · - - · fb5f146ab41e695879ea81eceeaae4e7562dbee7
 - [ ] Test: удаление `docs/product/` целиком не даёт бесконечного потока событий (как `watch-gone`).
   - evidence: test-run pass · `pnpm test test/contract/product-watch.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/product-watch.test.ts test/contract/docs.test.ts test/contract/docs-watch-root.test.ts` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
+  - evidence: review pass · PR #1625 · - - · fb5f146ab41e695879ea81eceeaae4e7562dbee7
 - [ ] Test-ы watcher-а на Windows — exit 0.
   - needs: windows
+  - evidence: review pass · PR #1625 · - - · fb5f146ab41e695879ea81eceeaae4e7562dbee7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5431f926637b1595820008593e6bf7acf9691fd1
   - evidence: gate pass · `gate fast` exit 0 · mac - · 79929984cebab32b5262882320867def4ba57a90
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42438721812/job/128621086048 · ci - · fb5f146ab41e695879ea81eceeaae4e7562dbee7
 
 ## Тесты
 
