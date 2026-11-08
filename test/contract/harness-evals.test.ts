@@ -202,7 +202,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the ten cases', () => {
+  it('holds exactly the fourteen cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -770,6 +770,132 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
     const tests = inFixture(home, work, 'node', ['--test'])
     expect(tests.status, `${tests.stdout}\n${tests.stderr}`).toBe(0)
   }, process.platform === 'win32' ? ms(53_000) : undefined)
+})
+
+// The cases of the skills copied from mattpocock-skills 1.3.1 (worfy-skills 05). A run installs only
+// the plugin under test, so a case sees the copies under their plugin names, `worfy:<skill>`.
+describe('harness/evals: the cases of the copied skills', () => {
+  const SKILL_CASES = CASES.map(([name]) => name).filter((name) => name.startsWith('skill-'))
+  /** The `input_match` of a grader as a RegExp, the way `claude plugin eval` builds it: no flags. */
+  const inputMatch = (name: string, grader: string): RegExp => new RegExp(field(frontMatter(join(EVALS, name, 'graders', grader)), 'input_match') ?? '<none>')
+  /** The input of a Write call as the grader reads it: the JSON of the tool input. */
+  const write = (path: string, content: string): string => JSON.stringify({ file_path: path, content })
+  const skill = (name: string): string => JSON.stringify({ skill: name })
+
+  it('are the four cases of the ticket', () => {
+    expect(SKILL_CASES.sort()).toEqual(['skill-code-review', 'skill-grilling-trigger', 'skill-to-tickets-format', 'skill-wayfinder-refs'])
+  })
+
+  // Red on a Harness without the copies (main before worfy-skills 01): there is no skills/grilling,
+  // so no run can call worfy:grilling, and the grader of skill-grilling-trigger fails every run.
+  it('each `worfy:<skill>` a grader or prompt names is a skill of the plugin, and a skill a Skill grader expects is open to the model', () => {
+    const named = new Map<string, string>()
+    for (const name of SKILL_CASES) {
+      const texts = [join(EVALS, name, 'prompt.md'), ...graderFiles(name)].map((file) => [file, readFileSync(file, 'utf8')] as const)
+      for (const [file, text] of texts) for (const match of text.matchAll(/worfy:([a-z][a-z-]*)/g)) named.set(match[1] ?? '', file)
+    }
+    expect([...named.keys()].sort()).toEqual(['code-review', 'domain-modeling', 'grilling', 'to-tickets', 'wayfinder'])
+    for (const [name, file] of named) expect(existsSync(join(HARNESS, 'skills', name, 'SKILL.md')), `${name} in ${file}`).toBe(true)
+    // The model calls these through the Skill tool; a skill with disable-model-invocation only takes a slash command.
+    for (const name of ['grilling', 'domain-modeling']) {
+      expect(frontMatter(join(HARNESS, 'skills', name, 'SKILL.md'))).not.toMatch(/disable-model-invocation:\s*true/)
+    }
+    // wayfinder still names both skills by their plugin names: the grader of skill-wayfinder-refs looks for those calls.
+    const wayfinder = readFileSync(join(HARNESS, 'skills', 'wayfinder', 'SKILL.md'), 'utf8')
+    expect(wayfinder).toContain('"worfy:grilling"')
+    expect(wayfinder).toContain('"worfy:domain-modeling"')
+  })
+
+  it('the Skill graders take the call by the plugin name and refuse a call of mattpocock-skills', () => {
+    for (const name of ['skill-grilling-trigger', 'skill-wayfinder-refs']) {
+      const called = inputMatch(name, 'grilling-called.md')
+      expect(skill('worfy:grilling')).toMatch(called)
+      expect(JSON.stringify({ skill: 'worfy:grilling', args: 'the plan' })).toMatch(called)
+      expect(skill('mattpocock-skills:grilling')).not.toMatch(called)
+      expect(skill('worfy:grill-me')).not.toMatch(called)
+      const other = inputMatch(name, 'no-mattpocock-skill.md')
+      expect(skill('mattpocock-skills:grilling')).toMatch(other)
+      expect(skill('worfy:grilling')).not.toMatch(other)
+    }
+    const modeling = inputMatch('skill-wayfinder-refs', 'domain-modeling-called.md')
+    expect(skill('worfy:domain-modeling')).toMatch(modeling)
+    expect(skill('mattpocock-skills:domain-modeling')).not.toMatch(modeling)
+  })
+
+  it('skill-grilling-trigger: the round grader takes the question format of skills/grilling', () => {
+    const text = readFileSync(join(HARNESS, 'skills', 'grilling', 'SKILL.md'), 'utf8')
+    const pattern = new RegExp(field(frontMatter(join(EVALS, 'skill-grilling-trigger', 'graders', 'numbered-round.md')), 'pattern') ?? '<none>')
+    expect(text).toMatch(pattern)
+    expect('❓ **Q1** - **One module or four?**: …\n\n➡️ One module.').toMatch(pattern)
+    expect('1. One module or four?').not.toMatch(pattern)
+  })
+
+  // The header grader and epic-status read the same lines: a ticket the grader takes is one epic-status
+  // reads with no error, and an old header epic-status refuses is one the other grader catches.
+  it('skill-to-tickets-format: a ticket the header grader takes is read by epic-status, an old header is caught', () => {
+    const { work, home, run } = caseFixtureToChange('skill-to-tickets-format')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(existsSync(join(work, '.scratch', 'greet', 'spec.md'))).toBe(true)
+    expect(existsSync(join(work, '.scratch', 'greet', 'issues'))).toBe(false)
+    const header = inputMatch('skill-to-tickets-format', 'ticket-header.md')
+    const old = inputMatch('skill-to-tickets-format', 'no-old-header.md')
+    const tickets: [file: string, content: string, ok: boolean][] = [
+      ['01-greeting.md', '# 01: Greeting\n\nType: task\nStatus: open\nBlocked by: None — can start immediately\n\nThe function.\n', true],
+      ['02-command.md', '# 02: Command\n\nType: task\nStatus: open 2026-10-01T12:00Z\nBlocked by: 01\n\nThe command.\n', true],
+      ['03-shout.md', '# 03: Shout\n\nType: task\n**Status:** open\nBlocked by: 02\n', false],
+      ['04-tail.md', '# 04: Tail\n\nType: task\nStatus: open — new\nBlocked by: 02\n', false],
+      ['05-word.md', '# 05: Word\n\nType: task\nStatus: resolved\nBlocked by: 02\n', false],
+    ]
+    mkdirSync(join(work, '.scratch', 'greet', 'issues'))
+    for (const [file, content] of tickets) writeFileSync(join(work, '.scratch', 'greet', 'issues', file), content)
+    const status = harness(home, work, 'epic-status', ['--json'])
+    expect(status.status, status.stderr).toBe(0)
+    const read = (JSON.parse(status.stdout) as { tickets: { epic: string; slug: string; statusError: string | null }[] }).tickets.filter((t) => t.epic === 'greet')
+    expect(read).toHaveLength(tickets.length)
+    for (const [file, content, ok] of tickets) {
+      const path = `/tmp/run/.scratch/greet/issues/${file}`
+      const errorOf = read.find((ticket) => `${file.slice(0, 3)}${ticket.slug}.md` === file)?.statusError
+      expect(errorOf, file).toBe(ok ? null : 'old header')
+      expect(header.test(write(path, content)), file).toBe(ok || file === '04-tail.md')
+      expect(old.test(write(path, content)), file).toBe(!ok)
+    }
+    // A file outside the epic's tickets is none of the graders' business.
+    expect(header.test(write('/tmp/run/.scratch/greet/spec.md', tickets[0]?.[1] ?? ''))).toBe(false)
+    expect(old.test(write('/tmp/run/notes.md', '**Status:** draft\n'))).toBe(false)
+  })
+
+  it('skill-wayfinder-refs: the ticket grader takes a map ticket with a Type line and Status open, and a resolved one is caught', () => {
+    const header = inputMatch('skill-wayfinder-refs', 'ticket-header.md')
+    const other = inputMatch('skill-wayfinder-refs', 'no-other-status-word.md')
+    const ticket = (type: string, status: string): string => `# 01 — Command name\n\nType: ${type}\nStatus: ${status}\nBlocked by: —\n\n## Question\n\nWhat is the command called?\n`
+    const path = '/tmp/run/.scratch/cli/issues/01-command-name.md'
+    for (const type of ['research', 'prototype', 'grilling', 'task']) expect(write(path, ticket(type, 'open'))).toMatch(header)
+    expect(write(path, ticket('grilling', 'open'))).not.toMatch(other)
+    expect(write(path, ticket('wayfinder:grilling', 'open'))).not.toMatch(header)
+    expect(write('/tmp/run/.scratch/cli/map.md', ticket('grilling', 'open'))).not.toMatch(header)
+    expect(write(path, ticket('grilling', 'resolved'))).toMatch(other)
+    expect(write(path, ticket('grilling', 'done 2026-10-01T12:00Z'))).not.toMatch(other)
+    expect(readFileSync(join(EVALS, 'skill-wayfinder-refs', 'prompt.md'), 'utf8')).toContain('/worfy:wayfinder ')
+  })
+
+  it('skill-code-review: the change breaks the standards and misses the test the ticket asks for', () => {
+    const { work, home, run } = caseFixture('skill-code-review')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const git = (...args: string[]): string => inFixture(home, work, 'git', args).stdout
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('demo/01')
+    expect(git('status', '--porcelain')).toBe('')
+    expect(git('diff', '--name-only', 'origin/main...HEAD').trim()).toBe('src/alpha.mjs')
+    expect(git('show', 'origin/main:CODING_STANDARDS.md')).toMatch(/no `export default`[\s\S]*JSDoc/)
+    expect(readFileSync(join(work, 'src', 'alpha.mjs'), 'utf8')).toBe('export default function double(n) {\n  return n * 2\n}\n')
+    expect(git('show', 'origin/main:.scratch/demo/issues/01-alpha.md')).toContain('test/alpha.test.mjs')
+    expect(existsSync(join(work, 'test', 'alpha.test.mjs'))).toBe(false)
+
+    const headings = new RegExp(field(frontMatter(join(EVALS, 'skill-code-review', 'graders', 'two-headings.md')), 'pattern') ?? '<none>', 'm')
+    expect('## Standards\n\n- default export\n\n## Spec\n\n- no test\n\nStandards: 1, Spec: 1.').toMatch(headings)
+    expect('## Standards\n\n- default export').not.toMatch(headings)
+    expect('Standards and Spec are both fine.').not.toMatch(headings)
+    expect(readFileSync(join(HARNESS, 'skills', 'code-review', 'SKILL.md'), 'utf8')).toMatch(/`## Standards` and `## Spec`/)
+  })
 })
 
 // Every child of this file and of harness-evals-run.test.ts that runs a scaffold script, a Harness

@@ -28,6 +28,10 @@ export const CASES: [name: string, tag: 'main' | 'gui'][] = [
   ['status-block', 'main'],
   ['reviewer-intended-breakage', 'main'],
   ['reviewer-simplification', 'main'],
+  ['skill-grilling-trigger', 'main'],
+  ['skill-wayfinder-refs', 'main'],
+  ['skill-to-tickets-format', 'main'],
+  ['skill-code-review', 'main'],
 ]
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 export const SCAFFOLD_TIMEOUT_MS = ms(60_000)
