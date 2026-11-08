@@ -34,20 +34,20 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] Unit test: fixture-тема рисует корень, Ticket-ы карты и узлы с видами; Решение `rejected` — зачёркнуто.
-  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] Unit test: «скрыть отклонённые» убирает отклонённое Решение и его ветку; выключатель возвращает.
-  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] Unit test: «дерево» по умолчанию, текст крупнее, чем в «граф»; выбор вида запоминается.
-  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] Unit test: click по узлу открывает карточку с причиной или источником; «Вписать» вписывает все узлы.
-  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `vitest run test/unit/mind-map-view.test.tsx` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] Unit test раскладки: `replaces` не создаёт цикла в дереве; 150 узлов раскладываются, время записано в «Итог».
-  - evidence: test-run pass · `vitest run test/unit/mind-map-layout.test.ts` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `vitest run test/unit/mind-map-layout.test.ts` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 - [ ] (manual) Экран на Mac Stable с fixture-темой: виды, зачёркнутые, zoom и pan — снимок с проверкой пикселей.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
-  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
-  - evidence: gate pass · `gate fast` exit 0 · mac - · dfbc8a882c34f828ba4c3dc75eccae0b41d40321
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5a04a9e9c16a2ebab38ff26fc89940f6b32da188
 
 ## Тесты
 
