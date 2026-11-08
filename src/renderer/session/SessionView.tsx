@@ -18,6 +18,7 @@ import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
+import { ProductSessionPanel } from './ProductSessionPanel'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -41,6 +42,10 @@ import './session.css'
 // Session after a restart of worfy — shows the turns the file holds first, read as the read-only
 // view reads them (ExternalSessionPanel.tsx), and its live events after them, no turn twice
 // (store.ts, joinPastAndLive; worfy-daily ticket 22).
+//
+// A Product Session (a Session Node of kind `product`, worfy-product-session ticket 07) is headed
+// «Product Session» and has its own body (ProductSessionPanel.tsx): the Mind map, a divider and the
+// chat, with an agents strip in place of the rail and no Binding.
 
 export interface SessionViewProps {
   /** The active Project; undefined while there is none. */
@@ -209,7 +214,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // default model is «default» until then: only init says which model it stands for.
   // An empty name reads as unknown («—»), as none does (worfy-polish 52).
   const model = headerModel(modelPick, facts.model, view?.model ?? null)
-  const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : 'Session'
+  // The kind of a Session Node: its view's, else the one its Node saved, so the body does not change once the view arrives.
+  const savedKind = savedNode?.data.kind
+  const product = orchestrator === undefined && (nodeSession?.kind ?? savedKind) === 'product'
+  const heading = orchestrator !== undefined || nodeSession === undefined ? 'Orchestrator' : product ? 'Product Session' : 'Session'
   // The Vendor whose agent runs a Session Node (worfy-multi-vendor ticket 24): its view's, else the one
   // its Node saved, Claude Code for a Node saved without one; null for the Orchestrator.
   const savedVendor = savedNode?.data.vendor
@@ -242,6 +250,28 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       if (!result.ok) console.error('agent.interrupt failed:', result.error)
     })
   }
+
+  // The transcript and the input field: the body of a plain Session, the chat of a Product Session.
+  const chat = (
+    <section className="w-session__main" aria-label="Session" {...drop.handlers}>
+      {drop.overlay}
+      <SessionFind find={find} />
+      {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
+      <Transcript
+        key={claudeSessionId ?? `node:${nodeId}`}
+        events={events}
+        firstIndex={firstIndex}
+        sessionId={sessionId}
+        projectId={projectId}
+        assistantLabel={assistantLabel}
+        earlier={earlier}
+        hideTools={hideTools}
+        find={find.transcript}
+        logRef={logRef}
+      />
+      <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
+    </section>
+  )
 
   return (
     <div className="w-session" data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId} data-transcript-events={past.events.length}>
@@ -313,31 +343,22 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           </span>
           <span className="w-session__fact-label">this session</span>
         </span>
+        {/* The share of the advisor's advice the Product owner accepted goes here (worfy-product-session ticket 14). */}
+        {product ? <span className="w-session__accepted" data-testid="product-session-accepted" /> : null}
         <span className="w-session__spacer" />
         <HideToolsButton hidden={hideTools} onChange={setHideTools} />
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
-      <div className="w-session__body">
-        <section className="w-session__main" aria-label="Session" {...drop.handlers}>
-          {drop.overlay}
-          <SessionFind find={find} />
-          {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
-          <Transcript
-            key={claudeSessionId ?? `node:${nodeId}`}
-            events={events}
-            firstIndex={firstIndex}
-            sessionId={sessionId}
-            projectId={projectId}
-            assistantLabel={assistantLabel}
-            earlier={earlier}
-            hideTools={hideTools}
-            find={find.transcript}
-            logRef={logRef}
-          />
-          <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
-        </section>
-        <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
-      </div>
+      {product ? (
+        <ProductSessionPanel blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId}>
+          {chat}
+        </ProductSessionPanel>
+      ) : (
+        <div className="w-session__body">
+          {chat}
+          <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />
+        </div>
+      )}
     </div>
   )
 }

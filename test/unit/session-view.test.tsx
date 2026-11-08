@@ -968,6 +968,79 @@ describe('SessionPanel', () => {
       expect(screen.queryByTestId('session-vendor')).toBeNull()
     })
   })
+
+  // worfy-product-session ticket 07: a Session of kind `product` has its own body — the Mind map, a
+  // divider, the chat and the agents strip — and no Binding; any other Session keeps the plain body.
+  describe('a Product Session', () => {
+    const blocks = {
+      './BindingRail.tsx': { default: (props: RailBlockProps) => <p>{`bound to ${props.nodeId}`}</p>, order: 10 },
+      './SubagentsRail.tsx': { default: () => <p>subagents list</p>, order: 20 },
+    }
+    async function mountKind(kind: 'product' | undefined) {
+      answers['orchestrator.view'] = () => ({ view: null })
+      const guard = renderGuard()
+      const { SessionPanel } = await import('../../src/renderer/session/SessionView')
+      const { collectRailBlocks: collect } = await import('../../src/renderer/session/rail/index')
+      const nodeSessions = await import('../../src/renderer/session/node-sessions')
+      guard()
+      nodeSessions.acceptSessionNodeView({
+        projectId: 'alpha',
+        nodeId: 'node-1',
+        vendor: 'claude',
+        ...(kind === undefined ? {} : { kind }),
+        sessionId: 'live-1',
+        sdkSessionId: null,
+        state: 'idle',
+        error: null,
+        cwd: '/p',
+        model: 'claude-opus-5-5',
+        version: 1,
+      })
+      const view = render(<SessionPanel projectId="alpha" projectName="alpha" nodeId="node-1" blocks={collect(blocks)} />)
+      await vi.waitFor(() => expect(screen.getByTestId('session-model').textContent).toBe('claude-opus-5-5'))
+      return view.container
+    }
+
+    it('draws ProductSessionPanel in place of the plain body: Mind map, divider, chat and agents strip; no rail, no Binding', async () => {
+      const container = await mountKind('product')
+      expect(screen.getByTestId('product-session-panel')).toBeTruthy()
+      expect(container.querySelector('.w-session__body')).toBeNull()
+      expect(screen.queryByTestId('session-rail')).toBeNull()
+      expect(screen.getByTestId('product-session-map')).toBeTruthy()
+      expect(screen.getByRole('separator')).toBeTruthy()
+      expect(screen.getByRole('textbox', { name: 'Message Product Session' })).toBeTruthy()
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Product Session · alpha')
+      expect(screen.getByTestId('product-session-accepted')).toBeTruthy()
+      fireEvent.click(screen.getByTestId('product-agents-toggle'))
+      expect(within(screen.getByTestId('product-agents-panel')).getByText('subagents list')).toBeTruthy()
+      expect(screen.queryByText('bound to node-1')).toBeNull()
+    })
+
+    it('a plain Session keeps the plain body with its rail and Binding', async () => {
+      const container = await mountKind(undefined)
+      expect(container.querySelector('.w-session__body')).not.toBeNull()
+      expect(screen.queryByTestId('product-session-panel')).toBeNull()
+      expect(within(screen.getByTestId('session-rail')).getByText('bound to node-1')).toBeTruthy()
+      expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Session · alpha')
+      expect(screen.queryByTestId('product-session-accepted')).toBeNull()
+    })
+
+    it('locks the model picker of a Product Session with the tooltip of Q10', async () => {
+      await mountKind('product')
+      const model = await screen.findByTestId<HTMLButtonElement>('picker-model')
+      await vi.waitFor(() => expect(model.title).toBe('Product Session always runs on the strongest model'))
+      expect(model.disabled).toBe(true)
+      // The effort and the permission mode stay open.
+      await vi.waitFor(() => expect(screen.getByTestId<HTMLButtonElement>('picker-permissions').disabled).toBe(false))
+      expect(screen.getByTestId<HTMLButtonElement>('picker-effort').disabled).toBe(false)
+    })
+
+    it('a plain Session can pick a model', async () => {
+      await mountKind(undefined)
+      await vi.waitFor(() => expect(screen.getByTestId<HTMLButtonElement>('picker-model').disabled).toBe(false))
+      expect(screen.getByTestId('picker-model').title).not.toBe('Product Session always runs on the strongest model')
+    })
+  })
 })
 
 describe('opening the Session view', () => {

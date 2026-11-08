@@ -319,6 +319,160 @@
   margin-top: var(--space-4);
 }
 
+/* A Product Session (ProductSessionPanel.tsx, worfy-product-session ticket 07): the Mind map, the
+   divider and the chat side by side, then the agents strip at the right edge. The map takes the
+   share of the divider (its flex-basis, set inline); the chat takes the rest. */
+.w-product {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.w-product__split {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.w-product__map {
+  position: relative;
+  flex: 0 0 60%;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--canvas);
+  background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+
+.w-product__map-empty {
+  max-width: 280px;
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-align: center;
+}
+
+.w-split-divider {
+  position: relative;
+  flex: 0 0 7px;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.w-split-divider:hover,
+.w-split-divider:focus-visible,
+body.w-split-dragging .w-split-divider {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: none;
+}
+
+/* While the divider is dragged the cursor stays a resize one, and no text gets selected. */
+body.w-split-dragging,
+body.w-split-dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.w-product__agents {
+  flex: 0 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--space-2);
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
+}
+
+.w-product__agents-button {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.w-product__agents-button:hover,
+.w-product__agents-button[aria-expanded='true'] {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+
+.w-product__agents-count {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* The list opens over the chat, right of it, as wide as the rail of a plain Session. */
+.w-product__agents-panel {
+  position: absolute;
+  top: 0;
+  right: 40px;
+  bottom: 0;
+  z-index: 2;
+  width: 300px;
+  box-sizing: border-box;
+  padding: 0 var(--space-4) 14px;
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+}
+
+.w-product__agents-head {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.w-product__agents-head-count {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.w-product__agents-close {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 16px;
+}
+
+.w-product__agents-close:hover {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+
 @keyframes w-session-spin {
   to {
     transform: rotate(360deg);

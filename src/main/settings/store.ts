@@ -25,7 +25,9 @@
 // such field. `autoContinue` (worfy-retry
 // ticket 02) holds the Projects with Auto-continue on, kept the same way: an entry that is not a Project
 // id with `true` is dropped (reads as off); only setAutoContinue() writes it, through the `autoContinue`
-// IPC domain.
+// IPC domain. `productSession` (worfy-product-session ticket 07) holds the share of the Product Session
+// divider the person chose; absent until the first drag, and a share outside 0.1–0.9 or of the wrong
+// type in the file reads as not chosen (60 / 40), the rest of the file stays.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -56,6 +58,7 @@ import {
   autopilotBudgetChoiceSchema,
   autopilotRunChoiceSchema,
   guideLanguageSchema,
+  productSessionSplitSchema,
   START_WINDOW_SAME_HOURS,
   startWindowValid,
   type GuideLanguage,
@@ -174,6 +177,10 @@ const appSettingsFileSchema = z.object({
     .transform(continuesOf)
     .optional()
     .catch(undefined),
+  productSession: z
+    .object({ split: productSessionSplitSchema.optional().catch(undefined) })
+    .optional()
+    .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -233,6 +240,12 @@ function guideLanguageAfter(current: GuideLanguage | undefined, patched: GuideLa
   return language === undefined ? {} : { guideLanguage: language }
 }
 
+/** The Product Session choice after `patch`, or nothing while no share is chosen. */
+function productSessionChoice(current: AppSettings['productSession'], patch?: AppSettings['productSession']): Pick<AppSettings, 'productSession'> {
+  const split = patch?.split ?? current?.split
+  return split === undefined ? {} : { productSession: { split } }
+}
+
 /** One window and whether the person chose it. */
 interface RoleWindow {
   window: number | null
@@ -269,6 +282,7 @@ function copy(settings: AppSettings): AppSettings {
     ...budgetChoice(settings.autopilotBudget),
     ...runChoice(settings.autopilotRun),
     ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
+    ...productSessionChoice(settings.productSession),
     ...modesChoice(settings.autoApproval),
     ...continuesChoice(settings.autoContinue),
     revision: settings.revision,
@@ -301,6 +315,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
     ...runChoice(current.autopilotRun, patch.autopilotRun),
     ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
+    ...productSessionChoice(current.productSession, patch.productSession),
     // Never from the patch: setAutoApproval() is the one way to change a mode.
     ...modesChoice(current.autoApproval),
     // Nor Auto-continue: setAutoContinue() is the one way to change it.
@@ -342,6 +357,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.autopilotRun?.windowFrom === b.autopilotRun?.windowFrom &&
     a.autopilotRun?.windowTo === b.autopilotRun?.windowTo &&
     a.guideLanguage === b.guideLanguage &&
+    a.productSession?.split === b.productSession?.split &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

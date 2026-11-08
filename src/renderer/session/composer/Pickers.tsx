@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
 import type { ModelOption, SettingsChange } from '../../../shared/agent/settings'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
 import { Select, SelectChevron, type SelectOption } from '../../theme/Select'
+import { PRODUCT_SESSION_MODEL_TOOLTIP, ProductSessionContext } from '../product-session'
 import { useSessionControls } from '../store'
 import { useCapabilities } from '../useCapabilities'
 import type { ComposerItemProps } from './index'
@@ -20,6 +21,9 @@ import type { ComposerItemProps } from './index'
 // a Vendor whose model change does not hold mid-Session (`modelSwitchStable`) has the model picker
 // inactive. The interface never names a Vendor: a Session whose capabilities main cannot give is
 // taken for Claude Code's, as a Session Node saved without a Vendor is.
+//
+// A Product Session always runs on the strongest model (worfy-product-session, Q10): its model picker is
+// inactive, with a tooltip that says so (product-session.ts); the effort and the permission mode stay.
 //
 // The model and the permission mode are lists on the shared Select (theme/Select.tsx). The effort
 // is a slider in a popover of its button, with the levels of the picked model as its marks.
@@ -387,8 +391,12 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   const readOnly = useReadOnly()
   const disabled = sessionId === null || settings === null || capabilities === undefined || readOnly !== null
   const { ref, captions } = useCaptions()
-  // A capability the Vendor lacks: the picker is inactive, and its tooltip says why.
-  const modelReason = capabilities?.modelSwitchStable === false ? capabilities.unsupported.modelSwitchStable : undefined
+  // A Product Session, or a capability the Vendor lacks: the picker is inactive, and its tooltip says why.
+  const modelReason = useContext(ProductSessionContext)
+    ? PRODUCT_SESSION_MODEL_TOOLTIP
+    : capabilities?.modelSwitchStable === false
+      ? capabilities.unsupported.modelSwitchStable
+      : undefined
   const presets = capabilities?.permissionPresets ?? []
   const presetOptions: SelectOption[] = presets.map((preset) => ({ value: preset.id, label: preset.label, title: preset.description }))
   const permissionMode = settings?.permissionMode ?? presets[0]?.id ?? ''

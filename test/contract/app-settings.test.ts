@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -493,6 +493,32 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(wrongType).get().autopilotRun).toBeUndefined()
   })
 
+  it('the divider of a Product Session (worfy-product-session ticket 07): 60 / 40 until chosen; a share is written, read back and kept; one the schema refuses in the file reads as 60 / 40', () => {
+    expect(DEFAULT_APP_SETTINGS).not.toHaveProperty('productSession')
+    expect(productSessionSplitOf(DEFAULT_APP_SETTINGS)).toBe(0.6)
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get()).not.toHaveProperty('productSession')
+
+    expect(store.set({ productSession: { split: 0.7 } })).toMatchObject({ productSession: { split: 0.7 }, revision: 3 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ productSession: { split: 0.7 } })
+    expect(productSessionSplitOf(new AppSettingsStore(file).get())).toBe(0.7)
+    // The same share again changes nothing; another setting keeps it.
+    expect(store.set({ productSession: { split: 0.7 } }).revision).toBe(3)
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, productSession: { split: 0.7 } })
+
+    // A file edited by hand: a share out of range, of the wrong type, or the field of the wrong type — 60 / 40, the rest stays.
+    for (const productSession of [{ split: 0.95 }, { split: 0.05 }, { split: 'wide' }, { split: null }, 'wide', [0.7]]) {
+      writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, productSession, revision: 7 }))
+      const other = new AppSettingsStore(file).get()
+      expect(productSessionSplitOf(other), JSON.stringify(productSession)).toBe(0.6)
+      expect(other).toMatchObject({ interfaceScale: 1.3, revision: 7 })
+    }
+    expect(readdirSync(join(file, '..'))).toEqual([APP_SETTINGS_FILE])
+  })
+
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
@@ -679,6 +705,16 @@ describe('appSettings channels', () => {
     }
     expect(await call('appSettings.set', { autopilotRun: { windowTo: 22 } })).toMatchObject({ ok: false, error: 'appSettings.set failed: the Start window cannot start and end at the same hour' })
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } } })
+  })
+
+  it('appSettings.set takes the share of the Product Session divider within 0.1–0.9 and refuses one outside (worfy-product-session ticket 07)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { productSession: { split: 0.9 } })).toMatchObject({ ok: true, value: { productSession: { split: 0.9 } } })
+    expect(await call('appSettings.set', { productSession: { split: 0.1 } })).toMatchObject({ ok: true, value: { productSession: { split: 0.1 } } })
+    for (const outside of [{ split: 0.91 }, { split: 0.09 }, { split: -1 }, { split: 'half' }, { split: null }, {}]) {
+      expect((await call('appSettings.set', { productSession: outside })).ok, JSON.stringify(outside)).toBe(false)
+    }
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { productSession: { split: 0.1 } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {

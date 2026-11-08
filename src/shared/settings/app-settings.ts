@@ -259,6 +259,17 @@ export const autoApprovalSchema = z.record(autoApprovalProjectIdSchema, autoAppr
 /** The Projects with Auto-continue on, by Project id (the same keys as `autoApproval`); off is no entry. */
 export const autoContinueSchema = z.record(autoApprovalProjectIdSchema, z.literal(true))
 
+/**
+ * The share of a Product Session's screen the Mind map takes, left of the divider (worfy-product-session
+ * ticket 07): 60 / 40 until the person drags the divider, and again after a double click on it.
+ */
+export const PRODUCT_SESSION_SPLIT_DEFAULT = 0.6
+/** The smallest share either side of the divider keeps: MIN_SHARE of Focus mode (src/renderer/focus/split-tree.ts). */
+export const PRODUCT_SESSION_SPLIT_MIN = 0.1
+export const productSessionSplitSchema = z.number().min(PRODUCT_SESSION_SPLIT_MIN).max(1 - PRODUCT_SESSION_SPLIT_MIN)
+/** What the person chose for a Product Session's screen; a field not chosen is absent. */
+export const productSessionChoiceSchema = z.object({ split: productSessionSplitSchema.optional() })
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
@@ -296,6 +307,8 @@ export const appSettingsSchema = z.object({
   autoApproval: autoApprovalSchema.optional(),
   /** The Projects with Auto-continue on; absent while it is off everywhere (see autoContinueOf). */
   autoContinue: autoContinueSchema.optional(),
+  /** The Product Session screen the person chose; absent while nothing is (see productSessionSplitOf). */
+  productSession: productSessionChoiceSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -336,6 +349,8 @@ export const appSettingsPatchSchema = z.object({
   autopilotRun: autopilotRunChoiceSchema.optional(),
   /** The language of the Guide; once chosen it stays chosen. */
   guideLanguage: guideLanguageSchema.optional(),
+  /** The divider of a Product Session; a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is refused. */
+  productSession: z.object({ split: productSessionSplitSchema }).optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -364,6 +379,11 @@ export function defaultAppSettings(): AppSettings {
 /** Whether "Update automatically" is on: on unless set off. */
 export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean {
   return settings.autoUpdate ?? true
+}
+
+/** The Mind map's share of a Product Session's screen: the one the person chose, else 60 / 40. */
+export function productSessionSplitOf(settings: Pick<AppSettings, 'productSession'>): number {
+  return settings.productSession?.split ?? PRODUCT_SESSION_SPLIT_DEFAULT
 }
 
 /** The Auto-approval mode of Project `projectId`: its entry, else Off. */
