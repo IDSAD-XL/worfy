@@ -24,14 +24,15 @@
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
-- `worfy-product-session`: 13/18; 11-08 влиты 09 (#1659), 11 (#1654), 14 (#1672), 18 (#1680), 13 (#1675; blocked: живая проверка в Mac Stable). 08 blocked: экран Mind map. Дальше 15, 16 после 13; 17 после 15. Решения 11-08 по #1666 — в spec.
+- `worfy-product-session`: 14/18; 11-08 влиты 09 (#1659), 11 (#1654), 14 (#1672), 18 (#1680), 13 (#1675). 08 blocked: экран Mind map. Дальше 15, 16; 17 после 15.
+- `worfy-scrub`: 0/6, spec принят 11-08: личное из текущих файлов. Wave 1 — 01. Решения 11-08 по #1666 — в spec.
 - `worfy-human-review`: 11/12; 11-08 влиты 05, 07–10 (10 — #1662), 11 (#1673), 12 (#1679; blocked: живой прогон и приёмка).
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
-- Update Stable copy, затем: `worfy-product-session` 13 и 08, приёмка `worfy-human-review` 12. Q1 11-08: убрать ли имя проекта работодателя из файлов.
+- Владелец в Mac Stable: экран Mind map (`worfy-product-session` 08), приёмка `worfy-human-review` 12.
 
 ## Риски и долги
 
