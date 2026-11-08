@@ -96,6 +96,12 @@ async function refused(input: unknown, reason: RegExp): Promise<void> {
   if (!result.ok) expect(result.error).toMatch(reason)
 }
 
+/** Registers one more handler module, as the app's registry would. */
+async function registerIpcModule(path: string, module: unknown): Promise<void> {
+  const { registerIpc, appUrlMatcher } = await import('../../src/main/ipc/index')
+  await registerIpc({ handle: (channel, listener) => handlers.set(channel, listener as Listener) }, { modules: { [path]: () => Promise.resolve(module) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+}
+
 const handoffNodes = () => layoutModule.layoutStore().get(PROJECT_ID).layout.nodes.filter((node) => node.kind === 'handoff')
 
 /**
@@ -278,6 +284,41 @@ describe('docs.open', () => {
 
     unlinkSync(join(repo, 'HANDOFF.md'))
     await vi.waitFor(() => expect(sender.sent.at(-1)?.handoff).toBeNull(), { timeout: ms(1000), interval: 20 })
+  })
+
+  it('sends product.changed for a topic of docs/product to a window with the documents open, none for src/a.ts; product.topic reads it; nothing is written (worfy-product-session ticket 05)', async () => {
+    const productModule = await import('../../src/main/ipc/product')
+    await registerIpcModule('./product.ts', productModule.default)
+    const changes: unknown[] = []
+    const docsSent: DocsState[] = []
+    const window: FakeSender = {
+      ...makeSender(2),
+      sent: docsSent,
+      send: (channel, payload) => {
+        if (channel === `${IPC_CHANNEL_PREFIX}product.changed`) changes.push(payload)
+        if (channel === `${IPC_CHANNEL_PREFIX}docs.changed`) docsSent.push(payload as DocsState)
+      },
+    }
+    mkdirSync(join(repo, 'docs', 'product', 't'), { recursive: true })
+    mkdirSync(join(repo, 'src'))
+    expect((await call('docs.open', { projectId: PROJECT_ID }, window)).ok).toBe(true)
+    await pastStartReads()
+
+    const mindMap = JSON.stringify({ version: 1, nodes: [{ id: 'a', kind: 'idea', text: 'an idea', from: null }] })
+    writeFileSync(join(repo, 'docs', 'product', 't', 'mind-map.json'), mindMap)
+    await vi.waitFor(() => expect(changes.at(-1)).toMatchObject({ projectId: PROJECT_ID, name: 't', topic: { name: 't', nodes: [{ id: 'a', text: 'an idea' }] } }), { timeout: ms(1000), interval: 20 })
+    const reported = changes.length
+    writeFileSync(join(repo, 'src', 'a.ts'), 'export const a = 1\n')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(changes).toHaveLength(reported)
+    // HANDOFF and the ADRs did not change: no docs.changed went out for either write.
+    expect(docsSent).toStrictEqual([])
+
+    const before = snapshot(repo)
+    expect(await call('product.topic', { projectId: PROJECT_ID, name: 't' }, window)).toMatchObject({ ok: true, value: { projectId: PROJECT_ID, name: 't', topic: { nodes: [{ text: 'an idea' }] } } })
+    expect(await call('product.topic', { projectId: PROJECT_ID, name: 'none' }, window)).toStrictEqual({ ok: true, value: { projectId: PROJECT_ID, name: 'none', topic: null } })
+    expect((await call('product.topic', { projectId: PROJECT_ID, name: '../t' }, window)).ok).toBe(false)
+    expect(snapshot(repo)).toStrictEqual(before)
   })
 
   it('stops sending after docs.close', async () => {
