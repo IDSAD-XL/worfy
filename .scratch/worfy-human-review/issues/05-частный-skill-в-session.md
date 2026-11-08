@@ -1,7 +1,8 @@
 # 05 — Частный skill проекта в Session через `additionalDirectories`; ADR
 
 Type: task
-Status: open
+Status: done 2026-11-08T08:08Z
+PR: #1657
 Blocked by: —
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 8, 9, 11; «Как работает» → «Частная папка», «Загрузка в Session»; «Сгенерированное и решения без владельца», п. 4, 8; «Вопросы владельцу», Q1, Q2; «Риски», п. 1; [исследование](../../../docs/research/2026-11-07-human-review-из-истории-pr.md), раздел 9
 
@@ -37,19 +38,26 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 ## Готово, когда
 
 - [ ] «Итог» записывает живую проверку: skill из `additionalDirectories` виден и вызывается (или Ticket в `blocked`).
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] Unit test: с файлом `SKILL.md` — папка в `additionalDirectories` рядом с папкой карточек; без файла — нет; без
       Canvas — одна папка.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] Unit test: `unattended: true` — папки нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] Unit test: `skills.allowed: []` — папка на месте, `skillOverrides` не называет `human-review`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] Contract test: `_resolved.dir` читается; ошибка `bin/profile` — Session стартует без папки и с одной строкой в
       log.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] ADR записан, ссылается на ADR-0084 и на этот spec.
   - evidence: commit pass · ADR-0102: name the private folder as a working directory of the Session · - - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
+  - evidence: review pass · PR #1657 · - - · 7a975878943de24c45edec13f53d74b49fa6a79d
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42459060128/job/128669440647 · ci - · 7a975878943de24c45edec13f53d74b49fa6a79d
 
 ## Тесты
 
