@@ -450,7 +450,8 @@ link opens on the Machine where it was clicked.
 - `src/shared/ipc/docs.ts`: the channels and the names and sizes of the files and the Node.
   `src/shared/workflow/doc-headings.ts`: the status label. `src/main/layout/place.ts`: the place of a new Node.
 - `src/renderer/docs/useDocs.ts`: `useDocs`, one shared copy per Project, and `useDocText`.
-- `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`: `product.topic` and `product.changed`.
+- `src/shared/ipc/product.ts`, `src/main/ipc/product.ts`: `product.topic`, `product.changed` and `product.share` (the share of
+  accepted advice, [sessions](sessions.md)).
   `src/renderer/product/useMindMap.ts`: one topic kept current; it holds the Project's documents open through `useDocs`.
 - `src/renderer/canvas/nodes/HandoffNode.tsx`: the Node. `src/renderer/shell/sidebar/AdrSection.tsx`: the section and the panel.
 - `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`: the renderer and what a link leads to.

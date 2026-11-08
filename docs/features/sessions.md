@@ -154,7 +154,15 @@ refuses the call. The card has no "Always allow".
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
-a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. The view shows
+a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. A Product
+Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
+decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its
+status, and the objections of every critic's review in `critic/` by their `Owner decision:` lines; advice still waiting
+is not in the share. The tooltip gives how many wait for a decision, in the Mind map and in the critic's reviews, names
+the files it could not read, and says that the share counts the owner's decisions and is no measure of how good the
+advice is. main counts it from the files on `product.share` and the header asks again on every `product.changed` of the
+Project, so a `mind_map_decide` shows at once; a change of a critic's review alone shows with the next change of a topic
+or the next open of the Session. Nothing of it is stored. The view shows
 the Session opened last in this Project while its Node is on the Canvas, and otherwise the Orchestrator. The memory of that
 choice lives as long as the window. The Session picker lists the Orchestrator first, then the running Sessions, then the
 rest. Subagents are not in it.
@@ -266,6 +274,7 @@ for a process also asks the system.
 | Rules of Resume and closing | `src/main/agent/resume.ts` |
 | Live Session Nodes, Orchestrator | `src/main/agent/node-sessions.ts`, `src/main/agent/orchestrator.ts` |
 | Mind map tools and the save signal of a Product Session | `src/shared/product/tools.ts`, `src/main/mcp/mind-map-server.ts`, `src/main/product/save-signal.ts` |
+| The share of accepted advice | `src/shared/product/share.ts`, `src/main/ipc/product.ts`, `src/renderer/session/ProductSessionPanel.tsx` |
 | Attachments | `src/main/agent/attachments.ts`, `src/shared/agent/attachments.ts` |
 | Events, settings and channels | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |

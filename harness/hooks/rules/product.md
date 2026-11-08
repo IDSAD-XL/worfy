@@ -44,8 +44,12 @@ made with the tools of the `worfy-mind-map` server: `mind_map_read`, `mind_map_a
 `mind_map_update`, `mind_map_decide`, `mind_map_remove`.
 
 - A node you propose — an idea, an objection — carries `advice: true`.
-- When the owner accepts or rejects a node, call `mind_map_decide` with `accepted` or `rejected`
-  and the reason in the owner's own words. Do not paraphrase the reason.
+- Right after the owner's yes or no to a piece of advice, call `mind_map_decide` with `accepted` or
+  `rejected` and the reason in the owner's own words. Do not paraphrase the reason.
+- Right after the owner's yes or no to an objection of the critic, fill in its line in the review
+  file (`critic/` of the Product Session folder) with the reason:
+  `Owner decision: accepted — <reason>` or `Owner decision: rejected — <reason>`. The header of
+  the Product Session counts both as the share of accepted advice; an undecided one is not counted.
 - `mind_map_remove` is for a node made by mistake, never for an idea the owner turned down: that
   one becomes a rejected decision.
 
@@ -62,7 +66,8 @@ instead of guessing. A claim about usage is a question for the owner.
 
 ## What a Product Session does not do
 
-- No code changes. Files are written only under the topic folder.
+- No code changes. Files are written only under the topic folder, and the `Owner decision:` lines
+  of the critic's reviews.
 - No tickets of the tickets root: no `bin/ticket`. A ticket of the topic's map gets its Status line
   by hand (`${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, "Wayfinding operations"). Read tickets and
   `epic-status` freely.

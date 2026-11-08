@@ -1,12 +1,15 @@
 // The body of a Product Session (src/renderer/session/ProductSessionPanel.tsx, worfy-product-session
 // ticket 07): the divider between the Mind map and the chat — 60 / 40 by default, moved by a drag and by
 // the keyboard, back to 60 / 40 on a double click, its share written to the app settings — and the
-// agents strip with the number of Subagents, which opens the rail blocks without the Binding. Against a
-// fake bridge that keeps the app settings as main would; the Subagent tree is given by the test.
+// agents strip with the number of Subagents, which opens the rail blocks without the Binding — and the
+// share of accepted advice in the Session's header (ticket 14), asked again on every `product.changed`.
+// Against a fake bridge that keeps the app settings as main would; the Subagent tree is given by the test.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
+import type { MindMapNode } from '../../src/shared/product/mind-map'
+import { adviceShare, type AdviceShare } from '../../src/shared/product/share'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
@@ -43,6 +46,8 @@ const asked: { channel: string; input: unknown }[] = []
 let settings: AppSettings
 /** Why `product.topic` fails, when the test makes it fail. */
 let topicFails: string | undefined
+/** What `product.share` answers: main counts it from the files each time it is asked. */
+let share: () => AdviceShare | { error: string }
 /** The handlers the panel subscribed through the bridge, by channel. */
 const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
 const emit = (channel: string, payload: unknown) => {
@@ -63,6 +68,7 @@ beforeEach(() => {
   asked.length = 0
   listeners.clear()
   topicFails = undefined
+  share = () => adviceShare({ topics: [], reviews: [] })
   subagents.tree = []
   settings = defaultAppSettings()
   const bridge = {
@@ -75,6 +81,10 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, value: settings })
       }
       if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
+      if (channel === 'product.share') {
+        const answer = share()
+        return Promise.resolve('error' in answer ? { ok: false, error: answer.error } : { ok: true, value: answer })
+      }
       if (channel === 'product.topic') {
         return Promise.resolve(topicFails === undefined ? { ok: true, value: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } } : { ok: false, error: topicFails })
       }
@@ -334,5 +344,72 @@ describe('the Mind map pane of a Product Session', () => {
     expect(alert.textContent).toBe('Could not read the Mind map: EACCES: permission denied')
     expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
     expect(screen.queryByTestId('mind-map')).toBeNull()
+  })
+})
+
+describe('the share of accepted advice in the header of a Product Session', () => {
+  const advice = (id: string, decided?: 'accepted' | 'rejected'): MindMapNode =>
+    decided === undefined ? { id, kind: 'idea', text: id, from: null, advice: true } : { id, kind: 'decision', text: id, from: null, advice: true, status: decided, reason: 'the owner said so' }
+  const REVIEW = 'Owner decision: accepted — fair\n\nOwner decision:\n'
+
+  async function mountHeader() {
+    const { AcceptedAdvice } = await import('../../src/renderer/session/ProductSessionPanel')
+    render(<AcceptedAdvice projectId="alpha" />)
+    await settle()
+  }
+  const header = () => screen.getByTestId('product-session-accepted')
+
+  it('reads «Advice accepted 3 of 5 · 60%», both sources together; the tooltip names what waits and where, and that it is no measure of quality', async () => {
+    share = () =>
+      adviceShare({
+        topics: [{ name: 'demo-roadmap', nodes: [advice('a', 'accepted'), advice('b', 'accepted'), advice('c', 'rejected'), advice('d', 'rejected'), advice('e'), advice('f')], errors: [] }],
+        reviews: [{ file: 'demo-2026-11-08.md', text: REVIEW }],
+      })
+    await mountHeader()
+    expect(header().textContent).toBe('Advice accepted 3 of 5 · 60%')
+    expect(asked.filter((each) => each.channel === 'product.share').map((each) => each.input)).toEqual([{ projectId: 'alpha' }])
+    const title = header().getAttribute('title') ?? ''
+    expect(title).toContain('3 accepted, 2 rejected')
+    expect(title).toContain('Waiting for a decision: 3 (2 in the Mind map, 1 in the critic’s reviews)')
+    expect(title).toContain('not a measure of how good the advice is')
+    expect(header().textContent).not.toMatch(/score|quality|rate/iu)
+  })
+
+  it('with no advice decided yet it says so, without a percentage', async () => {
+    share = () => adviceShare({ topics: [{ name: 'demo-roadmap', nodes: [advice('a')], errors: [] }], reviews: [] })
+    await mountHeader()
+    expect(header().textContent).toBe('No advice decided yet')
+    expect(header().textContent).not.toContain('%')
+    expect(header().getAttribute('title')).toContain('Waiting for a decision: 1 (1 in the Mind map, 0 in the critic’s reviews)')
+  })
+
+  it('names the files it could not count, and says why when the share cannot be read', async () => {
+    share = () => adviceShare({ topics: [{ name: 'broken', nodes: [], errors: [{ file: 'mind-map.json', message: 'not valid JSON' }] }], reviews: [] })
+    await mountHeader()
+    expect(header().getAttribute('title')).toContain('Not counted: broken/mind-map.json (not valid JSON)')
+    cleanup()
+    share = () => ({ error: 'EACCES: permission denied' })
+    await mountHeader()
+    expect(header().textContent).toBe('Advice accepted —')
+    expect(header().getAttribute('title')).toBe('Could not count the advice: EACCES: permission denied')
+  })
+
+  it('mind_map_decide on a piece of advice changes the header without a reload: the next product.changed asks main again', async () => {
+    let nodes = [advice('a', 'accepted'), advice('b')]
+    share = () => adviceShare({ topics: [{ name: 'demo-roadmap', nodes, errors: [] }], reviews: [] })
+    await mountHeader()
+    expect(header().textContent).toBe('Advice accepted 1 of 1 · 100%')
+    // The advisor called mind_map_decide: the watcher reads the topic again and sends it.
+    nodes = [advice('a', 'accepted'), advice('b', 'rejected')]
+    act(() => {
+      emit('product.changed', { projectId: 'beta', name: 'demo-roadmap', topic: { ...TOPIC, nodes } })
+    })
+    await settle()
+    expect(header().textContent).toBe('Advice accepted 1 of 1 · 100%')
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: { ...TOPIC, nodes } })
+    })
+    await vi.waitFor(() => expect(header().textContent).toBe('Advice accepted 1 of 2 · 50%'))
+    expect(asked.filter((each) => each.channel === 'product.share')).toHaveLength(2)
   })
 })

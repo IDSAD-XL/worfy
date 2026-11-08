@@ -237,6 +237,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'pipeline.read',
     // One Product Session topic, as docs.read: the map, its Tickets and the Mind map are read (worfy-product-session ticket 05).
     'product.topic',
+    // The share of accepted advice: every topic's mind-map.json and the critic's reviews are read (worfy-product-session ticket 14).
+    'product.share',
     'projects.list',
     // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
     'projects.reviewer.get',
