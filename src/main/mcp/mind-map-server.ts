@@ -11,14 +11,18 @@
 //   (productToolDecision: below the folder in its written and its real form, no link leading out);
 // - reads the topic (readTopic of ticket 03), applies the change, checks the whole file with checkMindMap
 //   and only then writes, atomically (writeJsonFile: a temporary file renamed over the target), retried
-//   on Windows while another process holds the file open (retriedOnWindows). A refused change leaves the
-//   file as it was, byte for byte. A file that does not pass the check already is never overwritten: its
+//   on Windows while another process holds the file open (retriedOnWindows). Windows never lets a rename
+//   replace a file another process keeps open — a reader such as an editor or the docs watcher may keep it
+//   open as long as it likes — so once the retries are over the checked text is written into the file in
+//   place (writeMindMapInPlace); only when that is refused too does the call fail, naming the reason. A
+//   refused change leaves the file as it was, byte for byte. A file that does not pass the check already is never overwritten: its
 //   errors are the answer, and the owner or the agent mends it by hand first;
 // - waits for the write before it on the same file, so two calls at once never lose one another.
 //
 // `message` of a node is the uuid of the chat message (the transcript event) the call came in, when the
 // Session's messages showed it before the call reached the handler (mindMapForSession); otherwise none.
 import { randomUUID } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -50,11 +54,27 @@ import instructions from './agent-instructions-mind-map.md?raw'
 class ToolError extends Error {}
 
 /** How long a write a held-open file refuses on Windows is tried again. */
-export const MIND_MAP_WRITE_RETRY_MS = 5_000
+export const MIND_MAP_WRITE_RETRY_MS = 1_000
+
+/** What Windows answers a rename over a file another process holds open. */
+const HELD_OPEN = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/** The text of a checked map, as writeJsonFile writes it. */
+const mindMapText = (map: MindMap): string => `${JSON.stringify(mindMapSchema.parse(map), null, 2)}\n`
+
+/**
+ * Writes the checked map into the file itself, not through a rename: a file another process holds open for
+ * reading may be written on Windows when that process shares it for writing, as Node and most readers do.
+ * shortcut: not atomic, so a crash in the middle leaves a torn file, which the screen shows with its error
+ * and the next write refuses; redo with ReplaceFileW or FILE_RENAME_FLAG_POSIX_SEMANTICS once Node offers either.
+ */
+export const writeMindMapInPlace = (file: string, map: MindMap): void => writeFileSync(file, mindMapText(map))
 
 export interface MindMapWriterOptions {
-  /** Writes the checked map to the file; writeJsonFile by default. A test passes one that fails as Windows does. */
+  /** Writes the checked map to the file atomically; writeJsonFile by default. A test passes one that fails as Windows does. */
   write?: (file: string, map: MindMap) => void
+  /** The write in place after the atomic one kept meeting a held-open file on Windows; writeMindMapInPlace by default. */
+  writeInPlace?: (file: string, map: MindMap) => void
   /** The system the retries are judged for (retriedOnWindows); this process's by default. The guard always judges this one. */
   platform?: NodeJS.Platform
   retryMs?: number
@@ -109,7 +129,21 @@ export class MindMapWriter {
     const checked = checkMindMap(map, tickets)
     if (!checked.ok) throw new ToolError(`The change is refused, nothing was written:\n${checked.errors.map((error) => `- ${error.message}`).join('\n')}`)
     const write = this.options.write ?? ((target: string, value: MindMap) => writeJsonFile(target, mindMapSchema, value))
-    await retriedOnWindows(async () => write(file, checked.map), { platform: this.options.platform ?? platform, retryMs: this.options.retryMs ?? MIND_MAP_WRITE_RETRY_MS })
+    const retried = this.options.platform ?? platform
+    try {
+      await retriedOnWindows(async () => write(file, checked.map), { platform: retried, retryMs: this.options.retryMs ?? MIND_MAP_WRITE_RETRY_MS })
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (retried !== 'win32' || code === undefined || !HELD_OPEN.has(code)) throw error
+      try {
+        ;(this.options.writeInPlace ?? writeMindMapInPlace)(file, checked.map)
+      } catch (inPlace) {
+        throw new ToolError(
+          `${MIND_MAP_FILE} is held open by another program: it could not be replaced (${code}) nor written in place (${inPlace instanceof Error ? inPlace.message : String(inPlace)}). Nothing was written; close the program and call again.`,
+          { cause: inPlace },
+        )
+      }
+    }
     return answer
   }
 }

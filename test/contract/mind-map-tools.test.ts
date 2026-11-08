@@ -346,6 +346,29 @@ describe('the write of mind-map.json', () => {
     expect(nodesOnDisk().map((node) => node.id)).toContain('n-retry')
   })
 
+  it('on Windows, a rename that keeps meeting a held-open file gives way to a write in place; elsewhere, and when that fails too, the call fails and the file stays', async () => {
+    const { MindMapWriter } = await server()
+    const held = (): never => {
+      throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' })
+    }
+    const change = (id: string) => (map: { version: 1; nodes: MindMapNode[] }) => ({ map: { ...map, nodes: [...map.nodes, { id, kind: 'idea' as const, text: 'held', from: null }] }, answer: id })
+    const before = readFileSync(mapFile)
+
+    const inPlace: string[] = []
+    const windows = new MindMapWriter({ platform: 'win32', retryMs: ms(50), write: held, writeInPlace: (file, map) => (inPlace.push(file), writeFileSync(file, `${JSON.stringify(map, null, 2)}\n`)) })
+    expect(await windows.update(product, TOPIC, change('n-in-place'))).toBe('n-in-place')
+    expect(inPlace).toEqual([mapFile])
+    expect(nodesOnDisk().map((node) => node.id)).toContain('n-in-place')
+
+    writeFileSync(mapFile, before)
+    const stuck = new MindMapWriter({ platform: 'win32', retryMs: ms(50), write: held, writeInPlace: () => held() })
+    await expect(stuck.update(product, TOPIC, change('n-stuck'))).rejects.toThrow(/held open by another program/)
+    const linux = new MindMapWriter({ platform: 'linux', write: held, writeInPlace: () => inPlace.push('linux') })
+    await expect(linux.update(product, TOPIC, change('n-linux'))).rejects.toThrow(/EPERM/)
+    expect(inPlace).toEqual([mapFile])
+    expect(readFileSync(mapFile).equals(before)).toBe(true)
+  })
+
   it('another process holding the file open for reading does not break the write (needs: windows)', async () => {
     const child = spawn(scriptNode(), ['-e', `const fs = require('fs'); const fd = fs.openSync(process.argv[1], 'r'); process.stdout.write('open'); setInterval(() => fs.fstatSync(fd), 1000)`, mapFile], {
       stdio: ['ignore', 'pipe', 'inherit'],
