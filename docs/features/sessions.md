@@ -37,6 +37,8 @@ a command of the Command palette. It offers no Vendor: a Product Session runs on
 refuses any other Vendor with `Product Session runs on Claude Code only`. The new Session opens in the Session view at
 once. Its Node stays a Session Node on the Canvas, with the label "Product Session" under its header, and its name says
 "Product Session" where a plain one says "Session" ("New Product Session" before its Session has an id).
+Its screen, its limits, the Mind map, the critic and the share of accepted advice are on the page
+[Product Session](product-session.md).
 
 A Product Session in a Project also gets the MCP server `worfy-mind-map`; a plain Session and the Orchestrator never
 do. Its tools `mind_map_read`, `mind_map_add`, `mind_map_update`, `mind_map_decide` and `mind_map_remove` read and

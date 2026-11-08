@@ -33,6 +33,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Workflow](workflow.md) | Ticket and Epic on the Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, screenshots and clips |
 | [Sessions](sessions.md) | Session, Subagent |
+| [Product Session](product-session.md) | Product Session, Mind map, the critic before a spec is accepted, product ideas, the share of accepted advice |
 | [Orchestrator modes](orchestrator-modes.md) | The Modes menu: Eco mode, Auto-approval, Auto-continue; the continuation of a manual turn of the Orchestrator and its countdown |
 | [Vendors](vendors.md) | Vendor: Claude Code and Codex, the driver of each |
 | [Transcripts and usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |

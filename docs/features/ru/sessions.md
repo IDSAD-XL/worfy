@@ -20,6 +20,10 @@ worfy сам ведёт Session и показывает те, что запущ�
 Session, которую ведёт worfy, принадлежит приложению, а не окну. Её события идут во все окна, закрытие окна её не останавливает, и она
 останавливается, когда worfy завершается.
 
+**Product Session.** Product Session — Session вида `product`, советник Product owner-а, отдельно от Session-ов
+разработки. Её запускает «New Product Session» в sidebar и в Command palette, только на Claude Code. Её экран, её
+ограничения, Mind map, критик и доля принятых советов описаны на странице [Product Session](product-session.md).
+
 **Состояния.** Session находится в одном из шести состояний, показанных chip-ом.
 
 | Состояние | Статус chip-а | Значение |
