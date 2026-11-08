@@ -1,6 +1,7 @@
 // What the Mind map of a Product Session topic draws, and where (Epic worfy-product-session, ticket 08):
 // the graph built from the topic as main reads it (src/shared/ipc/product.ts) and its two layouts, the
-// "Tree" (top to bottom, larger text) and the "Graph" (left to right). MindMap.tsx draws the answer.
+// "Tree" (a tidy tree, larger text) and the "Graph" (layered). Both grow left to right, as the prototype's
+// tree does (ticket 21): the root at the left, each child to the right of its parent. MindMap.tsx draws the answer.
 //
 // The root is the topic, the Tickets of its map hang from the root, and every node of mind-map.json hangs
 // from its `from`: another node, a Ticket (`ticket:NN`) or the topic. That is a tree, and only its links
@@ -13,7 +14,7 @@
 // writes them by hand).
 import type { ElkNode } from 'elkjs/lib/elk-api'
 import type { ProductTopicState } from '../../shared/ipc/product'
-import type { DecisionStatus, MindMapNode, MindMapNodeKind } from '../../shared/product/mind-map'
+import { MIND_MAP_PLACED, type DecisionStatus, type MindMapNode, type MindMapNodeKind } from '../../shared/product/mind-map'
 import type { ElkEngine } from '../canvas/elk/layout'
 
 export const MIND_MAP_VIEWS = ['tree', 'graph'] as const
@@ -157,9 +158,71 @@ export function buildMindMapGraph(topic: ProductTopicState, { hideRejected }: { 
 }
 
 const WIDTH: Readonly<Record<MindMapView, number>> = { tree: 220, graph: 180 }
-/** Padding plus the icon, px, on each line of a node. */
-const INSET = 34
 const LINE = 1.35
+
+/**
+ * The room left and right of a node's text, in em of the node's font, as the prototype Card of the
+ * Product Session has it (ticket 21): a slanted or pointed side (Question, Objection) keeps the text
+ * further in than a straight one. `left` runs up to the icon; the icon and the gap after
+ * it come on top (ICON_EM). MindMap.tsx pads the node with these, and nodeSize counts the lines with them.
+ */
+export const NODE_PAD: Readonly<Record<MapNodeKind, { left: number; right: number }>> = {
+  topic: { left: 1.12, right: 1.12 },
+  ticket: { left: 0.84, right: 1.2 },
+  idea: { left: 0.84, right: 1.2 },
+  question: { left: 1.16, right: 1.44 },
+  objection: { left: 1.16, right: 1.44 },
+  decision: { left: 0.64, right: 0.88 },
+}
+
+/** The icon's circle and the gap after it, em: a Ticket's number takes a wider badge; the topic has none. */
+const ICON_EM: Readonly<Record<MapNodeKind, number>> = { topic: 0, ticket: 2.2, idea: 1.56, question: 1.56, objection: 1.56, decision: 1.56 }
+
+/** The shape a node's kind is drawn with: the prototype tells the kinds apart by shape as well as by colour. */
+export type NodeShape = 'topic' | 'ticket' | 'pill' | 'hexagon' | 'slant' | 'box'
+
+export const SHAPE_OF: Readonly<Record<MapNodeKind, NodeShape>> = {
+  topic: 'topic',
+  ticket: 'ticket',
+  idea: 'pill',
+  question: 'hexagon',
+  objection: 'slant',
+  decision: 'box',
+}
+
+const round = (value: number): string => String(Math.round(value * 10) / 10)
+
+function roundRect(width: number, height: number, radius: number): string {
+  const r = Math.min(radius, width / 2, height / 2)
+  const [w, h, k] = [round(width), round(height), round(r)]
+  return `M${k},0 H${round(width - r)} A${k},${k} 0 0 1 ${w},${k} V${round(height - r)} A${k},${k} 0 0 1 ${round(width - r)},${h} H${k} A${k},${k} 0 0 1 0,${round(height - r)} V${k} A${k},${k} 0 0 1 ${k},0 Z`
+}
+
+/**
+ * The outline of a node of `kind` in a box of `width` by `height`, an SVG path from the box's top left
+ * corner: an Idea a pill, a Question a hexagon with pointed ends, an Objection a slanted box, a Decision
+ * a box with small corners, the topic and the Tickets boxes with large ones.
+ */
+export function nodeShape(kind: MapNodeKind, width: number, height: number): string {
+  switch (SHAPE_OF[kind]) {
+    case 'pill':
+      return roundRect(width, height, Math.min(height / 2, 17))
+    case 'hexagon': {
+      const tip = Math.min(11, width / 4)
+      return `M${round(tip)},0 H${round(width - tip)} L${round(width)},${round(height / 2)} L${round(width - tip)},${round(height)} H${round(tip)} L0,${round(height / 2)} Z`
+    }
+    case 'slant': {
+      const lean = Math.min(10, width / 4)
+      return `M${round(lean)},0 H${round(width)} L${round(width - lean)},${round(height)} H0 Z`
+    }
+    case 'topic':
+      return roundRect(width, height, 10)
+    case 'ticket':
+      return roundRect(width, height, 8)
+    case 'box':
+      return roundRect(width, height, 3)
+  }
+}
 /** A node shows at most this many lines of its text (mind-map.css clamps the rest). */
 export const MAX_LINES = 3
 
@@ -168,33 +231,38 @@ export function nodeSize(node: MapNode, view: MindMapView): { width: number; hei
   const big = node.kind === 'topic' || node.kind === 'ticket'
   const font = MIND_MAP_FONT[view] + (big ? 2 : 0)
   const width = WIDTH[view] + (big ? 40 : 0)
-  // An average glyph is about 0.55 of the font size.
-  const perLine = Math.max(8, Math.floor((width - INSET) / (font * 0.55)))
+  // An average glyph is about 0.55 of the font size; the text has the node's width less its padding and icon.
+  const inset = (NODE_PAD[node.kind].left + ICON_EM[node.kind] + NODE_PAD[node.kind].right) * font
+  const perLine = Math.max(8, Math.floor((width - inset) / (font * 0.55)))
   const lines = Math.min(MAX_LINES, Math.max(1, Math.ceil(node.text.length / perLine)))
   return { width, height: Math.ceil(lines * font * LINE + 20) }
 }
 
-const GAP: Readonly<Record<MindMapView, { depth: number; across: number }>> = { tree: { depth: 56, across: 24 }, graph: { depth: 72, across: 14 } }
+/** The room between two depths (columns) and between two nodes of one depth, px; the Tree's is the prototype's. */
+const GAP: Readonly<Record<MindMapView, { depth: number; across: number }>> = { tree: { depth: 48, across: 12 }, graph: { depth: 72, across: 14 } }
 
-/** The layout's places, with each node the file places (`x`, `y`) where the file says. */
+/**
+ * The layout's places, with each node the file places (`x`, `y`) where the file says. A place written for
+ * the earlier top-down Tree (no `placed`, MIND_MAP_PLACED) is ignored: the layout places that node.
+ */
 export function withFilePlaces(graph: MapGraph, placement: Placement): Placement {
   const placed = new Map(placement)
   for (const node of graph.nodes) {
     const place = placed.get(node.id)
-    const { x, y } = node.source ?? {}
-    if (place !== undefined && x !== undefined && y !== undefined) placed.set(node.id, { ...place, x, y })
+    const { x, y, placed: forLayout } = node.source ?? {}
+    if (place !== undefined && x !== undefined && y !== undefined && forLayout === MIND_MAP_PLACED) placed.set(node.id, { ...place, x, y })
   }
   return placed
 }
 
 /**
- * A tidy tree without ELK: each branch takes the room its leaves need across, a parent sits in the middle
- * of its children, and each depth is one row (Tree) or one column (Graph) as deep as its largest node.
+ * A tidy tree without ELK: each branch takes the room its leaves need across (down the screen), a parent
+ * sits in the middle of its children, and each depth is one column as wide as its widest node.
  */
 export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
   const sizes = new Map(graph.nodes.map((node) => [node.id, nodeSize(node, view)]))
-  const along = (id: string) => (view === 'tree' ? sizes.get(id)!.width : sizes.get(id)!.height)
-  const deep = (id: string) => (view === 'tree' ? sizes.get(id)!.height : sizes.get(id)!.width)
+  const along = (id: string) => sizes.get(id)!.height
+  const deep = (id: string) => sizes.get(id)!.width
   const children = new Map<string, string[]>()
   const depth = new Map<string, number>()
   for (const node of graph.nodes) {
@@ -225,7 +293,7 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
     const { width, height } = sizes.get(id)!
     const middle = (startOf.get(id) ?? 0) + span.get(id)! / 2
     const level = levelStart[depth.get(id)!]!
-    placement.set(id, view === 'tree' ? { x: middle - width / 2, y: level, width, height } : { x: level, y: middle - height / 2, width, height })
+    placement.set(id, { x: level, y: middle - height / 2, width, height })
     const kids = children.get(id) ?? []
     const sum = kids.reduce((total, kid) => total + span.get(kid)!, 0) + across * Math.max(0, kids.length - 1)
     let at = middle - sum / 2
@@ -238,11 +306,17 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
 }
 
 /** The ELK graph of a view: the nodes with their sizes and the `from` edges only — never `replaces`. */
+/**
+ * What ELK's Tree gets added to each node's width: `mrtree` spaces the columns as it spaces two nodes of a
+ * column, and the prototype keeps its columns much further apart than its nodes. layoutElk takes it off again.
+ */
+const reach = (view: MindMapView): number => (view === 'tree' ? GAP.tree.depth - GAP.tree.across : 0)
+
 export function elkGraph(graph: MapGraph, view: MindMapView): ElkNode {
   const { depth, across } = GAP[view]
   const layoutOptions: Record<string, string> =
     view === 'tree'
-      ? { 'elk.algorithm': 'mrtree', 'elk.direction': 'DOWN', 'elk.spacing.nodeNode': String(across) }
+      ? { 'elk.algorithm': 'mrtree', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': String(across) }
       : {
           'elk.algorithm': 'layered',
           'elk.direction': 'RIGHT',
@@ -254,7 +328,10 @@ export function elkGraph(graph: MapGraph, view: MindMapView): ElkNode {
   return {
     id: 'mind-map',
     layoutOptions: { ...layoutOptions, 'elk.padding': '[top=0,left=0,bottom=0,right=0]' },
-    children: graph.nodes.map((node) => ({ id: node.id, ...nodeSize(node, view) })),
+    children: graph.nodes.map((node) => {
+      const size = nodeSize(node, view)
+      return { id: node.id, ...size, width: size.width + reach(view) }
+    }),
     edges: graph.edges.filter((edge) => edge.kind === 'from').map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
   }
 }
@@ -264,7 +341,7 @@ export async function layoutElk(graph: MapGraph, view: MindMapView, elk: ElkEngi
   const answer = await elk.layout(elkGraph(graph, view))
   const placement = new Map<string, Placed>()
   for (const child of answer.children ?? []) {
-    placement.set(child.id, { x: child.x ?? 0, y: child.y ?? 0, width: child.width ?? 0, height: child.height ?? 0 })
+    placement.set(child.id, { x: child.x ?? 0, y: child.y ?? 0, width: (child.width ?? 0) - reach(view), height: child.height ?? 0 })
   }
   return placement
 }

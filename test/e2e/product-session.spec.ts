@@ -23,7 +23,7 @@ const NODE = { id: 'n-teams', kind: 'idea', text: 'Sell to small teams', from: n
 
 type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown; error?: string }> }
 type SavedNode = { id: string; kind: string; data: { kind?: string } }
-type MindMapFile = { version: number; nodes: (typeof NODE & { x?: number; y?: number })[] }
+type MindMapFile = { version: number; nodes: (typeof NODE & { x?: number; y?: number; placed?: number })[] }
 
 let scratch: string
 let dataDir: string
@@ -133,7 +133,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     expect(written.x).toBeGreaterThan(before.x)
     expect(written.y).toBeGreaterThan(before.y)
     // Only the place changed: the meaning of the node is as the tool wrote it.
-    expect(moved).toEqual({ ...NODE, ...written })
+    expect(moved).toEqual({ ...NODE, ...written, placed: 2 })
     await expect.poll(() => drawnPlace(node)).toEqual(written)
   } finally {
     await first.close()
@@ -146,7 +146,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
   try {
     const { window } = second
     await canvasReady(second, { size: { width: 1400, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
-    expect(readMap().nodes).toEqual([{ ...NODE, ...seen.written }])
+    expect(readMap().nodes).toEqual([{ ...NODE, ...seen.written, placed: 2 }])
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('new product session')
     await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')

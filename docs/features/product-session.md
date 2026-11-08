@@ -173,15 +173,15 @@ never a Windows device name such as `CON`.
 **Nodes.** The topic is the root and the Tickets of its map are the large nodes. Each node of `mind-map.json` is one of
 four kinds, and an arrow leads to it from the node it grew from:
 
-| Kind | Mark | What it needs |
-|---|---|---|
-| Idea | ✦ | A text |
-| Question | ? | A text |
-| Decision | ✓ accepted, ✕ rejected | A status and a reason |
-| Objection | ! | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
+| Kind | Mark | Shape | What it needs |
+|---|---|---|---|
+| Idea | ✦ | Pill | A text |
+| Question | ? | Hexagon, dashed outline | A text |
+| Decision | ✓ accepted, ✕ rejected | Box | A status and a reason |
+| Objection | ! | Slanted box | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
 
-A rejected Decision stays on the map, struck through and grey. A Decision that overturned an earlier one has a dashed
-"Replaces" arrow to it.
+A rejected Decision stays on the map, struck through, grey and faded, with a dashed outline. A Decision that overturned
+an earlier one has a red dashed "Replaces" arrow to it. The legend under the map shows each kind's shape and both arrows.
 
 **Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
 of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node
@@ -193,8 +193,9 @@ and the reason.
 
 - The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
   "Fit". The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
-- "Tree" is the default: top to bottom, with text of 15 px. "Graph" runs left to right, with text of 12 px. The view is
-  remembered per topic on this Machine.
+- Both views grow left to right: the topic at the left, each node to the right of the node it grew from. "Tree" is the
+  default, a tidy tree with text of 15 px. "Graph" is a layered layout with text of 12 px. The view is remembered per
+  topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
 - The legend can be collapsed.
@@ -262,7 +263,8 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 
 **Layout.** The Mind map is drawn with React Flow. ELK lays it out in the window's Web Worker, `mrtree` for "Tree" and
 `layered` for "Graph"; until ELK answers, a quick tree layout draws it. A node with `x` and `y` in the file stands where
-the file says.
+the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
+out again.
 
 ### Implementation
 

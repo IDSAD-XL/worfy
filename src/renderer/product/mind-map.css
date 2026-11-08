@@ -1,7 +1,10 @@
-/* The Mind map of a Product Session topic (MindMap.tsx, worfy-product-session ticket 08): the toolbar,
-   the line of format errors, the map on the Canvas's dotted background, the legend and the node card.
-   Each kind has its colour and icon: Idea, Question, Decision accepted or rejected (struck through,
-   grey), Objection; the topic and the Tickets of the map are the larger nodes. */
+/* The Mind map of a Product Session topic (MindMap.tsx, worfy-product-session ticket 08), drawn as the
+   prototype Card of the Product Session draws it (ticket 21): the toolbar, the line of
+   format errors, the map on the Canvas's dotted background, the legend and the node card. Each kind has
+   its shape, colour, tint and icon: an Idea a pill, a Question a hexagon with a dashed outline, a Decision
+   a box (accepted: a thicker outline; rejected: grey, dashed, faded and struck through), an Objection a
+   slanted box; the topic and the Tickets of the map are the larger boxes. "Grew from" is a grey curve with
+   an arrowhead at the child, `replaces` a red dashed one. */
 .w-mind {
   position: relative;
   flex: 1;
@@ -9,16 +12,36 @@
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  /* Colours that differ in both themes, from the theme's palette: the accent is the question's blue in
-     the light theme and the decision's green in the dark one, so the idea takes the violet; the kind-*
-     roles belong to the Canvas's Nodes (canvas/kind-colours.ts), so the Tickets take the amber. */
-  --mind-idea: var(--span-verifier);
-  --mind-question: var(--working-text);
+  /* The kinds' colours and tints. The prototype's: a Decision is the accent green of the dark theme, a
+     Question the amber, a rejected Decision the hatch grey, `replaces` the problem red, the topic the
+     selected surface. The Idea's sky blue and the Objection's rose are the Mind map's own: the theme
+     has them only as the kind-* roles of the Canvas's Nodes, which ADR-0077 keeps to the Node's type. */
+  --mind-idea: #2b8bc6;
+  --mind-idea-tint: #e6f2fa;
+  --mind-question: var(--blocked-text);
+  --mind-question-tint: var(--blocked-bg);
   --mind-decision: var(--ready-text);
-  --mind-rejected: var(--text-muted);
-  --mind-objection: var(--blocked-text);
+  --mind-decision-tint: var(--ready-bg);
+  --mind-rejected: var(--span-hatch);
+  --mind-rejected-tint: var(--sidebar);
+  --mind-objection: #a0527f;
+  --mind-objection-tint: #f6eaf1;
   --mind-ticket: var(--span-ci);
-  --mind-topic: var(--text);
+  --mind-ticket-tint: color-mix(in srgb, var(--span-ci) 12%, var(--surface));
+  --mind-topic: var(--border-strong);
+  --mind-topic-tint: var(--selected);
+  --mind-edge: color-mix(in srgb, var(--text-muted) 18%, var(--border-strong));
+  --mind-edge-head: color-mix(in srgb, var(--text-muted) 32%, var(--border-strong));
+  --mind-replaces: var(--span-problem);
+}
+
+@media (prefers-color-scheme: dark) {
+  .w-mind {
+    --mind-idea: #56b4e9;
+    --mind-idea-tint: #1b2730;
+    --mind-objection: #cc79a7;
+    --mind-objection-tint: #2d2028;
+  }
 }
 
 .w-mind__toolbar {
@@ -94,72 +117,158 @@
   min-height: 0;
 }
 
+/* ── kinds ─────────────────────────────────────────────────────────────── */
+/* The colour and tint of a kind, for a node, its icon in the card and its sample in the legend. */
+.w-mind__node--topic,
+.w-mind__icon--topic {
+  --mind-kind: var(--mind-topic);
+  --mind-tint: var(--mind-topic-tint);
+}
+.w-mind__node--ticket,
+.w-mind__icon--ticket {
+  --mind-kind: var(--mind-ticket);
+  --mind-tint: var(--mind-ticket-tint);
+}
+.w-mind__node--idea,
+.w-mind__icon--idea,
+.w-mind__legend-item--idea {
+  --mind-kind: var(--mind-idea);
+  --mind-tint: var(--mind-idea-tint);
+}
+.w-mind__node--question,
+.w-mind__icon--question,
+.w-mind__legend-item--question {
+  --mind-kind: var(--mind-question);
+  --mind-tint: var(--mind-question-tint);
+}
+.w-mind__node--decision,
+.w-mind__icon--decision,
+.w-mind__legend-item--decision {
+  --mind-kind: var(--mind-decision);
+  --mind-tint: var(--mind-decision-tint);
+}
+.w-mind__node--objection,
+.w-mind__icon--objection,
+.w-mind__legend-item--objection {
+  --mind-kind: var(--mind-objection);
+  --mind-tint: var(--mind-objection-tint);
+}
+/* After the Decision's: a rejected Decision carries both classes. */
+.w-mind__node--rejected,
+.w-mind__icon--rejected,
+.w-mind__legend-item--rejected {
+  --mind-kind: var(--mind-rejected);
+  --mind-tint: var(--mind-rejected-tint);
+}
+
 /* ── nodes ─────────────────────────────────────────────────────────────── */
+/* The box React Flow measures; the outline is the SVG behind (.w-mind__shape), so the box has no
+   border or background of its own. The side paddings are per kind, inline (NODE_PAD). */
 .w-mind__node {
+  --mind-stroke: 1.4px;
+  position: relative;
+  isolation: isolate;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--mind-kind, var(--border-strong));
-  border-radius: var(--radius-node);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-node);
+  gap: 0.52em;
+  padding-top: 9px;
+  padding-bottom: 9px;
   color: var(--text);
   line-height: 1.35;
   cursor: pointer;
 }
 
-.w-mind__node--topic {
-  --mind-kind: var(--mind-topic);
-  font-weight: 700;
-}
+.w-mind__node--topic,
 .w-mind__node--ticket {
-  --mind-kind: var(--mind-ticket);
+  --mind-stroke: 1.6px;
   font-weight: 600;
-  background: color-mix(in srgb, var(--mind-ticket) 12%, var(--surface-raised));
-}
-.w-mind__node--idea {
-  --mind-kind: var(--mind-idea);
-}
-.w-mind__node--question {
-  --mind-kind: var(--mind-question);
 }
 .w-mind__node--decision {
-  --mind-kind: var(--mind-decision);
-}
-.w-mind__node--objection {
-  --mind-kind: var(--mind-objection);
+  --mind-stroke: 2px;
 }
 .w-mind__node--rejected {
-  --mind-kind: var(--mind-rejected);
+  --mind-stroke: 1.4px;
   color: var(--text-muted);
-  background: var(--canvas);
-  border-style: dashed;
-  box-shadow: none;
 }
 
-.w-mind__node--selected,
+.w-mind__shape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.w-mind__outline {
+  fill: var(--mind-tint);
+  stroke: var(--mind-kind);
+  stroke-width: var(--mind-stroke);
+  transition: stroke-width 0.2s;
+}
+
+.w-mind__node--question .w-mind__outline {
+  stroke-dasharray: 5 3;
+}
+.w-mind__node--rejected .w-mind__outline {
+  stroke-dasharray: 4 3;
+}
+
+/* A rejected Decision is faded, as in the prototype: its outline and icon. Its text stays at full opacity in
+   the muted grey, struck through, so it keeps a contrast of 4.5:1 or more on the faded fill (5.2:1 in the
+   light theme, 6.4:1 in the dark one). */
+.w-mind__node--rejected .w-mind__shape,
+.w-mind__node--rejected .w-mind__icon {
+  opacity: 0.62;
+}
+.w-mind__node--rejected .w-mind__text s {
+  text-decoration-color: var(--text-muted);
+  text-decoration-thickness: 1.2px;
+}
+
+.w-mind__node:hover {
+  --mind-stroke: 2.4px;
+}
+.w-mind__node--selected {
+  --mind-stroke: 2.6px;
+}
+.w-mind__node--selected .w-mind__shape {
+  filter: drop-shadow(0 0 7px var(--mind-kind));
+}
+
 .w-mind__node:focus-visible {
-  outline: 2px solid var(--selected);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-node);
 }
 
-.w-mind__icon {
+/* The icon on the map and in the node card: the kind's glyph in a circle of the kind's colour, on the first
+   line of the text. Sized in em of the node's text (×0.76 here), so it follows the Tree's larger text. The
+   chips in the chat keep a plain glyph (.w-chips below), as the prototype's chips have no badge. */
+.w-mind .w-mind__icon {
   flex: none;
-  min-width: 1.1em;
-  color: var(--mind-kind, var(--text-secondary));
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.37em;
+  height: 1.37em;
+  margin-top: 0.2em;
+  border-radius: 999px;
+  background: var(--mind-kind, var(--text-secondary));
+  color: var(--bg);
+  font-size: 0.76em;
   font-weight: 700;
-  text-align: center;
+  line-height: 1;
 }
 
-.w-mind__node--ticket .w-mind__icon {
+.w-mind__node--ticket .w-mind__icon,
+.w-mind .w-mind__icon--ticket {
+  padding: 0 0.4em;
   font-family: var(--font-mono);
-  font-size: 0.8em;
-  line-height: 1.7;
 }
 
 .w-mind__text {
@@ -185,39 +294,66 @@
 
 /* ── arrows ────────────────────────────────────────────────────────────── */
 .react-flow__edge.w-mind__edge .react-flow__edge-path {
-  stroke: var(--border-strong);
-  stroke-width: 1.2;
+  stroke: var(--mind-edge);
+  stroke-width: 1.4;
 }
 
 .react-flow__edge.w-mind__edge--replaces .react-flow__edge-path {
-  stroke: var(--mind-rejected);
+  stroke: var(--mind-replaces);
   stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+.w-mind__defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.w-mind__arrowhead--from {
+  fill: var(--mind-edge-head);
+}
+.w-mind__arrowhead--replaces {
+  fill: var(--mind-replaces);
 }
 
 /* ── legend ────────────────────────────────────────────────────────────── */
+/* One wrapping row at the bottom left, as in the prototype: the title, then a sample of each kind and
+   of each arrow. */
 .w-mind__legend {
   position: absolute;
-  left: var(--space-3);
-  bottom: var(--space-3);
+  left: 10px;
+  bottom: 10px;
   z-index: 5;
-  padding: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  max-width: calc(100% - 20px);
+  box-sizing: border-box;
+  padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-popover);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-control);
-  font-size: var(--text-12);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--toolbar) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 11.5px;
 }
 
 .w-mind__legend-toggle {
+  padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--text-12);
-  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
 .w-mind__legend-list {
-  margin: var(--space-1) 0 0;
+  display: contents;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -225,29 +361,45 @@
 .w-mind__legend-item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  color: var(--text-secondary);
+  gap: 7px;
+  white-space: nowrap;
 }
 
-.w-mind__legend-item--idea {
-  --mind-kind: var(--mind-idea);
-}
-.w-mind__legend-item--question {
-  --mind-kind: var(--mind-question);
-}
-.w-mind__legend-item--decision {
-  --mind-kind: var(--mind-decision);
-}
-.w-mind__legend-item--rejected {
-  --mind-kind: var(--mind-rejected);
-}
-.w-mind__legend-item--objection {
-  --mind-kind: var(--mind-objection);
+.w-mind__legend-sample {
+  flex: none;
+  width: 30px;
+  height: 16px;
+  overflow: visible;
 }
 
-.w-mind__legend-dash {
-  width: 1.1em;
-  border-top: 1.5px dashed var(--mind-rejected);
+.w-mind__legend-sample .w-mind__outline {
+  stroke-width: 1.3;
+}
+.w-mind__legend-item--decision .w-mind__outline {
+  stroke-width: 1.8;
+}
+.w-mind__legend-item--question .w-mind__outline {
+  stroke-dasharray: 4 2.5;
+}
+.w-mind__legend-item--rejected .w-mind__outline {
+  stroke-dasharray: 3 2;
+}
+
+.w-mind__legend-strike {
+  stroke: var(--text-muted);
+  stroke-width: 1.2;
+}
+
+.w-mind__legend-line {
+  fill: none;
+  stroke-width: 1.5;
+}
+.w-mind__legend-line--from {
+  stroke: var(--mind-edge-head);
+}
+.w-mind__legend-line--replaces {
+  stroke: var(--mind-replaces);
+  stroke-dasharray: 4 3;
 }
 
 /* ── node card ─────────────────────────────────────────────────────────── */
@@ -275,28 +427,6 @@
   color: var(--text-secondary);
   font-size: var(--text-12);
   font-weight: 600;
-}
-
-.w-mind__icon--topic {
-  --mind-kind: var(--mind-topic);
-}
-.w-mind__icon--ticket {
-  --mind-kind: var(--mind-ticket);
-}
-.w-mind__icon--idea {
-  --mind-kind: var(--mind-idea);
-}
-.w-mind__icon--question {
-  --mind-kind: var(--mind-question);
-}
-.w-mind__icon--decision {
-  --mind-kind: var(--mind-decision);
-}
-.w-mind__icon--rejected {
-  --mind-kind: var(--mind-rejected);
-}
-.w-mind__icon--objection {
-  --mind-kind: var(--mind-objection);
 }
 
 .w-mind__card-close {
@@ -387,18 +517,18 @@
   opacity: 0.55;
 }
 
-.w-mind__node[data-folded='true'] {
-  box-shadow:
-    var(--shadow-node),
-    3px 3px 0 -1px var(--surface-raised),
-    3px 3px 0 0 var(--border);
+/* A folded branch: a second outline behind the node (NodeOutline), as a stack. */
+.w-mind__outline--stack {
+  opacity: 0.7;
 }
 
-/* A chip under a chat message points at the node. */
+/* A chip under a chat message points at the node: the outline glows in the kind's colour, as the
+   prototype lights the nodes of a message. */
 .w-mind__node--lit {
-  background: color-mix(in srgb, var(--mind-kind, var(--accent)) 16%, var(--surface-raised));
-  outline: 2px dashed var(--mind-kind, var(--accent));
-  outline-offset: 2px;
+  --mind-stroke: 2.4px;
+}
+.w-mind__node--lit .w-mind__shape {
+  filter: drop-shadow(0 0 6px var(--mind-kind));
 }
 
 .w-mind__card-hint {
@@ -417,17 +547,24 @@
 /* The chips of Mind map nodes under a chat message (NodeChips.tsx): in the chat, outside .w-mind, so
    with the Mind map's colours of their own. */
 .w-chips {
-  --mind-idea: var(--span-verifier);
-  --mind-question: var(--working-text);
+  --mind-idea: #2b8bc6;
+  --mind-question: var(--blocked-text);
   --mind-decision: var(--ready-text);
-  --mind-rejected: var(--text-muted);
-  --mind-objection: var(--blocked-text);
+  --mind-rejected: var(--span-hatch);
+  --mind-objection: #a0527f;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
   margin: var(--space-1) 0 0;
   padding: 0;
   list-style: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .w-chips {
+    --mind-idea: #56b4e9;
+    --mind-objection: #cc79a7;
+  }
 }
 
 .w-chips__chip {
@@ -470,6 +607,14 @@
 }
 .w-chips__chip--objection {
   --mind-kind: var(--mind-objection);
+}
+
+.w-chips .w-mind__icon {
+  flex: none;
+  min-width: 1.1em;
+  color: var(--mind-kind, var(--text-secondary));
+  font-weight: 700;
+  text-align: center;
 }
 
 .w-chips__text {

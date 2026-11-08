@@ -224,7 +224,7 @@ describe('MindMap by hand', () => {
     rerender(<MindMap projectId="p1" topic={topic({ nodes: other })} />)
     expect(placeOf('who-pays')).toEqual(at)
     // The write is back.
-    const placed = other.map((node) => (node.id === 'who-pays' ? { ...node, ...at } : node))
+    const placed = other.map((node) => (node.id === 'who-pays' ? { ...node, ...at, placed: 2 as const } : node))
     rerender(<MindMap projectId="p1" topic={topic({ nodes: placed })} />)
     expect(placeOf('who-pays')).toEqual(at)
     // Moved again elsewhere (another window): the screen follows the file, not the old drag.

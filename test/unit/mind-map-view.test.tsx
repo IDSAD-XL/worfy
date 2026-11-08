@@ -231,7 +231,7 @@ describe('MindMap', () => {
   })
 
   it('places a node the file places at its x and y', () => {
-    const nodes = topic().nodes.map((node) => (node.id === 'too-wide' ? { ...node, x: 1234, y: 567 } : node))
+    const nodes = topic().nodes.map((node) => (node.id === 'too-wide' ? { ...node, x: 1234, y: 567, placed: 2 as const } : node))
     render(<MindMap projectId="p1" topic={topic({ nodes })} />)
     const element = nodeOf('too-wide')!.closest<HTMLElement>('.react-flow__node')!
     expect(element.style.transform).toMatch(/translate\(1234px, ?567px\)/)
@@ -287,8 +287,8 @@ describe('MindMap', () => {
       await waitFor(() => expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
       expect(requests).toHaveLength(1)
 
-      // The advisor adds two nodes while ELK works on the first: both are drawn at once, under their
-      // parent's ELK place, and the others keep theirs.
+      // The advisor adds two nodes while ELK works on the first: both are drawn at once, to the right of
+      // their parent's ELK place (the Tree grows left to right), and the others keep theirs.
       rerender(<MindMap projectId="p1" topic={withNodes('late-1')} />)
       rerender(<MindMap projectId="p1" topic={withNodes('late-1', 'late-2')} />)
       await act(async () => {
@@ -298,7 +298,7 @@ describe('MindMap', () => {
       for (const id of ['late-1', 'late-2']) {
         expect(nodeOf(id)).not.toBeNull()
         const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(at(id))!
-        expect(Number(place[2])).toBeGreaterThan(byElk.y)
+        expect(Number(place[1])).toBeGreaterThan(byElk.x)
       }
       // One request is out (the one for `late-1`); the inputs after it wait for its answer.
       await requested(2)
@@ -354,5 +354,96 @@ describe('MindMap', () => {
       }
       expect(zoom.textContent).toBe(bound)
     }
+  })
+})
+
+// The look that carries meaning (ticket 21, drawn as the prototype draws it): each kind its shape, a
+// rejected Decision struck through and marked so, and the `replaces` arrow apart from "grew from".
+describe('MindMap look', () => {
+  const shapeOf = (id: string): string | null | undefined => nodeOf(id)?.querySelector('svg.w-mind__shape')?.getAttribute('data-shape')
+
+  it('draws each kind in its own shape, behind the icon and the text; the topic has no icon', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    expect(shapeOf('@topic')).toBe('topic')
+    expect(shapeOf('ticket:01')).toBe('ticket')
+    expect(shapeOf('idea-teams')).toBe('pill')
+    expect(shapeOf('who-pays')).toBe('hexagon')
+    expect(shapeOf('map-split')).toBe('box')
+    expect(shapeOf('harness-first')).toBe('box')
+    expect(shapeOf('too-wide')).toBe('slant')
+    // The outline is as big as the box React Flow places, so arrows meet it.
+    const box = nodeOf('who-pays')!.closest<HTMLElement>('.react-flow__node')!
+    const svg = nodeOf('who-pays')!.querySelector('svg.w-mind__shape')!
+    expect(svg.getAttribute('width')).toBe(String(Number.parseFloat(box.style.width)))
+    expect(svg.getAttribute('height')).toBe(String(Number.parseFloat(box.style.height)))
+    expect(nodeOf('@topic')!.querySelector('.w-mind__icon')).toBeNull()
+    expect(nodeOf('ticket:01')!.querySelector('.w-mind__icon')!.textContent).toBe('01')
+    expect(nodeOf('idea-teams')!.querySelector('.w-mind__icon')!.textContent).toBe('✦')
+  })
+
+  it('marks a rejected Decision grey and struck through, and an accepted one not', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const rejected = nodeOf('harness-first')!
+    expect(rejected.classList.contains('w-mind__node--decision')).toBe(true)
+    expect(rejected.classList.contains('w-mind__node--rejected')).toBe(true)
+    expect(rejected.querySelector('.w-mind__text s')).not.toBeNull()
+    const accepted = nodeOf('map-split')!
+    expect(accepted.classList.contains('w-mind__node--rejected')).toBe(false)
+    expect(accepted.querySelector('.w-mind__text s')).toBeNull()
+  })
+
+  it('grows the Tree left to right: a child to the right of its parent, "grew from" from the right side into the left', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const box = (id: string) => {
+      const element = nodeOf(id)!.closest<HTMLElement>('.react-flow__node')!
+      const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(element.style.transform)!
+      return { x: Number(place[1]), width: Number.parseFloat(element.style.width) }
+    }
+    for (const [parent, child] of [['@topic', 'ticket:01'], ['ticket:01', 'idea-teams'], ['idea-teams', 'who-pays']] as const) {
+      expect(box(child).x).toBeGreaterThanOrEqual(box(parent).x + box(parent).width)
+    }
+    const handles = (id: string, type: string) =>
+      Array.from(nodeOf(id)!.querySelectorAll(`.react-flow__handle.${type}:not([data-handleid^="replaces"])`)).map((handle) => handle.getAttribute('data-handlepos'))
+    expect(handles('idea-teams', 'target')).toEqual(['left'])
+    expect(handles('idea-teams', 'source')).toEqual(['right'])
+  })
+
+  it('draws `replaces` as its own red dashed arrow with its own arrowhead, apart from "grew from"', async () => {
+    const { container } = render(<MindMap projectId="p1" topic={topic()} />)
+    const edge = (id: string): Element | null => container.querySelector(`[data-testid="rf__edge-${id}"]`)
+    await waitFor(() => expect(edge('replaces:map-split')).not.toBeNull())
+    const replaces = edge('replaces:map-split')!
+    const grew = edge('from:map-split')!
+    expect(replaces.classList.contains('w-mind__edge--replaces')).toBe(true)
+    expect(grew.classList.contains('w-mind__edge')).toBe(true)
+    expect(grew.classList.contains('w-mind__edge--replaces')).toBe(false)
+    // Each ends in an arrowhead of its kind, drawn once beside the flow.
+    const head = (path: Element): Element | null => {
+      const url = /url\('#([^']+)'\)/.exec(path.getAttribute('marker-end') ?? '')
+      return url === null ? null : container.querySelector(`marker[id="${url[1]}"] path`)
+    }
+    expect(head(replaces.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--replaces')).toBe(true)
+    expect(head(grew.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--from')).toBe(true)
+  })
+
+  it('names in the legend each kind by a sample of its shape, and both arrows', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const legend = screen.getByTestId('mind-map-legend')
+    const items = Array.from(legend.querySelectorAll<HTMLElement>('[data-legend]'))
+    expect(items.map((item) => item.dataset['legend'])).toEqual(['idea', 'question', 'decision', 'rejected', 'objection', 'from', 'replaces'])
+    expect(within(legend).getByText('Grew from')).toBeTruthy()
+    expect(within(legend).getByText('Replaces')).toBeTruthy()
+    expect(legend.querySelector('[data-legend="rejected"] .w-mind__legend-strike')).not.toBeNull()
+    expect(legend.querySelector('[data-legend="replaces"] .w-mind__legend-line--replaces')).not.toBeNull()
+    expect(legend.querySelector('[data-legend="from"] .w-mind__legend-line--from')).not.toBeNull()
+    fireEvent.click(within(legend).getByRole('button', { name: /^Legend/ }))
+    expect(legend.querySelector('[data-legend]')).toBeNull()
+  })
+
+  it('lays the map on the Canvas’s dotted background', () => {
+    const { container } = render(<MindMap projectId="p1" topic={topic()} />)
+    const background = container.querySelector('[data-testid="rf__background"]')!
+    expect(background).not.toBeNull()
+    expect(background.querySelector('circle.dots, .react-flow__background-pattern.dots')).not.toBeNull()
   })
 })
