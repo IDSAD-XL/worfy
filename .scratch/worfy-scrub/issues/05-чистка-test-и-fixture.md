@@ -1,7 +1,8 @@
 # 05 — Чистка `test/` и fixture-ов: вымышленные имена
 
 Type: task
-Status: open
+Status: done 2026-11-08T20:08Z
+PR: #1692
 Blocked by: 01
 Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08»; «Как работает» → «Чистка»; «Риски», п. 1; Q6
 
@@ -34,12 +35,15 @@ Test-ы и fixture переноса старого Harness — не здесь, 
 ## Готово, когда
 
 - [ ] Отчёт guard-а по файлам этого Ticket-а — ноль находок, кроме аккаунта репозитория в коде обновления.
+  - evidence: review pass · PR #1692 · - - · e485f1546ab8c07db1e659360284b085614ae44f
 - [ ] Ни один test не удалён и не пропущен ради чистки; число test-ов в `pnpm test` то же, что до правки.
   - evidence: test-run pass · `pnpm test` exit 0, 16635 tests, no test declaration added or removed, no skip added · mac - · e195f9b9891e1ad886ea5105c41829eeda61e0f9
+  - evidence: review pass · PR #1692 · - - · e485f1546ab8c07db1e659360284b085614ae44f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:e2e` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · e195f9b9891e1ad886ea5105c41829eeda61e0f9
   - evidence: gate pass · `gate fast` exit 0 · mac - · e195f9b9891e1ad886ea5105c41829eeda61e0f9
   - evidence: test-run pass · `pnpm test:e2e` of the touched specs exit 0 (limits-vendors rerun after the name fix) · mac - · e195f9b9891e1ad886ea5105c41829eeda61e0f9
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42516627624/job/128846406960 · ci - · e485f1546ab8c07db1e659360284b085614ae44f
 
 ## Тесты
 
