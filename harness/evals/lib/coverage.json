@@ -37,6 +37,8 @@
     "skills/ship-ticket/implementer-rework-round.md": "No case yet.",
     "skills/ship-ticket/implementer-silent-mode.md": "No case yet: the demo profile is in Full mode.",
     "skills/ship-ticket/implementer-source.md": "The source and licence of the implementer's steps 1-4: nothing for an agent to do.",
+    "skills/human-review-setup/SKILL.md": "No case yet: worfy-human-review 12 adds cases",
+    "skills/human-review-setup/analyse.md": "No case yet: worfy-human-review 12 adds cases",
     "skills/code-review/SKILL.md": "No case yet: the cases of the copied skills come in a later change.",
     "skills/code-review/agents/openai.yaml": "No case yet: the cases of the copied skills come in a later change.",
     "skills/codebase-design/DEEPENING.md": "No case yet: the cases of the copied skills come in a later change.",
