@@ -623,7 +623,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | L4 | Модель Subagent-ов | implementer и reviewer — `model: inherit`, `effort: high` (`harness/agents/implementer.md:4-5`, `harness/agents/reviewer.md:5-6`), то есть модель Orchestrator-а; scout — `sonnet`, `medium` (`harness/agents/scout.md:5-6`). Цена API (`scripts/agent-cost.mjs:27-28`): вход, выход и запись в cache у Sonnet 5.5 вдвое дешевле, чем у Opus 5.5; чтение из cache — одинаково, $0,2 за 1 млн token-ов. Агенты читают в основном из cache (у Orchestrator-а 225,8k из 228,3k token-ов на вызов, `issues/19-…:83`), поэтому выигрыш в цене заметно меньше 2 ×. Как Sonnet считается в окне «all models» — базы нет | Sonnet по умолчанию, Opus — явным выбором (Ticket 37) | Ticket 40, Ticket 43 |
 | L5 | Стартовый контекст | implementer 33,8k (27.10), reviewer 20,1k, scout 13,8k token-ов, медианы (Ticket 19, «Итог», `issues/19-…:84`, `:86`). Skills и plugin-ы пользователя в Session worfy — базы нет | все агенты ниже 35k (заменено R2-Q7: 15k на часть Harness) (Ticket 32, 33); лишние skills пользователя не грузятся (Ticket 38) | Ticket 32, Ticket 38 |
 | L6 | Orchestrator и простой cache | Orchestrator — 21,1 % расхода, 228,3k token-ов на вызов; перезапись cache после простоя — 24,6 % (Ticket 19, `issues/19-…:80`, `:82-83`) | цели раздела «процесс», строки 2 и 4 | Ticket-ы 25–28, 31 |
-| L7 | Доля разведки кода (scout и чтение до первой правки) | базы нет: Ticket 19 считает по ролям за период, а не по Ticket-у и не долю scout-а; базу даёт шаг 1 Ticket-а 39; для сравнения: карта scout-а на репозитории Auction — медиана 46k token-ов (замер 2026-09-23, память `scout-audit-2026-09-23`) | решает шаг 1 Ticket-а 39 | Ticket 39 |
+| L7 | Доля разведки кода (scout и чтение до первой правки) | базы нет: Ticket 19 считает по ролям за период, а не по Ticket-у и не долю scout-а; базу даёт шаг 1 Ticket-а 39; для сравнения: карта scout-а на репозитории Project A — медиана 46k token-ов (замер 2026-09-23, память `scout-audit-2026-09-23`) | решает шаг 1 Ticket-а 39 | Ticket 39 |
 
 Числа без базы не придуманы. Ticket 19 (`scripts/agent-cost.mjs`, на main с PR #872) считает token-ы и доллары по
 ролям за период. Разбивку по Ticket-у добавляет шаг 1 Ticket-а 39, долю окна Limits на Wave — Ticket 40, итог —
@@ -667,7 +667,7 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 
 ### Что не входит
 
-- **graphify и сторонние графы кода.** Оценка 2026-09-23 (на репозитории Auction, память `graphify-evaluation`):
+- **graphify и сторонние графы кода.** Оценка 2026-09-23 (на репозитории Project A (другой проект владельца), память `graphify-evaluation`):
   интеграция с Claude Code вешает PreToolUse hook-и на каждый Read и Grep в каждой Session и Subagent-е; граф
   обновляется только по commit и checkout, а main двигается каждые 15–30 min; открытый issue #952 склеивает
   одноимённые файлы в один узел; статические связи слабы на DI и файловой маршрутизации. Аудит scout-а того же дня

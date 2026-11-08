@@ -51,7 +51,7 @@ e2e linked-notify); замер в «Итог» [110](110-e2e-linked-notify-ок�
 ## Итог
 
 **Замер 2026-10-27 на ПК владельца, без кликов** (computer-use не работал, карточки разрешения не было).
-Сборка ветки (`pnpm build`), electron.exe из `C:\Users\Alexey\worfy\node_modules`, свой `WORFY_DATA_DIR`
+Сборка ветки (`pnpm build`), electron.exe из `C:\Users\<user>\worfy\node_modules`, свой `WORFY_DATA_DIR`
 на каждый запуск. Каждые 2–5 с снимались: передний план системы (`GetForegroundWindow` → pid), ответ
 Electron (`getFocusedWindow()`, `isFocused()` по окнам через inspector главного процесса), загрузка CPU,
 время без ввода, `ForegroundLockTimeout` (= 2147483647 мс на этом ПК). Всё время впереди был Chrome

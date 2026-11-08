@@ -22,7 +22,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
   `ticket-ref.ts`).
 - **PR и CI** (`src/main/github/prs.ts`): раз в 60 с, только пока окно активно, один вызов
   `gh pr list --state all --limit 100 --json number,headRefName,state,url,statusCheckRollup,comments`
-  в корне Проекта (без `--limit` `gh` отдаёт 30 последних PR, на Auction этого мало). Тикет в
+  в корне Проекта (без `--limit` `gh` отдаёт 30 последних PR, на Project A (другой проект владельца) этого мало). Тикет в
   работе или с веткой worktree, чьей ветки в этом списке нет, добирается отдельным
   `gh pr list --state all --search "head:<ветка>" --limit 1` — не чаще раза в 5 минут на ветку. Ветка → Тикет через `ticket-ref.ts`. CI сводится к `passing | failing | running`.
   Вердикт ревьюера — последний комментарий, чья первая строка `VERIFIED` или `REJECTED`. Ошибка
@@ -39,7 +39,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 - [x] Stub `gh` с PR на ветку `worfy-mvp/08`: бейдж «PR #N», CI `running`, комментарий `VERIFIED` → «VERIFIED».
 - [x] `gh` отсутствует → «gh unavailable», приложение работает, интервал растёт.
 - [x] Stub `gh` со 150 PR: PR ветки, которой нет среди первых 100, находится через `--search head:<ветка>` (stub записывает аргументы вызовов).
-- [ ] Ручная проверка на Auction: бейджи у Тикетов с открытыми PR; снимок в «Итог». (не проверено: открытых PR у Тикетов Auction нет ни 2026-10-05, ни 2026-10-06, ни 2026-10-07 — см. «Итог», подразделы «Ручная проверка 2026-10-06» и [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07))
+- [ ] Ручная проверка на Project A: бейджи у Тикетов с открытыми PR; снимок в «Итог». (не проверено: открытых PR у Тикетов Project A нет ни 2026-10-05, ни 2026-10-06, ни 2026-10-07 — см. «Итог», подразделы «Ручная проверка 2026-10-06» и [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07))
 
 ## Тесты
 
@@ -158,16 +158,16 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
   вызывался только как `pr list`; под Claude home изменилось только то, что удалил test, в
   Проекте и worktree — ничего; `gh` нет → один «gh unavailable», приложение работает.
 
-**Ручная проверка на Auction.** Собранное приложение запущено на `/Users/alexey/Work/Auction`
+**Ручная проверка на Project A.** Собранное приложение запущено на `~/Work/project-a`
 с временным `WORFY_DATA_DIR`, копией `~/.claude/gate` и `bin/epic-status` в качестве Claude home
 и настоящим `gh` из login shell. `checks.get` ответил: `gh` доступен, 100 PR разобраны (CI
 `passing`/`failing` у слитых PR), worktree `claude/ui5-01…07` — «красно» по маркерам
-`red-auction-<tag>`. Бейджей на Узлах Тикетов не появилось: открытых PR у Тикетов сейчас нет
-(единственный открытый — `claude/handoff-batch-3-prod`), worktree Auction названы не по Тикетам
-(`claude/ui5-NN`, `.claude/worktrees/auction-…`), а сделанные Тикеты свёрнуты в рамке Эпика.
-не проверено: бейджи у Тикетов с открытыми PR на Auction — таких Тикетов на 2026-10-05 нет;
+`red-project-a-<tag>`. Бейджей на Узлах Тикетов не появилось: открытых PR у Тикетов сейчас нет
+(единственный открытый — `claude/handoff-batch-3-prod`), worktree Project A названы не по Тикетам
+(`claude/ui5-NN`, `.claude/worktrees/project-a-…`), а сделанные Тикеты свёрнуты в рамке Эпика.
+не проверено: бейджи у Тикетов с открытыми PR на Project A — таких Тикетов на 2026-10-05 нет;
 снимок не приложен, потому что он не показывает заявленного. 2026-10-06 — то же: единственный
-открытый PR Auction — #571 из `claude/handoff-batch-3-prod`, не из ветки Тикета; на слитых PR
+открытый PR Project A — #571 из `claude/handoff-batch-3-prod`, не из ветки Тикета; на слитых PR
 бейджи видны — подраздел [«Ручная проверка 2026-10-06»](#ручная-проверка-2026-10-06).
 
 ### Ручная проверка 2026-10-06
@@ -176,18 +176,18 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME` (в последнем только symlink на `bin/epic-status`).
 Снимки лежат в scratchpad сессии оркестратора, в репозиторий не положены.
 
-**Бейджи PR и CI на Тикетах Auction с открытыми PR — не проверено.** Нет условия проверки: в
-`IDSAD-XL/Auction` единственный открытый PR — #571 из `claude/handoff-batch-3-prod`, это не ветка
+**Бейджи PR и CI на Тикетах Project A с открытыми PR — не проверено.** Нет условия проверки: в
+`IDSAD-XL/project-a` единственный открытый PR — #571 из `claude/handoff-batch-3-prod`, это не ветка
 Тикета. Открытых PR из веток `<эпик>/<NN>` нет, так что бейдж «PR #N» с chip CI на открытом PR
 увидеть нельзя. Пункт «Готово, когда» остаётся `[ ]`.
 
-- `gh` переключён на аккаунт IDSAD-XL, Проект Auction добавлен через `projects.add`, worfy держали на
+- `gh` переключён на аккаунт репозитория, Project A добавлен через `projects.add`, worfy держали на
   переднем плане 70 с.
 - `checks.get`: `gh.available = true`, `error = null`, 100 PR. На `roadmap/09` (единственный взятый
   Тикет, без PR) нет ни бейджа, ни chip «gh unavailable».
 - Частичный положительный результат на слитых PR: `research-triage/13, 15, 16, 17, 18` показывают
   «PR #499/#500/#502/#501/#482 merged» и кнопку «Open PR». Подсказка на PR #502 —
-  `https://github.com/IDSAD-XL/Auction/pull/502`.
+  `https://github.com/IDSAD-XL/project-a/pull/502`.
 - Наблюдение, нужно решение владельца: chip «CI passing» есть в DOM, но виден только его цветной
   кружок. Метка PR, chip CI и кнопка «Open PR» делят одну строку, а колонка бейджей в ней — 109 px с
   `overflow: hidden` (`src/renderer/canvas/actions/actions.css:40-57`; комментарий
@@ -196,7 +196,7 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
   (~48 px) + 2 px + 71 px = ~121 px, тоже больше 109; бейдж gate в той же строке скрыл бы chip CI
   целиком. Полное состояние есть только в подсказке строки («PR #502 merged · CI passing»), а гайд
   ждёт видимый chip.
-- После проверки `gh` вернут на Oleksii-O-Atakama; в Auction `status` — только `?? .wrangler/`,
+- После проверки `gh` вернут на личный аккаунт GitHub владельца; в Project A `status` — только `?? .wrangler/`,
   `diff --stat` пуст. Первый ⌘K через System Events `keystroke "k"` до worfy не дошёл (выделил текст в
   Узле HANDOFF, ничего не записал); `key code 40` сработал.
 - Снимки: `12-00-start.png`, `12-01-palette.png`, `12-02-roadmap-09.png`,
@@ -207,14 +207,14 @@ Source: [CONTEXT.md](../../../CONTEXT.md), термин «Gate»; [BRIEF.md](../
 
 Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
 
-- Auction (проверка M20, Stable copy из 6df9791): единственный открытый PR — по-прежнему #571 из
+- Project A (проверка M20, Stable copy из 6df9791): единственный открытый PR — по-прежнему #571 из
   `claude/handoff-batch-3-prod`, не из ветки Ticket-а. `checks.get` worfy даёт то же: OPEN 1,
   MERGED 98, CLOSED 1. Бейджи у Ticket-а с открытым PR увидеть нельзя — не проверено.
 - Canvas Project-а worfy (проверка M19, та же копия): chip CI на всех 39 Ticket-ах с влитыми PR лежит
   внутри Ticket-а и не обрезан, «gh unavailable» нет. Это снятое решение «chip CI на Node-е Ticket-а
   не обрезается» (Ticket 11 `worfy-daily`) на собранной копии. Подробно — «Итог» Ticket-а 01
   `worfy-week`, подраздел «Ручная проверка 2026-10-07».
-- Вердикт: пункт остаётся `[ ]` — ждёт Ticket-а Auction с открытым PR.
+- Вердикт: пункт остаётся `[ ]` — ждёт Ticket-а Project A с открытым PR.
 
 ### Долги из HANDOFF (2026-10-08)
 

@@ -1,7 +1,7 @@
 # Evidence Ticket-а 01 — факты порта на живой Windows
 
 Снято 2026-10-09 на Windows-ПК владельца Session-ей Claude Code (desktop app, вкладка Code). Клон —
-`C:\Users\Alexey\worfy`, main на `76f7ff8` (`worfy-link/14: keep the Project machine awake …`). После
+`C:\Users\<user>\worfy`, main на `76f7ff8` (`worfy-link/14: keep the Project machine awake …`). После
 мержа PR #150 (`3837558`) ветка перебазирована на main `08e8256`; там же сняты заново `pnpm test`
 (раздел 17, из JSON-отчёта vitest), опись Harness (раздел 18), `realpath.native` (раздел 06) и
 сверка файлов сборки (раздел 24). `package.json` и `pnpm-lock.yaml` между этими коммитами не менялись.
@@ -58,7 +58,7 @@ PS> git --version
 git version 2.45.1.windows.1
 PS> git config --show-origin --show-scope --get-all core.autocrlf
 system  file:C:/Program Files/Git/etc/gitconfig  true
-global  file:C:/Users/Alexey/.gitconfig          true
+global  file:C:/Users/<user>/.gitconfig          true
 EXIT=0
 PS> git config --show-origin --show-scope --get-all core.longpaths
 system  file:C:/Program Files/Git/etc/gitconfig  true
@@ -98,7 +98,7 @@ $ git ls-files --eol | grep -v 'scratch/worfy-windows/evidence/' | awk '{print $
 ```
 PS> where.exe bash
 C:\Windows\System32\bash.exe
-C:\Users\Alexey\AppData\Local\Microsoft\WindowsApps\bash.exe
+C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\bash.exe
 EXIT=0
 PS> where.exe sh
 INFO: Could not find files for the given pattern(s).
@@ -129,7 +129,7 @@ $ uname -a
 MINGW64_NT-10.0-26200 … 3.4.10-87d57229.x86_64 2024-02-14 x86_64 Msys
 $ echo "BASH=$BASH $BASH_VERSION"; echo "PATH=$PATH"
 BASH=/usr/bin/bash 5.2.26(1)-release
-PATH=/c/Users/Alexey/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/mingw64/bin:/usr/bin:/c/Users/Alexey/bin:… (папки Windows) …:/mingw64/bin:/c/Program Files/GitHub CLI:/c/WINDOWS/system32:/c/WINDOWS:/c/WINDOWS/System32/Wbem:/c/WINDOWS/System32/WindowsPowerShell/v1.0:/c/WINDOWS/System32/OpenSSH:/c/Users/Alexey/AppData/Local/Programs/cursor/resources/app/bin:/usr/bin/vendor_perl:/usr/bin/core_perl
+PATH=/c/Users/<user>/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/mingw64/bin:/usr/bin:/c/Users/<user>/bin:… (папки Windows) …:/mingw64/bin:/c/Program Files/GitHub CLI:/c/WINDOWS/system32:/c/WINDOWS:/c/WINDOWS/System32/Wbem:/c/WINDOWS/System32/WindowsPowerShell/v1.0:/c/WINDOWS/System32/OpenSSH:/c/Users/<user>/AppData/Local/Programs/cursor/resources/app/bin:/usr/bin/vendor_perl:/usr/bin/core_perl
 $ for c in jq perl shasum sha1sum sha256sum realpath zsh; do p=$(command -v $c); echo "$c -> ${p:-<none>} (rc=$?)"; done
 jq -> <none> (rc=1)
 perl -> /usr/bin/perl (rc=0)
@@ -152,9 +152,9 @@ $ date -d '-14 days' +%F
 2026-09-25
 $ command -v cygpath; cygpath -m /tmp
 /usr/bin/cygpath
-C:/Users/Alexey/AppData/Local/Temp
+C:/Users/<user>/AppData/Local/Temp
 $ echo "TMPDIR=[$TMPDIR]"        (Bash tool Session Claude Code)
-TMPDIR=[/c/Users/Alexey/AppData/Local/Temp]
+TMPDIR=[/c/Users/<user>/AppData/Local/Temp]
 ```
 
 Вывод: в Git Bash 2.45.1 есть perl, shasum, sha1sum, realpath, cygpath; нет jq и zsh. BSD
@@ -182,35 +182,35 @@ PATH bash-hook-а, запущенного по shebang, проба не запи
 ### 06. Пути у git и Git Bash
 
 ```
-PS> git rev-parse --show-toplevel        → C:/Users/Alexey/worfy
+PS> git rev-parse --show-toplevel        → C:/Users/<user>/worfy
 PS> git rev-parse --git-common-dir       → .git
-PS> (Get-Location).Path                  → C:\Users\Alexey\worfy
-$ git rev-parse --show-toplevel          → C:/Users/Alexey/worfy
+PS> (Get-Location).Path                  → C:\Users\<user>\worfy
+$ git rev-parse --show-toplevel          → C:/Users/<user>/worfy
 $ git rev-parse --git-common-dir         → .git
-$ pwd                                    → /c/Users/Alexey/worfy
-$ pwd -W                                 → C:/Users/Alexey/worfy
+$ pwd                                    → /c/Users/<user>/worfy
+$ pwd -W                                 → C:/Users/<user>/worfy
 ```
 
 В worktree (`.claude\worktrees\windows-long-path-probe-0123456789abcdefg`), из Git Bash:
 
 ```
-git rev-parse --show-toplevel → C:/Users/Alexey/worfy/.claude/worktrees/windows-long-path-probe-0123456789abcdefg
-git rev-parse --git-common-dir → C:/Users/Alexey/worfy/.git
-git rev-parse --git-dir        → C:/Users/Alexey/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
-cat .git                       → gitdir: C:/Users/Alexey/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
+git rev-parse --show-toplevel → C:/Users/<user>/worfy/.claude/worktrees/windows-long-path-probe-0123456789abcdefg
+git rev-parse --git-common-dir → C:/Users/<user>/worfy/.git
+git rev-parse --git-dir        → C:/Users/<user>/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
+cat .git                       → gitdir: C:/Users/<user>/worfy/.git/worktrees/windows-long-path-probe-0123456789abcdefg
 ```
 
 `realpath.native` (Git Bash, node 22.13.0) — в клоне и во временном worktree
-`git worktree add --detach C:/Users/Alexey/worfy/.claude/worktrees/realpath-probe origin/main`
+`git worktree add --detach C:/Users/<user>/worfy/.claude/worktrees/realpath-probe origin/main`
 (после снят `git worktree remove --force`):
 
 ```
 $ node -p "require('fs').realpathSync.native('.')"        (клон)
-C:\Users\Alexey\worfy
+C:\Users\<user>\worfy
 EXIT=0
 $ cd …/.claude/worktrees/realpath-probe && node -p "require('fs').realpathSync.native('.')" && git rev-parse --show-toplevel
-C:\Users\Alexey\worfy\.claude\worktrees\realpath-probe
-C:/Users/Alexey/worfy/.claude/worktrees/realpath-probe
+C:\Users\<user>\worfy\.claude\worktrees\realpath-probe
+C:/Users/<user>/worfy/.claude/worktrees/realpath-probe
 ```
 
 Вывод: git и в PowerShell, и в Git Bash печатает `C:/…` — буква диска заглавная, разделитель `/`.
@@ -219,14 +219,14 @@ C:/Users/Alexey/worfy/.claude/worktrees/realpath-probe
 ### 07. Домашняя папка
 
 ```
-PowerShell:  HOME=<пусто>  USERPROFILE=C:\Users\Alexey  node os.homedir() → C:\Users\Alexey
-Git Bash:    HOME=/c/Users/Alexey  USERPROFILE=C:\Users\Alexey  node os.homedir() → C:\Users\Alexey  echo ~ → /c/Users/Alexey
-hook (bash, по shebang):  HOME=/c/Users/Alexey  USERPROFILE=C:\Users\Alexey  node os.homedir() → C:\Users\Alexey
-hook (node):  process.env.HOME=C:\Users\Alexey  USERPROFILE=C:\Users\Alexey  os.homedir() → C:\Users\Alexey
+PowerShell:  HOME=<пусто>  USERPROFILE=C:\Users\<user>  node os.homedir() → C:\Users\<user>
+Git Bash:    HOME=/c/Users/<user>  USERPROFILE=C:\Users\<user>  node os.homedir() → C:\Users\<user>  echo ~ → /c/Users/<user>
+hook (bash, по shebang):  HOME=/c/Users/<user>  USERPROFILE=C:\Users\<user>  node os.homedir() → C:\Users\<user>
+hook (node):  process.env.HOME=C:\Users\<user>  USERPROFILE=C:\Users\<user>  os.homedir() → C:\Users\<user>
 ```
 
 Вывод: в PowerShell `HOME` нет; в Git Bash и в hook-ах он есть (в bash — `/c/…`, в node-процессе
-hook-а — `C:\…`). `os.homedir()` везде — `C:\Users\Alexey`.
+hook-а — `C:\…`). `os.homedir()` везде — `C:\Users\<user>`.
 
 ### 08. pnpm install --frozen-lockfile без Visual Studio Build Tools
 
@@ -296,7 +296,7 @@ EXIT=0
 `$env:ELECTRON_RUN_AS_NODE="1"; node node_modules\electron\cli.js pty-pwsh.cjs <оболочка> <аргументы>`.
 
 ```
-C:\Users\Alexey\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoLogo -NoProfile -Command '$x=2+3; Write-Output worfy-$x' → has worfy-5: true exitCode 0
+C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\pwsh.exe -NoLogo -NoProfile -Command '$x=2+3; Write-Output worfy-$x' → has worfy-5: true exitCode 0
 C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe (то же)                           → has worfy-5: true exitCode 0
 C:\Program Files\Git\bin\bash.exe --login -c 'echo "worfy-$((2+3))"'                        → has worfy-5: true exitCode 0
 ```
@@ -337,7 +337,7 @@ PS> pnpm install --frozen-lockfile   (в worktree)
 . postinstall: 'GetCommitHash.bat' is not recognized … ✖ Rebuild Failed
 EXIT=-1   (48 s)
 самые длинные пути в node_modules worktree:
-278 C:\Users\Alexey\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg\node_modules\.pnpm\@typescript-eslint+eslint-p_8c8f4521c47f0ef4afb0473cd148cdad\node_modules\@typescript-eslint\eslint-plugin\dist\rules\prefer-optional-chain-utils\PreferOptionalChainOptions.d.ts
+278 C:\Users\<user>\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg\node_modules\.pnpm\@typescript-eslint+eslint-p_8c8f4521c47f0ef4afb0473cd148cdad\node_modules\@typescript-eslint\eslint-plugin\dist\rules\prefer-optional-chain-utils\PreferOptionalChainOptions.d.ts
 276 …\PreferOptionalChainOptions.js
 273 …\@typescript-eslint+type-uti_c197f388242d3b1f661a52068a183297\…\typeDeclaredInPackageDeclarationFile.d.ts
 ```
@@ -356,11 +356,11 @@ EXIT=-1   (48 s)
 
 ```
 "C:\\a\\b" -> C--a-b | on disk: true
-"C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\with space" -> C--Users-Alexey-AppData-Local-Temp-worfy-01-with-space | on disk: true
-"C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\кириллица" -> C--Users-Alexey-AppData-Local-Temp-worfy-01---------- | on disk: true
+"C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\with space" -> C--Users-<user>-AppData-Local-Temp-worfy-01-with-space | on disk: true
+"C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\кириллица" -> C--Users-<user>-AppData-Local-Temp-worfy-01---------- | on disk: true
 C--a-b … .jsonl cwd = "C:\\a\\b"
-C--Users-…-with-space … .jsonl cwd = "C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\with space"
-C--Users-…-worfy-01---------- … .jsonl cwd = "C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\кириллица"
+C--Users-…-with-space … .jsonl cwd = "C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\with space"
+C--Users-…-worfy-01---------- … .jsonl cwd = "C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\кириллица"
 EXIT=0
 ```
 
@@ -385,19 +385,19 @@ PreToolUse (Bash|Write): node "${CLAUDE_PLUGIN_ROOT}/hooks/probe.mjs" pretooluse
 `pretooluse-*.json`. Выдержки:
 
 ```
-shebang-sh:  0=C:/Users/Alexey/AppData/Local/Temp/worfy-01/hook-plugin/hooks/probe.sh
+shebang-sh:  0=C:/Users/<user>/AppData/Local/Temp/worfy-01/hook-plugin/hooks/probe.sh
              BASH=/usr/bin/bash 5.2.26(1)-release  MSYSTEM=MINGW64
-             PWD=/tmp/worfy-01/hook-cwd   pwd -W=C:/Users/Alexey/AppData/Local/Temp/worfy-01/hook-cwd
-             CLAUDE_PLUGIN_ROOT=C:/Users/Alexey/AppData/Local/Temp/worfy-01/hook-plugin
-             CLAUDE_PROJECT_DIR=C:/Users/Alexey/AppData/Local/Temp/worfy-01/hook-cwd
-             CLAUDE_ENV_FILE=C:\Users\Alexey\.claude\session-env\<id>\sessionstart-hook-0.sh
+             PWD=/tmp/worfy-01/hook-cwd   pwd -W=C:/Users/<user>/AppData/Local/Temp/worfy-01/hook-cwd
+             CLAUDE_PLUGIN_ROOT=C:/Users/<user>/AppData/Local/Temp/worfy-01/hook-plugin
+             CLAUDE_PROJECT_DIR=C:/Users/<user>/AppData/Local/Temp/worfy-01/hook-cwd
+             CLAUDE_ENV_FILE=C:\Users\<user>\.claude\session-env\<id>\sessionstart-hook-0.sh
              node=/c/Program Files/nodejs/node jq= zsh=
-node-form:   argv[0]=C:\Program Files\nodejs\node.exe  cwd=C:\Users\Alexey\AppData\Local\Temp\worfy-01\hook-cwd
+node-form:   argv[0]=C:\Program Files\nodejs\node.exe  cwd=C:\Users\<user>\AppData\Local\Temp\worfy-01\hook-cwd
              SHELL=C:\Program Files\Git\bin\bash.exe   NoDefaultCurrentDirectoryInExePath=1
              PATH начинается с C:\Program Files\Git\mingw64\bin;C:\Program Files\Git\usr\bin;…
-stdin SessionStart: {"transcript_path":"C:\\Users\\Alexey\\.claude\\projects\\C--Users-Alexey-AppData-Local-Temp-worfy-01-hook-cwd\\<id>.jsonl",
-                     "cwd":"C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\hook-cwd","hook_event_name":"SessionStart","source":"startup"}
-PreToolUse Write: {"file_path":"C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\hook-cwd\\probe-written.txt","content":"x"}
+stdin SessionStart: {"transcript_path":"C:\\Users\\<user>\\.claude\\projects\\C--Users-<user>-AppData-Local-Temp-worfy-01-hook-cwd\\<id>.jsonl",
+                     "cwd":"C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\hook-cwd","hook_event_name":"SessionStart","source":"startup"}
+PreToolUse Write: {"file_path":"C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-01\\hook-cwd\\probe-written.txt","content":"x"}
 PreToolUse Bash:  {"command":"echo PROBE=$WORFY_PROBE_VAR", …}   env WORFY_PROBE_VAR у hook-а: null
 ответ модели на Bash tool: PROBE=from-session-start
 claude EXIT=0
@@ -444,20 +444,20 @@ qmd 2.8.3 (facd35e)
 EXIT=0
 PS> qmd.cmd status
 EXIT=-1073741819   (0xC0000005, access violation; вывода нет)
-PS> (XDG_CACHE_HOME, XDG_CONFIG_HOME, HOME — во %TEMP%\worfy-01) qmd.cmd status / collection add C:\Users\Alexey\worfy\docs\adr --name adr / search "Windows port" -n 3
+PS> (XDG_CACHE_HOME, XDG_CONFIG_HOME, HOME — во %TEMP%\worfy-01) qmd.cmd status / collection add C:\Users\<user>\worfy\docs\adr --name adr / search "Windows port" -n 3
 status EXIT=-1073741819
 add EXIT=-1073741819
 search EXIT=-1073741819
 PS> Get-ChildItem -Recurse $env:XDG_CACHE_HOME, $env:HOME | Select -First 5 -Expand FullName
-C:\Users\Alexey\AppData\Local\Temp\worfy-01\qmd-cache\qmd
-PS> Test-Path C:\Users\Alexey\.cache\qmd; (Get-Item C:\Users\Alexey\.cache\qmd).CreationTime
+C:\Users\<user>\AppData\Local\Temp\worfy-01\qmd-cache\qmd
+PS> Test-Path C:\Users\<user>\.cache\qmd; (Get-Item C:\Users\<user>\.cache\qmd).CreationTime
 True
 09.10.2026 4:45:51   (первый qmd status без XDG_*; папка пустая)
 ```
 
 Нативные модули пакета: `better-sqlite3/prebuilds/win32-x64.node`, `tree-sitter-*`
 `prebuilds/win32-x64`, `@reflink/reflink-win32-x64-msvc`. Какой из них падает, не установлено.
-Первый `qmd status` создал пустую `C:\Users\Alexey\.cache\qmd` (до перенаправления кеша).
+Первый `qmd status` создал пустую `C:\Users\<user>\.cache\qmd` (до перенаправления кеша).
 
 Вывод: qmd 2.8.3 на Windows ставится и печатает версию, но любая команда с индексом падает с
 access violation. Сейчас qmd на Windows не работает — по Q21 Epic идёт на grep (путь Б Ticket-а 15).
@@ -468,12 +468,12 @@ access violation. Сейчас qmd на Windows не работает — по Q
 
 ```
 Git 2.45.1 (winget Git.Git; доступна 2.55.0.5)     C:\Program Files\Git\cmd\git.exe
-GitHub CLI 2.89.0 (winget GitHub.cli)              C:\Program Files\GitHub CLI\gh.exe — уже вошли: IDSAD-XL (keyring), scopes gist, read:org, repo
+GitHub CLI 2.89.0 (winget GitHub.cli)              C:\Program Files\GitHub CLI\gh.exe — уже вошли: аккаунт репозитория (keyring), scopes gist, read:org, repo
 node 20.19.5 через nvm-windows 1.1.11              C:\Program Files\nodejs — symlink на %APPDATA%\nvm\v20.19.5; в nvm ещё 22.13.0, 20.8.0, 18.18.2, 18.17.1, 14.21.3, 12.22.12
 pnpm 10.30.0                                       C:\Program Files\nodejs\pnpm.cmd; ещё %LOCALAPPDATA%\pnpm\pnpm.exe (PNPM_HOME)
 pwsh                                               INFO: Could not find "pwsh".
 Visual Studio Build Tools 2017 и 2022, Python 2.7.15 и 3.12.2, Visual Studio Code
-claude 2.1.233 (Claude Code)                       C:\Users\Alexey\.local\bin\claude.exe; desktop app Claude 2.26454.2
+claude 2.1.233 (Claude Code)                       C:\Users\<user>\.local\bin\claude.exe; desktop app Claude 2.26454.2
 git config --global user.name / user.email         заданы
 ```
 
@@ -560,7 +560,7 @@ electron renderer process at http://localhost:5173/`, `starting electron app...`
 | test/contract/node-pty.test.ts | 1 | `Error: File not found:` | название test-а в JSON: `spawns /bin/echo in a pseudo-terminal…` |
 | test/contract/permissions.test.ts | 15 | `Error: agent.start: invalid input` | JSON: `✖ cwd must be an absolute path` — 15 из 15 |
 | test/contract/projects.test.ts | 26 | `Error: projects.add failed: projects.add: call rejected, it came from an untrusted frame (file:///Applicati…` |  |
-| test/contract/shell.test.ts | 9 | `Error: EPERM: operation not permitted, symlink '%TEMP%\…' -> 'C:\Users\Alexey\AppData\Local\Temp` |  |
+| test/contract/shell.test.ts | 9 | `Error: EPERM: operation not permitted, symlink '%TEMP%\…' -> 'C:\Users\<user>\AppData\Local\Temp` |  |
 | test/contract/startup-failure.test.ts | 8 | `AssertionError: expected 'Step: checkDataFolder (checking the d…' to contain 'worfy\'s data folder: /tmp/wo…` |  |
 | test/contract/statusline-bridge.test.ts | 8 | `AssertionError: expected { status: null, …(2) } to match object { status: +0 }` |  |
 | test/contract/terminal.test.ts | 20 | `Error: terminal.open failed: File not found:` |  |
@@ -698,16 +698,16 @@ harness/bin/preflight jq=5 profile=3 shasum=0
 Скрипты на Node (`profile`, `ticket`, `worktree-lock`, `epic-board`, `silent-check`,
 `qmd-collections`, `gate-resolve.mjs`, `guard.mjs`) — у Ticket-ов 03, 04, 05 и 15 по их срезам. В
 Git Bash: `node harness/bin/profile --help` → EXIT=0, `./harness/bin/profile --help` по shebang →
-EXIT=0, `node harness/bin/ticket root` → EXIT=0 (`C:\Users\Alexey\worfy\.scratch`), `node
+EXIT=0, `node harness/bin/ticket root` → EXIT=0 (`C:\Users\<user>\worfy\.scratch`), `node
 harness/bin/epic-board --help` → EXIT=2: `tickets root not determined: spawnSync
-C:\Users\Alexey\worfy\harness\bin\ticket ENOENT` — node на Windows не запускает соседа по shebang.
+C:\Users\<user>\worfy\harness\bin\ticket ENOENT` — node на Windows не запускает соседа по shebang.
 `silent-check` (новый, Ticket 05) — те же места: соседей `profile` и `ticket` зовёт по пути
 (`execFileSync(PROFILE, …)` `:84`, `execFileSync(TICKET, …)` `:112`), домашнюю папку берёт из
 `process.env.HOME` (`:139`):
 
 ```
 $ node harness/bin/silent-check hello
-silent-check: profile not read (exit ENOENT): spawnSync C:\Users\Alexey\worfy\harness\bin\profile ENOENT
+silent-check: profile not read (exit ENOENT): spawnSync C:\Users\<user>\worfy\harness\bin\profile ENOENT
 silent-check EXIT=2
 $ grep -rln 'silent-check' harness src test | sort
 harness/agents/implementer.md
@@ -809,7 +809,7 @@ pnpm test: Error: EPERM: operation not permitted, symlink '…\outside' -> '…\
 
 ```
 PS> Get-Content $env:USERPROFILE\.claude\sessions\51020.json | ConvertFrom-Json
-pid 51020, procStart 134359831229530706, startedAt 1791509524149, cwd C:\Users\Alexey\Desktop\Slop\worfy-wrapper, kind interactive
+pid 51020, procStart 134359831229530706, startedAt 1791509524149, cwd C:\Users\<user>\Desktop\Slop\worfy-wrapper, kind interactive
 PS> Get-CimInstance Win32_Process -Filter "ProcessId=51020"
 CreationDate=2026-10-09T04:32:02.9530700+03:00 name=claude.exe
 ```
@@ -873,7 +873,7 @@ $ git diff --stat 76f7ff8 HEAD -- src/main/first-run src/shared/ipc/first-run.ts
 ### 25. pwsh из MSIX глазами node
 
 ```
-$ node -e "…fs.existsSync / statSync / lstatSync('C:/Users/Alexey/AppData/Local/Microsoft/WindowsApps/pwsh.exe')"
+$ node -e "…fs.existsSync / statSync / lstatSync('C:/Users/<user>/AppData/Local/Microsoft/WindowsApps/pwsh.exe')"
 existsSync false
 stat err EACCES
 lstat symlink true size 85
@@ -892,12 +892,12 @@ node-pty его запускает (раздел 09). Поиск «файл ес
 - три папки в `%USERPROFILE%\.claude\projects` (раздел 12) — удалены после сверки, с согласия
   владельца; `C:\a\b` осталась: удаление в корне `C:` заблокировано защитой Session, её удаляет
   владелец;
-- `%USERPROFILE%\.claude\projects\C--Users-Alexey-AppData-Local-Temp-worfy-01-hook-cwd` и две папки
+- `%USERPROFILE%\.claude\projects\C--Users-<user>-AppData-Local-Temp-worfy-01-hook-cwd` и две папки
   `%USERPROFILE%\.claude\session-env\<id>` (`ea64eef0-…`, `7ad1a86e-…`) — от проб hooks (раздел 13);
   Claude Code создаёт их и при `--no-session-persistence`. Удалены с согласия владельца;
-- `C:\Users\Alexey\.cache\qmd` — пустая папка от первого `qmd status` (раздел 15); удалена, сама
+- `C:\Users\<user>\.cache\qmd` — пустая папка от первого `qmd status` (раздел 15); удалена, сама
   `.cache` была и раньше;
-- worktree `C:\Users\Alexey\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg` и
+- worktree `C:\Users\<user>\worfy\.claude\worktrees\windows-long-path-probe-0123456789abcdefg` и
   ветка `probe/windows-long-path-probe-0123456789abcdefg` в клоне (раздел 11) — удалены;
 - PowerShell 7.6.6 (winget) и pnpm 11.22.0 в node 22.13.0 (nvm); node 22.13.0 активен в nvm.
 
@@ -938,7 +938,7 @@ EXIT=1
 Первые строки ошибок этого прогона, по числу (пути временных папок сокращены до `worfy-…`):
 
 ```
-     11 Error: EPERM, Permission denied: \\?\C:\Users\Alexey\AppData\Local\Temp\worfy-… '\\?\C:\Users\Alexey\AppData\Local\Temp\worfy-…'
+     11 Error: EPERM, Permission denied: \\?\C:\Users\<user>\AppData\Local\Temp\worfy-… '\\?\C:\Users\<user>\AppData\Local\Temp\worfy-…'
       5 AssertionError: expected { ok: false, …(1) } to strictly equal { ok: true, …(1) }
       2 AssertionError: expected { ok: false, …(1) } to match object { ok: true }
       2 AssertionError: expected 'failed' to be 'done' // Object.is equality

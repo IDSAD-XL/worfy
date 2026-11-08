@@ -48,7 +48,7 @@ Source: приёмочный прогон 2026-10-14 под вторым пол�
 
 Прочитано на машине после прогона, только чтение (2026-10-14, около 03:00):
 
-- Три файла `decisions.tsv` в `/Users/worfy-test/.claude/worfy-harness/runs/`:
+- Три файла `decisions.tsv` в `~worfy-test/.claude/worfy-harness/runs/`:
   `silent-app/e3-acceptance-wave-20261013T230854Z/`,
   `silent-app-2/e3-acceptance-wave-20261013T233109Z/`,
   `silent-app-2/e3-acceptance-wave-20261013T234429Z/`. В каждом — строка о `BLOCKED`, принятом за
@@ -389,7 +389,7 @@ main`. В «Итог» — как он падал.
   `GO` на локальной ветке без fetch. Единственный сигнал — строка о том, что `origin` нет. Поэтому
   она печатается при каждом запуске и не прячется среди предупреждений.
 - Project с `origin` и `workflow.finish: local-green` не должен потерять fetch. Так устроен
-  Atakama — Project владельца над тремя репозиториями
+  Project B (другой проект владельца) — Project владельца над тремя репозиториями
   (`docs/adr/0045-one-ticket-one-repository.md:14-15`, `harness/profiles/README.md:242-245`). На
   это — отдельная проверка и мутант в «Готово, когда».
 - Правка текста skill-а действует на всех агентов сразу. Менять одну фразу, не раздел.

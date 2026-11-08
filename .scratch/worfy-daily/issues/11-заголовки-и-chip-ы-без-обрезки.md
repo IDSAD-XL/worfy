@@ -23,7 +23,7 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 Размеры: `TICKET_HEIGHT = 104`, `TICKET_WIDTH = 204`, `DONE_STACK_HEIGHT = 120`
 (`src/renderer/canvas/epic-layout.ts:12-21`).
 
-**Первый шаг — воспроизвести.** Снять снимки на Auction и на worfy, в светлой и тёмной теме.
+**Первый шаг — воспроизвести.** Снять снимки на Project A (другой проект владельца) и на worfy, в светлой и тёмной теме.
 Записать, какие заголовки и chip-ы обрезаны и где. Сверить с F-SPEC и макетами. Список и снимки
 идут в «Итог».
 
@@ -40,7 +40,7 @@ Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SP
 
 **Что известно из ручных проверок 2026-10-06, ночь** (номера Ticket-ов — `worfy-mvp`):
 
-- на Auction заголовок Ticket-а виден одной строкой без многоточия: высота `.w-ticket__title` 21 px
+- на Project A заголовок Ticket-а виден одной строкой без многоточия: высота `.w-ticket__title` 21 px
   при `scrollHeight` 34 (Ticket 10);
 - подпись «as of» полос Limits в toolbar налезает на соседнюю и уходит под «v0.0.0» и поле поиска:
   ширина 104 px и `nowrap` (`src/renderer/limits/LimitBar.tsx:58` и `:67`, Ticket 22);
@@ -88,20 +88,20 @@ PR #64, ветка `worfy-daily/11`.
 
 **Обрезания до правки.** Снимки сняты через `launchApp` из `test/e2e/helpers.ts`: fake-агент,
 временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`. Project-ы — две фикстуры той же формы, что
-Auction и worfy: длинные имена Epic, Epic без Tickets, заголовок Ticket-а в 120 символов, стопка
+Project A и worfy: длинные имена Epic, Epic без Tickets, заголовок Ticket-а в 120 символов, стопка
 из 90 done, длинные причины blocked и строки blockers. Сборка «до» — origin/main 0fbcde6. Скрипт
 проверяет, что временный home после запуска не изменился, а в Project-е нет изменений. Снимки:
-[до, Auction-фикстура, светлая](../evidence/11-before-auction-light.png),
-[до, Auction-фикстура, тёмная](../evidence/11-before-auction-dark.png),
+до, project-a-фикстура, светлая (картинка убрана: личное на изображении),
+до, project-a-фикстура, тёмная (картинка убрана: личное на изображении),
 [до, worfy-фикстура, светлая](../evidence/11-before-worfy-light.png),
 [до, worfy-фикстура, тёмная](../evidence/11-before-worfy-dark.png).
 
 - Заголовок Ticket-а сжат до 21 px: одна строка без многоточия и без tooltip (11 Ticket-ов в
   каждой фикстуре). Причина: у Ticket-а 104 px, а строки top, title, blockers и badges с actions
   вместе выше. Grid из `actions.css` ужимает title, потому что у блока с `overflow: hidden` минимум 0.
-- Заголовок рамки — одна строка с многоточием, без tooltip (3 рамки в Auction-фикстуре, 1 в
+- Заголовок рамки — одна строка с многоточием, без tooltip (3 рамки в project-a-фикстуре, 1 в
   worfy). У рамки 520 px с «Run wave» и «Autopilot» на заголовок оставалось 67–85 px («audit-20…»).
-- Имя Epic в sidebar обрезано многоточием (4 из 4 в Auction-фикстуре).
+- Имя Epic в sidebar обрезано многоточием (4 из 4 в project-a-фикстуре).
 - Список стопки done обрезан посреди строки, без tooltip (стопка «90 done»). Подпись «N done» не
   резалась.
 - Строка blockers («blocked by 01, 02, 03, 05, …») и причина blocked обрезаны многоточием. Полного
@@ -135,8 +135,8 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 больше длинных заголовков, но рамки стали бы ещё выше. Цена выбранного:
 рамки и готовая Wave выше в 1,5 раза, у Ticket-а с коротким заголовком внизу пустое место.
 
-**После правки** ([после, Auction-фикстура, светлая](../evidence/11-after-auction-light.png),
-[после, Auction-фикстура, тёмная](../evidence/11-after-auction-dark.png),
+**После правки** (после, project-a-фикстура, светлая (картинка убрана: личное на изображении),
+после, project-a-фикстура, тёмная (картинка убрана: личное на изображении),
 [после, worfy-фикстура, светлая](../evidence/11-after-worfy-light.png),
 [после, worfy-фикстура, тёмная](../evidence/11-after-worfy-dark.png); фикстура e2e с длинными
 названиями: [светлая](../evidence/11-long-names-light.png), [тёмная](../evidence/11-long-names-dark.png)).
@@ -169,19 +169,19 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
 
 - Что было. Скрипт съёмки исполнителя (временный Playwright-файл вне
   репозитория) запускал собранный worfy через `_electron.launch` напрямую, а не через `launchApp`.
-  Не было ни `WORFY_AGENT=fake`, ни временного `WORFY_CLAUDE_HOME`. Project-ы — настоящие Auction
+  Не было ни `WORFY_AGENT=fake`, ни временного `WORFY_CLAUDE_HOME`. Project-ы — настоящие Project A
   и worfy. worfy поднял Orchestrator на настоящем Claude Code с настоящим `~/.claude`.
 - Когда. Три запуска: 19:46–19:48, 20:20–20:21, 20:27–20:28.
 - Что появилось в `~/.claude` в эти окна: `session-env/` — каталоги c0422bc3…, 328599b9…,
   dff51fcf…, 540246c9…, 99715ca2…, caf63d82…; `backups/.claude.json.backup.1791305249216`,
-  `…1791307233878`, `…1791307624425`; `worktree-sessions/Users-alexey-Work-Auction-7de8b409.json`.
+  `…1791307233878`, `…1791307624425`; `worktree-sessions/Users-<user>-Work-project-a-7de8b409.json`.
   В эти же минуты в `~/.claude` писали и другие Session-ы Claude Code, поэтому авторство каждого файла не
-  доказано. Транскриптов Auction в `~/.claude/projects` за эти окна нет.
+  доказано. Транскриптов Project A в `~/.claude/projects` за эти окна нет.
 - Почему. Исполнитель проверил, что worfy по ADR-0005 сам не пишет в `~/.claude`. Но он не учёл,
   что Orchestrator запускает настоящий Claude Code, а тот пишет. Брифом это было запрещено.
 - Что сделано. В `~/.claude` ничего не убиралось — что убрать, решает владелец. Снимки пересняты
   через `launchApp` (fake-агент, временные `WORFY_DATA_DIR` и `WORFY_CLAUDE_HOME`) на фикстурах,
-  повторяющих форму Auction и worfy. Скрипт проверяет, что временный home после запуска не
+  повторяющих форму Project A и worfy. Скрипт проверяет, что временный home после запуска не
   изменился. Числа «до» в первой редакции итога были сняты на настоящих Project-ах с этим
   нарушением. Теперь они заменены числами с фикстур.
 
@@ -212,7 +212,7 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
   недопустим, и браузер отбрасывает весь `box-shadow`. В Chromium 152 `CSS.supports` даёт false, у
   живой стопки на Stable copy computed `box-shadow` — `none`. Причина появилась в a634fa2
   (2026-10-05), не в PR #64. Где видно: `11-long-names-dark.png` (297–504, 185–307),
-  `11-after-auction-dark.png` (684–830, 312–397).
+  `11-after-project-a-dark.png` (684–830, 312–397).
 - **Та же причина у выделения.** `var(--shadow-node), 0 0 0 1px var(--accent)` —
   `src/renderer/canvas/canvas.css:22`, `src/renderer/canvas/node-chrome.css:37`,
   `src/renderer/canvas/epic-frame.css:243`. В тёмной теме у выделенного Node-а и Ticket-а пропадает
@@ -220,7 +220,7 @@ Auction и worfy: длинные имена Epic, Epic без Tickets, заго�
   выделения нет.
 - Остальная разметка пар light/dark совпадает (сверено наложением краёв).
 - Замечание: кнопка Trash (`src/renderer/canvas/overlays/TrashPopover.tsx`) висит поверх холста внизу
-  по центру и на `11-after-auction-*.png` закрывает часть Ticket-а 05. Правила в F-SPEC об этом нет.
+  по центру и на `11-after-project-a-*.png` закрывает часть Ticket-а 05. Правила в F-SPEC об этом нет.
 - Решение владельца, не проверка: предел заголовка 3 строки при Ticket-е 160 px (выше, «Решено без
   владельца, подтверждено владельцем 2026-11-05»; позже изменено Ticket-ом worfy-canvas 18).
 - Вердикт: не прошло. Пункт «Снимки … сверены с F-SPEC» остаётся `[ ]`, пока `box-shadow` в тёмной

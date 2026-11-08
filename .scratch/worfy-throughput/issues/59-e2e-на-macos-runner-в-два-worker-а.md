@@ -94,7 +94,7 @@ Source: итог Ticket-а [58](58-узкие-правила-e2e-для-путе
   падал с `electron.launch: Process failed to launch!`: два первых старта Electron одновременно на свежем runner-е.
   Retry проходит. Лечить — в `launchApp` (`test/e2e/helpers.ts`, вне следа этого Ticket-а): разнести первые старты
   worker-ов или повторить запуск, который не стартовал.
-- **`epic-frame.spec.ts:1104`** (Auction-sized Project интерактивен за 3 s, на GitHub Actions — 6 × время
+- **`epic-frame.spec.ts:1104`** (project-a-sized Project интерактивен за 3 s, на GitHub Actions — 6 × время
   проекта из одного Ticket-а, не больше 7300 ms) — в двух worker-ах не уложился в 7,3 s в обеих попытках run-а
   40971289237 и с retry в 40968393929. Это замер скорости, и соседний Electron на 3 CPU его ломает.
 - `browser-focus.spec.ts:295`, `chat-attachments.spec.ts:148` — по одному разу.

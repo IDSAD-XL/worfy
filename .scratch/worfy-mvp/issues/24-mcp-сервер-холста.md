@@ -148,7 +148,7 @@ SDK 0.3.289, Claude Code 2.1.289, macOS arm64, вход по подписке. �
 доработки, чтобы Проект был заведён так, как его заводит приложение. Скрипт — вне репозитория
 (scratchpad): временный `WORFY_DATA_DIR`; Проект добавлен настоящим `projectStore().add()` с
 папкой отдельного worktree `.claude/worktrees/24-manual` (detached, `origin/worfy-mvp/24`), и
-`add()` завёл корень репозитория — `/Users/alexey/Stuff/CanvasForAI`, id `CanvasForAI-a2cd477b`.
+`add()` завёл корень репозитория — `~/Stuff/CanvasForAI`, id `CanvasForAI-a2cd477b`.
 Сессия — `SessionRegistry` с теми же `canvasForSession()`, `agentEnv()` и `sessionOptions()`,
 cwd — тот worktree, так что Проект найден по правилу «worktree внутри репозитория». Отличия от
 приложения — ради цены, как во втором прогоне 07: `model: 'haiku'`, `strictMcpConfig: true` (без
@@ -156,7 +156,7 @@ MCP-серверов пользователя), `maxTurns: 12`. Сообщени
 транскрипта Сессии `579c36de-6bb7-4784-9e9c-09ddf1559648`:
 
 ```
-projects.json {"projects":[{"id":"CanvasForAI-a2cd477b","name":"CanvasForAI","path":"/Users/alexey/Stuff/CanvasForAI"}],…}
+projects.json {"projects":[{"id":"CanvasForAI-a2cd477b","name":"CanvasForAI","path":"~/Stuff/CanvasForAI"}],…}
 model claude-haiku-4-5-20251001
 tool_use ToolSearch {"query":"select:mcp__worfy-canvas__create_card","max_results":1}
 tool_use mcp__worfy-canvas__create_card {"title":"Часы","w":300,"h":300}

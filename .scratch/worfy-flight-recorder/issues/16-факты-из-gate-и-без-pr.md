@@ -36,7 +36,7 @@ Source: [spec.md](../spec.md), «Источники и что меняется �
 - [ ] Unit test разбора: `timings.json` с тремя шагами — span `gate` с тремя `script`, `outcome` даёт исход.
 - [ ] Contract test (временная `<Harness home>`): два запуска одного worktree с разными `head` — каждый у своего
       Ticket-а по `head`; запуск без PR — по `worktree`.
-- [ ] Contract test путей Windows: `C:\Users\Ann\Repo\.claude\worktrees\05` и `c:/users/ann/repo/.claude/worktrees/05`
+- [ ] Contract test путей Windows: `C:\Users\Someone\Repo\.claude\worktrees\05` и `c:/users/someone/repo/.claude/worktrees/05`
       — один worktree; 8.3-имя сводится через `realpath`.
 - [ ] Contract test: время берётся из `at` внутри `timings.json`; mtime файла другой — результат тот же.
 - [ ] Contract test: нет `timings.json` при известном запуске — «gate logs deleted (10 runs or 8 days)»; нет ветки —

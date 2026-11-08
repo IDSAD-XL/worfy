@@ -317,9 +317,9 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
 - **Заголовок версии протокола:** `X-Worfy-Link-Protocol: 1`. Чужая версия — 400 с текстом «worfy link protocol mismatch:
   this Machine (worfy <сборка>) speaks link protocol 1, the connecting worfy speaks <N>…»; клиент отдаёт его как есть.
 - **Имя Machine:** `os.hostname()` без домена; dev-сборка — «<имя> (dev)». На Mac владельца получилось
-  «Alexeys-MacBook-Pro (dev)».
-- **Имя `.local` для Host:** первая метка `os.hostname()` + `.local`. На macOS `os.hostname()` = `Alexeys-MacBook-Pro.local`,
-  `scutil --get LocalHostName` = `Alexeys-MacBook-Pro` — совпадает. **Не проверено на Windows** (там `os.hostname()` —
+  «someones-mac (dev)».
+- **Имя `.local` для Host:** первая метка `os.hostname()` + `.local`. На macOS `os.hostname()` = `<host>.local`,
+  `scutil --get LocalHostName` = `<host>` — совпадает. **Не проверено на Windows** (там `os.hostname()` —
   имя NetBIOS без домена; правило даёт `<имя>.local`).
 - **Старт в `src/main/index.ts`** — после `registerIpc` и после первого окна: старт, который упал, ничего не открывает в
   сеть. Handler-ы IPC для связи регистрируются на адаптере при первом вызове по связи, не при старте сервиса: worfy без
@@ -346,12 +346,12 @@ B. Перехват `console.*` ставится в `link-bench.ts`, чтобы 
   временный spec, не закоммичен. Пустая папка данных, `lsof -nP -iTCP -sTCP:LISTEN -a -p <pid main>`:
 
   ```
-  Electron 16626 alexey   19u  IPv4 0x1a556f2f5aa905f8      0t0  TCP 127.0.0.1:63699 (LISTEN)
-  Electron 16626 alexey   41u  IPv4 0xb4c0cbe982394121      0t0  TCP 127.0.0.1:63701 (LISTEN)
+  Electron 16626 someone  19u  IPv4 0x1a556f2f5aa905f8      0t0  TCP 127.0.0.1:63699 (LISTEN)
+  Electron 16626 someone  41u  IPv4 0xb4c0cbe982394121      0t0  TCP 127.0.0.1:63701 (LISTEN)
   ```
 
   Оба сокета — Playwright: процесс запущен с `--inspect=0 --remote-debugging-port=0` (`ps -o args=`). Сокета связи нет: он
-  слушал бы `*:<порт>` (`::`), а `link/machine.json` после старта — `"port": null`, имя «Alexeys-MacBook-Pro (dev)».
+  слушал бы `*:<порт>` (`::`), а `link/machine.json` после старта — `"port": null`, имя «someones-mac (dev)».
   Под `pnpm dev` этих двух сокетов не было бы — **не проверено** (GUI-запуск не мой).
 - **Круг 2** (head до доработки 608982d; ветка перенесена на origin/main 6d7947b). Новые test-ы: `link-server.test.ts` —
   отзыв закрывает соединение сама A кодом 4003 быстрее 1 s, когда B игнорирует `revoked` (голый ws с токеном B); адрес

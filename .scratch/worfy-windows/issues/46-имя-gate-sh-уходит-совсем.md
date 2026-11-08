@@ -37,12 +37,12 @@ Source: решение владельца 2026-10-13 («пока пусть Б»
     пункт): `CONTEXT.md`, skills, `hooks/rules/common.md`. Profile-ов на машине в этом списке нет.
 - **Как имя записано в fixture переноса** — образце старого `~/.claude` для test-ов
   (`test/fixtures/claude-home-legacy/home/.claude/profiles/`):
-  - команда с `bash`: `atakama/profile.json:7` — `bash ~/.claude/hooks/gate.sh full </dev/null`;
+  - команда с `bash`: `project-b/profile.json:7` — `bash ~/.claude/hooks/gate.sh full </dev/null`;
     `worfy/rules.md:3` — `GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full`;
-  - команда по пути, без `bash`: `auction/rules.md:5` — `$HOME/.claude/hooks/gate.sh fast`;
-  - упоминание пути, не команда: `atakama/rules.md:3`.
-- **Mac владельца, прочитано 2026-10-13, ничего не менялось.** Profile-ов три. У `atakama`
-  `commands.verify` — ровно строка из `:298`. У `worfy` и `auction` — простые команды `pnpm …`.
+  - команда по пути, без `bash`: `project-a/rules.md:5` — `$HOME/.claude/hooks/gate.sh fast`;
+  - упоминание пути, не команда: `project-b/rules.md:3`.
+- **Mac владельца, прочитано 2026-10-13, ничего не менялось.** Profile-ов три. У `project-b`
+  `commands.verify` — ровно строка из `:298`. У `worfy` и `project-a` — простые команды `pnpm …`.
   Все три `rules.md` называют `gate.sh` в тексте.
 - **Установщик Harness** — код `src/main/harness/install.ts`; в панели worfy это кнопки «Install»
   и «Update Harness» (`src/renderer/shell/toolbar/HarnessStatus.tsx:72`, `:80`). Папку `projects/`
@@ -66,7 +66,7 @@ Source: решение владельца 2026-10-13 («пока пусть Б»
 ## Что делаем
 
 Один PR. Правка Profile-ов и удаление shim-а выходят в одной версии Harness. Версия без shim-а и
-без правки оставила бы `commands.verify` у `atakama` без файла.
+без правки оставила бы `commands.verify` у `project-b` без файла.
 
 ### 1. Правило замены имени — один модуль
 
@@ -97,11 +97,11 @@ Source: решение владельца 2026-10-13 («пока пусть Б»
 - `rewriteHarnessPaths` после замены начала пути применяет правило пункта 1. Так оно действует и
   на `rules.md`, и на каждую строку `profile.json`.
 - Что получается на fixture:
-  - `atakama`, `commands.verify` —
+  - `project-b`, `commands.verify` —
     `node ~/.claude/worfy-harness/plugin/hooks/gate.mjs full </dev/null`;
   - `worfy/rules.md` — `GATE_SCOPE=all node ~/.claude/worfy-harness/plugin/hooks/gate.mjs full`;
-  - `auction/rules.md` — `$HOME/.claude/worfy-harness/plugin/hooks/gate.mjs fast`;
-  - `atakama/rules.md` — `~/.claude/worfy-harness/plugin/hooks/gate.mjs`.
+  - `project-a/rules.md` — `$HOME/.claude/worfy-harness/plugin/hooks/gate.mjs fast`;
+  - `project-b/rules.md` — `~/.claude/worfy-harness/plugin/hooks/gate.mjs`.
 - Форма переноса показывает эти строки до записи: «было» и «станет» она берёт из тех же функций
   (`src/main/harness/migrate/plan.ts:465-466`).
 - Записи hooks старого Harness в `settings.json` (`test/contract/harness-migrate.test.ts:59-60`)
@@ -187,7 +187,7 @@ Profile-ы лежат в этой папке (пункт 5), но в пункт�
   вторым пользователем macOS) и версия `0.3.0`, его `Status` — `done`; владелец разрешил
   установщику править файлы в `projects/` и решил про commit (дата и слова — в «Итог»).
 - [ ] `pnpm test test/contract/harness-migrate.test.ts` — exit code 0. В перенесённых Profile-ах
-  fixture нет строки `gate.sh`. `commands.verify` у `atakama` равен
+  fixture нет строки `gate.sh`. `commands.verify` у `project-b` равен
   `node ~/.claude/worfy-harness/plugin/hooks/gate.mjs full </dev/null`.
 - [ ] Тот же test-файл: эта строка `commands.verify`, запущенная через `bash -c` в песочнице, где
   копия `harness/` лежит в `worfy-harness/plugin/`, печатает строку `[gate] …`; exit code — не 127.
@@ -200,8 +200,8 @@ Profile-ы лежат в этой папке (пункт 5), но в пункт�
   печатает режим `100755`; `head -1 harness/hooks/gate.mjs` — `#!/usr/bin/env node`.
 - [ ] Mac владельца; проверки только читают; команды и вывод — в «Итог». До обновления снять
   `shasum -a 256` шести файлов трёх Profile-ов. После `pnpm install:stable` и «Update Harness»:
-  диалог назвал файлы, строки и папку резервной копии; `commands.verify` у `atakama` — новая
-  строка; суммы `profile.json` у `worfy` и `auction` прежние; `diff` каждого из трёх `rules.md` с
+  диалог назвал файлы, строки и папку резервной копии; `commands.verify` у `project-b` — новая
+  строка; суммы `profile.json` у `worfy` и `project-a` прежние; `diff` каждого из трёх `rules.md` с
   его копией из `backup-<дата>/` показывает только строки с путём Gate;
   `grep -n 'gate\.sh'` по шести файлам находит только строки из «не тронуто» или ничего.
 - [ ] `gate full` зелёный на Mac; ручной job «Windows tests» на test-файлах PR — без новых падений
@@ -219,7 +219,7 @@ Profile-ы лежат в этой папке (пункт 5), но в пункт�
   `node …`; добавлено: ни один `profile.json` и `rules.md` перенесённых Profile-ов не содержит
   `gate.sh`. На main красный: перенос пишет `gate.sh`.
 - `test/contract/harness-install.test.ts`: в песочнице лежит
-  `<harnessHome>/projects/atakama/profile.json` со строкой из `:298`; после `install()` с согласием
+  `<harnessHome>/projects/project-b/profile.json` со строкой из `:298`; после `install()` с согласием
   значение новое. На main красный: установщик `projects/` не читает.
 
 Остальное:
@@ -318,7 +318,7 @@ Profile-ы лежат в этой папке (пункт 5), но в пункт�
 - **Пункты 1–3 без пункта 4 ничего не дают.** Правило замены, перенос с `node … gate.mjs` и правка
   перенесённых Profile-ов установщиком были нужны, потому что без файла строка
   `bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full </dev/null` в `commands.verify` у
-  `atakama` перестала бы работать («Что делаем», первый абзац). Файл остаётся, строка работает.
+  `project-b` перестала бы работать («Что делаем», первый абзац). Файл остаётся, строка работает.
   Замена её даже ухудшила бы: без node на `PATH` агента `bash …/gate.sh` отвечает кодом 3 и строкой
   «node не найден», а `node …/gate.mjs` падает с кодом 127 и ничего не пишет
   (`harness/hooks/gate.mjs:94-96`). А правка Profile-ов — первая запись кода worfy в Profile

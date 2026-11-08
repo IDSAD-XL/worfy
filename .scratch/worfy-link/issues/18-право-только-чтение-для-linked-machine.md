@@ -276,14 +276,14 @@ Linked machine, при понижении закрывается — исклю�
 
 Снимки (Playwright `page.screenshot()` в e2e `linked-machines.spec.ts`, под замком `/tmp/worfy-e2e.lock`,
 `WORFY_EVIDENCE=1`), каждый просмотрен:
-- [18-settings-machines-read-only-light](../evidence/18-settings-machines-read-only-light.png),
-  [dark](../evidence/18-settings-machines-read-only-dark.png): Settings → Machines на B; переключатель
-  включён; строка Linked machine (имя «Alexeys-MacBook-Pro (dev)» — обе копии на одном Mac) с Select
+- 18-settings-machines-read-only-light (картинка убрана: личное на изображении),
+  dark (картинка убрана: личное на изображении): Settings → Machines на B; переключатель
+  включён; строка Linked machine (имя «someones-mac (dev)» — обе копии на одном Mac) с Select
   «Read only» справа, под именем три строки подсказки, включая «Read only still means trust: a Session
   transcript can show a secret»; ниже keep-awake. Текст читается в обеих темах, Select выровнен по правому
   краю, как переключатели; в тёмной теме акцент — зелёный.
-- [18-settings-machines-full-access-light](../evidence/18-settings-machines-full-access-light.png),
-  [dark](../evidence/18-settings-machines-full-access-dark.png): та же строка с «Full access», подсказка
+- 18-settings-machines-full-access-light (картинка убрана: личное на изображении),
+  dark (картинка убрана: личное на изображении): та же строка с «Full access», подсказка
   в одну строку «Works with your Projects as you do: Sessions, Terminal, Autopilot».
 Вид неактивной строки (переключатель выключен) проверен в unit и e2e (`data-disabled`, `disabled`,
 tooltip), снимком не снят.

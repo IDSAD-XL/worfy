@@ -96,7 +96,7 @@ Source: решения владельца 2026-10-08, пересмотр E3: в�
    `commands.verify` — `node --test`, `tickets.path`, `parallel: single`, `workflow.finish` из
    аргумента, одна линза ревью `correctness`, `language.reports: ru`. Образец временного реестра —
    `harness/bin/tests/harness-home.test.sh`. В репозитории нет файлов `gate/…`, `settings.json` и
-   имён `worfy`, `auction`, `atakama` в путях фикстуры: их запрещает
+   имён `worfy`, `project-a`, `project-b` в путях фикстуры: их запрещает
    `test/contract/harness-plugin.test.ts`.
 2. **Кейсы — 8, каждый в `harness/evals/<имя>/`:** `prompt.md`, `case.yaml` с
    `context.scaffold_script`, `graders/*.md`. У каждого кейса хотя бы один бесплатный grader на

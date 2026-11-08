@@ -54,7 +54,7 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
 - [ ] Unit test: файл run-а без `dirty` не читается.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
   - evidence: review pass · PR #1392 · - - · 8deabd2c6b441e5ec1f951d7bb912c80ff2ebfd1
-- [ ] Unit test очистки: `/Users/jdoe/x`, `C:\Users\jdoe\x`, `C:/Users/jdoe/x`, `/c/Users/jdoe/x`,
+- [ ] Unit test очистки: `/Users/someone/x`, `C:\Users\someone\x`, `C:/Users/someone/x`, `/c/Users/someone/x`,
       `C:\Users\RUNNER~1\x`, hostname, UUID, email, `ghp_…`, `Bearer …` — заменены; после `scrub` `findLeaks` пуст; `scrubRecord` чистит
       `error`, `name` и `file`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gate-failures-format.test.ts test/contract/gate-failures-cli.test.ts test/contract/harness-node-only.test.ts` exit 0 · mac - · 8eb986b24cb499160f59ea5a3bc67693862a3484
@@ -88,7 +88,7 @@ Source: [spec.md](../spec.md), «Модель» (файл run-а, запись �
 - Unit `test/unit/gate-failures-format.test.ts` (новый): импорт `harness/hooks/gate-failures.mjs`.
 - Contract `test/contract/gate-failures-cli.test.ts` (новый): `node harness/bin/gate-failures …` с временными
   `CLAUDE_GATE_STATE` и `HARNESS_HOME`.
-- Сначала падающий: `scrub('C:/Users/jdoe/repo/x.ts', …)` возвращает путь без `jdoe`.
+- Сначала падающий: `scrub('C:/Users/someone/repo/x.ts', …)` возвращает путь без `someone`.
 
 ## Где в коде
 

@@ -222,7 +222,7 @@ running Epic X. Stop it first.», как сейчас «Run wave» (`AUTOPILOT_R
 - **Journal.** `%APPDATA%\worfy\autopilot\<run>.jsonl`; без абсолютного `APPDATA` — `<home>\AppData\Roaming`;
   dev-сборка — `worfy-dev` (`dataRoot`, `src/main/storage/paths.ts`). Run виден в той сборке, которая его вела.
 - **Транскрипты.** `%USERPROFILE%\.claude\projects\<projectDirName(root)>\` (`claudeHome`;
-  `src/main/claude-home/registry.ts`, `projectDirName`: `C:\Users\Ann\repo` → `C--Users-Ann-repo`). Имя папки — не
+  `src/main/claude-home/registry.ts`, `projectDirName`: `C:\Users\Someone\repo` → `C--Users-Someone-repo`). Имя папки — не
   доказательство: Project решает `cwd` внутри транскрипта, как уже делает registry.
 - **Логи gate.** `%USERPROFILE%\.claude\worfy-harness\gate\state\logs\<tag>\<run>\timings.json`; `tag` — sha1 пути
   worktree в той форме, какую видел gate (`worktreeTag`, `harness/hooks/gate-paths.mjs`). Читатель не вычисляет

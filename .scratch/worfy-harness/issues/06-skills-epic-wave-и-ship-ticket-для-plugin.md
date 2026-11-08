@@ -28,7 +28,7 @@ Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2
 - Пути Harness приходят и из значений Profile: `tickets.status_tool` = `~/.claude/bin/ticket`,
   `tickets.epic_status` = `~/.claude/bin/epic-status`, `workflow.preflight` =
   `~/.claude/bin/preflight --epic <эпик>`, `numbering.reserve_with` = `~/.claude/bin/preflight`
-  (`~/.claude/profiles/worfy/profile.json`, так же у Auction; у Atakama `preflight` и `reserve_with`
+  (`~/.claude/profiles/worfy/profile.json`, так же у Project A (другой проект владельца); у Project B `preflight` и `reserve_with`
   — `null`). По Q11 это константы Harness; поля из Profile убирает Ticket 11.
 - `~/.claude` в тексте бывает и законно: Claude Code пишет транскрипты в `~/.claude/projects`, бриф
   несёт строку «Запись в ~/.claude» (`epic-wave:151`, `:157-164`).

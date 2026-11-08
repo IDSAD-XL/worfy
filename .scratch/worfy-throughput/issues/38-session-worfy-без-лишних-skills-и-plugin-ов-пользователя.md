@@ -68,7 +68,7 @@ Source: [spec.md](../spec.md), раздел «Решения владельца 
 
 ### Замер (шаг 1), 2026-10-28
 
-Источник — транскрипты в `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/` (только чтение): main-транскрипт
+Источник — транскрипты в `~/.claude/projects/-Users-<user>-Stuff-CanvasForAI/` (только чтение): main-транскрипт
 Session worfy `f6ab7045-…` (`entrypoint: sdk-ts`, Claude Code 2.1.289, SDK 0.3.289) и 400 последних её
 Subagent-ов. Описания skills в транскрипте — вложение `skill_listing` первого запроса (`content`,
 `skillCount`). Разбор — разовые node-скрипты в scratchpad агента (не в репозитории): `skills.mjs`/`groups.mjs`

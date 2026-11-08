@@ -14,7 +14,7 @@ Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/st
   (`src/main/projects/store.ts:223-224`), корень — папка над общей `.git` или toplevel (`:231`). На
   Windows git печатает `C:/Users/…`: прямые `/`. Из этой строки считается id Project-а —
   `<имя папки>-<sha256(путь)[0:8]>` (`projectId`, `store.ts:75-79`; вызов — `:266`). id называет папку
-  данных Project-а. Настоящий Project владельца на ПК — `worfy-d5750da7` для `C:/Users/Alexey/worfy`
+  данных Project-а. Настоящий Project владельца на ПК — `worfy-d5750da7` для `C:/Users/<user>/worfy`
   (Ticket [08](08-пути-и-папки-на-windows.md), «Итог»; Ticket [12](12-сборка-nsis-и-stable-copy-на-windows.md)).
 - **Уведомления о Session-ах из реестра Claude Code несут другое написание.** Окно просит
   `claudeHome.sessions` с `project.path`. Главный процесс берёт `resolve(projectRoot)`
@@ -53,7 +53,7 @@ Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/st
 4. **Пройти остальные сравнения корня Project-а** в `src/main` и `src/renderer` (поиск `=== root`,
    `.path ===`) и записать в «Итог», какие сравнивают значения из двух источников.
 5. **Id Project-а не меняется.** `projectId` получает ту же строку, что сегодня. Проверка: корень
-   `C:/Users/Alexey/worfy` даёт `worfy-d5750da7`.
+   `C:/Users/<user>/worfy` даёт `worfy-d5750da7`.
 
 ## Готово, когда
 
@@ -64,7 +64,7 @@ Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/st
       `C:/a/b` и `C:/a/bc` — не равны.
 - [ ] Test `notificationTarget` и `projectOfNote`: Project с `path` `C:/…`, заметка с `C:\…` —
       Session найдена.
-- [ ] Id корня `C:/Users/Alexey/worfy` — `worfy-d5750da7`, проверкой на любой системе.
+- [ ] Id корня `C:/Users/<user>/worfy` — `worfy-d5750da7`, проверкой на любой системе.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac; `gate full` зелёный; Linux CI
       зелёный; ручной job «Windows tests» без новых по имени падений против main.
 
@@ -149,8 +149,8 @@ id и папки данных Project-ов те же; к одному виду �
   `useWorkflow.ts`. Остальные совпадения поиска — проверки на `null`/`undefined`, не сравнение корней.
 
 **Пункт 5 — сделан.** `projectId` не тронут. Contract test в `test/unit/project-store.test.ts`:
-`projectId('C:/Users/Alexey/worfy')` = `worfy-d5750da7` на любой системе (для сравнения: hash
-написания `C:\Users\Alexey\worfy` — `7a537a68`, то есть другая папка данных).
+`projectId('C:/Users/<user>/worfy')` = `worfy-d5750da7` на любой системе (для сравнения: hash
+написания `C:\Users\<user>\worfy` — `7a537a68`, то есть другая папка данных).
 
 **Test-ы.** `test/unit/platform-paths.test.ts` — таблица пар (8 равных, 9 разных, в обе стороны),
 включая пары из «Готово, когда». `test/unit/permission-card.test.tsx` — `notificationTarget` (Project

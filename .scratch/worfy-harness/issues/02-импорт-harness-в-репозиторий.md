@@ -18,8 +18,8 @@ Source: решения владельца 2026-10-07 (Q2, Q3, Q13, Q19, Q33); [s
   `docs/lessons/ci-merge.md:49` (f5f0cbb, 8d2fbea), `docs/adr/0033-autopilot-names-wave-tickets.md:53`
   (364070b). Все шесть коммитов меняют файлы Harness.
 - В истории `~/.claude` есть и то, что в Harness не входит: личные скрипты (`bin/telegram-mcp`,
-  `bin/auction-staging-db-mcp`, `bin/agent-time-split`), удалённые агенты и hooks отдельных
-  Project-ов (`agents/atakama-*`, `agents/auction-*`, `hooks/atakama-*`), Profile-ы, реестр Gate.
+  `bin/project-a-staging-db-mcp`, `bin/<personal-tool>`), удалённые агенты и hooks отдельных
+  Project-ов (`agents/project-b-*`, `agents/project-a-*`, `hooks/project-b-*`), Profile-ы, реестр Gate.
 - Test-ы Harness — 7 файлов в `~/.claude/bin/tests/` и 3 в `~/.claude/hooks/tests/`, каждый
   запускается руками (`bash ~/.claude/bin/tests/<имя>.test.sh`, код 0 — прошёл). В CI их нет.
   - Скрипт под test-ом ищется в `~/.claude`: `PROFILE="$HOME/.claude/bin/profile"`
@@ -34,10 +34,10 @@ Source: решения владельца 2026-10-07 (Q2, Q3, Q13, Q19, Q33); [s
     (`~/.claude/hooks/session-start.sh:36`, `~/.claude/hooks/session-end.sh:22`),
     `QMD_REFRESH_SYNC` (`~/.claude/bin/qmd-refresh:35`), `QMD_SYNC_PROFILE_BIN`
     (`~/.claude/bin/qmd-sync-main:29`).
-  - Проверки по живым репозиториям Auction, Atakama и worfy пропускаются строкой `skip …`, когда
+  - Проверки по живым репозиториям Project A, Project B (другие проекты владельца) и worfy пропускаются строкой `skip …`, когда
     репозитория нет (`~/.claude/bin/tests/profile.test.sh:59`, `:83`, `:94`).
-  - `~/.claude/bin/tests/atakama-tickets.test.sh` проверяет `profiles/atakama/bin/tickets.mjs`, а
-    `~/.claude/bin/tests/production-check.test.sh` — `deploy.production_check` Profile-а auction.
+  - `~/.claude/bin/tests/project-b-tickets.test.sh` проверяет `profiles/project-b/bin/tickets.mjs`, а
+    `~/.claude/bin/tests/production-check.test.sh` — `deploy.production_check` Profile-а project-a.
     Это код личных Profile-ов, а не Harness.
   - Скрипты `qmd-mcp`, `qmd-refresh`, `qmd-sync-main` написаны на zsh.
 - CI (`.github/workflows/ci.yml`) на `ubuntu-latest` гоняет `pnpm lint`, `pnpm typecheck` и vitest
@@ -78,11 +78,11 @@ Source: решения владельца 2026-10-07 (Q2, Q3, Q13, Q19, Q33); [s
    test-ов (пункт 3).
 
    **Не импортируются** — ни сами файлы, ни их история: `bin/telegram-mcp`,
-   `bin/auction-staging-db-mcp`, `bin/agent-time-split` (личные, Q19);
-   `bin/tests/atakama-tickets.test.sh`, `bin/tests/production-check.test.sh` (test-ы кода личных
-   Profile-ов, остаются с Profile-ами); `agents/atakama-*`, `agents/auction-*`, `hooks/atakama-*`
+   `bin/project-a-staging-db-mcp`, `bin/<personal-tool>` (личные, Q19);
+   `bin/tests/project-b-tickets.test.sh`, `bin/tests/production-check.test.sh` (test-ы кода личных
+   Profile-ов, остаются с Profile-ами); `agents/project-b-*`, `agents/project-a-*`, `hooks/project-b-*`
    (удалены раньше, принадлежали отдельным Project-ам); `settings.json`, `gate/`,
-   `profiles/{worfy,auction,atakama}/` (состояние машины; его переносят Ticket-ы 11 и 14); личные
+   `profiles/{worfy,project-a,project-b}/` (состояние машины; его переносят Ticket-ы 11 и 14); личные
    skills и `skills/synced/`.
 2. **Импорт с историей** (Q3). Работа идёт на временном clone `~/.claude`, сам `~/.claude` не
    меняется. В clone остаются только пути из таблицы, и они переезжают в `harness/` с самого
@@ -144,7 +144,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 
 - [ ] Импортированные файлы совпадают с базой побайтно и сохраняют права: для каждой пары таблицы, кроме test-ов, `git -C ~/.claude show <база>:<источник> | cmp -s - <цель>` — exit 0; `test -x` для каждого скрипта `harness/bin/*` (кроме `ТИКЕТЫ.md`) и `harness/hooks/*` — exit 0.
 - [ ] История на месте: последняя строка `git log --format=%s -- harness/skills/epic-wave/SKILL.md` — «Snapshot of Claude Code workflow before generalization»; `for s in 364070b 70b50c4 8d2fbea f0132fb ec8412c f5f0cbb; do [ "$(git log --format=%h --grep="Imported-from: ~/.claude $s" | wc -l)" -eq 1 ] || exit 1; done` — exit 0.
-- [ ] Лишнего нет ни в дереве, ни в истории: `git log --format= --name-only HEAD -- harness | grep -E 'telegram-mcp|auction-staging-db-mcp|agent-time-split|atakama|auction-|production-check|settings\.json|gate/|profiles/(worfy|auction|atakama)/'` — exit 1; `git log -p HEAD -- harness | grep -E 'ghp_|gho_|github_pat_|sk-ant-'` — exit 1.
+- [ ] Лишнего нет ни в дереве, ни в истории: `git log --format= --name-only HEAD -- harness | grep -E 'telegram-mcp|project-a-staging-db-mcp|<personal-tool>|project-b|project-a-|production-check|settings\.json|gate/|profiles/(worfy|project-a|project-b)/'` — exit 1; `git log -p HEAD -- harness | grep -E 'ghp_|gho_|github_pat_|sk-ant-'` — exit 1.
 - [ ] `harness/.claude-plugin/plugin.json`: `name` — `worfy`, зависимость `mattpocock-skills`, поля `version` нет. Проверяет `test/contract/harness-plugin.test.ts`. `claude plugin validate harness` бинарём SDK — exit 0, предупреждения — в «Итог».
 - [ ] `pnpm test test/contract/harness-scripts.test.ts` — exit 0 локально; в CI PR тот же файл зелёный на Linux, все test-ы Harness прошли, без пропусков из-за отсутствующих `zsh`, `jq`, `git`, `node`.
 - [ ] Test-ы не трогают настоящий `~/.claude`: вывод `git -C ~/.claude status --porcelain` одинаков до и после `pnpm test` (пустым он быть не обязан: 2026-10-07 там `?? skills/synced/` — личная папка, Q19).
@@ -204,7 +204,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 - **Правки test-ов** (только поиск скриптов и env): скрипт ищется в `$(dirname "$0")/..`, `BIN_DIR`/`HOOKS_DIR`
   переопределяют; test ставит `CLAUDE_GATE_RESOLVE` и `CLAUDE_PROFILE_BIN` на копии в `harness/`; проверки по
   живым репозиториям — только при наличии и репозитория, и `~/.claude/gate/config.json`; пути репозиториев
-  владельца — от `$HOME` (`$HOME/Work/Auction` и т. п.) вместо `/Users/alexey/...`; `session-hooks.test.sh`
+  владельца — от `$HOME` (`$HOME/Work/project-a` и т. п.) вместо `~/...`; `session-hooks.test.sh`
   копирует `~/.claude/profiles`, только если папка есть.
 - **Новый файл вне таблицы** — `harness/package.json` без поля `type`. Без него `profile` и `epic-board`
   (CommonJS без расширения) Node грузит как ES-модули: корневой `package.json` worfy — `"type": "module"`,
@@ -225,7 +225,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 - **Предложение для реестра Gate** (вносит владелец): в `root_if` записи `worfy` дописать `|^harness/`:
   `"\\.(ts|tsx|js|jsx|mjs|cjs|css|html)$|(^|/)package\\.json$|(^|/)tsconfig[^/]*\\.json$|(^|/)eslint[^/]*$|(^|/)pnpm-(lock|workspace)\\.yaml$|^harness/"`.
 - **Найдено при проверке на личные данные** (не секреты, оставлено — содержимое файлов совпадает с базой
-  побайтно): пути `/Users/alexey/Work/{Auction,Atakama}` в комментариях `harness/bin/profile:138,143,172`,
+  побайтно): пути `~/Work/{project-a,project-b}` в комментариях `harness/bin/profile:138,143,172`,
   `harness/hooks/gate-resolve.mjs:55`, `harness/profiles/README.md:46,50,54,154`,
   `harness/bin/qmd-sync-main:15`, и в истории — те же строки старых версий. Токенов (`ghp_`, `gho_`,
   `github_pat_`, `sk-ant-`, `xox*`, `AKIA`, приватные ключи) нет ни в дереве, ни в истории.
@@ -237,7 +237,7 @@ plugin-а (13); перенос и уборка `~/.claude` (14, 16); qmd (17).
 проверен на `origin/main` @ `968ddce`: `git log origin/main --format=%h --grep='Imported-from: ~/.claude 331a6ca' | wc -l` — 1.
 
 **Долг.** Личные несекретные данные, перенесённые из `~/.claude` побайтно: пути
-`/Users/alexey/Work/{Auction,Atakama}` в `harness/bin/profile:138,143,172`, `harness/hooks/gate-resolve.mjs:55`,
+`~/Work/{project-a,project-b}` в `harness/bin/profile:138,143,172`, `harness/hooks/gate-resolve.mjs:55`,
 `harness/profiles/README.md:46,50,54,154`, `harness/bin/qmd-sync-main:15` и имена рабочих репозиториев — в
 дереве `harness/` и в уже влитой истории импорта. Секретов нет. Устраивает ли это — вопрос владельцу (HANDOFF).
 Владелец решил 2026-10-12: историю принять; в дереве `harness/` заменить на нейтральные примеры мелким Ticket-ом;

@@ -102,7 +102,7 @@ Source: решение владельца 2026-10-10 по пункту «Реш�
 
 **Прогоны** (ветка на `origin/main` fa299749):
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0, 5195 passed, 66 skipped.
-- e2e под `/tmp/worfy-e2e.lock`, консоль у `alexey`, временный `HOME`: `settings.spec.ts`,
+- e2e под `/tmp/worfy-e2e.lock`, консоль у пользователя владельца, временный `HOME`: `settings.spec.ts`,
   `focus.spec.ts`, `focus-sidebar.spec.ts`, `settings-health.spec.ts`, `interface-scale.spec.ts` —
   exit 0, 19 passed.
 

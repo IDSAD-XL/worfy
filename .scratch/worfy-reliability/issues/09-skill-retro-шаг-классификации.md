@@ -17,7 +17,7 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
   окружения, если не в урок, skill не говорит; класса причины и строки `Проверка:` в нём нет.
 - В режиме репозитория skill пишет урок в формате `<path>/README.md` (`:81`) — у worfy это
   `docs/lessons/README.md`, его классы и строку `Проверка:` даёт Ticket 06.
-- Skill общий для всех Project-ов Harness (и Atakama): формулировки — без путей worfy.
+- Skill общий для всех Project-ов Harness (и Project B (другой проект владельца)): формулировки — без путей worfy.
 - Правки `harness/` — PR в `harness/`; после мержа — `pnpm install:stable`, иначе Stable copy
   работает со старым skill-ом (ADR-0047, `HANDOFF.md`, «Риски и долги»).
 
@@ -78,7 +78,7 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
   — `Проверка:`), с выводом шага 3; в режиме Profile-а — поле `**Check:**`. Слово `Проверка:` в
   skill не попало: shell test `harness/bin/tests/harness-home.test.sh` (раздел 6) не пускает
   кириллицу в текст skill-ов вне списка разрешённых строк.
-- Пример `Auction: docs/lessons/<topic>.md` заменён на `<path>/<topic>.md` — в тексте нет путей
+- Пример `Project A: docs/lessons/<topic>.md` заменён на `<path>/<topic>.md` — в тексте нет путей
   worfy.
 - Test: `test/contract/harness-retro-skill.test.ts` (6 test-ов). На тексте skill-а с `origin/main`
   cc8d382e — exit 1, 5 из 6 красные; с правкой — exit 0. Мутанты: Classify после «Check for

@@ -8,7 +8,7 @@ Source: [spec.md](../spec.md), тема B, риск 9; Ticket 15 worfy-mvp (де
 
 ## Что делаем
 
-На Auction 13 из 109 Subagent-ов навсегда остаются в `running`, хотя давно не работают. У них нет
+На Project A (другой проект владельца) 13 из 109 Subagent-ов навсегда остаются в `running`, хотя давно не работают. У них нет
 task-notification — сообщения Claude Code о том, что фоновая задача закончилась.
 
 **Как сейчас считается статус** — `statusOf()` в `src/shared/transcript/subagents.ts:371-378`:
@@ -27,7 +27,7 @@ user снимает этот признак (`:235`). У фонового Subage
 нет task-notification, а последний `stop_reason` — не `end_turn`. Так бывает при `tool_use`,
 `max_tokens`, оборванном процессе или закрытой Session.
 
-**Первый шаг — разбор на настоящих данных Auction, только чтение.** Для каждого зависшего записать:
+**Первый шаг — разбор на настоящих данных Project A, только чтение.** Для каждого зависшего записать:
 
 - последнюю запись транскрипта;
 - `meta.json`;
@@ -46,10 +46,10 @@ Canvas (`src/renderer/canvas/sources/subagents.ts`). Ложный `done` у жи
 
 ## Готово, когда
 
-- [x] В «Итог» — таблица причин для зависших Subagent-ов Auction.
+- [x] В «Итог» — таблица причин для зависших Subagent-ов Project A.
 - [x] ADR о статусе принят.
 - [x] Фикстура каждой причины даёт статус по ADR. Subagent, который реально работает (файл растёт, Session live), остаётся `running`.
-- [x] (вручную) На Auction после изменения в `running` остались только реально работающие Subagent-ы. Число — в «Итог». (Проверено 2026-10-07: `running` 0 при 0 работающих — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
+- [x] (вручную) На Project A после изменения в `running` остались только реально работающие Subagent-ы. Число — в «Итог». (Проверено 2026-10-07: `running` 0 при 0 работающих — подраздел [«Ручная проверка 2026-10-07»](#ручная-проверка-2026-10-07).)
 - [x] `~/.claude` только читается: дерево временного `WORFY_CLAUDE_HOME` после test-а не изменилось.
 
 ## Тесты
@@ -73,11 +73,11 @@ Canvas (`src/renderer/canvas/sources/subagents.ts`). Ложный `done` у жи
 (task-notification из очереди) и [ADR-0031](../../../docs/adr/0031-closed-session-ends-its-subagents.md)
 (закрытая Session кончает своих Subagent-ов).
 
-### Разбор на данных Auction
+### Разбор на данных Project A
 
-Снято 2026-10-06, только чтение: все папки `~/.claude/projects/*Auction*`, 110 Session-ов с папкой
+Снято 2026-10-06, только чтение: все папки `~/.claude/projects/*project-a*`, 110 Session-ов с папкой
 `subagents/`, 3179 Subagent-ов. Дерево строилось кодом worfy с `origin/main` 9fcdaff
-(`SubagentReader` + `buildSubagentTree`), скриптом вне репозитория. Живых Session-ов Auction в
+(`SubagentReader` + `buildSubagentTree`), скриптом вне репозитория. Живых Session-ов Project A в
 момент замера не было.
 
 - `running` — 311 из 3179. «13 из 109» из спецификации — одна папка, worktree `ui-motion-plan`
@@ -89,7 +89,7 @@ Canvas (`src/renderer/canvas/sources/subagents.ts`). Ложный `done` у жи
 | Уведомление только в очереди: `queue-operation` `enqueue` (+`remove`) и/или `attachment` `queued_command`; записи `user` нет — worfy его не читал | ответ с `stop_reason: null` (2.1.260 пишет так и последний ответ), реже `stop_sequence` или `user`; у части файла Subagent-а нет | обычно `agentType`, `description`, `toolUseId`, `spawnDepth`; `requestShape` нет | есть, в очереди | нет | 310 |
 | Session закрылась, пока Subagent работал | ответ с вызовом `WebFetch`, `stop_reason: tool_use` | `agentType`, `description`, `toolUseId`, `spawnDepth` | нет нигде | нет | 1 |
 
-Как записано уведомление в транскриптах Auction (по task-id, все фоновые задачи, не только
+Как записано уведомление в транскриптах Project A (по task-id, все фоновые задачи, не только
 Subagent-ы): только `queue-operation` `enqueue`+`remove` — 1791; `enqueue` + запись `user` — 2034;
 только `attachment` — 894; `attachment` + `enqueue` + `remove` — 849; только `user` — 382; прочие
 сочетания — 143. Статусы в уведомлениях из очереди: `completed` 4859, `failed` 118, `killed` 28,
@@ -105,7 +105,7 @@ Subagent-ы): только `queue-operation` `enqueue`+`remove` — 1791; `enque
 | `running` → `done` | уведомление из очереди со статусом `completed` (у 76 из них узел дерева теперь связан с вызовом через `<tool-use-id>` уведомления) | 294 |
 | `running` → `error` | уведомление из очереди со статусом `failed`, `killed` или `stopped` | 16 |
 | `running` → `error` | уведомления нет, Session закрыта (ADR-0031) | 1 |
-| `done` → `error` | Subagent `a8e8123df57d3153c` (Auction-sale-loop): кончился синхронным вызовом (`completed`), потом продолжен через SendMessage, второй прогон кончился уведомлением из очереди со статусом `failed`; раньше оно не читалось | 1 |
+| `done` → `error` | Subagent `a8e8123df57d3153c` (project-a-sale-loop): кончился синхронным вызовом (`completed`), потом продолжен через SendMessage, второй прогон кончился уведомлением из очереди со статусом `failed`; раньше оно не читалось | 1 |
 | без изменений | (у одного `done` узел тоже связан с вызовом заново) | 2867 (2833 `done`, 34 `error`) |
 
 Папка `ui-motion-plan`: 109 `done`, 0 `running`.
@@ -125,20 +125,20 @@ Canvas не проверено (GUI-проверки в этой волне — 
 
 Проверял агент, ночь 2026-10-07 (второй круг ручных проверок).
 
-**Auction на Stable copy — проверка M20.** Stable copy из 6df9791 (pid 2455, CDP 9351). Project Auction
-добавлен через `projects.add` в 07:12:04Z. Orchestrator Auction стартовал без хода (pid 64936, Session
+**Project A на Stable copy — проверка M20.** Stable copy из 6df9791 (pid 2455, CDP 9351). Project A
+добавлен через `projects.add` в 07:12:04Z. Orchestrator Project A стартовал без хода (pid 64936, Session
 c3223b30, транскрипта нет), сообщений ему не отправляли.
 
-- Живая Session Auction в `~/.claude/sessions` одна — этот Orchestrator, idle, без Subagent-ов.
+- Живая Session Project A в `~/.claude/sessions` одна — этот Orchestrator, idle, без Subagent-ов.
   Значит, реально работающих Subagent-ов 0.
 - Чтобы было что считать, History → Show поставил 3 read-only Node-а прошлых Session (Claude Code не
   запускался). d36f39e0 — та Session, где до правки было «13 из 109» в `running`: теперь «109 done».
   0d0f7e4c — «104 done». 99564eee — 16 error («Concurrent subagent limit reached») и 50 done.
 - `running` на Canvas — 0 и в store React Flow, и в DOM: совпадает с числом работающих (0).
-- Потом все три Node-а сняты кнопкой Remove: в `layout.json` Auction снова 2 Node-а, viewport
+- Потом все три Node-а сняты кнопкой Remove: в `layout.json` Project A снова 2 Node-а, viewport
   возвращён в (0, 0, 1).
 - Замечания [low], вне критериев:
-  - History Auction показывает одну Session двумя строками: транскрипт с одним sessionId лежит в двух
+  - History Project A показывает одну Session двумя строками: транскрипт с одним sessionId лежит в двух
     папках `~/.claude/projects` (`ui-motion-plan` и `ui-triage-3-night-wave-7ee36e`). При сборке
     History строки по sessionId не схлопываются (`src/main/claude-home/registry.ts:428-440`), и в
     `HistoryPopover` у двух строк одинаковый React key (`session.sessionId`).
@@ -148,7 +148,7 @@ c3223b30, транскрипта нет), сообщений ему не отп�
     (`src/renderer/canvas/nodes/SessionNode.tsx:378`), хотя Session давно закончена.
 - Вердикт: проверено.
 - Снимки (в scratchpad Session Orchestrator-а, в репозиторий не положены): `M20-before.png`,
-  `M20-auction-open.png`, `M20-history-popover.png`, `M20-show-d36f39e0.png`, `M20-show-three.png`,
+  `M20-project-a-open.png`, `M20-history-popover.png`, `M20-show-d36f39e0.png`, `M20-show-three.png`,
   `M20-after-remove.png`, `M20-final.png`.
 
 ### Долги из HANDOFF (2026-10-08)

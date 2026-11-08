@@ -53,7 +53,7 @@ Source: решения владельца 2026-10-07: Q22 (неподписан�
   им отказа нет. Пути сравниваются после `realpath` (`canonical`, `:154-160`). Общая папка git —
   `git rev-parse --path-format=absolute --git-common-dir` (`gitCommonDir`,
   `src/main/ipc/autopilot.ts:33-38`, не экспортирована); на Windows git печатает путь с `/`: в
-  worktree на ПК — `C:/Users/Alexey/worfy/.git` (evidence Ticket-а 01, раздел 06). Как он сравнится с
+  worktree на ПК — `C:/Users/<user>/worfy/.git` (evidence Ticket-а 01, раздел 06). Как он сравнится с
   `realpath` от пути `C:\…`, не проверялось. `test/contract/autopilot.test.ts:708-730`
   подменяет `gitCommonDir`, настоящий git не зовёт.
 - **SmartScreen.** Неподписанный установщик: «Windows protected your PC» → More info → Run anyway.
@@ -181,7 +181,7 @@ Harness (Ticket 13); `@packaged` e2e на Windows (Ticket 14); шаг для Win
     установщик 0,00, `Uninstall worfy.exe` 0,00; ярлык — 30,11 (похоже на стрелку ярлыка, не
     проверено; `notepad.exe` для сравнения — 75,64). Окно по CDP: страница загружена, версия
     `v0.2.0+c64a9db` равна commit-у сборки.
-  - **Session отвечает.** Project `worfy-d5750da7` (`C:/Users/Alexey/worfy`) записан в
+  - **Session отвечает.** Project `worfy-d5750da7` (`C:/Users/<user>/worfy`) записан в
     `%APPDATA%\worfy\projects.json` руками, как в Ticket-е 08. Установленный worfy показал его в
     списке. Одно сообщение Orchestrator-у — ответ `pong` за 16,0 s. Файл после проверки удалён: до
     неё его не было.

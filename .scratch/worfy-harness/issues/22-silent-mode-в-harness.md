@@ -26,8 +26,8 @@ Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30;
     (`~/.claude/skills/ship-ticket/SKILL.md:286-292`).
   - Номера ADR `preflight` считает по `git ls-tree` основной ветки и веток `origin/*`
     (`~/.claude/bin/preflight:315-332`).
-- Файлы workflow вне репозитория уже умеет часть скриптов — так устроен Profile Atakama
-  (`~/.claude/profiles/atakama/profile.json`): абсолютные `tickets.root`, `tickets.path`,
+- Файлы workflow вне репозитория уже умеет часть скриптов — так устроен Profile Project B (другой проект владельца)
+  (`~/.claude/profiles/project-b/profile.json`): абсолютные `tickets.root`, `tickets.path`,
   `tickets.spec`, `docs.handoff.path`. `bin/ticket` пишет статус прямо в абсолютный корень
   (`~/.claude/bin/ticket:94-118`); `epic-status --json --ref` при корне вне git отвечает кодом 3
   (`~/.claude/profiles/README.md`, правила поля `tickets.root`). Skills об этом не знают и всё
@@ -39,7 +39,7 @@ Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30;
 - Строки атрибуции Claude (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`) добавляет
   сам Claude Code. В Harness о них нет ни слова: поиск `Co-Authored` по `CLAUDE.md`, `agents/`,
   7 skills Harness, `bin/` и `hooks/` пуст.
-- worktree у worfy и Auction лежат в `.claude/worktrees/` внутри репозитория, и skills требуют
+- worktree у worfy и Project A (другой проект владельца) лежат в `.claude/worktrees/` внутри репозитория, и skills требуют
   этого прямо: «Агенту `EnterWorktree` принимает только деревья под `.claude/worktrees/` того же
   репозитория» (`~/.claude/skills/ship-ticket/SKILL.md:97-100`; то же —
   `~/.claude/agents/implementer.md:30-36`). Описание инструмента `EnterWorktree` в Claude Code
@@ -63,7 +63,7 @@ Silent mode (Q29).
      именем — взять его и сказать в «Итог». Значение пишет подключение Project-а (Ticket 24). По
      умолчанию — `<HARNESS_HOME>/projects/<project>/workflow/` (`HARNESS_HOME` — Ticket 08, по
      умолчанию `~/.claude/worfy-harness/`); у Project-а над несколькими репозиториями — папка над
-     ними, как у Atakama.
+     ними, как у Project B.
    - Структура папок Workflow folder — та же, что у Full mode в репозитории: `.scratch/<эпик>/…`,
      `HANDOFF.md`, `docs/adr/`, `docs/lessons/`, `CONTEXT.md`. Её же читает worfy (Ticket 23).
    - `bin/profile` отдаёт в `_resolved`: `mode`; `workflow_folder` — абсолютный путь в обоих
@@ -125,7 +125,7 @@ Silent mode (Q29).
 7. **worktree вне репозитория у новых Project-ов (Q17).**
    - `worktree.root` по умолчанию для новых Project-ов — `<HARNESS_HOME>/worktrees/<project>/`,
      дерево Ticket-а — `<worktree.root><NN>`. Записывает значение подключение Project-а (Ticket 24);
-     этот Ticket описывает его в контракте. worfy и Auction остаются на `.claude/worktrees/`.
+     этот Ticket описывает его в контракте. worfy и Project A остаются на `.claude/worktrees/`.
    - Сначала — проверка в живой Session (временный репозиторий; `claude -p`): может ли
      implementer-Subagent править файлы в дереве вне репозитория. Варианты: (а) `EnterWorktree` с
      `path` такого дерева; (б) Subagent, которого Orchestrator запускает с cwd этого дерева;
@@ -281,7 +281,7 @@ E3 её нет).
 
 **Круг доработки 1** (гейт REJECTED на 3105907, список — в комментарии PR #150).
 1. [high] Основная ветка при локальном финише больше не берётся из `HEAD` основного checkout-а: при
-   `single` он стоит на ветке Ticket-а, и блок печатал `MERGED=0`, ничего не влив (настройка Atakama:
+   `single` он стоит на ветке Ticket-а, и блок печатал `MERGED=0`, ничего не влив (настройка Project B:
    `single`, `local-green`, `worktree.base: null`). Теперь порядок: `worktree.base` без `origin/` →
    `layout.repos.<репозиторий>.default_branch` → `origin/HEAD` → локальные `main`/`master`. Если основная
    ветка — сама ветка Ticket-а, блок отказывает (`SAME BRANCH`, `MERGED=1`); если основная ветка не
@@ -350,7 +350,7 @@ Text-проверки A и B — `epic-wave-ship-ticket.test.sh`, раздел 7
 **Решено без владельца, подтверждено владельцем 2026-10-12, кроме пункта о сбое самой проверки.**
 - Имя поля — `workflow.folder`; относительный путь в нём — сломанный Profile (exit 1).
 - В добавленных строках диффа голое имя Epic-а следом не считается: код называет свои области, а Epic
-  часто назван по области (`deals`, `frontend` у Auction). `<эпик>/<NN>` и остальные следы в диффе
+  часто назван по области (`deals`, `frontend` у Project A). `<эпик>/<NN>` и остальные следы в диффе
   считаются. В тексте коммита, ветки и PR голое имя Epic-а — след, поэтому Epic с именем-обычным словом
   даст ложные отказы guard-а; лечится именем Epic-а, а не правилом.
 - Guard проверяет и `gh pr merge` (`--subject`, `--body`): их текст попадает в историю основной ветки.
@@ -372,7 +372,7 @@ Text-проверки A и B — `epic-wave-ship-ticket.test.sh`, раздел 7
 прогона (`harness/bin/tests/real-home.sh`: список файлов, размер и mtime; в папках, куда пишут живые
 Session-ы, — поиск файлов, где упомянута временная папка test-а). Заодно исправлены две живые
 проверки, падавшие на настоящем HOME после переноса Profile-ов в `~/.claude/worfy-harness/projects/`
-(`profile.test.sh`: auction `--dir`; `skill-blocks.test.sh`: два случая atakama).
+(`profile.test.sh`: project-a `--dir`; `skill-blocks.test.sh`: два случая project-b).
 
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` — код 0 (141 файл, 2685 test-ов). `GATE_SCOPE=all
 gate.sh fast` — код 0, «[gate] зелено (fast)». `gate.sh full` под замком `/tmp/worfy-e2e.lock` на
@@ -480,7 +480,7 @@ Session-ов; в этот список попадают и записи живы
 **Решено без владельца (круг владельца).** Третий пункт — подтверждено владельцем 2026-10-12; первые два сняты
 решением владельца 2026-10-09: hook не зарегистрирован и лежит черновиком для Ticket-а 24.
 - Hook `WorktreeCreate` зарегистрирован в plugin-е, то есть действует во всех Session-ах машины: для
-  Project-ов без корня вне репозитория (worfy, Auction, незарегистрированные папки) он повторяет поведение
+  Project-ов без корня вне репозитория (worfy, Project A, незарегистрированные папки) он повторяет поведение
   Claude Code (`.claude/worktrees/<name>`, ветка `worktree-<name>`, от `origin/HEAD`, иначе от HEAD), но
   без `fetch`, без настройки `worktree.baseRef` и без копирования файлов `.worktreeinclude`. Другой
   вариант — не регистрировать hook, пока Ticket 24 не подключит первый Project с корнем вне репозитория.
@@ -552,7 +552,7 @@ Wave 10 (2026-10-08): Ticket выведен из Wave гейтом, `blocked`. �
 этой ветке, вердикты — в комментариях PR.
 
 - Круг 1 `REJECTED`: [high] локальный финиш при `single` без `worktree.base` брал основную ветку из HEAD
-  checkout-а и печатал `MERGED=0` без вливания (настройка Atakama) + 2 med, 4 low текста. Исправлено.
+  checkout-а и печатал `MERGED=0` без вливания (настройка Project B) + 2 med, 4 low текста. Исправлено.
 - Круг 2 `REJECTED`: доработка внесла 2 med — `done` на ветке до gate full; документам волны нечем ехать, если
   последний тикет выпал. Скептики подтвердили обе; Ticket на критическом пути (от него зависят 23–26) — узкий круг.
 - Узкий круг `NARROW: REJECTED`: A и B закрыты, но внесены 2 med — при NOT ON TOP подготовленные документы
@@ -578,7 +578,7 @@ Ticket-а на ветке): `REJECTED`, основание — новый деф
 - [high] пункт 7 сделан через hook `WorktreeCreate` (`harness/hooks/worktree-create.sh`, `hooks.json:145`). Plugin
   включён на всю машину, поэтому после пересборки hook заменит встроенное создание worktree во всех Session-ах любого
   репозитория: повторный `claude -w <имя>` падает (ветка уже есть), деревья, которые agent не менял, не удаляются,
-  нет fetch и `.worktreeinclude`. Пользы сейчас нет — у worfy и Auction корень внутри репозитория.
+  нет fetch и `.worktreeinclude`. Пользы сейчас нет — у worfy и Project A корень внутри репозитория.
 - [med] `profiles/README.md:141` прячет эти отличия; [med] тексты skills описывают путь через plugin как проверенный,
   а пробы шли через `--settings` с другим скриптом.
 - Пробы пункта 7 (около 1,1 USD): (а) `EnterWorktree` с path — отказ; (б) Subagent с cwd — параметра нет; (в) hook

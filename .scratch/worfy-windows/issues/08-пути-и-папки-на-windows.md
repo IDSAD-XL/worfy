@@ -122,7 +122,7 @@ Source: решения владельца 2026-10-07: Q1 (полный порт)
 
 ## Готово, когда
 
-- [x] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\u\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
+- [x] `test/unit/paths.test.ts`: для `darwin` пути прежние (старые случаи не менялись); для `win32` с `APPDATA=C:\Users\user\AppData\Roaming` — `…\worfy` и `…\worfy-dev`; без `APPDATA` — `<homedir>\AppData\Roaming\…`; `WORFY_DATA_DIR` побеждает.
 - [x] `test/unit/platform-paths.test.ts` (новый): абсолютные — `/a`, `C:\a`, `C:/a`, `c:\a`, `\\server\share\a`; не абсолютные — `a/b`, `a\b`, `C:a`, пустая строка; путь с `\0` — отказ. Схема IPC из `src/shared/paths.ts` принимает и отвергает то же.
 - [x] `test/contract/card-last-editor.test.ts`: `Write` с `file_path` `C:\p\data\cards\abc\index.html` при `cardsDir` `C:\p\data\cards` — Card `abc`; относительный `cards\abc\x.md` при cwd `C:\p\data` — `abc`; `c:\P\DATA\cards\abc\x.md` — `abc`. Прежние случаи POSIX не менялись.
 - [x] `test/unit/markdown.test.tsx`: ссылки `C:\docs\a.md` и `C:/docs/a.md` — файл с абсолютным путём; относительные ссылки — как прежде.
@@ -255,7 +255,7 @@ Windows (Ticket 12).
   `statusline-bridge` 8, `card-last-editor` 4, `claude-home-registry` 3 и другие), одно новое —
   `check-handoff` «passes exactly 15360 bytes», timeout 5000 мс под нагрузкой; отдельно файл —
   exit 0, `11 passed`.
-- **Данные dev-сборки на ПК:** прежние запуски писали в `C:\Users\Alexey\Library\Application
+- **Данные dev-сборки на ПК:** прежние запуски писали в `C:\Users\<user>\Library\Application
   Support\worfy` и `…\worfy-dev` (путь macOS). Новая dev-сборка начинает в `%APPDATA%\worfy-dev` с
   чистого листа; переноса нет — сборок под Windows ещё не выпускали. Старые папки не тронуты.
 - **Проверка dev-сборки на ПК** (владелец, `v0.2.0+693f4d7`, снимок
@@ -264,9 +264,9 @@ Windows (Ticket 12).
   - «Add project» новой папки на Windows сейчас не пройти: подключение идёт через Harness, а
     dev-сборка его не ставит (Harness на Windows — Ticket-ы 03–07, 12). Для проверки Project worfy
     записан в `%APPDATA%\worfy-dev\projects.json` так, как его пишет `ProjectStore` (`path` из `git
-    rev-parse` — `C:/Users/Alexey/worfy`, id `worfy-d5750da7`);
+    rev-parse` — `C:/Users/<user>/worfy`, id `worfy-d5750da7`);
   - Sessions «2 live»: Orchestrator самой worfy и Session `claude`, запущенная владельцем в
-    PowerShell в подпапке `C:\Users\Alexey\worfy\src` (pid 47344, `cli` в
+    PowerShell в подпапке `C:\Users\<user>\worfy\src` (pid 47344, `cli` в
     `%USERPROFILE%\.claude\sessions\47344.json`) — «src-05 · terminal · idle». Session из корня, уже
     закрытая, — на холсте как `finished`. Транскрипты из `%USERPROFILE%\.claude\projects` видны;
   - мост: образец JSON строки состояния, поданный в `node scripts\statusline-bridge.mjs` (exit 0),

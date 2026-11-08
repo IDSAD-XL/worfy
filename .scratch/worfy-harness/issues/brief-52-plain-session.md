@@ -54,7 +54,7 @@ For each of the four tasks in section 1 — `fix-hidden-tests`, `review-planted-
 
 ## Finish
 
-- A PR against `main`, titled `worfy-harness 52: outcome-eval tasks and graders`, by `Alexey <idsad.ch@gmail.com>`.
+- A PR against `main`, titled `worfy-harness 52: outcome-eval tasks and graders`, by the owner's git identity.
   Its body lists the four tasks in one line each, the checker table, and the exit codes of the contract test and of
   `pnpm lint` / `pnpm typecheck`.
 - The owner reads the tasks. Once the PR is merged, its merge hash is the freeze point (section 6). Record it in the

@@ -23,7 +23,7 @@ Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2
   `name:` во frontmatter (`:2`) остаётся коротким, namespace даёт plugin. Ссылки на skills: skill
   Ticket-а из `workflow.ticket_skill` (`implementer.md:86`), «скилл `ship-ticket`, шаг 8» (`:106`).
 - Номера шагов implementer-а (раздел «Порядок», шаги 1–6, `implementer.md:84-123`) названы в
-  Profile Atakama: `workflow.implementer_steps` — «шаги 1–6 агента implementer без скилла».
+  Profile Project B (другой проект владельца): `workflow.implementer_steps` — «шаги 1–6 агента implementer без скилла».
 - Машинные строки:
   - `echo "КОД=$?"` — `implementer.md:95-96`, `reviewer.md:94`;
   - слова вердикта Gate «зелено», «ПРОВЕРИТЬ НЕ УДАЛОСЬ», «ничего не прогналось» —
@@ -48,7 +48,7 @@ Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2
 
 1. **Перевод** (Q6, Q34). Три файла, включая `description`, — по-английски, без потери правил.
    - Номера шагов implementer-а (1–6) и названия разделов по смыслу сохраняются: на шаги ссылается
-     Profile Atakama.
+     Profile Project B.
    - Язык ответа: пользователю и Orchestrator-у — `language.reports`; команде (коммиты, PR,
      комментарии в коде и ревью) — `language.team`; документы Project — `language.docs`. Поле
      `language.docs` вносит Ticket 11; пока его нет — язык уже написанных документов Project.
@@ -142,8 +142,8 @@ ADR-0047). Общих файлов с Ticket-ами 05, 06 и 08 нет.
   подписи брифа `Repository:` / `Worktree:` у первого действия всех трёх agents; `worfy:reviewer` у
   implementer и `worfy:implementer` у reviewer.
 - **Кириллица вне списка тикета** — заголовок `## Обязательное чтение исполнителя`: его ищет implementer в
-  `rules.md`, и так его называет контракт Profile (`harness/profiles/README.md:189`, `rules.md` Auction и
-  Atakama). Перевод сломал бы поиск, заголовок оставлен по-русски с английским пояснением и внесён в список
+  `rules.md`, и так его называет контракт Profile (`harness/profiles/README.md:189`, `rules.md` Project A (другой проект владельца) и
+  Project B). Перевод сломал бы поиск, заголовок оставлен по-русски с английским пояснением и внесён в список
   разрешённых подстрок test-а. Решено без владельца, подтверждено владельцем 2026-10-12; заголовок меняет Ticket 11 вместе с
   контрактом Profile.
 - **Пример JSON-отчёта** — теперь настоящий JSON в блоке ```json: `"pr": 123` вместо `<N>` (строка ниже

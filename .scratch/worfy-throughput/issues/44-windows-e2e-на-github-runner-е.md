@@ -55,7 +55,7 @@ ADR-0083).
 
 Стартовая точка триажа на runner-е. gate full (`GATE_SCOPE=all`) на ПК владельца, `main` `2e70bf0f`, 08:21–09:06 EET,
 CPU на старте 18 %. Exit 2 — красное только в шаге `test`. Логи на ПК:
-`C:/Users/Alexey/.claude/worfy-harness/gate/state/logs/c848baa6/2026-10-28T06-21-26Z-69084/`.
+`C:/Users/<user>/.claude/worfy-harness/gate/state/logs/c848baa6/2026-10-28T06-21-26Z-69084/`.
 
 | Шаг | Итог |
 | --- | --- |

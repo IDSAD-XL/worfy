@@ -6,7 +6,7 @@ PR: #806
 Branch: worfy-windows/112
 Blocked by: —
 Source: пересчёт unit и contract на ПК владельца 2026-10-23 (main `bc19f2f7`; журналы
-`C:/Users/Alexey/worfy-wt/units-wt95main.log` и `units-wt791.log` на ПК), решение владельца 2026-10-23 по
+`C:/Users/<user>/worfy-wt/units-wt95main.log` и `units-wt791.log` на ПК), решение владельца 2026-10-23 по
 отсечке Epic-а. Строки — по main `cf5adbf2`.
 
 ## Что происходит

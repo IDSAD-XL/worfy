@@ -33,7 +33,7 @@ macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` 
   (`:123`) GNU `date` не знает: на ПК — `date: unknown option -- v`, EXIT=1; `date -d '-14 days'`
   работает (evidence, раздел 05). awk получает пустой порог, и фильтр по дате, похоже, пропускает
   все ветки. Блок пишет в `$TMPDIR/live-tickets.jsonl` (`:125`); в Bash tool на ПК `TMPDIR` задан —
-  `/c/Users/Alexey/AppData/Local/Temp` (раздел 05).
+  `/c/Users/<user>/AppData/Local/Temp` (раздел 05).
 - **Ручные проверки GUI** (`harness/skills/ship-ticket/SKILL.md:180-198`, раздел 6) — только для
   macOS: разрешения Screen Recording и Accessibility (`:181`), `screencapture` (`:186`), запуск «как
   из Finder» через `env -i` с окружением launchd вместо `open` (`:190-194`), `open -b` и проверка
@@ -329,8 +329,8 @@ worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase
 - gate fast на ПК — `lint` и `typecheck` (решение владельца в чате ПК, Harness home `2bb021e`), пока не закрыт [Ticket 14](14-gate-full-на-windows.md).
 - Windows-ПК 2026-10-27, `cross_machine_gate` в Profile ПК (репозиторий worfy): `profile --field cross_machine_gate.role` — `request`, `--field cross_machine_gate.checks_section` — `Mac checks`, оба exit 0. Вместе с записью Mac выше пункт закрыт.
 - Windows-ПК 2026-10-27, запуск по абзацу раздела 6 `ship-ticket`. Сделан по «да» владельца, переданному через мост; после запуска Orchestrator Mac уточнил, что такое разрешение должно прийти в чате ПК-сессии, и владелец подтвердил его там («Разрешаю», 2026-10-27).
-  - Stable уже работала: `powershell -NoProfile -Command "Get-Process worfy | Select-Object Id,Path"` (exit 0) — четыре процесса (pid 30568, 38520, 44112, 63100), у всех `C:\Users\Alexey\AppData\Local\Programs\worfy\worfy.exe`.
-  - Запуск `explorer.exe "C:\Users\Alexey\AppData\Local\Programs\worfy\worfy.exe"` (20:15:47 EET): `explorer.exe` вышел с кодом 1, как и предупреждает абзац; процесс запустился. Появились два новых `worfy.exe`: pid 69228 с путём `...\Programs\worfy\worfy.exe` и pid 43028 (путь прочитать не успел), оба сами закрылись через 1–8 с (`requestSingleInstanceLock`, `src/main/index.ts:57`). Четыре процесса Stable остались те же, с тем же путём.
+  - Stable уже работала: `powershell -NoProfile -Command "Get-Process worfy | Select-Object Id,Path"` (exit 0) — четыре процесса (pid 30568, 38520, 44112, 63100), у всех `C:\Users\<user>\AppData\Local\Programs\worfy\worfy.exe`.
+  - Запуск `explorer.exe "C:\Users\<user>\AppData\Local\Programs\worfy\worfy.exe"` (20:15:47 EET): `explorer.exe` вышел с кодом 1, как и предупреждает абзац; процесс запустился. Появились два новых `worfy.exe`: pid 69228 с путём `...\Programs\worfy\worfy.exe` и pid 43028 (путь прочитать не успел), оба сами закрылись через 1–8 с (`requestSingleInstanceLock`, `src/main/index.ts:57`). Четыре процесса Stable остались те же, с тем же путём.
   - Передний план к Stable не перешёл: впереди был Telegram, после запуска — explorer, затем Chrome; окно Stable не было свёрнуто, так что `restore()` не требовался. `focus()` из second-instance Windows, судя по всему, не пустила на передний план (блокировка переднего плана, как в Ticket-е 113 worfy-windows); сам вызов `second-instance` снаружи не виден — обработчик ничего не пишет в лог.
   - Вернуть передний план Telegram без клика (`WScript.Shell.AppActivate`) не вышло: ответ True, но впереди остался Chrome.
   - UI-тест другого проекта (`stolyar_uitest`) к моменту запуска уже закончился: ни до, ни после запуска его процесса не было.

@@ -23,7 +23,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 1. **Skills читают Pipeline:** `bin/profile --field _resolved.pipeline` в разделе 0 `epic-wave` и в
    начале `ship-ticket`.
-2. **Agent review** — там, где он стоит в Pipeline: после CI (worfy) или до PR (Atakama, Silent
+2. **Agent review** — там, где он стоит в Pipeline: после CI (worfy) или до PR (Project B (другой проект владельца), Silent
    mode: ревью идёт по локальной ветке, отметка — на её head SHA, PR открывается после
    `review success`). Нет Agent review в Pipeline — ревью агентом нет.
 3. **Check «<name>».** Перед мержем skill ждёт `check/<name>` `success` или `skipped` на head SHA

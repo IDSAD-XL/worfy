@@ -15,8 +15,8 @@ Source: направление Session на Mac 2026-10-22, пересчёт к�
 
   ```
   Locator:  getByTestId('folder-browser').getByTestId('folder-browser-path')
-  Expected: "C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-link-11-XTQKBA\\b-home"
-  Received: "C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-shell-GNEAYX\\profile"
+  Expected: "C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-link-11-XTQKBA\\b-home"
+  Received: "C:\\Users\\<user>\\AppData\\Local\\Temp\\worfy-shell-GNEAYX\\profile"
   ```
 
   Test задаёт домашнюю папку машины B через `HOME: bHome` (`:129`). На Windows домашняя папка — `USERPROFILE`, а его

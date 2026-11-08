@@ -266,7 +266,7 @@ Terminal, колеса, `projects-connect`, Ticket-а, Linked machine и Autopil
 
 - realpath на macOS оставляет firmlink `/System/Volumes/Data/Users` и `/.nofollow/Users` как есть,
   поэтому место сверяется ещё и по device и inode (stat). Место не берётся, если это home folder или
-  папка выше него, или если имена от такой папки до home (`Users/alexey`) ведут внутри места к home
+  папка выше него, или если имена от такой папки до home (`Users/<user>`) ведут внутри места к home
   folder. Место внутри home folder остаётся. Ошибка stat места — место не берётся; не читается папка
   выше home — не берётся ни одно место. Test-ы — `shell.test.ts` (stat подменён, и на macOS — живые
   `/System/Volumes/Data` и `/.nofollow`), `tickets-read.test.ts` (realpath, который дали

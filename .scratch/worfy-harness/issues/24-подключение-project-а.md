@@ -13,7 +13,7 @@ Source: решения владельца 2026-10-07, вопросы Q10, Q11', 
   «Choose the folder of a git repository» (`src/main/ipc/projects.ts:37`).
 - `ProjectStore.resolve` принимает только git-репозиторий (`src/main/projects/store.ts:192-217`):
   подпапка и linked worktree сводятся к корню (`:208-215`), папка вне git — отказ «is not a git
-  repository» (`:204`). Папку над несколькими репозиториями, как Atakama (ADR-0018), добавить нельзя.
+  repository» (`:204`). Папку над несколькими репозиториями, как Project B (ADR-0018), добавить нельзя.
 - `add` пишет только `projects.json` и папку данных worfy (`:220-236`). Profile, Harness и аккаунт
   GitHub не проверяются.
 - Profile worfy только читает, скриптом `bin/profile -C <корень> --field …`
@@ -28,7 +28,7 @@ Source: решения владельца 2026-10-07, вопросы Q10, Q11', 
   - Ticket 11 — Profile schema 2 на машине (`~/.claude/worfy-harness/projects/<project>/`), поля
     `mode`, `language.docs`, `attribution`, `mcp.allowed`; `bin/profile` читает оттуда.
   - Ticket 14 — реестр Gate переезжает в `~/.claude/worfy-harness/gate/config.json`; Profile-ы worfy,
-    Auction и Atakama уже перенесены.
+    Project A и Project B (другие проекты владельца) уже перенесены.
   - Ticket 17 — коллекции qmd по Profile (Q16).
   - Ticket 19 — экран первого запуска: проверка Harness и его версии.
   - Ticket 22 — Silent mode в Harness: поле Profile `workflow.folder` — путь Workflow folder (папки,
@@ -58,11 +58,11 @@ Source: решения владельца 2026-10-07, вопросы Q10, Q11', 
    (`git rev-parse`, как сейчас):
    - git-репозиторий; подпапка и linked worktree сводятся к корню, как сейчас;
    - папка над несколькими репозиториями: сама не в git, а среди её прямых подпапок не меньше двух
-     корней git-репозиториев (как Atakama);
+     корней git-репозиториев (как Project B);
    - иначе — отказ с причиной, как сейчас.
 
    Если `profile -C <папка>` отвечает кодом 0, Profile уже есть: Project добавляется в список сразу,
-   как сейчас, без черновика (правило Ticket-а 23). Так подключаются worfy, Auction и Atakama после
+   как сейчас, без черновика (правило Ticket-а 23). Так подключаются worfy, Project A и Project B после
    переноса (Ticket 14).
 2. **Режим** (Q23, Q28, Q29). Выбор Full mode или Silent mode; по умолчанию — Silent mode. У папки над
    несколькими репозиториями — только Silent mode: Full недоступен, причина рядом. Для Silent mode —
@@ -80,7 +80,7 @@ Source: решения владельца 2026-10-07, вопросы Q10, Q11', 
      есть из файлов workflow (`.scratch/`, HANDOFF, ADR, `CONTEXT.md`); основную ветку и `origin`. И
      что предложить: поля Profile schema 2 по контракту `harness/profiles/README.md` (Ticket 11), текст
      `rules.md` с разделом источников, записи реестра Gate — по одной на репозиторий, у папки над
-     несколькими репозиториями все с одним `profile` (как у Atakama сейчас).
+     несколькими репозиториями все с одним `profile` (как у Project B сейчас).
    - Значения, которые черновик ставит сам:
      - `mode` и `workflow.folder` — из шагов 1–2;
      - `worktree.root` — значение для новых Project-ов из контракта после Ticket-а 22
@@ -137,7 +137,7 @@ Source: решения владельца 2026-10-07, вопросы Q10, Q11', 
 ADR не нужен: решения — ADR-0042 и ADR-0045; запись через скрипт Harness следует правилу ADR-0002.
 
 **Не входит:** аккаунт GitHub и права на `origin` (Ticket 25); смена режима у подключённого Project-а
-(в E3 её нет, Q28); перенос Profile-ов worfy, Auction и Atakama (Ticket 14); чтение Workflow folder,
+(в E3 её нет, Q28); перенос Profile-ов worfy, Project A и Project B (Ticket 14); чтение Workflow folder,
 файлов workflow Silent Project-а и правило добавления папки вне git в `ProjectStore` (Ticket 23).
 
 ## Готово, когда

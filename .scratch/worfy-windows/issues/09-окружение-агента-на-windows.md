@@ -201,8 +201,8 @@ Source: решения владельца 2026-10-07: Q1 (полный порт 
     (`powershellRegRead`, `registryScript`, `parseRegistryValues`): `GetValue(…,
     'DoNotExpandEnvironmentNames')`, имя и значение в base64 от UTF-8. Проверено на ПК временным
     ключом `HKCU\Software\worfy-probe` (создан и удалён, `reg query` после удаления — exit 1): значение
-    `C:\Users\Алексей\日本\😀\%USERPROFILE%` через `reg query` как UTF-8 читается как
-    `C:\Users\����ᥩ\??\??\%USERPROFILE%`, как CP866 — `C:\Users\Алексей\??\??\%USERPROFILE%`
+    `C:\Users\<кириллическое имя>\日本\😀\%USERPROFILE%` через `reg query` как UTF-8 читается как
+    `C:\Users\<то же имя в мусорных знаках>\??\??\%USERPROFILE%`, как CP866 — `C:\Users\<кириллическое имя>\??\??\%USERPROFILE%`
     (`chcp` — 866), через PowerShell — без потерь. Точка подмены для test-ов — `readKey` (значения
     ключа уже разобранными), вместо `regQuery`.
   - Там же: предел 32 767 символов на значение (длиннее — остаётся как есть), запасное окружение без

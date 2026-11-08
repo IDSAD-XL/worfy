@@ -6,7 +6,7 @@ PR: #1052
 Branch: worfy-polish/41-part2
 Blocked by: —
 Source: пересчёт на ПК владельца 2026-10-23 (e2e на main `f8ada2a3`, unit и contract на main `bc19f2f7`,
-масштаб 150 %; `C:/Users/Alexey/worfy-wt/recount/summary.md` на ПК), решение владельца 2026-10-23 по отсечке
+масштаб 150 %; `C:/Users/<user>/worfy-wt/recount/summary.md` на ПК), решение владельца 2026-10-23 по отсечке
 `worfy-windows`: flaky test-ы выходят из Epic-а одним Ticket-ом `worfy-polish`. Красные, которые повторяются
 каждый раз, — в `worfy-windows` 106 и 109–112. Строки — по main `cf5adbf2`. Правка 2026-10-28
 ([spec `worfy-throughput`](../../worfy-throughput/spec.md), раздел «Решения владельца 2026-10-28: процесс»):
@@ -125,7 +125,7 @@ Test-ы из списка выше:
 `workflow-reader.test.ts:825`.
 
 Попутно: `test/contract/harness-scripts.test.ts` занимает 1367 s из 1542 s vitest (`b2b30e07`), последние ~13
-мин идёт один. Это `worfy-throughput` 56; данные — `C:/Users/Alexey/worfy-wt/evidence/throughput-56/` на ПК.
+мин идёт один. Это `worfy-throughput` 56; данные — `C:/Users/<user>/worfy-wt/evidence/throughput-56/` на ПК.
 
 Не сделано — часть 2, в этом же Ticket-е (правило владельца 2026-10-23: flaky Windows — один Ticket
 `worfy-polish`):
@@ -146,9 +146,9 @@ Test-ы из списка выше:
 Восемь test-ов: шесть из списка Моста 2026-10-29 и два новых из gate full на main `e6802c9e` (2026-10-30,
 VITEST_MAX_WORKERS=8; красные там: `browser-family.spec.ts:155`, `affected-tests.test.ts:261`,
 `workflow-branches-gone.test.ts:70`, `wheel-over-nodes.spec.ts:216`; каждый в одиночку на том же SHA зелёный).
-Счёт «до правки» — по восьми gate full на ПК в `C:/Users/Alexey/worfy-wt/evidence/throughput-56/`. Лимит ни одного
+Счёт «до правки» — по восьми gate full на ПК в `C:/Users/<user>/worfy-wt/evidence/throughput-56/`. Лимит ни одного
 test-а не поднят, продуктовые пороги не менялись; у `harness-evals` бюджет 45 s поделён между hook-ом сборки и
-проверками, сумма не изменилась. Улики этой части — `C:/Users/Alexey/worfy-wt/evidence/polish41-part2/` на ПК.
+проверками, сумма не изменилась. Улики этой части — `C:/Users/<user>/worfy-wt/evidence/polish41-part2/` на ПК.
 
 - **`browser-family.spec.ts:155`** — красный 1 раз в 8 gate full (`e6802c9e`); на #975 — 2 из 19 run-ов.
   - Причина: `openSecondWindow` (`test/e2e/helpers.ts`) брал следующую страницу приложения, какой бы она ни была.

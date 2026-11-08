@@ -35,7 +35,7 @@ Source: PR #496 (`worfy-harness` 27): замеры Session на Windows-ПК н�
   переменных: `PATH`, `HOME`, `TMPDIR` и немного ещё (`scaffold` `:71-73`, `harness` `:82-84`,
   `inFixture` `:202-205`, env stub-а `claude` `:375-385`). `USERPROFILE` в нём нет. Node на Windows
   берёт home из `USERPROFILE`, а без него спрашивает у Windows папку профиля учётной записи: на ПК
-  `os.homedir()` ребёнка с одним `HOME` — настоящий `C:\Users\Alexey` (замер ПК, комментарий
+  `os.homedir()` ребёнка с одним `HOME` — настоящий `C:\Users\<user>` (замер ПК, комментарий
   6254019222). Сейчас вызовы `harness()` без `EVAL_HARNESS_HOME` (на main `:132`, `:191`, `:195`) до этого не доходят
   только потому, что падают на `ENOENT`. Как только скрипт запустится через `node`, test прочтёт
   настоящий реестр владельца в `~/.claude/worfy-harness` и `~/.claude/gate`; скрипт, который пишет,
@@ -121,7 +121,7 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
   - «USERPROFILE is HOME, in a temporary folder» — для каждого из четырёх helper-ов;
   - «a Node child takes the temporary home for os.homedir()» — `process.execPath -e` с `ELECTRON_RUN_AS_NODE=1` через env каждого helper-а печатает временный home, а не `os.homedir()` процесса test-а;
   - «every spawn and spawnSync of this file that gives a home goes through childEnv» — поиск по исходнику: ключ `HOME` или `USERPROFILE` только в строке `childEnv`, и ни один вызов `spawn`/`spawnSync` не называет их сам.
-- **`HOMEDRIVE`/`HOMEPATH` не добавлены — замер на ПК.** Каждый ребёнок запущен дважды: с env helper-а (`HOME` и `USERPROFILE` — временная папка) и с ним же плюс `HOMEDRIVE=C:`, `HOMEPATH=\Users\Alexey\AppData\Local\Temp\t65-homedrive-…\decoy` (папка-приманка со своим `.gitconfig`). Ответ одинаковый у всех шести: `node` из PATH и Node из Electron — `os.homedir()` = временный home; `bash` — `~` = `/tmp/…/home`, `cd ~; pwd -W` = `C:/…/home`; `git config --global` берёт `…/home/.gitconfig` (`worfy.probe=home`, `--show-origin` — `file:C:/…/home/.gitconfig`); `harness/bin/profile -C <папка>` ищет реестр в `…\home\.claude\worfy-harness\gate\config.json`. Ни один ребёнок не читает `HOMEDRIVE`/`HOMEPATH`, пока заданы `HOME` и `USERPROFILE`; белый список env их и не передаёт.
+- **`HOMEDRIVE`/`HOMEPATH` не добавлены — замер на ПК.** Каждый ребёнок запущен дважды: с env helper-а (`HOME` и `USERPROFILE` — временная папка) и с ним же плюс `HOMEDRIVE=C:`, `HOMEPATH=\Users\<user>\AppData\Local\Temp\t65-homedrive-…\decoy` (папка-приманка со своим `.gitconfig`). Ответ одинаковый у всех шести: `node` из PATH и Node из Electron — `os.homedir()` = временный home; `bash` — `~` = `/tmp/…/home`, `cd ~; pwd -W` = `C:/…/home`; `git config --global` берёт `…/home/.gitconfig` (`worfy.probe=home`, `--show-origin` — `file:C:/…/home/.gitconfig`); `harness/bin/profile -C <папка>` ищет реестр в `…\home\.claude\worfy-harness\gate\config.json`. Ни один ребёнок не читает `HOMEDRIVE`/`HOMEPATH`, пока заданы `HOME` и `USERPROFILE`; белый список env их и не передаёт.
 - **Пункт 2 (`eae1f006`).** `harness()` запускает `process.execPath <harness/bin/скрипт> …`, в `harnessEnv` — `ELECTRON_RUN_AS_NODE=1`; на всех системах (скрипты — Node, `#!/usr/bin/env node`). Stub `claude` — способом среза 3c Ticket-а 14: на Windows подмена — `claude.mjs`, который только загружает CommonJS-stub `claude.cjs`; на macOS и Linux — исполняемый файл `claude`, как раньше. `scripts/eval-harness.mjs`: `runClaude` запускает `CLAUDE_BIN`, который кончается на `.mjs`, как `process.execPath <файл>` с `ELECTRON_RUN_AS_NODE=1` (как `programStart` в `src/main/program.ts`); бинарник SDK и любой другой путь — как раньше, тем же `spawnSync(claude, args, options)`. На Mac с настоящим `claude` поведение не меняется.
 - **Пункт 3 (`d2354867`).** `frontMatter` — `/^---\r?\n([\s\S]*?)\r?\n---/`. Других мест, которые режут текст случая по `\n`, в файле нет: `field` берёт значение регуляркой с флагом `m` и `trim()` (снимает `\r`), `caseTags` в `eval-harness.mjs` ищет `^tags:` с флагом `m` и CRLF не мешает. `split('\n')` и многострочные `toContain` в test-ах `reviewer-*` читают файлы fixture-а, которые пишет bash (LF), — на ПК зелёные. `.gitattributes` не тронут: `git diff origin/main -- .gitattributes` пусто (`origin/main` = `29f35f57`).
 - **Пункт 5 (`e5f0b824`) — что осталось красным после 1–3 и пропущено на `win32` с комментарием:**
@@ -167,7 +167,7 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
 
 | Что | Результат |
 | --- | --- |
-| Красный сначала: новый `describe` против launcher-ов main `29f35f57` (файл main + этот `describe` + env трёх launcher-ов дословно из main) | exit 1, `Tests 9 failed \| 80 skipped (89)`: «USERPROFILE is HOME» ×4 — `expected undefined to be 'C:\Users\Alexey\AppData\Local\Temp\wo…'`; «os.homedir()» ×4 — `Expected: "C:\Users\Alexey\AppData\Local\Temp\worfy-eval-home-LbAEAV"`, `Received: "C:\Users\Alexey"`; поиск по исходнику — `expected '    const helper = lineOf(source.inde…' to match /\bHOME: home\b/` |
+| Красный сначала: новый `describe` против launcher-ов main `29f35f57` (файл main + этот `describe` + env трёх launcher-ов дословно из main) | exit 1, `Tests 9 failed \| 80 skipped (89)`: «USERPROFILE is HOME» ×4 — `expected undefined to be 'C:\Users\<user>\AppData\Local\Temp\wo…'`; «os.homedir()» ×4 — `Expected: "C:\Users\<user>\AppData\Local\Temp\worfy-eval-home-LbAEAV"`, `Received: "C:\Users\<user>"`; поиск по исходнику — `expected '    const helper = lineOf(source.inde…' to match /\bHOME: home\b/` |
 | Мутант 1: `childEnv` без `USERPROFILE` (копия файла, мутант, прогон, возврат из копии, `git diff --quiet` — 0) | exit 1, `Tests 9 failed \| 80 skipped (89)` — красные все 9 |
 | Мутант 2: `inFixture` с `env: { ...fixtureEnv(home), HOME: home }` | exit 1, `Tests 1 failed \| 8 passed`: красный test поиска по исходнику, находка — эта строка |
 | `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts`, main `29f35f57` (временный worktree, удалён) | exit 1, `Tests 52 failed \| 20 passed \| 8 skipped (80)` |
@@ -186,7 +186,7 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
 
 ### Снимки настоящих папок
 
-`C:\Users\Alexey\.claude\worfy-harness` и `C:\Users\Alexey\.claude\gate`, PowerShell (`pwsh -NoProfile`, `Get-ChildItem -Recurse -Force`: каждый файл с размером и `LastWriteTimeUtc`, каждая папка с временем). Снимок сделан до и после каждого прогона: красный прогон, шаг 1, замер `HOMEDRIVE`, шаги 2–3, опыт с `match`, финальный прогон ветки, прогон main — 15 снимков, все побайтно одинаковые (SHA-256 `F3E924B6A4F9E0315BFC12C31270BC18473C5EE55BEE6FB3EB11701D879B62F6`). В worfy-harness 128 файлов, 60 папок, 951656 байт, самое новое изменение — 2026-10-18 15:00:57 UTC; `C:\Users\Alexey\.claude\gate` нет ни до, ни после. Для `1b390da3` (Git Bash, `find ~/.claude/worfy-harness` — путь, размер, время изменения, `md5sum`) снимок до прогонов и после всех (база `68fa7625`, два мутанта, финальный прогон, lint) одинаковый: `44f4b5646e2088442c802f3e06cc54d1`; `~/.claude/gate` нет ни до, ни после.
+`C:\Users\<user>\.claude\worfy-harness` и `C:\Users\<user>\.claude\gate`, PowerShell (`pwsh -NoProfile`, `Get-ChildItem -Recurse -Force`: каждый файл с размером и `LastWriteTimeUtc`, каждая папка с временем). Снимок сделан до и после каждого прогона: красный прогон, шаг 1, замер `HOMEDRIVE`, шаги 2–3, опыт с `match`, финальный прогон ветки, прогон main — 15 снимков, все побайтно одинаковые (SHA-256 `F3E924B6A4F9E0315BFC12C31270BC18473C5EE55BEE6FB3EB11701D879B62F6`). В worfy-harness 128 файлов, 60 папок, 951656 байт, самое новое изменение — 2026-10-18 15:00:57 UTC; `C:\Users\<user>\.claude\gate` нет ни до, ни после. Для `1b390da3` (Git Bash, `find ~/.claude/worfy-harness` — путь, размер, время изменения, `md5sum`) снимок до прогонов и после всех (база `68fa7625`, два мутанта, финальный прогон, lint) одинаковый: `44f4b5646e2088442c802f3e06cc54d1`; `~/.claude/gate` нет ни до, ни после.
 
 <details><summary>Снимок до и после финального прогона (одинаковы; время — UTC)</summary>
 
@@ -377,9 +377,9 @@ D worfy-harness/projects/worfy 2026-10-18 14:26:59
 F worfy-harness/projects/worfy/profile.json 4353 2026-10-18 14:26:55
 F worfy-harness/projects/worfy/rules.md 21144 2026-10-18 14:26:59
 D worfy-harness/worktree-sessions 2026-10-18 00:05:54
-F worfy-harness/worktree-sessions/C-Users-Alexey-AppData-Local-Temp-worfy-01-wt456-a1f8cd65.json 3 2026-10-18 00:05:54
-F worfy-harness/worktree-sessions/C-Users-Alexey-REA-e0a6d78e.json 3 2026-10-17 11:29:09
-F worfy-harness/worktree-sessions/C-Users-Alexey-worfy-efb3d1c9.json 197 2026-10-17 06:47:00
+F worfy-harness/worktree-sessions/C-Users-<user>-AppData-Local-Temp-worfy-01-wt456-a1f8cd65.json 3 2026-10-18 00:05:54
+F worfy-harness/worktree-sessions/C-Users-<user>-REA-e0a6d78e.json 3 2026-10-17 11:29:09
+F worfy-harness/worktree-sessions/C-Users-<user>-worfy-efb3d1c9.json 197 2026-10-17 06:47:00
 MISSING gate
 ```
 

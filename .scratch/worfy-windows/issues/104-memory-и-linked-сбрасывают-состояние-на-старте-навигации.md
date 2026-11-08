@@ -49,7 +49,7 @@ Electron 44.5.1.
 ## Итог
 
 Ветка `worfy-windows/104` от main `2eac77ec`, только коммит (без push и PR); текст PR —
-`C:/Users/Alexey/worfy-wt/pr104-body.md`.
+`C:/Users/<user>/worfy-wt/pr104-body.md`.
 
 - `src/main/clients.ts`: общий тип `NavigatingClient` (Client, у которого может быть
   `on('did-navigate')`) и помощник `onNewDocument(client, reset)` — сброс на коммите нового документа

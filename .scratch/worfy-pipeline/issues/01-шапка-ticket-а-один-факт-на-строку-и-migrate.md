@@ -58,7 +58,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
    `Status:` и `PR:` нового формата.
 6. **Миграция worfy (шаг Orchestrator-а после мержа):** `bin/ticket migrate -n`, затем
    `bin/ticket migrate` и `ticket block --waits` для напечатанного списка, отдельным PR, между
-   Wave-ами (нет открытых PR с файлами Ticket-ов). Для Atakama — так же, в её Workflow folder.
+   Wave-ами (нет открытых PR с файлами Ticket-ов). Для Project B (другой проект владельца) — так же, в её Workflow folder.
 
 Не входит: Stage (Ticket 03), отметки (Ticket 02).
 

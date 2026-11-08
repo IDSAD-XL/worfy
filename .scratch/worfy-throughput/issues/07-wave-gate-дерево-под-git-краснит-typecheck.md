@@ -83,7 +83,7 @@ Wave вместо одного на PR; с `ci-ok` этот довод уход�
 workflow.ci "batch", а только в этих режимах skill epic-wave вызывает bin/wave-gate
 (harness/skills/epic-wave/SKILL.md:1046, :1049, :1259; harness/skills/overnight-fix-loop/SKILL.md:331-332;
 harness/bin/profile:420 — ci по умолчанию "pr"). Profile worfy на Mac — merge_gate null (merge через
-bin/land). Profile на Windows-ПК (отчёт bridge 2026-10-29, `-C C:/Users/Alexey/worfy-wt/e34`) —
+bin/land). Profile на Windows-ПК (отчёт bridge 2026-10-29, `-C C:/Users/<user>/worfy-wt/e34`) —
 workflow.merge_gate null, ci "pr". Причину TS2883 под .git/ не искали: путь, где она проявляется, больше не
 вызывается. Дефект остаётся в harness/bin/wave-gate:45,105 (дерево <git common dir>/worfy-wave-gate) и в его
 бисекции; если какой-то Profile включит "wave" или "batch", Ticket открывают заново.

@@ -29,12 +29,12 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
     `path.join(process.env.HOME, …)`: без `HOME` бросает исключение на старте. `profile:177` — то же
     для проверки рабочей папки. `harness/bin/worktree-lock:39` без `HOME` молча ничего не делает.
     В обычном окружении Windows переменной `HOME` нет; Git Bash её задаёт (на ПК: в PowerShell
-    `HOME` пуст, в Git Bash — `/c/Users/Alexey`; evidence Ticket-а 01, раздел 07).
+    `HOME` пуст, в Git Bash — `/c/Users/<user>`; evidence Ticket-а 01, раздел 07).
   - Соседний скрипт зовётся по пути без интерпретатора, то есть по shebang (строке `#!` в начале
     файла): `harness/bin/ticket:83` и `:107` (`profile`), `harness/bin/epic-board:66` (`ticket root`)
     и `:74` (`epic-status`). На Windows файл без расширения так не запускается: на ПК
     `node harness/bin/epic-board --help` — EXIT=2, `tickets root not determined: spawnSync
-    C:\Users\Alexey\worfy\harness\bin\ticket ENOENT` (evidence, раздел 18). `profile:139` зовёт
+    C:\Users\<user>\worfy\harness\bin\ticket ENOENT` (evidence, раздел 18). `profile:139` зовёт
     `node` по имени из PATH, а не тот node, что запустил его.
   - Из Git Bash (Bash tool) по shebang скрипты `bin` запускаются: `./harness/bin/profile --help` и
     `./harness/bin/epic-status --json` — EXIT=0; `bash harness/bin/epic-status --json` с CRLF в
@@ -174,7 +174,7 @@ Stub-ы в `workflow-reader.test.ts` и `workflow-profile.test.ts` станов�
 Ожидаемая трудность в Git Bash. Git Bash переводит пути `/tmp/…` в аргументах native-программ в
 `C:\…`, а в содержимое JSON-файлов fixture-ов — нет. Если `match` реестра не совпадёт с путём,
 который видит node, fixture пишет пути через `cygpath -m`: в Git Bash ПК он есть, `cygpath -m /tmp`
-→ `C:/Users/Alexey/AppData/Local/Temp` (evidence Ticket-а 01, раздел 05).
+→ `C:/Users/<user>/AppData/Local/Temp` (evidence Ticket-а 01, раздел 05).
 
 На ПК `test/contract/workflow-reader.test.ts` (25 упавших, `code: 'not-found'`) и
 `test/contract/workflow-profile.test.ts` (20 упавших, `no profile script at \h\bin\…`) уже красные

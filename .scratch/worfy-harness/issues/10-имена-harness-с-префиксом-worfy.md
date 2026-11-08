@@ -18,7 +18,7 @@ Source: решения владельца 2026-10-07: Q2 (имя plugin-а — `
   (`test/unit/binding.test.ts:212-217` — только `/epic-wave`, `ship-ticket` и `/qmd`).
 - Epic в аргументах `/epic-wave` — последнее слово, которое является Epic-ом Project-а
   (`src/shared/binding/resolve.ts:142-148`), то есть от остальных слов команды не зависит.
-  Test-ы есть на самый старый формат (`волна 9 эпика worfy-mvp`) и на `wave 2 of auction`
+  Test-ы есть на самый старый формат (`волна 9 эпика worfy-mvp`) и на `wave 2 of project-a`
   (`test/unit/binding.test.ts:103-110`); на нынешний формат команды Autopilot
   (`Ticket-ы {tickets} эпика {epic}`, `src/shared/projects/action-templates.ts:34`) test-а нет.
 - Тип Subagent-а показывается как есть, то есть с plugin-ом — `worfy:implementer`: заголовок и

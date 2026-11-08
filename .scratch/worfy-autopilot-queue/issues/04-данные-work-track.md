@@ -40,7 +40,7 @@ Source: [map.md](../map.md); Ticket 01, Q4–Q5
 - Чтение всех файлов — миллисекунды.
 - Что теряется: всё, что шло без Autopilot. Ручная Wave, работа bridge-Session, ручная смена статуса Ticket-а в журнал не попадают.
 
-**2. Транскрипты Claude Code** (20 папок `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI*`, главная и worktree-ы; всего 4.6 GB).
+**2. Транскрипты Claude Code** (20 папок `~/.claude/projects/-Users-<user>-Stuff-CanvasForAI*`, главная и worktree-ы; всего 4.6 GB).
 
 | Окно (mtime) | Файлы (главных + Subagent) | Объём | Строк | Разбор всех строк `JSON.parse` |
 |---|---|---|---|---|

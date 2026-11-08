@@ -56,7 +56,7 @@ Source: review PR #614 (Ticket 11), две находки low, 2026-10-20. Ко�
 - `openBarAddress(url)` в `src/renderer/canvas/nodes/browser-frame.ts` делит адрес на три части.
   `site` — схема и host с портом, показывается целиком всегда. `head` и `tail` — путь, query и
   fragment: голова режется с многоточием, последние 24 символа (`OPEN_BAR_ADDRESS_TAIL`) видны
-  всегда. User info (`https://bank.example.com@evil.net/`) в видимый текст не попадает: его можно
+  всегда. User info (`https://bank.example.com@evil.example.net/`) в видимый текст не попадает: его можно
   принять за host. Полный адрес — по-прежнему в `title`. Схему оставили: без неё e2e Ticket-а 11
   (текст полосы равен адресу) пришлось бы менять, а http и https полезно различать.
 - `OpenBar` (`BrowserNode.tsx`) рисует три `span`: `browser-open-site`, `browser-open-path-head`,

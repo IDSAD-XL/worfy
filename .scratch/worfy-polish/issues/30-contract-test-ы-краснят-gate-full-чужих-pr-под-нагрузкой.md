@@ -117,7 +117,7 @@ Test-ы ставят symlink на файл из `test/fixtures/`; то, что �
 - `test/fixtures/harness-stub/canned` — общий stub `profile`, `ticket`, `epic-status`: печатает
   `<ссылка>.out` и `<ссылка>.err`, выходит с кодом из `<ссылка>.code`, пишет журнал
   `<имя> <аргументы> in <cwd>` в файл, путь к которому лежит в `<ссылка>.log`. Его берут
-  `workflow-reader` (`stubHarness`, 682 Ticket-а Auction), `github-prs` (`accountWorld` → `bin/profile`),
+  `workflow-reader` (`stubHarness`, 682 Ticket-а Project A (другой проект владельца)), `github-prs` (`accountWorld` → `bin/profile`),
   `docs` (блок «a Silent Project»).
 - `test/fixtures/workflow-stub/` — `epic-status` и `plugin-epic-status` (sh) запускают
   `epic-status.mjs` (бывшая строка `STUB_JS`) под Node test-а; путь к Node и к `.mjs` — в env

@@ -121,7 +121,7 @@ Orchestrator пока не запускает workflow-скрипты.
   `src/shared/transcript/subagents.ts:401`. По CommonMark подчёркивания внутри слова выделением не
   считаются.
 - Вердикт: проверено. Session закрыта кнопкой Close, процесс Claude Code завершён.
-- Снимки: дерево workflow-скрипта во время работы — [17-workflow-agents-session.png](../../worfy-daily/evidence/17-workflow-agents-session.png). Остальное — в scratchpad Session
+- Снимки: дерево workflow-скрипта во время работы — 17-workflow-agents-session.png (картинка убрана: личное на изображении). Остальное — в scratchpad Session
   Orchestrator-а: `M18-context.png`, `M18-canvas-workflow.png`, `M18-canvas-workflow-done.png`,
   `M18-picker-menu.png`, `M18-session-sonnet.png`, `M18-after-close.png`.
 

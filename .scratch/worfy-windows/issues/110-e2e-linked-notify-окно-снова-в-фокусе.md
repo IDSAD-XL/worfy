@@ -6,7 +6,7 @@ PR: #809
 Branch: worfy-windows/110
 Blocked by: —
 Source: пересчёт e2e на ПК владельца 2026-10-23 (main `f8ada2a3`, масштаб 150 %;
-`C:/Users/Alexey/worfy-wt/recount/e2e.json` на ПК), решение владельца 2026-10-23 по отсечке Epic-а.
+`C:/Users/<user>/worfy-wt/recount/e2e.json` на ПК), решение владельца 2026-10-23 по отсечке Epic-а.
 Регрессия [Ticket-а 100](100-linked-notify-blur-на-windows-не-снимает-фокус.md) (PR #760). Строки — по main
 `cf5adbf2`.
 
