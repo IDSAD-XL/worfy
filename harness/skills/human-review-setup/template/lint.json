@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "tiers": {
+    "let go": { "max_chars": 200 },
+    "nit": { "max_chars": 200 },
+    "question": { "max_chars": 400 },
+    "heads-up": { "max_chars": 500 },
+    "followup": { "max_chars": 400 },
+    "argued": { "max_chars": 900 },
+    "blocker": { "max_chars": 1200 }
+  },
+  "forbidden": []
+}
