@@ -156,6 +156,20 @@ describe('chips of Mind map nodes under a message', () => {
     expect(shown!.dataset['item']).toBe('e1')
   })
 
+  it('a chat opened again after «Show in the chat» does not act on that request again: nothing is marked, the log stays at its end', () => {
+    const { unmount } = render(<ProductBody />)
+    fireEvent.click(nodeOf('who-pays')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(document.querySelector('[data-item][data-shown]')).not.toBeNull()
+    unmount()
+    render(<ProductBody />)
+    expect(document.querySelector('[data-item][data-shown]')).toBeNull()
+    // A new request still acts.
+    fireEvent.click(nodeOf('idea-teams')!)
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(document.querySelector('[data-item][data-shown]')).not.toBeNull()
+  })
+
   it('a decision written twice in one turn is one chip, as its last call left it; a refused call makes none', () => {
     const decided = { ...WHO, kind: 'decision', status: 'rejected', reason: 'No one pays', message: 'uuid-3' }
     const items = foldTranscript([

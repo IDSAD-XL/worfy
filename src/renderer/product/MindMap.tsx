@@ -33,7 +33,7 @@ import {
   type Placed,
   type Placement,
 } from './mind-map-layout'
-import { isNode, showMessage, useMindMapFocus } from './node-chips'
+import { showMessage, useMindMapFocus } from './node-chips'
 import './mind-map.css'
 
 // The Mind map of a Product Session topic (Epic worfy-product-session, ticket 08), on React Flow as the
@@ -323,6 +323,25 @@ function foldBranches(graph: MapGraph): { graph: MapGraph; folds: ReadonlyMap<st
   }
 }
 
+/**
+ * Where node `id` of the topic is on screen: `folded` — the folded nodes above it, nearest first;
+ * `shownAs` — the node itself when drawn, else the highest folded node above it when that one is drawn
+ * (the branch it is in), else null. `all` is every node of the topic, `drawn` what the screen draws.
+ * Null when the topic has no such node (gone, or named by one of its errors).
+ */
+function whereIs(all: MapGraph, drawn: MapGraph, id: string): { folded: string[]; shownAs: string | null } | null {
+  const byId = new Map(all.nodes.map((node) => [node.id, node]))
+  const node = byId.get(id)
+  if (node === undefined) return null
+  const folded: string[] = []
+  for (let at = node.parent; at !== null; at = byId.get(at)?.parent ?? null) {
+    if (byId.get(at)?.source?.collapsed === true) folded.push(at)
+  }
+  const isDrawn = (each: string | undefined): each is string => each !== undefined && drawn.nodes.some((candidate) => candidate.id === each)
+  const top = folded.at(-1)
+  return { folded, shownAs: isDrawn(id) ? id : isDrawn(top) ? top : null }
+}
+
 /** The places with the nodes being dragged, or let go and not yet written back, where the owner put them. */
 function withDragged(placement: Placement, dragged: ReadonlyMap<string, { x: number; y: number }>): Placement {
   if (dragged.size === 0) return placement
@@ -610,8 +629,12 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   }
   const [writeError, setWriteError] = useState<string | null>(null)
 
+  // Every node of the topic, the rejected ones too: where a chip's node is when the screen hides it.
+  const all = useMemo(() => (hideRejected ? buildMindMapGraph(topic, { hideRejected: false }) : whole), [hideRejected, topic, whole])
+  const [pickNote, setPickNote] = useState<string | null>(null)
+
   const lit = useMindMapFocus((state) => state.lit)
-  const litId = lit !== null && graph.nodes.some((node) => isNode(lit, projectId, topic.name, node.id)) ? lit.id : null
+  const litId = lit !== null && lit.projectId === projectId && lit.topic === topic.name ? (whereIs(all, graph, lit.id)?.shownAs ?? null) : null
   const chatOpen = useMindMapFocus((state) => (state.chats[projectId] ?? 0) > 0)
   const showInChat = onShowMessage ?? (chatOpen ? (message: string) => showMessage(projectId, message) : undefined)
 
@@ -666,15 +689,40 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
 
   const actions: NodeActions = { open: setPicked, fold: (id, collapsed) => write({ id, collapsed }), readOnly }
 
-  // A chip's click (NodeChips.tsx): the node of this topic is selected and brought into view.
+  // A chip's click (NodeChips.tsx): the node of this topic is selected and brought into view. A node the
+  // screen hides is shown first: «Hide rejected» is turned off for it, and the folded branches above it
+  // are unfolded through `product.layout`; the card opens once main's change draws it. A read-only screen
+  // unfolds nothing: the folded node above it is selected instead, and the note says why.
   const [focus, setFocus] = useState<{ id: string; seq: number } | null>(null)
+  const reveal = (id: string, seq: number): void => {
+    const at = whereIs(all, graph, id)
+    if (at === null) {
+      setPickNote('This node is no longer on the Mind map.')
+      return
+    }
+    if (hideRejected && !whole.nodes.some((node) => node.id === id)) setHideRejected(false)
+    const top = at.folded.at(-1)
+    if (top !== undefined && readOnly !== null) {
+      setPicked(top)
+      setFocus({ id: top, seq })
+      setPickNote('The node is in a folded branch under this one: this screen is read-only, so the branch stays folded.')
+      return
+    }
+    setPickNote(null)
+    for (const each of at.folded) write({ id: each, collapsed: false })
+    setPicked(id)
+    setFocus({ id, seq })
+  }
+  const revealLatest = useRef(reveal)
+  useEffect(() => {
+    revealLatest.current = reveal
+  })
   useEffect(
     () =>
       useMindMapFocus.subscribe((state, before) => {
         const asked = state.picked
         if (asked === before.picked || asked === null || asked.projectId !== projectId || asked.topic !== topic.name) return
-        setPicked(asked.id)
-        setFocus({ id: asked.id, seq: asked.seq })
+        revealLatest.current(asked.id, asked.seq)
       }),
     [projectId, topic.name],
   )
@@ -727,6 +775,11 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
           {`Could not save the change: ${writeError}`}
         </p>
       ) : null}
+      {pickNote !== null ? (
+        <p className="w-mind__pick-note" role="status" data-testid="mind-map-pick-note">
+          {pickNote}
+        </p>
+      ) : null}
       <div className="w-mind__flow">
         <Actions value={actions}>
           <ReactFlow<MindFlowNode>
@@ -734,7 +787,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             edges={edges}
             nodeTypes={nodeTypes}
             onNodeClick={(_, node) => setPicked(node.id)}
-            onPaneClick={() => setPicked(null)}
+            onPaneClick={() => {
+              setPicked(null)
+              setPickNote(null)
+            }}
             onNodesChange={onNodesChange}
             onNodeDragStart={(_, node) => {
               dragging.current = node.id

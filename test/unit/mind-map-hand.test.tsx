@@ -8,6 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
+import { lightNode, pickNode, useMindMapFocus } from '../../src/renderer/product/node-chips'
 
 const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Promise<unknown>>())
 vi.mock('../../src/renderer/ipc', () => ({ invoke, subscribe: () => () => undefined, showSubscribeError: () => undefined }))
@@ -36,6 +37,7 @@ let saved: { observer: unknown; matrix: unknown }
 beforeEach(() => {
   invoke.mockReset().mockResolvedValue({ ok: true, value: null })
   readOnly.hint = null
+  useMindMapFocus.setState({ picked: null, lit: null, shown: null, chats: {} })
   localStorage.clear()
   saved = { observer: globals.ResizeObserver, matrix: globals.DOMMatrixReadOnly }
   // React Flow measures a node when its observer reports it, and reads the zoom from the viewport's CSS
@@ -198,12 +200,92 @@ describe('MindMap by hand', () => {
     readOnly.hint = 'Studio gives this Machine read-only access'
     render(<MindMap projectId="p1" topic={topic()} />)
     await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const before = placeOf('who-pays')
     await drag('who-pays', 80, 40)
+    // The node does not follow the pointer either.
+    expect(placeOf('who-pays')).toEqual(before)
     const fold = within(nodeOf('idea-teams')!).getByRole('button', { name: 'Fold the branch' })
     expect(fold.getAttribute('aria-disabled')).toBe('true')
     expect(fold.title).toBe('Studio gives this Machine read-only access')
     fireEvent.click(fold)
     fireEvent.keyDown(nodeOf('idea-teams')!, { key: 'ArrowLeft' })
     expect(layoutCalls()).toEqual([])
+  })
+
+  it('a dragged node stays where it was let go while topics without its place arrive, and follows the file once the file has it', async () => {
+    const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    await drag('who-pays', 80, 40)
+    await waitFor(() => expect(layoutCalls()).toHaveLength(1))
+    const [written] = layoutCalls() as { x: number; y: number }[]
+    const at = { x: written!.x, y: written!.y }
+    // The advisor changed another node before main's write came back: that topic has no place for who-pays.
+    const other = topic().nodes.map((node) => (node.id === 'per-seat' ? { ...node, text: 'Per seat, monthly' } : node))
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: other })} />)
+    expect(placeOf('who-pays')).toEqual(at)
+    // The write is back.
+    const placed = other.map((node) => (node.id === 'who-pays' ? { ...node, ...at } : node))
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: placed })} />)
+    expect(placeOf('who-pays')).toEqual(at)
+    // Moved again elsewhere (another window): the screen follows the file, not the old drag.
+    const elsewhere = placed.map((node) => (node.id === 'who-pays' ? { ...node, x: 900, y: 700 } : node))
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: elsewhere })} />)
+    expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 })
+  })
+})
+
+describe('a chip’s node the screen hides', () => {
+  const folded = (...ids: string[]) => topic().nodes.map((node) => (ids.includes(node.id) ? { ...node, collapsed: true } : node))
+  const ask = (id: string) => act(() => pickNode({ projectId: 'p1', topic: 'demo-roadmap', id }))
+
+  it('in folded branches: every folded node above it is unfolded through product.layout, and its card opens once it is drawn', () => {
+    const { rerender } = render(<MindMap projectId="p1" topic={topic({ nodes: folded('idea-teams', 'who-pays') })} />)
+    expect(nodeOf('per-seat')).toBeNull()
+    ask('per-seat')
+    expect(layoutCalls()).toEqual([
+      { projectId: 'p1', name: 'demo-roadmap', id: 'who-pays', collapsed: false },
+      { projectId: 'p1', name: 'demo-roadmap', id: 'idea-teams', collapsed: false },
+    ])
+    rerender(<MindMap projectId="p1" topic={topic()} />)
+    expect(nodeOf('per-seat')!.className).toContain('w-mind__node--selected')
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Per seat')).toBeTruthy()
+    expect(screen.queryByTestId('mind-map-pick-note')).toBeNull()
+  })
+
+  it('under «Hide rejected»: the switch is turned off and its card opens', () => {
+    const nodes = [
+      ...topic().nodes,
+      { id: 'per-user', kind: 'decision' as const, text: 'Per user', from: 'who-pays', status: 'rejected' as const, reason: 'Too fiddly' },
+      { id: 'per-user-note', kind: 'question' as const, text: 'Per active user?', from: 'per-user' },
+    ]
+    render(<MindMap projectId="p1" topic={topic({ nodes })} />)
+    const hide = screen.getByRole('button', { name: 'Hide rejected' })
+    fireEvent.click(hide)
+    expect(nodeOf('per-user-note')).toBeNull()
+    ask('per-user-note')
+    expect(hide.getAttribute('aria-pressed')).toBe('false')
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Per active user?')).toBeTruthy()
+    expect(layoutCalls()).toEqual([])
+  })
+
+  it('on a read-only screen: nothing is unfolded; the folded node above it is selected, and the note says why', () => {
+    readOnly.hint = 'Studio gives this Machine read-only access'
+    render(<MindMap projectId="p1" topic={topic({ nodes: folded('idea-teams') })} />)
+    ask('per-seat')
+    expect(layoutCalls()).toEqual([])
+    expect(nodeOf('idea-teams')!.className).toContain('w-mind__node--selected')
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Sell to small teams')).toBeTruthy()
+    expect(screen.getByTestId('mind-map-pick-note').textContent).toContain('folded branch')
+  })
+
+  it('the pointer on its chip lights the folded node it is under; a node not in the topic says so', () => {
+    render(<MindMap projectId="p1" topic={topic({ nodes: folded('idea-teams') })} />)
+    act(() => lightNode({ projectId: 'p1', topic: 'demo-roadmap', id: 'per-seat' }))
+    expect(nodeOf('idea-teams')!.dataset['lit']).toBe('true')
+    act(() => lightNode(null))
+    expect(nodeOf('idea-teams')!.dataset['lit']).toBeUndefined()
+    ask('gone-node')
+    expect(screen.getByTestId('mind-map-pick-note').textContent).toBe('This node is no longer on the Mind map.')
+    expect(screen.queryByRole('region', { name: 'Node' })).toBeNull()
   })
 })

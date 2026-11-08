@@ -812,8 +812,9 @@ export function Transcript(props: TranscriptProps) {
   useEffect(() => clearMatches, [])
 
   // «Show in the chat» of a Mind map node (ticket 09): the row of the call its message came in is drawn,
-  // brought a third of the way down the log, and marked; once per request.
-  const shownSeq = useRef<number | null>(null)
+  // brought a third of the way down the log, and marked; once per request. The request lives in the
+  // window's store, so a log mounted after it (the view left and opened again) takes it as done.
+  const shownSeq = useRef<number | null>(useMindMapFocus.getState().shown?.seq ?? null)
   useLayoutEffect(() => {
     const element = log.current
     if (element === null || chips === null || shownMessage === null || shownMessage.projectId !== product || shownSeq.current === shownMessage.seq) return

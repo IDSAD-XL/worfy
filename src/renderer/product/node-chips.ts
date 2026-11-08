@@ -133,6 +133,3 @@ export function attachChat(projectId: string): () => void {
   change(1)
   return () => change(-1)
 }
-
-/** True when a ref names node `id` of `topic` of the Project. */
-export const isNode = (ref: NodeRef | null, projectId: string, topic: string, id: string): boolean => ref !== null && ref.projectId === projectId && ref.topic === topic && ref.id === id
