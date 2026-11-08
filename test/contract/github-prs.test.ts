@@ -361,46 +361,133 @@ describe('PrTracker over the gh stub', () => {
     expect(await lookups()).toEqual(branches)
   })
 
-  it('a failing branch lookup after a good list is «gh unavailable» and doubles the interval', async () => {
-    const gh = await stubGh([pull(1, 'demo/01')])
-    let now = 0
-    let count = 0
-    const run: GhRunner = (args, cwd) => {
-      count += 1
-      return args.includes('--head') ? Promise.reject(new Error('API rate limit exceeded')) : gh.run(args, cwd)
+  /**
+   * A gh over a list of PRs and a few branch lookups: `--head <branch>` answers from `heads`, or rejects
+   * with the reason `fails` gives for that branch. Every call is recorded: the list as `list`, a lookup by its branch.
+   */
+  const scriptedGh = (listed: GhPull[], heads: Record<string, GhPull[]>, fails: (branch: string) => string | null) => {
+    const calls: string[] = []
+    const run: GhRunner = (args) => {
+      const head = args.indexOf('--head')
+      if (head === -1) {
+        calls.push('list')
+        return Promise.resolve(JSON.stringify(listed))
+      }
+      const branch = args[head + 1]!
+      calls.push(branch)
+      const reason = fails(branch)
+      return reason === null ? Promise.resolve(JSON.stringify(heads[branch] ?? [])) : Promise.reject(new Error(reason))
     }
-    const tracker = new PrTracker({ run, now: () => now })
-    const first = await tracker.read(gh.dir, ['demo/02', 'demo/03'])
-    expect(first).toEqual({ pulls: [], gh: { available: false, error: 'API rate limit exceeded', intervalMs: 120_000 } })
-    expect(count).toBe(2) // the list, then one lookup; the second is not tried after a failure
+    return { run, calls }
+  }
 
-    now = 119_999
-    expect((await tracker.read(gh.dir, ['demo/02', 'demo/03'])).gh.available).toBe(false)
-    expect(count).toBe(2)
+  it('a failing lookup of one branch keeps the PRs of the list; that branch waits its own doubled interval, the others are looked up', async () => {
+    const gh = scriptedGh([pull(1, 'demo/01')], { 'demo/03': [pull(3, 'demo/03')] }, (branch) => (branch === 'demo/02' ? 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' : null))
+    let now = 0
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    const branches = ['demo/01', 'demo/02', 'demo/03']
+    const numbers = (read: { pulls: { number: number }[] }) => read.pulls.map((each) => each.number)
+    const branchError = [{ branch: 'demo/02', error: 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' }]
+
+    const first = await tracker.read('/r', branches)
+    expect(first).toMatchObject({ gh: { available: true, error: null, intervalMs: 60_000 }, branchErrors: branchError })
+    expect(numbers(first)).toEqual([1])
+    expect(gh.calls).toEqual(['list', 'demo/02']) // no more lookups in a read after a failure
+
+    now = 60_000 // the list again; demo/02 waits its own interval, demo/03 is looked up
+    const second = await tracker.read('/r', branches)
+    expect(second).toMatchObject({ gh: { available: true, error: null, intervalMs: 60_000 }, branchErrors: branchError })
+    expect(numbers(second)).toEqual([1, 3])
+    expect(gh.calls).toEqual(['list', 'demo/02', 'list', 'demo/03'])
   })
 
-  it('a branch lookup failing between two lists starts the doubled interval at the failure, not at the last list', async () => {
-    const gh = await stubGh([pull(1, 'demo/01')])
+  it('a failing branch keeps the PRs of its last answer and waits 10, 20, then at most 32 minutes; an answer clears its error', async () => {
+    let failing = false
+    const reason = 'HTTP 502: Bad Gateway (https://api.github.com/graphql)'
+    const gh = scriptedGh([pull(1, 'demo/01')], { 'demo/02': [pull(2, 'demo/02')], 'demo/03': [pull(3, 'demo/03')] }, (branch) => (failing && branch === 'demo/02' ? reason : null))
     let now = 0
-    let lists = 0
-    const run: GhRunner = (args, cwd) => {
-      if (args.includes('--head')) return Promise.reject(new Error('API rate limit exceeded'))
-      lists += 1
-      return gh.run(args, cwd)
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    const branches = ['demo/02', 'demo/03']
+    const numbers = (read: { pulls: { number: number }[] }) => read.pulls.map((each) => each.number)
+    const lookups = () => gh.calls.filter((call) => call === 'demo/02').length
+    const at = async (minutes: number) => {
+      now = minutes * 60_000
+      return tracker.read('/r', branches)
     }
+
+    expect(await at(0)).toEqual(expect.not.objectContaining({ branchErrors: expect.anything() }))
+    failing = true
+    const failed = await at(5)
+    expect(failed.branchErrors).toEqual([{ branch: 'demo/02', error: reason }])
+    expect(numbers(failed)).toEqual([1, 2, 3]) // the PR of demo/02's last answer stays
+    expect(lookups()).toBe(2)
+
+    // Each failure in a row doubles the wait from 5 minutes: 10, 20, then 32 — the cap — and 32 again.
+    for (const [before, due] of [[15, 3], [35, 4], [67, 5], [99, 6]] as const) {
+      now = before * 60_000 - 1
+      await tracker.read('/r', branches)
+      expect(lookups()).toBe(due - 1)
+      expect(numbers(await at(before))).toEqual([1, 2, 3])
+      expect(lookups()).toBe(due)
+    }
+
+    // The same tracker: demo/02 answers again at its next lookup, its error is gone and its wait is 5 minutes again.
+    failing = false
+    now = (99 + 32) * 60_000 - 1
+    expect((await tracker.read('/r', branches)).branchErrors).toEqual([{ branch: 'demo/02', error: reason }])
+    const healed = await at(99 + 32)
+    expect(lookups()).toBe(7)
+    expect(healed).not.toHaveProperty('branchErrors')
+    expect(numbers(healed)).toEqual([1, 2, 3])
+    await at(99 + 32 + 5)
+    expect(lookups()).toBe(8)
+  })
+
+  it('a reason that only contains the letters of «rate limit» inside a word is not a rate limit: the list keeps its interval', async () => {
+    const reason = 'HTTP 502: separate limits of the proxy'
+    const gh = scriptedGh([pull(1, 'demo/01')], {}, (branch) => (branch === 'demo/02' ? reason : null))
+    let now = 0
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    expect((await tracker.read('/r', ['demo/02'])).gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+    now = 60_000
+    await tracker.read('/r', ['demo/02'])
+    expect(gh.calls).toEqual(['list', 'demo/02', 'list'])
+  })
+
+  it('a rate limit on a branch lookup keeps the PRs of the list, and doubles the interval from the failure: no list and no lookup until it ends', async () => {
+    const limited = 'GraphQL: API rate limit exceeded for user ID 1.'
+    const gh = scriptedGh([pull(1, 'demo/01')], { 'demo/03': [pull(3, 'demo/03')] }, (branch) => (branch === 'demo/02' ? limited : null))
+    let now = 0
+    const tracker = new PrTracker({ run: gh.run, now: () => now })
+    await tracker.read('/r', [])
+    expect(gh.calls).toEqual(['list'])
+
+    now = 30_000 // within the list interval: no list, the lookup runs and meets the rate limit
+    const limitedRead = await tracker.read('/r', ['demo/02', 'demo/03'])
+    expect(limitedRead).toMatchObject({ gh: { available: true, error: null, intervalMs: 120_000 }, branchErrors: [{ branch: 'demo/02', error: limited }] })
+    expect(limitedRead.pulls.map((each) => each.number)).toEqual([1])
+
+    now = 30_000 + 119_999 // 120 s after the last list, but not after the rate limit: gh is not run at all
+    expect((await tracker.read('/r', ['demo/02', 'demo/03'])).pulls.map((each) => each.number)).toEqual([1])
+    expect(gh.calls).toEqual(['list', 'demo/02'])
+
+    now = 30_000 + 120_000 // the list answers: the base interval is back and the lookups go on; demo/02 waits its own
+    const after = await tracker.read('/r', ['demo/02', 'demo/03'])
+    expect(after.gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+    expect(after.pulls.map((each) => each.number)).toEqual([1, 3])
+    expect(gh.calls).toEqual(['list', 'demo/02', 'list', 'demo/03'])
+  })
+
+  it('a failing list is still «gh unavailable» with no PRs, though a branch lookup answered before', async () => {
+    let listFails = false
+    const gh = scriptedGh([pull(1, 'demo/01')], { 'demo/02': [pull(2, 'demo/02')] }, () => null)
+    const run: GhRunner = (args, cwd) => (listFails && !args.includes('--head') ? Promise.reject(new Error('no network')) : gh.run(args, cwd))
+    let now = 0
     const tracker = new PrTracker({ run, now: () => now })
-    await tracker.read(gh.dir, [])
-    expect(lists).toBe(1)
-
-    now = 30_000 // within the list interval: no list, the lookup runs and fails
-    expect((await tracker.read(gh.dir, ['demo/02'])).gh).toEqual({ available: false, error: 'API rate limit exceeded', intervalMs: 120_000 })
-
-    now = 30_000 + 119_999 // 120 s after the last list, but not after the failure
-    await tracker.read(gh.dir, ['demo/02'])
-    expect(lists).toBe(1)
-    now = 30_000 + 120_000
-    await tracker.read(gh.dir, [])
-    expect(lists).toBe(2)
+    expect((await tracker.read('/r', ['demo/02'])).pulls.map((each) => each.number)).toEqual([1, 2])
+    listFails = true
+    now = 60_000
+    expect(await tracker.read('/r', ['demo/02'])).toEqual({ pulls: [], gh: { available: false, error: 'no network', intervalMs: 120_000 } })
   })
 
   it('runs gh at most once per interval, however often it is asked, and one read at a time', async () => {

@@ -510,7 +510,10 @@ whatever the rate of asking. After a failure the interval doubles, up to 32 minu
 
 **Old and many PRs.** One read lists the 100 latest PRs in any state. A branch of a Ticket that is in work or was claimed in a branch, and a
 worktree's branch that names a Ticket, are looked up on their own when not in that list: at most 10 such lookups per read, and at most
-once per 5 minutes per branch. Any other Ticket has PR chips only while its PR is among those 100.
+once per 5 minutes per branch. Any other Ticket has PR chips only while its PR is among those 100. A lookup that fails does not make
+gh unavailable: the PRs of the list keep their chips, the branch keeps the PR of its last answer and waits 10 minutes, twice as long after each
+further failure in a row, up to 32 minutes, and the Stage names that branch. No other lookup runs in that read. When the failure is GitHub's rate limit, the 60-second
+interval also doubles from that moment, and neither the list nor a lookup runs until it ends.
 
 **A Project over several repositories, and Silent mode.** Each repository is asked on its own
 ([ADR-0045](../adr/0045-one-ticket-one-repository.md)), and a Ticket gets its chips from the

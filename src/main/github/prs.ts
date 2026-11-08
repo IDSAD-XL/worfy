@@ -5,9 +5,14 @@
 // branch missing from that list is looked up on its own with `--head <branch> --limit 1`, at most
 // once per 5 minutes per branch. `--head` matches the branch name exactly; a `--search head:<branch>`
 // query would match by prefix (`demo/1` finds `demo/18`), and with `--limit 1` that other branch's PR
-// would hide the one sought. When gh fails (not installed, not logged in, no network)
+// would hide the one sought. When the list fails (gh not installed, not logged in, no network)
 // the answer is "gh unavailable" and the interval doubles, up to MAX_INTERVAL_MS; the first
-// success brings it back to the base interval. Failures are not logged one by one.
+// success brings it back to the base interval. A failing lookup of one branch does not fail the
+// Project (worfy-polish ticket 68): the PRs of the list are still given, the branch keeps the PRs of its
+// last answer and waits its own interval, doubled after each failure in a row, and the read names it
+// in `branchErrors`; no more lookups run in that read. A lookup that meets GitHub's rate limit also
+// doubles the Project's interval from that moment: neither the list nor any lookup runs until it
+// ends. Failures are not logged one by one.
 //
 // When the Project's Profile names its GitHub account (ADR-0020, worfy-week ticket 01), every gh
 // call of a read goes with GH_TOKEN of that account, taken once per read with
@@ -374,9 +379,28 @@ export interface PrTrackerOptions {
   maxIntervalMs?: number
 }
 
+/** A branch whose last `--head <branch>` lookup failed, and gh's reason. */
+export interface BranchError {
+  branch: string
+  error: string
+}
+
 export interface PrRead {
   pulls: TrackedPull[]
   gh: GhStatus
+  /** The asked branches whose last lookup failed; absent when there are none or the list itself failed. */
+  branchErrors?: BranchError[]
+}
+
+interface BranchSearch {
+  /** When the branch was last looked up, answered or not. */
+  at: number
+  /** The PRs of the last lookup that answered; a failure keeps them. */
+  pulls: TrackedPull[]
+  /** How long after `at` the next lookup waits: the search interval after an answer, doubled after each failure in a row. */
+  waitMs: number
+  /** gh's reason when the last lookup failed; null when it answered. */
+  error: string | null
 }
 
 interface ProjectState {
@@ -386,10 +410,14 @@ interface ProjectState {
   error: string | null
   listed: TrackedPull[]
   /** Results of `--head <branch>` by branch. */
-  searched: Map<string, { at: number; pulls: TrackedPull[] }>
+  searched: Map<string, BranchSearch>
+  /** No branch lookup runs before this time: set by a rate limit met on a lookup. */
+  searchesFrom: number
   running: Promise<PrRead> | null
 }
 
+/** gh's reason when GitHub refused for its rate limit, the primary or the secondary one. */
+const RATE_LIMIT = /\brate limit|\bHTTP 429\b|\babuse detection|\bsubmitted too quickly/iu
 
 /** Keeps the pull requests of each Project and decides when gh may run again. */
 export class PrTracker {
@@ -410,7 +438,7 @@ export class PrTracker {
   read(root: string, branches: readonly string[]): Promise<PrRead> {
     let state = this.projects.get(root)
     if (!state) {
-      state = { listedAt: -Infinity, intervalMs: this.base, error: null, listed: [], searched: new Map(), running: null }
+      state = { listedAt: -Infinity, intervalMs: this.base, error: null, listed: [], searched: new Map(), searchesFrom: -Infinity, running: null }
       this.projects.set(root, state)
     }
     const current = state
@@ -435,6 +463,13 @@ export class PrTracker {
     state.intervalMs = Math.min(state.intervalMs * 2, this.max)
   }
 
+  /** A rate limit met on a branch lookup: the doubled interval starts now, for the list and the lookups alike. */
+  private throttle(state: ProjectState, now: number): void {
+    state.intervalMs = Math.min(state.intervalMs * 2, this.max)
+    state.listedAt = now
+    state.searchesFrom = now + state.intervalMs
+  }
+
   private async refresh(root: string, state: ProjectState, branches: readonly string[]): Promise<PrRead> {
     const now = this.now()
     // The Project's environment for gh, asked for only when this read runs gh, and once: a refused
@@ -455,21 +490,24 @@ export class PrTracker {
       }
     }
 
-    if (state.error === null) {
-      const listedBranches = new Set(state.listed.map((pull) => pull.branch))
-      const missing = [...new Set(branches)].filter((branch) => !listedBranches.has(branch))
+    const listedBranches = new Set(state.listed.map((pull) => pull.branch))
+    const missing = [...new Set(branches)].filter((branch) => !listedBranches.has(branch))
+    if (state.error === null && now >= state.searchesFrom) {
       let started = 0
       for (const branch of missing) {
         const known = state.searched.get(branch)
-        if (known && now - known.at < this.searchEvery) continue
+        if (known && now - known.at < known.waitMs) continue
         if (started >= SEARCHES_PER_READ) break
         started += 1
         try {
           const pulls = parsePrList(await runGh(['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', FIELDS]))
-          state.searched.set(branch, { at: now, pulls: pulls.filter((pull) => pull.branch === branch) })
+          state.searched.set(branch, { at: now, pulls: pulls.filter((pull) => pull.branch === branch), waitMs: this.searchEvery, error: null })
         } catch (error) {
-          this.fail(state, error)
-          state.listedAt = now
+          // This branch only: the list answered, so its PRs stay. A failure of gh as a whole fails the next list.
+          const reason = messageOf(error)
+          const waitMs = Math.min((known?.waitMs ?? this.searchEvery) * 2, Math.max(this.max, this.searchEvery))
+          state.searched.set(branch, { at: now, pulls: known?.pulls ?? [], waitMs, error: reason })
+          if (RATE_LIMIT.test(reason)) this.throttle(state, now)
           break
         }
       }
@@ -477,6 +515,10 @@ export class PrTracker {
 
     const gh: GhStatus = { available: state.error === null, error: state.error, intervalMs: state.intervalMs }
     if (!gh.available) return { pulls: [], gh }
+    const branchErrors = missing.flatMap((branch): BranchError[] => {
+      const error = state.searched.get(branch)?.error
+      return error == null ? [] : [{ branch, error }]
+    })
     const pulls = [...state.listed]
     const seen = new Set(pulls.map((pull) => pull.number))
     for (const branch of new Set(branches)) {
@@ -486,6 +528,6 @@ export class PrTracker {
         pulls.push(pull)
       }
     }
-    return { pulls, gh }
+    return branchErrors.length > 0 ? { pulls, gh, branchErrors } : { pulls, gh }
   }
 }
