@@ -19,7 +19,10 @@ import { jsonText, profileToSchema2, readLegacyProfiles, rewriteHarnessPaths, ty
 
 export { splitCommand }
 
-/** Q19: the agents and skills of the old Harness. */
+/**
+ * Q19: the agents and skills of the old Harness. The plugin carries more (agents/critic.md since
+ * worfy-product-session ticket 11, the skills of later epics); the move never offers those.
+ */
 export const HARNESS_AGENTS = ['implementer.md', 'reviewer.md', 'scout.md'] as const
 export const HARNESS_SKILLS = ['epic-wave', 'ship-ticket', 'retro', 'qmd', 'overnight-fix-loop', 'continuous-audit', 'tickets-to-tasks'] as const
 /**
@@ -321,9 +324,11 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
         existsSync(join(pluginDir, dir, name)) ||
         (dir === 'hooks' && name.endsWith('.sh') && existsSync(join(pluginDir, dir, `${name.slice(0, -3)}.mjs`))) ||
         (dir === 'hooks' && (RETIRED_HOOKS as readonly string[]).includes(name))
+      // An agent or skill is the Harness's only by the names of Q19. One the plugin got later (the critic,
+      // connect-project, the copied skills) is the user's own in ~/.claude, even under a name the plugin carries.
       const harness =
         dir === 'agents' ? (HARNESS_AGENTS as readonly string[]).includes(name) : dir === 'skills' ? (HARNESS_SKILLS as readonly string[]).includes(name) : true
-      if (!inPlugin && !harness) continue
+      if (!harness) continue
       const value = row({ id: `file:${rel}`, group: 'files', label: shown(join(claudeHome, rel)), removable: inPlugin, note: inPlugin ? null : NOT_IN_PLUGIN })
       fileRows.set(rel, value)
       add(value, { kind: 'file', rel })

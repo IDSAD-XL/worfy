@@ -14,7 +14,8 @@
     "skill-wayfinder-refs": ["skills/wayfinder/SKILL.md", "skills/grilling/SKILL.md", "skills/domain-modeling/SKILL.md"],
     "skill-to-tickets-format": ["skills/to-tickets/SKILL.md"],
     "skill-code-review": ["skills/code-review/SKILL.md"],
-    "product-ideas": ["skills/product-ideas/SKILL.md"]
+    "product-ideas": ["skills/product-ideas/SKILL.md"],
+    "critic-verdict": ["agents/critic.md"]
   },
   "uncovered": {
     "skills/qmd/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",

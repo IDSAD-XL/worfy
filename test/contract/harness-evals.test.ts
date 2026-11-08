@@ -204,7 +204,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the fifteen cases', () => {
+  it('holds exactly the sixteen cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -488,6 +488,94 @@ describe('harness/evals: product-ideas', () => {
     ['against the roadmap only inside a sentence', reply(idea(1) + idea(2) + idea(3).replace('\n\n', '\n\nThis goes - Against the roadmap: no.\n\n')), 'against-roadmap.md'],
   ])('the reply graders refuse %s', (_, text, name) => {
     expect(passes(name, text)).toBe(false)
+
+// worfy-product-session ticket 11: the critic (agents/critic.md) writes one review per plan; the
+// graders read its format, and example.md is a review of the case's export plan in that format. The
+// graders run the way `claude plugin eval` runs a regex grader: new RegExp(pattern, flags) on the
+// file as it is.
+describe('harness/evals: critic-verdict', () => {
+  const CASE = join(EVALS, 'critic-verdict')
+  const grader = (name: string): string => frontMatter(join(CASE, 'graders', name))
+  const pattern = (name: string): RegExp => new RegExp(field(grader(name), 'pattern') ?? '<none>', field(grader(name), 'flags') ?? '')
+  /** example.md as the graders read it; a checkout with CRLF reads the same. */
+  const example = (): string => readFileSync(join(CASE, 'example.md'), 'utf8').replaceAll('\r\n', '\n')
+  const objection = (n: number, fact = 'Fact: `src/a.mjs:1`\n\n', owner = 'Owner decision:\n\n'): string => `### ${n}. A title\n\nWhat is wrong.\n\n${fact}${owner}`
+  const review = (objections: string, verdict = 'Reorder'): string =>
+    `# Critic: e — 2026-11-08\n\nPlan: \`.scratch/e/spec.md\`\nVerdict: ${verdict} — one sentence.\n\n## Objections\n\n${objections}## Alternative\n\nOne.\n\n## What the critic cannot know\n\nUsage.\n`
+
+  // Red before the agent exists: the case starts `worfy:critic`, and without harness/agents/critic.md
+  // no run can start it, so the critics grader fails every run.
+  it('starts worfy:critic, an agent of the plugin on opus that writes its review into docs/product/critic/', () => {
+    const file = join(HARNESS, 'agents', 'critic.md')
+    expect(existsSync(file)).toBe(true)
+    const yaml = frontMatter(file)
+    expect(field(yaml, 'name')).toBe('critic')
+    expect(field(yaml, 'model')).toBe('opus')
+    expect(field(yaml, 'effort')).toBe('high')
+    expect(field(yaml, 'tools')?.split(/,\s*/).sort()).toEqual(['Bash', 'Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch', 'Write'])
+    expect(field(grader('critics.md'), 'input_match')).toContain('worfy:critic')
+    const text = readFileSync(file, 'utf8')
+    expect(text).toContain('docs/product/critic/<epic>-<YYYY-MM-DD>.md')
+    // The four verdicts and the labels the graders read, as the agent writes them.
+    for (const word of ['Keep', 'Reorder', 'Split', 'Defer']) expect(text).toContain(`\`${word}\``)
+    for (const label of ['Verdict:', 'Fact:', 'Owner decision:', '## Objections', '## Alternative', '## What the critic cannot know']) expect(text).toContain(label)
+  })
+
+  it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact and an owner decision line', () => {
+    const text = example()
+    expect(text.match(/^Verdict: (?:Keep|Reorder|Split|Defer) — \S/gm)).toHaveLength(1)
+    expect(text).toMatch(pattern('export-not-keep.md'))
+    expect(text).not.toMatch(pattern('export-at-most-three.md'))
+    expect(text).not.toMatch(pattern('export-objection-facts.md'))
+    expect(text).toContain('\n## Alternative\n')
+    expect(text).toContain('\n## What the critic cannot know\n')
+  })
+
+  it('the format graders catch a fourth objection, an objection without a fact or an owner decision line, and the wrong verdict', () => {
+    const facts = pattern('export-objection-facts.md')
+    // Both plans are checked with the same pattern.
+    expect(field(grader('greet-objection-facts.md'), 'pattern')).toBe(field(grader('export-objection-facts.md'), 'pattern'))
+    const three = [1, 2, 3].map((n) => objection(n)).join('')
+    expect(review(three)).not.toMatch(pattern('export-at-most-three.md'))
+    expect(review(three + objection(4))).toMatch(pattern('export-at-most-three.md'))
+    expect(review(three)).not.toMatch(facts)
+    expect(review('None.\n\n')).not.toMatch(facts)
+    expect(review(objection(1) + objection(2, ''))).toMatch(facts)
+    expect(review(objection(1, 'Fact:\n\n'))).toMatch(facts)
+    expect(review(objection(1) + objection(2, undefined, ''))).toMatch(facts)
+    // The last objection at the end of the file, with no heading after it.
+    expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n`).toMatch(facts)
+    expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n\nOwner decision:\n`).not.toMatch(facts)
+    expect(review(three, 'Keep')).not.toMatch(pattern('export-not-keep.md'))
+    expect(review(three, 'Split')).toMatch(pattern('export-not-keep.md'))
+    expect(review('None.\n\n', 'Keep')).toMatch(pattern('greet-keep.md'))
+    expect(review('None.\n\n', 'Defer')).not.toMatch(pattern('greet-keep.md'))
+    expect(review('None.\n\n', '**Keep**')).not.toMatch(pattern('greet-keep.md'))
+  })
+
+  it('each fact of example.md is the line of the fixture it quotes, and epic-status reads both plans', () => {
+    const { work, home } = caseFixture('critic-verdict')
+    const line = (rel: string, n: number): string => (readFileSync(join(work, rel), 'utf8').split('\n')[n - 1] ?? '').replace(/\r$/, '')
+    const cited = [...example().matchAll(/`(\.scratch\/[^`]+):(\d+)` \(([^)]+)\)/g)].map((match) => [match[1] ?? '', Number(match[2]), match[3] ?? ''] as const)
+    expect(cited.map(([rel, n]) => `${rel}:${n}`)).toEqual(['.scratch/export/issues/02-export-command.md:5', '.scratch/export/issues/02-export-command.md:10', '.scratch/export/spec.md:18'])
+    expect(line('.scratch/export/issues/02-export-command.md', 5)).toBe('Blocked by: —')
+    expect(line('.scratch/export/issues/02-export-command.md', 10)).toContain('`formatRow` is imported from `src/row.mjs`')
+    expect(line('.scratch/export/spec.md', 18)).toBe('| 02 | src/export.mjs, test/export.test.mjs | 1 |')
+    expect(line('.scratch/export/spec.md', 19)).toBe('| 03 | src/row.mjs, test/row.test.mjs | 2 |')
+    // The plan without an error: each ticket names the one it waits for.
+    expect(line('.scratch/greet/issues/01-greeting.md', 5)).toBe('Blocked by: —')
+    expect(line('.scratch/greet/issues/02-greet-command.md', 5)).toBe('Blocked by: 01')
+    expect(line('.scratch/greet/issues/03-shout.md', 5)).toBe('Blocked by: 02')
+    const status = harness(home, work, 'epic-status', ['--json'])
+    expect(status.status, status.stderr).toBe(0)
+    const tickets = (JSON.parse(status.stdout) as { tickets: { epic: string; num: number; statusError: string | null }[] }).tickets
+    for (const epic of ['export', 'greet']) {
+      expect(tickets.filter((ticket) => ticket.epic === epic).map((ticket) => [ticket.num, ticket.statusError])).toEqual([
+        [1, null],
+        [2, null],
+        [3, null],
+      ])
+    }
   })
 })
 
