@@ -1,9 +1,8 @@
 # 12 — Skill генерации идей `worfy:product-ideas`
 
 Type: task
-Status: blocked 2026-11-07T20:19Z
-Blocked reason: ждёт Epic worfy-skills целиком (spec.md, «Волны»)
-Waits: agent
+Status: done 2026-11-08T09:12Z
+PR: #1658
 Blocked by: 04
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 8, 9; «Решено без владельца», п. 5; карта [worfy-product](../../worfy-product/map.md), решение 08 (Q2, Q3); [оценка идей PR #1580](../../../docs/research/2026-11-07-оценка-идей-pr-1580.md), раздел 8.3 (работы советника и их входы)
 
@@ -36,10 +35,13 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] `harness/skills/product-ideas/SKILL.md` есть; test-ы plugin-а зелёные (имя, frontmatter, ссылки `worfy:`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts test/contract/harness-evals-run.test.ts test/contract/harness-plugin.test.ts test/contract/harness-third-party-skills.test.ts test/contract/harness-migrate.test.ts` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
+  - evidence: review pass · PR #1658 · - - · 51a852893a3528245ffc696b00568acd4ca9e367
 - [ ] Eval `product-ideas`: dry run exit 0; платный прогон прошёл, расход записан в «Итог».
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case product-ideas --max-cost-usd 10` exit 0, 3 of 3 runs, 0.68 USD; `--dry-run --changed origin/main` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
+  - evidence: review pass · PR #1658 · - - · 51a852893a3528245ffc696b00568acd4ca9e367
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 928ebab4c7022d2cc498edaf2af6603c5ffab2be
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42463593301/job/128685702663 · ci - · 51a852893a3528245ffc696b00568acd4ca9e367
 
 ## Тесты
 
