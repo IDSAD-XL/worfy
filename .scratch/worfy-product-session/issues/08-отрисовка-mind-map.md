@@ -58,3 +58,33 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 Только читать: `src/renderer/canvas/elk/client.ts`, `src/renderer/canvas/Canvas.tsx`, `src/shared/product/mind-map.ts`,
 `src/renderer/product/useMindMap.ts`.
+
+## Итог
+
+- **Где.** `src/renderer/product/MindMap.tsx` — React Flow, как Canvas: корень — тема, Ticket-ы карты — крупные узлы,
+  узлы `mind-map.json` под ними по `from`; стрелки «из чего выросло» (`smoothstep`) и пунктирная стрелка `replaces` между
+  боковыми сторонами двух Решений. Сверху — «Tree · Graph» (`SegmentedControl`), «Hide rejected», «−», процент, «+», «Fit»;
+  колесо — zoom, drag фона — pan (по умолчанию React Flow). Легенда сворачивается. Карточка узла по click: вид и статус,
+  текст, Reason, Source, History, Grew from (ссылка на карточку родителя), Message. Ничего не пишет: drag узлов — Ticket 09.
+- **Раскладка** — `src/renderer/product/mind-map-layout.ts`: граф строится из темы; в ELK идут только связи `from`, поэтому
+  `replaces` цикла в дереве не делает. «Tree» — ELK `mrtree` сверху вниз, текст 15 px; «Graph» — ELK `layered` слева
+  направо, текст 12 px. ELK — тот же Web Worker окна, что у Epic frame-ов (`elkEngine()` из `canvas/elk/client.ts`); до его
+  ответа и без Worker-а рисует синхронная раскладка «аккуратного дерева». Узел с `x`, `y` в файле стоит там, где сказано.
+- **Вид** запоминается по теме в localStorage окна (`worfy.mindMap.view:<projectId>:<тема>`); «Hide rejected» живёт, пока
+  карта открыта, и данные не меняет.
+- **Файл с ошибкой.** Строка ошибок над картой (`role="alert"`): файл и текст с id узла. Узел, названный ошибкой, не
+  рисуется; узел, чей родитель не нарисован, висит от корня. Сегодня main (`src/main/product/topic.ts`, Ticket 03) при
+  ошибке формата отдаёт `nodes: []`, поэтому на экране — корень, Ticket-ы карты и строка ошибок; верные узлы рисуются,
+  как только main станет их отдавать.
+- **Какая тема на экране.** У Product Session в данных темы нет. Панель (`ProductSessionPanel.tsx`) показывает тему
+  Project-а, файлы которой поменялись последними, пока панель открыта (`product.changed`), и помнит её имя по Node в
+  localStorage окна. До первого такого события — прежняя пустая заглушка.
+- **«Сообщение».** Карточка зовёт `onShowMessage(message)`; панель его пока не передаёт: строки транскрипта не несут uuid
+  события (`fold.ts` даёт ключи `e<N>`), поэтому без него показывается id сообщения. Прокрутку чата — вместе с чипами
+  Ticket-а 09, который правит `Transcript.tsx`.
+- **150 узлов** (Mac, Apple M5 Pro, vitest под Electron Node, `WORFY_MIND_MAP_TIMING=1`): ELK «Tree» (`mrtree`) — 54 ms,
+  ELK «Graph» (`layered`) — 195 ms, синхронная раскладка — 0,3 ms; первый render 150 узлов в jsdom — 53 ms. ELK работает в
+  Worker-е, первый кадр рисует синхронная раскладка.
+- **Снимки** компонента отдельно от приложения (offscreen Electron, демо-тема): [дерево, светлая
+  тема](../evidence/08-mind-map-tree-light.png), [граф и карточка узла, тёмная
+  тема](../evidence/08-mind-map-graph-card-dark.png). Снимок на Mac Stable — пункт «вручную» остаётся.

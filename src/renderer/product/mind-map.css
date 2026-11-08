@@ -1,0 +1,355 @@
+/* The Mind map of a Product Session topic (MindMap.tsx, worfy-product-session ticket 08): the toolbar,
+   the line of format errors, the map on the Canvas's dotted background, the legend and the node card.
+   Each kind has its colour and icon: Idea, Question, Decision accepted or rejected (struck through,
+   grey), Objection; the topic and the Tickets of the map are the larger nodes. */
+.w-mind {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  /* Four kinds that differ in both themes; the accent is the question's blue in the light theme and
+     the decision's green in the dark one, so the idea takes the violet of the theme's palette. */
+  --mind-idea: var(--span-verifier);
+  --mind-question: var(--working-text);
+  --mind-decision: var(--ready-text);
+  --mind-rejected: var(--text-muted);
+  --mind-objection: var(--blocked-text);
+  --mind-ticket: var(--kind-epic);
+  --mind-topic: var(--text);
+}
+
+.w-mind__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.w-mind__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.w-mind__button {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.w-mind__button:hover {
+  background: var(--hover-veil);
+  color: var(--text);
+}
+
+.w-mind__button:focus-visible,
+.w-mind__link:focus-visible,
+.w-mind__legend-toggle:focus-visible,
+.w-mind__card-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-mind__toggle[aria-pressed='true'] {
+  background: var(--segment-thumb);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-control);
+}
+
+.w-mind__percent {
+  min-width: 44px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.w-mind__errors {
+  padding: var(--space-2) var(--space-3);
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  border-bottom: 1px solid var(--blocked-ring);
+}
+
+.w-mind__error {
+  margin: 0;
+}
+
+.w-mind__flow {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── nodes ─────────────────────────────────────────────────────────────── */
+.w-mind__node {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--mind-kind, var(--border-strong));
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.w-mind__node--topic {
+  --mind-kind: var(--mind-topic);
+  font-weight: 700;
+}
+.w-mind__node--ticket {
+  --mind-kind: var(--mind-ticket);
+  font-weight: 600;
+  background: var(--kind-epic-tint);
+}
+.w-mind__node--idea {
+  --mind-kind: var(--mind-idea);
+}
+.w-mind__node--question {
+  --mind-kind: var(--mind-question);
+}
+.w-mind__node--decision {
+  --mind-kind: var(--mind-decision);
+}
+.w-mind__node--objection {
+  --mind-kind: var(--mind-objection);
+}
+.w-mind__node--rejected {
+  --mind-kind: var(--mind-rejected);
+  color: var(--text-muted);
+  background: var(--canvas);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.w-mind__node--selected {
+  outline: 2px solid var(--selected);
+  outline-offset: 1px;
+}
+
+.w-mind__icon {
+  flex: none;
+  min-width: 1.1em;
+  color: var(--mind-kind, var(--text-secondary));
+  font-weight: 700;
+  text-align: center;
+}
+
+.w-mind__node--ticket .w-mind__icon {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  line-height: 1.7;
+}
+
+.w-mind__text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  /* MAX_LINES of mind-map-layout.ts: the box's height is counted for this many lines at most. */
+  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+/* No size: an arrow ends on the middle of the node's side. */
+.w-mind__handle.react-flow__handle {
+  width: 0;
+  height: 0;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── arrows ────────────────────────────────────────────────────────────── */
+.react-flow__edge.w-mind__edge .react-flow__edge-path {
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+
+.react-flow__edge.w-mind__edge--replaces .react-flow__edge-path {
+  stroke: var(--mind-rejected);
+  stroke-dasharray: 5 4;
+}
+
+/* ── legend ────────────────────────────────────────────────────────────── */
+.w-mind__legend {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 5;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-control);
+  font-size: var(--text-12);
+}
+
+.w-mind__legend-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.w-mind__legend-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-mind__legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.w-mind__legend-item--idea {
+  --mind-kind: var(--mind-idea);
+}
+.w-mind__legend-item--question {
+  --mind-kind: var(--mind-question);
+}
+.w-mind__legend-item--decision {
+  --mind-kind: var(--mind-decision);
+}
+.w-mind__legend-item--rejected {
+  --mind-kind: var(--mind-rejected);
+}
+.w-mind__legend-item--objection {
+  --mind-kind: var(--mind-objection);
+}
+
+.w-mind__legend-dash {
+  width: 1.1em;
+  border-top: 1.5px dashed var(--mind-rejected);
+}
+
+/* ── node card ─────────────────────────────────────────────────────────── */
+.w-mind__card {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 6;
+  width: min(320px, calc(100% - 2 * var(--space-3)));
+  max-height: calc(100% - 2 * var(--space-3));
+  overflow: auto;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-control);
+  font-size: var(--text-13);
+}
+
+.w-mind__card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.w-mind__icon--topic {
+  --mind-kind: var(--mind-topic);
+}
+.w-mind__icon--ticket {
+  --mind-kind: var(--mind-ticket);
+}
+.w-mind__icon--idea {
+  --mind-kind: var(--mind-idea);
+}
+.w-mind__icon--question {
+  --mind-kind: var(--mind-question);
+}
+.w-mind__icon--decision {
+  --mind-kind: var(--mind-decision);
+}
+.w-mind__icon--rejected {
+  --mind-kind: var(--mind-rejected);
+}
+.w-mind__icon--objection {
+  --mind-kind: var(--mind-objection);
+}
+
+.w-mind__card-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-15);
+  line-height: 1;
+}
+
+.w-mind__card-text {
+  margin: var(--space-2) 0;
+  color: var(--text);
+}
+
+.w-mind__card-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.w-mind__card-fields dt {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.w-mind__card-fields dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.w-mind__history {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.w-mind__link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.w-mind__history .w-mind__link,
+.w-mind__history .w-mind__muted {
+  margin-left: var(--space-2);
+}
+
+.w-mind__muted {
+  color: var(--text-muted);
+}

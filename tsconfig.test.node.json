@@ -40,6 +40,7 @@
     "src/renderer/flight-recorder/label-layout.ts",
     "src/renderer/flight-recorder/filter.ts",
     "src/renderer/flight-recorder/stop-toast.ts",
+    "src/renderer/product/mind-map-layout.ts",
     "test/app-url.ts",
     "test/autopilot-invariants.ts",
     "test/big-transcript.ts",

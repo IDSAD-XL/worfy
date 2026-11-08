@@ -3,9 +3,10 @@
 // the keyboard, back to 60 / 40 on a double click, its share written to the app settings — and the
 // agents strip with the number of Subagents, which opens the rail blocks without the Binding. Against a
 // fake bridge that keeps the app settings as main would; the Subagent tree is given by the test.
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
@@ -40,10 +41,25 @@ const subagent = (id: string, children: SubagentInfo[] = []): SubagentInfo => ({
 
 const asked: { channel: string; input: unknown }[] = []
 let settings: AppSettings
+/** The handlers the panel subscribed through the bridge, by channel. */
+const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
+const emit = (channel: string, payload: unknown) => {
+  for (const each of listeners.values()) if (each.channel === channel) each.handler(payload)
+}
+const TOPIC: ProductTopicState = {
+  name: 'demo-roadmap',
+  folder: '/demo/docs/product/demo-roadmap',
+  title: 'Demo roadmap',
+  sections: [],
+  tickets: [],
+  nodes: [{ id: 'first-idea', kind: 'idea', text: 'Sell to small teams', from: null }],
+  errors: [],
+}
 
 beforeEach(() => {
   vi.resetModules()
   asked.length = 0
+  listeners.clear()
   subagents.tree = []
   settings = defaultAppSettings()
   const bridge = {
@@ -55,10 +71,18 @@ beforeEach(() => {
         settings = { ...settings, ...patch, revision: settings.revision + 1 }
         return Promise.resolve({ ok: true, value: settings })
       }
+      if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
+      if (channel === 'product.topic') return Promise.resolve({ ok: true, value: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } })
       return Promise.resolve({ ok: false, error: `no ${channel}` })
     },
-    on: () => 1,
-    off: () => undefined,
+    on: (channel: string, handler: (payload: unknown) => void) => {
+      const id = listeners.size + 1
+      listeners.set(id, { channel, handler })
+      return id
+    },
+    off: (id: number) => {
+      listeners.delete(id)
+    },
   } as unknown as WorfyBridge
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -72,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
+  localStorage.clear()
 })
 
 const blocks = {
@@ -254,5 +279,43 @@ describe('the agents strip of a Product Session', () => {
   it('shows 0 while the Session has no Subagents', async () => {
     await mount()
     expect(screen.getByTestId('product-agents-count').textContent).toBe('0')
+  })
+})
+
+describe('the Mind map pane of a Product Session', () => {
+  let hadObserver = false
+  beforeEach(() => {
+    const globals = globalThis as { ResizeObserver?: unknown }
+    hadObserver = 'ResizeObserver' in globals
+    globals.ResizeObserver ??= class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+  })
+  afterEach(() => {
+    if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
+  })
+
+  it('draws the Mind map of the topic whose files changed, and shows that topic again when the Session is opened once more', async () => {
+    await mount()
+    expect(screen.getByTestId('product-session-map-empty')).toBeTruthy()
+    // Another Project's topic, and a topic whose folder is gone, change nothing.
+    act(() => {
+      emit('product.changed', { projectId: 'beta', name: 'demo-roadmap', topic: TOPIC })
+      emit('product.changed', { projectId: 'alpha', name: 'gone', topic: null })
+    })
+    expect(screen.getByTestId('product-session-map-empty')).toBeTruthy()
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
+    })
+    const map = await screen.findByTestId('mind-map')
+    expect(within(map).getByText('Sell to small teams')).toBeTruthy()
+    expect(asked.filter((each) => each.channel === 'product.topic').map((each) => each.input)).toEqual([{ projectId: 'alpha', name: 'demo-roadmap' }])
+    expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
+
+    cleanup()
+    await mount()
+    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
   })
 })
