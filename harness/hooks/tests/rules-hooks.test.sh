@@ -516,8 +516,8 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
 # "Phase 3": the Stage line comes from epic-status — the lines hooks/stage-lines.mjs hands in with the
 # prompt, or a run of its own after a status change — and the rule stands before the status block, once.
 # As a condition in the list of rules under the block, sessions skipped the run and wrote the Stage line
-# in their own words; as a step of its own they still skipped it on a small turn (ticket worfy-polish 73,
-# eval case status-block), which is why the hook gives the lines.
+# in their own words; as a step of its own they still skipped it on a small turn (eval case
+# status-block), which is why the hook gives the lines.
 phase3="$(awk '/^## Phase 3/ { on = 1; next } on && /^## / { exit } on' "$RULES/orchestrator.md" 2>/dev/null)"
 run_at="$(printf '%s\n' "$phase3" | grep -nF '${CLAUDE_PLUGIN_ROOT}/bin/epic-status' | head -n 1 | cut -d: -f1)"
 block_at="$(printf '%s\n' "$phase3" | grep -nE '^[[:space:]]*(—|–|-)[[:space:]]*Stage[[:space:]]*:' | head -n 1 | cut -d: -f1)"
@@ -752,7 +752,8 @@ mkdir -p "$DEMO" "$T/demo-home" "$T/plain"
 (cd "$DEMO" && env -u HARNESS_HOME HOME="$T/demo-home" EVAL_HARNESS_HOME="$DEMO/.git/worfy-harness" \
     bash "$HARNESS/evals/lib/demo-project.sh" local-green none >"$T/demo.log" 2>&1) \
     && ok "stage-lines: the demo project is built" || bad "stage-lines: demo-project.sh failed: $(tail -n 3 "$T/demo.log" | tr '\n' ' ')"
-DEMO_LINE='/to-tickets · demo 0/4 · ticket 01 — alpha: '
+# The demo line as bin/epic-status prints it, up to the ticket number: /to-tickets · demo 0/4 · …
+DEMO_LINE='/to-tickets · demo 0/4 · '
 # stage <cwd> [VAR=value…]: runs the hook with a UserPromptSubmit input from <cwd>; $T/out, $T/err, $rc.
 stage() {
     local cwd="$1"; shift
@@ -787,8 +788,8 @@ took=$(( $(date +%s) - started ))
 # Which Epics are in play: the branch's Epic, then Epics with a claimed ticket, then with a blocked one — at
 # most three lines; with none of these, the Epics that are not closed.
 cat >"$T/es-fake.js" <<'EOF'
-const lines = ["topic/07:", "closed · e1 2/2", "/implement · e2 1/3 · ticket 02 — two", "/implement · e3 0/1 · ticket 01 — three",
-    "/implement · e4 1/2 · ticket 02 — four · blocked", "/implement · e5 0/2 · ticket 01 — five", ""]
+const lines = ["topic/07:", "closed · e1 2/2", "/implement · e2 1/3 · next two", "/implement · e3 0/1 · next three",
+    "/implement · e4 1/2 · next four · blocked", "/implement · e5 0/2 · next five", ""]
 const ref = process.env.FAKE_REF ?? "e5/07"
 const tickets = process.env.FAKE_NONE ? [] : [{ epic: "e4", state: "blocked" }, { epic: "e2", state: "work" }, { epic: "e3", state: "work" }]
 process.stdout.write(process.argv[2] === "--json" ? JSON.stringify({ ref, epics: [], tickets }) : lines.join("\n"))

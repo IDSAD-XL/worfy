@@ -56,7 +56,9 @@ Case не прошёл ни разу с тех пор, как написан. К
    «<this turn's epic-status line; a phrase only with no tickets>».
 4. Eval case `status-block`: grader `epic-status-ran` заменён на `stage-is-epic-status-line` — строка Stage ответа равна
    строке `epic-status` проекта scaffold-а (`/to-tickets · demo 0/4 · ticket 01 — alpha: …`). `ends-with-status-block`
-   остаётся. Prompt и scaffold не меняются.
+   остаётся. Новый grader `ticket-edited` (`tool_used`, Edit файла `04-delta.md`): у каждого case-а должен быть
+   grader `tool_used` (`test/contract/harness-evals.test.ts`), и он же показывает, что ход рабочий. Prompt и scaffold
+   не меняются.
 5. Test-ы в `rules-hooks.test.sh`, раздел 9: проект с тикетами — строка есть; без тикетов, Product Session, Subagent —
    ничего; `epic-status` падает или висит — prompt не задержан, exit 0; порядок Epic-ов и предел в 3 строки.
 
@@ -110,7 +112,8 @@ SessionStart). Все шесть ходов одинаковы: поиск фа�
 Третий платный прогон, с hook-ом (commit `4bc10474a`): балл 1.00, 3 из 3, $0.37. `ends-with-status-block` 3 из 3,
 `stage-is-epic-status-line` 3 из 3. В transcript-е хода — grep → Read → Edit, без вызова `epic-status`, и строка
 «— Stage: /to-tickets · demo 0/4 · ticket 01 — alpha: функция double» — копия строки hook-а. Все три платных прогона —
-$1.14.
+$1.14. Grader `ticket-edited` добавлен после этого прогона; по transcript-ам все три хода сделали Edit файла
+`04-delta.md`, так что он прошёл бы 3 из 3 (платно не перепроверялось).
 
 Цена: hook работает на каждом prompt-е Session разработчика в проекте с тикетами (не в Product Session, не в
 Subagent-е). Время hook-а `stage-lines.mjs` на этом репозитории (889 тикетов, 38 Epic-ов, macOS): 0.9–1.0 s wall time
@@ -125,6 +128,7 @@ Subagent-е). Время hook-а `stage-lines.mjs` на этом репозит�
 - `harness/hooks/rules/orchestrator.md:116-131` — «Phase 3», шаблон строки Stage.
 - `harness/hooks/tests/rules-hooks.test.sh` — проверки «Phase 3», ожидаемый `hooks.json`, раздел 9.
 - `harness/evals/status-block/graders/stage-is-epic-status-line.md` — новый grader вместо `epic-status-ran.md`;
+  `graders/ticket-edited.md` — grader `tool_used`;
   `harness/evals/status-block/prompt.md` — описание case-а.
 - `test/contract/harness-hook-stdin.test.ts` — список hook-ов с `FIRST_BYTE_MS`.
 - `test/contract/harness-evals-run.test.ts` — имя grader-а в test-ах `--changed`.

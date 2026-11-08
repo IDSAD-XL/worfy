@@ -2,7 +2,7 @@
 // UserPromptSubmit: hands the main session the Stage lines of this turn, as bin/epic-status prints them, so the
 // four-line status block of the rules (rules/orchestrator.md, "Phase 3") copies its Stage line instead of
 // inventing one. The eval case status-block showed that a session, told to run epic-status before the block,
-// skips the run on a small turn and writes a phrase of its own (ticket worfy-polish 73).
+// skips the run on a small turn and writes a phrase of its own.
 //
 // Prints, on stdout,
 //   {"hookSpecificOutput":{"hookEventName":"<event>","additionalContext":"<heading>\n<line>\n…"}}
