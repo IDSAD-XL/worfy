@@ -981,10 +981,14 @@ describe('the text of the skill', () => {
     expect(text.match(/(^|[\s(])@[A-Za-z0-9][A-Za-z0-9-]*/g) ?? []).toEqual([])
   })
 
-  it('every file of the skill is in the uncovered list of the eval coverage map', () => {
-    const map = JSON.parse(readFileSync(COVERAGE, 'utf8')) as { uncovered: Record<string, string> }
+  // worfy-human-review ticket 12 added the eval cases human-review-setup-*: every file of the skill is checked by one.
+  it('every file of the skill is in a case of the eval coverage map, none in its uncovered list', () => {
+    const map = JSON.parse(readFileSync(COVERAGE, 'utf8')) as { cases: Record<string, string[]>; uncovered: Record<string, string> }
+    const covered = new Set(Object.entries(map.cases).flatMap(([name, rules]) => (name.startsWith('human-review-setup-') ? rules : [])))
     const files = ['SKILL.md', 'analyse.md', 'write.md', 'check.md', 'refresh.md', 'template/SKILL.template.md', 'template/voice-examples.md', 'template/lint.json']
-    for (const file of files.map((f) => `skills/human-review-setup/${f}`))
-      expect(map.uncovered[file], file).toBe('No case yet: worfy-human-review 12 adds cases')
+    for (const file of files.map((f) => `skills/human-review-setup/${f}`)) {
+      expect(covered.has(file), file).toBe(true)
+      expect(map.uncovered[file], file).toBeUndefined()
+    }
   })
 })

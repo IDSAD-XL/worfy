@@ -18,7 +18,7 @@ import { productCriticFolder, productFolder } from '../../src/shared/product/pat
 import { MIND_MAP_TOOL_NAMES, mindMapToolShapes } from '../../src/shared/product/tools'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
-import { CASES, childEnv, EVALS, HARNESS, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
+import { CASES, childEnv, EVALS, HARNESS, REPO, SCAFFOLD_TIMEOUT_MS, stubSetup, tempDir } from './harness-evals-shared'
 import { ms } from '../time-scale'
 
 /**
@@ -205,7 +205,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the sixteen cases', () => {
+  it('holds exactly the nineteen cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -615,6 +615,265 @@ describe('harness/evals: critic-verdict', () => {
         [3, null],
       ])
     }
+  })
+})
+
+// worfy-human-review ticket 12: three cases of /worfy:human-review-setup on an invented review history of
+// quillwork/ledger (harness/evals/human-review-setup-fixture/). GitHub is the stand-in gh.mjs of the fixture: the
+// shells of a run find it first on PATH, these tests reach it through REVIEW_HISTORY_GH, as review-history.test.sh
+// does on Windows. No test here starts claude.
+describe('harness/evals: human-review-setup', () => {
+  const FIXTURE = join(EVALS, 'human-review-setup-fixture')
+  const LOGINS = ['fern-lead', 'otter-qa', 'quill-ops', 'drift-guest', 'sable-dev', 'wren-dev', 'ledger-ci']
+  const grader = (name: string, file: string): string => frontMatter(join(EVALS, name, 'graders', file))
+  const pattern = (name: string, file: string): RegExp => new RegExp(field(grader(name, file), 'pattern') ?? '<none>', field(grader(name, file), 'flags') ?? '')
+  /** The `input_match` of a grader as `claude plugin eval` builds it: no flags. */
+  const inputMatch = (name: string, file: string): RegExp => new RegExp(field(grader(name, file), 'input_match') ?? '<none>')
+  /** The input of a Bash call as a tool_used grader reads it: the JSON of the tool input. */
+  const bash = (command: string): string => JSON.stringify({ command, description: 'a step of the skill' })
+  const standIn = (work: string): string => join(work, '.git', 'eval-gh', 'gh.mjs')
+  const gh = (work: string, home: string, args: string[]): SpawnSyncReturns<string> =>
+    spawnSync(scriptNode(), [standIn(work), ...args], { cwd: work, env: harnessEnv(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const reviewHistory = (work: string, home: string, args: string[]): SpawnSyncReturns<string> =>
+    harness(home, work, 'review-history', args, { REVIEW_HISTORY_GH: standIn(work) })
+  const privateFolder = (home: string): string => join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'state', 'human-review')
+  const callLog = (work: string): string => (existsSync(join(work, 'gh-calls.log')) ? readFileSync(join(work, 'gh-calls.log'), 'utf8') : '')
+
+  it('short: review-history reads 3 pull requests through the stand-in and finds no voice, 8 of 30; clean leaves meta.json and ignore.json', () => {
+    const { work, home } = caseFixtureToChange('human-review-setup-short-history')
+    const fetch = reviewHistory(work, home, ['fetch', '--passes', '2'])
+    expect(fetch.status, fetch.stderr).toBe(0)
+    expect(fetch.stdout).toContain('pull requests: 3 ')
+    expect(fetch.stdout.trim().split('\n').at(-1)).toBe('voice: no (8 of 30)')
+    expect(callLog(work)).toBe('answered ReviewHistoryPage\n')
+    const clean = reviewHistory(work, home, ['clean'])
+    expect(clean.status, clean.stderr).toBe(0)
+    const left = readdirSync(privateFolder(home)).sort()
+    expect(left).toEqual(['ignore.json', 'meta.json'])
+    expect(`${left.join('\n')}\n`).toMatch(pattern('human-review-setup-short-history', 'meta-kept.md'))
+    expect(`${left.join('\n')}\n`).not.toMatch(pattern('human-review-setup-short-history', 'nothing-else-kept.md'))
+    expect('meta.json\nraw\n').toMatch(pattern('human-review-setup-short-history', 'nothing-else-kept.md'))
+    expect('meta.json\r\nresearch.md\r\n').toMatch(pattern('human-review-setup-short-history', 'nothing-else-kept.md'))
+  })
+
+  it('full: 12 pull requests, 34 substantive comments of three reviewers, a voice; the reviews name commits of the repository, and its git may not use https', () => {
+    const { work, home } = caseFixtureToChange('human-review-setup-full')
+    const fetch = reviewHistory(work, home, ['fetch', '--passes', '2'])
+    expect(fetch.status, fetch.stderr).toBe(0)
+    expect(fetch.stdout).toContain('pull requests: 12 ')
+    expect(fetch.stdout).toContain('substantive comments of the team: 34\n')
+    expect(fetch.stdout).toContain('reviewers of the team: 3\n')
+    expect(fetch.stdout).toContain('dropped: bots 2, ignored logins 0, ignored prefixes 0, authors on their own pull request 1\n')
+    expect(fetch.stdout.trim().split('\n').at(-1)).toBe('voice: yes')
+    // No reviewer gives 80% of the comments: the voice is the team's (step 2 of the skill, "One reviewer").
+    const stats = reviewHistory(work, home, ['stats'])
+    expect(stats.status, stats.stderr).toBe(0)
+    expect((JSON.parse(stats.stdout) as { reviewers: { top_share: number } }).reviewers.top_share).toBeLessThan(0.5)
+    for (const login of LOGINS) expect(stats.stdout.toLowerCase()).not.toContain(login)
+
+    // The check (check.md) finds the commit the first review saw and the merge commit without a fetch.
+    const git = (...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+    const history = JSON.parse(readFileSync(join(work, '.git', 'eval-gh', 'history.json'), 'utf8')) as { pulls: { number: number; reviews: { nodes: { commit: { oid: string } }[] } }[] }
+    expect(history.pulls.map((pull) => pull.number)).toEqual([31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20])
+    for (const pull of history.pulls) {
+      const seen = pull.reviews.nodes[0]?.commit.oid ?? ''
+      expect(git('cat-file', '-e', `${seen}^{commit}`).status, `#${pull.number}`).toBe(0)
+      const view = gh(work, home, ['pr', 'view', String(pull.number), '--repo', 'quillwork/ledger', '--json', 'number,baseRefName,mergeCommit'])
+      expect(view.status, view.stderr).toBe(0)
+      const merge = (JSON.parse(view.stdout) as { mergeCommit: { oid: string } }).mergeCommit.oid
+      const base = git('merge-base', `${merge}^1`, seen).stdout.trim()
+      expect(git('diff', '--quiet', base, seen).status, `#${pull.number} has a diff`).toBe(1)
+    }
+    // review-history takes the project for quillwork/ledger by its origin; git of the run may not use https at all, so
+    // the fetch of check.md fails at once and the commits above are what it reads.
+    expect(git('remote', 'get-url', 'origin').stdout.trim()).toMatch(/^https:\/\/github\.com\/quillwork\/ledger\.git$/)
+    expect(git('config', '--get', 'protocol.https.allow').stdout.trim()).toBe('never')
+    expect(git('status', '--porcelain').stdout).toBe('')
+  })
+
+  it('refresh: fetch --since the fetched_at of meta.json reads the 4 newer pull requests and keeps the reviewer built before', () => {
+    const { work, home } = caseFixtureToChange('human-review-setup-refresh-declined')
+    const folder = privateFolder(home)
+    for (const file of ['meta.json', 'ignore.json', 'research.md', 'lint.json', join('.claude', 'skills', 'human-review', 'SKILL.md'), join('.claude', 'skills', 'human-review', 'voice-examples.md')]) {
+      expect(existsSync(join(folder, file)), file).toBe(true)
+    }
+    const since = (JSON.parse(readFileSync(join(folder, 'meta.json'), 'utf8')) as { fetched_at: string }).fetched_at
+    const before = contentOf(join(folder, '.claude'))
+    const fetch = reviewHistory(work, home, ['fetch', '--since', since, '--passes', '2'])
+    expect(fetch.status, fetch.stderr).toBe(0)
+    expect(fetch.stdout).toContain('pull requests: 4 ')
+    const clean = reviewHistory(work, home, ['clean'])
+    expect(clean.status, clean.stderr).toBe(0)
+    const left = readdirSync(folder).sort()
+    expect(left).toEqual(['.claude', 'check', 'ignore.json', 'lint.json', 'meta.json', 'research.md'])
+    expect(contentOf(join(folder, '.claude'))).toBe(before)
+    const listing = `${left.join('\n')}\n`
+    expect(listing).toMatch(pattern('human-review-setup-refresh-declined', 'reviewer-kept.md'))
+    expect(listing).not.toMatch(pattern('human-review-setup-refresh-declined', 'raw-deleted.md'))
+    expect(`raw\n${listing}`).toMatch(pattern('human-review-setup-refresh-declined', 'raw-deleted.md'))
+    expect(listing.replace('research.md\n', '')).not.toMatch(pattern('human-review-setup-refresh-declined', 'reviewer-kept.md'))
+  })
+
+  it('the stand-in gh refuses every write and logs it as WRITE, refuses what it cannot answer, and logs no text of the history', () => {
+    const { work, home } = caseFixtureToChange('human-review-setup-full')
+    const writes = [
+      ['pr', 'review', '31', '--approve'],
+      ['pr', 'comment', '31', '--body', 'a remark'],
+      ['api', 'repos/quillwork/ledger/pulls/31/reviews', '-f', 'event=COMMENT'],
+      ['api', '-X', 'POST', 'repos/quillwork/ledger/issues/31/comments'],
+      ['api', 'graphql', '-f', 'query=mutation { addPullRequestReview(input: {}) { clientMutationId } }'],
+      ['issue', 'comment', '31', '--body', 'x'],
+    ]
+    for (const args of writes) {
+      const run = gh(work, home, args)
+      expect(run.status, args.join(' ')).toBe(1)
+    }
+    expect(gh(work, home, ['pr', 'diff', '31']).status).toBe(1)
+    expect(gh(work, home, ['pr', 'view', '99']).status).toBe(1)
+    expect(gh(work, home, ['api', 'graphql', '-f', 'query=query ReviewHistoryPage { x }', '-f', 'owner=other', '-f', 'name=repo']).status).toBe(1)
+    const lines = callLog(work).trim().split('\n')
+    expect(lines.filter((line) => line.startsWith('WRITE '))).toHaveLength(writes.length)
+    expect(lines.filter((line) => line.startsWith('REFUSED '))).toEqual(['REFUSED pr diff 31'])
+    expect(callLog(work)).toMatch(pattern('human-review-setup-full', 'no-github-write.md'))
+    expect('answered ReviewHistoryPage\nanswered pr view 31\n').not.toMatch(pattern('human-review-setup-full', 'no-github-write.md'))
+    for (const login of LOGINS) expect(callLog(work)).not.toContain(login)
+    // The grader of shell commands catches the same writes, and lets the reads of the skill through.
+    const command = inputMatch('human-review-setup-full', 'no-github-write-command.md')
+    for (const text of ['gh pr review 31 --approve', 'gh pr comment 31 --body x', 'gh api --method POST repos/o/r/pulls/31/reviews --input d.json', 'gh api -X PATCH repos/o/r/pulls/1']) {
+      expect(bash(text), text).toMatch(command)
+    }
+    for (const text of ['gh pr view 31 --repo quillwork/ledger --json number,url,title,body,baseRefName,mergeCommit,closingIssuesReferences; echo "EXIT=$?"', 'gh api graphql -f query=@q.graphql']) {
+      expect(bash(text), text).not.toMatch(command)
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('the shells of a run start from the fixture HOME and find the stand-in gh before any other', () => {
+    const { work, home } = caseFixture('human-review-setup-short-history')
+    const expected = join(realpathSync(work), '.git', 'eval-gh', 'gh')
+    for (const [shell, args] of [
+      ['bash', ['-lc', 'command -v gh']],
+      ['bash', ['-ic', 'command -v gh']],
+      ['zsh', ['-c', 'command -v gh']],
+      ['zsh', ['-lc', 'command -v gh']],
+    ] as const) {
+      if (shell === 'zsh' && spawnSync('zsh', ['-fc', 'true'], { env: harnessEnv(home) }).status !== 0) continue
+      const run = spawnSync(shell, [...args], { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+      expect(realpathSync(run.stdout.trim().split('\n').at(-1) ?? ''), `${shell} ${args.join(' ')}`).toBe(expected)
+    }
+  })
+
+  it('the graders of the skill commands match the commands the skill prescribes', () => {
+    const skill = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'SKILL.md'), 'utf8')
+    const refresh = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'refresh.md'), 'utf8')
+    const write = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'write.md'), 'utf8')
+    const analyse = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'analyse.md'), 'utf8')
+    const root = '/home/me/.claude/plugins/worfy'
+    const commands = {
+      fetch: `"${root}/bin/review-history" fetch --passes 2; echo "EXIT=$?"`,
+      clean: `"${root}/bin/review-history" clean; echo "EXIT=$?"`,
+      since: `"${root}/bin/review-history" fetch --since 2026-10-26T09:00:00.000Z --passes 2; echo "EXIT=$?"`,
+      estimate: `"${root}/bin/review-history" estimate --passes 2; echo "EXIT=$?"`,
+      lint: `"${root}/bin/review-draft-lint" --skill "/home/me/state/human-review/raw/skill"; echo "EXIT=$?"`,
+    }
+    expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" fetch --passes 2; echo "EXIT=$?"')
+    expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"')
+    expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" estimate --passes 2; echo "EXIT=$?"')
+    expect(refresh).toContain('"<plugin>/bin/review-history" fetch --since <date> --passes 2; echo "EXIT=$?"')
+    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill"; echo "EXIT=$?"')
+    expect(analyse).toContain('\n## R1 — Triage: approved without comments\n')
+    expect(skill).toContain('Use the words N of 30 as they are')
+    expect(skill).toContain('/worfy:code-review')
+
+    for (const name of ['human-review-setup-short-history', 'human-review-setup-full']) {
+      expect(bash(commands.fetch)).toMatch(inputMatch(name, 'fetch-run.md'))
+      expect(bash(commands.clean)).toMatch(inputMatch(name, 'clean-run.md'))
+      expect(bash(commands.estimate)).not.toMatch(inputMatch(name, 'fetch-run.md'))
+    }
+    const declined = 'human-review-setup-refresh-declined'
+    expect(bash(commands.since)).toMatch(inputMatch(declined, 'fetch-since.md'))
+    expect(bash(commands.since.replace('2026-10-26T09:00:00.000Z', '"2026-10-26T09:00:00.000Z"'))).toMatch(inputMatch(declined, 'fetch-since.md'))
+    expect(bash(commands.fetch)).not.toMatch(inputMatch(declined, 'fetch-since.md'))
+    expect(bash(commands.estimate)).toMatch(inputMatch(declined, 'estimate-run.md'))
+    expect(bash(commands.clean)).toMatch(inputMatch(declined, 'clean-run.md'))
+    expect(bash(commands.lint)).toMatch(inputMatch('human-review-setup-full', 'lint-run.md'))
+
+    // The session reads no comment before a "yes": a Read or a printing command of raw/ is caught, the scripts of the
+    // skill that read raw/ themselves are not.
+    const folder = '/home/me/.claude/worfy-harness/projects/demo/state/human-review'
+    for (const name of ['human-review-setup-short-history', declined]) {
+      expect(JSON.stringify({ file_path: `${folder}/raw/prs.jsonl` })).toMatch(inputMatch(name, 'no-raw-read.md'))
+      expect(JSON.stringify({ file_path: `${folder}/meta.json` })).not.toMatch(inputMatch(name, 'no-raw-read.md'))
+    }
+    expect(bash(`head -c 400 "${folder}/raw/prs.jsonl"`)).toMatch(inputMatch(declined, 'no-raw-print.md'))
+    expect(bash(`node "${folder}/raw/refresh/count.mjs" "${folder}/raw/prs.jsonl"`)).not.toMatch(inputMatch(declined, 'no-raw-print.md'))
+    expect(JSON.stringify({ file_path: `${folder}/.claude/skills/human-review/SKILL.md`, content: 'x' })).toMatch(inputMatch(declined, 'no-write-private.md'))
+    expect(JSON.stringify({ file_path: `${folder}/raw/refresh/count.mjs`, content: 'x' })).not.toMatch(inputMatch(declined, 'no-write-private.md'))
+  })
+
+  it('the login graders catch each login of the history and a mention, and let the labels and @someone through', () => {
+    const full = 'human-review-setup-full'
+    for (const file of ['skill-no-login.md', 'examples-no-login.md', 'research-no-login.md']) {
+      const caught = pattern(full, file)
+      for (const login of LOGINS) expect(`- a rule of ${login.toUpperCase()} [R5]`, `${file} ${login}`).toMatch(caught)
+      expect('- reviewer A asks for a down migration, 3 of 3. [R5]\n  > @someone this swallows the error', file).not.toMatch(caught)
+    }
+    expect('  > @pat this swallows the error').toMatch(pattern(full, 'examples-no-login.md'))
+    expect('EXIT=0\n').toMatch(pattern(full, 'lint-passes.md'))
+    expect('EXIT=1\n').not.toMatch(pattern(full, 'lint-passes.md'))
+    // The fixture names every login the graders list, and only those.
+    const people = readFileSync(join(FIXTURE, 'history.cjs'), 'utf8')
+    const block = /const PEOPLE = \{([\s\S]*?)\n\}/.exec(people)?.[1] ?? ''
+    expect([...block.matchAll(/"([a-z-]+)": \[/g)].map((match) => match[1]).sort()).toEqual([...LOGINS].sort())
+  })
+
+  // test/fixtures/human-review-setup/built-SKILL.md is the SKILL.md the generator wrote in run 1 of the paid run of
+  // 2026-11-08, for the invented team of the fixture. An llm judge failed it three times on its length although both
+  // habits are rules there ([R1] and [R19] for docs, [R15] for the down migration); the graders are regexes now.
+  it('the habit graders take the rules of a skill the generator wrote, and fail the same skill without them', () => {
+    const full = 'human-review-setup-full'
+    const built = readFileSync(join(REPO, 'test', 'fixtures', 'human-review-setup', 'built-SKILL.md'), 'utf8')
+    const migration = pattern(full, 'migration-rule.md')
+    const docs = pattern(full, 'docs-rule.md')
+    for (const text of [built, built.replaceAll('\n', '\r\n')]) {
+      expect(text).toMatch(migration)
+      expect(text).toMatch(docs)
+      expect(text).not.toMatch(pattern(full, 'skill-no-login.md'))
+    }
+    /** The skill without each list item whose text holds `marker`: the item ends at the next item or a blank line. */
+    const without = (text: string, ...markers: string[]): string =>
+      text.replace(/^- (?:(?!\n- |\n\n)[\s\S])*/gm, (item) => (markers.some((marker) => item.includes(marker)) ? '' : item))
+    const noMigration = without(built, '[R15]')
+    expect(noMigration).not.toBe(built)
+    expect(noMigration).not.toMatch(migration)
+    expect(noMigration).toMatch(docs)
+    const noDocs = without(built, '[R1]', '[R19]')
+    expect(noDocs).not.toMatch(docs)
+    expect(noDocs).toMatch(migration)
+    // Each keyword half counts: a rollback that is not about a migration, and an approval that is not about docs,
+    // text or dependencies, put in place of the removed rules, are not those rules.
+    const ruleBefore = (text: string, item: string): string => text.replace(/^## 3\. /m, `${item}\n\n## 3. `)
+    const rollback = ruleBefore(noMigration, '- Roll back a failed deploy within an hour; revert the release first. [R40]')
+    expect(rollback).toContain('[R40]')
+    expect(rollback).not.toMatch(migration)
+    const hotfix = ruleBefore(noDocs, '- Approve a hotfix through the fast lane after one review. [R41]')
+    expect(hotfix).toContain('[R41]')
+    expect(hotfix).not.toMatch(docs)
+    // A rule without its reference does not count, and neither does a mention outside a list item.
+    expect('- Ask for a down migration on every migration.\n').not.toMatch(migration)
+    expect('Every migration needs a down step. [R4]\n').not.toMatch(migration)
+    expect('- Ask for a rollback step on every\n  migration: 3 of 3 got one. [R4]\n').toMatch(migration)
+    expect("- Don't raise anything on dependency bumps. [R2]\n").toMatch(docs)
+    expect('- Approve docs changes after a typo check.\n').not.toMatch(docs)
+  })
+
+  it('the fixture and the cases pass the privacy check: no home folder path, host name, email or token', () => {
+    const files = [join(FIXTURE, 'history.sh'), join(FIXTURE, 'history.cjs'), join(FIXTURE, 'gh.mjs'), join(REPO, 'test', 'fixtures', 'human-review-setup', 'built-SKILL.md')]
+    for (const name of ['human-review-setup-short-history', 'human-review-setup-refresh-declined', 'human-review-setup-full']) {
+      files.push(join(EVALS, name, 'prompt.md'), join(EVALS, name, 'scaffold.sh'), ...graderFiles(name))
+    }
+    const { work, home } = caseFixture('human-review-setup-refresh-declined')
+    const run = harness(home, work, 'evidence-check', [...files, join(work, '.git', 'eval-gh', 'history.json'), join(privateFolder(home), 'research.md')])
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
   })
 })
 
