@@ -157,9 +157,71 @@ export function buildMindMapGraph(topic: ProductTopicState, { hideRejected }: { 
 }
 
 const WIDTH: Readonly<Record<MindMapView, number>> = { tree: 220, graph: 180 }
-/** Padding plus the icon, px, on each line of a node. */
-const INSET = 34
 const LINE = 1.35
+
+/**
+ * The room left and right of a node's text, in em of the node's font, as the prototype Card of the
+ * Product Session has it (ticket 21): a slanted or pointed side (Question, Objection) keeps the text
+ * further in than a straight one. `left` runs up to the icon; the icon and the gap after
+ * it come on top (ICON_EM). MindMap.tsx pads the node with these, and nodeSize counts the lines with them.
+ */
+export const NODE_PAD: Readonly<Record<MapNodeKind, { left: number; right: number }>> = {
+  topic: { left: 1.12, right: 1.12 },
+  ticket: { left: 0.84, right: 1.2 },
+  idea: { left: 0.84, right: 1.2 },
+  question: { left: 1.16, right: 1.44 },
+  objection: { left: 1.16, right: 1.44 },
+  decision: { left: 0.64, right: 0.88 },
+}
+
+/** The icon's circle and the gap after it, em: a Ticket's number takes a wider badge; the topic has none. */
+const ICON_EM: Readonly<Record<MapNodeKind, number>> = { topic: 0, ticket: 2.2, idea: 1.56, question: 1.56, objection: 1.56, decision: 1.56 }
+
+/** The shape a node's kind is drawn with: the prototype tells the kinds apart by shape as well as by colour. */
+export type NodeShape = 'topic' | 'ticket' | 'pill' | 'hexagon' | 'slant' | 'box'
+
+export const SHAPE_OF: Readonly<Record<MapNodeKind, NodeShape>> = {
+  topic: 'topic',
+  ticket: 'ticket',
+  idea: 'pill',
+  question: 'hexagon',
+  objection: 'slant',
+  decision: 'box',
+}
+
+const round = (value: number): string => String(Math.round(value * 10) / 10)
+
+function roundRect(width: number, height: number, radius: number): string {
+  const r = Math.min(radius, width / 2, height / 2)
+  const [w, h, k] = [round(width), round(height), round(r)]
+  return `M${k},0 H${round(width - r)} A${k},${k} 0 0 1 ${w},${k} V${round(height - r)} A${k},${k} 0 0 1 ${round(width - r)},${h} H${k} A${k},${k} 0 0 1 0,${round(height - r)} V${k} A${k},${k} 0 0 1 ${k},0 Z`
+}
+
+/**
+ * The outline of a node of `kind` in a box of `width` by `height`, an SVG path from the box's top left
+ * corner: an Idea a pill, a Question a hexagon with pointed ends, an Objection a slanted box, a Decision
+ * a box with small corners, the topic and the Tickets boxes with large ones.
+ */
+export function nodeShape(kind: MapNodeKind, width: number, height: number): string {
+  switch (SHAPE_OF[kind]) {
+    case 'pill':
+      return roundRect(width, height, Math.min(height / 2, 17))
+    case 'hexagon': {
+      const tip = Math.min(11, width / 4)
+      return `M${round(tip)},0 H${round(width - tip)} L${round(width)},${round(height / 2)} L${round(width - tip)},${round(height)} H${round(tip)} L0,${round(height / 2)} Z`
+    }
+    case 'slant': {
+      const lean = Math.min(10, width / 4)
+      return `M${round(lean)},0 H${round(width)} L${round(width - lean)},${round(height)} H0 Z`
+    }
+    case 'topic':
+      return roundRect(width, height, 10)
+    case 'ticket':
+      return roundRect(width, height, 8)
+    case 'box':
+      return roundRect(width, height, 3)
+  }
+}
 /** A node shows at most this many lines of its text (mind-map.css clamps the rest). */
 export const MAX_LINES = 3
 
@@ -168,8 +230,9 @@ export function nodeSize(node: MapNode, view: MindMapView): { width: number; hei
   const big = node.kind === 'topic' || node.kind === 'ticket'
   const font = MIND_MAP_FONT[view] + (big ? 2 : 0)
   const width = WIDTH[view] + (big ? 40 : 0)
-  // An average glyph is about 0.55 of the font size.
-  const perLine = Math.max(8, Math.floor((width - INSET) / (font * 0.55)))
+  // An average glyph is about 0.55 of the font size; the text has the node's width less its padding and icon.
+  const inset = (NODE_PAD[node.kind].left + ICON_EM[node.kind] + NODE_PAD[node.kind].right) * font
+  const perLine = Math.max(8, Math.floor((width - inset) / (font * 0.55)))
   const lines = Math.min(MAX_LINES, Math.max(1, Math.ceil(node.text.length / perLine)))
   return { width, height: Math.ceil(lines * font * LINE + 20) }
 }

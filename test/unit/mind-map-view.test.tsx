@@ -356,3 +356,78 @@ describe('MindMap', () => {
     }
   })
 })
+
+// The look that carries meaning (ticket 21, drawn as the prototype draws it): each kind its shape, a
+// rejected Decision struck through and marked so, and the `replaces` arrow apart from "grew from".
+describe('MindMap look', () => {
+  const shapeOf = (id: string): string | null | undefined => nodeOf(id)?.querySelector('svg.w-mind__shape')?.getAttribute('data-shape')
+
+  it('draws each kind in its own shape, behind the icon and the text; the topic has no icon', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    expect(shapeOf('@topic')).toBe('topic')
+    expect(shapeOf('ticket:01')).toBe('ticket')
+    expect(shapeOf('idea-teams')).toBe('pill')
+    expect(shapeOf('who-pays')).toBe('hexagon')
+    expect(shapeOf('map-split')).toBe('box')
+    expect(shapeOf('harness-first')).toBe('box')
+    expect(shapeOf('too-wide')).toBe('slant')
+    // The outline is as big as the box React Flow places, so arrows meet it.
+    const box = nodeOf('who-pays')!.closest<HTMLElement>('.react-flow__node')!
+    const svg = nodeOf('who-pays')!.querySelector('svg.w-mind__shape')!
+    expect(svg.getAttribute('width')).toBe(String(Number.parseFloat(box.style.width)))
+    expect(svg.getAttribute('height')).toBe(String(Number.parseFloat(box.style.height)))
+    expect(nodeOf('@topic')!.querySelector('.w-mind__icon')).toBeNull()
+    expect(nodeOf('ticket:01')!.querySelector('.w-mind__icon')!.textContent).toBe('01')
+    expect(nodeOf('idea-teams')!.querySelector('.w-mind__icon')!.textContent).toBe('✦')
+  })
+
+  it('marks a rejected Decision grey and struck through, and an accepted one not', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const rejected = nodeOf('harness-first')!
+    expect(rejected.classList.contains('w-mind__node--decision')).toBe(true)
+    expect(rejected.classList.contains('w-mind__node--rejected')).toBe(true)
+    expect(rejected.querySelector('.w-mind__text s')).not.toBeNull()
+    const accepted = nodeOf('map-split')!
+    expect(accepted.classList.contains('w-mind__node--rejected')).toBe(false)
+    expect(accepted.querySelector('.w-mind__text s')).toBeNull()
+  })
+
+  it('draws `replaces` as its own red dashed arrow with its own arrowhead, apart from "grew from"', async () => {
+    const { container } = render(<MindMap projectId="p1" topic={topic()} />)
+    const edge = (id: string): Element | null => container.querySelector(`[data-testid="rf__edge-${id}"]`)
+    await waitFor(() => expect(edge('replaces:map-split')).not.toBeNull())
+    const replaces = edge('replaces:map-split')!
+    const grew = edge('from:map-split')!
+    expect(replaces.classList.contains('w-mind__edge--replaces')).toBe(true)
+    expect(grew.classList.contains('w-mind__edge')).toBe(true)
+    expect(grew.classList.contains('w-mind__edge--replaces')).toBe(false)
+    // Each ends in an arrowhead of its kind, drawn once beside the flow.
+    const head = (path: Element): Element | null => {
+      const url = /url\('#([^']+)'\)/.exec(path.getAttribute('marker-end') ?? '')
+      return url === null ? null : container.querySelector(`marker[id="${url[1]}"] path`)
+    }
+    expect(head(replaces.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--replaces')).toBe(true)
+    expect(head(grew.querySelector('path.react-flow__edge-path')!)?.classList.contains('w-mind__arrowhead--from')).toBe(true)
+  })
+
+  it('names in the legend each kind by a sample of its shape, and both arrows', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const legend = screen.getByTestId('mind-map-legend')
+    const items = Array.from(legend.querySelectorAll<HTMLElement>('[data-legend]'))
+    expect(items.map((item) => item.dataset['legend'])).toEqual(['idea', 'question', 'decision', 'rejected', 'objection', 'from', 'replaces'])
+    expect(within(legend).getByText('Grew from')).toBeTruthy()
+    expect(within(legend).getByText('Replaces')).toBeTruthy()
+    expect(legend.querySelector('[data-legend="rejected"] .w-mind__legend-strike')).not.toBeNull()
+    expect(legend.querySelector('[data-legend="replaces"] .w-mind__legend-line--replaces')).not.toBeNull()
+    expect(legend.querySelector('[data-legend="from"] .w-mind__legend-line--from')).not.toBeNull()
+    fireEvent.click(within(legend).getByRole('button', { name: /^Legend/ }))
+    expect(legend.querySelector('[data-legend]')).toBeNull()
+  })
+
+  it('lays the map on the Canvas’s dotted background', () => {
+    const { container } = render(<MindMap projectId="p1" topic={topic()} />)
+    const background = container.querySelector('[data-testid="rf__background"]')!
+    expect(background).not.toBeNull()
+    expect(background.querySelector('circle.dots, .react-flow__background-pattern.dots')).not.toBeNull()
+  })
+})

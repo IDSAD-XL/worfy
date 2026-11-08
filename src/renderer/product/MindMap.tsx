@@ -1,6 +1,7 @@
 import {
+  Background,
+  BackgroundVariant,
   Handle,
-  MarkerType,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -13,7 +14,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { ProductLayoutInput, ProductTopicState } from '../../shared/ipc/product'
 import { elkEngine } from '../canvas/elk/client'
 import { invoke } from '../ipc'
@@ -26,9 +27,14 @@ import {
   layoutKey,
   layoutSync,
   MIND_MAP_FONT,
+  NODE_PAD,
+  nodeShape,
+  nodeSize,
+  SHAPE_OF,
   withFilePlaces,
   type MapGraph,
   type MapNode,
+  type MapNodeKind,
   type MindMapView,
   type Placed,
   type Placement,
@@ -175,7 +181,22 @@ function FoldMark({ id, fold }: { id: string; fold: Fold }) {
   )
 }
 
-function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
+/**
+ * The outline of a node as the prototype draws it: a shape by kind, filled with the kind's tint and
+ * stroked in its colour (mind-map.css), behind the icon and the text. A folded branch shows a second
+ * outline behind, as a stack.
+ */
+function NodeOutline({ kind, width, height, folded }: { kind: MapNodeKind; width: number; height: number; folded: boolean }) {
+  const d = nodeShape(kind, width, height)
+  return (
+    <svg className="w-mind__shape" width={width} height={height} aria-hidden="true" data-shape={SHAPE_OF[kind]}>
+      {folded ? <path className="w-mind__outline w-mind__outline--stack" d={d} transform="translate(4 4)" /> : null}
+      <path className="w-mind__outline" d={d} />
+    </svg>
+  )
+}
+
+function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>) {
   const { node, view, fold, lit } = data
   const actions = useContext(Actions)
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -193,6 +214,8 @@ function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
   }
   const big = node.kind === 'topic' || node.kind === 'ticket'
   const rejected = node.kind === 'decision' && node.status === 'rejected'
+  const size = width !== undefined && height !== undefined ? { width, height } : nodeSize(node, view)
+  const pad = NODE_PAD[node.kind]
   const [target, source] = view === 'tree' ? [Position.Top, Position.Bottom] : [Position.Left, Position.Right]
   const cross = view === 'tree' ? [Position.Left, Position.Right] : [Position.Top, Position.Bottom]
   return (
@@ -204,7 +227,7 @@ function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
       data-status={node.status}
       data-lit={lit ? 'true' : undefined}
       data-folded={fold?.folded === true ? 'true' : undefined}
-      style={{ fontSize: `${MIND_MAP_FONT[view] + (big ? 2 : 0)}px` }}
+      style={{ fontSize: `${MIND_MAP_FONT[view] + (big ? 2 : 0)}px`, paddingLeft: `${pad.left}em`, paddingRight: `${pad.right}em` }}
       title={node.text}
       // The node itself is the stop for Tab (React Flow's wrapper is not focusable here, see flowNodes):
       // Enter or Space opens its card, and its name says the kind and the status.
@@ -213,10 +236,14 @@ function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
       aria-label={`${kindLine(node)}: ${node.text}`}
       onKeyDown={onKeyDown}
     >
+      <NodeOutline kind={node.kind} width={size.width} height={size.height} folded={fold?.folded === true} />
       <Handle type="target" position={target} isConnectable={false} className="w-mind__handle" />
-      <span className="w-mind__icon" aria-hidden="true">
-        {iconOf(node)}
-      </span>
+      {/* The topic has no icon, as in the prototype: it is the one node of its kind. */}
+      {node.kind === 'topic' ? null : (
+        <span className="w-mind__icon" aria-hidden="true">
+          {iconOf(node)}
+        </span>
+      )}
       <span className="w-mind__text">{rejected ? <s>{node.text}</s> : node.text}</span>
       {fold !== null ? <FoldMark id={node.id} fold={fold} /> : null}
       <Handle type="source" position={source} isConnectable={false} className="w-mind__handle" />
@@ -366,21 +393,53 @@ function pendingDrags(dragged: ReadonlyMap<string, { x: number; y: number }>, to
   return next.size === dragged.size ? dragged : next
 }
 
-function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView): Edge[] {
+/** The arrowheads of the two kinds of arrow, drawn by Arrowheads; their colours are mind-map.css's. */
+const arrowheadId = (flowId: string, kind: 'from' | 'replaces'): string => `w-mind-arrow-${kind}-${flowId}`
+
+function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flowId: string): Edge[] {
+  // Curves, as in the prototype: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
+  // dashed and ends at the Decision it overturned.
   return graph.edges.map((edge) =>
     edge.kind === 'from'
-      ? { id: edge.id, source: edge.source, target: edge.target, type: 'smoothstep', className: 'w-mind__edge', focusable: false }
+      ? { id: edge.id, source: edge.source, target: edge.target, type: 'default', className: 'w-mind__edge', markerEnd: arrowheadId(flowId, 'from'), focusable: false }
       : {
           id: edge.id,
           source: edge.source,
           target: edge.target,
           ...replacesSides(view, placement.get(edge.source), placement.get(edge.target)),
-          // No text on the arrow: the legend names the dashed one.
+          type: 'default',
+          // No text on the arrow: the legend names the red dashed one.
           className: 'w-mind__edge w-mind__edge--replaces',
-          markerEnd: { type: MarkerType.ArrowClosed },
+          markerEnd: arrowheadId(flowId, 'replaces'),
           focusable: false,
           zIndex: 1,
         },
+  )
+}
+
+/**
+ * The prototype's background: the Canvas's colour and dots, 22 apart at 100 %. The grid follows the zoom,
+ * the dots keep their size (React Flow would scale them, and a map zoomed out to fit lost them). An id of
+ * its own: React Flow names the dots' pattern by its store, and the Canvas's pattern of the same name,
+ * in a hidden view, would be the one drawn.
+ */
+function MapBackground({ flowId }: { flowId: string }) {
+  const zoom = useStore((state) => state.transform[2])
+  return <Background id={`w-mind-${flowId}`} variant={BackgroundVariant.Dots} gap={22} size={2 / zoom} color="var(--canvas-dot)" bgColor="var(--canvas)" />
+}
+
+/** The arrowheads the arrows end in (flowEdges names them); in an SVG of no size beside the flow. */
+function Arrowheads({ flowId }: { flowId: string }) {
+  return (
+    <svg className="w-mind__defs" aria-hidden="true">
+      <defs>
+        {(['from', 'replaces'] as const).map((kind) => (
+          <marker key={kind} id={arrowheadId(flowId, kind)} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path className={`w-mind__arrowhead w-mind__arrowhead--${kind}`} d="M0,0.5 L7.5,4 L0,7.5 z" />
+          </marker>
+        ))}
+      </defs>
+    </svg>
   )
 }
 
@@ -480,34 +539,53 @@ function ZoomControls() {
   )
 }
 
+/** A legend row's sample: the node's shape in its kind's colours, or a piece of arrow. */
+type LegendSample = { node: MapNodeKind; status?: 'rejected' } | { arrow: 'from' | 'replaces' }
+
+const LEGEND: readonly { key: string; sample: LegendSample; label: string }[] = [
+  { key: 'idea', sample: { node: 'idea' }, label: 'Idea — what could be done' },
+  { key: 'question', sample: { node: 'question' }, label: 'Question — not decided' },
+  { key: 'decision', sample: { node: 'decision' }, label: 'Decision accepted' },
+  { key: 'rejected', sample: { node: 'decision', status: 'rejected' }, label: 'Decision rejected' },
+  { key: 'objection', sample: { node: 'objection' }, label: 'Objection' },
+  { key: 'from', sample: { arrow: 'from' }, label: 'Grew from' },
+  { key: 'replaces', sample: { arrow: 'replaces' }, label: 'Replaces' },
+]
+
+function LegendSampleView({ sample }: { sample: LegendSample }) {
+  return (
+    <svg className="w-mind__legend-sample" viewBox="-2 -1 30 16" aria-hidden="true">
+      {'arrow' in sample ? (
+        <>
+          <path className={`w-mind__legend-line w-mind__legend-line--${sample.arrow}`} d="M0,7 H22" />
+          <path className={`w-mind__arrowhead w-mind__arrowhead--${sample.arrow}`} d="M21,3.5 L27,7 L21,10.5 z" />
+        </>
+      ) : (
+        <>
+          <path className="w-mind__outline" d={nodeShape(sample.node, 26, 14)} />
+          {sample.status === 'rejected' ? <path className="w-mind__legend-strike" d="M5,7 H21" /> : null}
+        </>
+      )}
+    </svg>
+  )
+}
+
 function Legend() {
   const [open, setOpen] = useState(true)
-  const items: [string, string, string][] = [
-    ['idea', '✦', 'Idea'],
-    ['question', '?', 'Question'],
-    ['decision', '✓', 'Decision accepted'],
-    ['rejected', '✕', 'Decision rejected'],
-    ['objection', '!', 'Objection'],
-  ]
   return (
     <div className="w-mind__legend" data-testid="mind-map-legend">
       <button type="button" className="w-mind__legend-toggle" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
         Legend
+        {open ? <span className="w-mind__legend-hint"> · click a node for details</span> : null}
       </button>
       {open ? (
         <ul className="w-mind__legend-list">
-          {items.map(([kind, icon, label]) => (
-            <li key={kind} className={`w-mind__legend-item w-mind__legend-item--${kind}`}>
-              <span className="w-mind__icon" aria-hidden="true">
-                {icon}
-              </span>
+          {LEGEND.map(({ key, sample, label }) => (
+            <li key={key} className={`w-mind__legend-item w-mind__legend-item--${key}`} data-legend={key}>
+              <LegendSampleView sample={sample} />
               {label}
             </li>
           ))}
-          <li className="w-mind__legend-item w-mind__legend-item--replaces">
-            <span className="w-mind__legend-dash" aria-hidden="true" />
-            Replaces
-          </li>
         </ul>
       ) : null}
     </div>
@@ -644,7 +722,9 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
 
   const shown = useMemo(() => withDragged(withFilePlaces(graph, placement), dragged), [graph, placement, dragged])
   const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
-  const edges = useMemo(() => flowEdges(graph, shown, view), [graph, shown, view])
+  // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
+  const flowId = useId().replace(/[^\w-]/g, '')
+  const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   const flow = useReactFlow()
 
@@ -811,8 +891,11 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             deleteKeyCode={null}
             colorMode="system"
             proOptions={{ hideAttribution: true }}
-          />
+          >
+            <MapBackground flowId={flowId} />
+          </ReactFlow>
         </Actions>
+        <Arrowheads flowId={flowId} />
         <Legend />
         {pickedNode !== undefined ? <NodeCard node={pickedNode} graph={graph} onPick={setPicked} onClose={() => setPicked(null)} onShowMessage={showInChat} /> : null}
       </div>

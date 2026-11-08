@@ -173,15 +173,15 @@ never a Windows device name such as `CON`.
 **Nodes.** The topic is the root and the Tickets of its map are the large nodes. Each node of `mind-map.json` is one of
 four kinds, and an arrow leads to it from the node it grew from:
 
-| Kind | Mark | What it needs |
-|---|---|---|
-| Idea | ✦ | A text |
-| Question | ? | A text |
-| Decision | ✓ accepted, ✕ rejected | A status and a reason |
-| Objection | ! | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
+| Kind | Mark | Shape | What it needs |
+|---|---|---|---|
+| Idea | ✦ | Pill | A text |
+| Question | ? | Hexagon, dashed outline | A text |
+| Decision | ✓ accepted, ✕ rejected | Box | A status and a reason |
+| Objection | ! | Slanted box | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
 
-A rejected Decision stays on the map, struck through and grey. A Decision that overturned an earlier one has a dashed
-"Replaces" arrow to it.
+A rejected Decision stays on the map, struck through, grey and faded, with a dashed outline. A Decision that overturned
+an earlier one has a red dashed "Replaces" arrow to it. The legend under the map shows each kind's shape and both arrows.
 
 **Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
 of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node

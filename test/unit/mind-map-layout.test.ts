@@ -13,6 +13,7 @@ import {
   layoutElk,
   layoutSync,
   MIND_MAP_VIEWS,
+  nodeShape,
   ROOT_ID,
   withFilePlaces,
   type MapGraph,
@@ -176,6 +177,23 @@ describe('150 nodes', () => {
       expectNoOverlap(placement)
       expectNoOverlap(sync)
       if (process.env['WORFY_MIND_MAP_TIMING'] === '1') console.info(`[mind-map] 150 nodes, ${view}: ELK ${elkMs.toFixed(1)} ms, synchronous ${syncMs.toFixed(1)} ms`)
+    }
+  })
+})
+
+describe('nodeShape', () => {
+  it('draws a Question with pointed ends, an Objection slanted and an Idea as a pill, all inside the box', () => {
+    expect(nodeShape('question', 200, 40)).toBe('M11,0 H189 L200,20 L189,40 H11 L0,20 Z')
+    expect(nodeShape('objection', 200, 40)).toBe('M10,0 H200 L190,40 H0 Z')
+    // A pill: the corners as round as the box is high, up to 17.
+    expect(nodeShape('idea', 200, 30)).toMatch(/^M15,0 H185 A15,15 /)
+    expect(nodeShape('idea', 200, 60)).toMatch(/^M17,0 H183 A17,17 /)
+    expect(nodeShape('decision', 200, 40)).toMatch(/^M3,0 /)
+    expect(nodeShape('topic', 200, 40)).toMatch(/^M10,0 /)
+    for (const kind of ['topic', 'ticket', 'idea', 'question', 'decision', 'objection'] as const) {
+      const numbers = nodeShape(kind, 200, 40).match(/-?[\d.]+/g)!.map(Number)
+      expect(Math.min(...numbers)).toBeGreaterThanOrEqual(0)
+      expect(Math.max(...numbers)).toBeLessThanOrEqual(200)
     }
   })
 })
