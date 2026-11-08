@@ -102,6 +102,22 @@ const SUITE = [
 ]
 /** A pull request (input tests-base): the test files its diff touches, as step outputs run and files. */
 const PICK = 'node scripts/affected-tests.mjs "$BASE" HEAD --github-output'
+/**
+ * The Electron binary from actions/cache, right after the install (worfy-polish 74): the version, the
+ * restore, scripts/download-electron.mjs (install.js of electron, up to 3 attempts) and the save on a miss. ci-workflow.test.ts checks the four steps line
+ * by line, the same in both jobs here and in every job of ci.yml that starts Electron.
+ */
+const VERSION = `node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\\n')"`
+const DOWNLOAD = 'node scripts/download-electron.mjs'
+const ELECTRON = [VERSION, 'actions/cache/restore', DOWNLOAD, 'actions/cache/save']
+/** The expressions of the Electron steps: the folder, the key, the folder for install.js, and the save. */
+const ELECTRON_EXPRESSIONS = [
+  '          path: ${{ runner.temp }}/electron-cache',
+  '          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}',
+  '          electron_config_cache: ${{ runner.temp }}/electron-cache',
+  '          path: ${{ runner.temp }}/electron-cache',
+  '          key: ${{ steps.electron-cache.outputs.cache-primary-key }}',
+]
 
 describe('.github/workflows/windows-tests.yml', () => {
   it('starts by hand or from a call: workflow_dispatch and workflow_call are its only triggers', () => {
@@ -160,9 +176,12 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(job(FILES_JOB)).toContain("    if: inputs.mode == 'files'")
     expect(job(FULL_JOB)).toContain("    if: inputs.mode == 'full'")
     // And two of steps of the mode full: the list of a pull request, and no vitest for an empty one.
+    // And the save of the Electron download in each job, only on a miss of the cache.
     expect(code().filter((line) => /^\s*if:/.test(line))).toEqual([
       "    if: inputs.mode == 'files'",
+      "        if: steps.electron-cache.outputs.cache-hit != 'true'",
       "    if: inputs.mode == 'full'",
+      "        if: steps.electron-cache.outputs.cache-hit != 'true'",
       "        if: inputs.tests-base != ''",
       "        if: steps.tests.outputs.run != 'none'",
     ])
@@ -179,7 +198,7 @@ describe('.github/workflows/windows-tests.yml', () => {
 
   it('mode files: checks the list right after checkout, before anything is installed', () => {
     const all = steps(FILES_JOB).map(does)
-    expect(all).toEqual(['actions/checkout', CHECK, 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, RUN])
+    expect(all).toEqual(['actions/checkout', CHECK, 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, ...ELECTRON, RUN])
     expect(all.indexOf(CHECK)).toBe(1)
     expect(all.indexOf(CHECK)).toBeLessThan(all.indexOf(INSTALL))
   })
@@ -194,11 +213,14 @@ describe('.github/workflows/windows-tests.yml', () => {
       run: CHECK,
     })
     // An expression inside `run` is pasted into the script before the shell reads it: a list such
-    // as `x; rm -rf .` would run as a command. Expressions stand in the six `env` values only.
+    // as `x; rm -rf .` would run as a command. Expressions stand in the six `env` values of the lists
+    // and in the Electron steps (the runner's folder, the cache key, a step output), never in a `run`.
     expect(code().filter((line) => line.includes('${{'))).toEqual([
       '          TEST_FILES: ${{ inputs.files }}',
+      ...ELECTRON_EXPRESSIONS,
       '          TEST_FILES: ${{ steps.list.outputs.files }}',
       '          TEST_FILES: ${{ inputs.files }}',
+      ...ELECTRON_EXPRESSIONS,
       '          BASE: ${{ inputs.tests-base }}',
       '          SHARD: ${{ inputs.shard }}',
       '          TEST_FILES: ${{ steps.tests.outputs.files }}',
@@ -212,7 +234,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     // The whole step. The list comes from the output of the check, not from the input. bash, because
     // in PowerShell `$TEST_FILES` is an unset variable and the command would run the whole suite;
     // `test -n` stops the step for the same reason if the list is ever empty.
-    expect(steps(FILES_JOB)[6]).toEqual({
+    expect(steps(FILES_JOB)[10]).toEqual({
       name: 'Run the listed test files',
       shell: 'bash',
       env: ['TEST_FILES: ${{ steps.list.outputs.files }}'],
@@ -238,12 +260,12 @@ describe('.github/workflows/windows-tests.yml', () => {
 
   it('mode files: never runs the whole suite: no pnpm test, no vitest without the list', () => {
     const commands = steps(FILES_JOB).flatMap((step) => step.run ?? [])
-    expect(commands).toEqual([CHECK, ...PNPM, INSTALL, ...RUN])
+    expect(commands).toEqual([CHECK, ...PNPM, INSTALL, VERSION, DOWNLOAD, ...RUN])
     for (const command of commands) expect(command).not.toMatch(/pnpm\s+(run\s+)?test|vitest(?!-electron\.mjs \$TEST_FILES$)/)
   })
 
   it('mode full: refuses a list of files first, then checkout, pnpm, node, install, the list of a pull request and pnpm test or one shard of it, nothing else', () => {
-    expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, PICK, SUITE])
+    expect(steps(FULL_JOB).map(does)).toEqual([REFUSE, 'actions/checkout', 'actions/setup-node', PNPM, 'actions/setup-node', INSTALL, ...ELECTRON, PICK, SUITE])
     // The refusal comes before checkout: a dispatch with a list fails within seconds, not after the install.
     expect(steps(FULL_JOB)[0]).toEqual({
       name: 'Refuse a list of files',
@@ -254,7 +276,7 @@ describe('.github/workflows/windows-tests.yml', () => {
     // The whole step: the shard reaches PowerShell through env, and no `shell` key changes the shell
     // the suite has always run under.
     // The list: only on a pull request, under Git Bash as the other steps that read a list.
-    expect(steps(FULL_JOB)[6]).toEqual({
+    expect(steps(FULL_JOB)[10]).toEqual({
       name: 'Pick the test files the pull request touches',
       id: 'tests',
       if: "inputs.tests-base != ''",
@@ -262,13 +284,13 @@ describe('.github/workflows/windows-tests.yml', () => {
       env: ['BASE: ${{ inputs.tests-base }}'],
       run: PICK,
     })
-    expect(steps(FULL_JOB)[7]).toEqual({
+    expect(steps(FULL_JOB)[11]).toEqual({
       name: 'Run the unit and contract suite, or a part of it',
       if: "steps.tests.outputs.run != 'none'",
       env: ['SHARD: ${{ inputs.shard }}', `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS_FILES.join(' ')}`, 'TEST_FILES: ${{ steps.tests.outputs.files }}'],
       run: SUITE,
     })
-    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, PICK, ...SUITE])
+    expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, VERSION, DOWNLOAD, PICK, ...SUITE])
   })
 
   it('mode full: runs unit and contract tests only — no e2e, no packaged app, no acceptance', () => {

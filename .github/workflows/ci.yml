@@ -56,6 +56,24 @@ name: CI
 #   files. It blocks ci-ok like every other job since ten push runs on main in a row had it green.
 # - ci-ok: green when every job the run needs succeeded (scripts/ci-ok.mjs). A merge reads this check.
 #
+# The Electron binary. Electron 44 downloads it on the first require('electron'), not at install, and
+# the pnpm store cache of setup-node does not hold it (it lands in node_modules/electron/dist). Every
+# job that starts Electron (linux-tests, macos-tests, macos-e2e, macos-package, windows-e2e and both
+# jobs of windows-tests.yml) took it from GitHub releases, and a 504 there on 2026-11-08 failed every
+# one of them before any test (worfy-polish 74). So each of them, right after the install, runs the
+# same four steps: read the Electron version node_modules holds (the lockfile's), restore the folder
+# of @electron/get's downloads from actions/cache under the key electron-<os>-<arch>-<version>,
+# run install.js of electron with electron_config_cache on that folder (the only cache variable that
+# install.js reads), and on a miss save the folder at once, so a job whose tests fail later still fills
+# the cache. A warm cache asks GitHub releases nothing: @electron/get checks the zip against the
+# checksums.json of the electron package. A cold one downloads as before, and
+# scripts/download-electron.mjs tries it 3 times, 20 s and then 60 s apart: releases fails single
+# requests (a 503 in one shard of run 42472260347 while two others got the same file that minute).
+# DEBUG names the outcome in the log: "@electron/get:index Cache hit", or "Cache miss" and
+# "Downloading https://…". A cache saved
+# by a pull request serves only that pull request; one saved on main serves every pull request.
+# test/contract/ci-workflow.test.ts checks that the four steps are the same in every such job.
+#
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
 # their longest job took 19. So a pull request asks for at most 3 of them (one macos-tests and two
 # macos-e2e shards) when it changes the app and a macOS path, for two (macos-e2e) when it changes the
@@ -185,6 +203,27 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: see "The Electron binary" at the top.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node scripts/download-electron.mjs
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # A pull request: the unit and contract test files its diff touches, the same list in every
       # shard (outputs run — all, none or some — and files). Skipped on a push and a run by hand, so
       # the next step runs the whole suite.
@@ -257,6 +296,27 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: see "The Electron binary" at the top.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node scripts/download-electron.mjs
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # A pull request hands the macOS-only test files, a push to main and a run by hand nothing:
       # every file. scripts/ci-scope.mjs names only plain test file names, one word each, so the
       # shell splits the list on its spaces. HARNESS_SCRIPTS_PART 1/1: one file runs
@@ -288,6 +348,27 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: see "The Electron binary" at the top.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node scripts/download-electron.mjs
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # The display of the runner bounds the windows the e2e tests open: a window is never taller than
       # the screen. Its size is in the log for a test that fails on the size of its window.
       # system_profiler lists no display on the runner's virtual machine; AppKit gives the size.
@@ -340,11 +421,29 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Electron 44 downloads its binary on the first require('electron'), not at install.
+      # The Electron binary, from actions/cache when it is warm: see "The Electron binary" at the top.
       # electron-builder copies the binary from node_modules/electron/dist (electronDist in
-      # electron-builder.yml) and never requires electron, so on a clean machine the folder is missing.
+      # electron-builder.yml) and never requires electron, so without these steps the folder is missing.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
       - name: Download the Electron binary
-        run: node -e "require('electron')"
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node scripts/download-electron.mjs
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # Packages dist/mac-*/worfy.app (ad-hoc signed), drives the packaged app, and last reads the
       # Electron fuses of that dist/ build: RunAsNode and EnableNodeCliInspectArguments off
       # (scripts/check-fuses.mjs, worfy-auto-approve ticket 12).
@@ -401,6 +500,28 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: see "The Electron binary" at the top.
+      # These steps run under PowerShell, the default shell of the Windows image, as the e2e step does.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node scripts/download-electron.mjs
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # Under PowerShell, not Git Bash. The runner's user is an administrator, and its token holds the
       # backup and restore privileges, disabled. Git Bash (its MSYS2 runtime) enables both when it
       # starts; every process it starts inherits them — pnpm, Playwright, the app under test — and
