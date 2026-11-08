@@ -4,7 +4,7 @@
 //   the commits    each pull request of the history is a commit on refs/pull/<n>/head (two for #30) merged into
 //                  main by a merge commit, written by one `git fast-import`: the check of the skill (check.md)
 //                  finds the commit a review saw and the merge commit in the repository without a fetch
-//   the origin     https://github.com/quillwork/ledger.git, so bin/review-history takes the project for that
+//   the origin     REPO_URL below, quillwork/ledger on GitHub, so bin/review-history takes the project for that
 //                  repository, and protocol.https.allow=never, so no git command of the run reaches the network
 //   .git/eval-gh/  the stand-in gh (gh.mjs, and `gh`, a shell wrapper of it) and history.json, the answers it gives;
 //                  its log goes to gh-calls.log in the project root, which the graders read

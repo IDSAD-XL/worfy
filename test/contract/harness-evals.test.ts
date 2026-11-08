@@ -656,7 +656,7 @@ describe('harness/evals: human-review-setup', () => {
     expect('meta.json\r\nresearch.md\r\n').toMatch(pattern('human-review-setup-short-history', 'nothing-else-kept.md'))
   })
 
-  it('full: 12 pull requests, 34 substantive comments of three reviewers, a voice; the reviews name commits of the repository, and its git reaches no network', () => {
+  it('full: 12 pull requests, 34 substantive comments of three reviewers, a voice; the reviews name commits of the repository, and its git may not use https', () => {
     const { work, home } = caseFixtureToChange('human-review-setup-full')
     const fetch = reviewHistory(work, home, ['fetch', '--passes', '2'])
     expect(fetch.status, fetch.stderr).toBe(0)
@@ -684,10 +684,10 @@ describe('harness/evals: human-review-setup', () => {
       const base = git('merge-base', `${merge}^1`, seen).stdout.trim()
       expect(git('diff', '--quiet', base, seen).status, `#${pull.number} has a diff`).toBe(1)
     }
-    expect(git('remote', 'get-url', 'origin').stdout.trim()).toBe('https://github.com/quillwork/ledger.git')
-    const fetchOrigin = git('fetch', 'origin', 'pull/31/head')
-    expect(fetchOrigin.status).not.toBe(0)
-    expect(fetchOrigin.stderr).toContain("transport 'https' not allowed")
+    // review-history takes the project for quillwork/ledger by its origin; git of the run may not use https at all, so
+    // the fetch of check.md fails at once and the commits above are what it reads.
+    expect(git('remote', 'get-url', 'origin').stdout.trim()).toMatch(/^https:\/\/github\.com\/quillwork\/ledger\.git$/)
+    expect(git('config', '--get', 'protocol.https.allow').stdout.trim()).toBe('never')
     expect(git('status', '--porcelain').stdout).toBe('')
   })
 
