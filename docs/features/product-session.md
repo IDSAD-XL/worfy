@@ -263,7 +263,8 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 
 **Layout.** The Mind map is drawn with React Flow. ELK lays it out in the window's Web Worker, `mrtree` for "Tree" and
 `layered` for "Graph"; until ELK answers, a quick tree layout draws it. A node with `x` and `y` in the file stands where
-the file says.
+the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
+out again.
 
 ### Implementation
 

@@ -78,11 +78,11 @@ beforeEach(async () => {
 afterEach(() => removeTestTree(scratch))
 
 describe('product.layout', () => {
-  it('writes x and y of one node through the tools’ writer; every other field and node stays as it was', async () => {
+  it('writes x and y of one node, marked with the layout they are for (placed: 2), through the tools’ writer; every other field and node stays as it was', async () => {
     const result = await call({ projectId: 'p1', name: 'roadmap', id: 'q-1', x: 120, y: -40.5 })
     expect(result).toEqual({ ok: true, value: null })
     expect(update.calls).toBe(1)
-    expect(read()).toEqual({ ...FIXTURE, nodes: [FIXTURE.nodes[0], { ...FIXTURE.nodes[1], x: 120, y: -40.5 }, FIXTURE.nodes[2]] })
+    expect(read()).toEqual({ ...FIXTURE, nodes: [FIXTURE.nodes[0], { ...FIXTURE.nodes[1], x: 120, y: -40.5, placed: 2 }, FIXTURE.nodes[2]] })
   })
 
   it('folds a branch with collapsed: true and unfolds it with collapsed: false, which leaves no mark in the file', async () => {

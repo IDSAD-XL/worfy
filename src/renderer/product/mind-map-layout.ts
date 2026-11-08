@@ -14,7 +14,7 @@
 // writes them by hand).
 import type { ElkNode } from 'elkjs/lib/elk-api'
 import type { ProductTopicState } from '../../shared/ipc/product'
-import type { DecisionStatus, MindMapNode, MindMapNodeKind } from '../../shared/product/mind-map'
+import { MIND_MAP_PLACED, type DecisionStatus, type MindMapNode, type MindMapNodeKind } from '../../shared/product/mind-map'
 import type { ElkEngine } from '../canvas/elk/layout'
 
 export const MIND_MAP_VIEWS = ['tree', 'graph'] as const
@@ -241,13 +241,16 @@ export function nodeSize(node: MapNode, view: MindMapView): { width: number; hei
 /** The room between two depths (columns) and between two nodes of one depth, px; the Tree's is the prototype's. */
 const GAP: Readonly<Record<MindMapView, { depth: number; across: number }>> = { tree: { depth: 48, across: 12 }, graph: { depth: 72, across: 14 } }
 
-/** The layout's places, with each node the file places (`x`, `y`) where the file says. */
+/**
+ * The layout's places, with each node the file places (`x`, `y`) where the file says. A place written for
+ * the earlier top-down Tree (no `placed`, MIND_MAP_PLACED) is ignored: the layout places that node.
+ */
 export function withFilePlaces(graph: MapGraph, placement: Placement): Placement {
   const placed = new Map(placement)
   for (const node of graph.nodes) {
     const place = placed.get(node.id)
-    const { x, y } = node.source ?? {}
-    if (place !== undefined && x !== undefined && y !== undefined) placed.set(node.id, { ...place, x, y })
+    const { x, y, placed: forLayout } = node.source ?? {}
+    if (place !== undefined && x !== undefined && y !== undefined && forLayout === MIND_MAP_PLACED) placed.set(node.id, { ...place, x, y })
   }
   return placed
 }

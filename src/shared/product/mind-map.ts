@@ -12,6 +12,13 @@ import { z } from 'zod'
 
 export const MIND_MAP_VERSION = 1
 
+/**
+ * The layout a node's `x` and `y` were written for: 2 — the Tree that grows left to right (ticket 21). A
+ * place without it was written for the earlier top-down Tree, where it means nothing now, so the screen
+ * ignores it and lays the node out again; the next move by hand writes it anew with this mark.
+ */
+export const MIND_MAP_PLACED = 2
+
 /** Longest text of a node, a reason or a source: a Mind map node is a short line, not a document. */
 export const MIND_MAP_TEXT_MAX = 2000
 
@@ -71,6 +78,8 @@ export const mindMapNodeSchema = z.object({
   /** Position on the screen; written by the screen only. */
   x: z.number().finite().optional(),
   y: z.number().finite().optional(),
+  /** The layout `x` and `y` are for (MIND_MAP_PLACED); written by the screen only, with them. */
+  placed: z.literal(MIND_MAP_PLACED).optional(),
   /** The branch under this node is folded; written by the screen only. */
   collapsed: z.boolean().optional(),
 })

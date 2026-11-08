@@ -217,10 +217,11 @@
   stroke-dasharray: 4 3;
 }
 
-/* A rejected Decision is faded, as in the prototype, and its text struck through in the muted grey. */
+/* A rejected Decision is faded, as in the prototype: its outline and icon. Its text stays at full opacity in
+   the muted grey, struck through, so it keeps a contrast of 4.5:1 or more on the faded fill (5.2:1 in the
+   light theme, 6.4:1 in the dark one). */
 .w-mind__node--rejected .w-mind__shape,
-.w-mind__node--rejected .w-mind__icon,
-.w-mind__node--rejected .w-mind__text {
+.w-mind__node--rejected .w-mind__icon {
   opacity: 0.62;
 }
 .w-mind__node--rejected .w-mind__text s {
@@ -244,9 +245,10 @@
   border-radius: var(--radius-node);
 }
 
-/* The icon: the kind's glyph in a circle of the kind's colour, on the first line of the text. Sized in
-   em of the node's text (×0.76 here), so it follows the Tree's larger text. */
-.w-mind__icon {
+/* The icon on the map and in the node card: the kind's glyph in a circle of the kind's colour, on the first
+   line of the text. Sized in em of the node's text (×0.76 here), so it follows the Tree's larger text. The
+   chips in the chat keep a plain glyph (.w-chips below), as the prototype's chips have no badge. */
+.w-mind .w-mind__icon {
   flex: none;
   box-sizing: border-box;
   display: inline-flex;
@@ -264,7 +266,7 @@
 }
 
 .w-mind__node--ticket .w-mind__icon,
-.w-mind__icon--ticket {
+.w-mind .w-mind__icon--ticket {
   padding: 0 0.4em;
   font-family: var(--font-mono);
 }
@@ -605,6 +607,14 @@
 }
 .w-chips__chip--objection {
   --mind-kind: var(--mind-objection);
+}
+
+.w-chips .w-mind__icon {
+  flex: none;
+  min-width: 1.1em;
+  color: var(--mind-kind, var(--text-secondary));
+  font-weight: 700;
+  text-align: center;
 }
 
 .w-chips__text {

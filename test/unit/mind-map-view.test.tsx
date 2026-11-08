@@ -231,7 +231,7 @@ describe('MindMap', () => {
   })
 
   it('places a node the file places at its x and y', () => {
-    const nodes = topic().nodes.map((node) => (node.id === 'too-wide' ? { ...node, x: 1234, y: 567 } : node))
+    const nodes = topic().nodes.map((node) => (node.id === 'too-wide' ? { ...node, x: 1234, y: 567, placed: 2 as const } : node))
     render(<MindMap projectId="p1" topic={topic({ nodes })} />)
     const element = nodeOf('too-wide')!.closest<HTMLElement>('.react-flow__node')!
     expect(element.style.transform).toMatch(/translate\(1234px, ?567px\)/)

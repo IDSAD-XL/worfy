@@ -27,7 +27,7 @@ import { writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { checkMindMap, MIND_MAP_VERSION, mindMapSchema, type MindMap, type MindMapNode } from '../../shared/product/mind-map'
+import { checkMindMap, MIND_MAP_PLACED, MIND_MAP_VERSION, mindMapSchema, type MindMap, type MindMapNode } from '../../shared/product/mind-map'
 import { CRITIC_DIR, isProductTopicName, MIND_MAP_FILE, productTopicFolder } from '../../shared/product/paths'
 import {
   MIND_MAP_SERVER_NAME,
@@ -165,7 +165,8 @@ export interface MindMapLayout {
 }
 
 /**
- * The change of node `id` the screen asks for: `x` and `y` set together, `collapsed: true` set and
+ * The change of node `id` the screen asks for: `x` and `y` set together, with the layout they are for
+ * (`placed`, MIND_MAP_PLACED), `collapsed: true` set and
  * `collapsed: false` taken out, so an unfolded node's file reads as before it was folded. Nothing else of
  * the node or the map changes; a node that is not in the file is refused.
  */
@@ -176,6 +177,7 @@ export const layoutChange =
     if (layout.x !== undefined && layout.y !== undefined) {
       node.x = layout.x
       node.y = layout.y
+      node.placed = MIND_MAP_PLACED
     }
     if (layout.collapsed === true) node.collapsed = true
     else if (layout.collapsed === false) delete node.collapsed
