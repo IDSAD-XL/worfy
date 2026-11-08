@@ -44,9 +44,9 @@ const withCodex = (hooksToApprove: boolean): Status => ({
   state: { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true },
   bundledVersion: '0.2.0+bbbbbbb',
   canInstall: true,
-  pluginDir: '/Users/me/.claude/worfy-harness/plugin',
+  pluginDir: '/Users/someone/.claude/worfy-harness/plugin',
   dependencies: [],
-  codex: { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir: '/Users/me/.codex/agents', hooksToApprove, skippedAgents: [] },
+  codex: { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir: '/Users/someone/.codex/agents', hooksToApprove, skippedAgents: [] },
 })
 
 afterEach(() => {
@@ -151,12 +151,12 @@ describe('step 1: the Codex binary of this build (worfy-polish ticket 54)', () =
 describe('codexHooksCommand', () => {
   it('quotes the path for a POSIX shell, a quote inside it too', () => {
     expect(codexHooksCommand('/Applications/worfy.app/codex', false)).toBe("cd ~ && '/Applications/worfy.app/codex'")
-    expect(codexHooksCommand("/Users/me/Apps/it's worfy.app/codex", false)).toBe("cd ~ && '/Users/me/Apps/it'\\''s worfy.app/codex'")
+    expect(codexHooksCommand("/Users/someone/Apps/it's worfy.app/codex", false)).toBe("cd ~ && '/Users/someone/Apps/it'\\''s worfy.app/codex'")
   })
 
   it('quotes the path for PowerShell and escapes what PowerShell expands inside double quotes', () => {
     expect(codexHooksCommand('C:\\Program Files\\worfy\\codex.exe', true)).toBe('cd ~; & "C:\\Program Files\\worfy\\codex.exe"')
-    expect(codexHooksCommand('C:\\Users\\a$b\\x`y\\codex.exe', true)).toBe('cd ~; & "C:\\Users\\a`$b\\x``y\\codex.exe"')
+    expect(codexHooksCommand('C:\\Users\\someone\\a$b\\x`y\\codex.exe', true)).toBe('cd ~; & "C:\\Users\\someone\\a`$b\\x``y\\codex.exe"')
   })
 })
 

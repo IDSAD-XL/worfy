@@ -20,7 +20,7 @@ vi.mock('../../src/main/watch-gone', async (importOriginal) => {
 })
 
 /** The name Windows gives in the events of a watched folder that is gone. */
-const ITSELF = '\\\\?\\C:\\Users\\dev\\AppData\\Roaming\\worfy'
+const ITSELF = '\\\\?\\C:\\Users\\someone\\AppData\\Roaming\\worfy'
 /** What the status line bridge writes: 42 % of the five-hour window used. */
 const STATUSLINE = JSON.stringify({ five_hour: { used_percentage: 42, resets_at: 2_000_000_000 } })
 const gone = (dataDir: string): string => `[limits] the data folder ${dataDir} is gone: the status line file is no longer watched, only looked at every 1000 ms`

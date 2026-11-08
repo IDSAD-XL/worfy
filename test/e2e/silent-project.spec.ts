@@ -242,16 +242,16 @@ test('a Silent Project: the Epic frame with its title and the Tickets come from 
 })
 
 test('a Project over two repositories: each Ticket shows its repository, and its PR and CI come from gh of that repository; nothing is written', async () => {
-  // Like Atakama: a folder that is not a repository, with the repositories in it, and the Workflow folder is the folder itself.
-  const workspace = join(scratch, 'atakama')
+  // Like Atalaya: a folder that is not a repository, with the repositories in it, and the Workflow folder is the folder itself.
+  const workspace = join(scratch, 'atalaya')
   const api = makeRepo(join(workspace, 'api'))
   const web = makeRepo(join(workspace, 'web'))
-  const epicStatus = writeEpic(workspace, 'atakama', 'Two repositories', [
+  const epicStatus = writeEpic(workspace, 'atalaya', 'Two repositories', [
     { num: 5, status: 'claimed — 2026-10-09', state: 'work', branch: 'fix/x', repo: 'api' },
     { num: 6, status: 'claimed — 2026-10-09', state: 'work', branch: 'fix/y', repo: 'web' },
     { num: 7, status: 'claimed — 2026-10-09', state: 'work', branch: 'fix/z' },
   ])
-  writeFileSync(join(workspace, 'HANDOFF.md'), '# HANDOFF\n\nAtakama.\n')
+  writeFileSync(join(workspace, 'HANDOFF.md'), '# HANDOFF\n\nAtalaya.\n')
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const resolved = {
@@ -269,7 +269,7 @@ test('a Project over two repositories: each Ticket shows its repository, and its
   // Each repository has a PR on the other's branch too: a Ticket takes only its own repository's.
   writeFileSync(join(ghDir, 'prs-api.json'), JSON.stringify([pr(11, 'fix/x', 'SUCCESS'), pr(12, 'fix/y', 'FAILURE'), pr(13, 'fix/z', 'SUCCESS')]))
   writeFileSync(join(ghDir, 'prs-web.json'), JSON.stringify([pr(21, 'fix/y', null), pr(22, 'fix/x', 'FAILURE')]))
-  writeProject(dataDir, 'atakama-00000023', 'atakama', workspace)
+  writeProject(dataDir, 'atalaya-00000023', 'atalaya', workspace)
 
   // `git status` may refresh .git/index itself, so it runs before the listing, not after.
   const beforeGit = { api: gitState(api), web: gitState(web) }

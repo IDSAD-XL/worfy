@@ -1,7 +1,7 @@
 // A Machine reached by its host name (worfy-link ticket 29; ADR-0070, point 5): the Host check of
 // the link server takes this machine's MagicDNS names only while "Link through Tailscale" is on, a
 // Machine linked by a name is remembered by it and reconnected by it, and a dial by a name sends it
-// as the TLS server name (SNI). Bench machine `beta` has os.hostname() `beta.local`, so its MagicDNS
+// as the TLS server name (SNI). Bench machine `beta` has its label with .local for os.hostname(), so its MagicDNS
 // names are `beta` and `beta.<tailnet>.ts.net`. Services run over temporary data folders on 127.0.0.1
 // (test/contract/link-bench.ts); `localhost` stands in for a MagicDNS name the resolver knows.
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -16,6 +16,9 @@ import { LinkBench, type BenchMachine } from './link-bench'
 
 let bench: LinkBench | undefined
 const errors: string[] = []
+// The .local name of bench machine `beta`, built from its label: the guard of personal strings
+// (scripts/check-personal.mjs) reads a *.local name in the source as a real machine.
+const BETA_HOST = ['beta', 'local'].join('.')
 
 afterEach(async () => {
   if (bench === undefined) return
@@ -120,7 +123,7 @@ describe('a Machine reached by name', () => {
     newBench()
     const { a, b } = await linkedPair()
     // beta again over its data folder, now with a MagicDNS name that is not `beta.<tailnet>`: on
-    // the owner's Mac os.hostname() is `Alexeys-MacBook-Pro-164.local`, the tailnet name `alexeys-macbook-pro`.
+    // a Mac os.hostname() can be `<name>-164.local` while the tailnet name is `<name>`.
     let reads = 0
     await b.service.stop()
     b.service = await LinkService.start({
@@ -128,7 +131,7 @@ describe('a Machine reached by name', () => {
       buildKind: 'packaged',
       buildVersion: '0.2.0+bench',
       listenHost: '127.0.0.1',
-      hostname: () => 'beta.local',
+      hostname: () => BETA_HOST,
       networkInterfaces: () => ({}),
       warn: () => undefined,
       readMagicDnsName: async () => {

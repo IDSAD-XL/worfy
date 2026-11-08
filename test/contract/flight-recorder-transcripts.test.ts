@@ -247,7 +247,7 @@ describe('the search and its bounds', () => {
 })
 
 describe('Windows paths and times', () => {
-  const ROOT_WIN = 'C:\\Users\\Ann\\repo'
+  const ROOT_WIN = 'C:\\Users\\Someone\\repo'
   const session = 'cccccccc-0000-4000-8000-000000000001'
   const text = '/worfy:epic-wave tickets 05 of epic e'
   const run: TranscriptRun = {
@@ -260,11 +260,11 @@ describe('Windows paths and times', () => {
 
   async function windowsHome(name: string): Promise<{ path: string; file: string }> {
     const path = await home(name, false)
-    expect(projectDirName(ROOT_WIN)).toBe('C--Users-Ann-repo')
-    const dir = join(path, 'projects', 'C--Users-Ann-repo')
+    expect(projectDirName(ROOT_WIN)).toBe('C--Users-Someone-repo')
+    const dir = join(path, 'projects', 'C--Users-Someone-repo')
     await mkdir(join(dir, session, 'subagents'), { recursive: true })
-    const cwd = 'c:\\users\\ann\\repo'
-    const report = '{"ticket": "e/05", "worktree": "C:\\\\Users\\\\Ann\\\\repo\\\\.claude\\\\worktrees\\\\05\\\\"}'
+    const cwd = 'c:\\users\\someone\\repo'
+    const report = '{"ticket": "e/05", "worktree": "C:\\\\Users\\\\Someone\\\\repo\\\\.claude\\\\worktrees\\\\05\\\\"}'
     const file = join(dir, `${session}.jsonl`)
     await writeFile(
       file,
@@ -279,12 +279,12 @@ describe('Windows paths and times', () => {
     return { path, file }
   }
 
-  it('the root C:\\Users\\Ann\\repo gives the folder C--Users-Ann-repo; the cwd matches without case; the worktree comes out canonical', async () => {
+  it('the root C:\\Users\\Someone\\repo gives the folder C--Users-Someone-repo; the cwd matches without case; the worktree comes out canonical', async () => {
     const { path } = await windowsHome('windows')
     for (const variant of [run, withSession(run, session)]) {
       const facts = await readRunTranscripts(variant, { env: { WORFY_CLAUDE_HOME: path }, platform: 'win32' })
       expect(facts.lost).toEqual([])
-      expect(facts.work).toEqual([expect.objectContaining({ name: 'helper', worktree: 'c:/users/ann/repo/.claude/worktrees/05', start: '2026-10-17T10:01:00.000Z', end: '2026-10-17T10:40:00.000Z' })])
+      expect(facts.work).toEqual([expect.objectContaining({ name: 'helper', worktree: 'c:/users/someone/repo/.claude/worktrees/05', start: '2026-10-17T10:01:00.000Z', end: '2026-10-17T10:40:00.000Z' })])
     }
   })
 
@@ -300,14 +300,14 @@ describe('Windows paths and times', () => {
 
   it('the canonical path of worktree-path.ts, the helper reader 16 calls too: one Windows worktree in two spellings is one path; links and 8.3 names go through realpath', async () => {
     const missing = (path: string): Promise<string> => Promise.reject(Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' }))
-    const one = await canonicalWorktree('C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
-    expect(one).toBe('c:/users/ann/repo/.claude/worktrees/05')
-    expect(await canonicalWorktree('c:/users/ann/repo/.claude/worktrees/05/', { platform: 'win32', realpath: missing })).toBe(one)
-    expect(await canonicalWorktree('\\\\?\\C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })).toBe(one)
+    const one = await canonicalWorktree('C:\\Users\\Someone\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })
+    expect(one).toBe('c:/users/someone/repo/.claude/worktrees/05')
+    expect(await canonicalWorktree('c:/users/someone/repo/.claude/worktrees/05/', { platform: 'win32', realpath: missing })).toBe(one)
+    expect(await canonicalWorktree('\\\\?\\C:\\Users\\Someone\\Repo\\.claude\\worktrees\\05', { platform: 'win32', realpath: missing })).toBe(one)
     expect(await canonicalWorktree('C:\\', { platform: 'win32', realpath: missing })).toBe('c:/')
     expect(comparablePath('\\\\?\\UNC\\Server\\Share\\Repo\\', 'win32')).toBe('//server/share/repo')
     // Elsewhere a backslash is a character of a name and letter case counts.
-    expect(await canonicalWorktree('/Users/Ann/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalWorktree('/users/ann/repo', { platform: 'darwin', realpath: missing }))
+    expect(await canonicalWorktree('/Users/Someone/Repo', { platform: 'darwin', realpath: missing })).not.toBe(await canonicalWorktree('/users/someone/repo', { platform: 'darwin', realpath: missing }))
 
     // realpath(3) of the Windows runner expands the 8.3 short name of its home folder.
     const shortName = (path: string): Promise<string> => Promise.resolve(path.replace('RUNNER~1', 'runneradmin'))

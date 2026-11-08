@@ -969,12 +969,12 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
     const shown: WindowNote[] = []
     const notices = new GateQueueNotices({ focused: () => false, show: (note) => shown.push(note), open: () => undefined })
     const waiting = waitingPrs([labelled([{ oid: 'c1', committedDate: new Date(START).toISOString() }])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN)
-    const other = { root: '/Users/test/auction', name: 'auction' }
+    const other = { root: '/Users/test/auberge', name: 'auberge' }
     for (let round = 0; round < 2; round += 1) {
       notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
       notices.read(other, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
     }
-    expect(shown.map((note) => note.title)).toEqual(['worfy', 'auction'])
+    expect(shown.map((note) => note.title)).toEqual(['worfy', 'auberge'])
   })
 
   it('a click raises the window and opens no Session: no note waits for the renderer, no notify.open', () => {
@@ -1050,11 +1050,11 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
           return Promise.resolve({ role: 'serve' as const, label: 'needs-mac-gate', gh: { state: 'ok' as const }, waiting: waitingPrs([labelled([])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN) })
         },
       }
-      const stop = installGateQueueNotifications(reader, () => [{ path: ROOT, name: 'worfy' }, { path: '/Users/test/auction', name: 'auction' }], { focused: () => false, show: (note) => shown.push(note), open: () => undefined }, 1_000)
+      const stop = installGateQueueNotifications(reader, () => [{ path: ROOT, name: 'worfy' }, { path: '/Users/test/auberge', name: 'auberge' }], { focused: () => false, show: (note) => shown.push(note), open: () => undefined }, 1_000)
       expect(reads).toEqual([])
       await vi.advanceTimersByTimeAsync(1_000)
-      expect(reads).toEqual([ROOT, '/Users/test/auction'])
-      expect(shown.map((note) => note.title)).toEqual(['worfy', 'auction'])
+      expect(reads).toEqual([ROOT, '/Users/test/auberge'])
+      expect(shown.map((note) => note.title)).toEqual(['worfy', 'auberge'])
       stop()
       await vi.advanceTimersByTimeAsync(5_000)
       expect(reads).toHaveLength(2)
@@ -1527,8 +1527,8 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     vi.useFakeTimers()
     try {
       const { hub, opens } = heldHub()
-      const listed = 'C:/Users/owner/worfy'
-      const resolved = 'C:\\Users\\owner\\worfy'
+      const listed = 'C:/Users/someone/worfy'
+      const resolved = 'C:\\Users\\someone\\worfy'
       let list = [{ path: listed }]
       const shown: TicketNote[] = []
       const stop = installWaitsNotifications(hub, () => list, { show: (note) => shown.push(note) }, 60_000)
@@ -1666,7 +1666,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
 })
 
 describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket 10)', () => {
-  const MAC_ROOT = '/Users/a/worfy'
+  const MAC_ROOT = '/Users/someone/worfy'
   const PC_ROOT = 'C:/src/worfy'
   const MAC_PROJECT = { path: MAC_ROOT, id: 'worfy-1a2b3c4d', name: 'worfy' }
   const PC_PROJECT = { path: PC_ROOT, id: 'worfy-5e6f7a8b', name: 'worfy' }
@@ -1847,7 +1847,7 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
     expect(linux.shown).toHaveLength(2)
   })
 
-  it('two Machines with one repository at /Users/a/worfy and C:/src/worfy, origins spelled two ways: Waits: owner gives one note on each Machine, its own; the other\'s is dropped', async () => {
+  it('two Machines with one repository at /Users/someone/worfy and C:/src/worfy, origins spelled two ways: Waits: owner gives one note on each Machine, its own; the other\'s is dropped', async () => {
     expect(MAC_KEY).toBe(PC_KEY)
     const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }, { id: 'linux', name: 'Linux box' }], projects: [MAC_PROJECT], keys: { [MAC_ROOT]: MAC_KEY } })
     const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [PC_PROJECT], keys: { [PC_ROOT]: PC_KEY } })
@@ -1960,7 +1960,7 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
 
   it('remoteHasHost: a remote with a host has one; a local path, a Windows drive and file:// have none', () => {
     for (const url of ['git@git.example.com:o/worfy.git', 'https://git.example.com/o/worfy', 'ssh://git@host:22/o/r.git', 'host.example:o/r']) expect(remoteHasHost(url)).toBe(true)
-    for (const url of ['/Users/x/repo.git', 'C:\\repos\\x.git', 'C:/repos/x.git', 'file:///srv/x.git', '../x.git', 'x.git', 'https:///nohost']) expect(remoteHasHost(url)).toBe(false)
+    for (const url of ['/Users/someone/repo.git', 'C:\\repos\\x.git', 'C:/repos/x.git', 'file:///srv/x.git', '../x.git', 'x.git', 'https:///nohost']) expect(remoteHasHost(url)).toBe(false)
   })
 
   describe('a failure of git is not "no origin"', () => {

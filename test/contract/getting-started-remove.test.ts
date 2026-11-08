@@ -540,9 +540,9 @@ describe('gettingStarted.removeDemo', () => {
   })
 
   it('asks with the text of the spec and the folder', () => {
-    expect(removeConfirmation('/Users/me/worfy-demo')).toEqual({
+    expect(removeConfirmation('/Users/someone/worfy-demo')).toEqual({
       message: 'Remove the demo project?',
-      detail: "worfy closes the demo's Sessions, then deletes the folder /Users/me/worfy-demo, and its worfy settings. This cannot be undone.",
+      detail: "worfy closes the demo's Sessions, then deletes the folder /Users/someone/worfy-demo, and its worfy settings. This cannot be undone.",
     })
   })
 })

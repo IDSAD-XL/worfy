@@ -483,8 +483,8 @@ describe('claudeHome.hiddenSubagents, hideSubagents and showSubagents', () => {
 describe('transcriptSessionId (worfy-windows ticket 08)', () => {
   it('is the transcript file name without .jsonl, the path split at `/` or `\\`', () => {
     expect(transcriptSessionId('/h/projects/p/abc-1.jsonl')).toBe('abc-1')
-    expect(transcriptSessionId('C:\\Users\\u\\.claude\\projects\\C--p\\abc-1.jsonl')).toBe('abc-1')
-    expect(transcriptSessionId('C:/Users/u/.claude/projects/C--p/abc-1.jsonl')).toBe('abc-1')
+    expect(transcriptSessionId('C:\\Users\\someone\\.claude\\projects\\C--p\\abc-1.jsonl')).toBe('abc-1')
+    expect(transcriptSessionId('C:/Users/someone/.claude/projects/C--p/abc-1.jsonl')).toBe('abc-1')
     expect(transcriptSessionId('abc-1.jsonl')).toBe('abc-1')
   })
 })

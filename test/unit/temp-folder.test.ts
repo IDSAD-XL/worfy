@@ -10,12 +10,12 @@ import { describe, expect, it } from 'vitest'
 import { insideUserTemp, type TempPlace } from '../../src/main/projects/temp-folder'
 import { removeTestTree } from '../remove'
 
-const TEMP = 'C:\\Users\\Alexey\\AppData\\Local\\Temp'
+const TEMP = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp'
 /** The short 8.3 spelling of the same folder, as Windows often puts it into TEMP. */
-const SHORT_TEMP = 'C:\\Users\\ALEXEY~1\\AppData\\Local\\Temp'
+const SHORT_TEMP = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp'
 
 /** The realpath of Windows: the short name of the user folder becomes the long one. */
-const longNames = (path: string): string => path.replace(/\\ALEXEY~1(?=\\|$)/i, '\\Alexey').replace(/\/ALEXEY~1(?=\/|$)/i, '/Alexey')
+const longNames = (path: string): string => path.replace(/\\RUNNER~1(?=\\|$)/i, '\\runneradmin').replace(/\/RUNNER~1(?=\/|$)/i, '/runneradmin')
 
 const windows = (env: Record<string, string | undefined>): Partial<TempPlace> => ({ platform: 'win32', env, realpath: longNames })
 
@@ -26,14 +26,14 @@ describe('insideUserTemp on Windows', () => {
     ['a worktree inside %TEMP%', `${TEMP}\\worfy-01\\wt\\07`, true],
     ['%TEMP% itself', TEMP, true],
     ['%TEMP% with a separator at the end', `${TEMP}\\`, true],
-    ['/ instead of \\', 'C:/Users/Alexey/AppData/Local/Temp/worfy-01', true],
-    ['the drive letter in lower case', 'c:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01', true],
-    ['the rest of the path in another case', 'C:\\users\\alexey\\appdata\\local\\TEMP\\worfy-01', true],
+    ['/ instead of \\', 'C:/Users/runneradmin/AppData/Local/Temp/worfy-01', true],
+    ['the drive letter in lower case', 'c:\\Users\\runneradmin\\AppData\\Local\\Temp\\worfy-01', true],
+    ['the rest of the path in another case', 'C:\\users\\RUNNERADMIN\\appdata\\local\\TEMP\\worfy-01', true],
     ['the short 8.3 name of the folder', `${SHORT_TEMP}\\worfy-01`, true],
-    ['a neighbour folder whose name starts the same', 'C:\\Users\\Alexey\\AppData\\Local\\Temp2\\worfy', false],
-    ['the folder above %TEMP%', 'C:\\Users\\Alexey\\AppData\\Local', false],
-    ['a folder outside %TEMP%', 'C:\\Users\\Alexey\\worfy-wt\\07', false],
-    ['another drive', 'D:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy', false],
+    ['a neighbour folder whose name starts the same', 'C:\\Users\\runneradmin\\AppData\\Local\\Temp2\\worfy', false],
+    ['the folder above %TEMP%', 'C:\\Users\\runneradmin\\AppData\\Local', false],
+    ['a folder outside %TEMP%', 'C:\\Users\\runneradmin\\worfy-wt\\07', false],
+    ['another drive', 'D:\\Users\\runneradmin\\AppData\\Local\\Temp\\worfy', false],
     ['a relative path', 'Temp\\worfy', false],
   ])('%s', (_name, path, inside) => {
     expect(insideUserTemp(path, place)).toBe(inside)
@@ -41,7 +41,7 @@ describe('insideUserTemp on Windows', () => {
 
   it('a TEMP in its short 8.3 name still finds the folder in its long one', () => {
     expect(insideUserTemp(`${TEMP}\\worfy-01`, windows({ TEMP: SHORT_TEMP }))).toBe(true)
-    expect(insideUserTemp('C:\\Users\\Alexey\\worfy-wt', windows({ TEMP: SHORT_TEMP }))).toBe(false)
+    expect(insideUserTemp('C:\\Users\\runneradmin\\worfy-wt', windows({ TEMP: SHORT_TEMP }))).toBe(false)
   })
 
   it('without TEMP the folder of TMP counts, as os.tmpdir() reads them', () => {

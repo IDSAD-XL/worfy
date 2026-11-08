@@ -182,10 +182,10 @@ describe('tickets.read', () => {
     expect(await relativeToRoot('\\\\host\\share\\p', '\\\\other\\share\\01-a.md', win32, { real })).toBeNull()
     // A root that is a link: a file inside its real folder is relative to that folder; one outside
     // it to the root as written, so path.resolve(root, relative) is the file again.
-    const linked = (path: string) => Promise.resolve(path === '/home/p' ? '/volume/p' : path)
-    expect(await relativeToRoot('/home/p', '/volume/p/.scratch/e/issues/01-a.md', posix, { real: linked })).toBe('.scratch/e/issues/01-a.md')
-    expect(await relativeToRoot('/home/p', '/volume/wf/01-a.md', posix, { real: linked })).toBe('../../volume/wf/01-a.md')
-    expect(posix.resolve('/home/p', '../../volume/wf/01-a.md')).toBe('/volume/wf/01-a.md')
+    const linked = (path: string) => Promise.resolve(path === '/home/someone' ? '/volume/p' : path)
+    expect(await relativeToRoot('/home/someone', '/volume/p/.scratch/e/issues/01-a.md', posix, { real: linked })).toBe('.scratch/e/issues/01-a.md')
+    expect(await relativeToRoot('/home/someone', '/volume/wf/01-a.md', posix, { real: linked })).toBe('../../volume/wf/01-a.md')
+    expect(posix.resolve('/home/someone', '../../volume/wf/01-a.md')).toBe('/volume/wf/01-a.md')
   })
 
   it('refuses a Ticket file that is a link out of the Project and its Workflow folder', async () => {

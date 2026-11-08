@@ -17,13 +17,13 @@ import type { WorkflowModel } from '../../src/shared/workflow/types'
 // signals of its work, strongest first, or from the user's manual Binding.
 
 const workflow: BindingWorkflow = {
-  epics: ['worfy-mvp', 'auction'],
+  epics: ['worfy-mvp', 'auberge'],
   tickets: [
     { epic: 'worfy-mvp', num: 7, state: 'work' },
     { epic: 'worfy-mvp', num: 12, state: 'open' },
     { epic: 'worfy-mvp', num: 16, state: 'open' },
-    { epic: 'auction', num: 12, state: 'done' },
-    { epic: 'auction', num: 30, state: 'open' },
+    { epic: 'auberge', num: 12, state: 'done' },
+    { epic: 'auberge', num: 30, state: 'open' },
     { epic: 'worfy-mvp', num: 30, state: 'open' },
   ],
 }
@@ -42,15 +42,15 @@ describe('resolveBinding: signals in order of strength', () => {
   })
 
   it('the manual Binding beats every signal', () => {
-    const input = { manual: { kind: 'epic' as const, epic: 'auction' }, signals: signals({ claim: claim('worfy-mvp', 12), gitBranch: 'worfy-mvp/07' }) }
-    expect(resolveBinding(input, workflow)).toEqual({ target: { kind: 'epic', epic: 'auction' }, source: 'manual', detail: null })
+    const input = { manual: { kind: 'epic' as const, epic: 'auberge' }, signals: signals({ claim: claim('worfy-mvp', 12), gitBranch: 'worfy-mvp/07' }) }
+    expect(resolveBinding(input, workflow)).toEqual({ target: { kind: 'epic', epic: 'auberge' }, source: 'manual', detail: null })
   })
 
   it('a launch Binding (ticket 23) is weaker than the manual one and stronger than `ticket claim`', () => {
     const launch = { kind: 'ticket' as const, epic: 'worfy-mvp', num: 16 }
-    const strong = signals({ claim: claim('worfy-mvp', 12), skill: { name: 'epic-wave', args: 'auction' }, gitBranch: 'worfy-mvp/07' })
+    const strong = signals({ claim: claim('worfy-mvp', 12), skill: { name: 'epic-wave', args: 'auberge' }, gitBranch: 'worfy-mvp/07' })
     expect(resolveBinding({ launch, signals: strong }, workflow)).toEqual({ target: launch, source: 'launch', detail: null })
-    expect(resolveBinding({ manual: { kind: 'epic', epic: 'auction' }, launch, signals: strong }, workflow)).toEqual({ target: { kind: 'epic', epic: 'auction' }, source: 'manual', detail: null })
+    expect(resolveBinding({ manual: { kind: 'epic', epic: 'auberge' }, launch, signals: strong }, workflow)).toEqual({ target: { kind: 'epic', epic: 'auberge' }, source: 'manual', detail: null })
     expect(resolveBinding({ launch: null, signals: strong }, workflow)?.source).toBe('claim')
     expect(BINDING_RULES.map((rule) => rule.name).slice(0, 3)).toEqual(['manual', 'launch', 'claim'])
     expect(bindingReason({ target: launch, source: 'launch', detail: null })).toBe('launched')
@@ -78,7 +78,7 @@ describe('resolveBinding: signals in order of strength', () => {
   // worfy-windows ticket 08: on Windows cwd comes with `\`.
   it('binds a Windows cwd in .claude\\worktrees\\NN, or in a folder inside it, to Ticket NN', () => {
     const windows: BindingWorkflow = { epics: ['worfy-windows'], tickets: [{ epic: 'worfy-windows', num: 5, state: 'open' }] }
-    for (const cwd of ['C:\\r\\.claude\\worktrees\\05', 'C:\\r\\.claude\\worktrees\\05\\src\\main', 'C:/r/.claude/worktrees/05', 'C:\\Users\\a\\.claude\\worfy-harness\\worktrees\\r\\05\\src']) {
+    for (const cwd of ['C:\\r\\.claude\\worktrees\\05', 'C:\\r\\.claude\\worktrees\\05\\src\\main', 'C:/r/.claude/worktrees/05', 'C:\\Users\\someone\\.claude\\worfy-harness\\worktrees\\r\\05\\src']) {
       expect(resolveBinding({ signals: signals({ cwd, gitBranch: 'HEAD' }) }, windows), cwd).toMatchObject({ target: { kind: 'ticket', epic: 'worfy-windows', num: 5 }, source: 'worktree' })
     }
     expect(resolveBinding({ signals: signals({ cwd: 'C:\\r\\.claude\\worktrees\\05' }) }, windows)?.detail).toBe('.claude/worktrees/05')
@@ -116,7 +116,7 @@ describe('resolveBinding: signals in order of strength', () => {
       detail: '/epic-wave волна 9 эпика worfy-mvp',
     })
     // Without the workflow model, the last word that can be an Epic's name.
-    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'wave 2 of auction' } }) }, undefined)?.target).toEqual({ kind: 'epic', epic: 'auction' })
+    expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'wave 2 of auberge' } }) }, undefined)?.target).toEqual({ kind: 'epic', epic: 'auberge' })
     expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'волна 2' } }) }, workflow)).toBeNull()
     // The text the Run wave default sends since ticket 30: the Wave's Tickets, then the Epic.
     expect(resolveBinding({ signals: signals({ skill: { name: 'epic-wave', args: 'Ticket-ы 11, 23 эпика worfy-mvp' } }) }, workflow)).toEqual({
@@ -166,16 +166,16 @@ describe('resolveBinding: signals in order of strength', () => {
 
   it('a branch the workflow model names as a Ticket\'s (`Branch:`, Silent mode) binds to it; one it does not name, does not (worfy-harness ticket 23)', () => {
     const silent: BindingWorkflow = {
-      epics: ['atakama'],
+      epics: ['atalaya'],
       tickets: [
-        { epic: 'atakama', num: 5, state: 'work', branch: 'fix/x' },
-        { epic: 'atakama', num: 6, state: 'open', branch: null },
-        { epic: 'atakama', num: 7, state: 'open', branch: 'shared/name' },
-        { epic: 'atakama', num: 8, state: 'open', branch: 'shared/name' },
+        { epic: 'atalaya', num: 5, state: 'work', branch: 'fix/x' },
+        { epic: 'atalaya', num: 6, state: 'open', branch: null },
+        { epic: 'atalaya', num: 7, state: 'open', branch: 'shared/name' },
+        { epic: 'atalaya', num: 8, state: 'open', branch: 'shared/name' },
       ],
     }
-    expect(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, silent)).toEqual({ target: { kind: 'ticket', epic: 'atakama', num: 5 }, source: 'branch', detail: 'fix/x' })
-    expect(resolveBinding({ signals: signals({ gitBranch: 'refs/heads/fix/x' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atakama', num: 5 })
+    expect(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, silent)).toEqual({ target: { kind: 'ticket', epic: 'atalaya', num: 5 }, source: 'branch', detail: 'fix/x' })
+    expect(resolveBinding({ signals: signals({ gitBranch: 'refs/heads/fix/x' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atalaya', num: 5 })
     expect(bindingReason(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, silent)!)).toBe('branch fix/x')
     // Not named by the model, or named by two Tickets: no Binding by branch.
     expect(resolveBinding({ signals: signals({ gitBranch: 'fix/y' }) }, silent)).toBeNull()
@@ -183,24 +183,24 @@ describe('resolveBinding: signals in order of strength', () => {
     // Without the model the branch names nothing.
     expect(resolveBinding({ signals: signals({ gitBranch: 'fix/x' }) }, undefined)).toBeNull()
     // `<epic>/<NN>` binds as before.
-    expect(resolveBinding({ signals: signals({ gitBranch: 'atakama/06' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atakama', num: 6 })
+    expect(resolveBinding({ signals: signals({ gitBranch: 'atalaya/06' }) }, silent)?.target).toEqual({ kind: 'ticket', epic: 'atalaya', num: 6 })
   })
 
   it('a cwd in <Harness home>/worktrees/<project>/<NN> binds like .claude/worktrees/<NN> (worfy-harness ticket 23)', () => {
-    const cwd = '/Users/a/.claude/worfy-harness/worktrees/atakama/16/api/src'
+    const cwd = '/Users/someone/.claude/worfy-harness/worktrees/atalaya/16/api/src'
     expect(resolveBinding({ signals: signals({ cwd, gitBranch: 'fix/unknown' }) }, workflow)).toEqual({
       target: { kind: 'ticket', epic: 'worfy-mvp', num: 16 },
       source: 'worktree',
-      detail: 'worktrees/atakama/16',
+      detail: 'worktrees/atalaya/16',
     })
-    expect(resolveBinding({ signals: signals({ cwd: '/Users/a/.claude/worfy-harness/worktrees/atakama/review-16' }) }, workflow)).toBeNull()
+    expect(resolveBinding({ signals: signals({ cwd: '/Users/someone/.claude/worfy-harness/worktrees/atalaya/review-16' }) }, workflow)).toBeNull()
     // The in-repository form is unchanged.
     expect(resolveBinding({ signals: signals({ cwd: '/repo/.claude/worktrees/16-x/src' }) }, workflow)?.target).toEqual({ kind: 'ticket', epic: 'worfy-mvp', num: 16 })
   })
 
   it('takes the rules as a list, so a later ticket adds one', () => {
-    const always: BindingRule = { name: 'always', resolve: () => ({ target: { kind: 'epic', epic: 'auction' }, source: 'skill', detail: 'x' }) }
-    expect(resolveBinding({}, workflow, [...BINDING_RULES, always])?.target).toEqual({ kind: 'epic', epic: 'auction' })
+    const always: BindingRule = { name: 'always', resolve: () => ({ target: { kind: 'epic', epic: 'auberge' }, source: 'skill', detail: 'x' }) }
+    expect(resolveBinding({}, workflow, [...BINDING_RULES, always])?.target).toEqual({ kind: 'epic', epic: 'auberge' })
     expect(BINDING_RULES.map((rule) => rule.name)).toEqual(['manual', 'launch', 'claim', 'epic-wave', 'branch-or-worktree', 'ship-ticket', 'task'])
   })
 })
@@ -288,9 +288,9 @@ describe('extendSignals', () => {
     state = extendSignals(state, [skillTool('/ship-ticket', 'worfy-mvp 7')], { subagent: false })
     expect(state.signals.skill).toEqual({ name: 'ship-ticket', args: 'worfy-mvp 7' })
     // Another plugin's skill of the same name is not the Harness: the last Harness call stays.
-    state = extendSignals(state, [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auction</command-args>'), skillTool('other:ship-ticket', 'auction 30')], { subagent: false })
+    state = extendSignals(state, [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auberge</command-args>'), skillTool('other:ship-ticket', 'auberge 30')], { subagent: false })
     expect(state.signals.skill).toEqual({ name: 'ship-ticket', args: 'worfy-mvp 7' })
-    const other = extendSignals(emptySignalState(), [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auction</command-args>'), skillTool('other:ship-ticket', 'auction 30')], { subagent: false })
+    const other = extendSignals(emptySignalState(), [userText('<command-name>/other:epic-wave</command-name>\n<command-args>auberge</command-args>'), skillTool('other:ship-ticket', 'auberge 30')], { subagent: false })
     expect(other.signals.skill).toBeNull()
   })
 
@@ -315,23 +315,23 @@ describe('extendSignals', () => {
   })
 
   it('in a Subagent file, takes the Ticket path from the first prompt only', () => {
-    const prompt = 'Тикет: /Users/x/repo/.scratch/worfy-mvp/issues/12-рамка.md (один файл); соседи: .scratch/worfy-mvp/issues/16-привязка.md'
+    const prompt = 'Тикет: /Users/someone/repo/.scratch/worfy-mvp/issues/12-рамка.md (один файл); соседи: .scratch/worfy-mvp/issues/16-привязка.md'
     let state = extendSignals(emptySignalState(), [userText(prompt, { isSidechain: true, cwd: '/repo' })], { subagent: true })
     expect(state.signals.task).toEqual({ epic: 'worfy-mvp', num: 12 })
-    state = extendSignals(state, [userText('now .scratch/auction/issues/30-x.md', { isSidechain: true })], { subagent: true })
+    state = extendSignals(state, [userText('now .scratch/auberge/issues/30-x.md', { isSidechain: true })], { subagent: true })
     expect(state.signals.task).toEqual({ epic: 'worfy-mvp', num: 12 })
-    const blocks = extendSignals(emptySignalState(), [line({ type: 'user', message: { content: [{ type: 'text', text: 'see .scratch/auction/issues/30-x.md' }] } })], { subagent: true })
-    expect(blocks.signals.task).toEqual({ epic: 'auction', num: 30 })
+    const blocks = extendSignals(emptySignalState(), [line({ type: 'user', message: { content: [{ type: 'text', text: 'see .scratch/auberge/issues/30-x.md' }] } })], { subagent: true })
+    expect(blocks.signals.task).toEqual({ epic: 'auberge', num: 30 })
   })
 
   it('in a Subagent file, takes a Ticket path written with `\\` (worfy-windows ticket 08)', () => {
-    const prompt = 'Тикет: C:\\Users\\x\\repo\\.scratch\\worfy-windows\\issues\\05-x.md'
+    const prompt = 'Тикет: C:\\Users\\someone\\repo\\.scratch\\worfy-windows\\issues\\05-x.md'
     const state = extendSignals(emptySignalState(), [userText(prompt, { isSidechain: true, cwd: 'C:\\repo' })], { subagent: true })
     expect(state.signals.task).toEqual({ epic: 'worfy-windows', num: 5 })
   })
 
   it('reads a claim after a Windows path to the ticket script', () => {
-    const state = extendSignals(emptySignalState(), [bash('C:\\Users\\x\\bin\\ticket claim worfy-windows 05')], { subagent: false })
+    const state = extendSignals(emptySignalState(), [bash('C:\\Users\\someone\\bin\\ticket claim worfy-windows 05')], { subagent: false })
     expect(state.signals.claim).toMatchObject({ epic: 'worfy-windows', num: 5 })
   })
 

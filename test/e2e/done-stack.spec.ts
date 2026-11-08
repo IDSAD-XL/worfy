@@ -12,7 +12,7 @@ import { settled } from './wait'
 import { catScript } from '../harness-node'
 
 // worfy-week ticket 11 (ADR-0039): opening the done stack of an Epic frame does not move the open
-// columns. The Epic follows notifications-telegram of Auction: more done Tickets than open ones,
+// columns. The Epic follows notifications-telegram of Auberge: more done Tickets than open ones,
 // and the Tickets of Level 1–3 blocked by done Tickets low in the done column. Before the fix ELK
 // pulled those Tickets down to their done blockers once the stack opened.
 

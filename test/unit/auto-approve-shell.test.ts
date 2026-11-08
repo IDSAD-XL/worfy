@@ -5,10 +5,10 @@ import { analyze, isNewTempFolder, newTempFolderName, REPOSITORY, UNKNOWN, type 
 
 const posix: AnalyzeContext = {
   cwd: '/tmp/demo',
-  env: { HOME: '/home/demo', TMPDIR: '/tmp/demo-tmp/', M: '/tmp/demo/m', d: 'build', SPACED: 'a b', STAR: 'a*', EMPTY: '', NEWLINE: 'a\nb', QUESTION: 'a?' },
+  env: { HOME: '/home/someone', TMPDIR: '/tmp/demo-tmp/', M: '/tmp/demo/m', d: 'build', SPACED: 'a b', STAR: 'a*', EMPTY: '', NEWLINE: 'a\nb', QUESTION: 'a?' },
   platform: 'linux',
 }
-const windows: AnalyzeContext = { cwd: 'C:\\work', env: { HOME: 'C:\\Users\\demo', TMPDIR: 'C:\\Temp' }, platform: 'win32' }
+const windows: AnalyzeContext = { cwd: 'C:\\work', env: { HOME: 'C:\\Users\\someone', TMPDIR: 'C:\\Temp' }, platform: 'win32' }
 
 const temp1 = `/tmp/demo-tmp/${newTempFolderName(1)}`
 
@@ -73,7 +73,7 @@ describe('the examples of the spec', () => {
       { program: 'cd', cwd: '/tmp/demo' },
       { program: 'exit', cwd: '/tmp/demo' },
       { program: 'rm', cwd: '/tmp/demo/w', deletes: ['/tmp/demo/w/build/*'] },
-      { program: 'rm', cwd: '/tmp/demo/w', deletes: ['/home/demo/.cache/demo'] },
+      { program: 'rm', cwd: '/tmp/demo/w', deletes: ['/home/someone/.cache/demo'] },
     ])
   })
 
@@ -349,7 +349,7 @@ describe('outside the grammar: judged false', () => {
     ['git diff with a path outside the repository', 'git diff /dev/null ~/.ssh/id_rsa', 'a git read outside the repository'],
     ['git diff --no-index', 'git diff --no-index ~/.ssh/id_rsa /dev/null', 'a git read outside the repository'],
     ['git diff --no-index by a prefix', 'git diff --no-i a b', 'a git read outside the repository'],
-    ['git blame --contents outside the repository', 'git blame --contents=/home/demo/.ssh/id_rsa f', 'a git read outside the repository'],
+    ['git blame --contents outside the repository', 'git blame --contents=/home/someone/.ssh/id_rsa f', 'a git read outside the repository'],
     ['git log with a path outside the repository', 'git log --pretty=x ~/.ssh', 'a git read outside the repository'],
     ['git diff with a .. path', 'git diff HEAD ../secret', 'a git read outside the repository'],
     ['a value glued to a short git option that may name a file', 'git diff -O/tmp/order', 'a git option whose value may name a file'],
@@ -377,8 +377,8 @@ describe('outside the grammar: judged false', () => {
     'a relative TMPDIR on Windows': { ...windows, env: { TMPDIR: 'tmp' } },
     'IFS in the environment': { ...posix, env: { ...posix.env, IFS: ' ' } },
     'a relative cd with CDPATH': { ...posix, env: { ...posix.env, CDPATH: '/tmp' } },
-    'a glob character in HOME': { ...posix, env: { ...posix.env, HOME: '/home/de*mo' } },
-    'mktemp without TMPDIR': { ...posix, env: { HOME: '/home/demo' } },
+    'a glob character in HOME': { ...posix, env: { ...posix.env, HOME: '/home/someone*' } },
+    'mktemp without TMPDIR': { ...posix, env: { HOME: '/home/someone' } },
     'git with GIT_WORK_TREE': { ...posix, env: { ...posix.env, GIT_WORK_TREE: '/x' } },
     'a UNC path on Windows': { cwd: 'C:\\work', env: {}, platform: 'win32' },
   }
@@ -443,7 +443,7 @@ describe('words', () => {
   })
 
   it('~ at the start of a word, and literal elsewhere', () => {
-    expect(words('printf %s ~ ~/x HEAD~1 a#b')).toEqual([['printf', '%s', '/home/demo', '/home/demo/x', 'HEAD~1', 'a#b']])
+    expect(words('printf %s ~ ~/x HEAD~1 a#b')).toEqual([['printf', '%s', '/home/someone', '/home/someone/x', 'HEAD~1', 'a#b']])
   })
 
   it('a comment', () => {
@@ -465,7 +465,7 @@ describe('the table', () => {
   })
 
   it('relative, absolute and home paths, . and .. kept for the resolution', () => {
-    expect(brief('rm -rf -- ./x ../y /abs ~/z -w')).toEqual([{ program: 'rm', cwd: '/tmp/demo', deletes: ['/tmp/demo/./x', '/tmp/demo/../y', '/abs', '/home/demo/z', '/tmp/demo/-w'] }])
+    expect(brief('rm -rf -- ./x ../y /abs ~/z -w')).toEqual([{ program: 'rm', cwd: '/tmp/demo', deletes: ['/tmp/demo/./x', '/tmp/demo/../y', '/abs', '/home/someone/z', '/tmp/demo/-w'] }])
   })
 
   it('rmdir, mv, cp, mkdir, touch, tee', () => {
@@ -528,7 +528,7 @@ describe('the table', () => {
       { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/tmp/demo/HEAD~3'] },
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY] },
       { program: 'git', cwd: '/tmp/demo', writes: [REPOSITORY], network: true },
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/someone/.gitconfig', '/home/someone/.config/git/config'] },
       { program: 'git', cwd: '/tmp/demo', writes: [UNKNOWN] },
       { program: 'git', cwd: '/tmp/demo', writes: [UNKNOWN] },
     ])
@@ -569,10 +569,10 @@ describe('the table', () => {
   it('cd with no operand goes home; cd || exit drops the failed branch', () => {
     expect(brief('cd && rm a; cd /tmp/demo/w || exit 1; rm b')).toEqual([
       { program: 'cd', cwd: '/tmp/demo' },
-      { program: 'rm', cwd: '/home/demo', deletes: ['/home/demo/a'] },
-      { program: 'cd', cwd: '/home/demo' },
+      { program: 'rm', cwd: '/home/someone', deletes: ['/home/someone/a'] },
+      { program: 'cd', cwd: '/home/someone' },
       { program: 'cd', cwd: '/tmp/demo' },
-      { program: 'exit', cwd: '/home/demo' },
+      { program: 'exit', cwd: '/home/someone' },
       { program: 'exit', cwd: '/tmp/demo' },
       { program: 'rm', cwd: '/tmp/demo/w', deletes: ['/tmp/demo/w/b'] },
     ])
@@ -636,9 +636,9 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
     expect(analyze('git log HEAD~3/x', posix)).toEqual({ judged: false, why: 'a zsh extended glob character in a path' })
     expect(brief('git config --local --get a.b; git config --get a.b', { ...posix, env: { ...posix.env, XDG_CONFIG_HOME: '/tmp/demo-xdg' } })).toEqual([
       { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY] },
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/tmp/demo-xdg/git/config'] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/someone/.gitconfig', '/tmp/demo-xdg/git/config'] },
     ])
-    expect(actions('git config --get a.b', windows)[0]?.reads).toEqual([REPOSITORY, 'C:\\Users\\demo\\.gitconfig', 'C:\\Users\\demo\\.config\\git\\config'])
+    expect(actions('git config --get a.b', windows)[0]?.reads).toEqual([REPOSITORY, 'C:\\Users\\someone\\.gitconfig', 'C:\\Users\\someone\\.config\\git\\config'])
     expect(analyze('git config --get a.b', { ...posix, env: {} })).toEqual({ judged: false, why: 'a git config read without HOME' })
   })
 
@@ -717,7 +717,7 @@ describe('round 2 of the review: what the policy needs and what must stay refuse
       { program: 'wget', cwd: '/tmp/demo', writes: ['/tmp/demo/f'], network: true },
     ])
     expect(brief('git config --list; set -o errexit; set +o nounset')).toEqual([
-      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'] },
+      { program: 'git', cwd: '/tmp/demo', reads: [REPOSITORY, '/home/someone/.gitconfig', '/home/someone/.config/git/config'] },
       { program: 'set', cwd: '/tmp/demo' },
       { program: 'set', cwd: '/tmp/demo' },
     ])
@@ -810,13 +810,13 @@ describe('Windows (Git Bash)', () => {
       ['C:\\work', []],
       ['C:\\work\\sub', ['C:\\work\\sub\\*']],
     ])
-    expect(deletes('rm ~/x')).toEqual(['C:\\Users\\demo\\x'])
+    expect(deletes('rm ~/x')).toEqual(['C:\\Users\\someone\\x'])
     const temp = `C:\\Temp\\${newTempFolderName(1)}`
     expect(actions('T=$(mktemp -d) && rm -rf "$T"/*', windows).map((action) => [...action.writes, ...action.deletes])).toEqual([[temp], [`${temp}\\*`]])
   })
 
   it('$PWD, $HOME and $TMPDIR as Git Bash spells them', () => {
-    expect(actions('printf %s "$PWD" "$HOME" "$TMPDIR" "$TMP" "$TEMP"', { ...windows, env: { ...windows.env, TMP: 'D:\\t', TEMP: 'C:/t', OTHER: 'C:\\o' } })[0]?.args).toEqual(['%s', '/c/work', '/c/Users/demo', '/c/Temp', '/d/t', '/c/t'])
+    expect(actions('printf %s "$PWD" "$HOME" "$TMPDIR" "$TMP" "$TEMP"', { ...windows, env: { ...windows.env, TMP: 'D:\\t', TEMP: 'C:/t', OTHER: 'C:\\o' } })[0]?.args).toEqual(['%s', '/c/work', '/c/Users/someone', '/c/Temp', '/d/t', '/c/t'])
     expect(actions('printf %s "$OTHER"', { ...windows, env: { OTHER: 'C:\\o' } })[0]?.args).toEqual(['%s', 'C:\\o'])
   })
 
@@ -827,7 +827,7 @@ describe('Windows (Git Bash)', () => {
   })
 
   it('the same command on Linux and on Windows lists the same actions', () => {
-    const linux = { ...posix, cwd: '/c/work', env: { HOME: '/c/Users/demo', TMPDIR: '/c/Temp' } }
+    const linux = { ...posix, cwd: '/c/work', env: { HOME: '/c/Users/someone', TMPDIR: '/c/Temp' } }
     const toWindows = (path: string): string => path.replace(/^\/c/, 'C:').replaceAll('/', '\\')
     for (const command of ['cd sub && rm -rf build/* "$HOME/x"', 'T=$(mktemp -d) && cp a "$T"/b', 'git -C sub clean -fd', "zsh -c 'cd a || exit\nrm -rf b'", 'rm -rf ~/x/*']) {
       // The words may spell a path either way; what the policy reads is the same.
@@ -891,9 +891,9 @@ describe('the variables whose value the command surely gets (AnalyzeContext.know
   it('git config --get reads the user\'s config from a known HOME, and from both places while XDG_CONFIG_HOME is not known', () => {
     expect(analyze('git config --get a.b', known(['TMPDIR']))).toEqual({ judged: false, why: 'a git config read without HOME' })
     const xdg = { ...posix, env: { ...posix.env, XDG_CONFIG_HOME: '/tmp/demo-xdg' } }
-    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME', 'XDG_CONFIG_HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/tmp/demo-xdg/git/config'])
-    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config', '/tmp/demo-xdg/git/config'])
+    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME', 'XDG_CONFIG_HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/someone/.gitconfig', '/tmp/demo-xdg/git/config'])
+    expect(actions('git config --get a.b', { ...xdg, known: new Set(['HOME']) })[0]?.reads).toEqual([REPOSITORY, '/home/someone/.gitconfig', '/home/someone/.config/git/config', '/tmp/demo-xdg/git/config'])
     // Without XDG_CONFIG_HOME in the environment there is only the default place.
-    expect(actions('git config --get a.b', known(['HOME']))[0]?.reads).toEqual([REPOSITORY, '/home/demo/.gitconfig', '/home/demo/.config/git/config'])
+    expect(actions('git config --get a.b', known(['HOME']))[0]?.reads).toEqual([REPOSITORY, '/home/someone/.gitconfig', '/home/someone/.config/git/config'])
   })
 })

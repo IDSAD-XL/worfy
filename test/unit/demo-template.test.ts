@@ -64,11 +64,11 @@ describe('the Profile draft of the Demo project', () => {
   })
 
   it('names the worktrees of the repository in shell commands that survive a space and a quote in the path', () => {
-    const root = "/Users/Ann O'Neil/worfy-demo"
+    const root = "/Users/Someone O'Neil/worfy-demo"
     const { draft } = demoTemplate({ root, profileName: 'worfy-demo' })
     const worktree = draft.profile.worktree as Record<string, string>
     expect(worktree.root).toBe(`${join(root, '.claude', 'worktrees')}/`)
-    expect(worktree.implementer).toBe("git worktree add -b <branch> '/Users/Ann O'\\''Neil/worfy-demo/.claude/worktrees/<NN>' main")
-    expect(worktree.reviewer).toBe("git worktree add '/Users/Ann O'\\''Neil/worfy-demo/.claude/worktrees/review-<review-target>' --detach <branch>")
+    expect(worktree.implementer).toBe("git worktree add -b <branch> '/Users/Someone O'\\''Neil/worfy-demo/.claude/worktrees/<NN>' main")
+    expect(worktree.reviewer).toBe("git worktree add '/Users/Someone O'\\''Neil/worfy-demo/.claude/worktrees/review-<review-target>' --detach <branch>")
   })
 })

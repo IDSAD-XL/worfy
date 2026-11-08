@@ -264,12 +264,12 @@ describe('the Session a notification opens', () => {
 
   it('on Windows, finds a registry Session whose note spells the Project root with `\\` while the Project list keeps git\'s `C:/` (worfy-windows ticket 49)', async () => {
     const { notificationTarget } = await import('../../src/renderer/session/notification-target')
-    const project = { id: 'worfy-d5750da7', path: 'C:/Users/Alexey/worfy' }
-    const found = { nodeId: 'session:ext-1', projectId: 'worfy-d5750da7', external: { sessionId: 'ext-1' } }
-    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\worfy' }, project)).toEqual(found)
-    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'c:\\Users\\Alexey\\worfy\\' }, project)).toEqual(found)
-    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\worfy-two' }, project)).toBeNull()
-    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\Worfy' }, project)).toBeNull()
+    const project = { id: 'worfy-635604d1', path: 'C:/Users/Someone/worfy' }
+    const found = { nodeId: 'session:ext-1', projectId: 'worfy-635604d1', external: { sessionId: 'ext-1' } }
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Someone\\worfy' }, project)).toEqual(found)
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'c:\\Users\\Someone\\worfy\\' }, project)).toEqual(found)
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Someone\\worfy-two' }, project)).toBeNull()
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Someone\\Worfy' }, project)).toBeNull()
   })
 
   it('a note of Linked machine A finds the Session Node of A\'s Project in a window on A; the same id without a Machine finds the Session of this Machine', async () => {

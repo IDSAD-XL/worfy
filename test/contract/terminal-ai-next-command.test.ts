@@ -181,7 +181,7 @@ const warning = () => ({ utilization: 0.3, resetsAt: Date.now() / 1000 + 3600, s
 
 // ---- the handler, without a shell ----------------------------------------------------------------------
 
-const STATE: ShellState = { cwd: '/Users/me/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['git status'], lastOutput: null }
+const STATE: ShellState = { cwd: '/Users/someone/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['git status'], lastOutput: null }
 
 /** Calls a handler as the link does, with a shell whose state the test gives. */
 async function asked(w: World, options: { line?: string; state?: ShellState | null; signal?: AbortSignal; feature?: ShellFeature } = {}) {

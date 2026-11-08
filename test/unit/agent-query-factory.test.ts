@@ -22,13 +22,13 @@ vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 const { queryFactoryFromEnv, sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
 
 /** The environment env.ts hands over: the login shell's, already without API keys. */
-const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/opt/homebrew/bin:/usr/bin:/bin', SHELL: '/bin/zsh' }
+const LOGIN_ENV = { HOME: '/Users/someone', PATH: '/opt/homebrew/bin:/usr/bin:/bin', SHELL: '/bin/zsh' }
 const SDK_QUERY = { kind: 'sdk query' }
 const RESOURCES = '/Applications/worfy.app/Contents/Resources'
 
 const request = (): QueryRequest => ({
   prompt: (async function* () {})(),
-  cwd: '/Users/tester/project',
+  cwd: '/Users/someone/project',
   resume: 'sdk-123',
   stderr: () => undefined,
   settings: DEFAULT_SETTINGS,
@@ -100,8 +100,8 @@ describe('sdkQueryFactory', () => {
     await sdkQueryFactory()({ ...request(), unattended: true, environment: { TMPDIR: '/tmp/run-tmp', GIT_NO_LAZY_FETCH: '1' }, toolUse: (use) => seen.push(use) })
     const options = sdkOptions() as { env: Record<string, string>; hooks: { PreToolUse: { hooks: ((input: unknown, id: string, extra: unknown) => Promise<unknown>)[] }[] } }
     expect(options.env).toMatchObject({ ...LOGIN_ENV, TMPDIR: '/tmp/run-tmp', GIT_NO_LAZY_FETCH: '1' })
-    await options.hooks.PreToolUse[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: '/Users/tester/project/wt', tool_use_id: 'toolu_1' }, 'toolu_1', { signal: new AbortController().signal })
-    expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: '/Users/tester/project/wt', scratchpad: null }])
+    await options.hooks.PreToolUse[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: '/Users/someone/project/wt', tool_use_id: 'toolu_1' }, 'toolu_1', { signal: new AbortController().signal })
+    expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: '/Users/someone/project/wt', scratchpad: null }])
   })
 
   it('tells the Session the whole environment its Claude Code process starts with (worfy-auto-approve ticket 04, round 3 of PR #1460)', async () => {

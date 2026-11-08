@@ -37,7 +37,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
 vi.mock('electron', () => ({ app: { isPackaged: false } }))
 vi.mock('../../src/main/agent/env', async (original) => ({
   ...(await original<object>()),
-  agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/u' }, from: 'login-shell', error: null }),
+  agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/someone' }, from: 'login-shell', error: null }),
 }))
 vi.mock('../../src/main/agent/limits', () => ({
   appLimits: () => ({

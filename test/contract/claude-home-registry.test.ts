@@ -95,7 +95,7 @@ const execFileAsync = promisify(execFile)
 /** Runs git for test setup, never against the repository the tests run in. */
 const git = async (cwd: string, ...args: string[]): Promise<string> => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')))
-  const { stdout } = await execFileAsync('git', ['-C', cwd, '-c', 'user.name=worfy-test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { env })
+  const { stdout } = await execFileAsync('git', ['-C', cwd, '-c', 'user.name=worfy-test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { env })
   return stdout
 }
 
@@ -169,8 +169,8 @@ describe('project folder names', () => {
   // As Claude Code 2.1.233 named them on Windows (evidence of worfy-windows ticket 01, section 12).
   it.each([
     ['C:\\a\\b', 'C--a-b'],
-    ['C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\with space', 'C--Users-Alexey-AppData-Local-Temp-worfy-01-with-space'],
-    ['C:\\Users\\Alexey\\AppData\\Local\\Temp\\worfy-01\\кириллица', 'C--Users-Alexey-AppData-Local-Temp-worfy-01----------'],
+    ['C:\\Users\\Someone\\AppData\\Local\\Temp\\worfy-01\\with space', 'C--Users-Someone-AppData-Local-Temp-worfy-01-with-space'],
+    ['C:\\Users\\Someone\\AppData\\Local\\Temp\\worfy-01\\кириллица', 'C--Users-Someone-AppData-Local-Temp-worfy-01----------'],
   ])('Windows: %s → %s', (cwd, dir) => {
     expect(projectDirName(cwd)).toBe(dir)
   })
@@ -487,11 +487,11 @@ describe('Session history', () => {
     expect(third).toMatchObject({ title: 'Synthetic wove run', modifiedAt: later.getTime() })
   })
 
-  it('builds the history index of an Auction-sized Project in at most one second', async () => {
-    // Auction (ticket 09, "Volumes"): 88 Sessions in the root and the rest in worktrees. Files are
+  it('builds the history index of an Auberge-sized Project in at most one second', async () => {
+    // Auberge (ticket 09, "Volumes"): 88 Sessions in the root and the rest in worktrees. Files are
     // larger than the head and tail windows, so the list has to skip their middles.
     const home = await tempDir()
-    const root = '/Users/test/auction'
+    const root = '/Users/test/auberge'
     const body = `${Array.from({ length: 600 }, (_, n) => assistantLine('y'.repeat(400), `l-${n}`)).join('\n')}\n`
     const write = async (dir: string, count: number, prefix: string) => {
       await mkdir(join(home, 'projects', dir), { recursive: true })

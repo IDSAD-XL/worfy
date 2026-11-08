@@ -141,9 +141,9 @@ describe('the hook inputs of the pinned Codex', () => {
       for (const input of recorded(event)) expect(isCodexInput(input), `${event}: ${JSON.stringify(input)}`).toBe(true)
     }
     // Claude Code's inputs: no turn_id, a transcript named after the session.
-    expect(isCodexInput({ session_id: 's', transcript_path: '/home/u/.claude/projects/p/0b1c.jsonl', cwd: '/p', hook_event_name: 'Stop', stop_hook_active: false })).toBe(false)
-    expect(isCodexInput({ session_id: 's', transcript_path: 'C:\\Users\\u\\.claude\\projects\\p\\0b1c.jsonl', cwd: 'C:\\p', hook_event_name: 'SessionEnd', reason: 'other' })).toBe(false)
-    expect(isCodexInput({ session_id: 's', transcript_path: 'C:\\Users\\u\\.codex\\sessions\\2026\\11\\03\\rollout-1.jsonl', cwd: 'C:\\p', hook_event_name: 'SessionEnd', reason: 'other' })).toBe(true)
+    expect(isCodexInput({ session_id: 's', transcript_path: '/home/someone/.claude/projects/p/0b1c.jsonl', cwd: '/p', hook_event_name: 'Stop', stop_hook_active: false })).toBe(false)
+    expect(isCodexInput({ session_id: 's', transcript_path: 'C:\\Users\\someone\\.claude\\projects\\p\\0b1c.jsonl', cwd: 'C:\\p', hook_event_name: 'SessionEnd', reason: 'other' })).toBe(false)
+    expect(isCodexInput({ session_id: 's', transcript_path: 'C:\\Users\\someone\\.codex\\sessions\\2026\\11\\03\\rollout-1.jsonl', cwd: 'C:\\p', hook_event_name: 'SessionEnd', reason: 'other' })).toBe(true)
   })
 
   it('carry agent_type into PreToolUse inside a Subagent: the recorded apply_patch of the Subagent names it', () => {

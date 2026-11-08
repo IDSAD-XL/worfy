@@ -80,7 +80,7 @@ describe('namesTheFolder', () => {
   it('a full path is the watched folder itself, in the form Windows sends and in any other', () => {
     expect(namesTheFolder('\\\\?\\C:\\p\\repo', win32.isAbsolute)).toBe(true)
     expect(namesTheFolder('C:\\p\\repo', win32.isAbsolute)).toBe(true)
-    expect(namesTheFolder('/Users/dev/repo', posix.isAbsolute)).toBe(true)
+    expect(namesTheFolder('/Users/someone/repo', posix.isAbsolute)).toBe(true)
   })
 
   it('a name under the folder, or no name, is not', () => {

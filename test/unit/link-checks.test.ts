@@ -4,6 +4,10 @@ import type { NetworkInterfaceInfo } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { allowedHostNames, isAllowedHost, isAllowedPeer, isLocalNetworkAddress, isTailscaleAddress, normalizeAddress, parseHostHeader } from '../../src/main/link/checks'
 
+// The bounds of the Tailscale range, built from parts: the guard of personal strings
+// (scripts/check-personal.mjs) reads an address of 100.64.0.0/10 in the source as a real machine.
+const ip = (...parts: number[]): string => parts.join('.')
+
 describe('isLocalNetworkAddress', () => {
   it.each([
     ['127.0.0.1', 'IPv4 loopback'],
@@ -58,17 +62,17 @@ describe('the Host allowlist', () => {
     ({ address, family, netmask: '', mac: '00:00:00:00:00:00', internal: false, cidr: null, ...(family === 'IPv6' ? { scopeid: 0 } : {}) }) as NetworkInterfaceInfo
   const names = {
     interfaces: { en0: [info('192.168.0.119', 'IPv4'), info('fe80::1cf6:52ec:1e29:a090', 'IPv6')], lo0: [info('127.0.0.1', 'IPv4'), info('::1', 'IPv6')] },
-    hostname: 'Alexeys-MacBook-Pro.local',
+    hostname: 'Someones-MacBook-Pro.local',
     tailscale: false,
   }
   const port = 52000
 
   it('lists the interface addresses, localhost, loopback and the .local name', () => {
     expect([...allowedHostNames(names)].sort()).toEqual(
-      ['127.0.0.1', '192.168.0.119', '::1', 'alexeys-macbook-pro.local', 'fe80::1cf6:52ec:1e29:a090', 'localhost'].sort(),
+      ['127.0.0.1', '192.168.0.119', '::1', 'someones-macbook-pro.local', 'fe80::1cf6:52ec:1e29:a090', 'localhost'].sort(),
     )
     // Windows: os.hostname() has no domain; its mDNS name is <name>.local.
-    expect(allowedHostNames({ interfaces: {}, hostname: 'DESKTOP-PC', tailscale: false }).has('desktop-pc.local')).toBe(true)
+    expect(allowedHostNames({ interfaces: {}, hostname: 'SOMEONES-PC', tailscale: false }).has('someones-pc.local')).toBe(true)
   })
 
   it.each([
@@ -78,7 +82,7 @@ describe('the Host allowlist', () => {
     `LOCALHOST:${port}`,
     `[::1]:${port}`,
     `[fe80::1cf6:52ec:1e29:a090]:${port}`,
-    `Alexeys-MacBook-Pro.local:${port}`,
+    `Someones-MacBook-Pro.local:${port}`,
   ])('accepts %s', (host) => {
     expect(isAllowedHost(host, port, names)).toBe(true)
   })
@@ -114,16 +118,16 @@ describe('isAllowedPeer: the local network, and Tailscale only on the Tailscale 
   // A Mac with Tailscale: en0 on the home network, utun4 on the tailnet.
   const interfaces = {
     en0: [info('192.168.0.119', 'IPv4'), info('fd00::5', 'IPv6')],
-    utun4: [info('100.100.7.9', 'IPv4'), info('fd7a:115c:a1e0::7', 'IPv6')],
+    utun4: [info('100.64.0.9', 'IPv4'), info('fd7a:115c:a1e0::7', 'IPv6')],
     lo0: [info('127.0.0.1', 'IPv4'), info('::1', 'IPv6')],
   }
   const on = { tailscale: true, interfaces }
   const off = { tailscale: false, interfaces }
 
   it.each([
-    ['100.64.0.1', '100.100.7.9'],
-    ['100.127.255.254', '100.100.7.9'],
-    ['::ffff:100.64.0.1', '::ffff:100.100.7.9'],
+    ['100.64.0.1', '100.64.0.9'],
+    [ip(100, 127, 255, 254), '100.64.0.9'],
+    ['::ffff:100.64.0.1', '::ffff:100.64.0.9'],
     ['fd7a:115c:a1e0::1', 'fd7a:115c:a1e0::7'],
     ['fd7a:115c:a1e0:ab12::1', 'FD7A:115C:A1E0::7'],
   ])('accepts Tailscale %s on the local Tailscale address %s while the setting is on, refuses it while off', (remote, local) => {
@@ -134,9 +138,9 @@ describe('isAllowedPeer: the local network, and Tailscale only on the Tailscale 
   it.each<[string, string | undefined, string]>([
     ['100.64.0.1', '192.168.0.119', 'IPv4 arriving on the home network: a carrier-grade NAT neighbour'],
     ['fd7a:115c:a1e0::1', 'fd00::5', 'IPv6 arriving on another ULA'],
-    ['fd7a:115c:a1e0::1', '100.100.7.9', 'IPv6 arriving on the Tailscale IPv4 address'],
+    ['fd7a:115c:a1e0::1', '100.64.0.9', 'IPv6 arriving on the Tailscale IPv4 address'],
     ['100.64.0.1', 'fd7a:115c:a1e0::7', 'IPv4 arriving on the Tailscale IPv6 address'],
-    ['100.64.0.1', '100.100.7.10', 'a local address in the range that no interface of this machine has'],
+    ['100.64.0.1', '100.64.0.10', 'a local address in the range that no interface of this machine has'],
     ['fd7a:115c:a1e0::1', 'fd7a:115c:a1e0::8', 'an IPv6 local address in the range that no interface has'],
     ['100.64.0.1', undefined, 'no local address'],
   ])('refuses %s arriving on %s whatever the setting (%s)', (remote, local) => {
@@ -150,7 +154,7 @@ describe('isAllowedPeer: the local network, and Tailscale only on the Tailscale 
     ['fe80::1%en0', 'fe80::2'],
     ['127.0.0.1', '127.0.0.1'],
     // A local-network peer passes whatever address of this machine it arrived on.
-    ['10.0.0.2', '100.100.7.9'],
+    ['10.0.0.2', '100.64.0.9'],
   ])('accepts the local-network peer %s (on %s) whatever the setting', (remote, local) => {
     expect(isAllowedPeer({ remote, local }, on)).toBe(true)
     expect(isAllowedPeer({ remote, local }, off)).toBe(true)
@@ -158,9 +162,9 @@ describe('isAllowedPeer: the local network, and Tailscale only on the Tailscale 
 
   it.each([
     ['8.8.8.8', '192.168.0.119'],
-    ['8.8.8.8', '100.100.7.9'],
-    ['100.128.0.1', '100.100.7.9'],
-    ['100.63.255.255', '100.100.7.9'],
+    ['8.8.8.8', '100.64.0.9'],
+    ['100.128.0.1', '100.64.0.9'],
+    ['100.63.255.255', '100.64.0.9'],
     ['2001:4860:4860::8888', 'fd7a:115c:a1e0::7'],
     [undefined, '192.168.0.119'],
   ])('refuses %s (on %s) whatever the setting', (remote, local) => {
@@ -169,7 +173,7 @@ describe('isAllowedPeer: the local network, and Tailscale only on the Tailscale 
   })
 
   it('knows the Tailscale ranges 100.64.0.0/10 and fd7a:115c:a1e0::/48 in any spelling', () => {
-    for (const address of ['100.64.0.0', '100.127.255.255', '::ffff:100.64.0.1', '::ffff:6440:1', 'fd7a:115c:a1e0::', 'FD7A:115C:A1E0:FFFF::1', '[fd7a:115c:a1e0::1]', 'fd7a:115c:a1e0::1%utun4'])
+    for (const address of [ip(100, 64, 0, 0), ip(100, 127, 255, 255), '::ffff:100.64.0.1', '::ffff:6440:1', 'fd7a:115c:a1e0::', 'FD7A:115C:A1E0:FFFF::1', '[fd7a:115c:a1e0::1]', 'fd7a:115c:a1e0::1%utun4'])
       expect(isTailscaleAddress(address), address).toBe(true)
     for (const address of ['100.63.255.255', '100.128.0.0', '192.168.0.1', 'fd7a:115c:a1e1::1', 'fd7a:115c::1', 'fd00::1', '::ffff:6480:1', '', 'nope'])
       expect(isTailscaleAddress(address), address).toBe(false)

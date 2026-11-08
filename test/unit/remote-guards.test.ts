@@ -255,12 +255,12 @@ describe('the folder picker', () => {
       isFolder: async (path) => (asked.push(`stat ${path}`), true),
       there: async (path) => (asked.push(`lstat ${path}`), path.includes('plain')),
     }
-    const answer = await browseFolder('/home/dev', { path: posix, links: disk.links, fs })
+    const answer = await browseFolder('/home/someone', { path: posix, links: disk.links, fs })
     expect(answer.ok && answer.folders.map((folder) => [folder.name, folder.gitRepo])).toEqual([
       ['linked', false],
       ['plain', true],
     ])
     expect(disk.calls).toEqual([])
-    expect(asked.sort()).toEqual(['lstat /home/dev/linked/.git', 'lstat /home/dev/plain/.git', 'stat /home/dev/linked'])
+    expect(asked.sort()).toEqual(['lstat /home/someone/linked/.git', 'lstat /home/someone/plain/.git', 'stat /home/someone/linked'])
   })
 })

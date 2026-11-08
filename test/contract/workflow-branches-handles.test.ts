@@ -32,7 +32,7 @@ const ROUNDS = 16
 const SETTLE_MS = 400
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 const gitEnv = (): NodeJS.ProcessEnv => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-const GIT_CONFIG = ['-c', 'user.name=t', '-c', 'user.email=t@t.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'gc.auto=0']
+const GIT_CONFIG = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'gc.auto=0']
 
 /** The handles of fs.watch this process holds. */
 const fsWatches = (): number => process.getActiveResourcesInfo().filter((resource) => resource === 'FSEventWrap').length

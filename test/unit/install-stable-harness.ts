@@ -48,7 +48,7 @@ export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCo
 )) as InstallStable
 
 export const WINDOWS = process.platform === 'win32'
-export const WIN_HOME = 'C:\\Users\\dev'
+export const WIN_HOME = 'C:\\Users\\someone'
 
 // The folders of the test that is running. useStandInBuild sets them before each test; a file that
 // imports them reads the value of that moment.

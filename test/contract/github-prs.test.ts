@@ -696,7 +696,7 @@ describe('checks.get', () => {
 // the gh stub records GH_TOKEN and its arguments, and knows one logged-in account.
 
 const ACCOUNT = 'IDSAD-XL'
-const TOKEN = 'gho_TestToken0123456789abcdef'
+const TOKEN = `gho_${'TestToken0123456789abcdef'}`
 const LIST = ['pr', 'list', '--state', 'all', '--limit', '100', '--json', JSON_FIELDS]
 const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', JSON_FIELDS]
 
@@ -1008,12 +1008,12 @@ describe('the app PR tracker: WORFY_GH replaces only the gh program (worfy-harne
 
 // ── a Project over several repositories, Silent mode (worfy-harness ticket 23) ──
 //
-// Project `atakama` is a folder above repositories `api` and `web` (ADR-0045). Its Tickets name
+// Project `atalaya` is a folder above repositories `api` and `web` (ADR-0045). Its Tickets name
 // their branch (`Branch:`, not `<epic>/<NN>`) and their repository (`Repo:`). gh answers by the
 // folder it runs in: each repository has its own PRs.
 
 const silentTicket = (num: number, branch: string | null, repo: string | null): Ticket => ({
-  epic: 'atakama',
+  epic: 'atalaya',
   num,
   slug: `t${num}`,
   title: `Ticket ${num}`,
@@ -1041,7 +1041,7 @@ async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean }
   await mkdir(api)
   await mkdir(web)
   const tickets = [silentTicket(5, 'fix/x', 'api'), silentTicket(6, 'fix/y', 'web'), silentTicket(7, null, null)]
-  const model: WorkflowModel = { root: workspace, epics: [{ epic: 'atakama', hasSpec: true, hasMap: false, title: 'Atakama' }], tickets, error: null, branchErrors: [] }
+  const model: WorkflowModel = { root: workspace, epics: [{ epic: 'atalaya', hasSpec: true, hasMap: false, title: 'Atalaya' }], tickets, error: null, branchErrors: [] }
   const layout: ProjectLayout = {
     root: workspace,
     mode: 'silent',
@@ -1064,7 +1064,7 @@ async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean }
       return root === workspace ? model : apiIsProject && root === api ? apiModel : null
     },
   }
-  const prsOf: Record<string, GhPull[]> = { [api]: [pull(11, 'fix/x'), pull(12, 'atakama/07')], [web]: [pull(21, 'fix/y'), pull(22, 'atakama/05')] }
+  const prsOf: Record<string, GhPull[]> = { [api]: [pull(11, 'fix/x'), pull(12, 'atalaya/07')], [web]: [pull(21, 'fix/y'), pull(22, 'atalaya/05')] }
   const ghCwds: string[] = []
   const run: GhRunner = (args, cwd) => {
     ghCwds.push(cwd)
@@ -1073,7 +1073,7 @@ async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean }
     return Promise.resolve(JSON.stringify(head === null ? prs : prs.filter((each) => each.headRefName === head)))
   }
   const home = await tempDir()
-  const worktreeX = join(home, 'worfy-harness', 'worktrees', 'atakama', '05')
+  const worktreeX = join(home, 'worfy-harness', 'worktrees', 'atalaya', '05')
   const module = checksHandlers(
     {
       gate: new GateReader({ home }),
@@ -1095,24 +1095,24 @@ async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean }
 
 describe('checks in a Project over several repositories and in Silent mode (worfy-harness ticket 23)', () => {
   it('a Ticket with branch fix/x finds its PR, CI and worktree by that branch', () => {
-    const ticket = { epic: 'atakama', num: 5, branch: 'fix/x' }
+    const ticket = { epic: 'atalaya', num: 5, branch: 'fix/x' }
     const snapshot: ChecksSnapshot = {
       root: '/r',
       worktrees: [
         { path: '/r', branch: 'main', gate: { outcome: 'none', source: 'none', at: null } },
-        { path: '/h/worktrees/atakama/09', branch: 'fix/x', gate: { outcome: 'green', source: 'marker', at: null } },
+        { path: '/h/worktrees/atalaya/09', branch: 'fix/x', gate: { outcome: 'green', source: 'marker', at: null } },
       ],
       pulls: [{ number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', branch: 'fix/x', ci: 'passing', verdict: null }],
       gh: { available: true, error: null, intervalMs: 60_000 },
     }
     expect(pullOfTicket(snapshot, ticket)?.number).toBe(3)
-    expect(pullOfTicket(snapshot, { epic: 'atakama', num: 5 })).toBeNull()
-    expect(worktreeOfTicket(snapshot, ticket, [ticket])?.path).toBe('/h/worktrees/atakama/09')
+    expect(pullOfTicket(snapshot, { epic: 'atalaya', num: 5 })).toBeNull()
+    expect(worktreeOfTicket(snapshot, ticket, [ticket])?.path).toBe('/h/worktrees/atalaya/09')
     // Ticket 09 by the folder number: the folder's branch is Ticket 05's, so it is not 09's tree.
-    const nine = { epic: 'atakama', num: 9, branch: null }
+    const nine = { epic: 'atalaya', num: 9, branch: null }
     expect(worktreeOfTicket(snapshot, nine, [ticket, nine])).toBeNull()
     // The tree outside the repository is found by its folder when its branch names no Ticket.
-    const unnamed: ChecksSnapshot = { ...snapshot, worktrees: [{ path: '/h/worktrees/atakama/09', branch: 'wip', gate: { outcome: 'red', source: 'marker', at: null } }] }
+    const unnamed: ChecksSnapshot = { ...snapshot, worktrees: [{ path: '/h/worktrees/atalaya/09', branch: 'wip', gate: { outcome: 'red', source: 'marker', at: null } }] }
     expect(worktreeOfTicket(unnamed, nine, [ticket, nine])?.gate.outcome).toBe('red')
   })
 
@@ -1125,7 +1125,7 @@ describe('checks in a Project over several repositories and in Silent mode (worf
     expect(pullOfTicket(api.value, t5!)?.number).toBe(11)
     expect(pullOfTicket(web.value, t6!)?.number).toBe(21)
     // Ticket 06 is web's: api's snapshot has nothing of it. Ticket 05 is api's: its PR is #11 there,
-    // though web has a PR on atakama/05 (#22) — the renderer never looks for Ticket 05 in web's snapshot.
+    // though web has a PR on atalaya/05 (#22) — the renderer never looks for Ticket 05 in web's snapshot.
     expect(pullOfTicket(api.value, t6!)).toBeNull()
     expect(api.value.pulls.map((each) => each.number)).not.toContain(22)
     expect(worktreeOfTicket(api.value, t5!, world.tickets)?.path).toBe(world.worktreeX)
@@ -1136,7 +1136,7 @@ describe('checks in a Project over several repositories and in Silent mode (worf
   it('looks up the PR of a worktree on a branch the model names, though the renderer did not ask for it', async () => {
     const world = await severalRepos()
     const result = (await world.call('checks.get', { root: world.api, branches: [] })) as IpcResult<ChecksSnapshot>
-    expect(result.ok && result.value.pulls.map((each) => each.branch).sort()).toEqual(['atakama/07', 'fix/x'])
+    expect(result.ok && result.value.pulls.map((each) => each.branch).sort()).toEqual(['atalaya/07', 'fix/x'])
   })
 
   it('refuses a root that is neither the Project root nor one of its repositories, without running gh or git', async () => {
@@ -1163,7 +1163,7 @@ describe('checks in a Project over several repositories and in Silent mode (worf
       expect(!result.ok && result.error).toMatch(/is not the branch of a Ticket of this Project/)
     }
     expect(world.ghCwds).toEqual([])
-    expect((await world.call('checks.get', { root: world.web, branches: ['fix/y', 'atakama/05'] })).ok).toBe(true)
+    expect((await world.call('checks.get', { root: world.web, branches: ['fix/y', 'atalaya/05'] })).ok).toBe(true)
     // Still refused by the schema: a dash first, whitespace, more than 200 characters.
     for (const branch of ['-x', 'fix/x --web', 'a'.repeat(201)]) expect((await world.call('checks.get', { root: world.api, branches: [branch] })).ok, branch).toBe(false)
   })

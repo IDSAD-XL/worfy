@@ -17,7 +17,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 const fsp = await import('node:fs/promises')
 
-const PROJECT = 'Auction-1a2b3c4d'
+const PROJECT = 'Auberge-1a2b3c4d'
 const OTHER_PROJECT = 'worfy-5e6f7a8b'
 const EPIC = 'worfy-daily'
 

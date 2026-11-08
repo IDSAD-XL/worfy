@@ -1993,9 +1993,9 @@ describe('workflow hub', () => {
   })
 })
 
-// ── size of an Auction-like Project ──────────────────────────────────────────
+// ── size of an Auberge-like Project ──────────────────────────────────────────
 
-describe('workflow reader on an Auction-sized Project', () => {
+describe('workflow reader on an Auberge-sized Project', () => {
   it('parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of CPU time (450 ms on Windows)', async () => {
     const repo = join(dir, 'big')
     const { json, ticketCount } = generateScratch(repo)
@@ -2024,7 +2024,7 @@ describe('workflow reader on an Auction-sized Project', () => {
       expect(model.tickets.every((t) => t.files.length === 3)).toBe(true)
     }
     const best = Math.min(...samples)
-    console.info(`[workflow] Auction-sized read: CPU ${samples.map((s) => s.toFixed(0)).join(', ')} ms; wall ${wall.map((s) => s.toFixed(0)).join(', ')} ms`)
+    console.info(`[workflow] Auberge-sized read: CPU ${samples.map((s) => s.toFixed(0)).join(', ')} ms; wall ${wall.map((s) => s.toFixed(0)).join(', ')} ms`)
     // Windows on the PC, 2026-10-28, the whole file: best CPU 156–202 ms (samples 156–313; Windows counts CPU in steps of
     // about 16 ms), wall 206–235 ms with the script.
     expect(best).toBeLessThanOrEqual(process.platform === 'win32' ? 450 : 300)

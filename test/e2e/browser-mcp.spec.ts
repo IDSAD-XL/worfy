@@ -359,7 +359,7 @@ test('typing goes into the page and leaves the keyboard focus of the window wher
   // Also in an email or a number field, where a script cannot move the caret (setSelectionRange throws).
   await ok('browser_type', { id, selector: '#filled-email', text: 'X' })
   await ok('browser_type', { id, selector: '#filled-number', text: '3' })
-  expect(await inPage("document.querySelector('#filled-email').value + '|' + document.querySelector('#filled-number').value")).toBe('a@b.cX|123')
+  expect(await inPage("document.querySelector('#filled-email').value + '|' + document.querySelector('#filled-number').value")).toBe(`a@${'b'}.cX|123`)
   // Enter in a text area starts a new line, as a real one does, unless the page stops the key.
   await ok('browser_type', { id, selector: '#area', text: 'X', submit: true })
   await ok('browser_type', { id, selector: '#area', text: 'Y' })

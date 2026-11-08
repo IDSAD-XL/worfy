@@ -9,7 +9,7 @@ vi.mock('../../src/renderer/flight-recorder/open', () => ({ openRunHistory }))
 
 import { ToolbarView, type ShellView } from '../../src/renderer/shell/Toolbar'
 
-const PROJECT = { id: 'auction-00000001', name: 'auction', branch: 'main' }
+const PROJECT = { id: 'auberge-00000001', name: 'auberge', branch: 'main' }
 
 function renderToolbar(props: { project?: typeof PROJECT; view?: ShellView; onViewChange?: (view: ShellView) => void }) {
   render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} {...props} />)

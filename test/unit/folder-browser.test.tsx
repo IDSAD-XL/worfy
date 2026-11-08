@@ -13,22 +13,22 @@ const folder = (name: string, path: string, extra: { hidden?: boolean; gitRepo?:
 
 /** The folders of M by path; `null` is the start (its home folder). */
 const TABLE: Record<string, BrowseAnswer> = {
-  'C:\\Users\\me': {
+  'C:\\Users\\someone': {
     ok: true,
-    path: 'C:\\Users\\me',
+    path: 'C:\\Users\\someone',
     parent: 'C:\\Users',
     truncated: false,
-    folders: [folder('.config', 'C:\\Users\\me\\.config', { hidden: true }), folder('code', 'C:\\Users\\me\\code'), folder('locked', 'C:\\Users\\me\\locked')],
+    folders: [folder('.config', 'C:\\Users\\someone\\.config', { hidden: true }), folder('code', 'C:\\Users\\someone\\code'), folder('locked', 'C:\\Users\\someone\\locked')],
   },
-  'C:\\Users\\me\\code': {
+  'C:\\Users\\someone\\code': {
     ok: true,
-    path: 'C:\\Users\\me\\code',
-    parent: 'C:\\Users\\me',
+    path: 'C:\\Users\\someone\\code',
+    parent: 'C:\\Users\\someone',
     truncated: true,
-    folders: [folder('shop', 'C:\\Users\\me\\code\\shop', { gitRepo: true })],
+    folders: [folder('shop', 'C:\\Users\\someone\\code\\shop', { gitRepo: true })],
   },
-  'C:\\Users\\me\\locked': { ok: false, path: 'C:\\Users\\me\\locked', parent: 'C:\\Users\\me', reason: 'No permission to read C:\\Users\\me\\locked' },
-  'C:\\Users': { ok: true, path: 'C:\\Users', parent: 'C:\\', truncated: false, folders: [folder('me', 'C:\\Users\\me')] },
+  'C:\\Users\\someone\\locked': { ok: false, path: 'C:\\Users\\someone\\locked', parent: 'C:\\Users\\someone', reason: 'No permission to read C:\\Users\\someone\\locked' },
+  'C:\\Users': { ok: true, path: 'C:\\Users', parent: 'C:\\', truncated: false, folders: [folder('me', 'C:\\Users\\someone')] },
   'C:\\': { ok: true, path: 'C:\\', parent: null, truncated: false, folders: [folder('Users', 'C:\\Users')] },
 }
 
@@ -47,7 +47,7 @@ function bridge(): WorfyBridge {
       if (call.machine !== M || call.channel !== 'projects.browse') return Promise.resolve({ ok: false, error: `unexpected ${call.channel} on ${call.machine}` })
       asked.push(call.input.path)
       if (failing !== null) return Promise.resolve({ ok: true, value: { ok: false, error: failing } })
-      const path = call.input.path ?? 'C:\\Users\\me'
+      const path = call.input.path ?? 'C:\\Users\\someone'
       const answer = { ok: true, value: { ok: true, value: TABLE[path] } }
       if (!holdPaths.has(path)) return Promise.resolve(answer as never)
       return new Promise((resolve) => held.set(path, () => resolve(answer as never)))
@@ -89,25 +89,25 @@ describe('FolderBrowser', () => {
   it('starts in the home folder of the Machine, goes into a folder and up by `parent`; Up is off at a root', async () => {
     await open()
     expect(asked).toEqual([null])
-    expect(shownPath()).toBe('C:\\Users\\me')
+    expect(shownPath()).toBe('C:\\Users\\someone')
     expect(rows()).toEqual(['code', 'locked'])
 
     fireEvent.click(within(rowNamed('code')).getByRole('button'))
-    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\me\\code'))
-    expect(asked.at(-1)).toBe('C:\\Users\\me\\code')
+    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\someone\\code'))
+    expect(asked.at(-1)).toBe('C:\\Users\\someone\\code')
     // A repository says so; a folder past the limit says the list is cut.
     expect(within(rowNamed('shop')).getByText('git')).toBeTruthy()
     expect(screen.getByTestId('folder-browser-truncated').textContent).toBe('Only the first 1 folders are shown.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Up' }))
-    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\me'))
+    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\someone'))
     fireEvent.click(screen.getByRole('button', { name: 'Up' }))
     await waitFor(() => expect(shownPath()).toBe('C:\\Users'))
     fireEvent.click(screen.getByRole('button', { name: 'Up' }))
     await waitFor(() => expect(shownPath()).toBe('C:\\'))
     expect((screen.getByRole('button', { name: 'Up' }) as HTMLButtonElement).disabled).toBe(true)
     // Exactly the paths the answers gave: nothing was parsed or joined on this side.
-    expect(asked).toEqual([null, 'C:\\Users\\me\\code', 'C:\\Users\\me', 'C:\\Users', 'C:\\'])
+    expect(asked).toEqual([null, 'C:\\Users\\someone\\code', 'C:\\Users\\someone', 'C:\\Users', 'C:\\'])
   })
 
   it('hidden folders are not shown until "Show hidden folders" is on', async () => {
@@ -123,16 +123,16 @@ describe('FolderBrowser', () => {
   it('"Choose" gives the `path` of the answer as it is: a path with backslashes passes unchanged', async () => {
     const { chosen } = await open()
     fireEvent.click(within(rowNamed('code')).getByRole('button'))
-    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\me\\code'))
+    await waitFor(() => expect(shownPath()).toBe('C:\\Users\\someone\\code'))
     fireEvent.click(screen.getByRole('button', { name: 'Choose' }))
-    expect(chosen).toHaveBeenCalledWith('C:\\Users\\me\\code')
+    expect(chosen).toHaveBeenCalledWith('C:\\Users\\someone\\code')
     expect(chosen).toHaveBeenCalledTimes(1)
   })
 
   it('a folder that cannot be read shows its reason where the list was; Choose is off, Up leads out', async () => {
     const { chosen } = await open()
     fireEvent.click(within(rowNamed('locked')).getByRole('button'))
-    await waitFor(() => expect(screen.getByTestId('folder-browser-error').textContent).toBe('No permission to read C:\\Users\\me\\locked'))
+    await waitFor(() => expect(screen.getByTestId('folder-browser-error').textContent).toBe('No permission to read C:\\Users\\someone\\locked'))
     expect(screen.getByRole('alert')).toBe(screen.getByTestId('folder-browser-error'))
     expect(rows()).toEqual([])
     const choose = screen.getByRole('button', { name: 'Choose' }) as HTMLButtonElement
@@ -157,14 +157,14 @@ describe('FolderBrowser', () => {
 
   it('an answer that comes after a later click is dropped: the folder clicked last is shown', async () => {
     await open()
-    holdPaths.add('C:\\Users\\me\\code')
+    holdPaths.add('C:\\Users\\someone\\code')
     fireEvent.click(within(rowNamed('code')).getByRole('button'))
     fireEvent.click(within(rowNamed('locked')).getByRole('button'))
     await waitFor(() => expect(screen.queryByTestId('folder-browser-error')).not.toBeNull())
-    await act(async () => held.get('C:\\Users\\me\\code')?.())
+    await act(async () => held.get('C:\\Users\\someone\\code')?.())
     await settled()
-    expect(shownPath()).toBe('C:\\Users\\me\\locked')
-    expect(screen.getByTestId('folder-browser-error').textContent).toBe('No permission to read C:\\Users\\me\\locked')
+    expect(shownPath()).toBe('C:\\Users\\someone\\locked')
+    expect(screen.getByTestId('folder-browser-error').textContent).toBe('No permission to read C:\\Users\\someone\\locked')
   })
 
   it('Escape and Cancel cancel', async () => {

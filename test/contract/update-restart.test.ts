@@ -270,7 +270,7 @@ describe('Restart now', () => {
 
   it('starts node.exe of the Path on Windows and refuses a node.cmd', () => {
     const env = { PATH: 'C:\\tools;C:\\node', PATHEXT: '.COM;.EXE;.BAT;.CMD', SystemRoot: 'C:\\Windows' }
-    const args = ['C:\\data\\update\\repo\\scripts\\install-stable.mjs', 'C:\\Users\\me me\\AppData\\Local\\worfy-stable']
+    const args = ['C:\\data\\update\\repo\\scripts\\install-stable.mjs', 'C:\\Users\\someone me\\AppData\\Local\\worfy-stable']
     expect(helperStart(args, env, 'win32', (path) => path === 'C:\\node\\node.exe')).toEqual({ file: 'C:\\node\\node.exe', args })
     // A node.cmd earlier on the Path is what a terminal would run: refused, not glued into a cmd.exe line.
     expect(helperStart(args, env, 'win32', (path) => path === 'C:\\tools\\node.cmd' || path === 'C:\\node\\node.exe')).toBe(NODE_NOT_EXE)

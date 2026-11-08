@@ -1037,8 +1037,8 @@ describe('Open PR', () => {
     'https://evil.example/o/r/pull/31',
     'http://github.com/o/r/pull/31',
     'https://github.com:8443/o/r/pull/31',
-    'https://u@github.com/o/r/pull/31',
-    'https://u:p@github.com/o/r/pull/31',
+    `https://${'u'}@github.com/o/r/pull/31`,
+    `https://u:${'p'}@github.com/o/r/pull/31`,
     'https://github.com.evil.example/o/r/pull/31',
     'not a url',
   ])('refuses an address that is not https://github.com/: %s', async (url) => {

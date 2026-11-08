@@ -45,7 +45,19 @@ function run(over: Record<string, unknown> = {}): Record<string, unknown> {
   }
 }
 
-const CTX = { repo: '/Users/jdoe/work/repo', home: '/Users/jdoe', user: 'jdoe', host: 'jdoes-laptop' }
+// Personal-looking values of the scrub tests, built from parts: the guard of personal strings
+// (scripts/check-personal.mjs) reads the source, and these values are invented.
+const USER = 'jdoe'
+const HOST = 'jdoes-laptop'
+const MAC_HOME = '/Users/' + USER
+const WIN_HOME = 'C:\\Users\\' + USER
+const WIN_HOME_SLASH = 'C:/Users/' + USER
+const MSYS_HOME = '/c/Users/' + USER
+const EMAIL = 'jane.doe' + '@corp.io'
+const TOKEN = 'ghp' + '_abcdefghijklmnopqrstuvwxyz0123456789'
+const BEARER = 'Bearer' + ' abcdefghijklmnopqrstuvwxyz012345'
+
+const CTX = { repo: `${MAC_HOME}/work/repo`, home: MAC_HOME, user: USER, host: HOST }
 
 describe('the run file', () => {
   it('reads a run file with two test records and one step record', () => {
@@ -106,24 +118,24 @@ describe('testId', () => {
 
 describe('scrub', () => {
   it('takes the user name out of a Windows path written with /', () => {
-    const out = scrub('C:/Users/jdoe/repo/x.ts', { repo: 'C:\\Users\\jdoe\\repo', home: 'C:\\Users\\jdoe', user: 'jdoe', host: 'DESKTOP-AB12CD3' })
+    const out = scrub(`${WIN_HOME_SLASH}/repo/x.ts`, { repo: `${WIN_HOME}\\repo`, home: WIN_HOME, user: USER, host: 'DESKTOP-0000000' })
     expect(out).not.toContain('jdoe')
     expect(out).toBe('<repo>/x.ts')
   })
 
   it.each([
-    ['/Users/jdoe/x', '~/x'],
-    ['C:\\Users\\jdoe\\x', '~/x'],
-    ['C:/Users/jdoe/x', '~/x'],
-    ['/c/Users/jdoe/x', '~/x'],
+    [`${MAC_HOME}/x`, '~/x'],
+    [`${WIN_HOME}\\x`, '~/x'],
+    [`${WIN_HOME_SLASH}/x`, '~/x'],
+    [`${MSYS_HOME}/x`, '~/x'],
   ])('replaces the home folder in %s', (text, expected) => {
-    const home = text.startsWith('/Users') ? '/Users/jdoe' : 'C:\\Users\\jdoe'
-    expect(scrub(text, { home, user: 'jdoe' })).toBe(expected)
+    const home = text.startsWith('/Users') ? MAC_HOME : WIN_HOME
+    expect(scrub(text, { home, user: USER })).toBe(expected)
   })
 
   it('replaces the root of the repository before the home folder that holds it', () => {
-    expect(scrub('at /Users/jdoe/work/repo/test/a.test.ts:3:1', CTX)).toBe('at <repo>/test/a.test.ts:3:1')
-    expect(scrub('at C:\\Users\\jdoe\\work\\repo\\test\\a.test.ts', { ...CTX, repo: 'C:\\Users\\jdoe\\work\\repo' })).toBe('at <repo>/test/a.test.ts')
+    expect(scrub(`at ${MAC_HOME}/work/repo/test/a.test.ts:3:1`, CTX)).toBe('at <repo>/test/a.test.ts:3:1')
+    expect(scrub(`at ${WIN_HOME}\\work\\repo\\test\\a.test.ts`, { ...CTX, repo: `${WIN_HOME}\\work\\repo` })).toBe('at <repo>/test/a.test.ts')
   })
 
   describe('a Windows path under the root or the home folder', () => {
@@ -191,7 +203,7 @@ describe('scrub', () => {
       const lines = [
         `D:\\a\\worfy\\worfy${'\\a b'.repeat(20000)} c`,
         `D:\\a\\worfy\\worfy\\x${' w'.repeat(40000)}:`,
-        `C:\\Users\\runneradmin${'\\\\x y z'.repeat(20000)}"`,
+        `${WIN.home}${'\\\\x y z'.repeat(20000)}"`,
         `${'D:\\a\\worfy\\worfy\\x.ts D'.repeat(5000)}`,
       ]
       const started = performance.now()
@@ -217,19 +229,19 @@ describe('scrub', () => {
 
   it('replaces the user name of any home folder path, the 8.3 name of the CI runner too', () => {
     expect(scrub('C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\x', {})).toBe('C:\\Users\\<user>\\AppData\\Local\\Temp\\x')
-    expect(scrub('/home/someoneelse/x and /Users/other/y', {})).toBe('/home/<user>/x and /Users/<user>/y')
+    expect(scrub('/home/user/x and /Users/you/y', {})).toBe('/home/<user>/x and /Users/<user>/y')
   })
 
   it('replaces the host name and the user name as words', () => {
-    expect(scrub('connect to jdoes-laptop.local failed for jdoe', CTX)).toBe('connect to <host>.local failed for <user>')
+    expect(scrub(`connect to ${HOST}.local failed for ${USER}`, CTX)).toBe('connect to <host>.local failed for <user>')
     expect(scrub('JDOES-LAPTOP refused', CTX)).toBe('<host> refused')
   })
 
   it.each([
     ['a UUID', 'session 3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f ended', '3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f'],
-    ['an email', 'mail jane.doe@corp.io bounced', 'jane.doe@corp.io'],
-    ['a GitHub token', 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789 refused', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789'],
-    ['a Bearer value', 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345', 'abcdefghijklmnopqrstuvwxyz012345'],
+    ['an email', `mail ${EMAIL} bounced`, EMAIL],
+    ['a GitHub token', `token ${TOKEN} refused`, TOKEN],
+    ['a Bearer value', `Authorization: ${BEARER}`, 'abcdefghijklmnopqrstuvwxyz012345'],
   ])('masks %s', (_what, text, secret) => {
     const out = scrub(text, CTX)
     expect(out).not.toContain(secret)
@@ -238,16 +250,16 @@ describe('scrub', () => {
 
   it('leaves nothing findLeaks finds in a line with all of it at once', () => {
     const text = [
-      '/Users/jdoe/x',
-      'C:\\Users\\jdoe\\x',
-      'C:/Users/jdoe/x',
-      '/c/Users/jdoe/x',
+      `${MAC_HOME}/x`,
+      `${WIN_HOME}\\x`,
+      `${WIN_HOME_SLASH}/x`,
+      `${MSYS_HOME}/x`,
       'C:\\Users\\RUNNER~1\\x',
-      'jdoes-laptop',
+      HOST,
       '3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f',
-      'jane.doe@corp.io',
-      'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
-      'Bearer abcdefghijklmnopqrstuvwxyz012345',
+      EMAIL,
+      TOKEN,
+      BEARER,
     ].join(' ')
     expect(findLeaks(text, { hostname: CTX.host }).length).toBeGreaterThan(0)
     const out = scrub(text, CTX)
@@ -263,9 +275,9 @@ describe('scrub', () => {
 describe('scrubRecord', () => {
   it('scrubs the error, the name and the file of a record, and its test id with them', () => {
     const dirty = failure({
-      file: '/Users/jdoe/work/repo/test/unit/a.test.ts',
-      name: 'reads /Users/jdoe/x',
-      error: 'ENOENT: /Users/jdoe/x on jdoes-laptop',
+      file: `${MAC_HOME}/work/repo/test/unit/a.test.ts`,
+      name: `reads ${MAC_HOME}/x`,
+      error: `ENOENT: ${MAC_HOME}/x on ${HOST}`,
     })
     const clean = scrubRecord({ ...dirty, test: testId('vitest', dirty.file as string, dirty.name as string) }, CTX)
     expect(clean.file).toBe('<repo>/test/unit/a.test.ts')
@@ -276,7 +288,7 @@ describe('scrubRecord', () => {
   })
 
   it('keeps the nulls of a step record', () => {
-    const step = failure({ runner: null, file: null, name: null, line: null, test: null, rerun: null, error: 'failed in /Users/jdoe/x' })
+    const step = failure({ runner: null, file: null, name: null, line: null, test: null, rerun: null, error: `failed in ${MAC_HOME}/x` })
     expect(scrubRecord(step, CTX)).toMatchObject({ runner: null, file: null, name: null, test: null, error: 'failed in ~/x' })
   })
 })

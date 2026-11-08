@@ -593,7 +593,7 @@ describe('Codex isolation of the tests', () => {
     // Imported here, not at the top: the import itself runs the setup, and the test above would pass without the setup file.
     const { isolateCodex } = await import('../setup-contract')
     const root = tempRoot()
-    const env: Record<string, string | undefined> = { CODEX_HOME: '/Users/developer/.codex', WORFY_CODEX: 'real' }
+    const env: Record<string, string | undefined> = { CODEX_HOME: '/Users/someone/.codex', WORFY_CODEX: 'real' }
     const { home, release } = isolateCodex(env, root)
     expect(env).toEqual({ CODEX_HOME: home, WORFY_CODEX: 'fake' })
     expect(relative(root, home)).toMatch(/^codex-home-[^\\/]+$/)
@@ -604,7 +604,7 @@ describe('Codex isolation of the tests', () => {
 
   it('gives every app launch of the e2e tests the fake and a CODEX_HOME of the launch, over the developer\'s own (test/e2e/launch-env.ts)', async () => {
     const shellDir = tempRoot()
-    const developer = { CODEX_HOME: '/Users/developer/.codex', WORFY_CODEX: 'real', PATH: process.env.PATH ?? '' }
+    const developer = { CODEX_HOME: '/Users/someone/.codex', WORFY_CODEX: 'real', PATH: process.env.PATH ?? '' }
     for (const platform of ['darwin', 'win32'] as const) {
       // SHELL of the spec's own: no link to the e2e shell is made, which Windows may not allow.
       const launchDir = mkdtempSync(join(shellDir, 'shell-'))

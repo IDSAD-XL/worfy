@@ -9,11 +9,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/documents"
+        "path": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/documents"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+        "source": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_USE"
@@ -27,11 +27,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/pdf"
+        "path": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/pdf"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+        "source": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_USE"
@@ -45,11 +45,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/spreadsheets"
+        "path": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/spreadsheets"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+        "source": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_USE"
@@ -63,11 +63,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/presentations"
+        "path": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/presentations"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+        "source": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_USE"
@@ -81,11 +81,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/template-creator"
+        "path": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/template-creator"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+        "source": "/Users/someone/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_USE"
@@ -99,11 +99,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/codex-app-tools"
+        "path": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/codex-app-tools"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled"
+        "source": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_INSTALL"
@@ -117,11 +117,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/browser"
+        "path": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/browser"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled"
+        "source": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_INSTALL"
@@ -135,11 +135,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/unified-computer-use"
+        "path": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/unified-computer-use"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled"
+        "source": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_INSTALL"
@@ -153,11 +153,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/computer-use"
+        "path": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/computer-use"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled"
+        "source": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_INSTALL"
@@ -171,11 +171,11 @@
       "enabled": true,
       "source": {
         "source": "local",
-        "path": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/visualize"
+        "path": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled/plugins/visualize"
       },
       "marketplaceSource": {
         "sourceType": "local",
-        "source": "/Users/me/.codex/.tmp/bundled-marketplaces/openai-bundled"
+        "source": "/Users/someone/.codex/.tmp/bundled-marketplaces/openai-bundled"
       },
       "installPolicy": "AVAILABLE",
       "authPolicy": "ON_INSTALL"

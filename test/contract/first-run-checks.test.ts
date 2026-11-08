@@ -812,7 +812,7 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
   it('a dev build without WORFY_UPDATE=1 has no "worfy version" row; with it, the row is there', async () => {
     const service = (env: Record<string, string>) =>
       new UpdateService({
-        enabled: updateEnabled({ packaged: false, execPath: '/Users/dev/worfy/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', env }),
+        enabled: updateEnabled({ packaged: false, execPath: '/Users/someone/worfy/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', env }),
         running: () => ({ commit: '1111111', version: VERSION }),
         // Never asked: no check runs in these cases.
         client: updateGitHub({ env: { WORFY_UPDATE_API: 'http://127.0.0.1:9' } }),

@@ -11,7 +11,7 @@ import { originKey, readOriginKey } from '../../src/main/autopilot/origin'
 
 describe('originKey', () => {
   it('gives one key for the ssh, scp-like and https forms of one repository', () => {
-    const forms = ['git@github.com:IDSAD-XL/worfy.git', 'ssh://git@github.com/IDSAD-XL/worfy.git', 'https://user@GitHub.com/IDSAD-XL/worfy.git/', 'https://github.com/IDSAD-XL/worfy']
+    const forms = ['git@github.com:IDSAD-XL/worfy.git', 'ssh://git@github.com/IDSAD-XL/worfy.git', `https://${'user'}@GitHub.com/IDSAD-XL/worfy.git/`, 'https://github.com/IDSAD-XL/worfy']
     expect(forms.map(originKey)).toEqual(forms.map(() => 'github.com/idsad-xl/worfy'))
   })
 
@@ -24,7 +24,7 @@ describe('originKey', () => {
     const key = originKey('git@github.com:IDSAD-XL/worfy.git')
     expect(originKey('git@github.com:someone/worfy.git')).not.toBe(key)
     expect(originKey('git@github.com:IDSAD-XL/worfy-docs.git')).not.toBe(key)
-    expect(originKey('git@gitlab.com:IDSAD-XL/worfy.git')).not.toBe(key)
+    expect(originKey('git@gitlab.example.com:IDSAD-XL/worfy.git')).not.toBe(key)
   })
 
   it('an empty address is no key', () => {

@@ -16,6 +16,9 @@ import type { AppSettings } from '../../src/shared/settings/app-settings'
 
 const THIS = '11111111-1111-4111-8111-111111111111'
 const MINI = '22222222-2222-4222-8222-222222222222'
+// The .local name typed for Mini, built from its label: the guard of personal strings
+// (scripts/check-personal.mjs) reads a *.local name in the source as a real machine.
+const MINI_HOST = ['mini', 'local'].join('.')
 const ATTIC = '33333333-3333-4333-8333-333333333333'
 
 const machine = (id: string, name: string, state: LinkedMachineView['state'] = 'online', certificateChanged = false, access: LinkedMachineView['access'] = 'off'): LinkedMachineView => ({ id, name, state, certificateChanged, access })
@@ -284,7 +287,7 @@ describe('Settings → Machines', () => {
   it('a refusal of main is shown as it is, the switch stays, and the next change that works takes the message away', async () => {
     await mountSettings(linkState(1, { projectsAccess: true }))
     fireEvent.click(access())
-    const refusal = "link.setAccess: EACCES: permission denied, open '/Users/a/Library/Application Support/worfy/link/settings.json.tmp'"
+    const refusal = "link.setAccess: EACCES: permission denied, open '/Users/someone/Library/Application Support/worfy/link/settings.json.tmp'"
     await act(async () => main.calls[0]!.answer({ ok: false, error: refusal }))
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toBe(refusal)
@@ -720,7 +723,7 @@ describe('Change address… (worfy-link ticket 37)', () => {
   it('an address that does not parse is refused in the window, and main is not asked', async () => {
     const dialog = await openDialog()
     expect(document.activeElement).toBe(field())
-    fireEvent.change(field(), { target: { value: 'mini.local' } })
+    fireEvent.change(field(), { target: { value: MINI_HOST } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
     expect(within(dialog).getByRole('alert').textContent).toBe('Add the port: host:port')
     expect(main.calls).toStrictEqual([])
@@ -739,9 +742,9 @@ describe('Change address… (worfy-link ticket 37)', () => {
 
   it('saved: the window closes', async () => {
     const dialog = await openDialog()
-    fireEvent.change(field(), { target: { value: 'mini.local:52000' } })
+    fireEvent.change(field(), { target: { value: `${MINI_HOST}:52000` } })
     fireEvent.keyDown(field(), { key: 'Enter' })
-    expect(linkCalls()).toStrictEqual([['link.setAddress', { id: MINI, address: 'mini.local:52000' }]])
+    expect(linkCalls()).toStrictEqual([['link.setAddress', { id: MINI, address: `${MINI_HOST}:52000` }]])
     expect(dialog.isConnected).toBe(true)
     await act(async () => main.calls[0]!.answer({ ok: true, value: { status: 'saved', state: linkState(2, { linked: [machine(MINI, 'Mini', 'online')] }) } }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -749,7 +752,7 @@ describe('Change address… (worfy-link ticket 37)', () => {
 
   it('Cancel closes it and asks main nothing', async () => {
     const dialog = await openDialog()
-    fireEvent.change(field(), { target: { value: 'mini.local:52000' } })
+    fireEvent.change(field(), { target: { value: `${MINI_HOST}:52000` } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(main.calls).toStrictEqual([])

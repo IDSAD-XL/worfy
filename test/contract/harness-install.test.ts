@@ -1355,21 +1355,21 @@ describe('the old Harness', () => {
 describe('the environment of the claude commands', () => {
   it('with WORFY_CLAUDE_HOME puts CLAUDE_CONFIG_DIR and HOME into the sandbox; without it leaves the environment as it is', () => {
     // The Claude home is resolved: `/tmp/…` stays as it is on macOS and Linux, and is `C:\tmp\…` on Windows.
-    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude', HOME: '/Users/me', PATH: '/bin' })).toEqual({
+    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude', HOME: '/Users/someone', PATH: '/bin' })).toEqual({
       WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude',
       HOME: resolve('/tmp/sb/home'),
       CLAUDE_CONFIG_DIR: resolve('/tmp/sb/home/.claude'),
       PATH: '/bin',
     })
-    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/worfy-claude-x', HOME: '/Users/me' })).toMatchObject({ HOME: resolve('/tmp/worfy-claude-x'), CLAUDE_CONFIG_DIR: resolve('/tmp/worfy-claude-x') })
-    const real = { HOME: '/Users/me', PATH: '/bin' }
+    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/worfy-claude-x', HOME: '/Users/someone' })).toMatchObject({ HOME: resolve('/tmp/worfy-claude-x'), CLAUDE_CONFIG_DIR: resolve('/tmp/worfy-claude-x') })
+    const real = { HOME: '/Users/someone', PATH: '/bin' }
     expect(claudeCommandEnv(real)).toBe(real)
   })
 })
 
 describe('the dialog', () => {
   const plan: InstallPlan = {
-    pluginDir: '/Users/me/.claude/worfy-harness/plugin',
+    pluginDir: '/Users/someone/.claude/worfy-harness/plugin',
     from: null,
     folder: null,
     to: V1,
@@ -1377,7 +1377,7 @@ describe('the dialog', () => {
     dependencies: [],
     dependencyCommands: [],
     commands: [
-      ['plugin', 'marketplace', 'add', '/Users/me/.claude/worfy-harness/plugin'],
+      ['plugin', 'marketplace', 'add', '/Users/someone/.claude/worfy-harness/plugin'],
       ['plugin', 'install', HARNESS_PLUGIN_ID, '--scope', 'user'],
     ],
     legacyHarness: null,
@@ -1397,12 +1397,12 @@ describe('the dialog', () => {
     expect(text.detail).toContain('Restart them')
     expect(text.detail).not.toContain('old Harness')
     expect(confirmationText({ ...plan, copy: false }).detail).not.toContain('Restart them')
-    const legacy = confirmationText({ ...plan, legacyHarness: '/Users/me/.claude/bin/epic-status' })
-    expect(legacy.detail).toContain('The old Harness is still in ~/.claude (/Users/me/.claude/bin/epic-status')
+    const legacy = confirmationText({ ...plan, legacyHarness: '/Users/someone/.claude/bin/epic-status' })
+    expect(legacy.detail).toContain('The old Harness is still in ~/.claude (/Users/someone/.claude/bin/epic-status')
     expect(text.button).toBe('Install')
     expect(text.message).toContain(V1)
-    expect(text.detail).toContain('/Users/me/.claude/worfy-harness/plugin')
-    expect(text.detail).toContain('claude plugin marketplace add /Users/me/.claude/worfy-harness/plugin')
+    expect(text.detail).toContain('/Users/someone/.claude/worfy-harness/plugin')
+    expect(text.detail).toContain('claude plugin marketplace add /Users/someone/.claude/worfy-harness/plugin')
     expect(text.detail).toContain(`claude plugin install ${HARNESS_PLUGIN_ID} --scope user`)
     const update = confirmationText({ ...plan, from: V1, to: V2, commands: [['plugin', 'update', HARNESS_PLUGIN_ID, '--scope', 'user']] })
     expect(update.button).toBe('Update')

@@ -192,8 +192,8 @@ describe('Markdown: links', () => {
 
   // worfy-windows ticket 08: react-markdown's default urlTransform blanked these before classifyLink.
   it.each([
-    ['[f](C:\\Users\\a\\f.md)', 'C:\\Users\\a\\f.md'],
-    ['[f](C:/Users/a/f.md)', 'C:\\Users\\a\\f.md'],
+    ['[f](C:\\Users\\someone\\f.md)', 'C:\\Users\\someone\\f.md'],
+    ['[f](C:/Users/someone/f.md)', 'C:\\Users\\someone\\f.md'],
   ])('opens an absolute Windows path %s as a file through shell.openInEditor', (text, path) => {
     render(<Markdown text={text} projectId="alpha" />)
     expect(fireEvent.click(screen.getByRole('link', { name: 'f' }))).toBe(false)

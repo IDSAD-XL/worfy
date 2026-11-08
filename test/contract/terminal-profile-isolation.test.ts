@@ -30,7 +30,7 @@ afterAll(() => {
 /** The profile of the person running the tests: the real one on Windows, a made-up one elsewhere. */
 const OWNER: Record<(typeof PROFILE_VARS)[number], string> = WINDOWS
   ? { USERPROFILE: process.env.USERPROFILE!, APPDATA: process.env.APPDATA!, LOCALAPPDATA: process.env.LOCALAPPDATA!, HOMEDRIVE: process.env.HOMEDRIVE!, HOMEPATH: process.env.HOMEPATH! }
-  : { USERPROFILE: 'C:\\Users\\owner', APPDATA: 'C:\\Users\\owner\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\owner\\AppData\\Local', HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\owner' }
+  : { USERPROFILE: 'C:\\Users\\someone', APPDATA: 'C:\\Users\\someone\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local', HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\someone' }
 const ownerSource: NodeJS.ProcessEnv = { ...process.env, ...OWNER, PATH: process.env.PATH ?? '' }
 
 /** Every profile variable of `env` names `dir` or a folder in it, and none is the owner's. */

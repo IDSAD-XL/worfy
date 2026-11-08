@@ -49,7 +49,7 @@ Source: [spec.md](../spec.md), разделы «Как устроено» и «�
   `pnpm.onlyBuiltDependencies`, поэтому `electron` скачивается и `pnpm test` идёт под Node из
   Electron так же, как локально. Больше ничего: кэш, `concurrency`, e2e и сборку `.app` добавляет
   тикет 32 в этот же файл.
-- Gate: запись `worfy` в `~/.claude/gate/config.json` — `match` `/Users/alexey/Stuff/CanvasForAI`,
+- Gate: запись `worfy` в `~/.claude/gate/config.json` — `match` `/Users/someone/Stuff/CanvasForAI`,
   `pm` `pnpm`, `root.fast` = `lint typecheck test`, `root.full` = то же + `test:e2e`, `workspace`
   пустой, `root_if` — исходники TS/JS/CSS/HTML, `package.json`, `tsconfig*`, `eslint*`. Файл
   лежит вне репозитория и общий для всех проектов; запись одобрена владельцем. В PR её нет, в
@@ -157,7 +157,7 @@ PR: https://github.com/IDSAD-XL/worfy/pull/1 (ветка `worfy-mvp/01`).
 правки сохранена, после правки `jq empty` → 0, остальные записи не изменились):
 
 ```diff
-       "match": "/Users/alexey/Stuff/CanvasForAI",
+       "match": "/Users/someone/Stuff/CanvasForAI",
        "profile": "worfy",
        "pm": "pnpm",
 -      "_note": "Скриптов пока нет: package.json заводит тикет worfy-mvp/01. …",

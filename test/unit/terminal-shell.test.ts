@@ -56,7 +56,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-const ALIAS = 'C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
+const ALIAS = 'C:\\Users\\someone\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
 const ALIAS_TARGET = 'C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe'
 const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
 const win = (setting?: 'powershell' | 'git-bash', env: Record<string, string> = WIN_ENV) => terminalShell(env, setting, { platform: 'win32' })

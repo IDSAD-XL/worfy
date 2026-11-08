@@ -401,17 +401,17 @@ describe('statusline-bridge.mjs: writeLimits', () => {
 describe('statusline-bridge.mjs: folders and shell by platform', () => {
   it('on Windows writes to %APPDATA%\\worfy and %APPDATA%\\worfy-dev, as dataRoot() names them', async () => {
     const { limitsFolders } = await bridge()
-    const appData = 'C:\\Users\\u\\AppData\\Roaming'
+    const appData = 'C:\\Users\\someone\\AppData\\Roaming'
     expect(limitsFolders({ APPDATA: appData }, 'win32')).toEqual([dataRoot({ APPDATA: appData }, 'packaged', 'win32'), dataRoot({ APPDATA: appData }, 'dev', 'win32')])
-    expect(limitsFolders({ APPDATA: appData }, 'win32')).toEqual(['C:\\Users\\u\\AppData\\Roaming\\worfy', 'C:\\Users\\u\\AppData\\Roaming\\worfy-dev'])
-    expect(limitsFolders({ USERPROFILE: 'C:\\Users\\u' }, 'win32')).toEqual(['C:\\Users\\u\\AppData\\Roaming\\worfy', 'C:\\Users\\u\\AppData\\Roaming\\worfy-dev'])
-    expect(limitsFolders({ APPDATA: 'Roaming' }, 'win32', 'C:\\Users\\h')).toEqual(['C:\\Users\\h\\AppData\\Roaming\\worfy', 'C:\\Users\\h\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ APPDATA: appData }, 'win32')).toEqual(['C:\\Users\\someone\\AppData\\Roaming\\worfy', 'C:\\Users\\someone\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ USERPROFILE: 'C:\\Users\\someone' }, 'win32')).toEqual(['C:\\Users\\someone\\AppData\\Roaming\\worfy', 'C:\\Users\\someone\\AppData\\Roaming\\worfy-dev'])
+    expect(limitsFolders({ APPDATA: 'Roaming' }, 'win32', 'C:\\Users\\user')).toEqual(['C:\\Users\\user\\AppData\\Roaming\\worfy', 'C:\\Users\\user\\AppData\\Roaming\\worfy-dev'])
     expect(limitsFolders({ APPDATA: appData, WORFY_DATA_DIR: 'D:\\data' }, 'win32')).toEqual(['D:\\data'])
   })
 
   it('takes APPDATA by the same rule as dataRoot(), so the Limits land where worfy reads them', async () => {
     const { limitsFolders } = await bridge()
-    for (const APPDATA of ['C:\\Users\\u\\AppData\\Roaming', 'C:/Users/u/AppData/Roaming', '\\\\srv\\share\\roaming', '//srv/share/roaming', '/x', '\\x', 'C:x', 'Roaming', '']) {
+    for (const APPDATA of ['C:\\Users\\someone\\AppData\\Roaming', 'C:/Users/someone/AppData/Roaming', '\\\\srv\\share\\roaming', '//srv/share/roaming', '/x', '\\x', 'C:x', 'Roaming', '']) {
       const env = { APPDATA, USERPROFILE: homedir() }
       expect(limitsFolders(env, 'win32', homedir()), APPDATA).toEqual([dataRoot(env, 'packaged', 'win32'), dataRoot(env, 'dev', 'win32')])
     }
@@ -420,7 +420,7 @@ describe('statusline-bridge.mjs: folders and shell by platform', () => {
   it('on macOS and Linux writes to ~/Library/Application Support/worfy and worfy-dev', async () => {
     const { limitsFolders } = await bridge()
     for (const platform of ['darwin', 'linux'] as const) {
-      expect(limitsFolders({}, platform, '/Users/u')).toEqual(['/Users/u/Library/Application Support/worfy', '/Users/u/Library/Application Support/worfy-dev'])
+      expect(limitsFolders({}, platform, '/Users/someone')).toEqual(['/Users/someone/Library/Application Support/worfy', '/Users/someone/Library/Application Support/worfy-dev'])
     }
     if (!WINDOWS) expect(limitsFolders({}, 'darwin', homedir())).toEqual([dataRoot({}, 'packaged', 'darwin'), dataRoot({}, 'dev', 'darwin')])
   })

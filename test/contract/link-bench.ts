@@ -78,13 +78,14 @@ export class LinkBench {
 
   private serviceOptions(label: string, dataDir: string): LinkServiceOptions {
     const peer = this.options.peerAddresses
+    const peerLocal = peer?.local
     return {
       dataDir,
       buildKind: 'packaged',
       buildVersion: '0.2.0+bench',
       listenHost: '127.0.0.1',
       hostname: () => `${label}.local`,
-      networkInterfaces: () => ({ lo0: [LOOPBACK], ...(peer === undefined ? {} : { utun4: [interfaceOf(peer.local)] }) }),
+      networkInterfaces: () => ({ lo0: [LOOPBACK], ...(peerLocal === undefined ? {} : { utun4: [interfaceOf(peerLocal)] }) }),
       ...(this.options.addressesOf !== undefined
         ? { addressesOf: this.options.addressesOf }
         : peer === undefined

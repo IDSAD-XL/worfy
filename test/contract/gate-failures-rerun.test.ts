@@ -274,7 +274,7 @@ describe('the error line of a red rerun', () => {
 
   it('leaves a POSIX path under the root as it was, and a path outside the root alone', async () => {
     const text = await errorText()
-    const ctx = { repo: '/work/repo', home: '/home/dev', host: 'box-1', user: 'dev' }
+    const ctx = { repo: '/work/repo', home: '/home/someone', host: 'box-1', user: 'dev' }
     expect(text('AssertionError: failed in /work/repo/test/x.test.ts:3', '', 1, ctx)).toBe('AssertionError: failed in <repo>/test/x.test.ts:3')
     expect(text('Error: cannot read E:\\data\\x.json', '', 1, ctx)).toBe('Error: cannot read E:\\data\\x.json')
   })

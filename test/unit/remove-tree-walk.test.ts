@@ -34,9 +34,9 @@ describe('removeTree over a model of the file system', () => {
     const m = model(WITH_A_LINK)
     const calls = (path: string): string[] => m.calls.filter((call) => call.endsWith(` ${path}`))
     expect(viaModule(m, '/data/card', 'win32')).toBeNull()
-    expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+    expect(m.names()).toEqual(['/data', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
     expect(calls('/data/card/linked')).toEqual(['lstat /data/card/linked', 'unlink /data/card/linked'])
-    expect(m.calls.some((call) => call.includes('/home'))).toBe(false)
+    expect(m.calls.some((call) => call.includes('/srv'))).toBe(false)
     // A folder is emptied before it is removed, and removed last.
     expect(m.calls.at(-1)).toBe('rmdir /data/card')
   })
@@ -64,14 +64,14 @@ describe('removeTree over a model of the file system', () => {
     it('on the volume of its folder, where the volume says nothing: the first thing asked of any folder is to go as it is, and it does — nothing is listed', () => {
       const m = model(WITH_A_MOUNT_ON_ITS_VOLUME)
       expect(viaModule(m, '/data/card', 'win32')).toBeNull()
-      expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
     })
 
     it('on the volume of its folder and busy at first: it is waited for and asked to go again, and still never listed', () => {
       const m = model(WITH_A_MOUNT_ON_ITS_VOLUME, { 'rmdir /data/card/linked': ['EBUSY', 'EACCES'] })
       expect(viaModule(m, '/data/card', 'win32')).toBeNull()
-      expect(m.names()).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked', 'rmdir /data/card/linked'])
       expect(m.waits).toEqual([REMOVE_RETRY_MS, REMOVE_RETRY_MS])
     })
@@ -102,7 +102,7 @@ describe('removeTree over a model of the file system', () => {
       expect(viaModule(m, '/data/card', 'win32')).toBe('EPERM')
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', ...Array.from({ length: 1 + REMOVE_RETRIES }, () => 'rmdir /data/card/linked')])
       expect(m.waits).toHaveLength(REMOVE_RETRIES)
-      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
     })
 
     it('on the volume of its folder, and rmdir answers an error that is not "busy": thrown at once, no wait, nothing listed', () => {
@@ -110,7 +110,7 @@ describe('removeTree over a model of the file system', () => {
       expect(viaModule(m, '/data/card', 'win32')).toBe('EIO')
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
       expect(m.waits).toEqual([])
-      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/linked', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
     })
 
     it('on another volume, and rmdir answers an error that is not "busy": the removal ends with it, and the volume keeps its files', () => {
@@ -127,7 +127,7 @@ describe('removeTree over a model of the file system', () => {
       expect(m.calls).not.toContain('readdir /data/card/assets')
       expect(m.calls.filter((call) => call === 'rmdir /data/card/assets')).toHaveLength(1)
       expect(m.waits).toEqual([])
-      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
     })
 
     // Review round 1 of PR #287, measured on the PC: lstat of an ordinary junction or a symlink
@@ -139,7 +139,7 @@ describe('removeTree over a model of the file system', () => {
       expect(m.calls).toEqual(['lstat /data/away/sub', 'lstat /data/away', 'rmdir /data/away/sub', 'readdir /data/away/sub', 'lstat /data/away/sub/f.txt', 'unlink /data/away/sub/f.txt', 'rmdir /data/away/sub'])
       expect(m.waits).toEqual([])
       expect(viaModule(m, '/data/away/empty', 'win32')).toBeNull()
-      expect(m.names()).toEqual(['/data', '/data/away', '/home', '/home/notes', '/home/notes/keep.txt', '/vol', '/vol/r', '/vol/r/m'])
+      expect(m.names()).toEqual(['/data', '/data/away', '/srv', '/srv/notes', '/srv/notes/keep.txt', '/vol', '/vol/r', '/vol/r/m'])
     })
 
     // worfy-windows ticket 45, from the review of PR #287: the path is a junction by GUID and its
@@ -149,7 +149,7 @@ describe('removeTree over a model of the file system', () => {
       expect(viaModule(m, '/data/away/m', 'win32')).toBeNull()
       expect(m.calls).toEqual(['lstat /data/away/m', 'lstat /data/away', 'rmdir /data/away/m'])
       expect(m.waits).toEqual([])
-      expect(m.names()).toEqual(['/data', '/data/away', '/home', '/home/notes', '/home/notes/keep.txt', '/vol', '/vol/r', '/vol/r/empty', '/vol/r/sub', '/vol/r/sub/f.txt'])
+      expect(m.names()).toEqual(['/data', '/data/away', '/srv', '/srv/notes', '/srv/notes/keep.txt', '/vol', '/vol/r', '/vol/r/empty', '/vol/r/sub', '/vol/r/sub/f.txt'])
     })
 
     it('when the parent folder cannot be asked for its volume, the first rmdir still decides', () => {
@@ -189,12 +189,12 @@ describe('removeTree over a model of the file system', () => {
       expect(viaModule(gone, '/data/card', 'win32')).toBe('ENOTEMPTY')
       expect(gone.calls).not.toContain('readdir /data/card/assets')
       expect(gone.calls.filter((call) => call.includes('/data/card/assets'))).toEqual(['lstat /data/card/assets', 'rmdir /data/card/assets'])
-      expect(gone.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(gone.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
       const notADir = model(WITH_A_LINK, { 'rmdir /data/card/assets': ['ENOTDIR'] })
       expect(viaModule(notADir, '/data/card', 'win32')).toBe('ENOTDIR')
       expect(notADir.calls.filter((call) => call.includes('/data/card/assets'))).toEqual(['lstat /data/card/assets', 'rmdir /data/card/assets'])
       expect(notADir.waits).toEqual([])
-      expect(notADir.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(notADir.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
     })
 
     // worfy-windows ticket 45, measurement 6 of the review of PR #287: a junction by GUID whose
@@ -238,7 +238,7 @@ describe('removeTree over a model of the file system', () => {
     it('a plain folder that refuses to go for another reason than "not empty" is not listed: what it holds stays, and the removal ends with that reason', () => {
       const m = model(WITH_A_LINK, { 'rmdir /data/card/assets': Array.from({ length: 10 }, () => 'EBUSY') })
       expect(viaModule(m, '/data/card', 'win32')).toBe('EBUSY')
-      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
       expect(m.calls).not.toContain('readdir /data/card/assets')
       expect(m.waits).toHaveLength(REMOVE_RETRIES)
     })
@@ -272,7 +272,7 @@ describe('removeTree over a model of the file system', () => {
         'lstat /data/card/linked',
         'rmSync /data/card recursive force',
       ])
-      expect(m.names(), platform).toEqual(['/data', '/home', '/home/notes', '/home/notes/keep.txt'])
+      expect(m.names(), platform).toEqual(['/data', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
       expect(m.waits, platform).toEqual([])
     }
     // What rmSync throws is what the caller gets.
@@ -318,7 +318,7 @@ describe('removeTree over a model of the file system', () => {
       const m = model(WITH_A_LINK)
       expect(viaModule(m, written, 'win32'), written).toBeNull()
       expect(m.calls, written).toEqual(['lstat /data/card/linked', 'unlink /data/card/linked'])
-      expect(m.names(), written).toContain('/home/notes/keep.txt')
+      expect(m.names(), written).toContain('/srv/notes/keep.txt')
     }
     // The root of a disk keeps its separator: without it the path would name another folder. So
     // does a path that is separators and nothing else: without them it would be no path at all.
@@ -453,7 +453,7 @@ describe('removeFile over a model of the file system', () => {
     expect(single(m, '/data/never-was', 'win32')).toBeNull()
     expect(single(m, '/data/card/assets', 'win32')).toBe('EISDIR')
     expect(m.calls).toEqual(['lstat /data/card/linked', 'unlink /data/card/linked', 'lstat /data/card/index.html', 'unlink /data/card/index.html', 'lstat /data/never-was', 'lstat /data/card/assets'])
-    expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+    expect(m.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/srv', '/srv/notes', '/srv/notes/keep.txt'])
   })
 
   it('on Windows tries a busy file again, as the walk does, and reads a separator at the end of the path away', () => {
@@ -491,7 +491,7 @@ describe('removeFile over a model of the file system', () => {
       expect(single(m, '/data/card/assets', platform), platform).toBe('ERR_FS_EISDIR')
       expect(m.calls, platform).toEqual(['rmSync /data/card/linked force', 'rmSync /data/never-was force', 'rmSync /data/card/assets force'])
       expect(m.names(), platform).toContain('/data/card/assets/app.js')
-      expect(m.names(), platform).toContain('/home/notes/keep.txt')
+      expect(m.names(), platform).toContain('/srv/notes/keep.txt')
     }
   })
 })

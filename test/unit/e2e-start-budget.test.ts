@@ -1,10 +1,10 @@
-// The budget of the Auction-sized start in test/e2e/epic-frame.spec.ts: test/e2e/start-budget.ts.
+// The budget of the Auberge-sized start in test/e2e/epic-frame.spec.ts: test/e2e/start-budget.ts.
 import { describe, expect, it } from 'vitest'
 import { measuresReference, RUNNER_START_CAP_MS, START_MS, START_RATIO, startBudget } from '../e2e/start-budget'
 
 const CI = { GITHUB_ACTIONS: 'true' }
 
-describe('the budget of an Auction-sized start (startBudget)', () => {
+describe('the budget of an Auberge-sized start (startBudget)', () => {
   it('is 3 s off GitHub Actions, whatever the one-Ticket start took', () => {
     for (const env of [{}, { GITHUB_ACTIONS: 'false' }, { GITHUB_ACTIONS: '1' }, { CI: 'true' }]) {
       for (const referenceMs of [100, 721, 1274, 5_000]) expect(startBudget(referenceMs, env), JSON.stringify(env)).toBe(3_000)
@@ -18,14 +18,14 @@ describe('the budget of an Auction-sized start (startBudget)', () => {
     expect(startBudget(909, CI)).toBe(5_454)
   })
 
-  it('on GitHub Actions holds every Auction-sized start the runner measured against its reference', () => {
+  it('on GitHub Actions holds every Auberge-sized start the runner measured against its reference', () => {
     const measured = [
-      { auction: 3897, reference: 1274 },
-      { auction: 3911, reference: 909 },
-      { auction: 2739, reference: 721 },
-      { auction: 1736, reference: 565 },
+      { auberge: 3897, reference: 1274 },
+      { auberge: 3911, reference: 909 },
+      { auberge: 2739, reference: 721 },
+      { auberge: 1736, reference: 565 },
     ]
-    for (const { auction, reference } of measured) expect(auction, `${auction} against ${reference}`).toBeLessThanOrEqual(startBudget(reference, CI))
+    for (const { auberge, reference } of measured) expect(auberge, `${auberge} against ${reference}`).toBeLessThanOrEqual(startBudget(reference, CI))
   })
 
   it('on GitHub Actions is never below 3 s', () => {

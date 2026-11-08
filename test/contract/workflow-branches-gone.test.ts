@@ -39,7 +39,7 @@ const watchers: WorkflowWatcher[] = []
 
 function git(...args: string[]): void {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'gc.auto=0', ...args], { cwd: repo, env, stdio: 'ignore' })
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'gc.auto=0', ...args], { cwd: repo, env, stdio: 'ignore' })
 }
 
 beforeEach(() => {

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { codexExecutablePath, type CodexRuntime } from '../../src/main/vendors/codex/binary'
 
 const mac: CodexRuntime = { packaged: true, resourcesPath: '/Applications/worfy.app/Contents/Resources', platform: 'darwin', arch: 'arm64' }
-const windows: CodexRuntime = { packaged: true, resourcesPath: 'C:\\Users\\me\\AppData\\Local\\Programs\\worfy\\resources', platform: 'win32', arch: 'x64' }
+const windows: CodexRuntime = { packaged: true, resourcesPath: 'C:\\Users\\someone\\AppData\\Local\\Programs\\worfy\\resources', platform: 'win32', arch: 'x64' }
 
 /** A resolver that finds every package under `root`, joined as the platform of the test runtime writes it. */
 const under = (root: string, separator: string) => (name: string) => [root, ...name.split('/')].join(separator)

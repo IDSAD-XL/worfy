@@ -14,7 +14,7 @@ const STATE: GettingStartedSnapshot = {
   steps: {},
   reworkSeen: false,
   noticeShown: false,
-  demo: { projectId: 'demo', path: '/Users/u/worfy-demo', profile: 'worfy-demo', cost: 'more-expensive' },
+  demo: { projectId: 'demo', path: '/Users/someone/worfy-demo', profile: 'worfy-demo', cost: 'more-expensive' },
 }
 
 let asked: unknown[] = []

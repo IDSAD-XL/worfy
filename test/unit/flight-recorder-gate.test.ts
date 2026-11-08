@@ -140,16 +140,16 @@ describe('verdicts without a PR', () => {
 
 describe('the canonical form of a worktree path', () => {
   it('on Windows: one separator, no letter case, no long-path prefix, no trailing separator', () => {
-    expect(comparablePath('C:\\Users\\Ann\\Repo\\.claude\\worktrees\\05', 'win32')).toBe('c:/users/ann/repo/.claude/worktrees/05')
-    expect(comparablePath('c:/users/ann/repo/.claude/worktrees/05/', 'win32')).toBe('c:/users/ann/repo/.claude/worktrees/05')
+    expect(comparablePath('C:\\Users\\Someone\\Repo\\.claude\\worktrees\\05', 'win32')).toBe('c:/users/someone/repo/.claude/worktrees/05')
+    expect(comparablePath('c:/users/someone/repo/.claude/worktrees/05/', 'win32')).toBe('c:/users/someone/repo/.claude/worktrees/05')
     expect(comparablePath('\\\\?\\C:\\Repo', 'win32')).toBe('c:/repo')
     expect(comparablePath('\\\\?\\UNC\\host\\share\\repo', 'win32')).toBe('//host/share/repo')
     expect(comparablePath('C:\\', 'win32')).toBe('c:/')
   })
 
   it('elsewhere: the path itself, a trailing separator aside', () => {
-    expect(comparablePath('/Users/Ann/Repo', 'darwin')).toBe('/Users/Ann/Repo')
-    expect(comparablePath('/Users/Ann/Repo/', 'linux')).toBe('/Users/Ann/Repo')
+    expect(comparablePath('/Users/Someone/Repo', 'darwin')).toBe('/Users/Someone/Repo')
+    expect(comparablePath('/Users/Someone/Repo/', 'linux')).toBe('/Users/Someone/Repo')
     expect(comparablePath('/a\\b', 'linux')).toBe('/a\\b')
     expect(comparablePath('/', 'linux')).toBe('/')
   })

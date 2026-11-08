@@ -247,7 +247,7 @@ describe('the shell of a Product Session', () => {
 
   it.each([
     ['bin/ticket done', 'bin/ticket'],
-    ['/Users/me/.claude/worfy-harness/plugin/bin/ticket done .scratch/e/issues/01-x.md', 'bin/ticket'],
+    ['/Users/someone/.claude/worfy-harness/plugin/bin/ticket done .scratch/e/issues/01-x.md', 'bin/ticket'],
     ["node 'C:\\h\\bin\\ticket.mjs' claim x", 'bin/ticket'],
     ['node /h/bin/ticket.mjs claim x', 'bin/ticket'],
     ['ticket claim x', 'bin/ticket'],
@@ -326,7 +326,7 @@ describe('the shell of a Product Session', () => {
     'gh pr checks 1',
     'gh run view 2 --log-failed',
     'epic-status worfy-product-session',
-    '/Users/me/.claude/worfy-harness/plugin/bin/epic-status x',
+    '/Users/someone/.claude/worfy-harness/plugin/bin/epic-status x',
     'grep -n pnpm package.json',
     'cat README.md | head',
     'ls docs/product',

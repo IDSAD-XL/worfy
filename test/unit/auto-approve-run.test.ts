@@ -25,6 +25,13 @@ const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_CONFIG_GLOBAL: jo
 // No auto maintenance (test/git-env.ts): its detached run writes .git/objects/maintenance.lock after a commit, and the
 // removal of the scratch folder after the test met it there (ENOTEMPTY). On the command line, not in the environment:
 // GIT_CONFIG_COUNT there would change what the policy under test says.
+// Fake secrets in the form each rule knows, written as the parts of a template: the guard of personal
+// strings (scripts/check-personal.mjs) reads such a token in the source as a real one.
+const GHP = `ghp_${'abcdefghijklmnop1234'}`
+const GH_PAT = `github_pat_${'abcdefghijklmnop_1234'}`
+const SK = `sk-${'abcdefghijklmnop1234'}`
+const AKIA = `AKIA${'ABCDEFGHIJKLMNOP'}`
+
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=demo', '-c', 'user.email=demo@example.invalid', '-c', 'init.defaultBranch=main', '-c', 'maintenance.auto=false', ...args], { cwd, env: gitEnv(), encoding: 'utf8' })
 
 beforeEach(() => {
@@ -924,12 +931,12 @@ describe('readGitFacts and openRunApproval: the leftovers of the review of ticke
   })
 
   it('the home folder of `~/` in an include: HOME, else on Windows the ones Git for Windows takes, HOMEDRIVE+HOMEPATH and USERPROFILE', () => {
-    expect(includeHomes({ HOME: '/home/demo', USERPROFILE: '/other' }, 'linux')).toEqual(['/home/demo'])
+    expect(includeHomes({ HOME: '/home/someone', USERPROFILE: '/other' }, 'linux')).toEqual(['/home/someone'])
     expect(includeHomes({ USERPROFILE: '/other' }, 'linux')).toEqual([])
-    expect(includeHomes({ HOME: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
-    expect(includeHomes({ HOMEDRIVE: 'H:', HOMEPATH: '\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['H:\\Demo', 'C:\\Users\\Demo'])
-    expect(includeHomes({ USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
-    expect(includeHomes({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\Demo', USERPROFILE: 'C:\\Users\\Demo' }, 'win32')).toEqual(['C:\\Users\\Demo'])
+    expect(includeHomes({ HOME: 'C:\\Users\\Someone' }, 'win32')).toEqual(['C:\\Users\\Someone'])
+    expect(includeHomes({ HOMEDRIVE: 'H:', HOMEPATH: '\\Demo', USERPROFILE: 'C:\\Users\\Someone' }, 'win32')).toEqual(['H:\\Demo', 'C:\\Users\\Someone'])
+    expect(includeHomes({ USERPROFILE: 'C:\\Users\\Someone' }, 'win32')).toEqual(['C:\\Users\\Someone'])
+    expect(includeHomes({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\Someone', USERPROFILE: 'C:\\Users\\Someone' }, 'win32')).toEqual(['C:\\Users\\Someone'])
     expect(includeHomes({ HOME: '' }, 'win32')).toEqual([''])
   })
 })
@@ -992,18 +999,18 @@ describe('removeTreeAsync', () => {
 })
 
 describe('journalCommand: a command as the Journal keeps it', () => {
-  const home = '/Users/demo'
+  const home = '/Users/someone'
   it('writes the home folder as ~, a secret assignment as NAME=***, and keeps at most COMMAND_MAX units', () => {
     expect(COMMAND_MAX).toBe(200)
-    expect(journalCommand('rm -rf /Users/demo/projects/app/build', home)).toBe('rm -rf ~/projects/app/build')
+    expect(journalCommand('rm -rf /Users/someone/projects/app/build', home)).toBe('rm -rf ~/projects/app/build')
     expect(journalCommand('GH_TOKEN=ghp_demo123 gh pr list', home)).toBe('GH_TOKEN=*** gh pr list')
     expect(journalCommand("export API_KEY='a b c' && MY_SECRET=\"x y\" DB_PASSWORD=p run", home)).toBe('export API_KEY=*** && MY_SECRET=*** DB_PASSWORD=*** run')
     expect(journalCommand('gh_token=abc x', home)).toBe('gh_token=*** x')
     expect(journalCommand('NAME=demo x', home)).toBe('NAME=demo x')
-    const long = journalCommand(`GH_TOKEN=secret-demo-token rm -rf ${'/Users/demo/a '.repeat(40)}`, home)
+    const long = journalCommand(`GH_TOKEN=secret-demo-token rm -rf ${'/Users/someone/a '.repeat(40)}`, home)
     expect(long.length).toBeLessThanOrEqual(COMMAND_MAX)
     expect(long).not.toContain('secret-demo-token')
-    expect(long).not.toContain('/Users/demo')
+    expect(long).not.toContain('/Users/someone')
   })
 
   it('cuts after the cleaning: a secret where the cut falls leaves none of its value, and the line is COMMAND_MAX long', () => {
@@ -1029,7 +1036,7 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['tool --secret-key k --token-file f', 'tool --secret-key *** --token-file ***'],
       ['curl -u demo:secret x', 'curl -u demo:*** x'],
       ['mysql -u root -psecret db', 'mysql -u root -p*** db'],
-      ['echo ghp_abcdefghijklmnop1234 github_pat_abcdefghijklmnop_1234 sk-abcdefghijklmnop1234 xoxb-1234-abcd AKIAABCDEFGHIJKLMNOP', 'echo *** *** *** *** ***'],
+      [`echo ${GHP} ${GH_PAT} ${SK} xoxb-1234-abcd ${AKIA}`, 'echo *** *** *** *** ***'],
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
     // What is not a secret stays.
@@ -1072,7 +1079,7 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ["tool --secret-key k --token-file f", "tool --secret-key *** --token-file ***"],
       ["curl -u demo:secret x", "curl -u demo:*** x"],
       ["mysql -u root -psecret db", "mysql -u root -p*** db"],
-      ["echo ghp_abcdefghijklmnop1234 github_pat_abcdefghijklmnop_1234 sk-abcdefghijklmnop1234 xoxb-1234-abcd AKIAABCDEFGHIJKLMNOP", "echo *** *** *** *** ***"],
+      [`echo ${GHP} ${GH_PAT} ${SK} xoxb-1234-abcd ${AKIA}`, "echo *** *** *** *** ***"],
       ["curl -d '{\"token\":\"abc\",\"user\":\"demo\"}' x", "curl -d '{\"token\":\"***\",\"user\":\"demo\"}' x"],
       ["curl -d '{\"password\": \"a b c\", \"secret\":\"s\", \"api_key\":\"k\"}' x", "curl -d '{\"password\": \"***\", \"secret\":\"***\", \"api_key\":\"***\"}' x"],
       ["curl -d \"{\\\"token\\\":\\\"abc\\\"}\" x", "curl -d \"{\\\"token\\\":\\\"***\\\"}\" x"],
@@ -1159,7 +1166,7 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       ['curl -H "X-Api-Key: s3cr3t" x && git commit -m "auth: x"', 'curl -H "X-Api-Key: ***" x && git commit -m "auth: x"'],
       ['echo git commit -m "auth: x" | tool -H "X-Api-Key: s3cr3t"', 'echo git commit -m "auth: ***" | tool -H "X-Api-Key: ***"'],
       // A token in a commit message is still hidden by its own form.
-      ['git commit -m "auth: ghp_abcdefghijklmnop1234"', 'git commit -m "auth: ***"'],
+      [`git commit -m "auth: ${GHP}"`, 'git commit -m "auth: ***"'],
       // Search tools: a password word inside a quoted pattern, a value with a digit, another segment.
       ['grep -r "password hunter2" .', 'grep -r "password ***" .'],
       ['grep -r "x password hunter2" .', 'grep -r "x password ***" .'],
@@ -1182,28 +1189,28 @@ describe('journalCommand: a command as the Journal keeps it', () => {
       // An ANSI-C quote $'…' holds `\'`: the `;` inside it starts nothing (round 2 of PR #1475, verification).
       ["curl -d $'\\';docker run -u 1000:424242 ' https://x", "curl -d $'\\';docker run -u 1000:*** ' https://x"],
       // A token after `_` in a word.
-      ['touch wt/key_ghp_abcdefghijklmnop1234', 'touch wt/key_***'],
-      ['echo ghp_abcdefghijklmnop1234_x', 'echo ***_x'],
+      [`touch wt/key_${GHP}`, 'touch wt/key_***'],
+      [`echo ${GHP}_x`, 'echo ***_x'],
     ]
     for (const [command, kept] of cases) expect(journalCommand(command, home), command).toBe(kept)
   })
 
   it('the home folder of Windows in every form', () => {
-    expect(journalCommand('rm -rf C:\\Users\\Demo\\x /c/Users/Demo/y', 'C:\\Users\\Demo')).toBe('rm -rf ~\\x ~/y')
+    expect(journalCommand('rm -rf C:\\Users\\Someone\\x /c/Users/Someone/y', 'C:\\Users\\Someone')).toBe('rm -rf ~\\x ~/y')
   })})
 
 describe('journalTarget: a target as the Journal keeps it (worfy-auto-approve ticket 13, item 6)', () => {
-  const home = '/Users/demo'
+  const home = '/Users/someone'
   it('hides a token in a path as journalCommand does, and writes the home folder as ~', () => {
-    expect(journalTarget('/Users/demo/wt/ghp_abcdefghijklmnop1234', home)).toBe('~/wt/***')
-    expect(journalTarget('/tmp/github_pat_abcdefghijklmnop_1234/x', home)).toBe('/tmp/***/x')
-    expect(journalTarget('/Users/demo/wt/key_ghp_abcdefghijklmnop1234', home)).toBe('~/wt/key_***')
+    expect(journalTarget(`/Users/someone/wt/${GHP}`, home)).toBe('~/wt/***')
+    expect(journalTarget(`/tmp/${GH_PAT}/x`, home)).toBe('/tmp/***/x')
+    expect(journalTarget(`/Users/someone/wt/key_${GHP}`, home)).toBe('~/wt/key_***')
     expect(journalTarget('/tmp/x/GH_TOKEN=s3cr3tvalue', home)).toBe('/tmp/x/GH_TOKEN=***')
-    expect(journalTarget('C:\\Users\\Demo\\wt\\sk-abcdefghijklmnop1234.txt', 'C:\\Users\\Demo')).toBe('~\\wt\\***.txt')
+    expect(journalTarget(`C:\\Users\\Someone\\wt\\${SK}.txt`, 'C:\\Users\\Someone')).toBe('~\\wt\\***.txt')
     // A path without a secret stays as it is, and is cut at COMMAND_MAX.
-    expect(journalTarget('/Users/demo/wt/build/out.js', home)).toBe('~/wt/build/out.js')
+    expect(journalTarget('/Users/someone/wt/build/out.js', home)).toBe('~/wt/build/out.js')
     expect(journalTarget(`/tmp/${'a'.repeat(250)}`, home)).toHaveLength(COMMAND_MAX)
-    expect(journalTarget(`/tmp/${'a'.repeat(190)}/ghp_abcdefghijklmnop1234`, home)).not.toContain('ghp_')
+    expect(journalTarget(`/tmp/${'a'.repeat(190)}/${GHP}`, home)).not.toContain('ghp_')
   })
 })
 

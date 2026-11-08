@@ -307,7 +307,7 @@ describe('a shell started without pipes (out of file descriptors)', () => {
 })
 
 describe('the PATH of the Harness scripts when the capture fails', () => {
-  const failed = (path: string): CapturedEnv => ({ env: { PATH: path, HOME: '/home/u' }, from: 'fallback', error: 'shell failed' })
+  const failed = (path: string): CapturedEnv => ({ env: { PATH: path, HOME: '/home/someone' }, from: 'fallback', error: 'shell failed' })
 
   // Windows: the agent environment there is not a login shell capture (captureAgentEnv takes captureWindowsEnv), so SHELL cannot make it fall back.
   it.skipIf(process.platform === 'win32')("the app's source: a failed capture gives the scripts the folder with node from worfy's own PATH, after the system PATH", async () => {
@@ -334,13 +334,13 @@ describe('the PATH of the Harness scripts when the capture fails', () => {
   })
 
   it('withProcessPath: the PATH of the process goes after the system PATH, without repeats', () => {
-    expect(withProcessPath(failed(SYSTEM_PATH), '/opt/node/bin:/usr/bin::/bin', 'darwin')).toEqual({ PATH: `${SYSTEM_PATH}:/opt/node/bin`, HOME: '/home/u' })
+    expect(withProcessPath(failed(SYSTEM_PATH), '/opt/node/bin:/usr/bin::/bin', 'darwin')).toEqual({ PATH: `${SYSTEM_PATH}:/opt/node/bin`, HOME: '/home/someone' })
     // A folder twice in the PATH of the process itself goes in once.
     expect(withProcessPath(failed(SYSTEM_PATH), '/opt/node/bin:/opt/node/bin', 'darwin').PATH).toBe(`${SYSTEM_PATH}:/opt/node/bin`)
   })
 
   it('withProcessPath: a capture that did not fail is not touched, nor a fallback on Windows, nor one without a PATH of the process', () => {
-    const fromShell: CapturedEnv = { env: { PATH: '/usr/bin', HOME: '/home/u' }, from: 'login-shell', error: null }
+    const fromShell: CapturedEnv = { env: { PATH: '/usr/bin', HOME: '/home/someone' }, from: 'login-shell', error: null }
     expect(withProcessPath(fromShell, '/opt/node/bin', 'darwin')).toBe(fromShell.env)
     const onWindows = failed('C:\\Windows')
     expect(withProcessPath(onWindows, 'C:\\node', 'win32')).toBe(onWindows.env)

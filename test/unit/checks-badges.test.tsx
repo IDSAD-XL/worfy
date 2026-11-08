@@ -202,16 +202,16 @@ describe('ChecksBadges by worktree folder', () => {
 })
 
 describe('ChecksBadges in a Project over two repositories (worfy-harness ticket 23)', () => {
-  const API = '/Users/test/projects/atakama/api'
-  const WEB = '/Users/test/projects/atakama/web'
-  const inRepo = (num: number, repo: string | null, branch: string | null): Ticket => ({ ...ticket(num, 'work'), epic: 'atakama', branch, repo })
+  const API = '/Users/test/projects/atalaya/api'
+  const WEB = '/Users/test/projects/atalaya/web'
+  const inRepo = (num: number, repo: string | null, branch: string | null): Ticket => ({ ...ticket(num, 'work'), epic: 'atalaya', branch, repo })
   const silentTickets = [inRepo(5, 'api', 'fix/x'), inRepo(6, 'web', 'fix/y'), inRepo(7, null, 'fix/z')]
   const pullOn = (number: number, branch: string): ChecksSnapshot['pulls'][number] => ({ number, url: `https://github.com/o/r/pull/${number}`, state: 'OPEN', branch, ci: 'passing', verdict: null })
   const snap = (root: string, pulls: ChecksSnapshot['pulls']): ChecksSnapshot => ({ root, worktrees: [{ path: root, branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls, gh: { available: true, error: null, intervalMs: 60_000 } })
   const subject = (num: number) => ({ kind: 'ticket' as const, projectId: 'p', root: ROOT, ticket: silentTickets.find((each) => each.num === num)! })
 
   beforeEach(() => {
-    model = { ...MODEL, epics: [{ epic: 'atakama', hasSpec: true, hasMap: false, title: 'Atakama' }], tickets: silentTickets }
+    model = { ...MODEL, epics: [{ epic: 'atalaya', hasSpec: true, hasMap: false, title: 'Atalaya' }], tickets: silentTickets }
     repos = {
       mode: 'silent',
       repos: [
@@ -458,7 +458,7 @@ describe('branchesInWork', () => {
 describe('the root checks.get and checks.repos take (worfy-windows ticket 03)', () => {
   it('is an absolute path of macOS or of Windows, and nothing relative', async () => {
     const { checksGet, checksRepos } = await import('../../src/shared/ipc/checks')
-    for (const root of [ROOT, '/', 'C:\\a', 'C:/a', 'c:\\Users\\x\\worfy', '\\\\srv\\share\\a']) {
+    for (const root of [ROOT, '/', 'C:\\a', 'C:/a', 'c:\\Users\\someone\\worfy', '\\\\srv\\share\\a']) {
       expect(checksGet.input.safeParse({ root, branches: [] }).success, root).toBe(true)
       expect(checksRepos.input.safeParse({ root }).success, root).toBe(true)
     }

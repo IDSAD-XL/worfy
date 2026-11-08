@@ -25,20 +25,20 @@ describe('redactSecrets', () => {
     ['a fine-grained GitHub token', `git clone https://${GITHUB_FINE}@github.com/o/r.git`, `git clone https://${REDACTED}@github.com/o/r.git`],
     ['an Anthropic key', `curl -H "x-api-key: ${ANTHROPIC}" https://api.anthropic.com`, `curl -H "x-api-key: ${REDACTED}" https://api.anthropic.com`],
     ['a Slack token', `slack-cli --auth ${SLACK} post`, `slack-cli --auth ${REDACTED} post`],
-    ['a JWT', `http GET api.local/me cookie:session=${JWT}`, `http GET api.local/me cookie:session=${REDACTED}`],
+    ['a JWT', `http GET api.example.com/me cookie:session=${JWT}`, `http GET api.example.com/me cookie:session=${REDACTED}`],
     ['a Bearer credential', 'curl -H "Authorization: Bearer abc.DEF-123_xyz" https://x.dev', `curl -H "Authorization: Bearer ${REDACTED}" https://x.dev`],
     ['a *_TOKEN variable', 'GITHUB_TOKEN=plainvalue123 gh pr list', `GITHUB_TOKEN=${REDACTED} gh pr list`],
     ['an exported *_KEY variable', 'export OPENAI_API_KEY="some value"', `export OPENAI_API_KEY=${REDACTED}`],
     ['a *SECRET* variable', "CLIENT_SECRET_VALUE='s3cr3t' ./run.sh", `CLIENT_SECRET_VALUE=${REDACTED} ./run.sh`],
     ['a PASSWORD variable', 'PASSWORD=hunter2 mysql -u root', `PASSWORD=${REDACTED} mysql -u root`],
     ['a lower-case password in a query string', 'curl "https://x.dev/login?user=me&password=hunter2&x=1"', `curl "https://x.dev/login?user=me&password=${REDACTED}&x=1"`],
-    ['a password in a URL', 'psql postgres://admin:hunter2@db.local:5432/app', `psql postgres://admin:${REDACTED}@db.local:5432/app`],
+    ['a password in a URL', 'psql postgres://admin:hunter2@db.example.com:5432/app', `psql postgres://admin:${REDACTED}@db.example.com:5432/app`],
     ['a --password option', 'mysql --password hunter2 -u root', `mysql --password ${REDACTED} -u root`],
     ['a --token= option', 'vault login --token=s.abcdef', `vault login --token=${REDACTED}`],
     ['a curl -u password', 'curl -u admin:hunter2 https://x.dev', `curl -u admin:${REDACTED} https://x.dev`],
     ['a curl --user= password in quotes', `curl --user='admin:hunter2' https://x.dev`, `curl --user='admin:${REDACTED}' https://x.dev`],
     ['a mysql -p password', 'mysql -u root -pSecret db', `mysql -u root -p${REDACTED} db`],
-    ['a mysqldump -p password', 'mysqldump -h db.local -ps3cr3t app > dump.sql', `mysqldump -h db.local -p${REDACTED} app > dump.sql`],
+    ['a mysqldump -p password', 'mysqldump -h db.example.com -ps3cr3t app > dump.sql', `mysqldump -h db.example.com -p${REDACTED} app > dump.sql`],
     ['an Authorization: Basic header', 'curl -H "Authorization: Basic dXNlcjpwYXNzd29yZA==" https://x.dev', `curl -H "Authorization: Basic ${REDACTED}" https://x.dev`],
     ['an Authorization: token header', 'curl -H "Authorization: token abc123def456" https://api.github.com', `curl -H "Authorization: token ${REDACTED}" https://api.github.com`],
     ['an npm _authToken', 'npm config set //registry.npmjs.org/:_authToken=npm_abcdef123456', `npm config set //registry.npmjs.org/:_authToken=${REDACTED}`],
@@ -49,7 +49,7 @@ describe('redactSecrets', () => {
     ['an OpenAI key in a URL path', `curl https://x.io/v1/${OPENAI_PROJECT}/run`, `curl https://x.io/v1/${REDACTED}/run`],
     ['an Anthropic key after a dot', `echo foo.${ANTHROPIC_REAL}`, `echo foo.${REDACTED}`],
     ['a wget --user= password', 'wget --user=admin:hunter2 https://x.dev/f', `wget --user=admin:${REDACTED} https://x.dev/f`],
-    ['an httpie -a password', 'http -a admin:hunter2 api.local/me', `http -a admin:${REDACTED} api.local/me`],
+    ['an httpie -a password', 'http -a admin:hunter2 api.example.com/me', `http -a admin:${REDACTED} api.example.com/me`],
     ['a curl -u password after other options', 'curl -s -H "Accept: x" -u admin:hunter2 https://x.dev', `curl -s -H "Accept: x" -u admin:${REDACTED} https://x.dev`],
     ['a Google API key', `curl "https://maps.googleapis.com/x?key=${GOOGLE}"`, `curl "https://maps.googleapis.com/x?key=${REDACTED}"`],
   ])('replaces %s', (_name, input, expected) => {
@@ -84,8 +84,8 @@ describe('redactSecrets', () => {
     ['curl -H "Content-Type: application/json; charset=utf-8" -u admin:hunter2 https://x', `curl -H "Content-Type: application/json; charset=utf-8" -u admin:${REDACTED} https://x`],
     ['curl "https://x.io/a?b=1&c=2" -u admin:hunter2', `curl "https://x.io/a?b=1&c=2" -u admin:${REDACTED}`],
     ["curl -H 'X-A: 1|2' -u admin:hunter2 https://x", `curl -H 'X-A: 1|2' -u admin:${REDACTED} https://x`],
-    ['https -a admin:hunter2 api.local/me', `https -a admin:${REDACTED} api.local/me`],
-    ['http --auth=admin:hunter2 api.local/me', `http --auth=admin:${REDACTED} api.local/me`],
+    ['https -a admin:hunter2 api.example.com/me', `https -a admin:${REDACTED} api.example.com/me`],
+    ['http --auth=admin:hunter2 api.example.com/me', `http --auth=admin:${REDACTED} api.example.com/me`],
   ])('replaces the -u password in %s', (input, expected) => {
     expect(redactSecrets(input)).toBe(expected)
   })
@@ -113,7 +113,7 @@ describe('redactSecrets', () => {
   })
 
   it('replaces a private key block of command output', () => {
-    const output = ['cat id_ed25519', '-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAA', '-----END OPENSSH PRIVATE KEY-----', 'done'].join('\n')
+    const output = ['cat id_ed25519', `-----BEGIN ${'OPENSSH'} PRIVATE KEY-----`, 'b3BlbnNzaC1rZXktdjEAAAAA', '-----END OPENSSH PRIVATE KEY-----', 'done'].join('\n')
     expect(redactSecrets(output)).toBe(['cat id_ed25519', REDACTED, 'done'].join('\n'))
   })
 

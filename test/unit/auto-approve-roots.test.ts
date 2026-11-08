@@ -1,7 +1,7 @@
 // Where a target of an approval request lies (worfy-auto-approve ticket 03): roots, hard areas,
 // symbolic links, globs and the Windows path forms. Links and globs are checked on a fixture folder on
 // disk (made under the system's temporary folder, removed after); the rest on made-up paths under
-// /tmp/demo, /home/demo and C:\work with a file system where nothing exists.
+// /tmp/demo, /home/someone and C:\work with a file system where nothing exists.
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -24,7 +24,7 @@ const base: Omit<RootsInput, 'recorded'> = {
   scratch: '/tmp/demo/repo/.scratch',
   runTemp: '/tmp/demo/data/autopilot-tmp/demo-run',
   scratchpad: '/tmp/demo/pad',
-  home: '/home/demo',
+  home: '/home/someone',
   dataDir: '/tmp/demo/data',
   harnessHome: '/tmp/demo/harness',
   otherSessions: ['/tmp/demo/other'],
@@ -59,7 +59,7 @@ describe('roots and hard areas on made-up paths', () => {
     expect(kind('/tmp/demo/repo/.claude/worktrees/03/../secret')).toBe('not-judged')
     expect(kind('/tmp/demo/repo/.claude/worktrees/03/./src/../a.ts')).toBe('not-judged')
     expect(kind('/tmp/demo/pad/x/../y')).toBe('not-judged')
-    expect(kind('/tmp/demo/pad/../../../home/demo/.ssh/id')).toBe('hard:ssh')
+    expect(kind('/tmp/demo/pad/../../../home/someone/.ssh/id')).toBe('hard:ssh')
     // .. at the top stays at the top, as the system does.
     expect(kind('/../../tmp/demo/pad/x')).toBe('inside:scratchpad')
     expect(kind('/tmp/demo/pad/./x')).toBe('inside:scratchpad')
@@ -71,21 +71,21 @@ describe('roots and hard areas on made-up paths', () => {
 
   it('hard-denies the secrets and settings of the home folder, for reads too', () => {
     for (const [path, category] of [
-      ['/home/demo/.claude/settings.json', 'claude-home'],
-      ['/home/demo/.codex', 'codex-home'],
-      ['/home/demo/.ssh/id_demo', 'ssh'],
-      ['/home/demo/.gnupg/x', 'gnupg'],
-      ['/home/demo/.config/gh/hosts.yml', 'gh-config'],
-      ['/home/demo/.gitconfig', 'git-config'],
-      ['/home/demo/.config/git/config', 'git-config'],
-      ['/home/demo/.git-credentials', 'git-config'],
-      ['/home/demo/.npmrc', 'npmrc'],
-      ['/home/demo/.zshrc', 'shell-rc'],
-      ['/home/demo/.zshenv', 'shell-rc'],
-      ['/home/demo/.bashrc', 'shell-rc'],
-      ['/home/demo/.profile', 'shell-rc'],
-      ...['.zprofile', '.zlogin', '.zlogout', '.bash_profile', '.bash_login', '.bash_logout', '.inputrc'].map((name) => [`/home/demo/${name}`, 'shell-rc'] as const),
-      ['/home/demo/Library/Keychains/x', 'library'],
+      ['/home/someone/.claude/settings.json', 'claude-home'],
+      ['/home/someone/.codex', 'codex-home'],
+      ['/home/someone/.ssh/id_demo', 'ssh'],
+      ['/home/someone/.gnupg/x', 'gnupg'],
+      ['/home/someone/.config/gh/hosts.yml', 'gh-config'],
+      ['/home/someone/.gitconfig', 'git-config'],
+      ['/home/someone/.config/git/config', 'git-config'],
+      ['/home/someone/.git-credentials', 'git-config'],
+      ['/home/someone/.npmrc', 'npmrc'],
+      ['/home/someone/.zshrc', 'shell-rc'],
+      ['/home/someone/.zshenv', 'shell-rc'],
+      ['/home/someone/.bashrc', 'shell-rc'],
+      ['/home/someone/.profile', 'shell-rc'],
+      ...['.zprofile', '.zlogin', '.zlogout', '.bash_profile', '.bash_login', '.bash_logout', '.inputrc'].map((name) => [`/home/someone/${name}`, 'shell-rc'] as const),
+      ['/home/someone/Library/Keychains/x', 'library'],
       ['/tmp/demo/data/app-settings.json', 'worfy-data'],
     ] as const) {
       expect(kind(path), path).toBe(`hard:${category}`)
@@ -102,10 +102,10 @@ describe('roots and hard areas on made-up paths', () => {
   })
 
   it('hard-denies a delete of a folder that holds a hard area, while a write there is only outside', () => {
-    expect(kind('/home/demo', 'delete')).toBe('hard:claude-home')
+    expect(kind('/home/someone', 'delete')).toBe('hard:claude-home')
     expect(kind('/home', 'delete')).toBe('hard:claude-home')
-    expect(kind('/home/demo', 'write')).toBe('outside')
-    expect(kind('/home/demo/notes.txt', 'delete')).toBe('outside')
+    expect(kind('/home/someone', 'write')).toBe('outside')
+    expect(kind('/home/someone/notes.txt', 'delete')).toBe('outside')
     // A delete of a folder that holds a root takes the root with it.
     expect(kind('/tmp/demo/repo/.claude/worktrees', 'delete', rootsOf({ ...base, otherWorktrees: [] }))).toBe('is-root:worktree')
     expect(kind('/tmp/demo/repo/.claude/worktrees', 'write', rootsOf({ ...base, otherWorktrees: [] }))).toBe('outside')
@@ -132,10 +132,10 @@ describe('roots and hard areas on made-up paths', () => {
 
   it('macOS: hard areas ignore case, roots do not', () => {
     const mac = rootsOf({ ...base, platform: 'darwin' })
-    expect(kind('/home/demo/.SSH/id', 'read', mac)).toBe('hard:ssh')
+    expect(kind('/home/someone/.SSH/id', 'read', mac)).toBe('hard:ssh')
     expect(kind('/tmp/demo/PAD/x', 'write', mac)).toBe('outside')
-    expect(kind('/home/demo/.SSH/id', 'read')).toBe('outside')
-    expect(kind('/home/DEMO', 'delete', mac)).toBe('hard:claude-home')
+    expect(kind('/home/someone/.SSH/id', 'read')).toBe('outside')
+    expect(kind('/home/SOMEONE', 'delete', mac)).toBe('hard:claude-home')
   })
 })
 
@@ -145,11 +145,11 @@ describe('Windows', () => {
     platform: 'win32',
     worktrees: ['C:\\work\\repo\\.claude\\worktrees\\03'],
     scratch: 'c:/work/repo/.scratch',
-    runTemp: 'C:\\Users\\demo\\AppData\\Roaming\\worfy\\autopilot-tmp\\demo-run',
+    runTemp: 'C:\\Users\\someone\\AppData\\Roaming\\worfy\\autopilot-tmp\\demo-run',
     scratchpad: null,
-    home: 'C:\\Users\\demo',
-    appData: 'C:\\Users\\demo\\AppData\\Roaming',
-    dataDir: 'C:\\Users\\demo\\AppData\\Roaming\\worfy',
+    home: 'C:\\Users\\someone',
+    appData: 'C:\\Users\\someone\\AppData\\Roaming',
+    dataDir: 'C:\\Users\\someone\\AppData\\Roaming\\worfy',
     harnessHome: null,
     otherSessions: [],
     otherWorktrees: ['C:\\work\\repo'],
@@ -162,10 +162,10 @@ describe('Windows', () => {
     expect(kind('C:\\work\\repo\\.claude\\worktrees\\03\\..\\..\\x', 'write', win)).toBe('hard:other-worktree')
   })
   it('hard-denies %APPDATA% and the secrets whatever the case, but not the Run\'s folder', () => {
-    expect(kind('c:\\users\\DEMO\\.ssh\\id', 'read', win)).toBe('hard:ssh')
-    expect(kind('/c/Users/demo/AppData/Roaming/Code/x', 'write', win)).toBe('hard:appdata')
-    expect(kind('C:/Users/demo/AppData/Roaming/worfy/app-settings.json', 'write', win)).toBe('hard:worfy-data')
-    expect(kind('C:/Users/demo/AppData/Roaming/worfy/autopilot-tmp/demo-run/x', 'delete', win)).toBe('inside:run-temp')
+    expect(kind('c:\\users\\SOMEONE\\.ssh\\id', 'read', win)).toBe('hard:ssh')
+    expect(kind('/c/Users/someone/AppData/Roaming/Code/x', 'write', win)).toBe('hard:appdata')
+    expect(kind('C:/Users/someone/AppData/Roaming/worfy/app-settings.json', 'write', win)).toBe('hard:worfy-data')
+    expect(kind('C:/Users/someone/AppData/Roaming/worfy/autopilot-tmp/demo-run/x', 'delete', win)).toBe('inside:run-temp')
   })
   it('is outside for a UNC path and a path without a drive', () => {
     expect(kind('\\\\server\\share\\x', 'write', win)).toBe('outside')
@@ -356,20 +356,20 @@ describe('on disk: links and globs', () => {
 })
 
 describe('the system spelling of a path', () => {
-  // A folder the system spells otherwise (a Windows short name such as RUNNER~1): /home/SHORT~1 is a plain
-  // folder that the system resolves to /home/real. The home is /home/link, a link to /home/real.
+  // A folder the system spells otherwise (a Windows short name such as RUNNER~1): /home/RUNNER~1 is a plain
+  // folder that the system resolves to /home/runneradmin. The home is /home/user, a link to /home/runneradmin.
   const spelled: FileSystem = {
-    lstat: (path) => (path === '/home/link' ? 'link' : path === '/home' || path === '/home/real' || path === '/home/SHORT~1' ? 'dir' : null),
-    realpath: (path) => (path === '/home/link' || path === '/home/SHORT~1' || path === '/home/real' ? '/home/real' : path === '/home' || path === '/' ? path : null),
+    lstat: (path) => (path === '/home/user' ? 'link' : path === '/home' || path === '/home/runneradmin' || path === '/home/RUNNER~1' ? 'dir' : null),
+    realpath: (path) => (path === '/home/user' || path === '/home/RUNNER~1' || path === '/home/runneradmin' ? '/home/runneradmin' : path === '/home' || path === '/' ? path : null),
     readdir: () => null,
     readFile: () => null,
   }
-  const spelledRoots = rootsOf({ ...base, platform: 'linux', worktrees: ['/work/wt'], scratch: null, runTemp: null, scratchpad: null, home: '/home/link', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: spelled })
+  const spelledRoots = rootsOf({ ...base, platform: 'linux', worktrees: ['/work/wt'], scratch: null, runTemp: null, scratchpad: null, home: '/home/user', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: spelled })
 
   it('a target in the other spelling reaches a hard area that does not exist yet', () => {
-    expect(kind('/home/SHORT~1/.npmrc', 'write', spelledRoots)).toBe('hard:npmrc')
-    expect(kind('/home/real/.ssh/id', 'read', spelledRoots)).toBe('hard:ssh')
-    expect(kind('/home/SHORT~1/notes.txt', 'write', spelledRoots)).toBe('outside')
+    expect(kind('/home/RUNNER~1/.npmrc', 'write', spelledRoots)).toBe('hard:npmrc')
+    expect(kind('/home/runneradmin/.ssh/id', 'read', spelledRoots)).toBe('hard:ssh')
+    expect(kind('/home/RUNNER~1/notes.txt', 'write', spelledRoots)).toBe('outside')
   })
 })
 
@@ -421,7 +421,7 @@ describe('roots recorded when the Run started', () => {
   const at = { ...base, worktrees: ['/w/wt'], scratch: '/w/scratch', runTemp: '/var/run-temp', scratchpad: null, otherSessions: [], otherWorktrees: [] }
   it('a root replaced by a link since is no root: what lies under it is symlink-on-path, a hard area under it hard', () => {
     const recorded = { '/w/wt': '/w/wt', '/w/scratch': '/w/scratch', '/var/run-temp': '/private/var/run-temp' }
-    const fsys = treeFs({ '/w/wt/a': 'file', '/w/scratch': '-> /home/demo', '/home/demo/Documents/x': 'file', '/home/demo/.ssh/id': 'file', '/var': '-> /private/var', '/private/var/run-temp/x': 'file' })
+    const fsys = treeFs({ '/w/wt/a': 'file', '/w/scratch': '-> /home/someone', '/home/someone/Documents/x': 'file', '/home/someone/.ssh/id': 'file', '/var': '-> /private/var', '/private/var/run-temp/x': 'file' })
     const moved = rootsOfRecorded({ ...at, recorded, fs: fsys })
     expect(kind('/w/scratch/Documents/x', 'write', moved)).toBe('symlink-on-path')
     expect(kind('/w/scratch/Documents', 'delete', moved)).toBe('symlink-on-path')
@@ -450,18 +450,18 @@ describe('roots recorded when the Run started', () => {
 
 describe('the review\'s edges of links and globs', () => {
   it('a hard area that is itself a link is hard by its real path too', () => {
-    const fsys = treeFs({ '/home/demo/.ssh': '-> /dot/ssh', '/dot/ssh/id': 'file' })
+    const fsys = treeFs({ '/home/someone/.ssh': '-> /dot/ssh', '/dot/ssh/id': 'file' })
     const roots = rootsOf({ ...base, fs: fsys })
     expect(kind('/dot/ssh/id', 'read', roots)).toBe('hard:ssh')
   })
   it('a link inside a hard area into a root is hard by its written form', () => {
-    const fsys = treeFs({ '/home/demo/.ssh/l': '-> /tmp/demo/pad', '/tmp/demo/pad/x': 'file' })
+    const fsys = treeFs({ '/home/someone/.ssh/l': '-> /tmp/demo/pad', '/tmp/demo/pad/x': 'file' })
     const roots = rootsOf({ ...base, fs: fsys })
-    expect(kind('/home/demo/.ssh/l/x', 'write', roots)).toBe('hard:ssh')
+    expect(kind('/home/someone/.ssh/l/x', 'write', roots)).toBe('hard:ssh')
   })
   it('an existing folder named like a new mktemp folder is looked through', () => {
     const folder = `/tmp/demo/data/autopilot-tmp/demo-run/${newTempFolderName(1)}`
-    const fsys = treeFs({ [`${folder}/l`]: '-> /home/demo', [`${folder}/a`]: 'file', '/home/demo/.claude/x': 'file' })
+    const fsys = treeFs({ [`${folder}/l`]: '-> /home/someone', [`${folder}/a`]: 'file', '/home/someone/.claude/x': 'file' })
     expect(kind(`${folder}/*`, 'delete', rootsOf({ ...base, fs: fsys }))).toBe('hard:claude-home')
   })
   it('a glob costs one lstat per entry, not a walk from the top', () => {
@@ -476,12 +476,12 @@ describe('the review\'s edges of links and globs', () => {
 })
 
 describe('Windows names the system rewrites', () => {
-  const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
+  const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\someone', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
   it('a trailing dot or space, a stream, a short name that does not resolve: not judged', () => {
     for (const name of ['.git.', '.git ', '.git::$INDEX_ALLOCATION', 'a:b', 'GIT~1']) expect(kind(`C:\\w\\wt\\${name}\\config`, 'write', win), name).toBe('not-judged')
   })
   it('a hard area wins over a rewritten name', () => {
-    expect(kind('C:\\Users\\demo\\.ssh\\x.\\y', 'write', win)).toBe('hard:ssh')
+    expect(kind('C:\\Users\\someone\\.ssh\\x.\\y', 'write', win)).toBe('hard:ssh')
   })
   it('on Linux and macOS such a name is a name', () => {
     expect(kind('/tmp/demo/pad/.git./x', 'write')).toBe('inside:scratchpad')
@@ -502,10 +502,10 @@ describe('more edges mutation testing found', () => {
     expect(kind('/private/var', 'delete', roots)).toBe('is-root:run-temp')
   })
   it('Windows: a . component is no rewritten name; an existing rewritten name that stays one is not judged', () => {
-    const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
+    const win = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\someone', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [] })
     expect(kind('C:\\w\\wt\\.\\a', 'write', win)).toBe('inside:worktree')
     const odd: FileSystem = { lstat: (path) => (/^c:\\w(\\wt(\\x\.)?)?$/i.test(path) || /^c:\\$/i.test(path) ? 'dir' : null), realpath: (path) => path, readdir: () => null, readFile: () => null }
-    const stays = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\demo', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: odd })
+    const stays = rootsOf({ ...base, platform: 'win32', worktrees: ['C:\\w\\wt'], scratch: null, runTemp: null, scratchpad: null, home: 'C:\\Users\\someone', dataDir: null, harnessHome: null, otherSessions: [], otherWorktrees: [], fs: odd })
     expect(kind('C:\\w\\wt\\x.\\a', 'write', stays)).toBe('not-judged')
   })
 })
@@ -524,7 +524,7 @@ describe('what a copy brings along (copiedTree)', () => {
     expect(copiedTree('/tmp/demo/pad/kit/*', roots(unreadable))).toBe('unclear')
   })
   it('a link inside is unclear only for a copy that follows links', () => {
-    const linked = treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file', '/tmp/demo/pad/kit/a/l': '-> /home/demo/.ssh', '/home/demo/.ssh/id_demo': 'file' })
+    const linked = treeFs({ '/tmp/demo/pad/kit/a/b.txt': 'file', '/tmp/demo/pad/kit/a/l': '-> /home/someone/.ssh', '/home/someone/.ssh/id_demo': 'file' })
     expect(copiedTree('/tmp/demo/pad/kit', roots(linked))).toBe('clean')
     expect(copiedTree('/tmp/demo/pad/kit', roots(linked), false)).toBe('clean')
     expect(copiedTree('/tmp/demo/pad/kit', roots(linked), true)).toBe('unclear')

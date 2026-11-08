@@ -48,7 +48,7 @@ describe('claudeExecutablePath', () => {
 })
 
 describe('sessionOptions', () => {
-  const env = { PATH: '/usr/bin', HOME: '/Users/me' }
+  const env = { PATH: '/usr/bin', HOME: '/Users/someone' }
 
   it("runs with the user's settings, the claude_code preset and bypassPermissions", () => {
     const options = sessionOptions({ cwd: '/repo', env, runtime: dev })

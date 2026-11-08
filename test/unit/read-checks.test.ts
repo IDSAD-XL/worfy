@@ -5,9 +5,9 @@ import type { GateReader, Worktree } from '../../src/main/gate/state'
 import type { PrTracker } from '../../src/main/github/prs'
 import { readChecks, type ChecksService } from '../../src/main/ipc/checks'
 
-const ROOT = 'C:/Users/a/worfy'
-const IN_TEMP = 'C:/Users/a/AppData/Local/Temp/worfy-01/07'
-const OUTSIDE = 'C:/Users/a/worfy-wt/08'
+const ROOT = 'C:/Users/someone/worfy'
+const IN_TEMP = 'C:/Users/someone/AppData/Local/Temp/worfy-01/07'
+const OUTSIDE = 'C:/Users/someone/worfy-wt/08'
 const worktrees: Worktree[] = [
   { path: ROOT, branch: 'main', head: 'a1' },
   { path: IN_TEMP, branch: 'demo/07', head: 'b2' },

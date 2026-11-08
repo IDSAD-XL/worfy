@@ -40,11 +40,11 @@ afterEach(() => {
 })
 
 describe('projectId', () => {
-  // Contract (worfy-windows tickets 08, 12, 49): the id hashes the root as git prints it. The owner's
-  // Project on the Windows PC is `worfy-d5750da7`, and its data folder has that name; hashing any other
+  // Contract (worfy-windows tickets 08, 12, 49): the id hashes the root as git prints it. A
+  // Project on a Windows PC keeps its data in a folder named by its id; hashing any other
   // spelling of the root (`C:\…`, `c:/…`) would point the Project at a new, empty data folder.
-  it('of the root `C:/Users/Alexey/worfy` is worfy-d5750da7 on any system', () => {
-    expect(projectId('C:/Users/Alexey/worfy')).toBe('worfy-d5750da7')
+  it('of the root `C:/Users/Someone/worfy` is worfy-635604d1 on any system', () => {
+    expect(projectId('C:/Users/Someone/worfy')).toBe('worfy-635604d1')
   })
 })
 

@@ -123,20 +123,20 @@ describe('currentHarness', () => {
 // an exit 1 is a fresh Harness only when none of them exists.
 describe('profileRegistryFiles', () => {
   it('CLAUDE_GATE_CONFIG alone when it is set', () => {
-    expect(profileRegistryFiles({ CLAUDE_GATE_CONFIG: '/x/registry.json', HARNESS_HOME: '/h', HOME: '/home/a' }, 'darwin')).toEqual(['/x/registry.json'])
+    expect(profileRegistryFiles({ CLAUDE_GATE_CONFIG: '/x/registry.json', HARNESS_HOME: '/h', HOME: '/home/someone' }, 'darwin')).toEqual(['/x/registry.json'])
   })
 
   it('the new registry in HARNESS_HOME first, then the old one under the home folder', () => {
-    expect(profileRegistryFiles({ HARNESS_HOME: '/h', HOME: '/home/a' }, 'darwin')).toEqual([join('/h', 'gate', 'config.json'), join('/home/a', '.claude', 'gate', 'config.json')])
+    expect(profileRegistryFiles({ HARNESS_HOME: '/h', HOME: '/home/someone' }, 'darwin')).toEqual([join('/h', 'gate', 'config.json'), join('/home/someone', '.claude', 'gate', 'config.json')])
   })
 
   it('without HARNESS_HOME the new registry is in <home>/.claude/worfy-harness', () => {
-    expect(profileRegistryFiles({ HOME: '/home/a' }, 'linux')).toEqual([join('/home/a', '.claude', 'worfy-harness', 'gate', 'config.json'), join('/home/a', '.claude', 'gate', 'config.json')])
+    expect(profileRegistryFiles({ HOME: '/home/someone' }, 'linux')).toEqual([join('/home/someone', '.claude', 'worfy-harness', 'gate', 'config.json'), join('/home/someone', '.claude', 'gate', 'config.json')])
   })
 
   it('the home folder is USERPROFILE on Windows and HOME elsewhere, as node takes it', () => {
-    const env = { HOME: '/home/a', USERPROFILE: 'C:\\Users\\a' }
-    expect(profileRegistryFiles(env, 'win32')[1]).toBe(join('C:\\Users\\a', '.claude', 'gate', 'config.json'))
-    expect(profileRegistryFiles(env, 'darwin')[1]).toBe(join('/home/a', '.claude', 'gate', 'config.json'))
+    const env = { HOME: '/home/someone', USERPROFILE: 'C:\\Users\\someone' }
+    expect(profileRegistryFiles(env, 'win32')[1]).toBe(join('C:\\Users\\someone', '.claude', 'gate', 'config.json'))
+    expect(profileRegistryFiles(env, 'darwin')[1]).toBe(join('/home/someone', '.claude', 'gate', 'config.json'))
   })
 })

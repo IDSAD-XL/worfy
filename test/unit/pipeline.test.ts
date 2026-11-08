@@ -1,6 +1,6 @@
 // The Stage of a Ticket from the facts about it (worfy-pipeline ticket 03, ADR-0067): a pure
 // function, no Electron, no git, no gh. The table covers every kind of the catalogue and both
-// Pipelines of the epic's spec — worfy's and Atakama's.
+// Pipelines of the epic's spec — worfy's and Atalaya's.
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PIPELINE,
@@ -35,8 +35,8 @@ const WORFY: PipelineStage[] = [
   { kind: 'done' },
 ]
 
-/** Atakama's Pipeline from the spec (Silent mode): Queued → Implementing → Agent review → CI → Human review → Awaiting merge → Done. */
-const ATAKAMA: PipelineStage[] = [
+/** Atalaya's Pipeline from the spec (Silent mode): Queued → Implementing → Agent review → CI → Human review → Awaiting merge → Done. */
+const ATALAYA: PipelineStage[] = [
   { kind: 'queued' },
   { kind: 'implementing' },
   { kind: 'agent-review' },
@@ -85,8 +85,8 @@ const cases: Case[] = [
   ['no Status line (old header) → Queued', WORFY, facts({ status: 'none', headSha: null }), { stage: 'queued' }],
   // ── Implementing ──
   ['claimed, no PR, no mark → Implementing', WORFY, facts(), { stage: 'implementing', index: 1, passed: ['queued'], rework: false }],
-  ['a mark on the head SHA passes Implementing without a PR (Atakama: review before the PR)', ATAKAMA, facts({ mode: 'silent', marks: [mark('review', 'pending')] }), { stage: 'agent-review' }],
-  ['a mark on an old SHA does not count: still Implementing', ATAKAMA, facts({ mode: 'silent', marks: [mark('review', 'success', OLD)] }), { stage: 'implementing' }],
+  ['a mark on the head SHA passes Implementing without a PR (Atalaya: review before the PR)', ATALAYA, facts({ mode: 'silent', marks: [mark('review', 'pending')] }), { stage: 'agent-review' }],
+  ['a mark on an old SHA does not count: still Implementing', ATALAYA, facts({ mode: 'silent', marks: [mark('review', 'success', OLD)] }), { stage: 'implementing' }],
   ['review failure on the head SHA → Implementing with rework', WORFY, facts({ pr: pr({ checks: [green] }), marks: [mark('review', 'failure')] }), { stage: 'implementing', rework: true, enteredAt: '2026-10-17T11:00:00.000Z' }],
   ['check/windows failure on the head SHA → Implementing with rework', WORFY, facts({ pr: pr({ checks: [green] }), marks: [mark('review', 'success'), mark('check/windows', 'failure')] }), { stage: 'implementing', rework: true }],
   ['review failure on an old SHA, new push → past Implementing, review waits again', WORFY, facts({ pr: pr({ checks: [green] }), marks: [mark('review', 'failure', OLD)] }), { stage: 'agent-review', rework: false }],
@@ -96,7 +96,7 @@ const cases: Case[] = [
   ['PR with CI running → CI', WORFY, facts({ pr: pr({ checks: [green, running] }) }), { stage: 'ci', sub: null }],
   ['PR with red CI → CI failing', WORFY, facts({ pr: pr({ checks: [green, red] }) }), { stage: 'ci', sub: 'failing' }],
   ['PR with no CI at all (batch CI) → CI passed', WORFY, facts({ pr: pr() }), { stage: 'agent-review' }],
-  ['Atakama: review passed, no PR yet → CI waits for the PR', ATAKAMA, facts({ mode: 'silent', marks: [mark('review', 'success')] }), { stage: 'ci' }],
+  ['Atalaya: review passed, no PR yet → CI waits for the PR', ATALAYA, facts({ mode: 'silent', marks: [mark('review', 'success')] }), { stage: 'ci' }],
   ['blocked on CI: the flag with its reason, the Stage stays CI', WORFY, facts({ status: 'blocked', blockedReason: 'waits for the owner', waits: 'owner', pr: pr({ checks: [red] }) }), { stage: 'ci', sub: 'failing', blocked: { reason: 'waits for the owner' }, waits: 'owner' }],
   // ── Agent review ──
   ['CI green, no review mark → Agent review', WORFY, facts({ pr: pr({ checks: [green] }) }), { stage: 'agent-review', enteredAt: '2026-10-17T10:05:00.000Z' }],
@@ -156,12 +156,12 @@ const cases: Case[] = [
   ['Status done → Done, whatever else is missing', WORFY, facts({ status: 'done', statusAt: '2026-10-17T15:00Z', pr: null }), { stage: 'done', index: 8, waits: null, enteredAt: '2026-10-17T15:00:00.000Z' }],
   // ── the default Pipeline ──
   ['default Pipeline: merged, Status claimed → Closing', DEFAULT_PIPELINE, facts({ pr: merged() }), { stage: 'closing' }],
-  // ── Atakama ──
-  ['Atakama: review and CI green → Human review, waits for the team', ATAKAMA, facts({ mode: 'silent', pr: pr({ checks: [green] }), marks: [mark('review', 'success')] }), { stage: 'human-review', waits: 'team' }],
-  ['Atakama: changes requested → still Human review', ATAKAMA, facts({ mode: 'silent', pr: pr({ checks: [green], reviewDecision: 'CHANGES_REQUESTED' }), marks: [mark('review', 'success')] }), { stage: 'human-review' }],
-  ['Atakama: approved → Awaiting merge, waits for the team', ATAKAMA, facts({ mode: 'silent', pr: pr({ checks: [green], reviewDecision: 'APPROVED' }), marks: [mark('review', 'success')] }), { stage: 'awaiting-merge', waits: 'team' }],
-  ['Atakama: Waits: owner wins over the kind of the Stage', ATAKAMA, facts({ mode: 'silent', waits: 'owner', pr: pr({ checks: [green], reviewDecision: 'APPROVED' }), marks: [mark('review', 'success')] }), { stage: 'awaiting-merge', waits: 'owner' }],
-  ['Atakama: merged by people past the Pipeline → Done', ATAKAMA, facts({ mode: 'silent', pr: merged() }), { stage: 'done' }],
+  // ── Atalaya ──
+  ['Atalaya: review and CI green → Human review, waits for the team', ATALAYA, facts({ mode: 'silent', pr: pr({ checks: [green] }), marks: [mark('review', 'success')] }), { stage: 'human-review', waits: 'team' }],
+  ['Atalaya: changes requested → still Human review', ATALAYA, facts({ mode: 'silent', pr: pr({ checks: [green], reviewDecision: 'CHANGES_REQUESTED' }), marks: [mark('review', 'success')] }), { stage: 'human-review' }],
+  ['Atalaya: approved → Awaiting merge, waits for the team', ATALAYA, facts({ mode: 'silent', pr: pr({ checks: [green], reviewDecision: 'APPROVED' }), marks: [mark('review', 'success')] }), { stage: 'awaiting-merge', waits: 'team' }],
+  ['Atalaya: Waits: owner wins over the kind of the Stage', ATALAYA, facts({ mode: 'silent', waits: 'owner', pr: pr({ checks: [green], reviewDecision: 'APPROVED' }), marks: [mark('review', 'success')] }), { stage: 'awaiting-merge', waits: 'owner' }],
+  ['Atalaya: merged by people past the Pipeline → Done', ATALAYA, facts({ mode: 'silent', pr: merged() }), { stage: 'done' }],
 ]
 
 describe('stageOf', () => {
@@ -202,8 +202,8 @@ describe('the catalogue', () => {
 
   it('labels: the catalogue name, a Check by its name, and the Profile label first', () => {
     expect(WORFY.map((stage) => stageLabel(stage))).toEqual(['Queued', 'Implementing', 'CI', 'Agent review', 'Check «windows»', 'Gate & merge', 'Deploy', 'Closing', 'Done'])
-    expect(ATAKAMA.map((stage) => stageLabel(stage))).toContain('Human review')
-    expect(ATAKAMA.map((stage) => stageLabel(stage))).toContain('Awaiting merge')
+    expect(ATALAYA.map((stage) => stageLabel(stage))).toContain('Human review')
+    expect(ATALAYA.map((stage) => stageLabel(stage))).toContain('Awaiting merge')
     expect(stageLabel({ kind: 'ci', label: 'Tests' })).toBe('Tests')
   })
 
@@ -221,7 +221,7 @@ describe('the catalogue', () => {
 
   it('the schema takes both Pipelines of the spec and two different checks', () => {
     expect(pipelineSchema.safeParse(WORFY).success).toBe(true)
-    expect(pipelineSchema.safeParse(ATAKAMA).success).toBe(true)
+    expect(pipelineSchema.safeParse(ATALAYA).success).toBe(true)
     expect(pipelineSchema.safeParse([{ kind: 'queued' }, { kind: 'check', name: 'windows' }, { kind: 'check', name: 'linux' }, { kind: 'done' }]).success).toBe(true)
   })
 })

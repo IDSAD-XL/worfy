@@ -6,18 +6,18 @@ import { terminalAiInput } from '../../src/main/terminal-ai/input'
 import { prepareContext, terminalAiInputSchema } from '../../src/shared/terminal-ai/context'
 
 function state(over: Partial<ShellState> = {}): ShellState {
-  return { cwd: '/Users/me/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['ls', 'cd work'], lastOutput: null, ...over }
+  return { cwd: '/Users/someone/work', awaitingInput: true, commandRunning: false, altScreen: false, exitCode: 0, commands: ['ls', 'cd work'], lastOutput: null, ...over }
 }
 
 describe('terminalAiInput', () => {
   it('carries the line, the folder, the last commands and the exit code of the last one', () => {
     const input = terminalAiInput(state({ exitCode: 127, commands: ['npm install', 'npm tset'] }), 'npm t')
-    expect(input).toEqual({ line: 'npm t', cwd: '/Users/me/work', commands: ['npm install', 'npm tset'], exitCode: 127, commandRunning: false, alternateScreen: false })
+    expect(input).toEqual({ line: 'npm t', cwd: '/Users/someone/work', commands: ['npm install', 'npm tset'], exitCode: 127, commandRunning: false, alternateScreen: false })
     expect(terminalAiInputSchema.safeParse(input).success).toBe(true)
   })
 
   it('carries an unknown exit code as null and an empty line as it is', () => {
-    expect(terminalAiInput(state({ exitCode: null, commands: [] }), '')).toEqual({ line: '', cwd: '/Users/me/work', commands: [], exitCode: null, commandRunning: false, alternateScreen: false })
+    expect(terminalAiInput(state({ exitCode: null, commands: [] }), '')).toEqual({ line: '', cwd: '/Users/someone/work', commands: [], exitCode: null, commandRunning: false, alternateScreen: false })
   })
 
   it('carries the signs "a command runs" and "alternate screen", each by itself', () => {

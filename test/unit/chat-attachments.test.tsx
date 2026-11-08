@@ -95,7 +95,7 @@ describe('a sent message with attachments', () => {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
-          { type: 'text', text: 'read\n\nAttached files: /Users/a/Downloads/spec.pdf, /p/build.log\n\nAttached images: shot.png' },
+          { type: 'text', text: 'read\n\nAttached files: /Users/someone/Downloads/spec.pdf, /p/build.log\n\nAttached images: shot.png' },
         ],
       },
     })
@@ -103,7 +103,7 @@ describe('a sent message with attachments', () => {
     const row = screen.getByTestId('transcript-prompt')
     expect(within(row).getAllByTestId('message-file').map((chip) => chip.textContent)).toEqual(['PDFspec.pdf', 'LOGbuild.log'])
     expect(within(row).getByTestId('message-image-chip').textContent).toBe('PNGshot.png')
-    expect(row.textContent).not.toContain('/Users/a')
+    expect(row.textContent).not.toContain('/Users/someone')
     expect(row.textContent).not.toContain('Attached')
   })
 

@@ -83,7 +83,7 @@ test.afterEach(async () => {
 })
 
 test('Projects: add, switch, edit settings, restart, remove — and the repositories stay untouched', async () => {
-  const auction = makeRepo(scratch, 'auction', 'main')
+  const auberge = makeRepo(scratch, 'auberge', 'main')
   const worfy = makeRepo(scratch, 'worfy', 'dev')
   const plain = join(scratch, 'plain')
   mkdirSync(plain)
@@ -104,28 +104,28 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     await expect(window.getByTestId('connect-project')).toHaveCount(0)
 
     // A subfolder becomes its repository root, and the user is told so.
-    await addProject(first, join(auction, 'src'))
+    await addProject(first, join(auberge, 'src'))
     await expect(window.getByTestId('projects-notice')).toContainText('the repository root was added instead')
-    await expect(row(window, 'auction')).toHaveAttribute('title', auction)
-    await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
-    await expect(subtitle(window)).toHaveText('auction · main')
+    await expect(row(window, 'auberge')).toHaveAttribute('title', auberge)
+    await expect(rowButton(window, 'auberge')).toHaveAttribute('aria-current', 'true')
+    await expect(subtitle(window)).toHaveText('auberge · main')
 
     await addProject(first, worfy)
     await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
-    await expect(rowButton(window, 'auction')).not.toHaveAttribute('aria-current', 'true')
+    await expect(rowButton(window, 'auberge')).not.toHaveAttribute('aria-current', 'true')
     await expect(subtitle(window)).toHaveText('worfy · dev')
 
-    await rowButton(window, 'auction').click()
-    await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
-    await expect(subtitle(window)).toHaveText('auction · main')
+    await rowButton(window, 'auberge').click()
+    await expect(rowButton(window, 'auberge')).toHaveAttribute('aria-current', 'true')
+    await expect(subtitle(window)).toHaveText('auberge · main')
 
     // Adding a Project that is in the list already selects it and says so, as before.
     await addProject(first, worfy)
     await expect(window.getByTestId('projects-notice')).toHaveText('worfy is already in the list.')
     await expect(window.getByTestId('project-row')).toHaveCount(2)
     await expect(rowButton(window, 'worfy')).toHaveAttribute('aria-current', 'true')
-    await rowButton(window, 'auction').click()
-    await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
+    await rowButton(window, 'auberge').click()
+    await expect(rowButton(window, 'auberge')).toHaveAttribute('aria-current', 'true')
 
     // A template with an unknown placeholder shows its error under the field and cannot be saved.
     // The temporary Claude home of launchApp holds no Harness: the defaults are the plugin's (worfy-harness ticket 12).
@@ -157,8 +157,8 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     const { window } = second
     // The list, the active Project and the edited template survive the restart.
     await expect(window.getByTestId('project-row')).toHaveCount(2)
-    await expect(rowButton(window, 'auction')).toHaveAttribute('aria-current', 'true')
-    await expect(subtitle(window)).toHaveText('auction · main')
+    await expect(rowButton(window, 'auberge')).toHaveAttribute('aria-current', 'true')
+    await expect(subtitle(window)).toHaveText('auberge · main')
     const dialog = await openSettings(window, 'worfy')
     await expect(dialog.getByLabel('Ship ticket')).toHaveValue('/ship {epic}-{NN} on {branch}')
     await dialog.getByRole('button', { name: 'Reset to default' }).click()
@@ -176,7 +176,7 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
   }
 
   // worfy wrote nothing into either repository, ignored files included.
-  for (const repo of [auction, worfy]) {
+  for (const repo of [auberge, worfy]) {
     expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
   }
 })

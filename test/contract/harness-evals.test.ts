@@ -913,13 +913,13 @@ describe('harness/evals: human-review-setup', () => {
     const refresh = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'refresh.md'), 'utf8')
     const write = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'write.md'), 'utf8')
     const analyse = readFileSync(join(HARNESS, 'skills', 'human-review-setup', 'analyse.md'), 'utf8')
-    const root = '/home/me/.claude/plugins/worfy'
+    const root = '/home/someone/.claude/plugins/worfy'
     const commands = {
       fetch: `"${root}/bin/review-history" fetch --passes 2; echo "EXIT=$?"`,
       clean: `"${root}/bin/review-history" clean; echo "EXIT=$?"`,
       since: `"${root}/bin/review-history" fetch --since 2026-10-26T09:00:00.000Z --passes 2; echo "EXIT=$?"`,
       estimate: `"${root}/bin/review-history" estimate --passes 2; echo "EXIT=$?"`,
-      lint: `"${root}/bin/review-draft-lint" --skill "/home/me/state/human-review/raw/skill"; echo "EXIT=$?"`,
+      lint: `"${root}/bin/review-draft-lint" --skill "/home/someone/state/human-review/raw/skill"; echo "EXIT=$?"`,
     }
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" fetch --passes 2; echo "EXIT=$?"')
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"')
@@ -945,7 +945,7 @@ describe('harness/evals: human-review-setup', () => {
 
     // The session reads no comment before a "yes": a Read or a printing command of raw/ is caught, the scripts of the
     // skill that read raw/ themselves are not.
-    const folder = '/home/me/.claude/worfy-harness/projects/demo/state/human-review'
+    const folder = '/home/someone/.claude/worfy-harness/projects/demo/state/human-review'
     for (const name of ['human-review-setup-short-history', declined]) {
       expect(JSON.stringify({ file_path: `${folder}/raw/prs.jsonl` })).toMatch(inputMatch(name, 'no-raw-read.md'))
       expect(JSON.stringify({ file_path: `${folder}/meta.json` })).not.toMatch(inputMatch(name, 'no-raw-read.md'))
@@ -1142,7 +1142,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(run.stderr).toMatch(/is the real home folder of this user/)
   })
 
-  // macOS volumes are case-insensitive by default: /USERS/X is the folder /Users/x. Where the volume
+  // macOS volumes are case-insensitive by default: /USERS/SOMEONE is the folder /Users/someone. Where the volume
   // is case-sensitive (Linux CI) the other spelling is another, missing folder, and nothing to test.
   const { realHome: caseHome } = fakeRealHome()
   it.skipIf(!existsSync(caseHome.toUpperCase()))('state-guard.cjs refuses the real home folder spelled in another case', () => {

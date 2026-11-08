@@ -5,10 +5,10 @@ import type { PtyProcess, TerminalSink } from '../../src/main/terminal/pty'
 
 export const WINDOWS_POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 export const WIN_ENV = {
-  Path: 'C:\\Tools;C:\\Program Files\\Git\\cmd;C:\\Users\\dev\\AppData\\Local\\Microsoft\\WindowsApps',
+  Path: 'C:\\Tools;C:\\Program Files\\Git\\cmd;C:\\Users\\someone\\AppData\\Local\\Microsoft\\WindowsApps',
   SystemRoot: 'C:\\Windows',
   ProgramFiles: 'C:\\Program Files',
-  LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+  LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local',
 }
 export interface FakeOptions {
   /** Without node-pty's private agent and its helper process: not a pty of node-pty as 1.1.0 builds it. */

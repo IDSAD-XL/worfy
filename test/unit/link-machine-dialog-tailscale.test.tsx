@@ -65,12 +65,12 @@ const shownAddresses = (): [string, boolean][] =>
   })
 
 it('marks the Tailscale addresses of this Machine, IPv4 and IPv6, in the order main lists them', async () => {
-  preload(linkState({ tailscale: true, addresses: ['100.101.102.103:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000'] }))
+  preload(linkState({ tailscale: true, addresses: ['100.64.0.3:52000', '[fd7a:115c:a1e0::1]:52000', '192.168.1.20:52000'] }))
   const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
   render(<LinkMachineDialog onClose={() => undefined} />)
   await screen.findByTestId('link-code')
   expect(shownAddresses()).toEqual([
-    ['100.101.102.103:52000', true],
+    ['100.64.0.3:52000', true],
     ['[fd7a:115c:a1e0::1]:52000', true],
     ['192.168.1.20:52000', false],
   ])
@@ -78,13 +78,13 @@ it('marks the Tailscale addresses of this Machine, IPv4 and IPv6, in the order m
 })
 
 it('marks a Tailscale address while the setting is off too, and says it needs the setting', async () => {
-  preload(linkState({ tailscale: false, addresses: ['192.168.1.20:52000', '100.101.102.103:52000'] }))
+  preload(linkState({ tailscale: false, addresses: ['192.168.1.20:52000', '100.64.0.3:52000'] }))
   const { LinkMachineDialog } = await import('../../src/renderer/machines/LinkMachineDialog')
   render(<LinkMachineDialog onClose={() => undefined} />)
   await screen.findByTestId('link-code')
   expect(shownAddresses()).toEqual([
     ['192.168.1.20:52000', false],
-    ['100.101.102.103:52000', true],
+    ['100.64.0.3:52000', true],
   ])
   expect(screen.getByTestId('link-tailscale-mark').getAttribute('title')).toMatch(/Link through Tailscale/)
 })

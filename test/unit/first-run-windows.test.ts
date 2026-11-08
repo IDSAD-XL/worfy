@@ -37,8 +37,8 @@ const WINDOWS_ENV = {
   PATH: `${GIT_CMD};${PWSH_DIR};C:\\Windows\\System32`,
   SystemRoot: 'C:\\Windows',
   ProgramFiles: 'C:\\Program Files',
-  LOCALAPPDATA: 'C:\\Users\\alice\\AppData\\Local',
-  USERPROFILE: 'C:\\Users\\alice',
+  LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local',
+  USERPROFILE: 'C:\\Users\\someone',
 }
 const BUNDLED = '2.1.289'
 
@@ -424,8 +424,8 @@ describe('first-run checks on macOS: as before this ticket', () => {
 })
 
 describe('claude on Windows: claude.exe or npm\'s claude.cmd', () => {
-  const npm = 'C:\\Users\\alice\\AppData\\Roaming\\npm'
-  const local = 'C:\\Users\\alice\\.local\\bin'
+  const npm = 'C:\\Users\\someone\\AppData\\Roaming\\npm'
+  const local = 'C:\\Users\\someone\\.local\\bin'
   const env = { PATH: `${local};${npm}`, SystemRoot: 'D:\\Windows' }
 
   it('finds claude.exe first, else claude.cmd', () => {
@@ -474,18 +474,18 @@ describe('the status line command of the Limits bridge', () => {
   })
 
   it('win32: a $, $(…) or backtick in the install folder stays text in single quotes, where Git Bash expands nothing', () => {
-    const odd = 'C:\\Users\\a$HOME\\x $(touch pwned)`id`\\resources\\statusline-bridge.mjs'
+    const odd = 'C:\\Users\\someone\\a$HOME\\x $(touch pwned)`id`\\resources\\statusline-bridge.mjs'
     const command = bridgeCommand('win32', odd, " 'a'")
-    expect(command).toBe("node 'C:/Users/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs' 'a'")
+    expect(command).toBe("node 'C:/Users/someone/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs' 'a'")
     // The row reads the path back as written, so it compares the real folder.
-    expect(bridgeOf(command)).toEqual({ bridge: 'C:/Users/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs', rest: " 'a'" })
+    expect(bridgeOf(command)).toEqual({ bridge: 'C:/Users/someone/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs', rest: " 'a'" })
   })
 
   it('darwin: the sh entry, as the move form wrote it before this ticket', () => {
     const macBridge = '/Applications/worfy.app/Contents/Resources/statusline-bridge.sh'
     expect(bridgeFile('darwin', '/Applications/worfy.app/Contents/Resources')).toBe(macBridge)
     expect(withBridge('darwin', macBridge, `/Volumes/old/worfy.app/Contents/Resources/statusline-bridge.sh 'bash ~/.claude/statusline.sh'`)).toBe(`${macBridge} 'bash ~/.claude/statusline.sh'`)
-    expect(bridgeCommand('darwin', '/Users/a b/statusline-bridge.sh', " 'x'")).toBe(`'/Users/a b/statusline-bridge.sh' 'x'`)
+    expect(bridgeCommand('darwin', '/Users/someone/a b/statusline-bridge.sh', " 'x'")).toBe(`'/Users/someone/a b/statusline-bridge.sh' 'x'`)
   })
 
   it('reads both forms as a bridge, and nothing else', () => {
@@ -495,17 +495,17 @@ describe('the status line command of the Limits bridge', () => {
     expect(bridgeOf('node other.mjs')).toBeNull()
   })
 
-  // A ' in the install folder (C:\Users\O'Brien, /Users/o'brien): shellWord writes it as '…'\''…', one shell word.
-  const winOdd = "C:\\Users\\O'Brien\\worfy\\resources\\statusline-bridge.mjs"
-  const macOdd = "/Users/o'brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh"
+  // A ' in the install folder (C:\Users\someone\O'Brien, /Users/someone/o'brien): shellWord writes it as '…'\''…', one shell word.
+  const winOdd = "C:\\Users\\someone\\O'Brien\\worfy\\resources\\statusline-bridge.mjs"
+  const macOdd = "/Users/someone/o'brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh"
 
   it("a ' in the bridge path, Windows and macOS: the command reads back to the same bridge, and a second set-up does not wrap it again", () => {
     const win = withBridge('win32', winOdd, 'bash ~/.claude/statusline.sh')
-    expect(win).toBe(`node 'C:/Users/O'\\''Brien/worfy/resources/statusline-bridge.mjs' 'bash ~/.claude/statusline.sh'`)
-    expect(bridgeOf(win)).toEqual({ bridge: "C:/Users/O'Brien/worfy/resources/statusline-bridge.mjs", rest: " 'bash ~/.claude/statusline.sh'" })
+    expect(win).toBe(`node 'C:/Users/someone/O'\\''Brien/worfy/resources/statusline-bridge.mjs' 'bash ~/.claude/statusline.sh'`)
+    expect(bridgeOf(win)).toEqual({ bridge: "C:/Users/someone/O'Brien/worfy/resources/statusline-bridge.mjs", rest: " 'bash ~/.claude/statusline.sh'" })
     expect(withBridge('win32', winOdd, win)).toBe(win)
     const mac = withBridge('darwin', macOdd, 'bash ~/.claude/statusline.sh')
-    expect(mac).toBe(`'/Users/o'\\''brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh' 'bash ~/.claude/statusline.sh'`)
+    expect(mac).toBe(`'/Users/someone/o'\\''brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh' 'bash ~/.claude/statusline.sh'`)
     expect(bridgeOf(mac)).toEqual({ bridge: macOdd, rest: " 'bash ~/.claude/statusline.sh'" })
     expect(withBridge('darwin', macOdd, mac)).toBe(mac)
   })
@@ -513,7 +513,7 @@ describe('the status line command of the Limits bridge', () => {
   it('round trip: the previous command, with quotes of any kind, comes back unchanged from the command built around it', () => {
     const previous = ["echo 'it''s'", 'printf "%s\\n" "$HOME"', "a\\ b 'c' \"d\"", `O'Brien's "x" \`id\` $(date)`, 'bash ~/.claude/statusline.sh']
     for (const [platform, bridge, read] of [
-      ['win32', winOdd, "C:/Users/O'Brien/worfy/resources/statusline-bridge.mjs"],
+      ['win32', winOdd, "C:/Users/someone/O'Brien/worfy/resources/statusline-bridge.mjs"],
       ['darwin', macOdd, macOdd],
     ] as const) {
       for (const command of previous) {
@@ -530,7 +530,7 @@ describe('the status line command of the Limits bridge', () => {
     expect(splitCommand(`'a'\\''b'"c d"e f`)).toEqual({ head: "a'bc de", rest: ' f' })
     expect(splitCommand(`"a\\"b\\\\c\\$d\\x" rest`)).toEqual({ head: 'a"b\\c$d\\x', rest: ' rest' })
     expect(splitCommand(`a\\ b\\'c rest`)).toEqual({ head: "a b'c", rest: ' rest' })
-    expect(splitCommand(`  C:\\Users\\me\\statusline.sh --x`)).toEqual({ head: 'C:\\Users\\me\\statusline.sh', rest: ' --x' })
+    expect(splitCommand(`  C:\\Users\\someone\\statusline.sh --x`)).toEqual({ head: 'C:\\Users\\someone\\statusline.sh', rest: ' --x' })
     expect(splitCommand(`"C:\\Program Files\\x.exe" y`)).toEqual({ head: 'C:\\Program Files\\x.exe', rest: ' y' })
     expect(splitCommand(`'unclosed rest`)).toEqual({ head: "'unclosed", rest: ' rest' })
     expect(splitCommand('')).toEqual({ head: '', rest: '' })
@@ -538,7 +538,7 @@ describe('the status line command of the Limits bridge', () => {
 })
 
 describe('the status line row of the move form', () => {
-  const home = '/Users/alice'
+  const home = '/Users/someone'
   it('macOS as before: only the sh entry, none for a relative bridge in a development build, none for the Windows form', () => {
     const darwin = (command: string, bridgeScript: string | null) => otherBuildBridge(command, { platform: 'darwin', bridgeScript, userHome: home })
     expect(darwin("statusline-bridge.sh 'bash x.sh'", null)).toBeNull()

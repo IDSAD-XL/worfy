@@ -307,7 +307,7 @@ describe('transcript parsing of a message with attachments', () => {
   const eventsOf = (line: string, imageRef?: (data: string) => string | null) => parseTranscriptLine(line, imageRef ? { imageRef } : {}).map((entry) => entry.event)
 
   it('gives the image blocks as images named by their copy, and the files of the line as chips by name', () => {
-    const text = 'what is on these?\n\nAttached files: /Users/a/Downloads/spec.pdf, /p/notes.md\n\nAttached images: shot.png, anim.gif'
+    const text = 'what is on these?\n\nAttached files: /Users/someone/Downloads/spec.pdf, /p/notes.md\n\nAttached images: shot.png, anim.gif'
     const events = eventsOf(user([image(PNG), image(GIF, 'image/gif'), { type: 'text', text }]), refOf)
     expect(events).toStrictEqual([
       {
@@ -323,13 +323,13 @@ describe('transcript parsing of a message with attachments', () => {
       },
     ])
     expect(JSON.stringify(events)).not.toContain(PNG)
-    expect(JSON.stringify(events)).not.toContain('/Users/a/Downloads')
+    expect(JSON.stringify(events)).not.toContain('/Users/someone/Downloads')
     // It is an event of the schema the renderer checks.
     for (const event of events) expect(agentEvent.parse(event)).toStrictEqual(event)
   })
 
   it('reads a message with files only, which Claude Code keeps as a string', () => {
-    expect(eventsOf(user('read these\n\nAttached files: C:\\Users\\a\\b.csv'))).toStrictEqual([
+    expect(eventsOf(user('read these\n\nAttached files: C:\\Users\\someone\\b.csv'))).toStrictEqual([
       { type: 'notice', kind: 'user', text: 'read these', attachments: [{ kind: 'file', name: 'b.csv', ext: 'csv' }] },
     ])
   })
@@ -352,7 +352,7 @@ describe('transcript parsing of a message with attachments', () => {
     expect(eventsOf(user('see\n\nAttached images: shot.png'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached images: shot.png' }])
     expect(eventsOf(user('see\n\nAttached files: the notes, below'))).toStrictEqual([{ type: 'notice', kind: 'user', text: 'see\n\nAttached files: the notes, below' }])
     // The paths messageText writes on Windows are absolute too.
-    expect(eventsOf(user('see\n\nAttached files: C:\\Users\\a\\spec.pdf, \\\\server\\share\\b.txt'))).toStrictEqual([
+    expect(eventsOf(user('see\n\nAttached files: C:\\Users\\someone\\spec.pdf, \\\\server\\share\\b.txt'))).toStrictEqual([
       { type: 'notice', kind: 'user', text: 'see', attachments: [{ kind: 'file', name: 'spec.pdf', ext: 'pdf' }, { kind: 'file', name: 'b.txt', ext: 'txt' }] },
     ])
   })

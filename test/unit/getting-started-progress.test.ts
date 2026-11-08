@@ -107,7 +107,7 @@ describe('noteFirstRunReport', () => {
 
 // ── the progress over its sources ────────────────────────────────────────────
 
-const DEMO: DemoRecord = { projectId: 'demo-id', path: '/home/me/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' }
+const DEMO: DemoRecord = { projectId: 'demo-id', path: '/home/someone/worfy-demo', profile: 'worfy-demo', cost: 'cheaper' }
 const PIPELINE = ['queued', 'implementing', 'agent-review', 'gate-merge', 'done'] as const
 
 /** The demo's Ticket on `kind`, every Stage before it passed. */

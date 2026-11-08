@@ -35,7 +35,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
 }))
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined } }))
-vi.mock('../../src/main/agent/env', () => ({ agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/u' }, from: 'login-shell', error: null }) }))
+vi.mock('../../src/main/agent/env', () => ({ agentEnv: () => Promise.resolve({ env: { PATH: '/usr/bin:/bin', HOME: '/home/someone' }, from: 'login-shell', error: null }) }))
 // The plugin Harness on the machine: the Session gets the Harness copy of this build inline.
 vi.mock('../../src/main/harness/locate', async (original) => ({ ...(await original<object>()), currentHarness: () => ({ kind: 'plugin' }) }))
 
