@@ -16,10 +16,12 @@ import {
   GITHUB_ACCOUNT_FIELD,
   harnessScriptRunner,
   MCP_ALLOWED_FIELD,
+  PROFILE_DIR_FIELD,
   profileRunner,
   readGithubAccount,
   readMcpAllowlist,
   readPipelineProfile,
+  readProfileFolder,
   readResolvedProfile,
   scriptFailureDetail,
   type ProfileRun,
@@ -576,6 +578,164 @@ describe('sdkQueryFactory and the Profile list', () => {
       expect(snapshot(home)).toEqual(before)
     } finally {
       removeTestTree(home)
+    }
+  })
+})
+
+// ── the Profile folder and the private skills (worfy-human-review ticket 05, ADR-0102) ──
+
+describe('readProfileFolder', () => {
+  it('exit code 0 with an absolute path: the Profile folder, asked of the Project root, nothing logged', async () => {
+    const run = stubRun({ code: 0, stdout: '/harness home/projects/demo\n', stderr: '' })
+    expect(await readProfileFolder({ root: '/repo', claudeHome: '/h', env: {}, run, log })).toEqual({ dir: '/harness home/projects/demo', reason: null })
+    expect(run.calls).toEqual([['/repo', ['-C', '/repo', '--field', PROFILE_DIR_FIELD]]])
+    expect(PROFILE_DIR_FIELD).toBe('_resolved.dir')
+    expect(logged).toEqual([])
+  })
+
+  it('takes a Windows path with a drive letter and spaces as it is printed', async () => {
+    const run = stubRun({ code: 0, stdout: 'C:\\Users\\A B\\Harness home\\projects\\demo\r\n', stderr: '' })
+    expect(await readProfileFolder({ root: 'C:\\repo', claudeHome: '/h', env: {}, run, log })).toEqual({ dir: 'C:\\Users\\A B\\Harness home\\projects\\demo', reason: null })
+  })
+
+  it.each<[string, ProfileRun | Error, RegExp]>([
+    ['exit code 3 (no registered project)', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3/],
+    ['exit code 4 (an older Harness without the field)', { code: 4, stdout: '', stderr: '' }, /no _resolved\.dir field \(profile exit code 4\)/],
+    ['no script', enoent(), NO_SCRIPT],
+    ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /did not answer within 15 s/],
+    ['an empty value', { code: 0, stdout: '\n', stderr: '' }, /_resolved\.dir is not an absolute path/],
+    ['null', { code: 0, stdout: 'null\n', stderr: '' }, /_resolved\.dir is not an absolute path/],
+    ['a relative path', { code: 0, stdout: 'projects/demo\n', stderr: '' }, /_resolved\.dir is not an absolute path/],
+    ['two lines', { code: 0, stdout: '/a\n/b\n', stderr: '' }, /_resolved\.dir is not an absolute path/],
+  ])('%s: no folder, the reason in one log line', async (_case, answer, reason) => {
+    const folder = await readProfileFolder({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), log })
+    expect(folder.dir).toBeNull()
+    expect(folder.reason).toMatch(reason)
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toMatch(/^\[profile\] Profile folder of \/repo: none, the Session starts without the Project's private skills, because /)
+  })
+})
+
+describe("a Session and the Project's private skills", () => {
+  const SDK_QUERY = { kind: 'sdk query' }
+  const attached: CanvasSession = {
+    attachment: { server: { type: 'sdk', name: CANVAS_SERVER_NAME } as never, cardsDir: '/data/p/cards', instructions: 'canvas' },
+    observe: (query) => query,
+  }
+  const request = (cwd: string, more: Partial<QueryRequest> = {}): QueryRequest => ({
+    prompt: (async function* () {})(),
+    cwd,
+    resume: undefined,
+    stderr: () => undefined,
+    settings: DEFAULT_SETTINGS,
+    canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'not in this test' }),
+    ...more,
+  })
+  const sdkOptions = (): Record<string, unknown> => {
+    expect(mocks.query).toHaveBeenCalledOnce()
+    return (mocks.query.mock.calls[0] as [{ options: Record<string, unknown> }])[0].options
+  }
+  /** A Profile folder with spaces in its path, and the team reviewer's skill in it when `built`. */
+  const profileFolder = (built: boolean): string => {
+    const dir = join(scratch, 'harness home', 'projects', 'my project')
+    mkdirSync(dir, { recursive: true })
+    if (built) {
+      mkdirSync(join(dir, 'state', 'human-review', '.claude', 'skills', 'human-review'), { recursive: true })
+      writeFileSync(join(dir, 'state', 'human-review', '.claude', 'skills', 'human-review', 'SKILL.md'), '---\nname: human-review\ndescription: x\n---\n')
+    }
+    return dir
+  }
+  const quiet = { skills: () => Promise.resolve(null), autoCompactWindow: () => null, browser: () => Promise.resolve(null) }
+
+  beforeEach(() => {
+    mocks.query.mockReset().mockReturnValue(SDK_QUERY)
+    mocks.agentEnv.mockReset().mockResolvedValue({ env: loginEnv(), from: 'login-shell' })
+  })
+
+  it('is the private folder of the Profile folder when its SKILL.md is there, and the folder the Team reviewer reads', async () => {
+    const { privateSkillsFolder } = await import('../../src/main/vendors/claude/query')
+    const { privateFolder } = await import('../../src/main/projects/review-offer')
+    const dir = profileFolder(true)
+    const asked: string[] = []
+    const read = (options: { root: string }) => (asked.push(options.root), Promise.resolve({ dir, reason: null }))
+    expect(await privateSkillsFolder('/repo', {}, read)).toBe(join(dir, 'state', 'human-review'))
+    expect(await privateSkillsFolder('/repo', {}, read)).toBe(privateFolder(dir))
+    expect(asked).toEqual(['/repo', '/repo'])
+  })
+
+  it('is none without the SKILL.md (a folder from a run that did not finish) and without a Profile folder', async () => {
+    const { privateSkillsFolder } = await import('../../src/main/vendors/claude/query')
+    const dir = profileFolder(false)
+    mkdirSync(join(dir, 'state', 'human-review', 'raw'), { recursive: true })
+    expect(await privateSkillsFolder('/repo', {}, () => Promise.resolve({ dir, reason: null }))).toBeNull()
+    expect(await privateSkillsFolder('/repo', {}, () => Promise.resolve({ dir: null, reason: 'no Profile' }))).toBeNull()
+  })
+
+  it('reaches a developer Session and a Product Session after the Cards folder, read for its cwd', async () => {
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+    const folder = join(profileFolder(true), 'state', 'human-review')
+    const asked: [string, Record<string, string>][] = []
+    const privateSkills = (cwd: string, env: Record<string, string>): Promise<string | null> => (asked.push([cwd, env]), Promise.resolve(folder))
+    const factory = sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), {
+      ...quiet,
+      privateSkills,
+      productFolder: () => Promise.resolve(null),
+      mindMap: () => Promise.resolve(null),
+    })
+    await factory(request('/repo/.claude/worktrees/05'))
+    expect(sdkOptions().additionalDirectories).toEqual(['/data/p/cards', folder])
+    expect(asked).toEqual([['/repo/.claude/worktrees/05', loginEnv()]])
+    mocks.query.mockClear()
+    await factory(request('/repo', { kind: 'product' }))
+    expect(sdkOptions().additionalDirectories).toEqual(['/data/p/cards', folder])
+  })
+
+  it('never reaches an unattended Session, which does not even ask, nor a Session outside every Project', async () => {
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+    const privateSkills = vi.fn(() => Promise.resolve('/never'))
+    await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), { ...quiet, privateSkills })(request('/repo', { unattended: true }))
+    expect(sdkOptions().additionalDirectories).toEqual(['/data/p/cards'])
+    mocks.query.mockClear()
+    await sdkQueryFactory(() => Promise.resolve(null), () => Promise.resolve(['qmd']), { ...quiet, privateSkills })(request('/elsewhere'))
+    expect(sdkOptions()).not.toHaveProperty('additionalDirectories')
+    expect(privateSkills).not.toHaveBeenCalled()
+  })
+
+  it('a resolver that fails leaves the Session to start without the folder and one line in the log', async () => {
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), { ...quiet, privateSkills: () => Promise.reject(new Error('disk gone')) })(request('/repo'))
+      expect(sdkOptions().additionalDirectories).toEqual(['/data/p/cards'])
+      expect(warn.mock.calls.filter(([line]) => /no private skills for \/repo/.test(String(line)))).toHaveLength(1)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it.each<[string, number, string, string, boolean]>([
+    ['a Profile folder with the skill', 0, 'DIR', '', true],
+    ['a Profile folder without the skill', 0, 'DIR', '', false],
+    ['bin/profile failing', 1, '', 'registry is broken\n', true],
+  ])('by default reads <WORFY_CLAUDE_HOME>/bin/profile: %s, and writes neither there nor to the Profile folder', async (_case, code, stdout, stderr, built) => {
+    const dir = profileFolder(built)
+    const { home, calls } = stubHome(code, stdout === 'DIR' ? `${dir}\n` : stdout, stderr)
+    const root = projectRoot()
+    vi.stubEnv('WORFY_CLAUDE_HOME', home)
+    const before = { home: snapshot(home), dir: snapshot(dir), root: snapshot(root) }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+      await sdkQueryFactory(() => Promise.resolve(attached), () => Promise.resolve(['qmd']), quiet)(request(root))
+      const expected = code === 0 && built ? ['/data/p/cards', join(dir, 'state', 'human-review')] : ['/data/p/cards']
+      expect(sdkOptions().additionalDirectories).toEqual(expected)
+      expect(readFileSync(calls, 'utf8')).toContain(`-C ${root} --field _resolved.dir`)
+      // Only a failed call is worth a line; a Profile without the reviewer is the usual case.
+      expect(warn.mock.calls.filter(([line]) => String(line).includes('Profile folder of'))).toHaveLength(code === 0 ? 0 : 1)
+      expect({ home: snapshot(home), dir: snapshot(dir), root: snapshot(root) }).toEqual(before)
+    } finally {
+      warn.mockRestore()
     }
   })
 })

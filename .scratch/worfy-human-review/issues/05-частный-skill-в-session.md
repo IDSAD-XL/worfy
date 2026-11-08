@@ -39,11 +39,16 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - [ ] «Итог» записывает живую проверку: skill из `additionalDirectories` виден и вызывается (или Ticket в `blocked`).
 - [ ] Unit test: с файлом `SKILL.md` — папка в `additionalDirectories` рядом с папкой карточек; без файла — нет; без
       Canvas — одна папка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
 - [ ] Unit test: `unattended: true` — папки нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
 - [ ] Unit test: `skills.allowed: []` — папка на месте, `skillOverrides` не называет `human-review`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/agent-options.test.ts test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
 - [ ] Contract test: `_resolved.dir` читается; ошибка `bin/profile` — Session стартует без папки и с одной строкой в
       log.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-profile.test.ts` exit 0 · mac - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
 - [ ] ADR записан, ссылается на ADR-0084 и на этот spec.
+  - evidence: commit pass · ADR-0102: name the private folder as a working directory of the Session · - - · aefbb2dc5c1d5b46df5539b32bd0bd7cc08f192f
 - [ ] `ci-ok` на PR зелёный; Windows verdict есть.
 
 ## Тесты
@@ -61,3 +66,31 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - `test/unit/agent-options.test.ts`
 - `test/contract/workflow-profile.test.ts`
 - `docs/adr/<NNNN>-private-project-skills-in-profile-folder.md` (новый)
+
+## Итог
+
+- **Живая проверка (шаг 1), Claude Code 2.1.289, SDK 0.3.289.** Бинарник Claude Code из `node_modules` запущен с
+  временными `HOME` и `CLAUDE_CONFIG_DIR`, без входа в аккаунт: `--print --output-format stream-json --verbose`, во временной
+  папке проекта. С `--add-dir "<tmp>/private dir"`, где лежит `.claude/skills/hr-probe/SKILL.md`, в `system/init` skill
+  `hr-probe` есть в `skills` и в `slash_commands`. Без `--add-dir` его нет. С flag settings списка `skills.allowed: []`
+  (`syncClaudeAiSkills: false`, `skillOverrides` для другого skill-а) он остаётся. Путь с пробелом работает. Опция SDK
+  `additionalDirectories` — это `--add-dir` (`sdk.d.ts`). **Вызов skill-а не проверен.** Без входа ответ модели —
+  «Not logged in», а вход с настоящим `~/.claude` записал бы транскрипт туда. Q1 (а) работает, запасной путь (б) не нужен.
+- **Красный на старом поведении** (`origin/main` cfde888af): в `test/unit/agent-options.test.ts` 5 новых test-ов
+  красные (папки нет в `additionalDirectories`). В `test/contract/workflow-profile.test.ts` красные 18: нет
+  `readProfileFolder`, `PROFILE_DIR_FIELD` и `privateSkillsFolder`.
+- **Папка Profile-а** читается через `bin/profile -C <cwd> --field _resolved.dir`, а не через `--dir` из Ticket-а 09. Это
+  одно и то же значение. Читается при каждом старте Session в Project-е, как списки: отдельного кэша у списков нет. Путь
+  частной папки и `SKILL.md` строятся функциями `privateFolder` и `reviewerSkill` из `src/main/projects/review-offer.ts`,
+  поэтому папка та же, что у «Team reviewer».
+- **Кто получает:** Session в Project-е, которую ведёт человек: Orchestrator, «New session», «Ship ticket» и Product
+  Session. Product Session — Session с человеком, и spec её не исключает. Её guard ограничивает запись, а не чтение.
+- **Кто не получает:**
+  - `unattended`: папка Profile-а даже не читается, и `sessionOptions` её не добавляет;
+  - Session черновика: `draftSessionOptions` ставит `privateSkills: null`;
+  - Session без Canvas (вне Project-а или Canvas не подключился): здесь папка не читается, как и списки Profile-а.
+  `sessionOptions` сам умеет «одна папка без Canvas», но `query.ts` до этого случая не доходит.
+- **Log.** Ошибка `bin/profile` или не абсолютный путь дают одну строку `[profile] Profile folder of …`, и Session
+  стартует без папки. Если Profile есть, а skill-а нет, строки нет.
+- ADR — `docs/adr/0102-private-project-skills-in-profile-folder.md`. Страница Feature — `docs/features/projects.md`,
+  «Team reviewer».

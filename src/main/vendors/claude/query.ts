@@ -10,12 +10,17 @@
 // A Product Session (worfy-product-session ticket 04) also gets the Mind map server `worfy-mind-map`, bound
 // to its Project's Product Session folder, next to its canvas; no other Session gets it.
 //
+// The Project's private skills (worfy-human-review ticket 05, ADR-0102): a Session in a Project that a
+// person is at — Orchestrator, "New session", "Ship ticket", a Product Session — gets the team reviewer's
+// private folder of the Profile folder as an extra directory after the Cards folder, when its SKILL.md is
+// there. The Profile folder is read at each start, like the lists; an unattended Session never asks.
+//
 // The autocompact window (worfy-polish ticket 24) is read from the app settings of this Machine
 // each time a Session starts Claude Code — the Orchestrator's for a Project's Orchestrator, the
 // other one for any other Session — so a change reaches the next start, never a running process.
 // A window the person never chose gives way to `autoCompactWindow` of the user's settings.json,
 // read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { productFolder } from '../../../shared/product/paths'
@@ -28,10 +33,11 @@ import { currentHarness } from '../../harness/locate'
 import { browserForSession, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
+import { privateFolder, reviewerSkill } from '../../projects/review-offer'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome } from '../../storage/paths'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
-import { readMcpAllowlist, readSkillsAllowlist } from '../../workflow/profile'
+import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
 import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, withMindMapServer } from './options'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
@@ -84,6 +90,35 @@ export type SkillsAllowlistResolver = (cwd: string, env: Env) => Promise<readonl
 
 /** The Profile's `skills.allowed` (profile.ts), read like the MCP list. */
 const profileSkills: SkillsAllowlistResolver = async (cwd, env) => (await readSkillsAllowlist({ root: cwd, claudeHome: claudeHome(), env })).names
+
+/**
+ * The private folder of the Project's own skills a Session in the Project at `cwd` gets as an extra
+ * directory (worfy-human-review ticket 05, ADR-0102), or null for none.
+ */
+export type PrivateSkillsResolver = (cwd: string, env: Env) => Promise<string | null>
+
+/**
+ * The team reviewer's private folder in the Profile folder of the Project at `cwd`
+ * (src/main/projects/review-offer.ts, the folder "Team reviewer" reads and deletes) when its skill,
+ * `.claude/skills/human-review/SKILL.md`, is there; null without the skill or without a Profile folder.
+ * `read`: the Profile folder from `bin/profile` by default (profile.ts, readProfileFolder).
+ */
+export async function privateSkillsFolder(cwd: string, env: Env, read: (options: ReadProfileOptions) => Promise<ProfileFolder> = readProfileFolder): Promise<string | null> {
+  const { dir } = await read({ root: cwd, claudeHome: claudeHome(), env })
+  if (dir === null) return null
+  const folder = privateFolder(dir)
+  return existsSync(reviewerSkill(folder)) ? folder : null
+}
+
+/** The private skills of a Session (ADR-0102); a failure leaves the Session without them rather than without a Session. */
+async function privateSkillsOrNull(privateSkills: PrivateSkillsResolver, cwd: string, env: Env): Promise<string | null> {
+  try {
+    return await privateSkills(cwd, env)
+  } catch (error) {
+    console.warn(`[agent] no private skills for ${cwd}`, error)
+    return null
+  }
+}
 
 /**
  * The autocompact window a Session starts with, by whether it is a Project's Orchestrator; null
@@ -160,6 +195,8 @@ export interface SdkQueryFactoryOptions {
   productFolder?: ProductFolderResolver
   /** The Mind map server of a Product Session; mindMapForSession by default. Never asked for another Session. */
   mindMap?: MindMapResolver
+  /** The Project's private skills folder; the team reviewer's in the Profile folder by default. Never asked for an unattended Session. */
+  privateSkills?: PrivateSkillsResolver
 }
 
 /**
@@ -184,6 +221,7 @@ export function sdkQueryFactory(
     skills = profileSkills,
     productFolder: productFolderOf = (cwd) => layoutProductFolder(cwd),
     mindMap = mindMapForSession,
+    privateSkills = privateSkillsFolder,
   }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
@@ -200,9 +238,11 @@ export function sdkQueryFactory(
     const browsing = attached ? browserOrNull(browser, request) : Promise.resolve(null)
     // The Mind map goes with the canvas too, and only to a Product Session.
     const mapping = attached && product ? mindMapOrNull(mindMap, request.cwd, folder) : Promise.resolve(null)
-    const [listed, browserSession, skillsAllowlist, mindMapSession] = attached
-      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env), mapping])
-      : [null, null, null, null]
+    // The Project's private skills go with the canvas too, and only to a Session a person is at (ADR-0102).
+    const privately = attached && request.unattended !== true ? privateSkillsOrNull(privateSkills, request.cwd, environment.env) : Promise.resolve(null)
+    const [listed, browserSession, skillsAllowlist, mindMapSession, privateSkillsDir] = attached
+      ? await Promise.all([mcpAllowlist(request.cwd, environment.env), browsing, skills(request.cwd, environment.env), mapping, privately])
+      : [null, null, null, null, null]
     // worfy-browser joins the Profile's list only with the server it names: not when the Browser
     // server could not be made. worfy-mind-map likewise, whatever the list names.
     const withBrowser = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
@@ -216,6 +256,7 @@ export function sdkQueryFactory(
       stderr: request.stderr,
       spawned: request.spawned,
       canvas: attached?.attachment,
+      privateSkills: privateSkillsDir,
       browser: browserSession?.attachment,
       mindMap: mindMapSession?.attachment,
       settings: request.settings,
