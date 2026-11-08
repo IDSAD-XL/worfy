@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openLinkSocket } from '../../src/main/link/client'
 import { generateCertificate } from '../../src/main/link/identity'
 import { PAIR_PATH } from '../../src/main/link/messages'
-import { PAIRING_CLOSE_FAILED, PAIRING_FAILED, PAIRING_MAX_FAILURES } from '../../src/main/link/pairing'
+import { PAIRING_CLOSE_FAILED, PAIRING_FAILED, PAIRING_MAX_FAILURES, spake2Share } from '../../src/main/link/pairing'
 import { LinkBench, type BenchMachine } from './link-bench'
 import { linkPairingHelpers } from './link-pairing-helpers'
 import { ms } from '../time-scale'
@@ -351,6 +351,39 @@ describe('round 2: closing "Link a machine" during an attempt', () => {
     await b.service.closeLinking()
     expect(await closed).not.toBe('still open')
     await expect.poll(() => b.pairingFailures.length).toBe(1)
+  })
+
+  it(`stops at once when it closes between the first message and taking the code: no pake2, ${PAIRING_CLOSE_FAILED}, nothing stored`, async () => {
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    await bench.codeOf(b)
+    // B closes "Link a machine" as the first message arrives, before its attempt takes the code;
+    // terminate() is held back for that one call, so only the code B then takes can stop the attempt.
+    const sockets = (b.service as unknown as { pairingSockets: Set<WebSocket> }).pairingSockets
+    const add = sockets.add.bind(sockets)
+    sockets.add = (ws: WebSocket) => {
+      ws.once('message', () => {
+        const terminate = vi.spyOn(WebSocket.prototype, 'terminate').mockImplementation(() => undefined)
+        void b.service.closeLinking()
+        terminate.mockRestore()
+      })
+      return add(ws)
+    }
+    const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+    try {
+      const answer = new Promise<{ closed: number } | { frame: string }>((resolve) => {
+        held.ws.once('message', (data: Buffer) => resolve({ frame: data.toString('utf8') }))
+        held.ws.once('close', (closeCode: number) => resolve({ closed: closeCode }))
+      })
+      held.ws.send(JSON.stringify({ t: 'pake1', pA: Buffer.from(spake2Share('A', 123456n, 987654321n)).toString('base64') }))
+      // Going on with an empty code would answer with pake2: a side that knows nothing could then link.
+      expect(await answer).toEqual({ closed: PAIRING_CLOSE_FAILED })
+      await expect.poll(() => b.pairingFailures.length).toBe(1)
+      expect(b.service.linkedMachines()).toEqual([])
+      expect(c.service.linkedMachines()).toEqual([])
+    } finally {
+      held.ws.terminate()
+    }
   })
 
   it('stores nothing when it closes after B took the code, even if the socket outlives the close', async () => {

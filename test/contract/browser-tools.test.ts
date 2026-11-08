@@ -526,6 +526,17 @@ describe('the origins of the Browser profile', () => {
     expect(await page.pauseRequest(`${SITE}/in-the-list`)).toBe('continued')
   })
 
+  it('stop a whole-page request when the Browser profile was deleted while a Session drives: no profile, no page', async () => {
+    const rpc = await connect()
+    const { page } = await opened(rpc)
+    // The tools refuse such a Browser before a call starts; this is a navigation of the page itself
+    // (a script, a redirect) that the origin wall alone answers.
+    profiles = profiles.filter((profile) => profile.id !== 'admin-aaaaaa')
+    // Even a page of an origin the deleted profile had listed.
+    expect(await page.pauseRequest(`${SITE}/in-the-list`)).toBe('failed')
+    expect(page.commands('Fetch.failRequest')).toHaveLength(1)
+  })
+
   it('refuse a page outside the origins before the Session takes the Browser: no «Claude is driving», no wall left behind', async () => {
     store.apply(PROJECT, { op: 'create', node: { id: 'browser-user', kind: 'browser', x: 0, y: 400, w: 640, h: 440, data: { profile: 'admin-aaaaaa' } } })
     drawBrowsers()

@@ -6,7 +6,7 @@ import { runWaveState } from '../../src/shared/actions/render-template'
 import { initialCycle, step } from '../../src/shared/autopilot/cycle'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
-import { readyWave, ticketLevels, waveNumbers } from '../../src/shared/workflow/waves'
+import { filesOverlap, readyWave, ticketLevels, waveNumbers } from '../../src/shared/workflow/waves'
 
 const FIXTURE = join(import.meta.dirname, '../fixtures/worfy-mvp-epic')
 
@@ -215,6 +215,20 @@ describe('ready wave', () => {
   it('treats a directory entry as holding every file under it', () => {
     const wave = readyWave([ticket(1, { files: ['test/fixtures/epic/'] }), ticket(2, { files: ['test/fixtures/epic/spec.md'] })])
     expect(wave.ready.map((r) => r.num)).toEqual([1])
+  })
+
+  it('treats a directory entry as holding every file under it when the higher-numbered Ticket lists the folder', () => {
+    // readyWave asks filesOverlap(candidate file, held file): here the folder is on the candidate's side.
+    const wave = readyWave([ticket(1, { files: ['src/x.ts'] }), ticket(2, { files: ['src/'] })])
+    expect(wave.ready.map((r) => r.num)).toEqual([1])
+    expect(wave.waiting).toEqual([{ num: 2, reason: { kind: 'files', files: ['src/'], heldBy: [1] } }])
+  })
+
+  it('filesOverlap: a folder holds a file under it whichever side it is on, and not a file beside it', () => {
+    expect(filesOverlap('src/', 'src/x.ts')).toBe(true)
+    expect(filesOverlap('src/x.ts', 'src/')).toBe(true)
+    expect(filesOverlap('src/', 'srcx/y.ts')).toBe(false)
+    expect(filesOverlap('srcx/y.ts', 'src/')).toBe(false)
   })
 
   it('takes a Ticket without a trail section and marks it', () => {
