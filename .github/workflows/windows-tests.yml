@@ -273,12 +273,19 @@ jobs:
       # A dispatch (no shard) runs the whole suite in one job on a 4-CPU runner: HARNESS_SCRIPTS_PART 1/1
       # has harness-scripts-1.test.ts run every shell test five at a time and the other three none, as
       # in macos-tests of ci.yml, instead of four files of shell tests side by side.
+      # TEMP and TMP point at runner.temp, on D:, the machine's own NVMe disk, as in the e2e step of
+      # ci.yml: the tests build their temporary git repositories and data folders in os.tmpdir(), by
+      # default on C:, a network disk whose latency rises for minutes some 8 minutes after the machine
+      # starts. In such a minute a test of feature-docs-lag.test.ts that takes 0.5 s took 7-43 s, and
+      # two tests ran past their 15 s (worfy-polish 47, run 42251826160).
       - name: Run the unit and contract suite, or a part of it
         if: steps.tests.outputs.run != 'none'
         env:
           SHARD: ${{ inputs.shard }}
           HARNESS_SCRIPTS: test/contract/harness-scripts-1.test.ts test/contract/harness-scripts-2.test.ts test/contract/harness-scripts-3.test.ts test/contract/harness-scripts-4.test.ts
           TEST_FILES: ${{ steps.tests.outputs.files }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
           if ($env:SHARD -match '^harness-scripts (.+)$') { $env:HARNESS_SCRIPTS_PART = $Matches[1]; if ($env:TEST_FILES -and -not ((-split $env:TEST_FILES) | Where-Object { (-split $env:HARNESS_SCRIPTS) -contains $_ })) { 'The list has no harness-scripts file: nothing to run' } else { $files = -split $env:HARNESS_SCRIPTS; pnpm test @files } }
           elseif ($env:SHARD) { $env:WORFY_TEST_EXCLUDE = $env:HARNESS_SCRIPTS; $env:WORFY_TEST_FILES = $env:TEST_FILES; pnpm test "--shard=$env:SHARD" }
