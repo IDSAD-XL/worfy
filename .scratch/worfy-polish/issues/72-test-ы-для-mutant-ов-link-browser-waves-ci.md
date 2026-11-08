@@ -40,11 +40,17 @@ Source: аудит mutation testing 2026-11-08, второй прогон (на�
 ## Готово, когда
 
 - [ ] Test A с неверным `cB` красный на mutant-е M1 и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/link-pairing.test.ts` exit 0; mutant without the cB check: exit 1, the new test red · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] Test закрытия до взятия кода красный на mutant-е M2 (`?? ''`) и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/link-pairing-failures.test.ts` exit 0; mutant take() ?? empty string: exit 1, the new test red · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] Test удалённого profile красный на mutant-е M3 (отказ `null`) и зелёный на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/browser-tools.test.ts` exit 0; mutant refusal null without a profile: exit 1, the new test red · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] Test-ы папки у кандидата красные на mutant-е M4 и зелёные на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/waves.test.ts` exit 0; mutant without the folder-on-candidate branch: exit 1, both new tests red · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] Test-ы `EXPECTED` и `ACTION_REQUIRED` красные на обоих mutant-ах M5 и зелёные на исходном коде.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/github-prs.test.ts` exit 0; mutants without ACTION_REQUIRED and without EXPECTED: exit 1, new tests red · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] Все unit и contract test-ы link pairing, browser tools, waves и github prs, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0; 51 unit and contract test files of link pairing, browser, waves and github prs exit 0 · mac - · f955dbd24ce0b0d98e852de9ff273de168349eaa
 - [ ] `ci-ok` зелёный на head PR.
 
 ## Где в коде
