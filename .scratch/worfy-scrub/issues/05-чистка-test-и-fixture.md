@@ -75,7 +75,7 @@ Test-ы и fixture переноса старого Harness — не здесь, 
   `runneradmin`. Форма пути сохранена: пробел, кавычка, `$`, кириллица и эмодзи остались в пути, в следующей папке.
 - Другие проекты владельца → вымышленные `atalaya` и `auberge` (порядок сортировки как у прежних имён); в
   `test/e2e/limits-vendors.spec.ts` — `caution`, той же ширины в строке, что имя макета F.
-- Хосты → `someones-mac`, `someones-pc`, `Someones-MacBook-Pro`, `DESKTOP-0000000`, `<host>.example.ts.net`;
+- Хосты → `someones-mac`, `someones-pc` и другие stand-in-ы хостов из `scripts/check-personal.mjs`, `<host>.example.ts.net`;
   адреса Tailscale → `100.64.0.x`.
 - Значения, которые test должен видеть в настоящей форме (поддельные токены, имена `*.local`, границы диапазона
   100.64.0.0/10, адреса с `@` в URL), собраны из частей в коде test-а, как уже сделано в
