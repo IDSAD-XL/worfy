@@ -1,6 +1,6 @@
 # Projects
 
-> Перевод [английской версии](../projects.md), commit `same-pr`.
+> Перевод [английской версии](../projects.md), commit `59164fed`.
 
 Три Feature, которые относятся к Project-у целиком. **Full mode и Silent mode** решают, где лежат файлы workflow. **Project
 switcher** — это список Project-ов и выбор того, который показывает окно. **ADR и HANDOFF** — view только для чтения над двумя
@@ -65,6 +65,11 @@ Ticket-ов лежит внутри git-репозитория, и Silent mode �
    «Connect» неактивен, пока проверка идёт или не смогла запуститься, пока читаются аккаунты и пока осталась хоть одна проблема.
 6. **Connect.** Harness записывает Profile, папка входит в список и становится активной. Это может занять до 30 минут, потому что
    запись может индексировать Project для qmd. Пропущенный шаг qmd возвращается как notice, а Project всё равно подключён.
+
+**Предложение собрать Team reviewer.** После добавления новой папки, через Connect или как папки, которую Harness уже знает,
+worfy в фоне спрашивает `review-history probe`, есть ли у команды голос: 30 содержательных комментариев ревьюеров за 12 месяцев.
+Если есть, у Project-а появляется `action` toast «Build a reviewer in your team's style?» с кнопками «Build» и «Later». Что это
+за ревьюер, как он собирается и проверяется и кто его получает — на странице [Team reviewer](human-review.md).
 
 Esc и Cancel закрывают диалог и останавливают идущий черновик, но не во время записи Connect. Клик вне диалога закрывает его
 только на шаге Mode.
@@ -199,6 +204,9 @@ Project Machine этого окна. Строка секции Pipeline или n
   `{NN}`, `{wave}`, `{slug}`, `{branch}` и `{tickets}`. Неизвестная подстановка показывает ошибку под полем и выключает Save.
   «Reset to default» ставит значения по умолчанию из Harness, который сейчас найден на Machine. На Windows в диалоге есть ещё
   [Terminal shell](terminal.md).
+- Раздел «Team reviewer» в «Project settings…» показывает состояние ревьюера голосом команды Project-а (`Not built`,
+  `Built <date>, <N> PRs` или `Too little history: <N> of 30`) с кнопками «Build» (у собранного — «Update») и «Delete».
+  Подробно — [Team reviewer](human-review.md).
 - «Process gate queue» есть только тогда, когда роль Project-а в межмашинной очереди Gate — `serve`. Пункт отправляет шаблон
   Orchestrator-у Project-а.
 - «Remove from list» действует сразу, без вопроса. Project уходит из списка. Если он был активным, активным становится первый из

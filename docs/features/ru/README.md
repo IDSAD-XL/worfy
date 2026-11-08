@@ -31,6 +31,7 @@ Epic-ам и Ticket-ам.
 | [Epic frames](epic-frames.md) | Epic frame, Done shelf |
 | [Focus mode](focus-mode.md) | Focus mode |
 | [Projects](projects.md) | Full mode и Silent mode, переключатель, просмотр ADR и HANDOFF |
+| [Team reviewer](human-review.md) | Team reviewer: частный skill ревью Project-а голосом его команды, предложение, сборка, проверка и ежемесячное обновление |
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
 | [Sessions](sessions.md) | Session, Subagent |

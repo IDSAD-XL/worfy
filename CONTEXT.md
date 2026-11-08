@@ -172,6 +172,10 @@ _Avoid_: kit, обвязка, тулинг
 Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на Machine пользователя; в репозитории Project его нет.
 _Avoid_: профиль, конфиг проекта, settings (Settings — настройки самого worfy, «Project settings…» — окно одного Project-а в worfy; ни то, ни другое не Profile)
 
+**Team reviewer**:
+Частный skill ревью Project-а (`/human-review`), собранный skill-ом `/worfy:human-review-setup` из истории ревью PR команды на GitHub: пишет черновик ревью голосом команды и ничего не отправляет без «да» человека. Лежит только на Machine пользователя, в папке Profile-а (`state/human-review/`), не в репозитории; Session-ы с человеком получают его как дополнительный каталог ([ADR-0102](docs/adr/0102-private-project-skills-in-profile-folder.md)). Не Stage `human-review` Pipeline-а — тот ждёт решения ревью на GitHub.
+_Avoid_: human review (как имя skill-а), ревьюер команды, личный ревьюер
+
 **User personalization**:
 Собственные настройки пользователя для Harness — вне plugin и вне Profile, одни для всех его Project-ов: язык отчётов (`language.reports` в `~/.claude/worfy-harness/user.json`) и личные правила (`~/.claude/worfy-harness/user/rules.md`, Harness подмешивает их в Session, не зная содержания). Языки команды и документов — не здесь, а в Profile ([ADR-0074](docs/adr/0074-harness-neutral-by-language-and-project.md)).
 _Avoid_: пользовательская персонализация, персонализация (без уточнения чья), user settings, настройки пользователя, Profile или Settings (как синоним)
