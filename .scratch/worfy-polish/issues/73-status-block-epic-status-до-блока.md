@@ -107,9 +107,15 @@ SessionStart). Все шесть ходов одинаковы: поиск фа�
 
 Решение владельца 2026-11-08: строку даёт hook `UserPromptSubmit` (раздел «Что делаем»).
 
-Время hook-а `stage-lines.mjs` на этом репозитории (889 тикетов, 38 Epic-ов, macOS): 0.90–1.01 s wall time на prompt
-(три запуска); оба запуска `epic-status` идут параллельно — последовательно было 1.8–2.1 s. На проекте demo — около 1 s,
-почти всё — старт трёх процессов node.
+Третий платный прогон, с hook-ом (commit `4bc10474a`): балл 1.00, 3 из 3, $0.37. `ends-with-status-block` 3 из 3,
+`stage-is-epic-status-line` 3 из 3. В transcript-е хода — grep → Read → Edit, без вызова `epic-status`, и строка
+«— Stage: /to-tickets · demo 0/4 · ticket 01 — alpha: функция double» — копия строки hook-а. Все три платных прогона —
+$1.14.
+
+Цена: hook работает на каждом prompt-е Session разработчика в проекте с тикетами (не в Product Session, не в
+Subagent-е). Время hook-а `stage-lines.mjs` на этом репозитории (889 тикетов, 38 Epic-ов, macOS): 0.9–1.0 s wall time
+на prompt (три замера: 0.90, 1.00, 1.01 s); оба запуска `epic-status` идут параллельно — по очереди было 1.8–2.1 s. На
+проекте demo — около 1 s, почти всё — старт трёх процессов node.
 
 ## Где в коде
 
