@@ -1,6 +1,8 @@
 # worfy Harness — common rules
 
-Rules for every session and every subagent.
+Rules for every session and every subagent. Only a Product Session and its subagents edit topic
+files in `docs/product/`; the orchestrator only moves an accepted draft and records an owner
+decision, the critic writes only `docs/product/critic/`.
 
 ## Plain language
 
@@ -10,8 +12,8 @@ guard clause — so the sentence still reads correctly outside this repo. When a
 local (an epic, a wave, `legal_lock`, `HANDOFF.md`), gloss it in half a sentence the first time it
 comes up in a turn.
 
-Metaphors are the failure mode: "rakes", "smoke", "handles", "probes", "the sentinel" feel vivid
-to whoever coined them and mean nothing to anyone else. Say what the thing is and what it does. If
+Metaphors are the failure mode: "rakes", "smoke", "the sentinel" feel vivid to whoever coined
+them and mean nothing to anyone else. Say what the thing is and what it does. If
 no standard term exists, describe it plainly rather than minting a new word. When the profile
 names a glossary (`docs.context`), its terms are the project's own words.
 
@@ -51,16 +53,14 @@ from the user's rules file.
   not from reading the diff. A failing run means unfinished. "Could not verify" means unverified.
   Neither is reported as done.
 - Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry —
-  never green. `127` means node is not on PATH and the command above never started the gate:
-  not verified, never green. 128 + the signal number — `129`, `130`, `143`, `149` (SIGHUP,
-  SIGINT, SIGTERM, Ctrl+Break of Windows) — means the gate itself was stopped:
-  this run wrote nothing, the work is not verified — never green. A signal in the gate's first
-  tens of milliseconds, or while it waits up to 2 s on an open stdin that sends nothing, may
-  leave the verdict of an earlier run in place. `0` is green only when the output has the
-  line `[gate] green (…)`: `[gate] nothing ran (…)` and `[gate] not verified — environment
-  unavailable:` also exit `0`.
+  never green. `127`: node is not on PATH and the gate never started — never green. 128 + the
+  signal number — `129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) —
+  the gate itself was stopped and this run wrote nothing — never green; a signal in its first
+  milliseconds or its 2 s wait on a silent stdin may leave an earlier verdict in place. `0` is
+  green only when the output has the line `[gate] green (…)`: `[gate] nothing ran (…)` and
+  `[gate] not verified — environment unavailable:` also exit `0`.
   Where the gate does not cover the project, the verdict comes from the profile's
-  `commands.verify` (or the project's own lint and test commands) with their exit codes, and the
+  `commands.verify` (or the project's own lint and tests) with their exit codes, and the
   report says the gate did not run.
 - Nothing is "deployed" until the live endpoint has been hit and its answer pasted.
 - A subagent's `file:line` is a claim, not a fact. Re-read the line before repeating it —
@@ -69,9 +69,8 @@ from the user's rules file.
 ## Context hygiene
 
 - Quote the minimal fragment; whole files stay out of main context.
-- Editing a file outside the `Edit` tool prints its whole contents back into context, and the
-  bigger the file the bigger that cost. Point edits go through `Edit`; a sweep across many files
-  is an agent's job, not yours.
+- Editing a file outside the `Edit` tool prints its whole contents back into context. Point edits
+  go through `Edit`; a sweep across many files is an agent's job.
 - After each phase, compress: keep conclusions, drop the trail.
 - Unbounded output — logs, curl responses, DB dumps — gets filtered before it lands; delegate the
   run only when no filter does the job.

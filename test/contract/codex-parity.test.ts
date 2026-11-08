@@ -140,9 +140,10 @@ const GUARANTEES: Guarantee[] = [
     row: 7,
     guarantee: 'the Harness rules at the start of a Session and of a Subagent',
     readme: 'Rules at the start',
-    codex: 'SessionStart gives the parts orchestrator and common, SubagentStart of a reviewer and a scout gives common, each as the Claude test expects it: the part file with the plugin root filled in',
+    codex: 'SessionStart gives the parts orchestrator and common, SubagentStart of a reviewer and a scout gives common, each as the Claude test expects it: the part file with the plugin root filled in; the part product, for a Product Session only, gives nothing',
     claude: [
       { file: 'harness/hooks/tests/rules-hooks.test.sh', check: 'for ev in SessionStart SubagentStart; do' },
+      { file: 'harness/hooks/tests/rules-hooks.test.sh', check: 'ok "hooks.json SessionStart, no kind: orchestrator + common"' },
       { file: 'harness/hooks/tests/rules-hooks.test.sh', check: `expected="$(sed 's#\${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/$part.md")"` },
       { file: 'harness/hooks/tests/rules-hooks.test.sh', check: 'SubagentStart||$N/hooks/inject-rules.mjs" common|10' },
     ],
@@ -370,8 +371,11 @@ interface Project {
   env: NodeJS.ProcessEnv
 }
 
-/** Variables of the test's own environment that would point a hook at the machine's own Harness, gate, gh or qmd. */
-const MACHINE_VARIABLES = /^(CLAUDE_|HARNESS_HOME$|EVAL_HARNESS_HOME$|GATE_|GH_TOKEN$|GITHUB_TOKEN$|QMD_|XDG_|WORFY_CODEX)/i
+/**
+ * Variables of the test's own environment that would point a hook at the machine's own Harness, gate, gh or qmd,
+ * or change the rules it gives (WORFY_SESSION_KIND of a test run inside a Product Session).
+ */
+const MACHINE_VARIABLES = /^(CLAUDE_|HARNESS_HOME$|EVAL_HARNESS_HOME$|GATE_|GH_TOKEN$|GITHUB_TOKEN$|QMD_|XDG_|WORFY_CODEX|WORFY_SESSION_KIND$)/i
 
 /**
  * A registered project for one run: a git worktree with status.txt, whose first line is what its one gate
@@ -663,6 +667,9 @@ describe('a turn with a reviewer and a scout (parity-guards.jsonl)', () => {
     const started = contexts(run.runs('sessionStart'))
     expect(started).toContain(rulesPart(approvedHome, 'orchestrator'))
     expect(started).toContain(rulesPart(approvedHome, 'common'))
+    // The same hooks.json runs the part product too (worfy-product-session ticket 10). worfy starts no Product
+    // Session on Codex, so no WORFY_SESSION_KIND: the part prints nothing and the Session's rules are as before.
+    expect(started.filter((text) => text.startsWith('# worfy Harness — product rules'))).toEqual([])
     for (const thread of ['thr_sub_1', 'thr_sub_2']) expect(contexts(run.runs('subagentStart', thread)), thread).toEqual([rulesPart(approvedHome, 'common')])
     expect(statuses(run.runs('sessionStart')).every((status) => status === 'completed')).toBe(true)
   })

@@ -10,6 +10,12 @@
 // on Windows spelled C:/…, as Claude Code spells CLAUDE_PLUGIN_ROOT there).
 // The part "common" also carries the user's own rules file, $HARNESS_HOME/user/rules.md, when it exists.
 //
+// The kind of Session decides two parts. worfy starts a Product Session with WORFY_SESSION_KIND=product in
+// its environment, which Claude Code hands on to its hooks: there "product" prints rules/product.md and
+// "orchestrator" prints nothing. In any other Session (no variable, or another value) "orchestrator"
+// prints its part and "product" prints nothing. A part that is not for this Session prints nothing on
+// stdout or stderr: that is not a failure.
+//
 // Always exits 0: a broken hook must not break the session. When it cannot do its job (no part
 // file, empty or unreadable stdin, stdin that is not JSON, an internal error) it prints nothing on
 // stdout and one line on stderr.
@@ -22,6 +28,17 @@ import { harnessHome } from "./eval-env.cjs"
 const TOKEN = "${CLAUDE_PLUGIN_ROOT}"
 // Claude Code cuts one additionalContext string to a preview above this many characters.
 const LIMIT = 10000
+// The variable and its one value that make a Session a Product Session (SessionKind of worfy).
+const KIND_VARIABLE = "WORFY_SESSION_KIND"
+const PRODUCT = "product"
+
+/** Whether `part` is for a Session of this kind: product only in a Product Session, orchestrator only outside one. */
+function forThisSession(part) {
+    const product = process.env[KIND_VARIABLE] === PRODUCT
+    if (part === "product") return product
+    if (part === "orchestrator") return !product
+    return true
+}
 
 // A failure the hook reports with one line on stderr and exit code 0.
 class Quiet extends Error {}
@@ -52,6 +69,9 @@ function main() {
     } catch {
         fail(`cannot read stdin; rules part '${part}' not injected`)
     }
+    // After stdin is read, so Claude Code's write to it never meets a closed pipe; before it is checked,
+    // so a part not for this Session stays silent whatever came.
+    if (!forThisSession(part)) return
     if (!input.replace(/\n+$/, "")) fail(`empty stdin; rules part '${part}' not injected`)
     let hook
     try {
