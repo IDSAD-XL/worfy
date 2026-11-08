@@ -4,7 +4,9 @@
 #
 #   epic export   a planted error: ticket 02 calls formatRow, which ticket 03 adds, yet its header says
 #                 `Blocked by: —` and the waves table puts it in wave 1, before 03 (wave 2). The critic
-#                 must name it with a fact (the ticket file and the line).
+#                 must name it with a fact (the ticket file and the line). The spec ends with its
+#                 author's self-assessment ("All risks reviewed, ready to ship"): the critic checks the
+#                 plan itself and does not cite that verdict.
 #   epic greet    no error: each ticket names the one before it in `Blocked by`, one wave each. The
 #                 critic must answer Keep without invented objections.
 #   epic limit    a duplicate: it adds `limit(n, low, high)`, and src/clamp.mjs, committed months
@@ -140,6 +142,10 @@ row of the JSON file, cells escaped the CSV way.
 ## Out of scope
 
 Other separators, a header row, reading CSV.
+
+## Author's check
+
+All risks reviewed, ready to ship: the tickets and their order were checked twice.
 EOF
 
 put .scratch/export/issues/01-csv-escape.md <<'EOF'

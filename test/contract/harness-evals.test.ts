@@ -549,6 +549,29 @@ describe('harness/evals: critic-verdict', () => {
     expect(before).toContain('No verdict of the author and no self-assessment')
   })
 
+  // The plans limit, sum-guard and sum-output of the eval: the old critic already found those mistakes,
+  // so the eval guards them against a regression and this test guards the words that ask for them.
+  it('looks for a duplicated feature, a cheaper existing check and a deferral whose revisit condition is met', () => {
+    const flat = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8').replaceAll(/\s+/g, ' ')
+    const look = flat.slice(flat.indexOf('## What to look for'), flat.indexOf('## The verdict'))
+    expect(look).toContain('a feature the repository already has is named by its file and line')
+    /** One item of the list, from its bold label to the next item or the end of the section. */
+    const item = (label: string): string => {
+      const start = look.indexOf(`- **${label}.**`)
+      expect(start, label).toBeGreaterThanOrEqual(0)
+      const next = look.indexOf('- **', start + 4)
+      return look.slice(start, next < 0 ? undefined : next)
+    }
+    const cost = item('Cost')
+    for (const words of ['builds a new mechanism', 'a check, script or test the project already has', 'does the same job', 'Name that check with its fact', 'the first candidate for the alternative']) {
+      expect(cost, words).toContain(words)
+    }
+    const history = item('History')
+    for (const words of ['decided or deferred before', 'an ADR, a closed ticket', 'a reason that no longer holds', 'the condition the earlier decision named for a revisit is now met', 'Propose to revisit it and cite the earlier decision', 'neither ignore it nor reverse it silently']) {
+      expect(history, words).toContain(words)
+    }
+  })
+
   it('separates the fact from the judgement: each objection has a `Fact:` line and a `Judgement:` line, and the owner decision line stays', () => {
     const text = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8')
     const block = /```markdown\n([\s\S]*?)```/.exec(text)?.[1] ?? ''
@@ -661,10 +684,21 @@ describe('harness/evals: critic-verdict', () => {
     // The existing check named in an objection only, not in the alternative.
     expect(passes('sum-guard-alternative-names-check.md', review(fact('`test/sum.test.mjs:6`'), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
 
-    expect(passes('sum-output-cites-adr.md', review(fact('`docs/adr/0001-sum-cli-prints-plain-text.md:14` (revisit when a program reads the output)'), 'Defer'))).toBe(true)
-    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 deferred `--json`'), 'Defer'))).toBe(true)
-    expect(passes('sum-output-cites-adr.md', review(fact('ADR-0001 deferred `--json`'), 'Defer'))).toBe(true)
+    // The revisit condition of ADR 0001, by its line or its words; the bare number is in the plan already.
+    expect(passes('sum-output-cites-adr.md', review(fact('`docs/adr/0001-sum-cli-prints-plain-text.md:17` (a program reads the output)'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 says to revisit once "a program, not a person, reads the output"'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001, section "Revisit when"'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 deferred `--json`'), 'Defer'))).toBe(false)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR-0001 deferred `--json` (`docs/adr/0001-sum-cli-prints-plain-text.md:12`)'), 'Defer'))).toBe(false)
     expect(passes('sum-output-cites-adr.md', review(fact('`src/sum-cli.mjs:5`'), 'Keep'))).toBe(false)
+  })
+
+  // Anchoring: the export spec ends with its author's verdict on itself; a review that quotes it leaned on it.
+  it('the author-verdict grader passes example.md and refuses a review that quotes the self-assessment of the export spec', () => {
+    expect(passes('export-no-author-verdict.md', example())).toBe(true)
+    expect(passes('export-no-author-verdict.md', review(objection(1, 'Fact: `.scratch/export/spec.md:24` says "All risks reviewed, ready to ship"\n\n')))).toBe(false)
+    expect(passes('export-no-author-verdict.md', review(objection(1), 'Reorder — although the order was checked twice by the author,'))).toBe(false)
+    expect(passes('export-no-author-verdict.md', review(objection(1), 'Keep', 'The author\'s check says the plan is ready to ship.'))).toBe(false)
   })
 
   it('each fact of example.md is the line of the fixture it quotes, and epic-status reads all five plans', () => {
@@ -676,6 +710,9 @@ describe('harness/evals: critic-verdict', () => {
     expect(line('.scratch/export/issues/02-export-command.md', 10)).toContain('`formatRow` is imported from `src/row.mjs`')
     expect(line('.scratch/export/spec.md', 18)).toBe('| 02 | src/export.mjs, test/export.test.mjs | 1 |')
     expect(line('.scratch/export/spec.md', 19)).toBe('| 03 | src/row.mjs, test/row.test.mjs | 2 |')
+    // The author's self-assessment the critic must not cite, in the words its grader looks for.
+    expect(line('.scratch/export/spec.md', 27)).toBe('All risks reviewed, ready to ship: the tickets and their order were checked twice.')
+    expect(readFileSync(join(work, '.scratch/export/spec.md'), 'utf8')).toMatch(pattern('export-no-author-verdict.md'))
     // The plan without an error: each ticket names the one it waits for.
     expect(line('.scratch/greet/issues/01-greeting.md', 5)).toBe('Blocked by: —')
     expect(line('.scratch/greet/issues/02-greet-command.md', 5)).toBe('Blocked by: 01')
@@ -710,6 +747,11 @@ describe('harness/evals: critic-verdict', () => {
     expect(line(adr, 17)).toBe('A program, not a person, reads the output of `sum-cli`.')
     expect(read('.scratch/sum-output/spec.md')).toContain('two programs read the output of `node src/sum-cli.mjs`')
     expect(read('.scratch/sum-output/spec.md')).toContain('A JSON output: deferred by ADR 0001')
+    // The plan never states the revisit condition: a review that only echoes the plan fails its grader.
+    for (const rel of ['.scratch/sum-output/spec.md', '.scratch/sum-output/issues/01-pin-output.md', '.scratch/sum-output/issues/02-warn-in-code.md']) {
+      expect(read(rel), rel).not.toMatch(pattern('sum-output-cites-adr.md'))
+    }
+    expect(read(adr)).toMatch(pattern('sum-output-cites-adr.md'))
     // The history is older than the plans: the existing feature, check and decision were there first.
     const log = spawnSync('git', ['log', '--format=%s', '--reverse'], { cwd: work, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH }) })
     expect(log.status, log.stderr).toBe(0)
