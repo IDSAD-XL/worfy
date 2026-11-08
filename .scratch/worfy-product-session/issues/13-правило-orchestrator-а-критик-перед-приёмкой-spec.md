@@ -1,9 +1,8 @@
 # 13 — Правило Orchestrator-а: критик перед приёмкой spec
 
 Type: task
-Status: blocked 2026-11-07T20:19Z
-Blocked reason: ждёт Epic worfy-skills целиком (spec.md, «Волны»)
-Waits: agent
+Status: done 2026-11-08T13:16Z
+PR: #1675
 Blocked by: 11
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 7; «Решено без владельца», п. 6; «Вопросы владельцу», Q8; «Риски», п. 6; карта [worfy-product](../../worfy-product/map.md), решения 03 (Q3), 08 (Q1)
 
@@ -33,13 +32,17 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] `orchestrator.md` со строкой ≤ 10000 символов и с длинным корнем plugin-а (`rules-hooks.test.sh` exit 0).
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (287 passed; orchestrator 9990 characters with a long plugin root) · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
+  - evidence: review pass · PR #1675 · - - · be3d23b61080f0bde3e21607f9876fc0524b42ec
 - [ ] `critic.md` описывает вход и выход для Orchestrator-а; test-ы plugin-а зелёные.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh`, start-context, plugin-neutral, agents-text and contract tests harness-plugin, codex-parity, harness-evals, harness-evals-run exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
+  - evidence: review pass · PR #1675 · - - · be3d23b61080f0bde3e21607f9876fc0524b42ec
 - [ ] Проверка на Mac Stable: Orchestrator перед приёмкой черновика spec-а сам зовёт критика, разбор лежит в
       `docs/product/critic/`, spec ссылается на него — ссылка на транскрипт в «Итог».
+  - evidence: review pass · PR #1675 · - - · be3d23b61080f0bde3e21607f9876fc0524b42ec
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7831a673b1cda952fedda6d1f16e907c6e8008d4
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42482439128/job/128741160739 · ci - · be3d23b61080f0bde3e21607f9876fc0524b42ec
 
 ## Тесты
 
