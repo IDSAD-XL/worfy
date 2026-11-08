@@ -124,6 +124,14 @@ describe('buildMindMapGraph', () => {
     expect(buildMindMapGraph(topic(nodes), { hideRejected: false }).nodes).toHaveLength(6)
   })
 
+  it('builds and lays out synchronously a chain 4000 nodes deep, with a rejected Decision at its top hidden with all of it', () => {
+    const nodes: MindMapNode[] = [decision('n0', null, 'rejected')]
+    for (let index = 1; index < 4000; index += 1) nodes.push({ id: `n${index}`, kind: 'idea', text: `Step ${index}`, from: `n${index - 1}` })
+    const graph = buildMindMapGraph(topic(nodes), { hideRejected: false })
+    for (const view of MIND_MAP_VIEWS) expect(layoutSync(graph, view).size).toBe(4002)
+    expect(buildMindMapGraph(topic(nodes), { hideRejected: true }).nodes.map((node) => node.id)).toEqual([ROOT_ID, 'ticket:01'])
+  })
+
   it('puts a node the file places at its x and y over the layout', () => {
     const graph = buildMindMapGraph(topic([{ id: 'here', kind: 'idea', text: 'Here', from: null, x: 10, y: -20 }]), { hideRejected: false })
     const placed = withFilePlaces(graph, layoutSync(graph, 'tree'))

@@ -12,7 +12,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { ProductTopicState } from '../../shared/ipc/product'
 import { elkEngine } from '../canvas/elk/client'
 import { SegmentedControl } from '../theme/primitives'
@@ -116,8 +116,17 @@ interface MindNodeData extends Record<string, unknown> {
 
 type MindFlowNode = Node<MindNodeData, 'mind'>
 
+/** Opens a node's card; the nodes call it on Enter and Space (a click goes through React Flow's onNodeClick). */
+const OpenNode = createContext<(id: string) => void>(() => undefined)
+
 function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
   const { node, view } = data
+  const open = useContext(OpenNode)
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    open(node.id)
+  }
   const big = node.kind === 'topic' || node.kind === 'ticket'
   const rejected = node.kind === 'decision' && node.status === 'rejected'
   const [target, source] = view === 'tree' ? [Position.Top, Position.Bottom] : [Position.Left, Position.Right]
@@ -131,6 +140,12 @@ function MindNodeView({ data, selected }: NodeProps<MindFlowNode>) {
       data-status={node.status}
       style={{ fontSize: `${MIND_MAP_FONT[view] + (big ? 2 : 0)}px` }}
       title={node.text}
+      // The node itself is the stop for Tab (React Flow's wrapper is not focusable here, see flowNodes):
+      // Enter or Space opens its card, and its name says the kind and the status.
+      role="button"
+      tabIndex={0}
+      aria-label={`${kindLine(node)}: ${node.text}`}
+      onKeyDown={onKeyDown}
     >
       <Handle type="target" position={target} isConnectable={false} className="w-mind__handle" />
       <span className="w-mind__icon" aria-hidden="true">
@@ -197,14 +212,14 @@ function flowNodes(graph: MapGraph, placement: Placement, view: MindMapView, sel
         selected: node.id === selected,
         draggable: false,
         connectable: false,
+        focusable: false,
       },
     ]
   })
 }
 
 function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView): Edge[] {
-  // An arrow to a node that waits for its place waits with it.
-  return graph.edges.filter((edge) => placement.has(edge.source) && placement.has(edge.target)).map((edge) =>
+  return graph.edges.map((edge) =>
     edge.kind === 'from'
       ? { id: edge.id, source: edge.source, target: edge.target, type: 'smoothstep', className: 'w-mind__edge', focusable: false }
       : {
@@ -222,39 +237,77 @@ function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView): Ed
 }
 
 /**
- * Where the nodes go: ELK's layout from the window's worker once it has answered for these inputs; while
- * a newer request is out, the last answer of this view (a node it does not place waits for the new one),
- * as the Epic frames keep theirs (../canvas/elk/client.ts); the synchronous layout before ELK's first
+ * ELK's places where it has them, and for a node it does not place (added since the inputs it laid out)
+ * a place next to its parent: the parent's place plus the offset the synchronous layout gives the node
+ * from its parent. Parents come first in `graph.nodes`, so a new branch follows its new parent.
+ */
+function mergedPlaces(graph: MapGraph, elk: Placement, sync: Placement): Placement {
+  const placed = new Map<string, Placed>()
+  for (const node of graph.nodes) {
+    const own = elk.get(node.id)
+    if (own !== undefined) {
+      placed.set(node.id, own)
+      continue
+    }
+    const mine = sync.get(node.id)!
+    const parent = node.parent === null ? undefined : placed.get(node.parent)
+    const parentSync = node.parent === null ? undefined : sync.get(node.parent)
+    placed.set(node.id, parent === undefined || parentSync === undefined ? mine : { ...mine, x: parent.x + mine.x - parentSync.x, y: parent.y + mine.y - parentSync.y })
+  }
+  return placed
+}
+
+/**
+ * Where the nodes go: ELK's layout from the window's worker (../canvas/elk/client.ts), the worker the
+ * Epic frames share, so one request of the map is out at a time: when it answers, the newest inputs are
+ * sent, those between are skipped. The last answer of this view stays meanwhile, and a node it does not
+ * place is drawn next to its parent (`mergedPlaces`). The synchronous layout draws before ELK's first
  * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
  */
 function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; byElk: boolean } {
   const key = layoutKey(graph, view)
-  // `placement` null: ELK failed on these inputs.
+  // `placement` null: ELK failed on those inputs.
   const [answer, setAnswer] = useState<{ key: string; view: MindMapView; placement: Placement | null } | null>(null)
-  // The inputs of the last request, and those the map wants now: an answer for older inputs is dropped,
-  // and a new topic object with the same inputs asks nothing.
-  const requested = useRef<string | null>(null)
-  const wanted = useRef(key)
+  // The newest inputs, the key of the last request sent, whether one is out, whether the map is still mounted.
+  const latest = useRef<{ key: string; graph: MapGraph; view: MindMapView } | null>(null)
+  const sent = useRef<string | null>(null)
+  const busy = useRef(false)
+  const mounted = useRef(true)
   useEffect(() => {
-    wanted.current = key
-    if (requested.current === key) return
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  useEffect(() => {
+    latest.current = { key, graph, view }
     const elk = elkEngine()
     if (elk === null) return
-    requested.current = key
-    layoutElk(graph, view, elk).then(
-      (placement) => {
-        if (wanted.current === key) setAnswer({ key, view, placement })
-      },
-      (error: unknown) => {
-        console.error('[mind-map] ELK could not lay out the Mind map', error)
-        if (wanted.current === key) setAnswer({ key, view, placement: null })
-      },
-    )
+    const send = (): void => {
+      const next = latest.current
+      if (!mounted.current || busy.current || next === null || sent.current === next.key) return
+      busy.current = true
+      sent.current = next.key
+      layoutElk(next.graph, next.view, elk)
+        .then(
+          (placement) => (mounted.current ? setAnswer({ key: next.key, view: next.view, placement }) : undefined),
+          (error: unknown) => {
+            console.error('[mind-map] ELK could not lay out the Mind map', error)
+            if (mounted.current) setAnswer({ key: next.key, view: next.view, placement: null })
+          },
+        )
+        .finally(() => {
+          busy.current = false
+          send()
+        })
+    }
+    send()
   }, [key, graph, view])
-  // An answer of this view for other inputs means the request for these is out: the effect sends one
-  // for every new key while the window has ELK.
   const elkPlaces = answer?.view === view ? answer.placement : null
-  const placement = useMemo(() => elkPlaces ?? layoutSync(graph, view), [elkPlaces, graph, view])
+  const placement = useMemo(() => {
+    const sync = layoutSync(graph, view)
+    return elkPlaces === null ? sync : mergedPlaces(graph, elkPlaces, sync)
+  }, [elkPlaces, graph, view])
   return { placement, byElk: elkPlaces !== null }
 }
 
@@ -438,8 +491,18 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     writeView(storeKey, next)
   }
 
+  const root = useRef<HTMLDivElement>(null)
+  // Escape closes the card and puts the focus back on its node.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || picked === null) return
+    event.stopPropagation()
+    const id = picked
+    setPicked(null)
+    root.current?.querySelector<HTMLElement>(`[data-testid="mind-node"][data-id="${CSS.escape(id)}"]`)?.focus()
+  }
+
   return (
-    <div className="w-mind" data-testid="mind-map" data-view={view}>
+    <div ref={root} className="w-mind" data-testid="mind-map" data-view={view} onKeyDown={onKeyDown}>
       <div className="w-mind__toolbar">
         <SegmentedControl label="View" options={VIEWS} value={view} onChange={choose} />
         <button type="button" className="w-mind__button w-mind__toggle" aria-pressed={hideRejected} title="Hide the rejected Decisions and their branches" onClick={() => setHideRejected((was) => !was)}>
@@ -449,24 +512,26 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
       </div>
       <Errors errors={topic.errors} />
       <div className="w-mind__flow">
-        <ReactFlow<MindFlowNode>
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodeClick={(_, node) => setPicked(node.id)}
-          onPaneClick={() => setPicked(null)}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          minZoom={ZOOM_MIN}
-          maxZoom={ZOOM_MAX}
-          fitView
-          fitViewOptions={FIT}
-          zoomOnDoubleClick={false}
-          deleteKeyCode={null}
-          colorMode="system"
-          proOptions={{ hideAttribution: true }}
-        />
+        <OpenNode value={setPicked}>
+          <ReactFlow<MindFlowNode>
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_, node) => setPicked(node.id)}
+            onPaneClick={() => setPicked(null)}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            minZoom={ZOOM_MIN}
+            maxZoom={ZOOM_MAX}
+            fitView
+            fitViewOptions={FIT}
+            zoomOnDoubleClick={false}
+            deleteKeyCode={null}
+            colorMode="system"
+            proOptions={{ hideAttribution: true }}
+          />
+        </OpenNode>
         <Legend />
         {pickedNode !== undefined ? <NodeCard node={pickedNode} graph={graph} onPick={setPicked} onClose={() => setPicked(null)} onShowMessage={onShowMessage} /> : null}
       </div>

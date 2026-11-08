@@ -41,6 +41,8 @@ const subagent = (id: string, children: SubagentInfo[] = []): SubagentInfo => ({
 
 const asked: { channel: string; input: unknown }[] = []
 let settings: AppSettings
+/** Why `product.topic` fails, when the test makes it fail. */
+let topicFails: string | undefined
 /** The handlers the panel subscribed through the bridge, by channel. */
 const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
 const emit = (channel: string, payload: unknown) => {
@@ -60,6 +62,7 @@ beforeEach(() => {
   vi.resetModules()
   asked.length = 0
   listeners.clear()
+  topicFails = undefined
   subagents.tree = []
   settings = defaultAppSettings()
   const bridge = {
@@ -72,7 +75,9 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, value: settings })
       }
       if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
-      if (channel === 'product.topic') return Promise.resolve({ ok: true, value: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } })
+      if (channel === 'product.topic') {
+        return Promise.resolve(topicFails === undefined ? { ok: true, value: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } } : { ok: false, error: topicFails })
+      }
       return Promise.resolve({ ok: false, error: `no ${channel}` })
     },
     on: (channel: string, handler: (payload: unknown) => void) => {
@@ -317,5 +322,17 @@ describe('the Mind map pane of a Product Session', () => {
     cleanup()
     await mount()
     expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+  })
+
+  it('says why when the topic cannot be read, instead of the empty state', async () => {
+    topicFails = 'EACCES: permission denied'
+    await mount()
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
+    })
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Could not read the Mind map: EACCES: permission denied')
+    expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
+    expect(screen.queryByTestId('mind-map')).toBeNull()
   })
 })

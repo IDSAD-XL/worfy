@@ -251,36 +251,108 @@ describe('MindMap', () => {
     if (process.env['WORFY_MIND_MAP_TIMING'] === '1') console.info(`[mind-map] 150 nodes, first render in jsdom: ${ms.toFixed(1)} ms`)
   })
 
-  it('moves the nodes to ELK’s layout once the window’s ELK answers, the synchronous one until then', async () => {
+  it('moves the nodes to ELK’s layout once the window’s ELK answers; one request is out at a time, and a node added meanwhile is drawn by its parent', async () => {
     const elk = new ELK()
     const graph = buildMindMapGraph(topic(), { hideRejected: false })
     const [byElk, sync] = [(await layoutElk(graph, 'tree', elk)).get('too-wide')!, layoutSync(graph, 'tree').get('too-wide')!]
     expect([byElk.x, byElk.y]).not.toEqual([sync.x, sync.y])
-    const at = () => nodeOf('too-wide')!.closest<HTMLElement>('.react-flow__node')!.style.transform
-    let answer: (() => void) | undefined
-    // ELK that answers when the test lets it.
-    setElkEngine({ layout: (input) => new Promise((resolve) => (answer = () => resolve(elk.layout(input)))) })
+    const at = (id: string) => nodeOf(id)!.closest<HTMLElement>('.react-flow__node')!.style.transform
+    // ELK that answers when the test lets it, request by request; each request is listed once its
+    // layout is ready, so an answer takes effect at once.
+    const requests: { ids: string[]; answer: () => void }[] = []
+    setElkEngine({
+      layout: (input) =>
+        elk.layout(input).then(
+          (laidOut) =>
+            new Promise((resolve) => {
+              requests.push({ ids: (input.children ?? []).map((child) => child.id), answer: () => resolve(laidOut) })
+            }),
+        ),
+    })
+    const requested = async (count: number) => {
+      await waitFor(() => expect(requests).toHaveLength(count))
+    }
+    const answer = async (index: number) => {
+      await act(async () => {
+        requests[index]!.answer()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    const withNodes = (...ids: string[]) => topic({ nodes: [...topic().nodes, ...ids.map((id) => ({ id, kind: 'idea' as const, text: `Added ${id}`, from: 'too-wide' }))] })
     try {
       const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
-      expect(at()).toBe(`translate(${sync.x}px,${sync.y}px)`)
-      await act(async () => {
-        answer!()
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-      await waitFor(() => expect(at()).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+      expect(at('too-wide')).toBe(`translate(${sync.x}px,${sync.y}px)`)
+      await requested(1)
+      await answer(0)
+      await waitFor(() => expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+      expect(requests).toHaveLength(1)
 
-      // A node added: until ELK answers again the others keep its places and the new one waits.
-      const nodes = [...topic().nodes, { id: 'late-idea', kind: 'idea' as const, text: 'Added later', from: 'too-wide' }]
-      rerender(<MindMap projectId="p1" topic={topic({ nodes })} />)
-      expect(at()).toBe(`translate(${byElk.x}px,${byElk.y}px)`)
-      expect(nodeOf('late-idea')).toBeNull()
+      // The advisor adds two nodes while ELK works on the first: both are drawn at once, under their
+      // parent's ELK place, and the others keep theirs.
+      rerender(<MindMap projectId="p1" topic={withNodes('late-1')} />)
+      rerender(<MindMap projectId="p1" topic={withNodes('late-1', 'late-2')} />)
       await act(async () => {
-        answer!()
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
-      await waitFor(() => expect(nodeOf('late-idea')).not.toBeNull())
+      expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`)
+      for (const id of ['late-1', 'late-2']) {
+        expect(nodeOf(id)).not.toBeNull()
+        const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(at(id))!
+        expect(Number(place[2])).toBeGreaterThan(byElk.y)
+      }
+      // One request is out (the one for `late-1`); the inputs after it wait for its answer.
+      await requested(2)
+      expect(requests[1]!.ids).toContain('late-1')
+      expect(requests[1]!.ids).not.toContain('late-2')
+      await answer(1)
+      // Then only the newest inputs are sent.
+      await requested(3)
+      expect(requests[2]!.ids).toContain('late-2')
+      expect(nodeOf('late-2')).not.toBeNull()
+      await answer(2)
+      await waitFor(() => expect(at('late-2')).not.toBe(''))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(requests).toHaveLength(3)
     } finally {
       setElkEngine(null)
+    }
+  })
+
+  it('opens a node’s card from the keyboard with Enter or Space and closes it with Escape, back on the node', () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    // The name says the kind and the status.
+    const rejected = screen.getByRole('button', { name: 'Decision · rejected: Harness first, minimal UI' })
+    expect(rejected.tabIndex).toBe(0)
+    // React Flow's wrapper is not a second stop for Tab.
+    expect(rejected.closest('.react-flow__node')!.getAttribute('tabindex')).toBeNull()
+    rejected.focus()
+    fireEvent.keyDown(rejected, { key: 'Enter' })
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Decision · rejected')).toBeTruthy()
+    fireEvent.keyDown(rejected, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Node' })).toBeNull()
+    expect(document.activeElement).toBe(rejected)
+
+    const objection = screen.getByRole('button', { name: 'Objection: Too wide for a laptop' })
+    fireEvent.keyDown(objection, { key: ' ' })
+    const card = screen.getByRole('region', { name: 'Node' })
+    expect(within(card).getByText('docs/design/F-SPEC.md')).toBeTruthy()
+    // Escape from inside the card too.
+    fireEvent.keyDown(within(card).getByRole('button', { name: 'Close the card' }), { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Node' })).toBeNull()
+    expect(document.activeElement).toBe(objection)
+  })
+
+  it('keeps the zoom between 10 % and 250 % however often «+» or «−» is pressed', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const zoom = screen.getByTestId('mind-map-zoom')
+    for (const [button, bound] of [['Zoom in', '250%'], ['Zoom out', '10%']] as const) {
+      for (let step = 0; step < 40; step += 1) {
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: button }))
+          await Promise.resolve()
+        })
+      }
+      expect(zoom.textContent).toBe(bound)
     }
   })
 })

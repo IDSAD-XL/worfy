@@ -85,31 +85,55 @@ export function buildMindMapGraph(topic: ProductTopicState, { hideRejected }: { 
     const from = node.from
     parentOf.set(node.id, from !== null && (byId.has(from) || tickets.has(from)) ? from : ROOT_ID)
   }
+  // Each chain is walked once: a node already settled leads to the root.
+  const settled = new Set<string>()
   for (const id of byId.keys()) {
-    const seen = new Set<string>()
+    const path = new Set<string>()
     let at = id
-    while (byId.has(at) && !seen.has(at)) {
-      seen.add(at)
+    while (byId.has(at) && !settled.has(at) && !path.has(at)) {
+      path.add(at)
       at = parentOf.get(at)!
     }
-    if (seen.has(at)) parentOf.set(at, ROOT_ID)
+    if (path.has(at)) parentOf.set(at, ROOT_ID)
+    for (const each of path) settled.add(each)
   }
 
+  // A node is hidden when it or a node above it is a rejected Decision; each node is decided once.
   const hidden = new Set<string>()
   if (hideRejected) {
-    const rejected = (id: string): boolean => byId.get(id)?.kind === 'decision' && byId.get(id)?.status === 'rejected'
+    const decided = new Map<string, boolean>()
     for (const id of byId.keys()) {
-      for (let at: string | undefined = id; at !== undefined && byId.has(at); at = parentOf.get(at)) {
-        if (rejected(at)) {
-          hidden.add(id)
+      const path: string[] = []
+      let at = id
+      let hide = false
+      while (byId.has(at)) {
+        const known = decided.get(at)
+        if (known !== undefined) {
+          hide = known
           break
         }
+        path.push(at)
+        const node = byId.get(at)!
+        if (node.kind === 'decision' && node.status === 'rejected') {
+          hide = true
+          break
+        }
+        at = parentOf.get(at)!
+      }
+      for (const each of path) {
+        decided.set(each, hide)
+        if (hide) hidden.add(each)
       }
     }
   }
 
   const children = new Map<string, string[]>()
-  for (const [id, parent] of parentOf) if (!hidden.has(id)) children.set(parent, [...(children.get(parent) ?? []), id])
+  for (const [id, parent] of parentOf) {
+    if (hidden.has(id)) continue
+    const kids = children.get(parent)
+    if (kids === undefined) children.set(parent, [id])
+    else kids.push(id)
+  }
 
   const nodes: MapNode[] = [{ id: ROOT_ID, kind: 'topic', text: topic.title ?? topic.name, parent: null }]
   for (const [ref, ticket] of tickets) nodes.push({ id: ref, kind: 'ticket', text: ticket.title ?? ref, parent: ROOT_ID, ticket })
@@ -175,7 +199,10 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
   const depth = new Map<string, number>()
   for (const node of graph.nodes) {
     depth.set(node.id, node.parent === null ? 0 : depth.get(node.parent)! + 1)
-    if (node.parent !== null) children.set(node.parent, [...(children.get(node.parent) ?? []), node.id])
+    if (node.parent === null) continue
+    const kids = children.get(node.parent)
+    if (kids === undefined) children.set(node.parent, [node.id])
+    else kids.push(node.id)
   }
   const { depth: depthGap, across } = GAP[view]
   const span = new Map<string, number>()
@@ -189,21 +216,24 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
   const levelStart: number[] = []
   levels.forEach((size, index) => (levelStart[index] = index === 0 ? 0 : levelStart[index - 1]! + levels[index - 1]! + depthGap))
 
+  // Parents come before their children in `graph.nodes`: each node is placed from the start its parent
+  // gave it, and gives its children theirs — a loop, not a recursion, so a chain however deep fits.
   const placement = new Map<string, Placed>()
-  const place = (id: string, start: number) => {
+  const startOf = new Map<string, number>()
+  for (const node of graph.nodes) {
+    const id = node.id
     const { width, height } = sizes.get(id)!
-    const middle = start + span.get(id)! / 2
+    const middle = (startOf.get(id) ?? 0) + span.get(id)! / 2
     const level = levelStart[depth.get(id)!]!
     placement.set(id, view === 'tree' ? { x: middle - width / 2, y: level, width, height } : { x: level, y: middle - height / 2, width, height })
     const kids = children.get(id) ?? []
     const sum = kids.reduce((total, kid) => total + span.get(kid)!, 0) + across * Math.max(0, kids.length - 1)
     let at = middle - sum / 2
     for (const kid of kids) {
-      place(kid, at)
+      startOf.set(kid, at)
       at += span.get(kid)! + across
     }
   }
-  if (graph.nodes.length > 0) place(graph.nodes[0]!.id, 0)
   return placement
 }
 
