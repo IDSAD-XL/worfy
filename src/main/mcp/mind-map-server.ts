@@ -4,8 +4,9 @@
 // zod shapes (src/shared/product/tools.ts), the arguments parsed again here, a refusal is a result with
 // `isError`, never an exception, and the server is described in worfy's terms (src/main/vendors/mcp.ts).
 //
-// main is the only writer of `mind-map.json` (MindMapWriter): the tools write through it, and the screen
-// will move nodes and fold branches through it too (ticket 09, updateMindMap). A write
+// main is the only writer of `mind-map.json` (MindMapWriter): the tools write through it, and so does the
+// screen when the owner moves a node or folds a branch (ticket 09: `product.layout`, updateMindMap with
+// layoutChange). A write
 // - goes only to `<Product Session folder>/<topic>/mind-map.json`: the topic is one folder name
 //   (isProductTopicName), and the target passes the same check as a Product Session's own Write
 //   (productToolDecision: below the folder in its written and its real form, no link leading out);
@@ -153,8 +154,33 @@ let sharedWriter: MindMapWriter | null = null
 /** The app's one writer of Mind map files: the tools of every Product Session, and the screen (ticket 09). */
 export const mindMapWriter = (): MindMapWriter => (sharedWriter ??= new MindMapWriter())
 
-/** Applies a change to a topic's Mind map through the app's one writer: the main function the screen's moves will use (ticket 09). */
+/** Applies a change to a topic's Mind map through the app's one writer: the tools' writes and the screen's moves (ticket 09). */
 export const updateMindMap = <T>(productFolder: string, topic: string, change: MindMapChange<T>): Promise<T> => mindMapWriter().update(productFolder, topic, change)
+
+/** What the owner changes of a node by hand (`product.layout`): its place, and whether its branch is folded. */
+export interface MindMapLayout {
+  x?: number | undefined
+  y?: number | undefined
+  collapsed?: boolean | undefined
+}
+
+/**
+ * The change of node `id` the screen asks for: `x` and `y` set together, `collapsed: true` set and
+ * `collapsed: false` taken out, so an unfolded node's file reads as before it was folded. Nothing else of
+ * the node or the map changes; a node that is not in the file is refused.
+ */
+export const layoutChange =
+  (id: string, layout: MindMapLayout): MindMapChange<null> =>
+  (map) => {
+    const node: MindMapNode = { ...nodeOf(map, id) }
+    if (layout.x !== undefined && layout.y !== undefined) {
+      node.x = layout.x
+      node.y = layout.y
+    }
+    if (layout.collapsed === true) node.collapsed = true
+    else if (layout.collapsed === false) delete node.collapsed
+    return { map: replaced(map, node), answer: null }
+  }
 
 export interface MindMapContext {
   /** The Product Session folder of the Project (productFolder); null when it could not be found, and every tool but product_save refuses. */

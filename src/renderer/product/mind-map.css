@@ -355,3 +355,140 @@
 .w-mind__muted {
   color: var(--text-muted);
 }
+
+/* By hand (ticket 09): a node of the file is dragged; the fold mark of a node with children. */
+.react-flow__node.draggable .w-mind__node {
+  cursor: grab;
+}
+
+.react-flow__node.dragging .w-mind__node {
+  cursor: grabbing;
+}
+
+.w-mind__fold {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.w-mind__fold[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.w-mind__node[data-folded='true'] {
+  box-shadow:
+    var(--shadow-node),
+    3px 3px 0 -1px var(--surface-raised),
+    3px 3px 0 0 var(--border);
+}
+
+/* A chip under a chat message points at the node. */
+.w-mind__node--lit {
+  background: color-mix(in srgb, var(--mind-kind, var(--accent)) 16%, var(--surface-raised));
+  outline: 2px dashed var(--mind-kind, var(--accent));
+  outline-offset: 2px;
+}
+
+.w-mind__card-hint {
+  margin: var(--space-3) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.w-mind__write-error {
+  padding: var(--space-1) var(--space-3);
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+}
+
+/* The chips of Mind map nodes under a chat message (NodeChips.tsx): in the chat, outside .w-mind, so
+   with the Mind map's colours of their own. */
+.w-chips {
+  --mind-idea: var(--span-verifier);
+  --mind-question: var(--working-text);
+  --mind-decision: var(--ready-text);
+  --mind-rejected: var(--text-muted);
+  --mind-objection: var(--blocked-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-chips__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 260px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--mind-kind, var(--border-strong));
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.w-chips__chip:hover,
+.w-chips__chip:focus-visible {
+  background: color-mix(in srgb, var(--mind-kind, var(--accent)) 12%, var(--surface-raised));
+}
+
+.w-chips__chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.w-chips__chip--idea {
+  --mind-kind: var(--mind-idea);
+}
+.w-chips__chip--question {
+  --mind-kind: var(--mind-question);
+}
+.w-chips__chip--decision {
+  --mind-kind: var(--mind-decision);
+}
+.w-chips__chip--rejected {
+  --mind-kind: var(--mind-rejected);
+  color: var(--text-muted);
+}
+.w-chips__chip--objection {
+  --mind-kind: var(--mind-objection);
+}
+
+.w-chips__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The row a node card's «Show in the chat» brought into view. */
+.w-tr__item[data-shown] {
+  border-radius: var(--radius-node);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Why a chip's node is not the one selected (a folded branch on a read-only screen). */
+.w-mind__pick-note {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}

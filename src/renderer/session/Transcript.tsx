@@ -3,9 +3,12 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
+import { attachChat, transcriptChips, useMindMapFocus } from '../product/node-chips'
+import { NodeChips } from '../product/NodeChips'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
+import { ProductSessionContext } from './product-session'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
@@ -18,7 +21,10 @@ import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type
 // (the header's «Hide tools», worfy-ui ticket 25) the ordinary calls of a run fold into one line.
 // With `find` (⌘F, worfy-ui ticket 26, transcript-find.ts) the matches are painted, the current one
 // is scrolled to, and the folded line or closed row it is in opens. Every row carries its key in
-// `data-row` and every searched part its id in `data-find`.
+// `data-row` and every searched part its id in `data-find`. In a Product Session's chat
+// (ProductSessionContext, worfy-product-session ticket 09) a turn's answer carries the chips of the Mind
+// map nodes its `mind_map_*` calls wrote (../product/node-chips.ts), and a node card's «Show in the chat»
+// scrolls to the row of the call its message came in, marked with `data-shown`.
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -584,6 +590,11 @@ export function Transcript(props: TranscriptProps) {
   const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null } = props
   const items = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   const index = useMemo(() => new Map(items.map((item, at) => [item.key, at])), [items])
+  // The chips of a Product Session's chat; none in any other.
+  const product = useContext(ProductSessionContext) && props.projectId !== undefined ? props.projectId : null
+  const chips = useMemo(() => (product === null ? null : transcriptChips(items)), [product, items])
+  const shownMessage = useMindMapFocus((state) => state.shown)
+  useEffect(() => (product === null ? undefined : attachChat(product)), [product])
   const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
   const now = useToday()
   const [lines] = useState(() => new Map<string, LineState>())
@@ -800,6 +811,33 @@ export function Transcript(props: TranscriptProps) {
   }, [find, items, index, drawn, place, track])
   useEffect(() => clearMatches, [])
 
+  // «Show in the chat» of a Mind map node (ticket 09): the row of the call its message came in is drawn,
+  // brought a third of the way down the log, and marked; once per request. The request lives in the
+  // window's store, so a log mounted after it (the view left and opened again) takes it as done.
+  const shownSeq = useRef<number | null>(useMindMapFocus.getState().shown?.seq ?? null)
+  useLayoutEffect(() => {
+    const element = log.current
+    if (element === null || chips === null || shownMessage === null || shownMessage.projectId !== product || shownSeq.current === shownMessage.seq) return
+    const key = chips.rowOfMessage.get(shownMessage.message)
+    if (key === undefined || !index.has(key)) {
+      shownSeq.current = shownMessage.seq
+      return
+    }
+    const row = drawnRows(element).find((one) => one.dataset['item'] === key)
+    if (row === undefined) {
+      // The row is not drawn: it is drawn a third of the way down the log first, and this runs again.
+      position.current = { bottom: false, key, offset: element.clientHeight / 3 }
+      atBottom.current = false
+      place()
+      return
+    }
+    shownSeq.current = shownMessage.seq
+    for (const was of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-shown]'))) was.removeAttribute('data-shown')
+    row.setAttribute('data-shown', '')
+    element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - element.clientHeight / 3
+    track()
+  }, [chips, shownMessage, product, index, drawn, place, track])
+
   // Last: the rows to draw for where the reader is now, after the scroll above moved.
   useLayoutEffect(() => place())
 
@@ -840,6 +878,7 @@ export function Transcript(props: TranscriptProps) {
         <RowKey.Provider value={item.key}>
           <Item item={item} props={props} />
         </RowKey.Provider>
+        {product !== null && chips?.byRow.has(item.key) === true ? <NodeChips projectId={product} chips={chips.byRow.get(item.key)!} /> : null}
       </div>,
     )
     next = row + 1
