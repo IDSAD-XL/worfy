@@ -1,7 +1,10 @@
-import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PRODUCT_SESSION_SPLIT_DEFAULT, PRODUCT_SESSION_SPLIT_MIN, productSessionSplitOf } from '../../shared/settings/app-settings'
 import { flattenSubagents } from '../../shared/transcript/subagents'
 import { hiddenIdsOf, useHiddenSubagents, useSubagentTree, withoutHidden } from '../claude-home/subagents'
+import { showSubscribeError, subscribe } from '../ipc'
+import { MindMap } from '../product/MindMap'
+import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { PRODUCT_SESSION_HIDDEN_BLOCKS, ProductSessionContext } from './product-session'
@@ -20,7 +23,12 @@ import { SplitDivider } from './SplitDivider'
 // Session's Subagents; a click opens the rail blocks over the chat. The Binding block is left out: a
 // Product Session is bound to no Ticket and no Epic.
 //
-// The Mind map itself is ticket 08: until then the left pane holds its empty state.
+// The left pane draws the Mind map (../product/MindMap.tsx, ticket 08) of the topic the advisor works on.
+// A Product Session is bound to no topic in its data, so the pane follows the topic of the Project whose
+// files changed last while it is open — the advisor's `mind_map_*` writes are such changes — and keeps
+// that name per Node in this window's localStorage, to show the same topic when the Session is opened
+// again. Until a topic is known, or while its folder is gone, the pane holds the empty state; when
+// `product.topic` fails, it says why.
 
 export interface ProductSessionPanelProps extends RailBlockProps {
   /** The rail blocks of the plain Session; those of PRODUCT_SESSION_HIDDEN_BLOCKS are left out. */
@@ -35,6 +43,43 @@ function useSubagentCount(projectId: string, session: string | null): number {
   const tree = useSubagentTree(root, session)
   const hidden = useHiddenSubagents(projectId)
   return useMemo(() => flattenSubagents(withoutHidden(tree, hiddenIdsOf(hidden, session))).length, [tree, hidden, session])
+}
+
+const TOPIC_PREFIX = 'worfy.productSession.topic:'
+
+function readTopicName(key: string): string | undefined {
+  try {
+    return globalThis.localStorage?.getItem(TOPIC_PREFIX + key) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The topic the Node's Mind map shows: the last one of the Project reported by `product.changed` while
+ * the pane is open, else the one it showed before.
+ */
+function useShownTopic(projectId: string, nodeId: string): string | undefined {
+  const key = `${projectId}:${nodeId}`
+  const [followed, setFollowed] = useState<{ key: string; name: string } | null>(null)
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined
+    try {
+      unsubscribe = subscribe('product.changed', (change) => {
+        if (change.projectId !== projectId || change.topic === null) return
+        setFollowed((was) => (was?.key === key && was.name === change.name ? was : { key, name: change.name }))
+        try {
+          globalThis.localStorage.setItem(TOPIC_PREFIX + key, change.name)
+        } catch (error) {
+          console.error('[product-session] could not keep the topic of the Mind map', error)
+        }
+      })
+    } catch (error) {
+      showSubscribeError('product.changed', error)
+    }
+    return () => unsubscribe?.()
+  }, [projectId, key])
+  return followed?.key === key ? followed.name : readTopicName(key)
 }
 
 /** The share of the Mind map: the one being dragged, else the one in the app settings. */
@@ -118,13 +163,22 @@ export function ProductSessionPanel({ blocks, children, ...rail }: ProductSessio
   const { share, move, commit } = useSplit()
   const shown = useMemo(() => blocks.filter((block) => !PRODUCT_SESSION_HIDDEN_BLOCKS.includes(block.id)), [blocks])
   const count = useSubagentCount(rail.projectId, rail.claudeSessionId ?? rail.sessionId)
+  const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
   return (
     <div className="w-product" data-testid="product-session-panel">
       <div className="w-product__split">
         <section className="w-product__map" aria-label="Mind map" data-testid="product-session-map" style={{ flexBasis: `${Math.round(share * 1000) / 10}%` }}>
-          <p className="w-product__map-empty" data-testid="product-session-map-empty">
-            The Mind map appears once the advisor adds its first node
-          </p>
+          {error !== undefined ? (
+            <p className="w-product__map-empty" role="alert" data-testid="product-session-map-error">
+              {`Could not read the Mind map: ${error}`}
+            </p>
+          ) : topic === undefined || topic === null ? (
+            <p className="w-product__map-empty" data-testid="product-session-map-empty">
+              The Mind map appears once the advisor adds its first node
+            </p>
+          ) : (
+            <MindMap projectId={rail.projectId} topic={topic} />
+          )}
         </section>
         <SplitDivider
           share={share}
