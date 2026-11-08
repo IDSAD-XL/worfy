@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { codexPluginManifest } from '../../src/main/harness/codex-install'
 
 const HARNESS = join(__dirname, '..', '..', 'harness')
-const claudeManifest = { name: 'worfy', version: '0.3.0+bbbbbbb', dependencies: ['mattpocock-skills@claude-plugins-official'] }
+const claudeManifest = { name: 'worfy', version: '0.3.0+bbbbbbb', dependencies: ['example-skills@claude-plugins-official'] }
 const mcp = JSON.parse(readFileSync(join(HARNESS, '.mcp.json'), 'utf8')) as unknown
 
 describe('codexPluginManifest', () => {

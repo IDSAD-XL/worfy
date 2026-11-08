@@ -10,9 +10,10 @@
 //          scripts, `echo` and `set -o pipefail`: an attempt at an OS screen capture is refused,
 //          not run. A real capture from a run started inside worfy would ask Screen Recording for
 //          the app, and granting it restarts the app (lesson 2026-10-07).
-// The target is a temporary copy of harness/ whose plugin.json has no `dependencies`: in a run
-// only the plugin under test is installed, and Claude Code refuses to load a plugin whose
-// dependency (mattpocock-skills) is missing — then no case sees a single rule of the Harness.
+// The target is a temporary copy of harness/ (it keeps the folder under test apart from the eval
+// results). harness/ declares no `dependencies` since worfy-skills 03; the copy still drops any that
+// another copy (HARNESS_DIR) declares: in a run only the plugin under test is installed, and Claude
+// Code refuses to load a plugin whose dependency is missing — then no case sees a rule of the Harness.
 // HARNESS_DIR=<dir> evaluates another copy of the Harness instead of harness/ (the mutation check of
 // the ticket); results go to <that dir>/evals/results/.
 // --case and --tag of the user (`pnpm eval:harness -- --case status-block --runs 1`) choose the
@@ -368,7 +369,7 @@ let worst = 0
 const outputs = []
 try {
   harness = pluginCopy(SOURCE)
-  process.stdout.write(`eval:harness: plugin under test — ${harness} (a copy of ${SOURCE} without dependencies)\n`)
+  process.stdout.write(`eval:harness: plugin under test — ${harness} (a copy of ${SOURCE})\n`)
   for (const call of calls) {
     // A signal during the copies or the call before stops here: claude may have ended on it, or
     // caught it and exited with a code of its own.

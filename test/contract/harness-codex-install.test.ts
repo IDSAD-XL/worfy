@@ -1,6 +1,6 @@
 // worfy-multi-vendor ticket 35: Install Harness installs the same Harness folder into Codex as well
-// (src/main/harness/codex-install.ts) — the local marketplace, the plugin `mattpocock-skills` as a
-// plugin of its own, the version check — and writes the agents worfy-implementer, worfy-reviewer and
+// (src/main/harness/codex-install.ts) — the local marketplace, a dependency as a plugin of its own
+// (the fixture copy's DEP: the Harness of this repository declares none since worfy-skills 03), the version check — and writes the agents worfy-implementer, worfy-reviewer and
 // worfy-scout as TOML only into <CODEX_HOME>/agents (src/main/harness/codex-agents.ts).
 //
 // Every case runs in a sandbox: the Claude home, the Harness home, CODEX_HOME and worfy's data folder
@@ -22,7 +22,8 @@ const REPO = join(__dirname, '..', '..')
 const FIXTURES = join(REPO, 'test', 'fixtures', 'codex-agents')
 const V1 = '0.2.0+aaaaaaa'
 const V2 = '0.3.0+bbbbbbb'
-const DEP = 'mattpocock-skills@claude-plugins-official'
+/** The dependency of the fixture copy makeBundle makes. */
+const DEP = 'example-skills@claude-plugins-official'
 const AGENT_FILES = ['worfy-implementer.toml', 'worfy-reviewer.toml', 'worfy-scout.toml']
 
 // Claude Code's side, as much of it as an install that succeeds needs (the full stand-in is
@@ -169,7 +170,7 @@ afterEach(() => {
   removeTestTree(sb.root)
 })
 
-/** A Harness copy of `version` from harness/ (without its tests), with the agents of `agents` when given. */
+/** A Harness copy of `version` from harness/ (without its tests) declaring DEP, with the agents of `agents` when given. */
 function makeBundle(name: string, version: string, agents?: string): string {
   const source = join(REPO, 'harness')
   const target = join(sb.root, name)
@@ -183,7 +184,7 @@ function makeBundle(name: string, version: string, agents?: string): string {
   })
   const manifestPath = join(target, '.claude-plugin', 'plugin.json')
   const { name: plugin, ...rest } = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
-  writeFileSync(manifestPath, `${JSON.stringify({ name: plugin, version, ...rest }, null, 2)}\n`)
+  writeFileSync(manifestPath, `${JSON.stringify({ name: plugin, version, ...rest, dependencies: [DEP] }, null, 2)}\n`)
   if (agents !== undefined) {
     removeTestTree(join(target, 'agents'))
     cpSync(agents, join(target, 'agents'), { recursive: true })

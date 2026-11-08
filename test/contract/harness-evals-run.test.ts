@@ -84,9 +84,6 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 // chmod has no say on Windows, and root reads and removes whatever it likes.
 const permissionsHold = process.platform !== 'win32' && process.getuid?.() !== 0
 
-const readManifestOf = (dir: string): Record<string, unknown> =>
-  JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
-
 /**
  * The values of a variadic option: everything after it up to the next option; none when it is absent.
  * As claude parses its arguments, nothing after a `--` is an option.
@@ -170,8 +167,8 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const target = first.args[2] ?? ''
     expect(target).not.toBe(HARNESS)
     expect(second.args[2]).toBe(target)
-    // Claude Code refuses a plugin whose dependency is not installed, and a run installs none.
-    expect(readManifestOf(HARNESS)).toHaveProperty('dependencies')
+    // Claude Code refuses a plugin whose dependency is not installed, and a run installs none: the copy
+    // carries none, whatever the evaluated folder declares (harness/ declares none since worfy-skills 03).
     expect(first.manifest).not.toHaveProperty('dependencies')
     expect(first.manifest.name).toBe('worfy')
     expect(first.evals).toEqual(expect.arrayContaining(CASES.map(([name]) => name)))

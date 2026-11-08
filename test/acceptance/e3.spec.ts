@@ -511,7 +511,7 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     const plugin = worfyPlugin(box)
     expect(plugin.status, 'claude plugin list --json in the sandbox').toBe(0)
     expect(plugin.entry).toMatchObject({ id: 'worfy@worfy-harness', enabled: true, version })
-    // The same Install puts in the plugin's dependency (mattpocock-skills): its own row says so.
+    // The Harness declares no dependency since worfy-skills 03: the row says `none`, OK.
     await expectRowStatus(checkRow(screen, 'harness-dependencies'), 'Install the plugin dependencies', 'ok', 60_000)
     // The installed Harness's scripts run as the Epics read runs them: node from the login shell.
     await expectRowStatus(checkRow(screen, 'harness-scripts'), 'Run the Harness scripts', 'ok', 60_000)

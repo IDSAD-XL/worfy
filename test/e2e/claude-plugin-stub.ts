@@ -12,7 +12,6 @@ const SCRIPT = `const args = process.argv.slice(2).join(' ')
 if (args === 'plugin list --json') {
   process.stdout.write(JSON.stringify([
     { id: 'worfy@worfy-harness', version: process.env.STUB_PLUGIN_VERSION, scope: 'user', enabled: true, errors: [] },
-    { id: 'mattpocock-skills@claude-plugins-official', version: '1.0.0', scope: 'user', enabled: true, errors: [] },
   ]) + '\\n')
 }
 `

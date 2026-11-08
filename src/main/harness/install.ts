@@ -27,6 +27,13 @@
 // and a failure there leaves no Harness copy and no `worfy`; a first `install` of `worfy` that
 // fails but left its record is uninstalled again.
 //
+// The Harness of this repository declares no dependency since worfy-skills ticket 03: its skills
+// ship inside the plugin. The mechanism stays for a future one, and each dependency install worfy
+// runs is recorded in worfy's data folder (dependency-cleanup.ts). After an update of an installed
+// `worfy` has gone in, a plugin an older Harness had worfy install and this one no longer needs is
+// removed (`claude plugin uninstall <id> --scope user`) when worfy installed it — never on a first
+// install, never before `worfy` is in place; the result names it (`cleanup`).
+//
 // An older build never replaces a newer Harness (worfy-harness ticket 67). The version is
 // `<semver>+<short SHA>[.dirty]` (scripts/build-version.ts), and only its semver part has an order.
 // The copy in plugin/ and the version Claude Code lists are both checked: they differ after a copy
@@ -41,10 +48,19 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { skippedAgentsText, type CodexHarness as CodexHarnessStatus, type HarnessDependency, type HarnessState, type HarnessStatus, type HarnessStep } from '../../shared/ipc/harness'
+import {
+  skippedAgentsText,
+  type CodexHarness as CodexHarnessStatus,
+  type HarnessCleanup,
+  type HarnessDependency,
+  type HarnessState,
+  type HarnessStatus,
+  type HarnessStep,
+} from '../../shared/ipc/harness'
 import { programStart } from '../program'
 import { claudeHome } from '../storage/paths'
 import type { CodexHarness, CodexPlan, CodexStepError } from './codex-install'
+import { claudeInstallsOf, recordDependencyInstall, retireDependencies } from './dependency-cleanup'
 import { HARNESS_PLUGIN_NAME, locateHarness } from './locate'
 
 /** The marketplace of harness/.claude-plugin/marketplace.json. */
@@ -143,6 +159,11 @@ export interface InstallerOptions {
    * install, after the Claude Code part. Without it the status has no `codex`.
    */
   codex?: CodexHarness
+  /**
+   * worfy's record of the dependency installs it ran (dependency-cleanup.ts, `harness-dependencies.json`
+   * in worfy's data folder); without it nothing is recorded, and only the install times decide a removal.
+   */
+  dependencyRecordFile?: string
 }
 
 /** Errors of a rename on Windows that a file held open causes — an antivirus scan, an editor, a running Claude Code. */
@@ -217,6 +238,8 @@ interface Facts {
   setAside: { dir: string; version: string | null } | null
   /** Each dependency of the build's plugin.json, from the same `plugin list`; `unchecked` when it was not asked. */
   dependencies: HarnessDependency[]
+  /** Every id the same `plugin list` named; empty when it was not asked. */
+  listed: ReadonlySet<string>
 }
 
 /** A plan and, when Claude Code could not say which marketplaces it knows, why: a failed `marketplace add` repeats it. */
@@ -564,7 +587,9 @@ export class HarnessInstaller {
         if (args[1] === 'marketplace') await this.addDependencyMarketplace(args, marketplacesUnread)
         else {
           await this.claude(args, 'dependency install', DOWNLOAD_TIMEOUT_MS)
-          dependencies = dependencies.map((each) => (each.id === args[2] ? { ...each, status: 'installed' } : each))
+          const [, , id] = args
+          if (id !== undefined && this.options.dependencyRecordFile !== undefined) recordDependencyInstall(this.options.dependencyRecordFile, id, 'claude')
+          dependencies = dependencies.map((each) => (each.id === id ? { ...each, status: 'installed' } : each))
         }
       }
       if (plan.copy) await this.replaceCopy()
@@ -573,8 +598,45 @@ export class HarnessInstaller {
       // Codex is not touched: its plugin would come from a copy that is not this build's.
       return { outcome: 'done', status: await this.withCodex(this.withState(this.errorState(error), dependencies)) }
     }
+    // `worfy` of this build is in place. Only an update of an installed one retires a dependency: on
+    // a first install worfy's own install time is now, and the window would take a plugin the user
+    // installed minutes before for one worfy installed.
+    const cleanup = plan.commands.some((args) => args[1] === 'update') ? await this.retireClaudeDependencies(facts.listed) : []
     const codexFailure = plan.codex === undefined ? null : await this.options.codex?.tryApply(plan.codex)
-    return { outcome: 'done', status: await this.withCodex(await this.claudeStatus(), codexFailure ?? undefined) }
+    if (plan.codex !== undefined && (codexFailure ?? null) === null) cleanup.push(...((await this.options.codex?.retireDependencies(plan.codex)) ?? []))
+    const status = await this.withCodex(await this.claudeStatus(), codexFailure ?? undefined)
+    return { outcome: 'done', status: cleanup.length === 0 ? status : { ...status, cleanup } }
+  }
+
+  /**
+   * retireDependencies() in Claude Code, with the user-scope plugins of `plugin list` read again now
+   * that `worfy` is in place, and `plugin uninstall … --scope user`. `listedBefore`: the ids the list
+   * before the install named; without a retired one among them nothing is read again.
+   */
+  private retireClaudeDependencies(listedBefore: ReadonlySet<string>): Promise<HarnessCleanup[]> {
+    return retireDependencies({
+      vendor: 'claude',
+      listedBefore,
+      harness: HARNESS_PLUGIN_ID,
+      needed: dependenciesOf(this.options.bundledDir),
+      recordFile: this.options.dependencyRecordFile,
+      list: async () => {
+        const args = ['plugin', 'list', '--json']
+        const { stdout } = await this.claude(args, 'plugin list')
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(stdout)
+        } catch {
+          parsed = null
+        }
+        const installs = claudeInstallsOf(parsed)
+        if (installs === null) throw new Error(`${commandLine(args)} printed no list`)
+        return installs
+      },
+      remove: async (id) => {
+        await this.claude(['plugin', 'uninstall', id, '--scope', 'user'], 'uninstall')
+      },
+    })
   }
 
   /**
@@ -662,14 +724,14 @@ export class HarnessInstaller {
     const bundled = manifestVersion(this.options.bundledDir)
     const folder = existsSync(this.pluginDir) ? manifestVersion(this.pluginDir) : undefined
     const setAside = folder === undefined ? this.setAside() : null
-    if (folder === undefined && !always) return { bundled, folder, entry: null, setAside, dependencies: this.unchecked() }
+    if (folder === undefined && !always) return { bundled, folder, entry: null, setAside, dependencies: this.unchecked(), listed: new Set() }
     const list = await this.listed()
     const dependencies = dependenciesOf(this.options.bundledDir).map((id): HarnessDependency => {
       // A dependency named without a marketplace is installed when any marketplace's plugin of that name is.
       const found = marketplaceOf(id) === null ? [...list].find(([listed]) => listed.startsWith(`${id}@`))?.[1] : list.get(id)
       return found === undefined ? { id, status: 'missing', version: null } : { id, status: 'installed', version: found.version }
     })
-    return { bundled, folder, entry: list.get(HARNESS_PLUGIN_ID) ?? null, setAside, dependencies }
+    return { bundled, folder, entry: list.get(HARNESS_PLUGIN_ID) ?? null, setAside, dependencies, listed: new Set(list.keys()) }
   }
 
   /** The `.plugin-old-*` folder removeLeftovers would put back into place, with its version. */

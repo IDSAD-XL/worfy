@@ -27,8 +27,21 @@ const PROJECT = 'alpha-0000000a'
 const bundledClaude = (): string =>
   (JSON.parse(readFileSync(join(repoRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')) as { claudeCodeVersion: string }).claudeCodeVersion
 const bundledHarness = (): string => (JSON.parse(readFileSync(join(repoRoot, 'out', 'harness', '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
-/** The dependency out/harness declares (harness/.claude-plugin/plugin.json). */
-const DEP = 'mattpocock-skills@claude-plugins-official'
+/**
+ * The dependency of the fixture copy of out/harness the specs of the dependency rows install
+ * (WORFY_HARNESS_BUNDLE): the Harness of this repository declares none since worfy-skills 03.
+ */
+const DEP = 'example-skills@claude-plugins-official'
+
+/** A copy of out/harness with `dependencies: [DEP]`, in the scratch folder; its path, for WORFY_HARNESS_BUNDLE. */
+function fixtureHarness(): string {
+  const copy = join(scratch, 'harness-fixture')
+  if (existsSync(copy)) return copy
+  cpSync(join(repoRoot, 'out', 'harness'), copy, { recursive: true })
+  const manifest = join(copy, '.claude-plugin', 'plugin.json')
+  writeFileSync(manifest, `${JSON.stringify({ ...(JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>), dependencies: [DEP] }, null, 2)}\n`)
+  return copy
+}
 
 let scratch: string
 let home: string
@@ -175,7 +188,7 @@ async function keep(window: Page, name: string): Promise<void> {
 test.describe('first-run screen', () => {
   test('the first start shows every check; Install and Skip go through Confirm; the next start with everything ok shows no screen', async () => {
     sandbox()
-    let launched = await launch()
+    let launched = await launch({ WORFY_HARNESS_BUNDLE: fixtureHarness() })
     try {
       const dialog = await screen(launched.window, 'concepts')
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
@@ -284,7 +297,7 @@ test.describe('first-run screen', () => {
 
     // The second start: no check failed and the mark there — main runs the checks and the screen stays shut.
     const before = calls().length
-    launched = await launch()
+    launched = await launch({ WORFY_HARNESS_BUNDLE: fixtureHarness() })
     try {
       await expect(launched.window.getByTestId('app-shell')).toBeVisible()
       await expect.poll(() => calls().slice(before).includes('qmd --version'), { timeout: ms(30_000) }).toBe(true)
@@ -372,7 +385,7 @@ test.describe('first-run screen', () => {
     cpSync(join(repoRoot, 'out', 'harness'), pluginDir, { recursive: true })
     writeFileSync(join(state, 'marketplace'), `${pluginDir}\n`)
     writeFileSync(join(state, 'plugin-version'), `${bundledHarness()}\n`)
-    const launched = await launch()
+    const launched = await launch({ WORFY_HARNESS_BUNDLE: fixtureHarness() })
     try {
       const dialog = await screen(launched.window, 'concepts')
       const dependencies = row(dialog, 'harness-dependencies')

@@ -12,13 +12,16 @@ import { launchApp, type LaunchedApp, openSecondWindow, repoRoot } from './helpe
 // side — the marketplaces it knows, the plugins it has installed — in a file outside that home; it
 // never reaches the network. The dialog is replaced in main: it records what it was shown and
 // answers with the given button. Ticket 40: an install in one window changes the item in every window.
+// worfy-skills ticket 03: the Harness of this repository declares no dependency, so the specs of the
+// dependency mechanism (ADR-0059) install a fixture copy of out/harness that declares one
+// (WORFY_HARNESS_BUNDLE, read by a run that is not packaged); one spec installs out/harness itself.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-const bundle = join(repoRoot, 'out', 'harness')
-const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
+const built = join(repoRoot, 'out', 'harness')
+const bundledVersion = (): string => (JSON.parse(readFileSync(join(built, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
 const OLD = '0.1.0+0000000'
-/** The dependency out/harness declares (harness/.claude-plugin/plugin.json), and what the installer runs for it. */
-const DEP = 'mattpocock-skills@claude-plugins-official'
+/** The dependency the fixture copy declares, and what the installer runs for it. */
+const DEP = 'example-skills@claude-plugins-official'
 const LIST = 'plugin list --json'
 const MARKETPLACES = 'plugin marketplace list --json'
 const ADD_OFFICIAL = 'plugin marketplace add anthropics/claude-plugins-official'
@@ -63,6 +66,8 @@ if (!command.endsWith(' list')) writeFileSync(statePath, JSON.stringify(state))
 
 let scratch: string
 let stub: { env: Record<string, string>; log: string; envLog: string; state: string }
+/** The fixture copy of out/harness the app installs: the same files and version, and `dependencies: [DEP]`. */
+let bundle: string
 
 test.beforeEach(() => {
   scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-e2e-harness-')))
@@ -73,7 +78,11 @@ test.beforeEach(() => {
   const log = join(scratch, 'calls.log')
   const state = join(scratch, 'state.json')
   const envLog = join(scratch, 'env.log')
-  stub = { env: { WORFY_CLAUDE: claude, STUB_CLAUDE_LOG: log, STUB_CLAUDE_ENV_LOG: envLog, STUB_CLAUDE_STATE: state }, log, envLog, state }
+  bundle = join(scratch, 'harness')
+  cpSync(built, bundle, { recursive: true })
+  const manifest = join(bundle, '.claude-plugin', 'plugin.json')
+  writeFileSync(manifest, `${JSON.stringify({ ...(JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>), dependencies: [DEP] }, null, 2)}\n`)
+  stub = { env: { WORFY_CLAUDE: claude, STUB_CLAUDE_LOG: log, STUB_CLAUDE_ENV_LOG: envLog, STUB_CLAUDE_STATE: state, WORFY_HARNESS_BUNDLE: bundle }, log, envLog, state }
 })
 
 test.afterEach(async () => {
@@ -173,6 +182,24 @@ test('"Harness not installed" → Install → one dialog names the dependency co
     // claudeCommandEnv): without it the commands would register the marketplace in the real ~/.claude.
     expect(callEnvs()).toEqual(calls().map(() => ({ HOME: claudeHome, CLAUDE_CONFIG_DIR: claudeHome })))
     expect(treeOf(pluginDir)).toEqual(treeOf(bundle))
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the Harness of this build (out/harness, no dependency): Install runs no command for a dependency or the marketplace claude-plugins-official', async () => {
+  const env = Object.fromEntries(Object.entries(stub.env).filter(([name]) => name !== 'WORFY_HARNESS_BUNDLE'))
+  const launched = await launchApp({ env })
+  try {
+    const pluginDir = join(launched.claudeHome, 'worfy-harness', 'plugin')
+    const item = launched.window.getByTestId('harness-status')
+    await answerDialogWith(launched, 0)
+    await item.getByTestId('harness-action').click()
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    const [shown] = await shownDialogs(launched)
+    expect(shown?.detail).not.toMatch(/mattpocock-skills|claude-plugins-official/)
+    expect(calls()).toEqual([LIST, `plugin marketplace add ${pluginDir}`, INSTALL_WORFY, LIST])
+    expect(treeOf(pluginDir)).toEqual(treeOf(built))
   } finally {
     await launched.close()
   }

@@ -20,7 +20,7 @@ a change to one of them goes into its port too. Every port runs in a test on Win
 | `FIRST_RUN_TOOLS_LOG` | all | the call log |
 | `FIRST_RUN_TOOLS_DIR` | `npm` | this folder: `npm install -g` links `qmd` from here |
 | `FIRST_RUN_TOOLS_STATE` | `claude` | a folder with the plugin state: `marketplace` (the folder of the Harness copy), `plugin-version` (the installed `worfy`; empty — not installed), `marketplaces` (the names of the other marketplaces, a line each), `plugins` (the ids of the other installed plugins, a line each) |
-| `FAKE_CLAUDE_FAIL` | `claude` | a call whose arguments start with it prints an error and exits 1 (`plugin install mattpocock-skills@`) |
+| `FAKE_CLAUDE_FAIL` | `claude` | a call whose arguments start with it prints an error and exits 1 (`plugin install example-skills@`) |
 | `FAKE_CLAUDE_VERSION` | `claude` | what `claude --version` prints (default `2.1.289`) |
 | `FAKE_GIT_USER_NAME`, `FAKE_GIT_USER_EMAIL` | `git` | what `git config --get user.name` / `user.email` prints (default `Alice`, `alice@example.com`); empty — not set, exit 1 |
 | `FAKE_GIT_CONFIG_FAIL` | `git` | `git config --get` prints it to stderr and exits 3, as git does with a broken config file |

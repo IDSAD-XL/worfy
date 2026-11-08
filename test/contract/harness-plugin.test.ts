@@ -19,13 +19,6 @@ interface Manifest {
 const readManifest = (): Manifest =>
   JSON.parse(readFileSync(join(HARNESS, '.claude-plugin', 'plugin.json'), 'utf8')) as Manifest
 
-// A dependency is "name@marketplace" or { name, marketplace } (both pass `claude plugin validate`).
-const dependencyName = (dep: unknown): string | undefined => {
-  if (typeof dep === 'string') return dep.split('@')[0]
-  if (dep && typeof dep === 'object' && 'name' in dep && typeof dep.name === 'string') return dep.name
-  return undefined
-}
-
 const listFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
@@ -40,14 +33,12 @@ describe('harness/.claude-plugin/plugin.json', () => {
     expect(typeof manifest.description).toBe('string')
   })
 
-  it('depends on mattpocock-skills from claude-plugins-official', () => {
+  // worfy-skills 03: the skills of mattpocock-skills ship inside the plugin (worfy-skills 01), so
+  // worfy no longer installs that plugin. The mechanism of ADR-0059 stays in the installer for a
+  // future dependency; its tests take a fixture copy with one.
+  it('declares no dependencies', () => {
     const deps = readManifest().dependencies
-    expect(Array.isArray(deps)).toBe(true)
-    const names = (deps as unknown[]).map(dependencyName)
-    expect(names).toContain('mattpocock-skills')
-    const dep = (deps as unknown[])[names.indexOf('mattpocock-skills')]
-    const marketplace = typeof dep === 'string' ? dep.split('@')[1] : (dep as { marketplace?: unknown }).marketplace
-    expect(marketplace).toBe('claude-plugins-official')
+    expect(deps === undefined || (Array.isArray(deps) && deps.length === 0)).toBe(true)
   })
 
   it('has no version: the build writes it (ticket 04)', () => {

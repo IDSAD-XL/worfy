@@ -17,7 +17,7 @@ const status = (state: HarnessState, canInstall: boolean): Status => ({
   bundledVersion: '0.2.0+bbbbbbb',
   canInstall,
   pluginDir: '/Users/me/.claude/worfy-harness/plugin',
-  dependencies: [{ id: 'mattpocock-skills@claude-plugins-official', status: state.kind === 'installed' ? 'installed' : 'unchecked', version: null }],
+  dependencies: [{ id: 'example-skills@claude-plugins-official', status: state.kind === 'installed' ? 'installed' : 'unchecked', version: null }],
 })
 
 const STATES: HarnessState[] = [
@@ -127,15 +127,38 @@ describe('HarnessStatusView', () => {
     })
   })
 
+  it('after an update that removed a plugin of an older Harness (worfy-skills 03): the line names it, and the tooltip the command that puts it back', () => {
+    const MP = 'mattpocock-skills@claude-plugins-official'
+    const removed = `worfy removed ${MP} from Claude Code: an older Harness had worfy install it, and this one carries its skills itself. To get it back: claude plugin install ${MP} --scope user`
+    const installed = status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, true)
+    render(<HarnessStatusView status={{ ...installed, cleanup: [{ vendor: 'claude', id: MP, outcome: 'removed', text: removed }] }} busy={false} failure={undefined} onInstall={() => undefined} />)
+    const part = screen.getByTestId('harness-cleanup')
+    expect(part.textContent).toBe('· removed mattpocock-skills')
+    expect(part.getAttribute('data-state')).toBe('removed')
+    expect(part.getAttribute('title')).toBe(removed)
+    cleanup()
+
+    const failed = `worfy could not remove ${MP} from Claude Code (…). The Harness is installed; the next Update tries again.\nclaude plugin uninstall ${MP} --scope user exited with 1:\nstub error`
+    render(<HarnessStatusView status={{ ...installed, cleanup: [{ vendor: 'claude', id: MP, outcome: 'failed', text: failed }] }} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByTestId('harness-cleanup').textContent).toBe('· could not remove mattpocock-skills')
+    expect(screen.getByTestId('harness-cleanup').getAttribute('data-state')).toBe('failed')
+    expect(screen.getByTestId('harness-cleanup').getAttribute('title')).toContain('stub error')
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+    cleanup()
+
+    render(<HarnessStatusView status={installed} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.queryByTestId('harness-cleanup')).toBeNull()
+  })
+
   it('an error carries its reason in the tooltip', () => {
     render(<HarnessStatusView status={status(STATES[2]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('claude plugin marketplace add … exited with 1')
   })
 
   it('an error of `dependency install` names the step, and the hint of Retry tells of no command to run by hand', () => {
-    const state: HarnessState = { kind: 'error', step: 'dependency install', reason: 'the Harness needs mattpocock-skills@claude-plugins-official, and Claude Code does not list it as installed' }
+    const state: HarnessState = { kind: 'error', step: 'dependency install', reason: 'the Harness needs example-skills@claude-plugins-official, and Claude Code does not list it as installed' }
     const onInstall = vi.fn()
-    render(<HarnessStatusView status={{ ...status(state, true), dependencies: [{ id: 'mattpocock-skills@claude-plugins-official', status: 'missing', version: null }] }} busy={false} failure={undefined} onInstall={onInstall} />)
+    render(<HarnessStatusView status={{ ...status(state, true), dependencies: [{ id: 'example-skills@claude-plugins-official', status: 'missing', version: null }] }} busy={false} failure={undefined} onInstall={onInstall} />)
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness error: dependency install')
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe(state.reason)
     const retry = screen.getByTestId('harness-action')
