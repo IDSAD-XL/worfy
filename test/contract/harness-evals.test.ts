@@ -681,6 +681,11 @@ describe('harness/evals: critic-verdict', () => {
     const check = 'Extend `test/sum.test.mjs:6` with the table; `.githooks/pre-commit:3` already runs `node --test` before each commit.'
     expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', check))).toBe(true)
     expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
+    // A review of the paid run of round 2: the hook named by its folder and its setting, not by its file.
+    const hook = 'Make the existing hook switch itself on: a `"prepare": "git config core.hooksPath .githooks"` script in `package.json`.'
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', hook))).toBe(true)
+    // The plan's own hook path is not the existing check.
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', 'Install `.git/hooks/pre-commit` with `tools/install-hook.mjs`.'))).toBe(false)
     // The existing check named in an objection only, not in the alternative.
     expect(passes('sum-guard-alternative-names-check.md', review(fact('`test/sum.test.mjs:6`'), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
 
