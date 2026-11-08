@@ -502,6 +502,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       unattended: opts.unattended,
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,
+      ...(opts.kind === undefined ? {} : { kind: opts.kind }),
       ...(opts.environment === undefined ? {} : { environment: opts.environment }),
       ...(folders === undefined ? {} : { toolUse: folders.record, processEnv: folders.started }),
     })

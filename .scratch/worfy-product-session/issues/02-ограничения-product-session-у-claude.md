@@ -43,11 +43,16 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
 - [ ] Unit test `productToolDecision`: `docs/product/x/map.md` — разрешено; `src/a.ts`, `docs/adr/0001.md`,
       `docs/product/../src/a.ts`, ссылка из `docs/product/` наружу — отказ; на `win32` — `DOCS\PRODUCT\x.md` и
       `C:/…` с другим регистром.
+  - evidence: test-run pass · `pnpm test -- test/unit/product-guard.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
 - [ ] Unit test: `bin/ticket done`, `git commit -m x`, `gh pr merge 1`, `pnpm test` — отказ; `git log`, `gh pr view 1`,
       `epic-status` — разрешено.
+  - evidence: test-run pass · `pnpm test -- test/unit/product-guard.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
 - [ ] Test `sessionOptions` Product Session: PreToolUse отвечает deny с причиной; обычная Session — `{}`, как раньше.
+  - evidence: test-run pass · `pnpm test -- test/unit/agent-options.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
 - [ ] Contract test: у Product Session `autopilot_start` отвечает отказом (`isError`); у обычной — как раньше.
+  - evidence: test-run pass · `pnpm test -- test/contract/canvas-tools.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
 - [ ] Test: `env` Product Session несёт `WORFY_SESSION_KIND=product`; модель — `opus`, смена модели отклонена.
+  - evidence: test-run pass · `pnpm test -- test/unit/agent-options.test.ts test/contract/node-sessions.test.ts` exit 0 · mac - · c9b37d15fe5ae8c5a989d26ac23a24e4ef58d17c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
 - [ ] Те же unit test-ы guard-а на Windows — exit 0.
   - needs: windows
@@ -66,6 +71,11 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
 - `src/main/mcp/canvas-server.ts`
 - `src/main/agent/node-sessions.ts`
 - `src/main/agent/session-settings.ts`
+- `src/main/agent/session.ts` (`Session.begin()` передаёт `kind` в SessionStart; `becomeAttended` его сохраняет)
+- `src/main/vendors/session.ts` (поле `kind` в SessionStart)
+- `src/main/vendors/claude/session.ts` (driver Claude передаёт `kind` в QueryRequest)
+- `src/main/agent/session/types.ts` (поле `kind` в QueryRequest)
+- `docs/features/autopilot-chat.md` (отказ `autopilot_start` у Product Session)
 - `test/unit/product-guard.test.ts`
 - `test/unit/agent-options.test.ts`
 - `test/contract/canvas-tools.test.ts`
@@ -74,3 +84,28 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
 Только читать: `src/main/vendors/claude/one-shot.ts:64-76` (`ONE_SHOT_DISALLOWED_TOOLS` — образец), `harness/hooks/guard.mjs:64-69`
 (запрет правок по виду агента — образец текста отказа), `src/main/agent/auto-approve/roots.ts` (как Run сравнивает
 пути на Windows).
+
+## Итог
+
+- Guard — `src/main/agent/product-guard.ts` (`productToolDecision`): файловые tools пишут только ниже папки Product
+  Session (`productFolder`, ADR-0101) — путь сверяется и в написанном виде (тот же регистр, `..` свёрнуты), и в
+  реальном (ссылки и junction-ы пройдены); на Windows отказ на имена, которые система переписывает (`x.`, `x:поток`,
+  `TOPIC~1`). Bash и PowerShell — отказ на `bin/ticket`, `git add|commit|push|merge|rebase|reset`, `gh pr create|merge`,
+  `pnpm`, `npm`; `git add` добавлен по ответу Q5 («git не трогает никогда»). Ошибка guard-а и hook-а — отказ.
+- `kind` теперь доходит до driver-а: SessionStart → QueryRequest → `sdkQueryFactory` → `sessionOptions`; папку
+  Product Session `sdkQueryFactory` берёт из layout Project-а, неизвестная папка — отказ на любую запись.
+- Модель: `launchSettings` ставит `opus` и effort `max`, `settingsChangeRefusal` отклоняет смену модели.
+- Сначала падающий: новые test-ы на исходниках `main` (439fdd62a) — 14 failed, `product-guard.test.ts` не
+  загружается (модуля нет); среди них PreToolUse Product Session на `Write src/a.ts` отвечал без deny.
+- Mutation testing: 45 mutant-ов (каждое правило отказа, путь fail closed, проводка `kind`) — все убиты (exit 1).
+- Ревью PR #1626, раунд 1: команда Bash читается как её читает shell — слова в кавычках, backslash-newline,
+  `$(…)` в кавычках, backtick-и, `bash -c`, `eval` (`git -C "a b" commit` — отказ, `grep "pnpm"` — можно);
+  PowerShell — своими правилами кавычек. `layoutProductFolder` проверен contract test-ом (Full, Silent, failed,
+  ошибка). У `autopilot_start` Product Session — свой текст отказа. Test на Eco mode. Mutation testing: 59 mutant-ов —
+  все убиты.
+- Ревью PR #1626, раунд 2: `$(…)` без кавычек и backtick-и — часть слова, их текст читается как команды;
+  `$'…'` читается с escape-ами (`\x63`, `\143`, `\u0070`); тело here-document (`<<EOF`, `<<'EOF'`, `<<-EOF`) —
+  не команды, пропускается до строки-терминатора (подстановки тела без кавычек читаются); here-string `<<<` —
+  не here-document. Mutation testing: всего 69 mutant-ов (каждый запуск после зелёного baseline) — все убиты.
+- Известные пределы guard-а (не sandbox, риск 2 spec-а): слитные флаги `bash -ec`, `sudo -u`, `env -C`,
+  редиректы между словами, `function f {…}`, команда из переменной (`$G commit`) не разбираются.

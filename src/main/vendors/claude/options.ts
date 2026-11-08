@@ -78,9 +78,11 @@ import type { McpServerConfig, McpStdioServerConfig, Options, SpawnedProcess, Sp
 import { DEFAULT_SETTINGS, EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
+import type { SessionKind } from '../../../shared/ipc/sessions'
 import type { HarnessKind } from '../../../shared/projects/action-templates'
 import type { Env } from '../../agent/env'
 import type { CanUseToolHandler } from '../../agent/permissions'
+import { productToolDecision, type ProductToolDecision } from '../../agent/product-guard'
 import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
@@ -313,16 +315,43 @@ export interface SessionOptionsInput {
    * Absent: no hook.
    */
   toolUse?: ((use: ToolUseFacts) => void) | undefined
+  /**
+   * The SessionKind (worfy-product-session ticket 01). `product`: the PreToolUse hook refuses what a Product
+   * Session may not do (productToolDecision, ticket 02) and the environment carries
+   * `WORFY_SESSION_KIND=product`. Absent: a plain Session, as before.
+   */
+  kind?: SessionKind | undefined
+  /**
+   * The Product Session folder of the Project (src/shared/product/paths.ts productFolder), the one place a
+   * Product Session writes files; absent or null with `kind: 'product'` — it could not be found — refuses
+   * every file write. Read only with `kind: 'product'`.
+   */
+  productFolder?: string | null | undefined
+  /**
+   * Text appended to the system prompt after the servers' instructions: the place of the Product Session
+   * rules when the SessionStart hook does not see the Session's environment (the Epic spec, risk 1; the
+   * rules themselves come with ticket 10). Absent: nothing.
+   */
+  instructions?: string | undefined
 }
+
+/** The variable a Product Session's Claude Code, its hooks and its shell commands see (read by the rules hook, ticket 10). */
+export const SESSION_KIND_VARIABLE = 'WORFY_SESSION_KIND'
+
+/** Decides on one tool call before Claude Code runs it: `tool_name`, `tool_input` and the shell's folder (`cwd`). */
+export type ToolUseGuard = (tool: string, input: unknown, cwd: string | null) => ProductToolDecision
 
 /**
  * The PreToolUse hook that tells `observe` the shell folder (`cwd`) and the scratchpad
- * (`scratchpad_dir`) of each tool call (worfy-auto-approve ticket 04). Claude Code runs PreToolUse
- * hooks before it asks canUseTool, and gives no folder to canUseTool itself. The hook answers `{}`:
+ * (`scratchpad_dir`) of each tool call (worfy-auto-approve ticket 04), and asks `guard` whether the call
+ * may run (a Product Session, worfy-product-session ticket 02). Claude Code runs PreToolUse hooks before
+ * it asks canUseTool, and gives no folder to canUseTool itself. Without a refusal the hook answers `{}`:
  * no decision and no output, so the tool call goes on as without it, and no `hook` event is made of it
- * (hookSaidSomething, src/shared/vendors/claude/events.ts).
+ * (hookSaidSomething, src/shared/vendors/claude/events.ts). A refusal answers `permissionDecision: deny`
+ * with the reason, which Claude Code gives the agent in every permission mode, bypassPermissions too. A
+ * guard that throws refuses: the guard fails closed.
  */
-export function toolUseHooks(observe: (use: ToolUseFacts) => void): NonNullable<Options['hooks']> {
+export function toolUseHooks(observe?: ((use: ToolUseFacts) => void) | undefined, guard?: ToolUseGuard | undefined): NonNullable<Options['hooks']> {
   const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
   return {
     PreToolUse: [
@@ -331,13 +360,28 @@ export function toolUseHooks(observe: (use: ToolUseFacts) => void): NonNullable<
           (input) => {
             const fields = input as unknown as Record<string, unknown>
             const toolUseId = text(fields['tool_use_id'])
-            if (toolUseId !== null) observe({ toolUseId, cwd: text(fields['cwd']), scratchpad: text(fields['scratchpad_dir']) })
-            return Promise.resolve({})
+            if (observe !== undefined && toolUseId !== null) observe({ toolUseId, cwd: text(fields['cwd']), scratchpad: text(fields['scratchpad_dir']) })
+            if (guard === undefined) return Promise.resolve({})
+            let decision: ProductToolDecision
+            try {
+              decision = guard(String(fields['tool_name']), fields['tool_input'], text(fields['cwd']))
+            } catch (error) {
+              decision = { allow: false, reason: `The tool call is refused: its check failed (${error instanceof Error ? error.message : String(error)}).` }
+            }
+            if (decision.allow) return Promise.resolve({})
+            return Promise.resolve({
+              hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: decision.reason },
+            })
           },
         ],
       },
     ],
   }
+}
+
+/** The guard of a Product Session in `cwd` whose folder is `productFolder` (null: unknown, every write refused). */
+export function productGuard(productFolder: string | null, cwd: string, platform: NodeJS.Platform): ToolUseGuard {
+  return (tool, input, at) => productToolDecision(tool, input, { productDir: productFolder, cwd: at ?? cwd }, platform)
 }
 
 /** The user's plugins and own skills a Session would get without a list (ADR-0084). */
@@ -523,11 +567,17 @@ function claudeEffort(setting: string | null): EffortChoice | null {
   return setting !== null && (EFFORT_LEVELS as readonly string[]).includes(setting) ? (setting as EffortChoice) : null
 }
 
+/** The environment of a Session's Claude Code: `env`, the Run's variables over it, and the kind of a Product Session. */
+function sessionEnv(input: SessionOptionsInput): Env {
+  const kind: Env = input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}
+  return input.environment === undefined && input.kind !== 'product' ? input.env : { ...input.env, ...input.environment, ...kind }
+}
+
 export function sessionOptions(input: SessionOptionsInput): Options {
   const settings = input.settings ?? DEFAULT_SETTINGS
   const options: Options = {
     cwd: input.cwd,
-    env: input.environment === undefined ? input.env : { ...input.env, ...input.environment },
+    env: sessionEnv(input),
     settingSources: [...(input.settingSources ?? ['user', 'project', 'local'])],
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     permissionMode: input.unattended === true ? 'bypassPermissions' : claudeMode(settings.permissionMode),
@@ -554,7 +604,8 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.spawned !== undefined) options.spawnClaudeCodeProcess = watchedSpawn(input.spawned, input.stderr)
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
-  if (input.toolUse !== undefined) options.hooks = toolUseHooks(input.toolUse)
+  const guard = input.kind === 'product' ? productGuard(input.productFolder ?? null, input.cwd, input.runtime.platform) : undefined
+  if (input.toolUse !== undefined || guard !== undefined) options.hooks = toolUseHooks(input.toolUse, guard)
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]
   if (input.allowedTools !== undefined && input.allowedTools.length > 0) options.allowedTools = [...input.allowedTools]
@@ -578,6 +629,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     servers[BROWSER_SERVER_NAME] = sdkServerConfig(input.browser.server)
     appended.push(input.browser.instructions)
   }
+  if (input.instructions !== undefined && input.instructions !== '') appended.push(input.instructions)
   if (appended.length > 0) options.systemPrompt = { type: 'preset', preset: 'claude_code', append: appended.join('\n') }
   if (input.harnessPlugin != null) {
     options.plugins = [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }]

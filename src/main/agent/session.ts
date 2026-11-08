@@ -504,7 +504,12 @@ export class Session {
       const run = this.run
       // Without a live process the settings go to the next one (begin() or the process being started: catchUp).
       if (run?.handle) await pushSettings(run, run.handle, wanted)
-      this.launch = { unattended: false, ...(this.launch.orchestrator === undefined ? {} : { orchestrator: this.launch.orchestrator }) }
+      // The run's approval policy goes; the role and the kind of the Session stay.
+      this.launch = {
+        unattended: false,
+        ...(this.launch.orchestrator === undefined ? {} : { orchestrator: this.launch.orchestrator }),
+        ...(this.launch.kind === undefined ? {} : { kind: this.launch.kind }),
+      }
       this.settingsValue = wanted
       if (!sameSettings(before, wanted)) this.emit({ type: 'settings', settings: this.settings })
       return this.settings
@@ -633,6 +638,7 @@ export class Session {
         return launch().unattended
       },
       orchestrator: this.launch.orchestrator === true,
+      ...(this.launch.kind === undefined ? {} : { kind: this.launch.kind }),
       permissions: this.permissions,
       refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
       ...this.approvalStart(),
