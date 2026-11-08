@@ -1,7 +1,8 @@
 # 11 — Страница Feature «Team reviewer» и её `ru/` копия
 
 Type: task
-Status: open
+Status: done 2026-11-08T12:35Z
+PR: #1673
 Blocked by: 05, 08, 09, 10
 Source: [spec.md](../spec.md), «Цель и что видит пользователь»; «Как работает»; «Не в этом Epic-е» (Session-ы терминала); «Риски», п. 5
 
@@ -31,10 +32,13 @@ worfy-feature-docs: каждое утверждение — путь и стро
 - [ ] Страница и `ru/` копия описывают сделанное в 03–10; каждое утверждение — со ссылкой на файл и строку, проверено
       вторым агентом.
   - evidence: commit pass · docs: add the Team reviewer feature page and its Russian copy (claims checked against the code by a second agent) · - - · 588c8b0531961928611ae8e691a397e8bd1879f1
+  - evidence: review pass · PR #1673 · - - · ec5963c273e159d06b0068d422c8970ad12cfd84
 - [ ] На странице нет ни одного текста комментария, логина, пути домашней папки и названия чужого проекта.
   - evidence: test-run pass · `node harness/bin/evidence-check docs/features/human-review.md docs/features/ru/human-review.md` exit 0 · mac - · 588c8b0531961928611ae8e691a397e8bd1879f1
+  - evidence: review pass · PR #1673 · - - · ec5963c273e159d06b0068d422c8970ad12cfd84
 - [ ] `node scripts/check-cyrillic.mjs`, `node scripts/check-handoff.mjs` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `node scripts/check-cyrillic.mjs && node scripts/check-handoff.mjs` exit 0 · mac - · 588c8b0531961928611ae8e691a397e8bd1879f1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42480655218/job/128732399108 · ci - · ec5963c273e159d06b0068d422c8970ad12cfd84
 
 ## Тесты
 
