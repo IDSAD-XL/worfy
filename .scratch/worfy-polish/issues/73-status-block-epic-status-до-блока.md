@@ -1,7 +1,8 @@
 # 73 — Eval case status-block: строка Stage из `epic-status` через hook на каждом prompt-е
 
 Type: task
-Status: claimed 2026-11-08T08:18Z
+Status: done 2026-11-08T14:36Z
+PR: #1663
 Branch: worfy-polish/73
 Blocked by: —
 Source: разбор Orchestrator-а 2026-11-08 (только чтение, origin/main `2a5a172a1`): eval case `status-block` Harness-а
@@ -105,6 +106,7 @@ Prompt case-а на ход со сменой статуса не меняем: �
   репозитории записано в «Итог».
   - evidence: test-run pass · `node scripts/eval-harness.mjs --tag main --case status-block --runs 3 --max-cost-usd 1 --keep-temp` exit 0, score 1.00, 3 of 3, 0.37 USD · mac - · 349ed2fecd7931ce3611dc9999c9b71a26e49e25
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
+  - evidence: ci-check pass · ci-ok https://github.com/IDSAD-XL/worfy/actions/runs/42479071828/job/128731570999 · mac - · 34beb16b938d72b11a8bb576ae41085a63aea1f1
 
 ## Тесты
 
