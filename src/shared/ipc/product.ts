@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { mindMapNodeIdSchema, mindMapNodeSchema } from '../product/mind-map'
 import { isProductTopicName } from '../product/paths'
+import { adviceShareSchema } from '../product/share'
 import { eventChannel, invokeChannel } from './channels'
 
 const topicName = z.string().refine(isProductTopicName, 'not a Product Session topic name')
@@ -65,10 +66,17 @@ export type ProductLayoutInput = z.output<typeof productLayoutInputSchema>
 /** Writes a node's place or fold through main's one writer of mind-map.json; the screen sees it come back with `product.changed`. */
 export const productLayout = invokeChannel('product.layout', productLayoutInputSchema, z.null(), 'project', 'write')
 
+/**
+ * The share of accepted advice of the Project (src/shared/product/share.ts; ticket 14), counted from its
+ * Product Session folder when asked and stored nowhere; the screen asks again on every `product.changed`.
+ */
+export const productShare = invokeChannel('product.share', z.object({ projectId: z.string().min(1) }), adviceShareSchema, 'project', 'read')
+
 declare module './channels' {
   interface IpcContract {
     'product.topic': typeof productTopic
     'product.changed': typeof productChanged
     'product.layout': typeof productLayout
+    'product.share': typeof productShare
   }
 }

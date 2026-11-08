@@ -18,7 +18,7 @@ import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
-import { ProductSessionPanel } from './ProductSessionPanel'
+import { AcceptedAdvice, ProductSessionPanel } from './ProductSessionPanel'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -343,8 +343,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           </span>
           <span className="w-session__fact-label">this session</span>
         </span>
-        {/* The share of the advisor's advice the Product owner accepted goes here (worfy-product-session ticket 14). */}
-        {product ? <span className="w-session__accepted" data-testid="product-session-accepted" /> : null}
+        {/* The share of the advisor's advice the Product owner accepted (worfy-product-session ticket 14). */}
+        {product ? <AcceptedAdvice projectId={projectId} /> : null}
         <span className="w-session__spacer" />
         <HideToolsButton hidden={hideTools} onChange={setHideTools} />
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />

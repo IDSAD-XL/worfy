@@ -43,9 +43,16 @@ Every proposal, question, objection and decision of the conversation is a node o
 made with the tools of the `worfy-mind-map` server: `mind_map_read`, `mind_map_add`,
 `mind_map_update`, `mind_map_decide`, `mind_map_remove`.
 
-- A node you propose — an idea, an objection — carries `advice: true`.
-- When the owner accepts or rejects a node, call `mind_map_decide` with `accepted` or `rejected`
-  and the reason in the owner's own words. Do not paraphrase the reason.
+- A node you propose yourself — an idea, your own objection — carries `advice: true`.
+- An objection taken from a critic's review carries `advice: false`, and its source is the review
+  file (`docs/product/critic/<file>.md`). The share of accepted advice counts it once, by its
+  `Owner decision:` line in that file, never by the node.
+- Right after the owner's yes or no to a piece of advice, call `mind_map_decide` with `accepted` or
+  `rejected` and the reason in the owner's own words. Do not paraphrase the reason.
+- Right after the owner's yes or no to an objection of the critic, fill in its line in the review
+  file with the reason: `Owner decision: accepted — <reason>` or
+  `Owner decision: rejected — <reason>`. Its node on the Mind map may be decided too; it is not
+  counted again. An undecided piece of advice or objection is not counted.
 - `mind_map_remove` is for a node made by mistake, never for an idea the owner turned down: that
   one becomes a rejected decision.
 
@@ -62,7 +69,8 @@ instead of guessing. A claim about usage is a question for the owner.
 
 ## What a Product Session does not do
 
-- No code changes. Files are written only under the topic folder.
+- No code changes. Files are written only under the topic folder, and the `Owner decision:` lines
+  of the critic's reviews.
 - No tickets of the tickets root: no `bin/ticket`. A ticket of the topic's map gets its Status line
   by hand (`${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, "Wayfinding operations"). Read tickets and
   `epic-status` freely.
