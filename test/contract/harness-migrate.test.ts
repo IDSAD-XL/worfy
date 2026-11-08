@@ -109,7 +109,9 @@ const bridgeLine = (bridge: string): string =>
 
 describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {
-    expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS].sort())
+    // The critic came with worfy-product-session ticket 11: the old Harness never had it, so the migration
+    // plan does not offer to remove a ~/.claude/agents/critic.md (the test below).
+    expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS, 'critic.md'].sort())
     // connect-project came with the plugin (worfy-harness ticket 24), max-review with worfy-review ticket 07:
     // gate-queue with worfy-windows ticket 17, human-review-setup with worfy-human-review ticket 06, product-ideas with
     // worfy-product-session ticket 12: the old Harness never had them, so the migration plan does not offer to remove them.
@@ -117,6 +119,27 @@ describe('the plan of the form', () => {
     // (worfy-skills ticket 01): a user's own skill of the same name in ~/.claude/skills stays.
     const copied = ['code-review', 'codebase-design', 'diagnosing-bugs', 'domain-modeling', 'grill-with-docs', 'improve-codebase-architecture', 'prototype', 'research', 'tdd', 'to-spec', 'to-tickets', 'wayfinder', 'grill-me', 'grilling', 'handoff', 'teach', 'to-questionnaire', 'wait-what', 'writing-for-agents', 'THIRD_PARTY.md', 'LICENSE.mattpocock-skills']
     expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project', 'gate-queue', 'human-review-setup', 'max-review', 'product-ideas', ...copied].sort())
+  })
+
+  it('an agent or skill the plugin got after the old Harness is the user’s own in ~/.claude: no row names it, and the move leaves it', async () => {
+    const own = { 'agents/critic.md': '# my own critic\n', 'skills/grilling/SKILL.md': '# my own grilling\n', 'skills/max-review/SKILL.md': '# my own max-review\n' }
+    for (const [rel, text] of Object.entries(own)) {
+      const path = join(sandbox.claudeHome, ...rel.split('/'))
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, text)
+      // The plugin carries a file of the same name: that alone does not make the user's file the Harness's.
+      expect(existsSync(join(sandbox.pluginDir, ...rel.split('/'))), rel).toBe(true)
+    }
+    const view = plan()
+    const ids = view.rows.map((row) => row.id)
+    for (const id of ['agents/critic.md', 'skills/grilling', 'skills/max-review'].map(fileId)) expect(ids).not.toContain(id)
+    // The old Harness's own agents and skills are still offered.
+    expect(ids).toContain(fileId('agents/scout.md'))
+    expect(ids).toContain(fileId(`skills/${HARNESS_SKILLS[0]}`))
+
+    // "Remove" on every row the form offers: the user's files are on none of them.
+    expect((await applyMigration(selection(view), applyOptions())).outcome).toBe('done')
+    for (const [rel, text] of Object.entries(own)) expect(read(join(sandbox.claudeHome, ...rel.split('/'))), rel).toBe(text)
   })
 
   it('names the ten hook records of the old Harness, the Harness files, the qmd group, the state and three Profiles — and nothing personal', () => {

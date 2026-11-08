@@ -11,7 +11,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readd
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CODEX_AGENT_MARK, codexAgentFiles, writeCodexAgents } from '../../src/main/harness/codex-agents'
+import { CODEX_AGENT_MARK, CODEX_AGENT_SOURCES, codexAgentFiles, writeCodexAgents } from '../../src/main/harness/codex-agents'
 import { CodexHarness, codexInstallBinary, codexMarketplacesOf, codexPluginsOf, type CodexInstallerOptions, type CodexPlan } from '../../src/main/harness/codex-install'
 import { confirmationText, DEPENDENCY_MARKETPLACE_SOURCE, HARNESS_PLUGIN_ID, HarnessInstaller, type InstallPlan } from '../../src/main/harness/install'
 import { harnessHome } from '../../src/main/storage/paths'
@@ -417,6 +417,20 @@ describe('the Codex agents', () => {
     expect(agents.get('worfy-scout.toml')).not.toMatch(/^model = /m)
     expect(agents.get('worfy-scout.toml')).toContain('model_reasoning_effort = "medium"')
     expect(agents.get('worfy-implementer.toml')).toContain('model_reasoning_effort = "high"')
+  })
+
+  // The critic is Claude only (worfy-product-session ticket 11): Codex gets it later, by a ticket of its own.
+  it('leaves the critic of harness/ out: CODEX_AGENT_SOURCES does not name it, and an install from harness/ writes no worfy-critic.toml', async () => {
+    expect(existsSync(join(REPO, 'harness', 'agents', 'critic.md'))).toBe(true)
+    expect(CODEX_AGENT_SOURCES as readonly string[]).not.toContain('critic')
+    expect([...codexAgentFiles(join(REPO, 'harness'), '/plugin', V1).keys()]).toEqual(AGENT_FILES)
+
+    const bundle = makeBundle('bundle', V1)
+    expect(existsSync(join(bundle, 'agents', 'critic.md'))).toBe(true)
+    const { outcome, status } = await installer(bundle).install(yes())
+    expect(outcome).toBe('done')
+    expect(status.codex?.state).toEqual({ kind: 'installed', version: V1 })
+    expect(readdirSync(join(sb.codexHome, 'agents')).sort()).toEqual(AGENT_FILES)
   })
 
   it('on Windows a rename a held-open file refuses is tried again; elsewhere it fails the step at once', async () => {
