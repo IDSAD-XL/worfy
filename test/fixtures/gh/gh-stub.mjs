@@ -18,10 +18,12 @@
 //     `gh pr list --json number,headRefName,state,url,statusCheckRollup,comments`; none without it.
 //   - auth-status.json: what `gh auth status --json hosts` prints (`{"hosts":{"<host>":[…]}}`);
 //     no accounts without it.
-//   - tokens.json: `{"<login>": "<token>"}`, for `gh auth token -u <login>`.
-//   - repos.json: `{"<owner>/<repo>": {"<login>": true | false | <HTTP status>}}`: what
-//     `gh api repos/<owner>/<repo>` answers to GH_TOKEN of that login — `permissions.push`, or a
-//     failure with that status. A login it does not name gets 404, as GitHub answers for a private
+//   - tokens.json: `{"<login>": "<token>"}`, for `gh auth token -u <login> [--hostname <h>]`; a login
+//     auth-status.json lists only under other hosts than the asked one (github.com without
+//     --hostname) has no token there, as gh answers.
+//   - repos.json: `{"<owner>/<repo>": {"<login>": true | false | null | "<text>" | <HTTP status>}}`: what
+//     `gh api repos/<owner>/<repo>` answers to GH_TOKEN of that login — `permissions.push` (with
+//     `--jq .permissions.push`: null as `null`, a text as it is), or a failure with that status. A login it does not name gets 404, as GitHub answers for a private
 //     repository the account cannot see.
 //   - login.json: `{"login", "host"?, "token"}`, the account `gh auth login` adds. Without it the
 //     sign-in fails.
@@ -83,14 +85,19 @@ if (command === 'pr list') {
   process.stdout.write(`${JSON.stringify({ hosts })}\n`)
 } else if (command === 'auth token' && option('-u') !== undefined) {
   const login = option('-u')
-  const token = read('tokens.json', {})[login]
-  if (token === undefined) fail(`no oauth token found for ${option('--hostname') ?? 'github.com'} account ${login}`)
+  const host = option('--hostname') ?? 'github.com'
+  // As gh: the token is looked up on the asked host only, so a login listed only for another host has none here.
+  const listed = Object.entries(read('auth-status.json', { hosts: {} }).hosts).filter(([, entries]) => entries.some((entry) => entry?.login === login))
+  const elsewhere = listed.length > 0 && !listed.some(([name]) => name === host)
+  const token = elsewhere ? undefined : read('tokens.json', {})[login]
+  if (token === undefined) fail(`no oauth token found for ${host} account ${login}`)
   process.stdout.write(`${token}\n`)
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
   const tokens = read('tokens.json', {})
   const login = Object.keys(tokens).find((name) => tokens[name] === process.env.GH_TOKEN)
-  const answer = login === undefined ? 404 : (read('repos.json', {})[slug]?.[login] ?? 404)
+  const answers = read('repos.json', {})[slug] ?? {}
+  const answer = login === undefined || !Object.hasOwn(answers, login) ? 404 : answers[login]
   if (answer === 404) fail('gh: Not Found (HTTP 404)')
   if (typeof answer === 'number') fail(`gh: Resource not accessible by personal access token (HTTP ${answer})`)
   const repo = { full_name: slug, permissions: { admin: false, maintain: false, push: answer, triage: answer, pull: true } }

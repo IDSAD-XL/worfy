@@ -118,6 +118,54 @@ describe('write access to origin and the finish', () => {
     expect(githubChoice(step, 'yes')).toEqual({ account: 'yes', finish: 'pr-green-ci' })
   })
 
+  it('only gh\'s literal true is write access: null, an empty answer and any other text are local-green (worfy-polish 71)', async () => {
+    // A token without a permissions object prints null; an odd answer of a GitHub Enterprise host is any text.
+    const answers: Record<string, null | string> = { nothing: null, empty: '', odd: 'yes', capital: 'True' }
+    const gh = world(
+      Object.keys(answers).map((login) => ({ login, token: `gho_${login}_SECRET` })),
+      { 'acme/shop': answers },
+    )
+    const step = await read([repo('shop', 'https://github.com/acme/shop')], gh)
+    if (step.status !== 'accounts') throw new Error(JSON.stringify(step))
+    expect(step.accounts.map((account) => account.login).sort()).toEqual(Object.keys(answers).sort())
+    for (const account of step.accounts) {
+      expect(account).toMatchObject({ push: false, finish: 'local-green', reason: `${account.login} has no write access to acme/shop: Tickets will close with the local finish.` })
+      expect(githubChoice(step, account.login)).toEqual({ account: account.login, finish: 'local-green' })
+    }
+    expect(step.selected).toBeNull()
+  })
+
+  it('a GitHub Enterprise origin counts as GitHub; each account reads with the token of its own host and has no access to the other host (worfy-polish 71)', async () => {
+    const workspace = join(scratch, 'ws')
+    const CORP: StubAccount = { login: 'corp', host: 'ghe.example.com', active: true, token: 'gho_corp_SECRET_0003' }
+    const gh = world([ALICE, CORP], { 'acme/shop': { corp: true, alice: true }, 'acme/api': { alice: true, corp: true } })
+    const step = await read([repo('shop', 'git@ghe.example.com:acme/shop.git', workspace), repo('api', 'https://github.com/acme/api.git', workspace)], gh)
+    if (step.status !== 'accounts') throw new Error(JSON.stringify(step))
+    expect(step.repos).toEqual([
+      { name: 'shop', host: 'ghe.example.com', slug: 'acme/shop' },
+      { name: 'api', host: 'github.com', slug: 'acme/api' },
+    ])
+    expect(step.skipped).toEqual([])
+    const by = Object.fromEntries(step.accounts.map((account) => [account.login, account]))
+    // Each account may push only to its own host; a repository on the other host is named with its host, gh not asked.
+    expect(by.corp).toMatchObject({ host: 'ghe.example.com', push: false, finish: 'local-green', reason: 'corp has no write access to acme/api (on github.com): Tickets will close with the local finish.' })
+    expect(by.alice).toMatchObject({ host: 'github.com', push: false, finish: 'local-green', reason: 'alice has no write access to acme/shop (on ghe.example.com): Tickets will close with the local finish.' })
+    const calls = gh.calls()
+    expect(calls).toContainEqual(['auth', 'token', '-u', 'corp', '--hostname', 'ghe.example.com'])
+    expect(calls).toContainEqual(['api', 'repos/acme/shop', '--jq', '.permissions.push', '--hostname', 'ghe.example.com'])
+    expect(calls.filter((call) => call[0] === 'api')).toHaveLength(2)
+  })
+
+  it('a folder whose only origin is on a GitHub Enterprise host: the account of that host with write access is pr-green-ci (worfy-polish 71)', async () => {
+    const CORP: StubAccount = { login: 'corp', host: 'ghe.example.com', active: true, token: 'gho_corp_SECRET_0003' }
+    const gh = world([ALICE, CORP], { 'acme/shop': { corp: true } })
+    const step = await read([repo('shop', 'git@ghe.example.com:acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', repos: [{ name: 'shop', host: 'ghe.example.com', slug: 'acme/shop' }], selected: 'corp' })
+    if (step.status !== 'accounts') throw new Error(JSON.stringify(step))
+    expect(step.accounts).toEqual([{ login: 'corp', host: 'ghe.example.com', active: true, state: 'success', push: true, finish: 'pr-green-ci', reason: null }])
+    expect(githubChoice(step, 'corp')).toEqual({ account: 'corp', finish: 'pr-green-ci' })
+  })
+
   it('without origin: no account and the local finish, gh not run', async () => {
     const gh = world([ALICE])
     const step = await read([repo('shop', null)], gh)
