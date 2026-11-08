@@ -172,13 +172,19 @@ for p in 'product_save' '`git` command' 'docs/product/<topic>/' 'drafts/<epic>.m
 done
 # The saving rule: "save" from the owner is the tool, and the Session itself never touches git.
 [[ "$pflat" == *'"save"'*'`product_save`'* ]] && ok "product.md: \"save\" from the owner calls product_save" || bad "product.md: no '\"save\" … product_save' rule"
-for p in 'git add' 'commit' 'push' 'pull request'; do
-    [[ "$pflat" == *"$p"* ]] && ok "product.md forbids $p by name" || bad "product.md does not name $p in the git ban"
-done
+# The git ban as one phrase, so a text that names the commands and allows them does not pass.
+ban='No `git` command except reading ones (`git status`, `git log`, `git diff`, `git show`): never `git add`, commit, push, merge, rebase or reset, and never a pull request.'
+[[ "$pflat" == *"$ban"* ]] && ok "product.md: the git ban, whole" || bad "product.md: no whole git ban phrase"
+# A prototype of a Product Session is a file of the topic folder: the guard refuses a Card's files and
+# project code. Every line that names a Card says there is none.
+cards="$(grep -n 'Card' "$RULES/product.md" 2>/dev/null | grep -v 'No Card' || true)"
+[ -z "$cards" ] && grep -q 'No Card' "$RULES/product.md" && [[ "$pflat" == *'single self-contained HTML file'* ]] \
+    && ok "product.md: a prototype is one file of the topic folder, no Card" || bad "product.md tells the Session to make a Card: $cards"
 # One line of common.md says who writes docs/product/ (the Epic spec, Q7): every session and subagent
 # reads it.
-grep -qF 'Only a Product Session writes `docs/product/`' "$RULES/common.md" 2>/dev/null \
-    && ok "common.md: only a Product Session writes docs/product/" || bad "common.md: no line on who writes docs/product/"
+cflat="$(tr '\n' ' ' <"$RULES/common.md" 2>/dev/null | tr -s ' ')"
+[[ "$cflat" == *'Only a Product Session and its subagents edit topic files in `docs/product/`; the orchestrator only moves an accepted draft and records an owner decision, the critic writes only `docs/product/critic/`.'* ]] \
+    && ok "common.md: who writes docs/product/" || bad "common.md: no line on who writes docs/product/"
 
 # The plugin root goes in literally: a Windows path (Claude Code spells it C:/…) and characters a
 # replacement pattern would read ($&, $1) arrive as they are.

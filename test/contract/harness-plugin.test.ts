@@ -113,18 +113,18 @@ describe('the SessionStart hook of a Session gets the environment worfy gives th
     const cwd = mkdtempSync(join(scratch, 'cwd-'))
     const stderr: string[] = []
     const messages: SDKMessage[] = []
+    const env = { ...claudeEnv(standIn, home), HARNESS_HOME: join(home, 'harness'), ...(kind === undefined ? {} : { [SESSION_KIND_VARIABLE]: kind }) }
+    const run = query({
+      prompt: 'Hi.',
+      options: { cwd, env, settingSources: [], plugins: [{ type: 'local', path: plugin }], model: 'claude-sonnet-4-5', stderr: (data) => stderr.push(data) },
+    })
     try {
-      const env = { ...claudeEnv(standIn, home), HARNESS_HOME: join(home, 'harness'), ...(kind === undefined ? {} : { [SESSION_KIND_VARIABLE]: kind }) }
-      const run = query({
-        prompt: 'Hi.',
-        options: { cwd, env, settingSources: [], plugins: [{ type: 'local', path: plugin }], model: 'claude-sonnet-4-5', stderr: (data) => stderr.push(data) },
-      })
       for await (const message of run) {
         messages.push(message)
         if (message.type === 'result') break
       }
-      run.close()
     } finally {
+      run.close()
       await standIn.close()
     }
     const responses = messages.filter((m): m is Extract<SDKMessage, { subtype: 'hook_response' }> => m.type === 'system' && m.subtype === 'hook_response' && m.hook_event === 'SessionStart')
