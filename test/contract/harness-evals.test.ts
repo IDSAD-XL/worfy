@@ -849,6 +849,15 @@ describe('harness/evals: human-review-setup', () => {
     const noDocs = without(built, '[R1]', '[R19]')
     expect(noDocs).not.toMatch(docs)
     expect(noDocs).toMatch(migration)
+    // Each keyword half counts: a rollback that is not about a migration, and an approval that is not about docs,
+    // text or dependencies, put in place of the removed rules, are not those rules.
+    const ruleBefore = (text: string, item: string): string => text.replace(/^## 3\. /m, `${item}\n\n## 3. `)
+    const rollback = ruleBefore(noMigration, '- Roll back a failed deploy within an hour; revert the release first. [R40]')
+    expect(rollback).toContain('[R40]')
+    expect(rollback).not.toMatch(migration)
+    const hotfix = ruleBefore(noDocs, '- Approve a hotfix through the fast lane after one review. [R41]')
+    expect(hotfix).toContain('[R41]')
+    expect(hotfix).not.toMatch(docs)
     // A rule without its reference does not count, and neither does a mention outside a list item.
     expect('- Ask for a down migration on every migration.\n').not.toMatch(migration)
     expect('Every migration needs a down step. [R4]\n').not.toMatch(migration)
