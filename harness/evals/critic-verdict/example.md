@@ -7,11 +7,9 @@ Verdict: Reorder — ticket 02 imports `formatRow` of ticket 03, so it cannot st
 
 ### 1. Ticket 02 waits for ticket 03 and does not say so
 
-Ticket 02 prints `formatRow(row)` imported from `src/row.mjs`, which only ticket 03 adds; its header
-says `Blocked by: —` and the waves table puts it in wave 1, before 03 in wave 2. An implementer of 02
-either stops on a missing module or writes its own `formatRow`, and 03 then collides with it.
-
 Fact: `.scratch/export/issues/02-export-command.md:5` (`Blocked by: —`), `.scratch/export/issues/02-export-command.md:10` (`formatRow` imported from `src/row.mjs`), `.scratch/export/spec.md:18` (02 in wave 1)
+
+Judgement: Ticket 02 needs `src/row.mjs`, which only ticket 03 adds in wave 2, so 02 cannot start in wave 1. An implementer of 02 either stops on a missing module or writes its own `formatRow`, and 03 then collides with it.
 
 Owner decision:
 

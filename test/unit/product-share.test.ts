@@ -53,21 +53,25 @@ const REVIEW = [
   '',
   '### 1. Ticket 03 needs the price table of 05',
   '',
-  'It reads a table nobody wrote yet.',
+  'Fact: `.scratch/worfy-pricing/issues/03-checkout.md:12` reads the price table that ticket 05 adds',
   '',
-  'Fact: `.scratch/worfy-pricing/issues/03-checkout.md:12`',
+  'Judgement: Ticket 03 cannot start before 05; it reads a table nobody wrote yet.',
   '',
   'Owner decision: accepted — I missed that',
   '',
   '### 2. The epic duplicates worfy-billing',
   '',
-  'Fact: `.scratch/worfy-billing/spec.md:4`',
+  'Fact: `.scratch/worfy-billing/spec.md:4` plans the same checkout',
+  '',
+  'Judgement: Two epics would build one checkout twice.',
   '',
   'Owner decision: rejected — billing was dropped',
   '',
   '### 3. No test for the refund path',
   '',
-  'Fact: `.scratch/worfy-pricing/issues/04-refund.md:20`',
+  'Fact: `.scratch/worfy-pricing/issues/04-refund.md:20` lists no test for a refund',
+  '',
+  'Judgement: A broken refund would reach a customer first.',
   '',
   'Owner decision:',
   '',
@@ -114,7 +118,7 @@ describe('adviceShare', () => {
   })
 
   describe('an objection of a critic’s review put on the Mind map is counted once, by the review (the spec of worfy-product-session, decided without the owner, item 10)', () => {
-    const review = 'Verdict: Reorder — x\n\n## Objections\n\n### 1. Ticket 03 needs 05\n\nFact: `issues/03.md:12`\n\nOwner decision: accepted — I missed that\n'
+    const review = 'Verdict: Reorder — x\n\n## Objections\n\n### 1. Ticket 03 needs 05\n\nFact: `issues/03.md:12`\n\nJudgement: 03 waits for 05.\n\nOwner decision: accepted — I missed that\n'
     // The objection on the map, decided by mind_map_decide as well as in the review.
     const onMap = (advice: boolean, source: string): MindMapNode => ({ id: 'c-1', kind: 'decision', text: 'Ticket 03 needs 05', from: null, advice, source, status: 'accepted', reason: 'I missed that' })
     const totals = (node: MindMapNode) => adviceTotals(adviceShare({ topics: [topic('pricing', [node])], reviews: [{ file: 'worfy-pricing-2026-11-08.md', text: review }] }))

@@ -1,10 +1,11 @@
 ---
 type: regex
 target: { source: file, path: review-export.md }
-pattern: '^### (?:(?:(?!^Fact:[ \t]*\S)[\s\S])*?|(?:(?!^Owner decision:)[\s\S])*?)(?:^#{1,3} |(?![\s\S]))'
+pattern: '^### (?:(?:(?!^Fact:[ \t]*\S)[\s\S])*?|(?:(?!^Judgement:[ \t]*\S)[\s\S])*?|(?:(?!^Owner decision:)[\s\S])*?)(?:^#{1,3} |(?![\s\S]))'
 flags: m
 match: not_contains
 ---
 
 Every objection of the review of the export plan — a `### ` heading up to the next heading — has a
-`Fact:` line with a fact on it and an `Owner decision:` line.
+`Fact:` line with a fact on it, a `Judgement:` line with the critic's judgement on it and an
+`Owner decision:` line.

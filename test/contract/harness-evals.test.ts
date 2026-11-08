@@ -496,15 +496,24 @@ describe('harness/evals: product-ideas', () => {
 // graders read its format, and example.md is a review of the case's export plan in that format. The
 // graders run the way `claude plugin eval` runs a regex grader: new RegExp(pattern, flags) on the
 // file as it is.
+// Ticket 18 of the same epic: the critic takes no verdict of the plan's author, each objection keeps
+// the checkable `Fact:` apart from the critic's `Judgement:`, and three more plans join the two of
+// ticket 11 — a duplicate of an existing feature, a plan with a cheaper alternative, and a plan whose
+// earlier deferral no longer holds.
 describe('harness/evals: critic-verdict', () => {
   const CASE = join(EVALS, 'critic-verdict')
   const grader = (name: string): string => frontMatter(join(CASE, 'graders', name))
   const pattern = (name: string): RegExp => new RegExp(field(grader(name), 'pattern') ?? '<none>', field(grader(name), 'flags') ?? '')
+  /** Whether a regex grader passes on the text, by its `match`. */
+  const passes = (name: string, text: string): boolean => (field(grader(name), 'match') === 'not_contains') !== pattern(name).test(text)
   /** example.md as the graders read it; a checkout with CRLF reads the same. */
   const example = (): string => readFileSync(join(CASE, 'example.md'), 'utf8').replaceAll('\r\n', '\n')
-  const objection = (n: number, fact = 'Fact: `src/a.mjs:1`\n\n', owner = 'Owner decision:\n\n'): string => `### ${n}. A title\n\nWhat is wrong.\n\n${fact}${owner}`
-  const review = (objections: string, verdict = 'Reorder'): string =>
-    `# Critic: e — 2026-11-08\n\nPlan: \`.scratch/e/spec.md\`\nVerdict: ${verdict} — one sentence.\n\n## Objections\n\n${objections}## Alternative\n\nOne.\n\n## What the critic cannot know\n\nUsage.\n`
+  const objection = (n: number, fact = 'Fact: `src/a.mjs:1`\n\n', owner = 'Owner decision:\n\n', judgement = 'Judgement: It costs a wave.\n\n'): string =>
+    `### ${n}. A title\n\n${fact}${judgement}${owner}`
+  const review = (objections: string, verdict = 'Reorder', alternative = 'One.'): string =>
+    `# Critic: e — 2026-11-08\n\nPlan: \`.scratch/e/spec.md\`\nVerdict: ${verdict} — one sentence.\n\n## Objections\n\n${objections}## Alternative\n\n${alternative}\n\n## What the critic cannot know\n\nUsage.\n`
+  /** The five plans of the fixture: two of ticket 11, three of ticket 18. */
+  const EPICS = ['export', 'greet', 'limit', 'sum-guard', 'sum-output']
 
   // Red before the agent exists: the case starts `worfy:critic`, and without harness/agents/critic.md
   // no run can start it, so the critics grader fails every run.
@@ -521,7 +530,55 @@ describe('harness/evals: critic-verdict', () => {
     expect(text).toContain('`<critic folder>/<epic>-<YYYY-MM-DD>.md`')
     // The four verdicts and the labels the graders read, as the agent writes them.
     for (const word of ['Keep', 'Reorder', 'Split', 'Defer']) expect(text).toContain(`\`${word}\``)
-    for (const label of ['Verdict:', 'Fact:', 'Owner decision:', '## Objections', '## Alternative', '## What the critic cannot know']) expect(text).toContain(label)
+    for (const label of ['Verdict:', 'Fact:', 'Judgement:', 'Owner decision:', '## Objections', '## Alternative', '## What the critic cannot know']) expect(text).toContain(label)
+  })
+
+  // Anchoring (research note 2026-11-08, section 2): a critic told "the plan is ready" leans on it. The
+  // input is the path of the plan; a verdict or self-assessment of its author, in the brief or in the
+  // plan, is a claim the critic checks, never a fact it cites; the caller of "Before a spec is
+  // accepted" passes none.
+  it('takes the path of the plan and nothing of its author: a verdict or self-assessment is checked, not cited', () => {
+    const text = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8')
+    const flat = text.replaceAll(/\s+/g, ' ')
+    expect(flat).toContain('## The input')
+    const input = flat.slice(flat.indexOf('## The input'), flat.indexOf('## First: the project'))
+    for (const words of ['the path of a spec or a plan', 'verdict of its author', 'self-assessment', 'in the brief or in the text of the plan', 'is a claim, not a fact', 'check what it claims yourself', 'never cite it']) {
+      expect(input).toContain(words)
+    }
+    const before = flat.slice(flat.indexOf('## Before a spec is accepted'))
+    expect(before).toContain('No verdict of the author and no self-assessment')
+  })
+
+  // The plans limit, sum-guard and sum-output of the eval: the old critic already found those mistakes,
+  // so the eval guards them against a regression and this test guards the words that ask for them.
+  it('looks for a duplicated feature, a cheaper existing check and a deferral whose revisit condition is met', () => {
+    const flat = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8').replaceAll(/\s+/g, ' ')
+    const look = flat.slice(flat.indexOf('## What to look for'), flat.indexOf('## The verdict'))
+    expect(look).toContain('a feature the repository already has is named by its file and line')
+    /** One item of the list, from its bold label to the next item or the end of the section. */
+    const item = (label: string): string => {
+      const start = look.indexOf(`- **${label}.**`)
+      expect(start, label).toBeGreaterThanOrEqual(0)
+      const next = look.indexOf('- **', start + 4)
+      return look.slice(start, next < 0 ? undefined : next)
+    }
+    const cost = item('Cost')
+    for (const words of ['builds a new mechanism', 'a check, script or test the project already has', 'does the same job', 'Name that check with its fact', 'the first candidate for the alternative']) {
+      expect(cost, words).toContain(words)
+    }
+    const history = item('History')
+    for (const words of ['decided or deferred before', 'an ADR, a closed ticket', 'a reason that no longer holds', 'the condition the earlier decision named for a revisit is now met', 'Propose to revisit it and cite the earlier decision', 'neither ignore it nor reverse it silently']) {
+      expect(history, words).toContain(words)
+    }
+  })
+
+  it('separates the fact from the judgement: each objection has a `Fact:` line and a `Judgement:` line, and the owner decision line stays', () => {
+    const text = readFileSync(join(HARNESS, 'agents', 'critic.md'), 'utf8')
+    const block = /```markdown\n([\s\S]*?)```/.exec(text)?.[1] ?? ''
+    // The template of one objection: the one-line heading, then Fact, Judgement and the empty owner decision, in that order.
+    expect(block).toMatch(/^### 1\. .+\n\nFact: .+\n\nJudgement: .+\n\nOwner decision:\n/m)
+    const flat = text.replaceAll(/\s+/g, ' ')
+    expect(flat).toContain('Every objection has its `Fact:` line and its `Judgement:` line')
   })
 
   // ADR-0101: the Product Session folder is docs/product in Full mode and <Workflow folder>/product in
@@ -560,20 +617,22 @@ describe('harness/evals: critic-verdict', () => {
     expect(relative(tree, workflowFolder).startsWith('..')).toBe(true)
   })
 
-  it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact and an owner decision line', () => {
+  it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact, a judgement and an owner decision line', () => {
     const text = example()
     expect(text.match(/^Verdict: (?:Keep|Reorder|Split|Defer) — \S/gm)).toHaveLength(1)
     expect(text).toMatch(pattern('export-not-keep.md'))
     expect(text).not.toMatch(pattern('export-at-most-three.md'))
     expect(text).not.toMatch(pattern('export-objection-facts.md'))
+    // The fact and the judgement apart: no text of the objection outside its labelled lines.
+    expect(text).toMatch(/^### 1\. .+\n\nFact: .+\n\nJudgement: .+\n\nOwner decision:\n/m)
     expect(text).toContain('\n## Alternative\n')
     expect(text).toContain('\n## What the critic cannot know\n')
   })
 
-  it('the format graders catch a fourth objection, an objection without a fact or an owner decision line, and the wrong verdict', () => {
+  it('the format graders catch a fourth objection, an objection without a fact, a judgement or an owner decision line, and the wrong verdict', () => {
     const facts = pattern('export-objection-facts.md')
-    // Both plans are checked with the same pattern.
-    expect(field(grader('greet-objection-facts.md'), 'pattern')).toBe(field(grader('export-objection-facts.md'), 'pattern'))
+    // Every plan is checked with the same pattern.
+    for (const epic of EPICS) expect(field(grader(`${epic}-objection-facts.md`), 'pattern'), epic).toBe(field(grader('export-objection-facts.md'), 'pattern'))
     const three = [1, 2, 3].map((n) => objection(n)).join('')
     expect(review(three)).not.toMatch(pattern('export-at-most-three.md'))
     expect(review(three + objection(4))).toMatch(pattern('export-at-most-three.md'))
@@ -582,9 +641,14 @@ describe('harness/evals: critic-verdict', () => {
     expect(review(objection(1) + objection(2, ''))).toMatch(facts)
     expect(review(objection(1, 'Fact:\n\n'))).toMatch(facts)
     expect(review(objection(1) + objection(2, undefined, ''))).toMatch(facts)
+    // A judgement missing, empty, or folded into the text of the fact.
+    expect(review(objection(1) + objection(2, undefined, undefined, ''))).toMatch(facts)
+    expect(review(objection(1, undefined, undefined, 'Judgement:\n\n'))).toMatch(facts)
+    expect(review(objection(1, 'Fact: `src/a.mjs:1`, so the plan breaks; Judgement: it costs a wave.\n\n', undefined, ''))).toMatch(facts)
     // The last objection at the end of the file, with no heading after it.
     expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n`).toMatch(facts)
-    expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n\nOwner decision:\n`).not.toMatch(facts)
+    expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n\nOwner decision:\n`).toMatch(facts)
+    expect(`Verdict: Split — why.\n\n### 1. A title\n\nFact: x\n\nJudgement: y\n\nOwner decision:\n`).not.toMatch(facts)
     expect(review(three, 'Keep')).not.toMatch(pattern('export-not-keep.md'))
     expect(review(three, 'Split')).toMatch(pattern('export-not-keep.md'))
     expect(review('None.\n\n', 'Keep')).toMatch(pattern('greet-keep.md'))
@@ -592,7 +656,57 @@ describe('harness/evals: critic-verdict', () => {
     expect(review('None.\n\n', '**Keep**')).not.toMatch(pattern('greet-keep.md'))
   })
 
-  it('each fact of example.md is the line of the fixture it quotes, and epic-status reads both plans', () => {
+  it('the prompt starts one critic per plan with only the path of its spec, and each plan has its review, format and behaviour graders', () => {
+    const prompt = readFileSync(join(CASE, 'prompt.md'), 'utf8').replace(/^---[\s\S]*?\n---\r?\n/, '')
+    for (const epic of EPICS) {
+      expect(prompt, epic).toContain(`\`.scratch/${epic}/spec.md\``)
+      expect(existsSync(join(CASE, 'graders', `${epic}-review-written.md`)), epic).toBe(true)
+      expect(field(grader(`${epic}-review-written.md`), 'path')).toBe(`docs/product/critic/${epic}-*.md`)
+    }
+    for (const words of ['`critic-<epic>`', 'the brief of each holds only the path of its spec', '`answer-<epic>.txt`', '`review-<epic>.md`']) expect(prompt).toContain(words)
+    expect([field(grader('critics.md'), 'min'), field(grader('critics.md'), 'max')]).toEqual([String(EPICS.length), String(EPICS.length)])
+    // The behaviour of each new plan: an llm grader that reads its review, and a regex grader on the fact it must name.
+    for (const name of ['limit-duplicate.md', 'sum-guard-cheaper.md', 'sum-output-revisit.md']) {
+      expect(field(grader(name), 'type'), name).toBe('llm')
+      expect(grader(name), name).toContain(`path: review-${name.slice(0, name.lastIndexOf('-'))}.md`)
+    }
+  })
+
+  it('the fact graders of the new plans: the duplicate names src/clamp.mjs with a line, the alternative names the existing check, the revisit names ADR 0001', () => {
+    const fact = (line: string): string => objection(1, `Fact: ${line}\n\n`)
+    expect(passes('limit-names-clamp.md', review(fact('`src/clamp.mjs:2` exports `clamp(value, min, max)`'), 'Defer'))).toBe(true)
+    expect(passes('limit-names-clamp.md', review(fact('`src/clamp.mjs` exports `clamp`'), 'Defer'))).toBe(false)
+    expect(passes('limit-names-clamp.md', review('None.\n\n', 'Keep'))).toBe(false)
+
+    const check = 'Extend `test/sum.test.mjs:6` with the table; `.githooks/pre-commit:3` already runs `node --test` before each commit.'
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', check))).toBe(true)
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
+    // A review of the paid run of round 2: the hook named by its folder and its setting, not by its file.
+    const hook = 'Make the existing hook switch itself on: a `"prepare": "git config core.hooksPath .githooks"` script in `package.json`.'
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', hook))).toBe(true)
+    // The plan's own hook path is not the existing check.
+    expect(passes('sum-guard-alternative-names-check.md', review(objection(1), 'Defer', 'Install `.git/hooks/pre-commit` with `tools/install-hook.mjs`.'))).toBe(false)
+    // The existing check named in an objection only, not in the alternative.
+    expect(passes('sum-guard-alternative-names-check.md', review(fact('`test/sum.test.mjs:6`'), 'Defer', 'Build the checker in one ticket.'))).toBe(false)
+
+    // The revisit condition of ADR 0001, by its line or its words; the bare number is in the plan already.
+    expect(passes('sum-output-cites-adr.md', review(fact('`docs/adr/0001-sum-cli-prints-plain-text.md:17` (a program reads the output)'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 says to revisit once "a program, not a person, reads the output"'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001, section "Revisit when"'), 'Defer'))).toBe(true)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR 0001 deferred `--json`'), 'Defer'))).toBe(false)
+    expect(passes('sum-output-cites-adr.md', review(fact('ADR-0001 deferred `--json` (`docs/adr/0001-sum-cli-prints-plain-text.md:12`)'), 'Defer'))).toBe(false)
+    expect(passes('sum-output-cites-adr.md', review(fact('`src/sum-cli.mjs:5`'), 'Keep'))).toBe(false)
+  })
+
+  // Anchoring: the export spec ends with its author's verdict on itself; a review that quotes it leaned on it.
+  it('the author-verdict grader passes example.md and refuses a review that quotes the self-assessment of the export spec', () => {
+    expect(passes('export-no-author-verdict.md', example())).toBe(true)
+    expect(passes('export-no-author-verdict.md', review(objection(1, 'Fact: `.scratch/export/spec.md:24` says "All risks reviewed, ready to ship"\n\n')))).toBe(false)
+    expect(passes('export-no-author-verdict.md', review(objection(1), 'Reorder — although the order was checked twice by the author,'))).toBe(false)
+    expect(passes('export-no-author-verdict.md', review(objection(1), 'Keep', 'The author\'s check says the plan is ready to ship.'))).toBe(false)
+  })
+
+  it('each fact of example.md is the line of the fixture it quotes, and epic-status reads all five plans', () => {
     const { work, home } = caseFixture('critic-verdict')
     const line = (rel: string, n: number): string => (readFileSync(join(work, rel), 'utf8').split('\n')[n - 1] ?? '').replace(/\r$/, '')
     const cited = [...example().matchAll(/`(\.scratch\/[^`]+):(\d+)` \(([^)]+)\)/g)].map((match) => [match[1] ?? '', Number(match[2]), match[3] ?? ''] as const)
@@ -601,6 +715,9 @@ describe('harness/evals: critic-verdict', () => {
     expect(line('.scratch/export/issues/02-export-command.md', 10)).toContain('`formatRow` is imported from `src/row.mjs`')
     expect(line('.scratch/export/spec.md', 18)).toBe('| 02 | src/export.mjs, test/export.test.mjs | 1 |')
     expect(line('.scratch/export/spec.md', 19)).toBe('| 03 | src/row.mjs, test/row.test.mjs | 2 |')
+    // The author's self-assessment the critic must not cite, in the words its grader looks for.
+    expect(line('.scratch/export/spec.md', 27)).toBe('All risks reviewed, ready to ship: the tickets and their order were checked twice.')
+    expect(readFileSync(join(work, '.scratch/export/spec.md'), 'utf8')).toMatch(pattern('export-no-author-verdict.md'))
     // The plan without an error: each ticket names the one it waits for.
     expect(line('.scratch/greet/issues/01-greeting.md', 5)).toBe('Blocked by: —')
     expect(line('.scratch/greet/issues/02-greet-command.md', 5)).toBe('Blocked by: 01')
@@ -608,13 +725,42 @@ describe('harness/evals: critic-verdict', () => {
     const status = harness(home, work, 'epic-status', ['--json'])
     expect(status.status, status.stderr).toBe(0)
     const tickets = (JSON.parse(status.stdout) as { tickets: { epic: string; num: number; statusError: string | null }[] }).tickets
-    for (const epic of ['export', 'greet']) {
-      expect(tickets.filter((ticket) => ticket.epic === epic).map((ticket) => [ticket.num, ticket.statusError])).toEqual([
-        [1, null],
-        [2, null],
-        [3, null],
-      ])
+    const counts: Record<string, number> = { export: 3, greet: 3, limit: 2, 'sum-guard': 3, 'sum-output': 2 }
+    for (const epic of EPICS) {
+      const nums = Array.from({ length: counts[epic] ?? 0 }, (_, i) => [i + 1, null])
+      expect(tickets.filter((ticket) => ticket.epic === epic).map((ticket) => [ticket.num, ticket.statusError]), epic).toEqual(nums)
     }
+  })
+
+  // What the graders of the three new plans hold the critic to is in the fixture, at the lines they name.
+  it('the new plans: limit duplicates src/clamp.mjs, sum-guard rebuilds the test and hook the project has, sum-output leans on a deferral whose condition now holds', () => {
+    const { work, home } = caseFixture('critic-verdict')
+    const read = (rel: string): string => readFileSync(join(work, rel), 'utf8').replaceAll('\r\n', '\n')
+    const line = (rel: string, n: number): string => read(rel).split('\n')[n - 1] ?? ''
+    // A feature the repository has, committed before the plans, and the plan that adds it again.
+    expect(line('src/clamp.mjs', 2)).toBe('export function clamp(value, min, max) {')
+    expect(read('.scratch/limit/spec.md')).toContain('`limit(n, low, high)`')
+    expect(read('.scratch/limit/issues/01-limit.md')).toContain('`src/limit.mjs` — new')
+    // An existing check: the test of sum and the hook that runs every test before a commit; the plan builds its own.
+    expect(line('test/sum.test.mjs', 6)).toBe('  assert.equal(sum(2, 3), 5)')
+    expect(line('.githooks/pre-commit', 3)).toBe('exec node --test')
+    expect(read('README.md')).toContain('git config core.hooksPath .githooks')
+    expect(read('.scratch/sum-guard/spec.md')).toContain('`tools/install-hook.mjs`')
+    // An earlier deferral and its condition, and the plan that shows the condition met yet keeps the deferral.
+    const adr = 'docs/adr/0001-sum-cli-prints-plain-text.md'
+    expect(read(adr)).toContain('`--json` is deferred')
+    expect(line(adr, 17)).toBe('A program, not a person, reads the output of `sum-cli`.')
+    expect(read('.scratch/sum-output/spec.md')).toContain('two programs read the output of `node src/sum-cli.mjs`')
+    expect(read('.scratch/sum-output/spec.md')).toContain('A JSON output: deferred by ADR 0001')
+    // The plan never states the revisit condition: a review that only echoes the plan fails its grader.
+    for (const rel of ['.scratch/sum-output/spec.md', '.scratch/sum-output/issues/01-pin-output.md', '.scratch/sum-output/issues/02-warn-in-code.md']) {
+      expect(read(rel), rel).not.toMatch(pattern('sum-output-cites-adr.md'))
+    }
+    expect(read(adr)).toMatch(pattern('sum-output-cites-adr.md'))
+    // The history is older than the plans: the existing feature, check and decision were there first.
+    const log = spawnSync('git', ['log', '--format=%s', '--reverse'], { cwd: work, encoding: 'utf8', env: childEnv(home, { PATH: process.env.PATH }) })
+    expect(log.status, log.stderr).toBe(0)
+    expect(log.stdout.trim().split('\n').slice(-2)).toEqual(['clamp, sum-cli, a pre-commit hook and ADR 0001', 'plans for acceptance'])
   })
 })
 
