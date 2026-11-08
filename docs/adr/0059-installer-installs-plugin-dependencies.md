@@ -102,3 +102,24 @@
 - **После упавшей установки `worfy` убирать и копию Harness, и marketplace `worfy-harness`.**
   Отвергнуто: копия в `~/.claude/worfy-harness/plugin/` и запись marketplace сами plugin не
   включают; следующая попытка ставит поверх них без повторной копии.
+
+## Amendments
+
+- 2026-11-08 — зависимости `mattpocock-skills` больше нет (Epic `worfy-skills`, Ticket-ы 01–04; решение владельца
+  2026-11-07). `harness/.claude-plugin/plugin.json` не объявляет `dependencies`: двадцать skills Matt Pocock взяты
+  копией версии 1.3.1 (MIT) внутрь plugin-а `worfy`, в `harness/skills/`, и вызываются как `worfy:<имя>`; источник,
+  лицензия и каждая правленая строка — в `harness/skills/THIRD_PARTY.md`. Тем самым принят вариант из «Considered
+  Options» «Убрать зависимость из `plugin.json`, а нужные skills перенести в Harness», отвергнутый здесь потому, что
+  ADR-0047, пункт 5 оставлял зависимость; у ADR-0047 своя поправка того же дня. Пункты 1–7 остаются в коде для будущей
+  зависимости: с пустым списком установщик (`src/main/harness/install.ts`, `src/main/harness/codex-install.ts`) не
+  строит команд зависимости, а строка первого запуска «Plugin dependencies» показывает `none`.
+- 2026-11-08 — пункт 8 «не удаляет её» дополняется правилом удаления (Ticket `worfy-skills` 03, решение владельца
+  2026-11-07, Q5). После `plugin update` уже установленного `worfy` — Update Harness в toolbar или установка после
+  Update приложения, никогда на первой установке — worfy удаляет `mattpocock-skills@claude-plugins-official`
+  (`claude plugin uninstall … --scope user`; в Codex — `codex plugin remove`), только если его поставил worfy. Так
+  говорит запись worfy о своих установках зависимостей (`harness-dependencies.json` в папке данных worfy: id, Vendor,
+  время; пишется с этой версии), а без записи — время установки, которое отдаёт Vendor: строго раньше
+  `worfy@worfy-harness` и не больше чем на 10 минут. Codex 0.166.0 времени установки не отдаёт, там решает запись; у
+  установок до этой версии записи нет, и в Codex такой plugin остаётся. Plugin, который поставил пользователь, plugin
+  без читаемого времени и marketplace `claude-plugins-official` остаются. Ошибка удаления — строка итога Update, Harness
+  остаётся установленным, следующий Update пробует снова. Код — `src/main/harness/dependency-cleanup.ts`.

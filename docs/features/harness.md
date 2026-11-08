@@ -131,7 +131,9 @@ Harness…". The form "Move the old Harness out of ~/.claude" has a row for each
 | Machine state | Move, Keep |
 | Profiles, each with its fields and a diff | Move, Keep |
 
-A row that cannot be removed offers Keep alone and says why. What the form does not list stays in `~/.claude`. Move is
+A row that cannot be removed offers Keep alone and says why. The old hook `hooks/session-end.sh`, which kept the log of
+a retrospective reminder the plugin no longer has, counts as a Harness file: its row and the row of its record in
+`settings.json` offer Remove. What the form does not list stays in `~/.claude`. Move is
 inactive, and the form says why, until the plugin is installed, enabled and of this build's version.
 
 After a consent dialog, everything the move takes or changes is copied to a folder `backup-<date>` in the Harness home,
@@ -146,8 +148,10 @@ The same install puts the same plugin folder into Codex, after the Claude Code p
 Codex's home folder exists (`CODEX_HOME`, else `.codex` in the home folder). Without that folder worfy touches nothing
 of Codex. The commands run the Codex binary of this build, never the user's `codex`, in this order:
 
-1. The dependency, as a plugin of its own, because Codex has no dependencies between plugins: `codex plugin marketplace
-   add anthropics/claude-plugins-official` when Codex does not know it, then `codex plugin add mattpocock-skills@claude-plugins-official`.
+1. Each missing dependency, as a plugin of its own, because Codex has no dependencies between plugins: `codex plugin
+   marketplace add anthropics/claude-plugins-official` when Codex does not know it, then `codex plugin add
+   <name>@claude-plugins-official`. As in Claude Code, this step runs only for a Harness copy that declares a
+   dependency, and the plugin declares none now. worfy records each dependency it adds in `harness-dependencies.json`.
 2. On a first install `codex plugin marketplace add <plugin folder>`, when Codex does not know it, then `codex plugin add
    worfy@worfy-harness`; with another version only the latter. Right before `codex plugin add` worfy writes
    `.codex-plugin/plugin.json` into the plugin folder: Codex reads it before `.claude-plugin/plugin.json`. It is Claude
@@ -225,8 +229,12 @@ that Machine itself.
   is renamed into place. Claude Code's own commands write `settings.json` and its plugins folder. They run with the Claude Code binary of the
   SDK and not the user's `claude` ([ADR-0008](../adr/0008-claude-code-native-binary-path.md)).
 - **A second `install` does not change a version**, so another version goes through `update`.
-- **The dependency goes first**, because `plugin install` succeeds without it and the plugin then does not load
-  ([ADR-0059](../adr/0059-installer-installs-plugin-dependencies.md)).
+- **A dependency goes first**, because `plugin install` succeeds without it and the plugin then does not load
+  ([ADR-0059](../adr/0059-installer-installs-plugin-dependencies.md)). The plugin declares none since it carries the
+  skills it took from `mattpocock-skills` itself; the mechanism stays for a future dependency.
+- **Only a plugin worfy installed is removed.** A dependency the user installed is the user's, so the rule asks worfy's
+  own record first and the install times second, and on any doubt the plugin stays (the amendment of
+  [ADR-0059](../adr/0059-installer-installs-plugin-dependencies.md#amendments)).
 - **Which Harness is on the Machine is looked up on every call**, so a switch needs no restart. The old Harness wins
   while its `bin/epic-status` is in the Claude home, because its hooks are still in `settings.json`
   ([ADR-0049](../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)). That is why the move removes this
@@ -249,6 +257,7 @@ that Machine itself.
 | `src/main/harness/bundled.ts` | Finds the copy and its version |
 | `src/main/harness/install.ts` | The installer: state, plan, version order, dialog text, swap of the folder |
 | `src/main/harness/codex-install.ts` | The Codex part of the installer: its state, commands and record |
+| `src/main/harness/dependency-cleanup.ts` | worfy's record of the dependencies it installed, and the rule that removes one an older Harness had it install |
 | `src/main/harness/codex-agents.ts` | The Codex agents: the TOML of each agent, which files are worfy's, the writes |
 | `src/main/vendors/codex/harness-hooks.ts` | Whether the Harness hooks are approved in Codex (`hooks/list`) |
 | `src/renderer/harness/CodexHooksStep.tsx` | The step "Approve the Harness hooks in Codex", whose "Check again" is the channel `harness.codexHooks` |
@@ -269,7 +278,8 @@ the one file outside them.
 Main tests: `test/contract/harness-install.test.ts`, with a stand-in Claude Code and failures injected in the copy and
 the renames. `test/e2e/harness-install.spec.ts` and `test/e2e/harness-migrate.spec.ts` go through the toolbar. Also
 `test/contract/harness-changed.test.ts`, `test/contract/harness-migrate.test.ts`, `test/unit/harness-locate.test.ts`,
-`test/unit/harness-status.test.tsx` and `test/unit/harness-migration-form.test.tsx`. In Codex:
+`test/unit/harness-status.test.tsx`, `test/unit/harness-migration-form.test.tsx` and, for the removal of a retired
+dependency, `test/contract/harness-dependency-cleanup.test.ts`. In Codex:
 `test/contract/harness-codex-install.test.ts`, with a stand-in `codex` and a temporary `CODEX_HOME`, whose agent files
 must equal `test/fixtures/codex-agents/expected/`; `test/contract/codex-harness-hooks.test.ts`,
 `test/unit/codex-hooks-step.test.tsx` and `test/e2e/codex-hooks-step.spec.ts` for the approval.
@@ -284,7 +294,7 @@ in `/worfy:epic-wave` and `worfy:implementer`.
 | Part | What it holds |
 |---|---|
 | Agents | The three roles, see [Agents](skills-agents-and-hooks.md#agents) |
-| Skills | The ten procedures, see [Skills](skills-agents-and-hooks.md#skills) |
+| Skills | Nine procedures of worfy and twenty skills copied from Matt Pocock's, see [Skills](skills-agents-and-hooks.md#skills) |
 | Hooks | The commands Claude Code runs on its events and the rule texts, see [Hooks](skills-agents-and-hooks.md#hooks) |
 | Scripts | The 20 programs below |
 | Profile contract | The description of a Profile and the schema of its draft |
