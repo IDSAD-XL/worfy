@@ -709,10 +709,12 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
     const stop = join(scratch, 'grandchild-stop')
     const marker = `worfy-ticket30-grandchild-${process.pid}-${Date.now()}`
     // Ends by itself on the stop file or after 30 s, so that a failing run leaves nothing for long.
+    // Its pid file comes by rename: written in place, it exists empty for a moment, and a test that
+    // read it then took pid 0 for the grandchild.
     const grandchild = [
       "const fs = require('node:fs')",
       'const [pidFile, stop] = process.argv.slice(1)',
-      'fs.writeFileSync(pidFile, String(process.pid))',
+      "fs.writeFileSync(pidFile + '.tmp', String(process.pid)); fs.renameSync(pidFile + '.tmp', pidFile)",
       'setInterval(() => { if (fs.existsSync(stop)) process.exit(0) }, 100)',
       'setTimeout(() => process.exit(0), 30000)',
     ].join('; ')
@@ -751,7 +753,8 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
    * A stand-in of project-connect that starts a grandchild in its own process group (not detached,
    * as qmd-collections runs `qmd update`), writes its pid and, with `exitCode`, exits at once while
    * the grandchild holds the inherited pipes. The grandchild ends by itself on the stop file or
-   * after 30 s, so that a failing run leaves nothing for long.
+   * after 30 s, so that a failing run leaves nothing for long. Its pid file comes by rename, never
+   * empty: a test that read it empty took pid 0 for the grandchild.
    */
   const groupScript = (binDir: string, exitCode: number | null): { pidFile: string; stop: string; marker: string } => {
     const pidFile = join(scratch, 'grandchild-pid')
@@ -760,7 +763,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
     const grandchild = [
       "const fs = require('node:fs')",
       'const [pidFile, stop] = process.argv.slice(1)',
-      'fs.writeFileSync(pidFile, String(process.pid))',
+      "fs.writeFileSync(pidFile + '.tmp', String(process.pid)); fs.renameSync(pidFile + '.tmp', pidFile)",
       'setInterval(() => { if (fs.existsSync(stop)) process.exit(0) }, 100)',
       'setTimeout(() => process.exit(0), 30000)',
     ].join('; ')

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   FIND_LIMIT,
   findDocs,
@@ -278,8 +278,12 @@ describe('what the search reads', () => {
   })
 })
 
-describe('speed on a Project the size of Auction', () => {
-  it('answers each character of a typed query in at most 100 ms', () => {
+describe('work per character on a Project the size of Auction', () => {
+  // The search is fast because of what it does per character, so that is what the test counts: a
+  // wall-clock limit here failed under the load of a full run (112 ms against 100) while the code did
+  // the same work. Each character reads each document's lower-cased text at most once and lower-cases
+  // no document again; a query that only grew reads only the documents that matched it before.
+  it('reads each document at most once per character, lower-cases no document, and narrows a grown query to the earlier matches', () => {
     // 42 Epics, 682 Tickets, 300 Nodes with titles, 6 open transcripts of 5 000 events, HANDOFF of
     // 40 KB and 20 Cards of 20 KB each: about 12 MB of text.
     const words = ['wave', 'ticket', 'canvas', 'session', 'agent', 'review', 'merge', 'search', 'palette', 'binding', 'layout', 'gate']
@@ -292,21 +296,49 @@ describe('speed on a Project the size of Auction', () => {
       Array.from({ length: 6 }, (_, s) => [`s${s}`, { events: Array.from({ length: 5000 }, (_, e) => ({ type: 'text', text: sentence(s + e, 50) })) }]),
     )
     const cards = Object.fromEntries(Array.from({ length: 20 }, (_, c) => [`n${c + 6}`, sentence(c, 2500)]))
+    const docs = findDocs({ nodes, epics, tickets, transcripts, handoff: sentence(1, 5000), cards })
     const index = new FindIndex()
-    index.sync(findDocs({ nodes, epics, tickets, transcripts, handoff: sentence(1, 5000), cards }))
+    index.sync(docs)
+    const allText = docs.reduce((sum, doc) => sum + doc.text.length, 0)
+    expect(allText).toBeGreaterThan(10_000_000)
 
-    // One query with many matches (the search stops at the limit) and one with none (every
-    // character scans all the text).
-    const times: number[] = []
-    for (const typed of ['palette review', 'quokka in the wave']) {
-      for (let length = 1; length <= typed.length; length += 1) {
-        const started = performance.now()
-        index.search(typed.slice(0, length))
-        times.push(performance.now() - started)
-      }
+    // Every String indexOf and toLowerCase of a search call, with the string it ran on.
+    const indexOf = vi.spyOn(String.prototype, 'indexOf')
+    const toLowerCase = vi.spyOn(String.prototype, 'toLowerCase')
+    /** Characters one search read: each indexOf from its start to the end of its match, or to the end of the text. */
+    const readBy = (query: string): number => {
+      indexOf.mockClear()
+      toLowerCase.mockClear()
+      index.search(query)
+      expect(toLowerCase.mock.contexts.every((text) => String(text).length <= query.length), `a search for "${query}" lower-cased a document`).toBe(true)
+      return indexOf.mock.calls.reduce((sum, [needle, from], call) => {
+        const text = String(indexOf.mock.contexts[call])
+        const at = indexOf.mock.results[call]!.value as number
+        return sum + (at >= 0 ? at + String(needle).length : text.length) - (typeof from === 'number' ? from : 0)
+      }, 0)
     }
-    const slowest = Math.max(...times)
-    console.info(`search per character on an Auction-size Project: slowest ${slowest.toFixed(1)} ms, all ${times.map((t) => t.toFixed(1)).join(' ')}`)
-    expect(slowest).toBeLessThanOrEqual(100)
+    try {
+      // One query with many matches (the search stops at the limit) and one with none (its first two
+      // characters read all the text, every later one nothing).
+      for (const typed of ['palette review', 'quokka in the wave']) {
+        for (let length = 2; length <= typed.length; length += 1) {
+          const query = typed.slice(0, length)
+          const matchedBefore = length > 2 ? index.search(typed.slice(0, length - 1)) : null
+          const read = readBy(query)
+          expect(read, `characters read for "${query}"`).toBeLessThanOrEqual(allText)
+          if (matchedBefore !== null && !matchedBefore.capped) {
+            const before = new Set(matchedBefore.matches.map((match) => match.key))
+            const beforeText = docs.filter((doc) => before.has(doc.key)).reduce((sum, doc) => sum + doc.text.length, 0)
+            expect(read, `characters read for "${query}" after "${typed.slice(0, length - 1)}"`).toBeLessThanOrEqual(beforeText)
+          }
+        }
+      }
+      expect(readBy('qu')).toBeGreaterThan(0)
+      expect(index.search('qu').matches).toEqual([])
+      expect(readBy('quo')).toBe(0)
+    } finally {
+      indexOf.mockRestore()
+      toLowerCase.mockRestore()
+    }
   })
 })

@@ -24,6 +24,13 @@ import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { GettingStartedSnapshot } from '../../src/shared/ipc/getting-started'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 
+// The modules the tests import after vi.resetModules, loaded once while the file is collected, where
+// no test's time limit runs. Without it the first test transformed the whole Sidebar tree inside its
+// own limit: 14 s of its 15 s under the load of a full run, and past it on a loaded Mac. resetModules
+// still gives each test new instances; only the transformed code is kept.
+await import('../../src/renderer/shell/Sidebar')
+await import('../../src/renderer/getting-started/GettingStartedPanel')
+
 const DEMO = 'demo-project-id'
 
 const snapshot = (change: Partial<GettingStartedSnapshot> = {}): GettingStartedSnapshot => ({

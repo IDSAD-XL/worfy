@@ -45,6 +45,7 @@
     "test/big-transcript.ts",
     "test/claude-home-legacy.ts",
     "test/git-bash.ts",
+    "test/git-env.ts",
     "test/global-setup-contract.ts",
     "test/harness-node.ts",
     "test/harness-scripts-suite.ts",

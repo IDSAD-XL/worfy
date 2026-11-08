@@ -47,6 +47,7 @@ printf '#!/bin/sh\n: >"$1.started"\nn=0; while [ ! -e "$1" ] && [ "$n" -lt 400 ]
 printf '#!/bin/sh\nn=0; until [ -s "$HB_PIDS" ] || [ "$n" -ge 100 ]; do sleep 0.05; n=$((n + 1)); done\nsleep 0.1\nnode -e "process.stdout.write(String(Date.now()))" >"$1"\n' >"$HBBIN/sleepgate"
 chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo" "$HBBIN/sleepgate"
 now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
+REAL_SLEEP="$(command -v sleep)"
 HB_LOOP='while sleep 300;'
 [[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
     || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
@@ -87,6 +88,13 @@ alive_of() {
 }
 none_alive() { [ -z "$(alive_of "$@")" ]; }
 gone_pid() { ! kill -0 "$1" 2>/dev/null; }
+# sleeps_of: how many heartbeat sleeps $HB_PIDS holds. step_done <count> <pid>: the heartbeat <pid> has begun a sleep
+# since $HB_PIDS held <count>, or is gone. A step of the heartbeat is kill -0, the grep of holder.json, the touch, then
+# its sleep: a sleep begun after the caller rewrote holder.json means a step that read the old one has made its touch.
+# A fixed 0.5 s pause stood here: under load the touch of such a step came later and was taken for a touch of the
+# other agent's lock.
+sleeps_of() { wc -l <"$HB_PIDS" 2>/dev/null | tr -d ' '; }
+step_done() { [ "$(sleeps_of)" -gt "$1" ] || gone_pid "$2"; }
 mtime_of() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }   # GNU stat (Git Bash, Linux), else BSD stat (macOS)
 # stop_tree <pid>: ends the heartbeat <pid>, as the block's trap does. In Git Bash (the pid has /proc/<pid>/winpid) no
 # kill -STOP: there a kill -KILL after it can leave the process alive and deaf to every signal; a heartbeat still
@@ -167,13 +175,14 @@ for sh in "${SHELLS[@]}"; do
     rm -f "$L/holder.json" "$W/hb.pid" "$W/go" "$W/go.started" "$W/go.done"; rmdir "$L" 2>/dev/null
     # The same kill -9, but then another agent holds the lock (its own holder.json, an old mtime): the heartbeat that
     # outlived its shell (as one that kill -f also failed to end would) does not touch that lock and ends within 3 s,
-    # so the other agent's lock can still go stale. The other holder.json is written first and the old mtime 0.5 s
-    # later: a heartbeat step already past its holder.json check when the file changed has touched by then.
+    # so the other agent's lock can still go stale. The other holder.json is written first and the old mtime once the
+    # heartbeat has begun its next sleep (step_done): a step already past its holder.json check has touched by then.
     PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
     if until_ok 10 test -s "$W/hb.pid" && until_ok 10 test -e "$W/go.started"; then
         hb="$(cat "$W/hb.pid")"
         kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
-        printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; sleep 0.5; touch -t 202001010000 "$L"
+        n="$(sleeps_of)"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
+        until_ok 10 step_done "$n" "$hb"; touch -t 202001010000 "$L"
         m0="$(mtime_of "$L")"; until_ok 3 gone_pid "$hb"; ended=$?; sleep 0.5; m1="$(mtime_of "$L")"
         [ "$ended" = 0 ] && [ "$m0" = "$m1" ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
             && ok "$sh: the one-PR gate full block: a heartbeat that outlived its shell leaves another agent's lock untouched and ends within 3 s" \
@@ -215,7 +224,8 @@ for sh in "${SHELLS[@]}"; do
         moved() { [ "$(mtime_of "$L")" != "$old" ]; }
         until_ok 3 moved && ok "$sh: the one-PR gate full block: the heartbeat of a live block touches its own lock" \
             || bad "$sh: the one-PR block: the heartbeat $hb did not touch its own lock within 3 s [holder $(cat "$L/holder.json" 2>&1)]"
-        printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; sleep 0.5; touch -t 202001010000 "$L"
+        n="$(sleeps_of)"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
+        until_ok 10 step_done "$n" "$hb"; touch -t 202001010000 "$L"
         m0="$(mtime_of "$L")"; sleep 1; m1="$(mtime_of "$L")"
         ours "$hb" "$W" && [ "$m0" = "$m1" ] \
             && ok "$sh: the one-PR gate full block: after another agent takes the lock the heartbeat stops touching it but lives while its shell does" \
@@ -233,21 +243,25 @@ for sh in "${SHELLS[@]}"; do
     : >"$W/go"; until_ok 5 test -e "$W/go.done" || bad "$sh: the one-PR block, live: the stub gate did not end"
     rm -f "$L/holder.json" "$W/hb.pid" "$W/go" "$W/go.started" "$W/go.done"; rmdir "$L" 2>/dev/null
     for p in $(alive_of "$HB_PIDS" "$FAST"); do kill "$p" 2>/dev/null; done
-    # The trap of a normal run returns quickly: the gate ends while the heartbeat is in its sleep, and from the gate's
-    # end to the end of the block's shell takes under 1.2 s. The trap needs about 0.15 s (three empty passes 0.05 s
-    # apart); the loop that counted the zombie `sleep` as a child (procps pkill, Linux) needs at least its 40 passes,
-    # 2 s, so it fails here every time, not by chance. 40 such traps took a file over its 120 s limit on Linux CI.
-    # macOS pkill does not match a zombie, so there this case is green on both loops. Not in Git Bash: no pkill, and
-    # its trap waits for the heartbeat on its own bounded loop.
+    # The trap of a normal run ends on its three empty passes, not on its cap: the gate ends while the heartbeat is in
+    # its sleep, and the trap's loop sleeps 0.05 s once per pass. A `sleep` put first in PATH records each pause, so
+    # the case counts the passes instead of timing them: a limit of 1.2 s on the wall clock failed under load (each
+    # `ps` of a pass slower) while the trap made its three passes. The loop that counted the zombie `sleep` as a child
+    # (procps pkill, Linux) runs all its 40 passes, so it fails here every time, not by chance. 40 such traps took a
+    # file over its 120 s limit on Linux CI. macOS pkill does not match a zombie, so there this case is green on both
+    # loops. Not in Git Bash: no pkill, and its trap waits for the heartbeat on its own bounded loop.
     if ! on_windows && command -v pkill >/dev/null 2>&1; then
         : >"$HB_PIDS"; rm -f "$W/t0"
         b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" $LONG;}"; b="${b//@GATE@/\"$HBBIN/sleepgate\" \"$W/t0\"}"
-        run_limited 15 "$W/run.out" env PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b"; t1="$(now_ms)"
-        t0="$(cat "$W/t0" 2>/dev/null)"; took=$(( t1 - ${t0:-0} ))
+        SB="$W/sleep-bin"; mkdir -p "$SB"; : >"$W/sleeps"
+        # Records only once the gate has ended ($W/t0 written): the stub gate's own waits are not the trap's.
+        printf '#!/bin/sh\n[ ! -e "%s" ] || echo "$1" >>"%s"\nexec "%s" "$@"\n' "$W/t0" "$W/sleeps" "$REAL_SLEEP" >"$SB/sleep"; chmod +x "$SB/sleep"
+        run_limited 15 "$W/run.out" env PATH="$SB:$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b"; t1="$(now_ms)"
+        t0="$(cat "$W/t0" 2>/dev/null)"; took=$(( t1 - ${t0:-0} )); passes="$(grep -cx '0.05' "$W/sleeps")"
         until_ok 2 none_alive "$HB_PIDS" "$LONG"; left="$(alive_of "$HB_PIDS" "$LONG")"
-        [ "$rc" = 0 ] && [ -s "$W/t0" ] && [ -s "$HB_PIDS" ] && [ "$took" -lt 1200 ] && [ -z "$left" ] && [ ! -e "$L" ] \
-            && ok "$sh: the one-PR gate full block: with the heartbeat in its sleep, the block ends within 1.2 s of its gate (${took} ms) and leaves no sleep" \
-            || bad "$sh: the one-PR block, timed trap: exit $rc, ${took} ms from the gate's end (limit 1200), heartbeat sleeps recorded [$(tr '\n' ' ' <"$HB_PIDS")], left [$left], lock [$(ls -A "$L" 2>&1)] [$(cat "$W/run.out")]"
+        [ "$rc" = 0 ] && [ -s "$W/t0" ] && [ -s "$HB_PIDS" ] && [ "$passes" -ge 3 ] && [ "$passes" -lt 40 ] && [ -z "$left" ] && [ ! -e "$L" ] \
+            && ok "$sh: the one-PR gate full block: with the heartbeat in its sleep, the trap ends on empty passes ($passes, ${took} ms), not on its 40, and leaves no sleep" \
+            || bad "$sh: the one-PR block, trap passes: exit $rc, $passes passes of at most 40 (${took} ms from the gate's end), heartbeat sleeps recorded [$(tr '\n' ' ' <"$HB_PIDS")], left [$left], lock [$(ls -A "$L" 2>&1)] [$(cat "$W/run.out")]"
         for p in $left; do kill "$p" 2>/dev/null; done
         rm -f "$L/holder.json" "$W/t0"; rmdir "$L" 2>/dev/null
     fi
