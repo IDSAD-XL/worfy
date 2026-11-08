@@ -50,6 +50,7 @@ Source: решение владельца 2026-11-06, Q5 (бриф Orchestrator-
 
 - [ ] Shell test `harness/bin/tests/worktree-lock-prune.test.sh` (новый; `HOME` и `HARNESS_HOME` — во временном
       каталоге, настоящий `~/.claude` не трогается) зелёный, случаи:
+  - evidence: test-run pass · `bash harness/bin/tests/worktree-lock-prune.test.sh` exit 0 (passed 29, failed 0) · mac - · c5dd1e7ed
       - дерево удалено (`rm -rf` папки после `claim`) → `worktree-lock prune` удаляет его файл, печатает «removed 1 of …»;
       - дерево есть, записи старше TTL → файл остаётся;
       - запись без `root` (старый формат), `cwd` не существует → файл удалён; `cwd` есть → остаётся;
@@ -63,8 +64,11 @@ Source: решение владельца 2026-11-06, Q5 (бриф Orchestrator-
       - запись нового формата несёт `root`.
 - [ ] Mutant-ы красные: без проверки (а) (удалять всё), без пункта «хотя бы одна живая папка» (удалять при первой
       мёртвой), без повторной проверки под mutex-ом, без метки суток.
+  - evidence: test-run pass · `bash mutants.sh` (four mutants of worktree-lock run against worktree-lock-prune.test.sh in copies of harness/) each exit 1 · mac - · c5dd1e7ed
 - [ ] `harness/bin/tests/harness-home.test.sh` и остальные test-ы Harness — exit 0 (`claim` по-прежнему оставляет один
       файл в живом дереве).
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (684 files passed, all Harness shell tests included) · mac - · c5dd1e7ed
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c5dd1e7ed
 - [ ] На копии настоящего реестра (вручную): `cp -R ~/.claude/worfy-harness/worktree-sessions` во временный
       `HARNESS_HOME`, `worktree-lock prune` — число удалённых совпадает с замером «папки нет» плюс `{}`; файлы
       открытых сейчас worktree остались. Цифры — в «Итог».
