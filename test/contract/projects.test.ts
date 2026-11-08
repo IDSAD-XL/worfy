@@ -1406,7 +1406,7 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
   it('deleteTeamReviewer refuses a Profile folder that is not an absolute path and removes nothing', async () => {
     const { deleteTeamReviewer } = await import('../../src/main/projects/review-offer')
     const folder = builtReviewer('shop', {})
-    expect(() => deleteTeamReviewer(relative(process.cwd(), profileDir))).toThrow('the Profile folder is not an absolute path')
+    expect(() => deleteTeamReviewer(join('projects', 'shop'))).toThrow('the Profile folder is not an absolute path')
     expect(() => deleteTeamReviewer('')).toThrow('the Profile folder is not an absolute path')
     expect(existsSync(folder)).toBe(true)
   })
