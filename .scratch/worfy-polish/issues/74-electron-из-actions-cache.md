@@ -58,10 +58,15 @@ Linux X64, macOS ARM64 и Windows X64, так что после merge PR-ы бе
 - [ ] В каждом job-е CI с Electron (`linux-tests`, `macos-tests`, `macos-e2e`, `macos-package`, `windows-e2e`,
   `listed-tests`, `full-suite`) после install стоят одни и те же четыре step-а кэша Electron; key — ОС, arch и версия
   Electron из lockfile.
-- [ ] Тёплый кэш не идёт в сеть: локально, с zip в папке `electron_config_cache` и недоступным `ELECTRON_MIRROR`,
-  `node -e "require('electron')"` — exit 0, «Cache hit» в `DEBUG=@electron/get*`; с пустой папкой — ошибка скачивания.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts` exit 0; the four Electron steps line by line in the 7 jobs that run pnpm test or vitest-electron, none elsewhere; the version step output equals the lockfile entry · mac - · 40369f8fc
+- [ ] Тёплый кэш не идёт в сеть: локально, с zip в папке `electron_config_cache` и сетью, закрытой мёртвым proxy
+  (`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`), `node -e "require('electron')"` — exit 0, «Cache hit» в
+  `DEBUG=@electron/get*`; с пустой папкой — ошибка скачивания. Не `ELECTRON_MIRROR`: другой mirror меняет адрес, а
+  папка в кэше — sha256 адреса, так что кэш промахнулся бы.
+  - evidence: test-run pass · `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9 electron_config_cache=<dir> DEBUG=@electron/get:* node -e "require(electron)"` exit 0 with the 44.10.2 zip (Cache hit), exit 1 with an empty dir (Cache miss, fetch failed) · mac - · 40369f8fc
 - [ ] `test/contract/ci-workflow.test.ts`, `test/contract/windows-tests-workflow.test.ts`, `actionlint` (если есть),
   `check-cyrillic`, lint, typecheck, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0; ci-workflow, windows-tests-workflow, ci-scope-e2e contract tests, check-cyrillic, lint, typecheck exit 0; actionlint not installed · mac - · 40369f8fc
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
 
 ## Тесты
