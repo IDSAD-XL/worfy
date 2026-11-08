@@ -1,7 +1,8 @@
 # 65 — Flaky test autopilot-wait: сообщение между чтением и ответом
 
 Type: bug
-Status: claimed
+Status: done 2026-11-08T01:14Z
+PR: #1608
 Blocked by: —
 Source: CI PR #1592 linux-tests (2/4) и main run 42266856501 (FLAKY).
 
@@ -37,6 +38,7 @@ Source: CI PR #1592 linux-tests (2/4) и main run 42266856501 (FLAKY).
       `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1d797fb43a9f6292cd8eddca1813aaed04434cfa
 - [ ] ci-ok зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42423267792/job/128570559637 · ci - · 6a6dc139ce02690c06f11d0126fc900e31eb6913
 
 ## Где в коде
 
