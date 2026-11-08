@@ -1,7 +1,8 @@
 # 03 — Чистка `docs/`, `HANDOFF.md`, `CONTEXT.md`, `README.md`
 
 Type: task
-Status: open
+Status: done 2026-11-08T19:19Z
+PR: #1688
 Blocked by: 01
 Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08»; «Как работает» → «Чистка»; «Решено без владельца», п. 5; Q1, Q2
 
@@ -32,12 +33,15 @@ Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08»
 - [ ] Отчёт guard-а по `docs/`, `HANDOFF.md`, `CONTEXT.md`, `README.md` — ноль находок, кроме аккаунта репозитория в
       URL.
   - evidence: test-run pass · `node scripts/check-personal.mjs --report --list` exit 0, 0 findings under docs/, HANDOFF.md, CONTEXT.md, README.md · mac - · 9f1eecbdd6fc5f6edf4dde8a8cad760d254ce645
+  - evidence: review pass · PR #1688 · - - · 8f6a1492bee794341a5261572d24c0a5cbeb5520
 - [ ] `git diff origin/main -- docs/adr` меняет только строки с личным и дописывает `## Amendments`; второй агент
       проверил, что смысл каждой правленой строки ADR не изменился.
+  - evidence: review pass · PR #1688 · - - · 8f6a1492bee794341a5261572d24c0a5cbeb5520
 - [ ] `node scripts/check-feature-docs.mjs`, `node scripts/check-handoff.mjs`, `node scripts/check-cyrillic.mjs` —
       exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `node scripts/check-feature-docs.mjs && node scripts/check-handoff.mjs && node scripts/check-cyrillic.mjs` exit 0 · mac - · 9f1eecbdd6fc5f6edf4dde8a8cad760d254ce645
   - evidence: gate pass · `gate fast` exit 0 · mac - · 9f1eecbdd6fc5f6edf4dde8a8cad760d254ce645
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42513389270/job/128832194181 · ci - · 8f6a1492bee794341a5261572d24c0a5cbeb5520
 
 ## Тесты
 
