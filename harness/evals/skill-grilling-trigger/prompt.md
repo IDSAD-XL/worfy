@@ -1,5 +1,5 @@
 ---
-description: 'A plain "grill me on this plan" calls the copied skill worfy:grilling, never a skill of the plugin mattpocock-skills, and the reply is a numbered round of questions with recommended answers (skills/grilling/SKILL.md).'
+description: 'A plain "grill me on this plan" calls the copied skill worfy:grilling, never a skill of another plugin, and the reply is a numbered round of questions with recommended answers (skills/grilling/SKILL.md).'
 tags: [main]
 runs: 3
 max_turns: 30

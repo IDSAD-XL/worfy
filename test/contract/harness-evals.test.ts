@@ -806,16 +806,18 @@ describe('harness/evals: the cases of the copied skills', () => {
     expect(wayfinder).toContain('"worfy:domain-modeling"')
   })
 
-  it('the Skill graders take the call by the plugin name and refuse a call of mattpocock-skills', () => {
+  it('the Skill graders take the call by the plugin name and refuse a call of another plugin', () => {
     for (const name of ['skill-grilling-trigger', 'skill-wayfinder-refs']) {
       const called = inputMatch(name, 'grilling-called.md')
       expect(skill('worfy:grilling')).toMatch(called)
       expect(JSON.stringify({ skill: 'worfy:grilling', args: 'the plan' })).toMatch(called)
       expect(skill('mattpocock-skills:grilling')).not.toMatch(called)
       expect(skill('worfy:grill-me')).not.toMatch(called)
-      const other = inputMatch(name, 'no-mattpocock-skill.md')
+      const other = inputMatch(name, 'no-other-plugin-skill.md')
       expect(skill('mattpocock-skills:grilling')).toMatch(other)
+      expect(JSON.stringify({ skill: 'mattpocock-skills:domain-modeling', args: 'terms' })).toMatch(other)
       expect(skill('worfy:grilling')).not.toMatch(other)
+      expect(JSON.stringify({ skill: 'worfy:domain-modeling', args: 'see mattpocock-skills:grilling' })).not.toMatch(other)
     }
     const modeling = inputMatch('skill-wayfinder-refs', 'domain-modeling-called.md')
     expect(skill('worfy:domain-modeling')).toMatch(modeling)
