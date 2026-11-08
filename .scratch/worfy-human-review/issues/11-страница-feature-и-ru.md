@@ -30,8 +30,11 @@ worfy-feature-docs: каждое утверждение — путь и стро
 
 - [ ] Страница и `ru/` копия описывают сделанное в 03–10; каждое утверждение — со ссылкой на файл и строку, проверено
       вторым агентом.
+  - evidence: commit pass · docs: add the Team reviewer feature page and its Russian copy (claims checked against the code by a second agent) · - - · 588c8b0531961928611ae8e691a397e8bd1879f1
 - [ ] На странице нет ни одного текста комментария, логина, пути домашней папки и названия чужого проекта.
+  - evidence: test-run pass · `node harness/bin/evidence-check docs/features/human-review.md docs/features/ru/human-review.md` exit 0 · mac - · 588c8b0531961928611ae8e691a397e8bd1879f1
 - [ ] `node scripts/check-cyrillic.mjs`, `node scripts/check-handoff.mjs` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `node scripts/check-cyrillic.mjs && node scripts/check-handoff.mjs` exit 0 · mac - · 588c8b0531961928611ae8e691a397e8bd1879f1
 
 ## Тесты
 

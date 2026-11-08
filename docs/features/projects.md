@@ -79,7 +79,8 @@ team's reviewers left 30 substantive comments in the last 12 months (`voice: yes
 Project's root on Claude Code, whose first message is `/worfy:human-review-setup`. "Later", or closing the toast, saves
 `humanReview.offer: "later"` in the Project's settings, and the offer is not made again, after a restart or a new add
 alike. `voice: no`, no `origin` on GitHub, no gh, a failure or the time limit show nothing; the log gets one line. A Project
-whose reviewer is built already gets no offer.
+whose reviewer is built already gets no offer. What the reviewer is, how it is built and checked, and who gets it:
+[Team reviewer](human-review.md).
 
 **The reminder to update the team reviewer.** Each time a window makes a Project active, it asks main whether the
 reminder is due. It is due when the reviewer is built, its date (as "Team reviewer" shows it below) is more than 30 days
@@ -252,7 +253,7 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Once built, the reviewer reaches every Claude Code Session of the Project that a person is at, as `/human-review`: the
   Orchestrator, "New session", "Ship ticket" and a Product Session. Each start reads the Profile folder and adds the private
   folder as an extra directory after the Cards folder. `skills.allowed` does not remove it. An Autopilot Session, the draft
-  Session of "Add project" and a Codex Session never get it (ADR-0102).
+  Session of "Add project" and a Codex Session never get it (ADR-0102). The whole Feature: [Team reviewer](human-review.md).
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
