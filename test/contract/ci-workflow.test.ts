@@ -77,8 +77,9 @@ const DECIDED = JOBS.filter((name) => name !== 'changes' && name !== 'ci-ok')
 /**
  * The four steps that take the Electron binary from actions/cache (worfy-polish 74), line by line as
  * they stand in every job that starts Electron, right after the install: the version node_modules
- * holds (the lockfile's), the restore under electron-<os>-<arch>-<version>, require('electron') with
- * electron_config_cache on the restored folder, and on a miss the save at once.
+ * holds (the lockfile's), the restore under electron-<os>-<arch>-<version>, scripts/download-electron.mjs
+ * (install.js of electron, up to 3 attempts) with electron_config_cache on the restored folder, and on
+ * a miss the save at once.
  */
 const ELECTRON_STEPS = [
   '      - name: Read the Electron version',
@@ -94,7 +95,7 @@ const ELECTRON_STEPS = [
   '        env:',
   '          electron_config_cache: ${{ runner.temp }}/electron-cache',
   "          DEBUG: '@electron/get:*'",
-  `        run: node -e "require('electron')"`,
+  '        run: node scripts/download-electron.mjs',
   '      - name: Save the Electron download',
   "        if: steps.electron-cache.outputs.cache-hit != 'true'",
   '        uses: actions/cache/save@v6',

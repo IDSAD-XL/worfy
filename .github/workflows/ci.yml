@@ -63,11 +63,14 @@ name: CI
 # one of them before any test (worfy-polish 74). So each of them, right after the install, runs the
 # same four steps: read the Electron version node_modules holds (the lockfile's), restore the folder
 # of @electron/get's downloads from actions/cache under the key electron-<os>-<arch>-<version>,
-# require('electron') with electron_config_cache on that folder (the only cache variable install.js of
-# electron reads), and on a miss save the folder at once, so a job whose tests fail later still fills
+# run install.js of electron with electron_config_cache on that folder (the only cache variable that
+# install.js reads), and on a miss save the folder at once, so a job whose tests fail later still fills
 # the cache. A warm cache asks GitHub releases nothing: @electron/get checks the zip against the
-# checksums.json of the electron package. A cold one downloads as before. DEBUG names the outcome in
-# the log: "@electron/get:index Cache hit", or "Cache miss" and "Downloading https://…". A cache saved
+# checksums.json of the electron package. A cold one downloads as before, and
+# scripts/download-electron.mjs tries it 3 times, 20 s and then 60 s apart: releases fails single
+# requests (a 503 in one shard of run 42472260347 while two others got the same file that minute).
+# DEBUG names the outcome in the log: "@electron/get:index Cache hit", or "Cache miss" and
+# "Downloading https://…". A cache saved
 # by a pull request serves only that pull request; one saved on main serves every pull request.
 # test/contract/ci-workflow.test.ts checks that the four steps are the same in every such job.
 #
@@ -214,7 +217,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -307,7 +310,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -359,7 +362,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -434,7 +437,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -512,7 +515,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

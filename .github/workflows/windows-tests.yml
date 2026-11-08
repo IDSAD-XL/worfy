@@ -140,7 +140,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # The Electron binary, from actions/cache when it is warm: the same four steps as in every job of
       # ci.yml that starts Electron (see "The Electron binary" at the top of ci.yml, worfy-polish 74).
-      # A warm cache asks GitHub releases nothing; a cold one downloads the zip as before and saves it.
+      # A warm cache asks GitHub releases nothing; a cold one downloads the zip as before, up to 3 times
+      # (scripts/download-electron.mjs), and saves it.
       - name: Read the Electron version
         id: electron
         run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
@@ -154,7 +155,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -229,7 +230,7 @@ jobs:
         env:
           electron_config_cache: ${{ runner.temp }}/electron-cache
           DEBUG: '@electron/get:*'
-        run: node -e "require('electron')"
+        run: node scripts/download-electron.mjs
       - name: Save the Electron download
         if: steps.electron-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6

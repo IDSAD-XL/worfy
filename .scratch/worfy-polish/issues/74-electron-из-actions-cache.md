@@ -32,18 +32,27 @@ correctly». Кэша между run-ами нет: `actions/setup-node` с `cac
      записана в lockfile, — в output `version`;
    - `Restore the Electron download` (id `electron-cache`, `actions/cache/restore`): папка
      `${{ runner.temp }}/electron-cache`, key `electron-<runner.os>-<runner.arch>-<version>`;
-   - `Download the Electron binary`: `node -e "require('electron')"` с `electron_config_cache` на эту папку; на тёплом
-     кэше zip берётся из неё, и GitHub releases не спрашивают;
+   - `Download the Electron binary`: `node scripts/download-electron.mjs` с `electron_config_cache` на эту папку и
+     `DEBUG=@electron/get:*`; на тёплом кэше zip берётся из неё, и GitHub releases не спрашивают;
    - `Save the Electron download` (`actions/cache/save`): только при промахе (`cache-hit != 'true'`), сразу после
      скачивания, а не в конце job-а, — кэш пополняется, даже если test-ы потом упадут.
    Холодный кэш скачивает zip, как раньше. Shared composite action-а в репозитории нет (`.github/actions/` не
    заведена), поэтому step-ы повторены в каждом job-е, а одинаковость их проверяет contract test.
 2. `macos-package` уже скачивал binary отдельным step-ом — этот step становится частью тех же четырёх.
 3. `lint-typecheck` и `changes` Electron не запускают — их не трогаем.
-4. Test-ы: `test/contract/ci-workflow.test.ts` — каждый job, который запускает `pnpm test`, `pnpm test:e2e` или
+4. Повтор холодного скачивания (review round 1, medium): `scripts/download-electron.mjs` запускает
+   `node node_modules/electron/install.js` (тот же файл, что запускает `require('electron')`, когда binary нет) до 3
+   раз, с паузами 20 s и 60 s, печатает одну строку на попытку и выходит с кодом последней. В run 42472260347 этого PR
+   shard `linux-tests (2/4)` получил «Response code 503» на `electron-v44.10.2-linux-x64.zip`, а shard-ы 1/4 и 3/4 в ту
+   же минуту скачали тот же файл: отказы — одиночные запросы, а `@electron/get` их не повторяет. Неудачная попытка
+   ничего не оставляет: zip сверяется с `checksums.json` до того, как попадёт в кэш (`dist/index.js`), а `path.txt`
+   пишется только после распаковки. Для test-а: `DOWNLOAD_ELECTRON_INSTALL` — подставной install script,
+   `DOWNLOAD_ELECTRON_WAITS_MS` — паузы в ms через запятую (попыток на одну больше, чем пауз).
+5. Test-ы: `test/contract/ci-workflow.test.ts` — каждый job, который запускает `pnpm test`, `pnpm test:e2e` или
    `pnpm test:package`, несёт эти четыре step-а сразу после install, слово в слово одинаковые, и ни в одном `run` нет
    `${{`; `test/contract/windows-tests-workflow.test.ts` — новые step-ы в списках step-ов, команд, `if:` и выражений
-   обоих job-ов. Пределы (timeout-ы, 10 и 60 минут) не меняются.
+   обоих job-ов; `test/unit/download-electron.test.ts` — успех с третьей попытки, отказ после трёх с кодом последней,
+   ни одной попытки после успеха (подставной install script, паузы 0). Пределы (timeout-ы, 10 и 60 минут) не меняются.
 
 Ограничения: только бесплатные стандартные runner-ы; никакого `pull_request_target` и secrets; timeout-ы test-ов и
 job-ов не меняются; ручных повторов CI нет.
@@ -58,23 +67,26 @@ Linux X64, macOS ARM64 и Windows X64, так что после merge PR-ы бе
 - [ ] В каждом job-е CI с Electron (`linux-tests`, `macos-tests`, `macos-e2e`, `macos-package`, `windows-e2e`,
   `listed-tests`, `full-suite`) после install стоят одни и те же четыре step-а кэша Electron; key — ОС, arch и версия
   Electron из lockfile.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts` exit 0; the four Electron steps line by line in the 7 jobs that run pnpm test or vitest-electron, none elsewhere; the version step output equals the lockfile entry · mac - · 40369f8fc
 - [ ] Тёплый кэш не идёт в сеть: локально, с zip в папке `electron_config_cache` и сетью, закрытой мёртвым proxy
-  (`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`), `node -e "require('electron')"` — exit 0, «Cache hit» в
-  `DEBUG=@electron/get*`; с пустой папкой — ошибка скачивания. Не `ELECTRON_MIRROR`: другой mirror меняет адрес, а
+  (`NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9`), `node scripts/download-electron.mjs` — exit 0 с первой
+  попытки, «Cache hit» в `DEBUG=@electron/get*`; с пустой папкой — три неудачные попытки, exit 1, папка пуста. Не `ELECTRON_MIRROR`: другой mirror меняет адрес, а
   папка в кэше — sha256 адреса, так что кэш промахнулся бы.
-  - evidence: test-run pass · `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:9 electron_config_cache=<dir> DEBUG=@electron/get:* node -e "require(electron)"` exit 0 with the 44.10.2 zip (Cache hit), exit 1 with an empty dir (Cache miss, fetch failed) · mac - · 40369f8fc
-- [ ] `test/contract/ci-workflow.test.ts`, `test/contract/windows-tests-workflow.test.ts`, `actionlint` (если есть),
+- [ ] `scripts/download-electron.mjs` повторяет install.js до 3 раз (20 s, затем 60 s), код выхода — последней попытки,
+  после успеха попыток больше нет.
+- [ ] `test/contract/ci-workflow.test.ts`, `test/contract/windows-tests-workflow.test.ts`,
+  `test/unit/download-electron.test.ts`, `actionlint` (если есть),
   `check-cyrillic`, lint, typecheck, gate fast — exit 0.
-  - evidence: gate pass · `gate fast` exit 0; ci-workflow, windows-tests-workflow, ci-scope-e2e contract tests, check-cyrillic, lint, typecheck exit 0; actionlint not installed · mac - · 40369f8fc
 - [ ] `ci-ok` зелёный на head PR, job-ы Windows в нём зелёные.
 
 ## Тесты
 
-- `node scripts/vitest-electron.mjs test/contract/ci-workflow.test.ts test/contract/windows-tests-workflow.test.ts
-  test/contract/ci-scope-e2e.test.ts`.
+- `node scripts/vitest-electron.mjs test/unit/download-electron.test.ts test/contract/ci-workflow.test.ts
+  test/contract/windows-tests-workflow.test.ts test/contract/ci-scope-e2e.test.ts`.
 - Второй run того же head PR: в step-е `Restore the Electron download` — «Cache restored from key: electron-…», в step-е
-  `Download the Electron binary` нет строки «Downloading Electron binary...», step `Save the Electron download` пропущен.
+  `Download the Electron binary` — строка `@electron/get:index Cache hit` и «attempt 1 of 3 succeeded», нет строки
+  «Downloading https://…»; step `Save the Electron download` пропущен. Строка «Downloading Electron binary...» — не
+  признак промаха: `node_modules/electron/index.js` печатает её и при попадании (и `download-electron.mjs` её не
+  печатает вовсе, он запускает `install.js` напрямую).
 
 ## Где в коде
 
@@ -83,4 +95,6 @@ Linux X64, macOS ARM64 и Windows X64, так что после merge PR-ы бе
 - `.github/workflows/windows-tests.yml` — job-ы `listed-tests`, `full-suite`.
 - `test/contract/ci-workflow.test.ts` — команды job-ов и одинаковые step-ы кэша Electron.
 - `test/contract/windows-tests-workflow.test.ts` — step-ы, команды, `if:` и выражения обоих job-ов.
+- `scripts/download-electron.mjs` — новый: до 3 попыток `install.js` (review round 1).
+- `test/unit/download-electron.test.ts` — новый: попытки, коды выхода, паузы.
 - `node_modules/electron/install.js`, `@electron/get` (`dist/Cache.js`, `dist/index.js`) — только читаются.

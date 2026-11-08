@@ -104,11 +104,11 @@ const SUITE = [
 const PICK = 'node scripts/affected-tests.mjs "$BASE" HEAD --github-output'
 /**
  * The Electron binary from actions/cache, right after the install (worfy-polish 74): the version, the
- * restore, require('electron') and the save on a miss. ci-workflow.test.ts checks the four steps line
+ * restore, scripts/download-electron.mjs (install.js of electron, up to 3 attempts) and the save on a miss. ci-workflow.test.ts checks the four steps line
  * by line, the same in both jobs here and in every job of ci.yml that starts Electron.
  */
 const VERSION = `node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\\n')"`
-const DOWNLOAD = `node -e "require('electron')"`
+const DOWNLOAD = 'node scripts/download-electron.mjs'
 const ELECTRON = [VERSION, 'actions/cache/restore', DOWNLOAD, 'actions/cache/save']
 /** The expressions of the Electron steps: the folder, the key, the folder for install.js, and the save. */
 const ELECTRON_EXPRESSIONS = [
