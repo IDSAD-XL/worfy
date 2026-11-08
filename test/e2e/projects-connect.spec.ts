@@ -293,9 +293,11 @@ test('the GitHub account: the active account with access by default, "Sign in wi
     const field = (name: string): string => execFileSync(process.execPath, [join(harnessHome, 'plugin', 'bin', 'profile'), '-C', shop, '--field', name], { env, encoding: 'utf8' }).trim()
     expect(field('github.account')).toBe('bob')
     expect(field('workflow.finish')).toBe('local-green')
-    // gh was asked only to read; no token was written into the Harness home.
+    // gh was asked only to read; no token was written into the Harness home. After Connect the team
+    // reviewer offer may already have asked for the review history (`api graphql`, worfy-human-review
+    // ticket 09), which the stand-in refuses.
     const calls = ghCalls(ghLog)
-    expect(calls.filter((call) => !/^(auth status --json hosts|auth token -u \S+|api repos\/acme\/shop --jq \.permissions\.push --hostname github\.com|auth login)$/.test(call))).toEqual([])
+    expect(calls.filter((call) => !/^(auth status --json hosts|auth token -u \S+|api repos\/acme\/shop --jq \.permissions\.push --hostname github\.com|auth login|api graphql .*)$/s.test(call))).toEqual([])
     expect(readFileSync(join(harnessHome, 'projects', 'fake-project', 'profile.json'), 'utf8')).not.toMatch(/gho_/)
   } finally {
     await launched.close()

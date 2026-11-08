@@ -31,6 +31,11 @@
 //   Autopilot runs in the Project, which sends it itself when it has no Wave (src/main/autopilot/run.ts).
 //   worfy only sends the text: the skill rebases, checks, comments and merges (ADR-0002).
 //
+// - Build of the team reviewer (worfy-human-review ticket 09): a new Session Node in the Project's
+//   root, as "Ship ticket" makes one and on Claude Code alike, whose first message is the generator
+//   skill (TEAM_REVIEWER_COMMAND). No template and no Binding: the Session is about the Project, not
+//   a Ticket or an Epic; the skill asks the user before it reads anything.
+//
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
@@ -43,7 +48,7 @@ import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
-import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
@@ -210,6 +215,17 @@ export class ActionLauncher {
     } finally {
       this.starting.delete(key)
     }
+  }
+
+  /**
+   * "Build" of the team reviewer: a new Session Node of the Project on Claude Code whose first message
+   * is TEAM_REVIEWER_COMMAND. Throws for a Project that is not in the list.
+   */
+  buildTeamReviewer(projectId: string): ShipTicketResult {
+    this.deps.projectRoot(projectId)
+    const view = this.deps.sessions.create(projectId, undefined, TEAM_REVIEWER_VENDOR)
+    this.deps.registry.get(view.sessionId).send(TEAM_REVIEWER_COMMAND)
+    return { nodeId: view.nodeId, sessionId: view.sessionId, text: TEAM_REVIEWER_COMMAND }
   }
 
   /** The Project's Tickets that have a live Session launched by "Ship ticket". */

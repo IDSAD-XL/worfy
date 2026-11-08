@@ -15,6 +15,7 @@ import { RunsView } from './flight-recorder/RunsView'
 import { installStopToasts } from './flight-recorder/stop-toast'
 import { markPlatform } from './platform'
 import { PipelineBoard } from './pipeline/PipelineBoard'
+import { installReviewOffers } from './projects/review-offer'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
 import { installQuestionToasts } from './session/question-toast'
@@ -118,6 +119,8 @@ if (container) {
   // The sticky toasts of Update: a ready build, an Available update, a failed build, a Harness out of
   // date and the end of the last restart (worfy-update ticket 07).
   installUpdateToasts()
+  // The offer of the team reviewer after a Project is added (worfy-human-review ticket 09).
+  installReviewOffers()
   createRoot(container).render(
     <StrictMode>
       <App />

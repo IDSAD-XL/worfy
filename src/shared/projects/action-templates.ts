@@ -143,6 +143,26 @@ export type TerminalShellSetting = z.output<typeof terminalShellSettingSchema>
  */
 export const SHIP_TICKET_VENDOR: VendorId = 'claude'
 
+/**
+ * The first message of the Session "Build" of the team reviewer starts (worfy-human-review ticket 09):
+ * the Harness's generator skill, which reads the Project's review history and writes its private
+ * reviewer skill. worfy only sends the text (ADR-0002).
+ */
+export const TEAM_REVIEWER_COMMAND = '/worfy:human-review-setup'
+
+/** The Vendor of that Session: Claude Code only (spec decision 11 of worfy-human-review). */
+export const TEAM_REVIEWER_VENDOR: VendorId = 'claude'
+
+/**
+ * The team reviewer's part of a Project's settings (worfy-human-review ticket 09). `offer: "later"`:
+ * the user answered the offer made after the Project was added with "Later" or closed it, and worfy
+ * does not offer again; "Build" in Project settings stays. Absent until then.
+ */
+export const humanReviewSettingsSchema = z.object({
+  offer: z.enum(['later']).optional(),
+})
+export type HumanReviewSettings = z.output<typeof humanReviewSettingsSchema>
+
 /** A Project's settings, kept in `<Project data folder>/settings.json`. */
 export const projectSettingsSchema = z.object({
   actionTemplates: actionTemplatesSchema,
@@ -157,13 +177,15 @@ export const projectSettingsSchema = z.object({
    * ticket 23, spec decision 8); Claude Code when absent, and absent until the user chooses.
    */
   defaultVendor: vendorIdSchema.optional(),
+  /** The team reviewer (worfy-human-review ticket 09); absent in a file saved before it, which reads as not answered. */
+  humanReview: humanReviewSettingsSchema.optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
 /**
- * The settings as `settings.json` is read: a `terminalShell` or a `defaultVendor` this version does
- * not know (a data folder of a later worfy, a hand edit) reads as not chosen, and the rest of the
- * file stays. A file
+ * The settings as `settings.json` is read: a `terminalShell`, a `defaultVendor` or a `humanReview.offer`
+ * this version does not know (a data folder of a later worfy, a hand edit) reads as not chosen, and
+ * the rest of the file stays. A file
  * saved before "Process gate queue" existed has no `gateQueue`: migrateProjectSettings gives it the
  * default. What is saved goes through projectSettingsSchema, which refuses such a value.
  */
@@ -171,6 +193,7 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
   terminalShell: terminalShellSettingSchema.optional().catch(undefined),
   defaultVendor: vendorIdSchema.optional().catch(undefined),
+  humanReview: humanReviewSettingsSchema.extend({ offer: humanReviewSettingsSchema.shape.offer.catch(undefined) }).optional().catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 
@@ -188,7 +211,8 @@ export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
  * The settings `projects.settings.set` takes. A Linked machine on an older build sends no
  * `gateQueue`; main keeps the saved one, or the default (writeProjectSettings). `defaultVendor`:
  * a Vendor sets it, `null` clears it ("Default vendor" set back to none, worfy-multi-vendor ticket 24),
- * and its absence keeps the saved one, as a build from before the field sends it.
+ * and its absence keeps the saved one, as a build from before the field sends it. `humanReview` absent
+ * keeps the saved one too: the dialog's Save does not send it (worfy-human-review ticket 09).
  */
 export const projectSettingsInputSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),

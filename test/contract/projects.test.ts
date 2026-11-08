@@ -1110,3 +1110,304 @@ describe('the draft Session of Connect (worfy-multi-vendor ticket 15)', () => {
     expect(oneShot).not.toHaveBeenCalled()
   })
 })
+
+// worfy-human-review ticket 09: the team reviewer offer after a Project is added, the answer
+// `humanReview.offer`, and "Team reviewer" of Project settings over the private folder of the
+// Profile in a temporary Harness home. The Harness is the old one in the test's Claude home: its
+// `bin/profile` and `bin/review-history` are Node stand-ins written here; the probe records its
+// arguments and answers as each test says. Nothing here reaches GitHub.
+describe('the team reviewer (worfy-human-review ticket 09)', () => {
+  /** The Profiles of the temporary Harness home: `bin/profile -C <root> --dir` names <profiles>/<folder name of root>. */
+  let profiles: string
+  /** The Profile folder of the repository `shop`. */
+  let profileDir: string
+  /** One line per probe run: its arguments. */
+  let probeCalls: string
+  /** GH_TOKEN and REVIEW_HISTORY_GH of the last probe run. */
+  let probeEnv: string
+
+  /**
+   * `bin/profile`: `--dir` prints the Profile folder of the `-C` folder (or fails with `dirCode`),
+   * `--json` a known folder, `--field github.account` prints `account` (absent, exit 4, without one),
+   * any other field is absent (exit 4).
+   */
+  function harnessStubs(options: { dirCode?: number; account?: string } = {}): void {
+    const json = JSON.stringify({ _resolved: { mode: 'full', workflow_folder: scratch, workspace: null, repos: [] } })
+    const account = options.account ?? ''
+    writeFileSync(
+      join(claudeHome, 'bin', 'profile'),
+      nodeScript(
+        [
+          'const args = process.argv.slice(2)',
+          "const name = (args[args.indexOf('-C') + 1] || '').split(/[\\\\/]/).filter(Boolean).pop()",
+          `if (args.includes('--dir')) { if (${options.dirCode ?? 0} === 0) process.stdout.write(${JSON.stringify(join(profiles, '-').slice(0, -1))} + name + '\\n'); else { process.stderr.write('profile: no project\\n'); process.exitCode = ${options.dirCode ?? 0} } }`,
+          `else if (args.includes('--json')) process.stdout.write(${JSON.stringify(`${json}\n`)})`,
+          `else if (args.includes('github.account') && ${JSON.stringify(account)} !== '') process.stdout.write(${JSON.stringify(`${account}\n`)})`,
+          'else process.exitCode = 4',
+        ].join('\n'),
+      ),
+    )
+  }
+
+  /** `bin/review-history`: records its arguments, prints `stdout` and exits with `code`. */
+  function stubProbe(answer: { code: number; stdout: string }): void {
+    writeFileSync(
+      join(claudeHome, 'bin', 'review-history'),
+      nodeScript(
+        [
+          `fs.appendFileSync(${JSON.stringify(probeCalls)}, process.argv.slice(2).join(' ') + '\\n')`,
+          `fs.writeFileSync(${JSON.stringify(probeEnv)}, JSON.stringify({ GH_TOKEN: process.env.GH_TOKEN ?? null, REVIEW_HISTORY_GH: process.env.REVIEW_HISTORY_GH ?? null }))`,
+          `process.stdout.write(${JSON.stringify(answer.stdout)})`,
+          `process.exitCode = ${answer.code}`,
+        ].join('\n'),
+      ),
+    )
+  }
+
+  const VOICE_YES = { code: 0, stdout: JSON.stringify({ voice: 'yes', substantive: 30, threshold: 30, pull_requests: 12, requests: 1, line: 'voice: yes' }) }
+  const VOICE_NO = { code: 0, stdout: JSON.stringify({ voice: 'no', substantive: 4, threshold: 30, pull_requests: 80, requests: 1, line: 'voice: no (4 of 30)' }) }
+
+  const offers = (): unknown[] => electron.sent.filter((item) => item.channel === IPC_CHANNEL_PREFIX + 'projects.reviewer.offer').map((item) => item.payload)
+  const probes = (): string[] => (existsSync(probeCalls) ? readFileSync(probeCalls, 'utf8').split('\n').filter(Boolean) : [])
+
+  /** "Add project" on a folder the Harness knows (projects.connect.inspect), then the background offer settles. */
+  async function addKnown(path: string): Promise<View> {
+    const added = await value<{ status: string; project: View }>('projects.connect.inspect', { path })
+    expect(added.status).toBe('added')
+    const { settleReviewOffers } = await import('../../src/main/ipc/projects')
+    await settleReviewOffers()
+    return added.project
+  }
+
+  beforeEach(async () => {
+    // The scripts get this process's environment, as in the connect.inspect test above: no login shell capture.
+    vi.doMock('../../src/main/agent/env', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../src/main/agent/env')>()),
+      agentEnv: () => Promise.resolve({ env: { ...process.env }, from: 'login-shell', error: null }),
+    }))
+    profiles = join(scratch, 'harness-home', 'projects')
+    profileDir = join(profiles, 'shop')
+    probeCalls = join(scratch, 'probe-calls.txt')
+    probeEnv = join(scratch, 'probe-env.json')
+    harnessStubs()
+    await start()
+  })
+
+  afterEach(() => {
+    vi.doUnmock('../../src/main/agent/env')
+  })
+
+  it('a probe that answers voice: yes sends the offer for the added Project; the probe ran on its root with --json', async () => {
+    stubProbe(VOICE_YES)
+    const shop = makeRepo('shop')
+    const project = await addKnown(shop)
+    expect(offers()).toEqual([{ projectId: project.id }])
+    expect(probes()).toEqual([`probe -C ${shop} --json`])
+  })
+
+  it('voice: no, exit code 3, another exit code, an answer that is not JSON and a missing script send no offer, with one log line each', async () => {
+    const warn = vi.mocked(console.warn)
+    const answers = [VOICE_NO, { code: 3, stdout: '' }, { code: 1, stdout: '' }, { code: 0, stdout: 'voice: yes\n' }, null]
+    for (const [index, answer] of answers.entries()) {
+      if (answer === null) removeTestTree(join(claudeHome, 'bin', 'review-history'))
+      else stubProbe(answer)
+      warn.mockClear()
+      await addKnown(makeRepo(`shop-${index}`))
+      expect(offers(), JSON.stringify(answer)).toEqual([])
+      const lines = warn.mock.calls.map((args) => String(args[0])).filter((line) => line.startsWith('[review-offer]'))
+      expect(lines, JSON.stringify(answer)).toHaveLength(1)
+    }
+    expect(probes()).toHaveLength(4)
+  })
+
+  it('a folder already in the list, or one whose reviewer is built, is not offered again; the probe does not run', async () => {
+    stubProbe(VOICE_YES)
+    const shop = makeRepo('shop')
+    await addKnown(shop)
+    electron.sent.length = 0
+    await addKnown(shop)
+    expect(offers()).toEqual([])
+    expect(probes()).toHaveLength(1)
+
+    // The Profile of `cart` has its reviewer already.
+    const cartSkill = join(profiles, 'cart', 'state', 'human-review', '.claude', 'skills', 'human-review', 'SKILL.md')
+    mkdirSync(dirname(cartSkill), { recursive: true })
+    writeFileSync(cartSkill, '---\nname: human-review\n---\n')
+    await addKnown(makeRepo('cart'))
+    expect(offers()).toEqual([])
+    expect(probes()).toHaveLength(1)
+  })
+
+  it('"Later" saves humanReview.offer: "later"; it survives a restart and a Save of the dialog, and a new add makes no offer', async () => {
+    stubProbe(VOICE_YES)
+    const shop = makeRepo('shop')
+    const project = await addKnown(shop)
+    electron.sent.length = 0
+    const saved = await value<{ humanReview?: unknown }>('projects.reviewer.later', { id: project.id })
+    expect(saved.humanReview).toEqual({ offer: 'later' })
+    expect(electron.sent.filter((item) => item.channel === IPC_CHANNEL_PREFIX + 'projects.settings.changed').map((item) => item.payload)).toEqual([{ id: project.id, settings: saved }])
+    const file = join(dataDir, project.id, 'settings.json')
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { humanReview?: unknown }).humanReview).toEqual({ offer: 'later' })
+
+    await start()
+    const settings = await value<{ actionTemplates: unknown; humanReview?: unknown }>('projects.settings.get', { id: project.id })
+    expect(settings.humanReview).toEqual({ offer: 'later' })
+    // "Save" of Project settings sends no humanReview: the answer stays.
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: settings.actionTemplates } })
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { humanReview?: unknown }).humanReview).toEqual({ offer: 'later' })
+
+    // Out of the list and in again: the data folder keeps the answer, and the probe does not run.
+    await value('projects.remove', { id: project.id })
+    electron.sent.length = 0
+    await addKnown(shop)
+    expect(offers()).toEqual([])
+    expect(probes()).toHaveLength(1)
+  })
+
+  it('a settings.json from before the field reads, without humanReview; an unknown offer reads as unanswered', async () => {
+    const project = (await addOk(makeRepo('shop'))).project
+    const file = join(dataDir, project.id, 'settings.json')
+    writeFileSync(file, JSON.stringify({ actionTemplates: LEGACY_TEMPLATES }))
+    const old = await value<Record<string, unknown>>('projects.settings.get', { id: project.id })
+    expect(old).toEqual({ actionTemplates: LEGACY_TEMPLATES })
+    writeFileSync(file, JSON.stringify({ actionTemplates: LEGACY_TEMPLATES, humanReview: { offer: 'someday' } }))
+    expect(await value<Record<string, unknown>>('projects.settings.get', { id: project.id })).toEqual({ actionTemplates: LEGACY_TEMPLATES, humanReview: {} })
+  })
+
+  it('projects.reviewer.get: not built, built with its date and pull requests, too little history, and not available without a Profile folder', async () => {
+    const project = (await addOk(makeRepo('shop'))).project
+    const folder = join(profileDir, 'state', 'human-review')
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'none' })
+
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify({ voice: 'voice: no (12 of 30)', counts: { pull_requests: 40, substantive: 12 } }))
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'short', substantive: 12, threshold: 30 })
+
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify({ voice: 'voice: yes', counts: { pull_requests: 214, substantive: 380 } }))
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'none' })
+    const skill = join(folder, '.claude', 'skills', 'human-review', 'SKILL.md')
+    mkdirSync(dirname(skill), { recursive: true })
+    writeFileSync(skill, '---\nname: human-review\n---\n')
+    const built = await value<{ status: string; builtAt: string; pullRequests: number }>('projects.reviewer.get', { id: project.id })
+    expect(built).toMatchObject({ status: 'built', pullRequests: 214 })
+    expect(Math.abs(Date.parse(built.builtAt) - Date.now())).toBeLessThan(60_000)
+
+    harnessStubs({ dirCode: 3 })
+    const unavailable = await value<{ status: string; reason: string }>('projects.reviewer.get', { id: project.id })
+    expect(unavailable.status).toBe('unavailable')
+    expect(unavailable.reason).toContain('exit code 3')
+  })
+
+  it('"Delete" erases the private folder and nothing else of the Profile folder', async () => {
+    const project = (await addOk(makeRepo('shop'))).project
+    const folder = join(profileDir, 'state', 'human-review')
+    mkdirSync(join(folder, '.claude', 'skills', 'human-review'), { recursive: true })
+    mkdirSync(join(folder, 'raw'), { recursive: true })
+    writeFileSync(join(folder, '.claude', 'skills', 'human-review', 'SKILL.md'), 'skill')
+    writeFileSync(join(folder, 'meta.json'), '{}')
+    writeFileSync(join(folder, 'raw', 'prs.jsonl'), '{}\n')
+    writeFileSync(join(profileDir, 'profile.json'), '{}')
+    writeFileSync(join(profileDir, 'rules.md'), '# rules\n')
+    mkdirSync(join(profileDir, 'state', 'other'), { recursive: true })
+    writeFileSync(join(profileDir, 'state', 'other', 'keep.json'), '{}')
+    writeFileSync(join(profileDir, 'state', 'human-review.json'), '{}')
+
+    expect(await value('projects.reviewer.delete', { id: project.id })).toEqual({ status: 'none' })
+    expect(existsSync(folder)).toBe(false)
+    const left = (dir: string): string[] => readdirSync(dir, { recursive: true, encoding: 'utf8' }).map((path) => path.split('\\').join('/')).sort()
+    expect(left(profileDir)).toEqual(['profile.json', 'rules.md', 'state', 'state/human-review.json', 'state/other', 'state/other/keep.json'])
+    // A second Delete finds nothing to erase and answers the same.
+    expect(await value('projects.reviewer.delete', { id: project.id })).toEqual({ status: 'none' })
+  })
+
+  /** A private folder of Profile `name` with a skill and meta.json; its path. */
+  function builtReviewer(name: string, meta: Record<string, unknown>): string {
+    const folder = join(profiles, name, 'state', 'human-review')
+    mkdirSync(join(folder, '.claude', 'skills', 'human-review'), { recursive: true })
+    writeFileSync(join(folder, '.claude', 'skills', 'human-review', 'SKILL.md'), 'skill')
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify(meta))
+    return folder
+  }
+
+  it("the date of a built reviewer is kept_at of meta.json, else fetched_at, and the skill file's time only without either", async () => {
+    const project = (await addOk(makeRepo('shop'))).project
+    const folder = builtReviewer('shop', { kept_at: '2026-10-02T09:00:00Z', fetched_at: '2026-10-01T08:00:00Z', counts: { pull_requests: 7 } })
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-10-02T09:00:00.000Z', pullRequests: 7 })
+    writeFileSync(join(folder, 'meta.json'), JSON.stringify({ fetched_at: '2026-10-01T08:00:00Z', kept_at: 'not a date' }))
+    expect(await value('projects.reviewer.get', { id: project.id })).toEqual({ status: 'built', builtAt: '2026-10-01T08:00:00.000Z', pullRequests: null })
+    writeFileSync(join(folder, 'meta.json'), '{}')
+    const byFile = await value<{ builtAt: string }>('projects.reviewer.get', { id: project.id })
+    expect(Math.abs(Date.parse(byFile.builtAt) - Date.now())).toBeLessThan(60_000)
+  })
+
+  it('get, Delete and Build go to the Project named by id, not to another one in the list', async () => {
+    const shop = (await addOk(makeRepo('shop'))).project
+    const cart = (await addOk(makeRepo('cart'))).project
+    const shopFolder = builtReviewer('shop', { kept_at: '2026-10-02T09:00:00Z', counts: { pull_requests: 7 } })
+    const cartFolder = builtReviewer('cart', { kept_at: '2026-09-01T09:00:00Z', counts: { pull_requests: 3 } })
+    expect(await value('projects.reviewer.get', { id: cart.id })).toEqual({ status: 'built', builtAt: '2026-09-01T09:00:00.000Z', pullRequests: 3 })
+    expect(await value('projects.reviewer.get', { id: shop.id })).toEqual({ status: 'built', builtAt: '2026-10-02T09:00:00.000Z', pullRequests: 7 })
+
+    expect(await value('projects.reviewer.delete', { id: cart.id })).toEqual({ status: 'none' })
+    expect(existsSync(cartFolder)).toBe(false)
+    expect(existsSync(join(shopFolder, '.claude', 'skills', 'human-review', 'SKILL.md'))).toBe(true)
+    expect(await value('projects.reviewer.get', { id: shop.id })).toMatchObject({ status: 'built' })
+
+    // Build: the launcher of src/main/ipc/actions.ts is replaced; it records the Project it starts the Session for.
+    const built: string[] = []
+    vi.doMock('../../src/main/ipc/actions', () => ({
+      sharedLauncher: () => ({
+        buildTeamReviewer: (projectId: string) => {
+          built.push(projectId)
+          return { nodeId: `node-${projectId}`, sessionId: `session-${projectId}`, text: '/worfy:human-review-setup' }
+        },
+      }),
+    }))
+    try {
+      expect(await value('projects.reviewer.build', { id: cart.id })).toEqual({ nodeId: `node-${cart.id}`, sessionId: `session-${cart.id}` })
+      expect(await value('projects.reviewer.build', { id: shop.id })).toEqual({ nodeId: `node-${shop.id}`, sessionId: `session-${shop.id}` })
+      expect(built).toEqual([cart.id, shop.id])
+    } finally {
+      vi.doUnmock('../../src/main/ipc/actions')
+    }
+  })
+
+  it('Connect writing a Profile (projects.connect.write) offers too when the probe answers voice: yes', async () => {
+    stubProbe(VOICE_YES)
+    const written = join(scratch, 'connect-stdin.json')
+    // bin/project-connect of the old Harness: takes the draft on stdin, keeps it aside and answers success.
+    writeFileSync(
+      join(claudeHome, 'bin', 'project-connect'),
+      nodeScript([`fs.writeFileSync(${JSON.stringify(written)}, fs.readFileSync(0, 'utf8'))`, "process.stdout.write('{}\\n')"].join('\n')),
+    )
+    const shop = makeRepo('shop')
+    const draft = { profile: { name: 'shop', mode: 'full' }, rules: '', gate: [] }
+    const added = await value<{ status: string; project: View }>('projects.connect.write', { root: shop, draft })
+    expect(added.status).toBe('added')
+    expect(JSON.parse(readFileSync(written, 'utf8'))).toEqual(draft)
+    const { settleReviewOffers } = await import('../../src/main/ipc/projects')
+    await settleReviewOffers()
+    expect(offers()).toEqual([{ projectId: added.project.id }])
+    expect(probes()).toEqual([`probe -C ${shop} --json`])
+  })
+
+  it("the probe runs with GH_TOKEN of the Profile's GitHub account, and with the gh stand-in of the tests as its gh", async () => {
+    const { ghWorld } = await import('./gh-world')
+    const gh = ghWorld(join(scratch, 'gh'), { accounts: [{ login: 'alice', token: 'gho_alice_TEST' }, { login: 'bob', token: 'gho_bob_TEST', active: true }] })
+    vi.stubEnv('WORFY_GH', gh.command)
+    for (const [key, val] of Object.entries(gh.env)) vi.stubEnv(key, val)
+    harnessStubs({ account: 'alice' })
+    stubProbe(VOICE_YES)
+    await addKnown(makeRepo('shop'))
+    expect(JSON.parse(readFileSync(probeEnv, 'utf8'))).toEqual({ GH_TOKEN: 'gho_alice_TEST', REVIEW_HISTORY_GH: gh.command })
+    expect(gh.calls()).toContainEqual(['auth', 'token', '-u', 'alice'])
+  })
+
+  it('deleteTeamReviewer refuses a Profile folder that is not an absolute path and removes nothing', async () => {
+    const { deleteTeamReviewer } = await import('../../src/main/projects/review-offer')
+    const folder = builtReviewer('shop', {})
+    expect(() => deleteTeamReviewer(join('projects', 'shop'))).toThrow('the Profile folder is not an absolute path')
+    expect(() => deleteTeamReviewer('')).toThrow('the Profile folder is not an absolute path')
+    expect(existsSync(folder)).toBe(true)
+  })
+})

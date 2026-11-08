@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
-import { printScript, profileJsonScript } from '../harness-node'
+import { nodeScript, printScript, profileJsonScript } from '../harness-node'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -243,3 +243,103 @@ test('a broken projects.json is set aside and the app still starts', async () =>
     await launched.close()
   }
 })
+
+// worfy-human-review ticket 09: the team reviewer offer after "Add project". The old Harness in the
+// temporary Claude home is two Node stand-ins: `bin/profile` knows every folder and names a Profile
+// folder in the test's scratch, and `bin/review-history` records each probe and answers `voice: yes`.
+// The fake agent records the messages its Sessions get (WORFY_AGENT_LOG). Nothing reaches GitHub.
+test('the team reviewer offer: a toast after the add, "Later" kept across a restart and a new add, "Build" starts a Session with /worfy:human-review-setup', async () => {
+  const shop = makeRepo(scratch, 'shop', 'main')
+  const cart = makeRepo(scratch, 'cart', 'main')
+  const profileDir = join(scratch, 'harness-home', 'projects', 'stub')
+  const probes = join(scratch, 'probes.txt')
+  const agentLog = join(scratch, 'agent.jsonl')
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_AGENT_LOG: agentLog }
+  const json = JSON.stringify({ name: 'stub', _resolved: { workspace: null } })
+  const harnessWithProbe = (claudeHome: string): void => {
+    mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+    const profile = [
+      'const args = process.argv.slice(2)',
+      `if (args.includes('--dir')) process.stdout.write(${JSON.stringify(`${profileDir}\n`)})`,
+      `else if (args.includes('--json')) process.stdout.write(${JSON.stringify(`${json}\n`)})`,
+      'else process.exitCode = 4',
+    ].join('\n')
+    writeFileSync(join(claudeHome, 'bin', 'profile'), nodeScript(profile), { mode: 0o755 })
+    const probe = [
+      `fs.appendFileSync(${JSON.stringify(probes)}, process.argv.slice(2).join(' ') + '\\n')`,
+      `process.stdout.write(${JSON.stringify(JSON.stringify({ voice: 'yes', substantive: 30, threshold: 30, pull_requests: 9, requests: 1, line: 'voice: yes' }))})`,
+    ].join('\n')
+    writeFileSync(join(claudeHome, 'bin', 'review-history'), nodeScript(probe), { mode: 0o755 })
+  }
+  const probeRuns = (): string[] => (existsSync(probes) ? readFileSync(probes, 'utf8').split('\n').filter(Boolean) : [])
+  const offer = (window: Page) => window.getByTestId('review-offer-toast')
+  const settingsOf = (projectId: string): { humanReview?: unknown } => JSON.parse(readFileSync(join(dataDir, projectId, 'settings.json'), 'utf8')) as { humanReview?: unknown }
+  let shopId: string
+
+  const first = await launchApp({ env })
+  try {
+    const { window } = first
+    harnessWithProbe(first.claudeHome)
+    await addProject(first, shop)
+    await expect(rowButton(window, 'shop')).toHaveAttribute('aria-current', 'true')
+    await expect(offer(window)).toContainText("Build a reviewer in your team's style?")
+    expect(probeRuns()).toEqual([`probe -C ${shop} --json`])
+    await window.screenshot({ path: test.info().outputPath('09-review-offer.png') })
+    await offer(window).getByRole('button', { name: 'Later' }).click()
+    await expect(offer(window)).toHaveCount(0)
+    shopId = (await row(window, 'shop').getAttribute('data-project-id'))!
+    await expect.poll(() => settingsOf(shopId).humanReview).toEqual({ offer: 'later' })
+  } finally {
+    await first.close()
+  }
+
+  const second = await launchApp({ env })
+  try {
+    const { window } = second
+    harnessWithProbe(second.claudeHome)
+    await expect(rowButton(window, 'shop')).toHaveAttribute('aria-current', 'true')
+    // Out of the list and in again: the data folder keeps "Later", so no probe runs for it.
+    await row(window, 'shop').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Remove from list' }).click()
+    await expect(window.getByTestId('project-row')).toHaveCount(0)
+    await addProject(second, shop)
+    await expect(rowButton(window, 'shop')).toHaveAttribute('aria-current', 'true')
+    // A Project never answered gets its offer: by then the decision for shop, made before any wait, is long taken.
+    await addProject(second, cart)
+    await expect(rowButton(window, 'cart')).toHaveAttribute('aria-current', 'true')
+    await expect(offer(window)).toHaveCount(1)
+    expect(probeRuns()).toEqual([`probe -C ${shop} --json`, `probe -C ${cart} --json`])
+    // shop has no toast waiting: back on it, none shows.
+    await rowButton(window, 'shop').click()
+    await expect(rowButton(window, 'shop')).toHaveAttribute('aria-current', 'true')
+    await expect(offer(window)).toHaveCount(0)
+    await rowButton(window, 'cart').click()
+    await expect(offer(window)).toHaveCount(1)
+
+    // "Build": a new Session Node of cart whose first message is the generator skill; no answer is written.
+    await offer(window).getByRole('button', { name: 'Build' }).click()
+    await expect(offer(window)).toHaveCount(0)
+    await expect(window.locator('[data-testid="session-node"]')).toHaveCount(1)
+    await expect.poll(() => messages(agentLog)).toContain('/worfy:human-review-setup')
+    const cartId = (await row(window, 'cart').getAttribute('data-project-id'))!
+    expect(settingsOf(cartId).humanReview).toBeUndefined()
+    expect(settingsOf(shopId).humanReview).toEqual({ offer: 'later' })
+  } finally {
+    await second.close()
+  }
+
+  for (const repo of [shop, cart]) {
+    expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
+  }
+})
+
+/** The messages the fake agent's Sessions got, in order (WORFY_AGENT_LOG). */
+function messages(log: string): string[] {
+  if (!existsSync(log)) return []
+  return readFileSync(log, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { kind: string; text?: string })
+    .filter((call) => call.kind === 'message')
+    .map((call) => call.text ?? '')
+}

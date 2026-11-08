@@ -241,6 +241,25 @@ function launcher(
   return { launch, sessions, created, vendors, bindings, orchestrator, changes }
 }
 
+describe('ActionLauncher.buildTeamReviewer (worfy-human-review ticket 09)', () => {
+  it('starts a new Session of the Project on Claude Code whose first message is /worfy:human-review-setup, with no Binding', async () => {
+    const { launch, sessions, created, vendors, bindings } = launcher()
+    expect(launch.buildTeamReviewer('p')).toEqual({ nodeId: 'node-1', sessionId: 'pending-1', text: '/worfy:human-review-setup' })
+    expect(created).toEqual(['p'])
+    expect(vendors).toEqual(['claude'])
+    expect(sessions.get('pending-1')!.sent).toEqual(['/worfy:human-review-setup'])
+    sessions.get('pending-1')!.sdkId = 'sdk-1'
+    await launch.idle()
+    expect(bindings).toEqual([])
+  })
+
+  it('refuses a Project that is not in the list and starts nothing', () => {
+    const { launch, created } = launcher()
+    expect(() => launch.buildTeamReviewer('gone')).toThrow('no Project gone')
+    expect(created).toEqual([])
+  })
+})
+
 describe('ActionLauncher.shipTicket', () => {
   it('starts a new Session, sends it the rendered template and binds it to the Ticket once Claude Code names the session', async () => {
     const { launch, sessions, created, bindings } = launcher()

@@ -33,6 +33,7 @@
     "src/renderer/machines/machines-dot.ts",
     "src/renderer/platform.ts",
     "src/renderer/projects/read-only-now.ts",
+    "src/renderer/projects/review-offer.ts",
     "src/renderer/toast/toasts.ts",
     "src/renderer/getting-started/hints.ts",
     "src/renderer/getting-started/highlight.ts",

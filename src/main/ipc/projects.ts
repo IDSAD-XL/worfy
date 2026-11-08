@@ -23,6 +23,11 @@ import {
   projectsList,
   projectsPickFolder,
   projectsRemove,
+  projectsReviewerBuild,
+  projectsReviewerDelete,
+  projectsReviewerGet,
+  projectsReviewerLater,
+  projectsReviewerOffer,
   projectsSelect,
   projectsSettingsChanged,
   projectsSettingsDefaults,
@@ -37,28 +42,45 @@ import { fakeQueryFactory } from '../agent/fake-query'
 import { toEveryWindow } from '../broadcast'
 import { clientOf, type Client } from '../clients'
 import { signInRegistry, type GhProgram } from '../github/accounts'
-import { ghRunner } from '../github/prs'
+import { accountAuth, ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
+import { harnessScriptEnv } from '../harness/script-env'
 import { layoutStore } from '../layout/store'
 import { isRemoteCall, localProjectRefusal, setLocalProjects } from '../link/caller'
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
-import { readProjectSettings, writeProjectSettings } from '../projects/settings'
+import { deleteTeamReviewer, offerTeamReviewer, privateFolder, probeRunner, readProfileDir, readTeamReviewer } from '../projects/review-offer'
+import { readProjectSettings, writeHumanReviewOffer, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
 import { claudeHome, harnessHome } from '../storage/paths'
 import type { TerminalRegistry } from '../terminal/pty'
 import { claudeOneShotOver } from '../vendors/claude/one-shot'
 import type { OneShot } from '../vendors/one-shot'
 import { vendorDriver } from '../vendors/registry'
-import { profileRunner } from '../workflow/profile'
+import { profileRunner, readGithubAccount } from '../workflow/profile'
 import { appInstaller } from './harness'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 
 const store = projectStore()
 
 // ── connecting a Project (worfy-harness ticket 24, src/main/projects/connect.ts) ──────────────
+
+let quitting: AbortController | undefined
+
+/**
+ * Aborted when the app quits: the Harness scripts of this module still running then are killed.
+ * Subscribed on the first run of a script, so loading the module touches no app event.
+ */
+function quitSignal(): AbortSignal {
+  if (quitting === undefined) {
+    const controller = new AbortController()
+    app.on('will-quit', () => controller.abort())
+    quitting = controller
+  }
+  return quitting.signal
+}
 
 /**
  * `bin/project-connect` of the Harness on the machine, with the login shell's PATH (node) and
@@ -67,16 +89,6 @@ const store = projectStore()
  * app quits is killed (will-quit, as the other children of this module are ended).
  */
 function appConnectScript(): ConnectScript {
-  let quitting: AbortController | undefined
-  // Subscribed on the first run of the script, so building the connector touches no app event.
-  const quitSignal = (): AbortSignal => {
-    if (quitting === undefined) {
-      const controller = new AbortController()
-      app.on('will-quit', () => controller.abort())
-      quitting = controller
-    }
-    return quitting.signal
-  }
   return connectScriptRunner({
     harness: () => locateHarness(harnessHomes(claudeHome())),
     env: async () => (await agentEnv()).env,
@@ -142,6 +154,60 @@ function connector(): ProjectConnector {
   })
   return sharedConnector
 }
+
+// ── the team reviewer (worfy-human-review ticket 09, src/main/projects/review-offer.ts) ─────────
+
+/** The Profile folder of the Project at `root`, through the Harness on the machine. */
+const appProfileDir = async (root: string): Promise<string> => readProfileDir(profileRunner(claudeHome(), await harnessScriptEnv()), root)
+
+/** GH_TOKEN of the Profile's GitHub account, as the PR badges take it; none when the Profile names no account. */
+async function reviewGhEnv(root: string): Promise<Record<string, string>> {
+  const env = await harnessScriptEnv()
+  const account = async (folder: string): Promise<string | null> => (await readGithubAccount({ root: folder, claudeHome: claudeHome(), env, log: () => undefined })).account
+  const token = await accountAuth({ account, run: ghRunner(appGh()) })(root)
+  return token.GH_TOKEN === undefined ? {} : { GH_TOKEN: token.GH_TOKEN }
+}
+
+/**
+ * The probe's environment: the Harness scripts' one, and with WORFY_GH (the gh stand-in of the tests)
+ * that same program as review-history's gh, so a test's probe never reaches GitHub either.
+ */
+async function probeEnv(): Promise<Record<string, string | undefined>> {
+  const stub = process.env.WORFY_GH
+  return { ...(await harnessScriptEnv()), ...(stub ? { REVIEW_HISTORY_GH: stub } : {}) }
+}
+
+const probe = probeRunner({ harness: () => locateHarness(harnessHomes(claudeHome())), env: probeEnv, ghEnv: reviewGhEnv, signal: quitSignal })
+
+/** The offers still asking the Harness; a test waits for them with settleReviewOffers. */
+const offering = new Set<Promise<boolean>>()
+
+/**
+ * The offer for a Project just put into the list, in the background: only for a folder new to the
+ * list (`before`: the ids listed before the add). The windows hear projects.reviewer.offer.
+ */
+function offerAfterAdd(projectId: string, before: ReadonlySet<string>): void {
+  if (before.has(projectId)) return
+  const root = store.get(projectId).path
+  const task = offerTeamReviewer(
+    {
+      probe,
+      answered: (id) => readProjectSettings(store.dataDir(store.get(id).id)).humanReview?.offer === 'later',
+      profileDir: appProfileDir,
+      emit: (id) => toEveryWindow((client) => emit(client, projectsReviewerOffer, { projectId: id })),
+    },
+    projectId,
+    root,
+  ).finally(() => offering.delete(task))
+  offering.add(task)
+}
+
+/** Settles when every offer started so far has answered; for tests. */
+export async function settleReviewOffers(): Promise<void> {
+  while (offering.size > 0) await Promise.all([...offering])
+}
+
+const listedIds = (): Set<string> => new Set(store.list().map((project) => project.id))
 
 // "Sign in with gh" of the account step: `gh auth login` in a pseudo-terminal of its own, through
 // the Terminal Nodes' registry (replay, size, SIGHUP then SIGKILL on close), but with gh itself as
@@ -256,9 +322,12 @@ export default [
     if (inspected.status === 'rejected') return inspected
     if (inspected.status === 'new') return { status: 'new' as const, folder: inspected.folder, harnessHome: harnessHome() }
     // The Harness knows the folder: it goes into the list as projects.add puts it, with its notices.
+    const before = listedIds()
     const added = await store.add(path, { keepActive: isRemoteCall(event) })
     if (added.status === 'rejected') return added
-    return addedView(added.project.id, added.notice, event)
+    const view = await addedView(added.project.id, added.notice, event)
+    offerAfterAdd(added.project.id, before)
+    return view
   }),
 
   defineHandler(projectsConnectDraft, (input, { event }) =>
@@ -270,9 +339,12 @@ export default [
   defineHandler(projectsConnectCheck, async ({ draft }) => ({ issues: await connector().check(draft) })),
 
   defineHandler(projectsConnectWrite, async ({ root, draft }, { event }) => {
+    const before = listedIds()
     const written = await connector().write(root, draft, { keepActive: isRemoteCall(event) })
     if (written.status !== 'added') return written
-    return addedView(written.projectId, written.notice, event)
+    const view = await addedView(written.projectId, written.notice, event)
+    offerAfterAdd(written.projectId, before)
+    return view
   }),
 
   defineHandler(projectsConnectAccounts, ({ root }) => connector().accounts(root)),
@@ -341,6 +413,35 @@ export default [
 
   defineHandler(projectsSettingsSet, ({ id, settings }) => {
     const saved = writeProjectSettings(store.dataDir(store.get(id).id), settings)
+    toEveryWindow((client) => emit(client, projectsSettingsChanged, { id, settings: saved }))
+    return saved
+  }),
+
+  // The team reviewer (worfy-human-review ticket 09): its state in the Profile's private folder,
+  // "Build", "Delete", and "Later" of the offer.
+  defineHandler(projectsReviewerGet, async ({ id }) => {
+    const root = store.get(id).path
+    try {
+      return readTeamReviewer(privateFolder(await appProfileDir(root)))
+    } catch (error) {
+      return { status: 'unavailable' as const, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }),
+
+  defineHandler(projectsReviewerBuild, async ({ id }) => {
+    const { sharedLauncher } = await import('./actions')
+    const { nodeId, sessionId } = sharedLauncher().buildTeamReviewer(store.get(id).id)
+    return { nodeId, sessionId }
+  }),
+
+  defineHandler(projectsReviewerDelete, async ({ id }) => {
+    const profileDir = await appProfileDir(store.get(id).path)
+    deleteTeamReviewer(profileDir)
+    return readTeamReviewer(privateFolder(profileDir))
+  }),
+
+  defineHandler(projectsReviewerLater, ({ id }) => {
+    const saved = writeHumanReviewOffer(store.dataDir(store.get(id).id), 'later')
     toEveryWindow((client) => emit(client, projectsSettingsChanged, { id, settings: saved }))
     return saved
   }),
