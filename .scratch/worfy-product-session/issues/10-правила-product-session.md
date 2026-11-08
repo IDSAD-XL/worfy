@@ -53,10 +53,15 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
 
 - [ ] Test: с `WORFY_SESSION_KIND=product` `SessionStart` даёт `common` + `product`, без `orchestrator`; без переменной —
       как раньше (`orchestrator` + `common`), `product` печатает пусто.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
 - [ ] `product.md` называет «сохранить» → `product_save` и запрет git (проверка текста в `rules-hooks.test.sh`).
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
 - [ ] Test: `product.md` ≤ 10000 символов и с длинным корнем plugin-а (`rules-hooks.test.sh`).
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
 - [ ] Test: hook `SessionStart` видит переменную `env` Session — или «Итог» называет запасной путь и он сделан.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0 на Mac.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 42e637544d4053ab035ed3466d65f59eedc80d4d
 - [ ] Тот же test на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
