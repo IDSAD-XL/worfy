@@ -4,8 +4,9 @@
 // replaces it, whoever changed its files — a tool, an agent or a hand edit.
 //
 // `product.changed` comes with the Project's documents: main sends it to the windows that have them
-// open (`docs.open`), so the hook holds them open through useDocs. The copy is shared by the views of
-// one topic: the first one reads it, the last one to leave drops it.
+// open (`docs.open`), so the hook holds them open through useDocs, and reads the topic only once main
+// has answered `docs.open`: then the Project's watcher runs and knows the topic from that read on.
+// The copy is shared by the views of one topic: the first one reads it, the last one to leave drops it.
 //
 // Main reads one topic at a time and answers `product.topic` in turn with the reads behind
 // `product.changed` (src/main/docs/watch.ts), so whichever of the two arrives last is the newest.
@@ -84,11 +85,13 @@ function release(projectId: string, name: string): void {
 
 /** The Product Session topic `name` of the Project, kept current while the calling component is mounted. */
 export function useMindMap(projectId: string | undefined, name: string | undefined): MindMapEntry {
-  useDocs(projectId)
+  const docs = useDocs(projectId)
+  // A failed `docs.open` still reads the topic once: main reads it then without the watcher.
+  const open = docs.state !== undefined || docs.error !== undefined
   useEffect(() => {
-    if (projectId === undefined || name === undefined) return
+    if (projectId === undefined || name === undefined || !open) return
     acquire(projectId, name)
     return () => release(projectId, name)
-  }, [projectId, name])
+  }, [projectId, name, open])
   return useMindMapStore((store) => (projectId === undefined || name === undefined ? EMPTY : (store.byKey[keyOf(projectId, name)] ?? EMPTY)))
 }

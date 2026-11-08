@@ -443,7 +443,11 @@ export class DocsWatcher {
       const topic = await (this.options.readTopic ?? readProductTopic)(this.options.root, dir, name)
       const seen = JSON.stringify(topic)
       if (this.closed || seen === reads.last) return topic
+      // Nothing there, and nothing was ever reported for this name: a plain file directly in the
+      // Product Session folder (`notes.md`), or a folder gone before its first read. Not a topic that went away.
+      const unseen = topic === null && reads.last === undefined
       reads.last = seen
+      if (unseen) return topic
       try {
         this.options.onTopic?.(name, topic)
       } catch (error) {

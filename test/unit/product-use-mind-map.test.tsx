@@ -16,7 +16,9 @@ vi.mock('../../src/renderer/ipc', () => ({
   },
   showSubscribeError: () => undefined,
 }))
-const useDocs = vi.hoisted(() => vi.fn())
+/** What useDocs answers: `docs.open` answered (a state) unless a test says otherwise. */
+const docsEntry = vi.hoisted(() => ({ current: { state: {} as unknown, error: undefined as string | undefined } }))
+const useDocs = vi.hoisted(() => vi.fn(() => docsEntry.current))
 vi.mock('../../src/renderer/docs/useDocs', () => ({ useDocs }))
 
 const topicWith = (text: string): ProductTopicState => ({
@@ -39,6 +41,20 @@ function Shown({ name }: { name: string }) {
 const change = (payload: ProductTopicChange): void => act(() => listeners.get('product.changed')!(payload))
 
 describe('useMindMap', () => {
+  it('reads the topic only once docs.open has answered, so the Project watcher knows it', async () => {
+    invoke.mockReset()
+    invoke.mockResolvedValue({ ok: true, value: { projectId: 'p1', name: 'w', topic: topicWith('waited') } })
+    docsEntry.current = { state: undefined, error: undefined }
+    const { rerender, unmount } = render(<Shown name="w" />)
+    expect(screen.getByText('reading')).toBeTruthy()
+    expect(invoke).not.toHaveBeenCalled()
+    docsEntry.current = { state: {}, error: undefined }
+    rerender(<Shown name="w" />)
+    expect(await screen.findByText('waited')).toBeTruthy()
+    expect(invoke).toHaveBeenCalledTimes(1)
+    unmount()
+  })
+
   it('reads the topic, follows product.changed of it only, and holds the documents of its Project open', async () => {
     invoke.mockResolvedValue({ ok: true, value: { projectId: 'p1', name: 't', topic: topicWith('first') } })
     const { unmount } = render(<Shown name="t" />)

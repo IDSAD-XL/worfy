@@ -127,10 +127,12 @@ describe('DocsWatcher follows the Product Session folder, real folders', () => {
     expect(lastText(events, 't')).toBe('two')
   }, ms(20_000))
 
-  it('the critic and a hidden folder report nothing', async () => {
+  it('the critic, a hidden folder and a plain file directly in docs/product report nothing', async () => {
     mkdirSync(join(root, 'docs', 'product', 'critic'), { recursive: true })
     const { events } = await start(['docs', 'product'])
     writeFileSync(join(root, 'docs', 'product', 'critic', 'e-2026-11-07.md'), '# Review\n')
+    // Its name is a topic name, but there is no topic folder: nothing went away either.
+    writeFileSync(join(root, 'docs', 'product', 'notes.md'), '# Notes\n')
     mkdirSync(join(root, 'docs', 'product', '.tmp'))
     writeFileSync(join(root, 'docs', 'product', '.tmp', 'x'), 'x')
     await pause(500)
@@ -175,6 +177,69 @@ describe('DocsWatcher follows the Product Session folder, real folders', () => {
 })
 
 describe('DocsWatcher reads one topic at a time, on a stand-in watch', () => {
+  it('a known topic is read again and reported when the Product Session folder, a folder above it or the root changes, when the root is lost, and when it is back', async () => {
+    const { SETTLE_READS_MS } = await import('../../src/main/docs/watch')
+    let fire: (filename: string | null) => void = () => undefined
+    let rootThere = false
+    let watchFails = false
+    const reads: string[] = []
+    const events: { name: string; topic: ProductTopic | null }[] = []
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const watcher = await DocsWatcher.start({
+      root,
+      debounceMs: 5,
+      retryMs: 50,
+      productDir: ['docs', 'product'],
+      watch: (_root, onEvent) => {
+        // A root that is back but cannot be watched (too many handles open), and is then gone again.
+        if (watchFails) {
+          watchFails = false
+          rootThere = false
+          throw Object.assign(new Error('too many open files'), { code: 'EMFILE' })
+        }
+        fire = onEvent
+        return { close: () => undefined }
+      },
+      isAbsolute: (name) => name.startsWith('/'),
+      rootThere: () => Promise.resolve(rootThere),
+      onChange: () => undefined,
+      onTopic: (name, topic) => events.push({ name, topic }),
+      // Every read gives new content, so every read is reported.
+      readTopic: (_root, _dir, name) => {
+        reads.push(name)
+        return Promise.resolve({ name, folder: 'f', title: String(reads.length), sections: [], tickets: [], nodes: [], errors: [] })
+      },
+    })
+    watchers.push(watcher)
+    // Past the reads that follow the start, then the topic becomes known.
+    await pause(Math.max(...SETTLE_READS_MS) + 100)
+    await watcher.topic('t')
+    expect(reads).toEqual(['t'])
+
+    /** `what` happens; the known topic is read once more and that read is reported. */
+    const readAgain = async (what: () => void): Promise<void> => {
+      const before = reads.length
+      what()
+      await vi.waitFor(() => expect(events.at(-1)?.topic?.title).toBe(String(before + 1)), { timeout: ms(1000), interval: 5 })
+    }
+    await readAgain(() => fire(join('docs', 'product')))
+    await readAgain(() => fire('docs'))
+    await readAgain(() => fire(null))
+    // The root is lost (a full path, as Windows names it): read as it is now, while it is waited for.
+    await readAgain(() => fire(join(root, 'gone')))
+    // Back, but its watch cannot be made: the topic is read as it is on the disk meanwhile.
+    await readAgain(() => {
+      watchFails = true
+      rootThere = true
+    })
+    // Back: the watch is made anew, and the reads after its start read the topic again.
+    await readAgain(() => {
+      rootThere = true
+    })
+    expect(new Set(reads)).toEqual(new Set(['t']))
+  })
+
   it('a read that is slow does not report after the read that followed it: the last report is the newest content', async () => {
     let fire: (filename: string | null) => void = () => undefined
     const slow: { resolve: (topic: ProductTopic | null) => void }[] = []
