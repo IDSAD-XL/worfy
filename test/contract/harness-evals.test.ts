@@ -546,16 +546,18 @@ describe('harness/evals: critic-verdict', () => {
       expect(run.status, run.stderr).toBe(0)
       return run.stdout.trim()
     }
-    // Full mode: the Project root is the working tree, and so is the Workflow folder.
+    // Full mode: the Project root is the working tree. The native spelling on both sides: on Windows
+    // realpathSync keeps a short 8.3 name of the temporary folder (RUNNER~1), bin/profile prints the long one.
+    const tree = realpathSync.native(work)
     expect(field('_resolved.mode')).toBe('full')
-    expect(realpathSync(field('_resolved.checkout'))).toBe(realpathSync(work))
+    expect(realpathSync.native(field('_resolved.checkout'))).toBe(tree)
     // Silent mode: the Workflow folder lies outside the repository.
     const profilePath = join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json')
     writeFileSync(profilePath, JSON.stringify({ ...(JSON.parse(readFileSync(profilePath, 'utf8')) as Record<string, unknown>), mode: 'silent' }))
     expect(field('_resolved.mode')).toBe('silent')
     const workflowFolder = field('_resolved.workflow_folder')
     expect(isAbsolute(workflowFolder)).toBe(true)
-    expect(relative(realpathSync(work), workflowFolder).startsWith('..')).toBe(true)
+    expect(relative(tree, workflowFolder).startsWith('..')).toBe(true)
   })
 
   it('example.md passes the format check: one verdict of the four words, at most three objections, each with a fact and an owner decision line', () => {
