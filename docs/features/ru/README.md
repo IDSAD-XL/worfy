@@ -35,6 +35,7 @@ Epic-ам и Ticket-ам.
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
 | [Sessions](sessions.md) | Session, Subagent |
+| [Product Session](product-session.md) | Product Session, Mind map, критик перед приёмкой spec-а, продуктовые идеи, доля принятых советов |
 | [Orchestrator modes](orchestrator-modes.md) | Меню Modes: Eco mode, Auto-approval, Auto-continue; продолжение ручного хода Orchestrator-а и его обратный отсчёт |
 | [Vendors](vendors.md) | Vendor: Claude Code и Codex, driver каждого |
 | [Transcripts и usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |

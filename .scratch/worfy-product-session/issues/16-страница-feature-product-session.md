@@ -59,6 +59,11 @@ Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/READ
 - **Отступление от п. 4 «Что делаем».** Снимка экрана нет: шаблон `docs/features/README.md` («There are no screenshots:
   they go out of date and nothing checks them») снимки на страницах запрещает.
 - Примеры на странице выдуманы (тема `onboarding-flow`, Ticket `01-pricing.md`); личных строк нет.
+- Ревью PR #1684, раунд 1 (REJECTED, один medium): e2e `new-product-session.spec.ts` проверяет только вход из Command
+  palette; «never runs git» → «never changes the repository with git»; метка строки «Critic» — на языке `language.docs`;
+  критик перед приёмкой spec-а получает ещё roadmap и `epic-status`; тема и вид Mind map запоминаются на Machine
+  (localStorage общий для окон), вживую тема следует только в своём окне; e2e Mind map — без сворачивания; строка в
+  `ru/README.md`; строки MM3, MM6–MM8, MM28, CR1, CR4 таблицы поправлены.
 
 ### Сверка утверждений с кодом
 
@@ -103,12 +108,12 @@ Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/READ
 | PS35 | Одно чтение `git status --porcelain=v2`, без commit; отпечаток по Project-у; по одному сигналу | `save-signal.ts:6-7`, `:58`, `:127-129`, `:157`, `:169-182` |
 | MM1 | Папка темы: `map.md`, `issues/`, `mind-map.json`, `drafts/`; `critic/` — не тема | `src/shared/product/paths.ts:7`, `:16-22` |
 | MM2 | Имя темы: буквы, цифры, `.`, `_`, `-`, до 80; не `critic`, не имя устройства Windows | `paths.ts:44-60` |
-| MM3 | Корень — тема, крупные узлы — Ticket-ы карты | `src/renderer/product/MindMap.tsx:1-3`; `src/main/product/topic.ts:135-136` |
+| MM3 | Корень — тема, крупные узлы — Ticket-ы карты | `src/renderer/product/MindMap.tsx:39-41`; `src/renderer/product/mind-map-layout.ts:26`, `:79-86`, `:168-170` |
 | MM4 | Четыре вида и знаки; Decision — статус и причина, Objection — источник | `src/shared/product/mind-map.ts:18`, `:173-178`; `MindMap.tsx:483-488` |
 | MM5 | Отклонённое — зачёркнуто, серое; «Replaces» — пунктир | `MindMap.tsx:220`; `src/renderer/product/mind-map.css:137-143`, `:193-194`; `MindMap.tsx:504-507` |
-| MM6 | Тема не привязана; следует за последней изменённой, помнит по Node в окне; пустой текст; ошибка чтения | `ProductSessionPanel.tsx:27-32`, `:68-89`, `:254-261` |
-| MM7 | Панель: «Tree · Graph», «Hide rejected», «−», процент, «+», «Fit»; колесо, pan; 10–250 % | `MindMap.tsx:84-89`, `:464-476`, `:766-770`, `:802-803`, `:1-5` |
-| MM8 | «Tree» по умолчанию, 15 px сверху вниз; «Graph» 12 px слева направо; вид по теме в окне | `MindMap.tsx:66-79`; `src/renderer/product/mind-map-layout.ts:23`, `:245-248` |
+| MM6 | Тема не привязана; следует за последней изменённой вживую только в этом окне; последняя запоминается по Node на Machine (localStorage общий для окон: окна без своей partition); пустой текст; ошибка чтения | `ProductSessionPanel.tsx:27-32`, `:54-89` (живое следование — state окна, `:70`; запись — `:78`); `src/main/window.ts:135-146`; `ProductSessionPanel.tsx:254-261` |
+| MM7 | Панель: «Tree · Graph», «Hide rejected», «−», процент, «+», «Fit»; колесо, pan; 10–250 % | `MindMap.tsx:84-89`, `:464-476`, `:766-770`, `:802-803`, `:39-43` |
+| MM8 | «Tree» по умолчанию, 15 px сверху вниз; «Graph» 12 px слева направо; вид по теме на этой Machine (localStorage) | `MindMap.tsx:66-79`; `src/renderer/product/mind-map-layout.ts:23`, `:245-248` |
 | MM9 | «Hide rejected» прячет ветки, пока карта открыта, файл не меняется | `mind-map-layout.ts:73`, `:101-117`; `MindMap.tsx:616` |
 | MM10 | Легенда сворачивается | `MindMap.tsx:481-494` |
 | MM11 | Карточка: поля, Status и файл Ticket-а, подсказка «To change…» у узла файла | `MindMap.tsx:524-595` |
@@ -128,11 +133,11 @@ Source: [spec.md](../spec.md), «Готово, когда»; [docs/features/READ
 | MM25 | main — единственный писатель; по одному на файл, атомарно; битый не перезаписывает; Windows — секунда, потом на месте | `mind-map-server.ts:7-21`, `:58`, `:72`, `:124`, `:131-132` |
 | MM26 | `message` — id сообщения, если известно; чипы из transcript, без нового хранения | `mind-map-server.ts:23-24`, `:232-238`; `node-chips.ts:4-7` |
 | MM27 | Слежение за папками тем, 50 мс, `product.changed` | `watch.ts:190`, `:428`, `:485`; `src/shared/ipc/product.ts:46` |
-| MM28 | React Flow; ELK в Web Worker (`mrtree`/`layered`), до ответа — синхронная раскладка; `x`, `y` из файла | `mind-map-layout.ts:10-11`, `:184-185`, `:194`; `MindMap.tsx:1` |
-| CR1 | Критик: только путь, без вердикта автора; один файл разбора; ответ одной строкой | `harness/agents/critic.md:3`, `:14-20`, `:90-99`, `:136-140` |
+| MM28 | React Flow; ELK в Web Worker (`mrtree`/`layered`), до ответа — синхронная раскладка; `x`, `y` из файла | `mind-map-layout.ts:10-11`, `:184-185`, `:194`; `MindMap.tsx:39-40`, `:782-806` |
+| CR1 | Критик: путь плана, без вердикта автора; перед приёмкой spec-а ещё путь roadmap и строки `epic-status`; один файл разбора; ответ одной строкой | `harness/agents/critic.md:3`, `:14-20`, `:146-149`, `:90-99`, `:136-140` |
 | CR2 | Вердикт из четырёх слов; до трёх возражений с `Fact:`/`Judgement:`/`Owner decision:`; одна альтернатива; «cannot know» | `critic.md:83-90`, `:101-136` |
 | CR3 | Product Session зовёт критика по просьбе владельца | `harness/hooks/rules/product.md:37` |
-| CR4 | Orchestrator зовёт критика перед приёмкой spec-а; `Critic:`; таблица; `Owner decision:`; можно вопреки | `harness/hooks/rules/orchestrator.md:116-118`; `critic.md:142-165` |
+| CR4 | Orchestrator зовёт критика перед приёмкой spec-а; строка-ссылка с меткой «Critic» на языке `language.docs`; таблица; `Owner decision:`; можно вопреки | `harness/hooks/rules/orchestrator.md:116-118`; `critic.md:142-165` (метка — `:152-155`) |
 | CR5 | Skill идей: 3–5, поля, против roadmap; узлы с `advice: true`; без tools — в ответе | `harness/skills/product-ideas/SKILL.md:3`, `:42-62`, `:64-80` |
 | CR6 | Шапка «Advice accepted N of M · P%» / «No advice decided yet»; ждущие не в доле | `ProductSessionPanel.tsx:148-166`; `test/unit/product-session-panel.test.tsx:362` |
 | CR7 | Tooltip: ждущие, пропущенные файлы, задержка разбора, «не мерка качества» | `ProductSessionPanel.tsx:131-145` |

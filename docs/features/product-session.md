@@ -42,7 +42,7 @@ in its header (see the last section). Its body is three parts side by side:
 - A click on the agents strip opens the rail blocks of a plain Session over the chat; Escape or "›" closes them. The
   Binding block is left out: a Product Session is bound to no Ticket and no Epic.
 
-**What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never runs git.
+**What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never changes the repository with git.
 Three layers hold this, all for Claude Code:
 
 | Layer | What it refuses |
@@ -128,7 +128,7 @@ changes make one message. One signal runs at a time per Project.
 - `test/contract/product-save-signal.test.ts`: the save signal and its answers, also on Close and archive.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip and the Node.
-- `test/e2e/new-product-session.spec.ts`: both entries in the running app.
+- `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
 
 ## Mind map
 
@@ -162,8 +162,9 @@ four kinds, and an arrow leads to it from the node it grew from:
 A rejected Decision stays on the map, struck through and grey. A Decision that overturned an earlier one has a dashed
 "Replaces" arrow to it.
 
-**Which topic shows.** A Product Session is bound to no topic. The Mind map follows the topic of the Project whose files
-changed last while the Session view is open, and remembers it per Node in this window. Until then it says "The Mind map
+**Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
+of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node
+on this Machine and shows again when the Session is opened once more. Until then it says "The Mind map
 appears once the advisor adds its first node". When the topic cannot be read, it says "Could not read the Mind map:"
 and the reason.
 
@@ -172,7 +173,7 @@ and the reason.
 - The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
   "Fit". The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
 - "Tree" is the default: top to bottom, with text of 15 px. "Graph" runs left to right, with text of 12 px. The view is
-  kept per topic in this window.
+  remembered per topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
 - The legend can be collapsed.
@@ -263,14 +264,16 @@ the file says.
   layout.
 - `test/unit/mind-map-hand.test.tsx`, `test/unit/node-chips.test.tsx`, `test/contract/product-layout.test.ts`: drag,
   fold, their write to the file, and chips.
-- `test/e2e/product-session.spec.ts`: the Mind map, the chips and the hand moves in the running app.
+- `test/e2e/product-session.spec.ts`: in the running app, a node the advisor adds shows without a reload with its
+  chip, and a dragged node keeps its place after a restart. Folding is covered by the unit tests only.
 
 ## Critic, ideas and the share of accepted advice
 
 ### Behaviour
 
 **The critic.** The Subagent `worfy:critic` looks for objections to a spec or a plan, not for reasons to agree. It gets
-only the path of the plan, never its author's verdict. It writes one review file, `critic/<epic>-<YYYY-MM-DD>.md` of the
+the path of the plan, never its author's verdict; before a spec is accepted, it also gets the path of the project's
+roadmap, when there is one, and the `epic-status` lines of the project. It writes one review file, `critic/<epic>-<YYYY-MM-DD>.md` of the
 Product Session folder, and answers with its path and the verdict in one line. The review holds:
 
 - a verdict: `Keep`, `Reorder`, `Split` or `Defer`, with its reason;
@@ -282,8 +285,9 @@ Product Session folder, and answers with its path and the verdict in one line. T
 A Product Session calls the critic when the owner asks for one.
 
 **Before a spec is accepted.** The Orchestrator runs the critic before it asks the owner to accept the `spec.md` of a new
-Epic. It adds a `Critic:` line with a link to the review to the header of the spec, and shows the owner the verdict and
-the objections in one table. For each objection the owner answers, it fills in `Owner decision: accepted — <reason>` or
+Epic. It adds a line with a link to the review to the header of the spec, labelled with the word "Critic" in the
+project's documents language (`language.docs` of the Profile), so the label is not always English. It shows the owner the
+verdict and the objections in one table. For each objection the owner answers, it fills in `Owner decision: accepted — <reason>` or
 `Owner decision: rejected — <reason>`. An unanswered objection stays empty and waits. The owner may accept a spec against
 the critic: it is then an ordinary accepted spec, and worfy neither checks nor blocks it.
 
