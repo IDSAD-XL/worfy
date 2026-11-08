@@ -83,9 +83,10 @@ run all the checks again until each one passes. Exit 2 — show its line and sto
 
 ## 6. Install
 
-1. An existing skill moves aside first: `.claude/skills/human-review/SKILL.md` to
-   `previous/SKILL-<YYYY-MM-DD>.md`, `voice-examples.md` to `previous/voice-examples-<YYYY-MM-DD>.md`, and
-   `<private folder>/lint.json` to `previous/lint-<YYYY-MM-DD>.json`.
+1. An existing skill moves aside first, into `<private folder>/previous/` (create it with `mkdir -p`). The
+   suffix `<stamp>` is the time of this run, `YYYY-MM-DDTHH-MM-SS`, so two builds on one day keep both:
+   `.claude/skills/human-review/SKILL.md` to `previous/SKILL-<stamp>.md`, `voice-examples.md` to
+   `previous/voice-examples-<stamp>.md`, and `<private folder>/lint.json` to `previous/lint-<stamp>.json`.
 2. Copy `raw/skill/SKILL.md` and `raw/skill/voice-examples.md` into `<private folder>/.claude/skills/human-review/`
    (create it), and `raw/skill/lint.json` to `<private folder>/lint.json`, next to `research.md`.
 3. Tell the person how many rules each step of the skill has, and that `/human-review` loads in new Claude Code

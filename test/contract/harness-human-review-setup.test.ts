@@ -153,13 +153,22 @@ describe('SKILL.md of /worfy:human-review-setup', () => {
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/write.md`')
     expect(step(5)).toContain('${CLAUDE_PLUGIN_ROOT}/skills/human-review-setup/template/`')
     expect(step(5)).toContain('review-draft-lint --skill')
+    // Installed into the private folder of the profile, never into the project's repository.
+    expect(step(5)).toContain('`<private folder>/.claude/skills/human-review/`')
+    for (const [name, text] of [['SKILL.md', skill], ['write.md', write]]) expect(text, name).not.toContain('<project root>/.claude')
     expect(step(5)).not.toMatch(/not available/i)
     expect(step(6)).toContain('Not available yet: worfy-human-review 08')
   })
 
-  it('in step 7: keep deletes raw/, refuse deletes the private folder', () => {
+  it('in step 7: keep deletes raw/ and records kept_at in meta.json, refuse deletes the private folder', () => {
     const seven = step(7)
     expect(seven).toContain('review-history" clean')
+    const keep = blocks(seven).find((b) => b.startsWith('- **Keep**'))
+    expect(keep, seven).toBeDefined()
+    const clean = keep!.indexOf('review-history" clean')
+    expect(clean, keep).toBeGreaterThan(-1)
+    expect(keep!.indexOf('`kept_at`'), keep).toBeGreaterThan(clean)
+    expect(keep!.indexOf('`meta.json`'), keep).toBeGreaterThan(clean)
     expect(seven).toMatch(/Refuse/)
     expect(seven).toContain('state/human-review')
   })
@@ -368,7 +377,9 @@ describe('write.md', () => {
   it('installs into .claude/skills/human-review/ and moves the skill before it to previous/', () => {
     const install = write.slice(write.search(/^## 6\. Install$/m))
     expect(install).toContain('<private folder>/.claude/skills/human-review/')
-    expect(install).toContain('previous/SKILL-<YYYY-MM-DD>.md')
+    expect(install).toContain('`mkdir -p`')
+    expect(install).toContain('previous/SKILL-<stamp>.md')
+    expect(install).toContain('YYYY-MM-DDTHH-MM-SS')
     expect(install).toContain('`<private folder>/lint.json`, next to `research.md`')
     expect(install.indexOf('previous/')).toBeLessThan(install.indexOf('Copy `raw/skill/SKILL.md`'))
   })
