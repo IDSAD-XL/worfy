@@ -74,6 +74,37 @@ const JOBS = ['changes', 'lint-typecheck', 'linux-tests', 'macos-tests', 'macos-
 /** The jobs that ci-scope.mjs decides on: every job but itself and ci-ok. */
 const DECIDED = JOBS.filter((name) => name !== 'changes' && name !== 'ci-ok')
 
+/**
+ * The four steps that take the Electron binary from actions/cache (worfy-polish 74), line by line as
+ * they stand in every job that starts Electron, right after the install: the version node_modules
+ * holds (the lockfile's), the restore under electron-<os>-<arch>-<version>, require('electron') with
+ * electron_config_cache on the restored folder, and on a miss the save at once.
+ */
+const ELECTRON_STEPS = [
+  '      - name: Read the Electron version',
+  '        id: electron',
+  `        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\\n')"`,
+  '      - name: Restore the Electron download',
+  '        id: electron-cache',
+  '        uses: actions/cache/restore@v6',
+  '        with:',
+  '          path: ${{ runner.temp }}/electron-cache',
+  '          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}',
+  '      - name: Download the Electron binary',
+  '        env:',
+  '          electron_config_cache: ${{ runner.temp }}/electron-cache',
+  "          DEBUG: '@electron/get:*'",
+  `        run: node -e "require('electron')"`,
+  '      - name: Save the Electron download',
+  "        if: steps.electron-cache.outputs.cache-hit != 'true'",
+  '        uses: actions/cache/save@v6',
+  '        with:',
+  '          path: ${{ runner.temp }}/electron-cache',
+  '          key: ${{ steps.electron-cache.outputs.cache-primary-key }}',
+]
+/** The commands of those steps, as runs() reads them. */
+const ELECTRON_RUNS = ELECTRON_STEPS.filter((line) => /^\s*run: /.test(line)).map((line) => line.trim().replace(/^run: /, ''))
+
 const job = (name: string): string[] => under(under(code(), 'jobs:'), `  ${name}:`)
 
 /** The commands of a job's `run:` lines, one-line form only. */
@@ -173,7 +204,7 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(under(under(job('lint-typecheck'), '      - uses: actions/checkout@v7'), '        with:')).toEqual(['          fetch-depth: 2', '          persist-credentials: false'])
     expect(runs('linux-tests')).toContain('pnpm test "--shard=$SHARD" --sequence.shuffle.files')
     // The test files ci-scope.mjs names, none (every file) but on a pull request.
-    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', 'pnpm test $FILES'])
+    expect(runs('macos-tests')).toEqual(['pnpm install --frozen-lockfile', ...ELECTRON_RUNS, 'pnpm test $FILES'])
     expect(job('macos-tests')).toContain('          FILES: ${{ needs.changes.outputs.macos-tests-files }}')
     // On macOS one harness-scripts file runs every shell test, five at a time, as the one file did
     // before the split: the whole suite in one job would otherwise run the four files side by side.
@@ -181,20 +212,61 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     // The shard's spec files come from scripts/e2e-shard.mjs (split by measured time), not --shard.
     expect(runs('macos-e2e')).toEqual([
       'pnpm install --frozen-lockfile',
+      ...ELECTRON_RUNS,
       'osascript -l JavaScript scripts/ci-display.js',
       'node scripts/e2e-shard.mjs "$SHARD" $E2E_FILES',
       'pnpm test:e2e $FILES',
     ])
     expect(job('macos-e2e')).toContain('          FILES: ${{ steps.shard.outputs.files }}')
     expect(job('macos-e2e')).toContain('        id: shard')
-    // electron-builder needs the binary that Electron downloads only on its first require.
-    expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', `node -e "require('electron')"`, 'pnpm test:package'])
+    // electron-builder needs the binary that Electron downloads only on its first require: the
+    // Electron steps (see the test of them below) put it in place.
+    expect(runs('macos-package')).toEqual(['pnpm install --frozen-lockfile', ...ELECTRON_RUNS, 'pnpm test:package'])
     // Windows: the job full-suite of windows-tests.yml, which runs pnpm test with the shard it is
     // given (its own contract test), once per shard of the matrix.
     const windows = job('windows')
     expect(value(windows, 'uses')).toBe('./.github/workflows/windows-tests.yml')
     expect(under(windows, '    with:')).toEqual(['      mode: full', '      shard: ${{ matrix.shard }}', '      tests-base: ${{ needs.changes.outputs.tests-base }}'])
-    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', '$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files'])
+    expect(runs('windows-e2e')).toEqual(['pnpm install --frozen-lockfile', ...ELECTRON_RUNS, '$files = @(-split $env:E2E_FILES | Where-Object { $_ }); pnpm test:e2e "--shard=$env:SHARD" @files'])
+  })
+
+  it('takes the Electron binary from actions/cache in every job that starts Electron: the same four steps right after the install', () => {
+    // GitHub releases answered 504 for the Electron zip on 2026-11-08, and every job that starts
+    // Electron failed before its first test. A job starts Electron when it runs pnpm test (test:e2e
+    // and test:package too) or scripts/vitest-electron.mjs; lint-typecheck, changes and ci-ok do not.
+    const starts = /pnpm test\b|vitest-electron\.mjs/
+    const withElectron: string[] = []
+    for (const file of [WORKFLOW, join(dirname(WORKFLOW), 'windows-tests.yml')]) {
+      const all = under(codeOf(file), 'jobs:')
+      for (const name of keys(all)) {
+        const lines = under(all, `  ${name}:`)
+        const at = lines.indexOf('      - run: pnpm install --frozen-lockfile')
+        const block = at === -1 ? [] : lines.slice(at + 1, at + 1 + ELECTRON_STEPS.length)
+        const has = block.join('\n') === ELECTRON_STEPS.join('\n')
+        expect(has, `${file}: ${name}`).toBe(starts.test(lines.join('\n')))
+        // Once per job: a second copy would restore and save twice.
+        expect(lines.filter((line) => line.includes('actions/cache')), `${file}: ${name}`).toHaveLength(has ? 2 : 0)
+        if (has) withElectron.push(name)
+      }
+    }
+    expect(withElectron).toEqual(['linux-tests', 'macos-tests', 'macos-e2e', 'macos-package', 'windows-e2e', 'listed-tests', 'full-suite'])
+    // The version in the key is the one the lockfile pins: pnpm install --frozen-lockfile wrote
+    // node_modules/electron from it, and the first step reads that package.json.
+    const version = (JSON.parse(readFileSync(join(REPO, 'node_modules', 'electron', 'package.json'), 'utf8')) as { version: string }).version
+    expect(readFileSync(join(REPO, 'pnpm-lock.yaml'), 'utf8').split(/\r?\n/)).toContain(`  electron@${version}:`)
+    const script = /^node -e "(.*)"$/.exec(ELECTRON_RUNS[0] ?? '')?.[1]
+    expect(script).toBeDefined()
+    const scratch = mkdtempSync(join(tmpdir(), 'worfy-ci-electron-'))
+    try {
+      const output = join(scratch, 'output')
+      writeFileSync(output, 'before=1\n')
+      const result = spawnSync(scriptNode(), ['-e', script ?? ''], { cwd: REPO, env: { ...process.env, GITHUB_OUTPUT: output }, encoding: 'utf8', timeout: ms(30_000) })
+      expect(result.status, result.stderr).toBe(0)
+      // Appended as one line of its own: the step output version that the key reads.
+      expect(readFileSync(output, 'utf8')).toBe(`before=1\nversion=${version}\n`)
+    } finally {
+      removeTestTree(scratch)
+    }
   })
 
   it('runs the Windows e2e tests under PowerShell: Git Bash would enable the backup and restore privileges for every process it starts', () => {

@@ -138,6 +138,29 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: the same four steps as in every job of
+      # ci.yml that starts Electron (see "The Electron binary" at the top of ci.yml, worfy-polish 74).
+      # A warm cache asks GitHub releases nothing; a cold one downloads the zip as before and saves it.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node -e "require('electron')"
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # The list is the output of the check — the accepted paths, separated by spaces — not the raw
       # input. $TEST_FILES is unquoted on purpose: bash splits it into one argument per file, and the
       # check allows no character that bash would expand. In PowerShell, the default shell on
@@ -191,6 +214,28 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Electron binary, from actions/cache when it is warm: the same four steps as in the job of
+      # the list.
+      - name: Read the Electron version
+        id: electron
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + require('electron/package.json').version + '\n')"
+      - name: Restore the Electron download
+        id: electron-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron.outputs.version }}
+      - name: Download the Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          DEBUG: '@electron/get:*'
+        run: node -e "require('electron')"
+      - name: Save the Electron download
+        if: steps.electron-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: ${{ steps.electron-cache.outputs.cache-primary-key }}
       # A pull request (input tests-base): the unit and contract test files its diff touches, the same
       # list in every job (outputs run — all, none or some — and files). Without a base the step is
       # skipped and the next one runs its whole part of the suite.
