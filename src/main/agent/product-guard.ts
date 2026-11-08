@@ -275,9 +275,11 @@ function refusedSimple(words: readonly string[], shell: Shell, depth: number): s
  * The simple commands of `text` as the shell splits them, each the list of its words with the quotes
  * removed: `;`, `&`, `|`, `(`, `)` and line ends outside quotes end a command; quotes and escapes join a
  * word (Bash: `\` escapes the next character and a backslash-newline is no break; PowerShell: the
- * backtick does, and `\` is a path separator). The text of each `$(…)` in double quotes and of each
- * backtick substitution goes into `nested`, to be read as commands of its own; outside quotes `(` and `)`
- * already end a command. A quote left open runs to the end of the text.
+ * backtick does, and `\` is a path separator). A `$(…)` (balanced) or backtick substitution is part of
+ * the word it stands in, and its text goes into `nested`, to be read as commands of its own. Bash's
+ * `$'…'` is read with its escapes. The body of a here-document is no command: it is skipped up to its
+ * terminator line (only the substitutions of a body with an unquoted delimiter are read, as Bash runs
+ * them). A quote left open runs to the end of the text.
  */
 function simpleCommands(text: string, shell: Shell, nested: string[]): string[][] {
   const escape = shell === 'bash' ? '\\' : '`'
@@ -295,6 +297,8 @@ function simpleCommands(text: string, shell: Shell, nested: string[]): string[][
     if (words.length > 0) out.push(words)
     words = []
   }
+  /** The here-documents of the current line, whose bodies start after its line end. */
+  const heredocs: HereDocument[] = []
   /** Reads `$(…)` whose `$` is at `i`; returns the index of its `)`. */
   const substitution = (i: number): number => {
     const end = closingParen(text, i + 2)
@@ -340,10 +344,30 @@ function simpleCommands(text: string, shell: Shell, nested: string[]): string[][
         else if (d === '`' && shell === 'bash') i = backtick(i)
         else word += d
       }
+    } else if (c === '$' && text[i + 1] === '(') {
+      // Part of the current word (`git -C $(…) commit`), read as commands of its own.
+      i = substitution(i)
+    } else if (c === '$' && text[i + 1] === "'" && shell === 'bash') {
+      const quoted = ansiCQuoted(text, i + 2)
+      word += quoted.value
+      inWord = true
+      i = quoted.end
     } else if (c === '`' && shell === 'bash') {
       i = backtick(i)
     } else if (c === '#' && !inWord) {
       while (i + 1 < text.length && text[i + 1] !== '\n') i++
+    } else if (c === '<' && text[i + 1] === '<' && text[i + 2] === '<') {
+      // A here-string (`<<< word`), not a here-document: its word is an argument.
+      endWord()
+      i += 2
+    } else if (c === '<' && text[i + 1] === '<' && shell === 'bash') {
+      endWord()
+      const here = hereDocument(text, i + 2)
+      heredocs.push(here.doc)
+      i = here.end
+    } else if (c === '\n' && heredocs.length > 0) {
+      endCommand()
+      i = skipBodies(text, i + 1, heredocs.splice(0), nested) - 1
     } else if (';&|()\n\r'.includes(c)) {
       endCommand()
     } else if (' \t<>'.includes(c)) {
@@ -355,6 +379,104 @@ function simpleCommands(text: string, shell: Shell, nested: string[]): string[][
   }
   endCommand()
   return out
+}
+
+/** A here-document of Bash (`<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`). */
+interface HereDocument {
+  delimiter: string
+  /** `<<-`: leading tabs of the body's lines, the terminator's too, are dropped. */
+  tabs: boolean
+  /** A quoted delimiter: the body is taken as it is; else `$(…)` and backticks in it run. */
+  quoted: boolean
+}
+
+/** Reads the delimiter of a here-document whose `<<` ends just before `from`; `end` is its last character. */
+function hereDocument(text: string, from: number): { doc: HereDocument; end: number } {
+  let i = from
+  const tabs = text[i] === '-'
+  if (tabs) i++
+  while (text[i] === ' ' || text[i] === '\t') i++
+  let delimiter = ''
+  let quoted = false
+  for (; i < text.length && !' \t\n\r;&|()<>'.includes(text[i] ?? ''); i++) {
+    const c = text[i] ?? ''
+    if (c === "'" || c === '"') {
+      const found = text.indexOf(c, i + 1)
+      const end = found < 0 ? text.length : found
+      delimiter += text.slice(i + 1, end)
+      quoted = true
+      i = end
+    } else if (c === '\\') {
+      delimiter += text[++i] ?? ''
+      quoted = true
+    } else delimiter += c
+  }
+  return { doc: { delimiter, tabs, quoted }, end: i - 1 }
+}
+
+/**
+ * Skips the bodies of `docs`, one after another, from `from` (the start of the line after their
+ * command); returns the index of the line end after the last terminator, or the text's end. The text of
+ * each `$(…)` and backtick substitution of a body with an unquoted delimiter goes into `nested`: Bash
+ * runs those.
+ */
+function skipBodies(text: string, from: number, docs: readonly HereDocument[], nested: string[]): number {
+  let at = from
+  for (const doc of docs) {
+    for (;;) {
+      if (at >= text.length) return text.length
+      const found = text.indexOf('\n', at)
+      const lineEnd = found < 0 ? text.length : found
+      const line = text.slice(at, lineEnd).replace(/\r$/, '')
+      const next = lineEnd + 1
+      if ((doc.tabs ? line.replace(/^\t+/, '') : line) === doc.delimiter) {
+        at = next
+        break
+      }
+      if (!doc.quoted) substitutionsIn(line, nested)
+      at = next
+    }
+  }
+  return Math.min(at - 1, text.length)
+}
+
+/** Puts the text of each `$(…)` and backtick substitution of `line` into `nested`. */
+function substitutionsIn(line: string, nested: string[]): void {
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '\\') i++
+    else if (line[i] === '$' && line[i + 1] === '(') {
+      const end = closingParen(line, i + 2)
+      nested.push(line.slice(i + 2, end))
+      i = end
+    } else if (line[i] === '`') {
+      const found = line.indexOf('`', i + 1)
+      const end = found < 0 ? line.length : found
+      nested.push(line.slice(i + 1, end))
+      i = end
+    }
+  }
+}
+
+/** Reads Bash's `$'…'` whose text starts at `from`: its value, a character named by its code decoded (other escapes, `\n` or `\'`, stay as written; an escaped quote does not end it), and the index of its closing quote. */
+function ansiCQuoted(text: string, from: number): { value: string; end: number } {
+  let value = ''
+  let i = from
+  for (; i < text.length && text[i] !== "'"; i++) {
+    const c = text[i] ?? ''
+    if (c !== '\\' || i + 1 >= text.length) {
+      value += c
+      continue
+    }
+    const next = text[++i] ?? ''
+    // \xHH, \uHHHH, \UHHHHHHHH and octal \NNN name a character by its code.
+    const code = /^(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3})/.exec(text.slice(i, i + 9))?.[0]
+    if (code !== undefined) {
+      const point = /^[0-7]/.test(code) ? parseInt(code, 8) : parseInt(code.slice(1), 16)
+      value += point <= 0x10ffff ? String.fromCodePoint(point) : ''
+      i += code.length - 1
+    } else value += `\\${next}`
+  }
+  return { value, end: i }
 }
 
 /** The index of the `)` that closes a `$(` whose text starts at `from`, quotes skipped; the text's end when there is none. */

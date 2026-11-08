@@ -291,6 +291,25 @@ describe('the shell of a Product Session', () => {
     ['x=$(cd /p && git push)', 'git push'],
     ['pwsh -Command "git push"', 'git push'],
     [`${'eval '.repeat(12)}git log`, 'a command nested too deep to read'],
+    // An unquoted $(…) is part of its word; $'…' quoting; what follows a here-document (review round 2 of PR #1626).
+    ['git -C $(git rev-parse --show-toplevel) commit -m x', 'git commit'],
+    ['git -c user.name=$(whoami) commit', 'git commit'],
+    ['git -C $(echo $(pwd)) push', 'git push'],
+    ['git -C `pwd` commit', 'git commit'],
+    ['echo $(pnpm i)', 'pnpm'],
+    ["git $'commit' -m x", 'git commit'],
+    ["git $'\\x63ommit'", 'git commit'],
+    ["git $'\\143ommit'", 'git commit'],
+    ["git $'\\u0070ush'", 'git push'],
+    ["echo $'\\''; git commit -m x", 'git commit'],
+    ["$'git' push", 'git push'],
+    ["cat > docs/product/x.md <<'EOF'\ndon't\nEOF\ngit commit -am x", 'git commit'],
+    ['cat > docs/product/x.md <<EOF\ndon\'t\nEOF\npnpm test', 'pnpm'],
+    ["cat <<-'EOF' > a.md\n\tbody\n\tEOF\ngit push", 'git push'],
+    ['cat <<EOF\n$(git push)\nEOF', 'git push'],
+    ['cat <<EOF\n`npm i`\nEOF', 'npm'],
+    ["cat <<'A' <<\"B\"\na\nA\nb\nB\ngit push", 'git push'],
+    ['grep -c x <<< "a"\ngit push', 'git push'],
   ])('refuses %s', (command, name) => {
     expect(refusedCommand(command)).toBe(name)
     const decision = bash(command)
@@ -322,6 +341,13 @@ describe('the shell of a Product Session', () => {
     'ls # ; git push',
     "bash -c 'git log'",
     'eval eval git status',
+    'git -C $(git rev-parse --show-toplevel) log -1',
+    "echo $'it\\'s'; git status",
+    // A here-document body is no command (review round 2 of PR #1626).
+    "cat > docs/product/x.md <<'EOF'\nRun git commit and pnpm test after\ndon't forget\nEOF\ngit status",
+    'cat > docs/product/x.md <<EOF\ngit push\nnpm i\nEOF',
+    "cat <<'EOF'\n$(git push)\nEOF",
+    'grep -c x <<< "git push"',
   ])('allows %s', (command) => {
     expect(refusedCommand(command)).toBeNull()
     expect(bash(command)).toEqual(allowed)

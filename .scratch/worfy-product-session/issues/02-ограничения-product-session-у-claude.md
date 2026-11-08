@@ -103,3 +103,9 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
   PowerShell — своими правилами кавычек. `layoutProductFolder` проверен contract test-ом (Full, Silent, failed,
   ошибка). У `autopilot_start` Product Session — свой текст отказа. Test на Eco mode. Mutation testing: 59 mutant-ов —
   все убиты.
+- Ревью PR #1626, раунд 2: `$(…)` без кавычек и backtick-и — часть слова, их текст читается как команды;
+  `$'…'` читается с escape-ами (`\x63`, `\143`, `\u0070`); тело here-document (`<<EOF`, `<<'EOF'`, `<<-EOF`) —
+  не команды, пропускается до строки-терминатора (подстановки тела без кавычек читаются); here-string `<<<` —
+  не here-document. Mutation testing: всего 69 mutant-ов (каждый запуск после зелёного baseline) — все убиты.
+- Известные пределы guard-а (не sandbox, риск 2 spec-а): слитные флаги `bash -ec`, `sudo -u`, `env -C`,
+  редиректы между словами, `function f {…}`, команда из переменной (`$G commit`) не разбираются.
