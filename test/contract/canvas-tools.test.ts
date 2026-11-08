@@ -875,6 +875,64 @@ describe('canvas in a Session', () => {
     expect(textOf(refused)).toBe(server.NO_AUTOPILOT_MESSAGE)
   })
 
+  it('a Product Session gets no autopilot_start: the tool refuses with isError, the starter is never asked (worfy-product-session ticket 02)', async () => {
+    const autopilotStart = vi.fn(() => Promise.resolve('Autopilot starts after this turn'))
+    const product = await server.canvasForSession({ cwd: repo, resume: 'session-a', kind: 'product' }, { ...deps(), autopilotStart })
+    if (product === null) throw new Error('no canvas for the Project root')
+    const refused = await (await connectTo(product.attachment.server as ServerConfig)).call('autopilot_start', { epic: 'worfy-mvp' })
+    expect(refused.isError).toBe(true)
+    expect(textOf(refused)).toBe(server.NO_AUTOPILOT_MESSAGE)
+    expect(autopilotStart).not.toHaveBeenCalled()
+
+    // A plain Session over the same deps still gets it, as before.
+    const plain = await server.canvasForSession({ cwd: repo, resume: 'session-a' }, { ...deps(), autopilotStart })
+    if (plain === null) throw new Error('no canvas for the Project root')
+    const answer = await (await connectTo(plain.attachment.server as ServerConfig)).call('autopilot_start', { epic: 'worfy-mvp' })
+    expect(answer.isError).not.toBe(true)
+    expect(autopilotStart).toHaveBeenCalledOnce()
+  })
+
+  it("a Product Session's start asks its canvas without autopilot_start and its folder by its cwd, and gets the guard (worfy-product-session ticket 02)", async () => {
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+    const asked: unknown[] = []
+    const folders: string[] = []
+    const factory = sdkQueryFactory(
+      (input) => {
+        asked.push(input)
+        return server.canvasForSession(input, deps())
+      },
+      () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]),
+      { productFolder: (cwd) => (folders.push(cwd), Promise.resolve(join(cwd, 'docs', 'product'))) },
+    )
+    await factory({ ...request(repo), kind: 'product' })
+    expect(asked).toEqual([{ cwd: repo, resume: undefined, kind: 'product' }])
+    expect(folders).toEqual([repo])
+    const options = sdkOptions() as { env: Record<string, string>; hooks: { PreToolUse: { hooks: ((input: unknown, id: string, extra: unknown) => Promise<unknown>)[] }[] } }
+    expect(options.env).toMatchObject({ WORFY_SESSION_KIND: 'product' })
+    const hook = options.hooks.PreToolUse[0]?.hooks[0]
+    const answer = await hook?.({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Write', tool_input: { file_path: join(repo, 'src', 'a.ts') }, tool_use_id: 't' }, 't', { signal: new AbortController().signal })
+    expect(answer).toMatchObject({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } })
+
+    // A plain Session: no kind to the canvas, no folder asked, no hook.
+    mocks.query.mockClear()
+    asked.length = 0
+    await factory(request(repo))
+    expect(asked).toEqual([{ cwd: repo, resume: undefined }])
+    expect(folders).toEqual([repo])
+    expect(sdkOptions()).not.toHaveProperty('hooks')
+  })
+
+  it("a Product Session whose folder cannot be found still starts, and its guard refuses every write (worfy-product-session ticket 02)", async () => {
+    const { sdkQueryFactory } = await import('../../src/main/vendors/claude/query')
+    mkdirSync(join(repo, 'docs', 'product'), { recursive: true })
+    await sdkQueryFactory((input) => server.canvasForSession(input, deps()), () => Promise.resolve(['qmd', CANVAS_SERVER_NAME]), {
+      productFolder: () => Promise.reject(new Error('no profile')),
+    })({ ...request(repo), kind: 'product' })
+    const options = sdkOptions() as { hooks: { PreToolUse: { hooks: ((input: unknown, id: string, extra: unknown) => Promise<unknown>)[] }[] } }
+    const answer = await options.hooks.PreToolUse[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Write', tool_input: { file_path: join(repo, 'docs', 'product', 'x.md') }, tool_use_id: 't' }, 't', { signal: new AbortController().signal })
+    expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } })
+  })
+
   /** The Project id a Session in `cwd` gets its canvas for, or null for none. */
   const projectOf = async (cwd: string, overrides: Partial<CanvasDeps> = {}): Promise<string | null> => {
     const canvas = await server.canvasForSession({ cwd, resume: undefined }, { ...deps(), ...overrides })

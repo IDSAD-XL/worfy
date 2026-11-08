@@ -4,6 +4,7 @@
 // SessionInfo, SessionControls) live here too, as importers read them from src/main/agent/session.ts.
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../../shared/agent/events'
 import type { EffortChoice, PermissionModeChoice, SessionSettings } from '../../../shared/agent/settings'
+import type { SessionKind } from '../../../shared/ipc/sessions'
 import type { AgentProcess } from '../../vendors/session'
 import type { UserContent } from '../attachments'
 import type { CommandInfoLike } from '../commands'
@@ -121,6 +122,11 @@ export interface QueryRequest {
    * (app-registry.ts). A Session always sets it.
    */
   orchestrator?: boolean | undefined
+  /**
+   * The SessionKind (SessionLaunch.kind, worfy-product-session ticket 01): a Product Session's Claude Code
+   * gets its limits (ticket 02, src/main/agent/product-guard.ts). Absent: a plain Session.
+   */
+  kind?: SessionKind | undefined
   /**
    * Variables Claude Code gets over the agent environment: the Run's TMPDIR and git environment
    * (worfy-auto-approve ticket 04). Absent: none.

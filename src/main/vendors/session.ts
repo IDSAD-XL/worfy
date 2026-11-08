@@ -7,6 +7,7 @@ import type { SlashCommand } from '../../shared/agent/commands'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { Question } from '../../shared/agent/questions'
 import type { ModelOption, SessionSettings } from '../../shared/agent/settings'
+import type { SessionKind } from '../../shared/ipc/sessions'
 import type { AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { ApprovalRequest, Decision } from '../agent/auto-approve/policy'
 
@@ -113,6 +114,11 @@ export interface SessionStart {
   unattended: boolean
   /** The Session is a Project's Orchestrator (SessionLaunch.orchestrator). */
   orchestrator: boolean
+  /**
+   * The SessionKind (SessionLaunch.kind, worfy-product-session ticket 01); absent: a plain Session. A
+   * driver that runs the kind gives its agent the kind's limits (Claude: a Product Session, ticket 02).
+   */
+  kind?: SessionKind | undefined
   /** Answers the agent's permission requests and questions; not asked when `unattended`. */
   permissions: PermissionAsker
   /** Told of each request an unattended Session refused: what was asked about, the refusal given, who asked and why. */

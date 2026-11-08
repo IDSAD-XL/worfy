@@ -2,11 +2,11 @@
 // ticket 02): the permission mode Claude Code starts in, the flag that lets it skip permissions, and
 // the canUseTool the Session hands over. And the MCP servers of a Session (worfy-daily ticket 06,
 // ADR-0021): in a Project only those on the Profile's list, outside a Project the user's own set.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/vendors/claude/options'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/vendors/claude/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
 import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflow/profile'
@@ -492,5 +492,114 @@ describe("the Profile's skills.allowed", () => {
     expect((await read(0, '"figma"\n')).names).toBeNull()
     expect((await read(0, '[1]\n')).names).toBeNull()
     expect((await read(0, '{ nope\n')).names).toBeNull()
+  })
+})
+
+// worfy-product-session ticket 02: a Product Session's PreToolUse hook refuses what it may not do, its
+// environment names its kind, and the place of its rules in the system prompt is kept.
+describe('sessionOptions of a Product Session', () => {
+  type Hook = (input: unknown, id: string, extra: { signal: AbortSignal }) => Promise<unknown>
+  const hookOf = (options: ReturnType<typeof sessionOptions>): Hook => {
+    const hook = options.hooks?.PreToolUse?.[0]?.hooks[0] as Hook | undefined
+    expect(hook).toBeDefined()
+    return hook as Hook
+  }
+  const call = (hook: Hook, tool_name: string, tool_input: unknown, cwd: string) =>
+    hook({ hook_event_name: 'PreToolUse', session_id: 's', transcript_path: '', cwd, tool_name, tool_input, tool_use_id: 'toolu_1' }, 'toolu_1', { signal: new AbortController().signal })
+  const deny = expect.objectContaining({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: expect.any(String) as unknown },
+  })
+  let root: string
+  let product: string
+  const hostRuntime: RuntimeInfo = { ...runtime, platform: process.platform }
+  const productInput = (more: Partial<SessionOptionsInput> = {}) => input({ cwd: root, runtime: hostRuntime, kind: 'product', productFolder: product, ...more })
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-product-options-')))
+    product = join(root, 'docs', 'product')
+    mkdirSync(join(product, 'x'), { recursive: true })
+  })
+  afterEach(() => removeTestTree(root))
+
+  it('refuses Write src/a.ts in PreToolUse with a reason, and lets docs/product/x/map.md and Read through with {}', async () => {
+    const hook = hookOf(sessionOptions(productInput()))
+    const refused = (await call(hook, 'Write', { file_path: join(root, 'src', 'a.ts'), content: 'x' }, root)) as { hookSpecificOutput: { permissionDecisionReason: string } }
+    expect(refused).toEqual(deny)
+    expect(refused.hookSpecificOutput.permissionDecisionReason).toContain(product)
+    expect(await call(hook, 'Write', { file_path: join(product, 'x', 'map.md'), content: 'x' }, root)).toEqual({})
+    expect(await call(hook, 'Read', { file_path: join(root, 'src', 'a.ts') }, root)).toEqual({})
+    expect(await call(hook, 'Bash', { command: 'git commit -m x' }, root)).toEqual(deny)
+    expect(await call(hook, 'Bash', { command: 'git log -1' }, root)).toEqual({})
+  })
+
+  it('reads a relative path against the folder of the call', async () => {
+    const hook = hookOf(sessionOptions(productInput()))
+    expect(await call(hook, 'Write', { file_path: 'map.md' }, join(product, 'x'))).toEqual({})
+    expect(await call(hook, 'Write', { file_path: 'map.md' }, root)).toEqual(deny)
+  })
+
+  it('refuses in every permission mode, bypassPermissions too: the hook answers before the mode is asked', async () => {
+    for (const mode of PERMISSION_MODES) {
+      const hook = hookOf(sessionOptions(productInput({ settings: settings(mode) })))
+      expect(await call(hook, 'Edit', { file_path: join(root, 'src', 'a.ts') }, root)).toEqual(deny)
+    }
+  })
+
+  it('refuses every file write when the folder could not be found', async () => {
+    const hook = hookOf(sessionOptions(productInput({ productFolder: null })))
+    expect(await call(hook, 'Write', { file_path: join(product, 'x', 'map.md') }, root)).toEqual(deny)
+  })
+
+  it('still tells `toolUse` where the shell stands, next to the guard', async () => {
+    const seen: unknown[] = []
+    const hook = hookOf(sessionOptions(productInput({ toolUse: (use) => seen.push(use) })))
+    expect(await call(hook, 'Write', { file_path: join(root, 'src', 'a.ts') }, root)).toEqual(deny)
+    expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: root, scratchpad: null }])
+  })
+
+  it('carries WORFY_SESSION_KIND=product in its environment, over the Run variables', () => {
+    expect(sessionOptions(productInput()).env).toEqual({ ...env, WORFY_SESSION_KIND: 'product' })
+    expect(sessionOptions(productInput({ environment: { TMPDIR: '/t', WORFY_SESSION_KIND: 'plain' } })).env).toEqual({ ...env, TMPDIR: '/t', WORFY_SESSION_KIND: 'product' })
+  })
+
+  it('appends the instructions it is given after the servers\' ones', () => {
+    const options = sessionOptions(productInput({ instructions: 'PRODUCT RULES' }))
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'PRODUCT RULES' })
+  })
+})
+
+describe('sessionOptions of a plain Session next to a Product Session', () => {
+  it('has no hook, no kind variable and the plain system prompt, as before', () => {
+    const options = sessionOptions(input({ productFolder: '/repo/docs/product' }))
+    expect(options).not.toHaveProperty('hooks')
+    expect(options.env).toBe(env)
+    expect(options.env).not.toHaveProperty('WORFY_SESSION_KIND')
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' })
+  })
+
+  it('answers {} to Write src/a.ts with the observing hook of an unattended run', async () => {
+    const options = sessionOptions(input({ unattended: true, toolUse: () => undefined }))
+    const hook = options.hooks?.PreToolUse?.[0]?.hooks[0]
+    const answer = await hook?.({ hook_event_name: 'PreToolUse', session_id: 's', transcript_path: '', cwd: '/repo', tool_name: 'Write', tool_input: { file_path: '/repo/src/a.ts' }, tool_use_id: 't' } as never, 't', { signal: new AbortController().signal })
+    expect(answer).toEqual({})
+  })
+})
+
+describe('toolUseHooks with a guard', () => {
+  const run = (guard: Parameters<typeof toolUseHooks>[1]) =>
+    toolUseHooks(undefined, guard).PreToolUse?.[0]?.hooks[0]?.({ hook_event_name: 'PreToolUse', cwd: '/repo', tool_name: 'Write', tool_input: {}, tool_use_id: 't' } as never, 't', { signal: new AbortController().signal })
+
+  it('fails closed: a guard that throws refuses the call', async () => {
+    const answer = (await run(() => {
+      throw new Error('guard broke')
+    })) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } }
+    expect(answer.hookSpecificOutput.permissionDecision).toBe('deny')
+    expect(answer.hookSpecificOutput.permissionDecisionReason).toContain('guard broke')
+  })
+
+  it('passes the tool, its input and the shell folder to the guard', async () => {
+    const asked: unknown[] = []
+    expect(await run((tool, toolInput, cwd) => (asked.push([tool, toolInput, cwd]), { allow: true }))).toEqual({})
+    expect(asked).toEqual([['Write', {}, '/repo']])
   })
 })

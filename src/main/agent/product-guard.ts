@@ -1,0 +1,243 @@
+// What a Product Session may do with its tools (worfy-product-session ticket 02; the Epic spec, how it
+// works, the limits, and the owner's answers Q3, Q5, Q6). A Product Session is the Product owner's
+// advisor: it changes no code, takes no Tickets and never touches git. The PreToolUse hook of its Claude
+// Code (src/main/vendors/claude/options.ts, toolUseHooks) asks productToolDecision about each tool call
+// and refuses the call when the answer is a refusal; the agent reads the reason.
+//
+// - Edit, MultiEdit, Write and NotebookEdit may write only below the Product Session folder of the
+//   Project (src/shared/product/paths.ts, ADR-0101): `docs/product/` in Full mode, `<Workflow
+//   folder>/product/` in Silent mode. The target is judged by both its written and its real form: the
+//   written path, `..` folded, lies below the folder's written path in the same case, and the real path
+//   (the nearest existing folder resolved by the system, every link and junction followed) lies below
+//   the folder's real path. A link that leads out, a `..` after a missing folder, a path in another case
+//   (macOS and Windows disks ignore case, a Linux one does not) and, on Windows, a name the system
+//   rewrites (`x.`, `x:stream`, `PRODUC~1`) are refused.
+// - Bash (and PowerShell, Claude Code's shell tool on Windows) is refused the known commands that write
+//   to the repository or to Tickets: the Ticket CLI (`bin/ticket`), `git add|commit|push|merge|rebase|
+//   reset`, `gh pr create|merge`, `pnpm` and `npm`. This is not a sandbox (spec, risk 2): a command
+//   that writes another way goes through, and the Product Session rules (ticket 10) name the limit in
+//   words.
+// - Every other tool is allowed.
+//
+// The guard fails closed: input it cannot read, a folder it cannot resolve, or an error of its own is
+// a refusal, never an allowance.
+import { normalizePath, nodeFileSystem, type FileSystem } from './auto-approve/roots'
+
+export type ProductToolDecision = { allow: true } | { allow: false; reason: string }
+
+/** Where a Product Session's tool call is judged. */
+export interface ProductGuardPlace {
+  /** The Product Session folder of the Project (productFolder); null when it could not be found, and then every write is refused. */
+  productDir: string | null
+  /** The folder a relative path is read against: the shell's folder of the call, else the Session's cwd; null when unknown. */
+  cwd: string | null
+}
+
+/** The tools that write a file, and the field of their input that names it. */
+const FILE_TOOLS: Readonly<Record<string, string>> = {
+  Edit: 'file_path',
+  MultiEdit: 'file_path',
+  Write: 'file_path',
+  NotebookEdit: 'notebook_path',
+}
+
+/** The tools that run a shell command from the field `command`. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'PowerShell'])
+
+/** The git commands that change the repository (Q3, Q5: a Product Session never touches git). */
+const GIT_WRITES: ReadonlySet<string> = new Set(['add', 'commit', 'push', 'merge', 'rebase', 'reset'])
+/** The `gh pr` commands that open or merge a PR. */
+const GH_PR_WRITES: ReadonlySet<string> = new Set(['create', 'merge'])
+/** git options that take the next word as their value. */
+const GIT_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env'])
+/** gh options that take the next word as their value. */
+const GH_VALUE_OPTIONS: ReadonlySet<string> = new Set(['-R', '--repo', '--hostname'])
+/** Words before the command itself: shell keywords and commands that run the next word. */
+const LEADING_WORDS: ReadonlySet<string> = new Set([
+  'sudo', 'env', 'command', 'builtin', 'exec', 'nohup', 'time', 'nice', 'timeout', 'xargs', 'npx', 'corepack',
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!',
+])
+/** Everything that ends one simple command, and quotes: a quoted `bash -c "git commit"` is judged as a command too. */
+const COMMAND_BREAK = /\$\(|[;&|\n\r()`'"<>{}]/
+
+const FOLDER_REASON =
+  'A Product Session writes files only below its Product Session folder'
+const SHELL_REASON =
+  'A Product Session changes no code, takes no Tickets and never touches git, so the command is refused. Read and check freely (git log, gh pr view, epic-status); name the change for the Orchestrator instead of making it.'
+
+const refuse = (reason: string): ProductToolDecision => ({ allow: false, reason })
+const ALLOW: ProductToolDecision = { allow: true }
+
+/**
+ * Whether a Product Session may make the tool call `tool` with `input`. Never throws: anything it cannot
+ * judge is refused.
+ */
+export function productToolDecision(
+  tool: string,
+  input: unknown,
+  place: ProductGuardPlace,
+  platform: NodeJS.Platform,
+  fsys: FileSystem = nodeFileSystem,
+): ProductToolDecision {
+  try {
+    const field = Object.hasOwn(FILE_TOOLS, tool) ? FILE_TOOLS[tool] : undefined
+    if (field !== undefined) return fileDecision(fieldOf(input, field), place, platform === 'win32', fsys)
+    if (SHELL_TOOLS.has(tool)) return shellDecision(fieldOf(input, 'command'))
+    return ALLOW
+  } catch (error) {
+    return refuse(`The Product Session guard could not judge this ${tool} call, so it is refused: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function fieldOf(input: unknown, field: string): unknown {
+  return typeof input === 'object' && input !== null ? (input as Record<string, unknown>)[field] : undefined
+}
+
+// --- Files ----------------------------------------------------------------------------------
+
+function fileDecision(path: unknown, place: ProductGuardPlace, win: boolean, fsys: FileSystem): ProductToolDecision {
+  if (place.productDir === null) return refuse(`${FOLDER_REASON}, and the folder of this Project could not be found, so no file may be written.`)
+  const below = `${FOLDER_REASON} ${place.productDir}`
+  if (typeof path !== 'string' || path === '') return refuse(`${below}; this call names no file.`)
+  const raw = absolute(path, place.cwd, win)
+  const written = raw === null ? null : normalizePath(raw, win)
+  const folder = normalizePath(place.productDir, win)
+  if (raw === null || written === null || folder === null) return refuse(`${below}; ${path} is not a path it can place.`)
+  if (win && rewrittenName(raw, [folder, place.cwd === null ? null : systemForm(place.cwd, win)])) return refuse(`${below}; ${path} has a name Windows rewrites before it opens it.`)
+  // Written in another case, the path may be another folder on a disk that does not ignore case.
+  if (!strictlyBelow(written, folder, win)) return refuse(`${below}; ${path} is not below it.`)
+  const real = realForm(raw, win, fsys)
+  const realFolder = realForm(folder, win, fsys)
+  if (real === null || realFolder === null) return refuse(`${below}; where ${path} really leads cannot be told.`)
+  if (!strictlyBelow(real, realFolder, win)) return refuse(`${below}; ${path} leads to ${real}, which is not below it.`)
+  return ALLOW
+}
+
+/**
+ * `path` absolute against `cwd`, in the system's own form — on Windows `\\` separators, `C:\\x` for `c:/x`
+ * and Git Bash's `/c/x` — with `.` and `..` kept, so the system walks it as the tool would; null when it
+ * cannot be (a UNC path, no `cwd` for a relative one).
+ */
+function absolute(path: string, cwd: string | null, win: boolean): string | null {
+  const own = systemForm(path, win)
+  if (own !== null) return own
+  const base = cwd === null ? null : systemForm(cwd, win)
+  if (base === null) return null
+  return systemForm(`${base.replace(/[\\/]+$/, '')}${win ? '\\' : '/'}${path}`, win)
+}
+
+function systemForm(path: string, win: boolean): string | null {
+  if (!win) return path.startsWith('/') ? path : null
+  let text = path.replaceAll('/', '\\')
+  if (text.startsWith('\\\\')) return null
+  const msys = /^\\([A-Za-z])(\\.*)?$/s.exec(text)
+  if (msys !== null) text = `${msys[1] ?? ''}:${msys[2] ?? '\\'}`
+  const drive = /^([A-Za-z]):(\\.*)$/s.exec(text)
+  return drive === null ? null : `${(drive[1] ?? '').toUpperCase()}:${drive[2] ?? '\\'}`
+}
+
+/**
+ * Whether a name of `path` below the folder it starts with of `known` (the Product Session folder, the
+ * cwd) is one Windows changes before it opens it: a stream (`x:y`), a trailing dot or space, an 8.3
+ * short name (`PRODUC~1`). The names of `known` itself are left alone: a temporary folder of Windows is
+ * often spelled `RUNNER~1`.
+ */
+function rewrittenName(path: string, known: ReadonlyArray<string | null>): boolean {
+  const lead = known.filter((each): each is string => each !== null).map((each) => each.replace(/[\\/]+$/, '')).filter((each) => path.startsWith(`${each}\\`))
+  const start = Math.max(0, ...lead.map((each) => each.length + 1))
+  const names = path.slice(start === 0 ? 3 : start).split('\\')
+  return names.some((name) => name !== '.' && name !== '..' && (name.includes(':') || /[. ]$/.test(name) || /~\d/.test(name)))
+}
+
+/** Whether the normalized `path` lies below the normalized `folder` (not the folder itself), case and all. */
+function strictlyBelow(path: string, folder: string, win: boolean): boolean {
+  const sep = win ? '\\' : '/'
+  return path.startsWith(folder.endsWith(sep) ? folder : `${folder}${sep}`)
+}
+
+/**
+ * The real form of the absolute `path`, which may not exist yet: the nearest existing entry above it
+ * resolved by the system (links and junctions followed, `..` taken as the system takes it), plus the
+ * missing names. null when it cannot be told: an entry that cannot be read, a link that leads nowhere
+ * (a write would follow it), a `..` after a missing folder.
+ */
+function realForm(path: string, win: boolean, fsys: FileSystem): string | null {
+  const sep = win ? '\\' : '/'
+  const missing: string[] = []
+  let head = topOf(path, win)
+  for (;;) {
+    const kind = fsys.lstat(head)
+    if (kind === 'error') return null
+    if (kind !== null) {
+      const real = fsys.realpath(head)
+      if (real === null) return null
+      return normalizePath([real.replace(/[\\/]+$/, ''), ...missing].join(sep), win)
+    }
+    const at = head.lastIndexOf(sep)
+    if (at < 0) return null
+    const name = head.slice(at + 1)
+    if (name === '..') return null
+    if (name !== '.' && name !== '') missing.unshift(name)
+    const parent = topOf(head.slice(0, at), win)
+    if (parent === head) return null
+    head = parent
+  }
+}
+
+/** `path` without trailing separators, but a root stays one: `/`, `C:\\` (`C:` alone is the drive's current folder). */
+function topOf(path: string, win: boolean): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  if (trimmed === '') return '/'
+  return win && /^[A-Za-z]:$/.test(trimmed) ? `${trimmed}\\` : trimmed
+}
+
+// --- Shell commands -------------------------------------------------------------------------
+
+function shellDecision(command: unknown): ProductToolDecision {
+  if (typeof command !== 'string') return refuse(`${SHELL_REASON} (This call names no command.)`)
+  const refused = refusedCommand(command)
+  return refused === null ? ALLOW : refuse(`\`${refused}\`: ${SHELL_REASON}`)
+}
+
+/** The program a word names: its last path component, in lower case, without a Windows or script extension. */
+function programOf(word: string): string {
+  const name = word.split(/[\\/]/).at(-1) ?? word
+  return name.toLowerCase().replace(/\.(exe|cmd|bat|ps1|mjs|cjs|js|sh)$/, '')
+}
+
+/** Whether a word is the Ticket CLI of the Harness, in any form (`…/bin/ticket`, `bin\ticket.mjs`). */
+const isTicketCli = (word: string): boolean => /(^|[\\/])bin[\\/]ticket(\.(mjs|cjs|js|cmd|ps1|sh))?$/i.test(word)
+
+/** The first known write command in `command`, as a short name; null when there is none. */
+export function refusedCommand(command: string): string | null {
+  for (const segment of command.split(COMMAND_BREAK)) {
+    const words = segment.split(/\s+/).filter((word) => word !== '')
+    if (words.some(isTicketCli)) return 'bin/ticket'
+    const at = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) && !word.startsWith('-') && !/^\d+[smhd]?$/.test(word) && !LEADING_WORDS.has(programOf(word)))
+    if (at < 0) continue
+    const program = programOf(words[at] ?? '')
+    const args = words.slice(at + 1)
+    if (program === 'pnpm' || program === 'npm') return program
+    if (program === 'ticket') return 'bin/ticket'
+    if (program === 'git') {
+      const sub = subcommands(args, GIT_VALUE_OPTIONS, 1)[0]
+      if (sub !== undefined && GIT_WRITES.has(sub)) return `git ${sub}`
+    }
+    if (program === 'gh') {
+      const [group, sub] = subcommands(args, GH_VALUE_OPTIONS, 2)
+      if (group === 'pr' && sub !== undefined && GH_PR_WRITES.has(sub)) return `gh pr ${sub}`
+    }
+  }
+  return null
+}
+
+/** The first `count` words of `args` that are not options, skipping the value of an option in `valued`. */
+function subcommands(args: readonly string[], valued: ReadonlySet<string>, count: number): string[] {
+  const out: string[] = []
+  for (let i = 0; i < args.length && out.length < count; i++) {
+    const word = args[i] ?? ''
+    if (valued.has(word)) i++
+    else if (!word.startsWith('-')) out.push(word.toLowerCase())
+  }
+  return out
+}

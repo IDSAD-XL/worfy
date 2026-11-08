@@ -24,6 +24,7 @@ import * as nativePath from 'node:path'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import type { AgentEvent } from '../../shared/agent/events'
+import type { SessionKind } from '../../shared/ipc/sessions'
 import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import {
   CANVAS_SERVER_NAME,
@@ -484,7 +485,17 @@ export const appDeps = (): CanvasDeps => ({
   autopilotStart: appStarter,
 })
 
-export type CanvasResolver = (request: { cwd: string; resume: string | undefined }) => Promise<CanvasSession | null>
+/**
+ * What a Session's canvas is found by: its cwd, the Vendor session it resumes, and its SessionKind — a
+ * Product Session gets no autopilot_start (worfy-product-session ticket 02).
+ */
+export interface CanvasRequest {
+  cwd: string
+  resume: string | undefined
+  kind?: SessionKind | undefined
+}
+
+export type CanvasResolver = (request: CanvasRequest) => Promise<CanvasSession | null>
 
 /** The Project of a Session's cwd: by path, else through git for a linked worktree outside the root. */
 async function projectOfSession(deps: CanvasDeps, cwd: string): Promise<StoredProject | undefined> {
@@ -505,7 +516,7 @@ interface SessionCanvas {
 }
 
 /** The Project of a Session's cwd, its Cards folder (made here) and the server bound to both; null outside every Project. */
-async function sessionCanvas(request: { cwd: string; resume: string | undefined }, deps: CanvasDeps): Promise<SessionCanvas | null> {
+async function sessionCanvas(request: CanvasRequest, deps: CanvasDeps): Promise<SessionCanvas | null> {
   const project = await projectOfSession(deps, request.cwd)
   if (!project) return null
   const cardsDir = join(deps.dataDir(project.id), 'cards')
@@ -518,7 +529,8 @@ async function sessionCanvas(request: { cwd: string; resume: string | undefined 
     layout: deps.layout,
     workflow: () => deps.workflow(project.path),
     sessionId: () => sessionId,
-    ...(deps.autopilotStart === undefined ? {} : { autopilotStart: deps.autopilotStart }),
+    // A Product Session never starts Autopilot: without the starter the tool refuses (NO_AUTOPILOT_MESSAGE).
+    ...(deps.autopilotStart === undefined || request.kind === 'product' ? {} : { autopilotStart: deps.autopilotStart }),
   })
   return {
     projectId: project.id,
@@ -535,7 +547,7 @@ async function sessionCanvas(request: { cwd: string; resume: string | undefined 
  * The canvas for a Session starting in `cwd`; null when `cwd` is in no Project, and the Session
  * then runs without canvas tools. Makes the Project's Cards folder, which the Session may write.
  */
-export const canvasForSession = async (request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasSession | null> => {
+export const canvasForSession = async (request: CanvasRequest, deps: CanvasDeps = appDeps()): Promise<CanvasSession | null> => {
   const canvas = await sessionCanvas(request, deps)
   if (canvas === null) return null
   const { projectId, cardsDir } = canvas
@@ -574,7 +586,7 @@ export interface CanvasBinding {
 }
 
 /** The canvas binding of a Session starting in `cwd`, found as canvasForSession finds it; null outside every Project. */
-export async function canvasBindingForSession(request: { cwd: string; resume: string | undefined }, deps: CanvasDeps = appDeps()): Promise<CanvasBinding | null> {
+export async function canvasBindingForSession(request: CanvasRequest, deps: CanvasDeps = appDeps()): Promise<CanvasBinding | null> {
   const canvas = await sessionCanvas(request, deps)
   if (canvas === null) return null
   const { projectId, cardsDir } = canvas

@@ -15,7 +15,7 @@ import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { NodeSessions } from '../../src/main/agent/node-sessions'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
-import { SessionSettingsStore } from '../../src/main/agent/session-settings'
+import { PRODUCT_MODEL_MESSAGE, SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore, type LayoutChange } from '../../src/main/layout/store'
 import { familyLinksOf, familyOf } from '../../src/renderer/canvas/family'
 import type { AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -531,6 +531,45 @@ describe('the kind of a Session (worfy-product-session ticket 01)', () => {
     expect(h.node('later').data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'mentor', sessionId: FINISHED })
     // The renderer still reads it as worfy's own Session Node, the kind as saved.
     expect(worfySessionNodeDataSchema.parse(h.node('later').data)).toMatchObject({ kind: 'mentor' })
+  })
+})
+
+// worfy-product-session ticket 02: the kind reaches the driver's request, the model is the strongest and
+// cannot be changed, whatever the Node saved (Eco mode sets only the Profile's Subagent roles).
+describe('the limits of a Product Session on its Node (worfy-product-session ticket 02)', () => {
+  it('reaches Claude Code with kind product, on opus at the highest effort, over the picks the Node saved', async () => {
+    savedLayout([{ id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product' } }])
+    const h = harness()
+    h.settings.write(PROJECT, 'product-1', { model: 'sonnet', effort: 'low', permissionMode: 'default' })
+    await h.sessions.start(PROJECT, 'product-1')
+    await h.until('product-1', 'idle')
+    expect(h.requests).toMatchObject([{ kind: 'product', settings: { model: 'opus', effort: 'max', permissionMode: 'default' } }])
+    // The corrected picks are what the Node keeps from now on.
+    await vi.waitFor(() => expect(h.settings.read(PROJECT, 'product-1')).toStrictEqual({ model: 'opus', effort: 'max', permissionMode: 'default' }))
+  })
+
+  it('refuses a change of model with a reason and keeps opus; another setting changes as before', async () => {
+    const h = harness()
+    const created = await h.sessions.open(PROJECT, undefined, 'product')
+    await h.until(created.nodeId, 'idle')
+    const session = h.registry.get(h.view(created.nodeId).sessionId)
+    await expect(session.configure({ model: 'sonnet' })).rejects.toThrow(PRODUCT_MODEL_MESSAGE)
+    await expect(session.configure({ model: null })).rejects.toThrow(PRODUCT_MODEL_MESSAGE)
+    expect(session.settings.model).toBe('opus')
+    await session.configure({ permissionMode: 'plan' })
+    expect(session.settings).toMatchObject({ model: 'opus', permissionMode: 'plan' })
+  })
+
+  it('a plain Session has no kind in its request and keeps the model it saved', async () => {
+    savedLayout([{ id: 'plain', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude' } }])
+    const h = harness()
+    h.settings.write(PROJECT, 'plain', { model: 'sonnet', effort: 'low', permissionMode: 'default' })
+    await h.sessions.start(PROJECT, 'plain')
+    await h.until('plain', 'idle')
+    expect(h.requests).toHaveLength(1)
+    expect(h.requests[0]).not.toHaveProperty('kind')
+    expect(h.requests[0]?.settings).toStrictEqual({ model: 'sonnet', effort: 'low', permissionMode: 'default' })
+    await h.registry.get(h.view('plain').sessionId).configure({ model: 'opus' })
   })
 })
 

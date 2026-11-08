@@ -15,6 +15,7 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { productFolder } from '../../../shared/product/paths'
 import { autoCompactWindowFor } from '../../../shared/settings/app-settings'
 import { agentEnv, type Env } from '../../agent/env'
 import { fakeQueryFactory } from '../../agent/fake-query'
@@ -25,13 +26,14 @@ import { browserForSession, type BrowserResolver, type BrowserSession } from '..
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome } from '../../storage/paths'
+import { projectLayouts } from '../../workflow/folder'
 import { readMcpAllowlist, readSkillsAllowlist } from '../../workflow/profile'
 import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer } from './options'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
   try {
-    return await canvas({ cwd: request.cwd, resume: request.resume })
+    return await canvas({ cwd: request.cwd, resume: request.resume, ...(request.kind === undefined ? {} : { kind: request.kind }) })
   } catch (error) {
     console.warn(`[agent] no canvas tools for ${request.cwd}`, error)
     return null
@@ -91,6 +93,27 @@ const appAutoCompactWindow: AutoCompactWindowReader = (orchestrator) => {
 }
 
 /**
+ * The Product Session folder of the Project at `cwd` (src/shared/product/paths.ts), the one place a Product
+ * Session writes files (worfy-product-session ticket 02); null when it cannot be told, and the Session then
+ * writes no file. Never rejects.
+ */
+export type ProductFolderResolver = (cwd: string) => Promise<string | null>
+
+/**
+ * The folder by the Project's layout (`bin/profile`: Full or Silent mode). A layout the Harness did not
+ * answer is the Full-mode fallback, which may be wrong for a Silent-mode Project: no folder then.
+ */
+const layoutProductFolder: ProductFolderResolver = async (cwd) => {
+  try {
+    const layout = await projectLayouts().get(cwd)
+    return layout.failed ? null : productFolder(layout)
+  } catch (error) {
+    console.warn(`[agent] no Product Session folder for ${cwd}: the Session writes no file`, error)
+    return null
+  }
+}
+
+/**
  * The part of the Agent SDK a Session start uses: query(), which starts the Claude Code process with
  * the options sessionOptions() made.
  */
@@ -113,6 +136,8 @@ export interface SdkQueryFactoryOptions {
   browser?: BrowserResolver
   /** The Profile's list of the user's plugins and skills; `skills.allowed` by default. */
   skills?: SkillsAllowlistResolver
+  /** The Product Session folder of a Product Session's Project; by the Project's layout by default. */
+  productFolder?: ProductFolderResolver
 }
 
 /**
@@ -130,10 +155,22 @@ export interface SdkQueryFactoryOptions {
 export function sdkQueryFactory(
   canvas: CanvasResolver = canvasForSession,
   mcpAllowlist: McpAllowlistResolver = profileAllowlist,
-  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk, browser = browserForSession, skills = profileSkills }: SdkQueryFactoryOptions = {},
+  {
+    autoCompactWindow = appAutoCompactWindow,
+    loadSdk = importSdk,
+    browser = browserForSession,
+    skills = profileSkills,
+    productFolder: productFolderOf = layoutProductFolder,
+  }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
-    const [{ query }, environment, attached] = await Promise.all([loadSdk(), agentEnv(), canvasOrNull(canvas, request)])
+    const product = request.kind === 'product'
+    const [{ query }, environment, attached, folder] = await Promise.all([
+      loadSdk(),
+      agentEnv(),
+      canvasOrNull(canvas, request),
+      product ? productFolderOf(request.cwd).catch(() => null) : Promise.resolve(null),
+    ])
     // The Browser goes with the canvas: a Session the canvas finds no Project for gets neither. An
     // unattended one (Autopilot) gets it in Autopilot mode: only the Browser profiles marked
     // «Available to Autopilot» exist for it (worfy-browser ticket 08, ADR-0078 item 10).
@@ -167,6 +204,8 @@ export function sdkQueryFactory(
       // The Run's TMPDIR and git environment, and where the shell stands for each tool call (worfy-auto-approve ticket 04).
       environment: request.environment,
       toolUse: request.toolUse,
+      // A Product Session's limits (worfy-product-session ticket 02): the PreToolUse guard and its kind in the environment.
+      ...(product ? { kind: 'product' as const, productFolder: folder } : {}),
     })
     request.processEnv?.(options.env ?? environment.env)
     const handle = query({ prompt: request.prompt, options }) as QueryHandle

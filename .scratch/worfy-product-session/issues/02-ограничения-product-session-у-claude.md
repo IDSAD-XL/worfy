@@ -66,6 +66,11 @@ verdict до merge (ADR-0056). Глубина ревью — `high`: это гр
 - `src/main/mcp/canvas-server.ts`
 - `src/main/agent/node-sessions.ts`
 - `src/main/agent/session-settings.ts`
+- `src/main/agent/session.ts` (`Session.begin()` передаёт `kind` в SessionStart; `becomeAttended` его сохраняет)
+- `src/main/vendors/session.ts` (поле `kind` в SessionStart)
+- `src/main/vendors/claude/session.ts` (driver Claude передаёт `kind` в QueryRequest)
+- `src/main/agent/session/types.ts` (поле `kind` в QueryRequest)
+- `docs/features/autopilot-chat.md` (отказ `autopilot_start` у Product Session)
 - `test/unit/product-guard.test.ts`
 - `test/unit/agent-options.test.ts`
 - `test/contract/canvas-tools.test.ts`
