@@ -54,6 +54,8 @@
     "test/remove.ts",
     "test/script-node.ts",
     "test/setup-contract.ts",
+    "test/setup-waits.ts",
+    "test/scaled-waits.ts",
     "test/shell-stub.ts",
     "test/stale-leftovers.ts",
     "test/timings-reporter.ts",

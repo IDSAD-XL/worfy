@@ -19,6 +19,7 @@
     "test/stale-leftovers.ts",
     "test/timings-reporter.ts",
     "test/time-scale.ts",
+    "test/scaled-waits.ts",
     "playwright.config.ts"
   ],
   "exclude": ["node_modules", "out", ".claude/worktrees/**", "**/*.tsx"]

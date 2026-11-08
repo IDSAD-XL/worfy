@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 import { searchForWorkspaceRoot } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { CI_RETRIES } from './test/flaky'
+import { WAIT_DEFAULT_TIMEOUT } from './test/scaled-waits'
 import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'
 import { ms } from './test/time-scale'
 
@@ -54,6 +55,11 @@ export default defineConfig({
     includeTaskLocation: true,
     testTimeout: ms(5_000),
     hookTimeout: ms(10_000),
+    // A wait for a condition that names no timeout of its own — expect.poll here, vi.waitFor and
+    // vi.waitUntil through test/setup-waits.ts — gives up after vitest's 1 s times the multiplier
+    // (test/scaled-waits.ts). Each project below adds its own setup files to this one.
+    expect: { poll: { timeout: ms(WAIT_DEFAULT_TIMEOUT) } },
+    setupFiles: ['test/setup-waits.ts'],
     projects: [
       {
         extends: true,
