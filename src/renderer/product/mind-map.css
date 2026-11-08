@@ -9,14 +9,15 @@
   align-self: stretch;
   display: flex;
   flex-direction: column;
-  /* Four kinds that differ in both themes; the accent is the question's blue in the light theme and
-     the decision's green in the dark one, so the idea takes the violet of the theme's palette. */
+  /* Colours that differ in both themes, from the theme's palette: the accent is the question's blue in
+     the light theme and the decision's green in the dark one, so the idea takes the violet; the kind-*
+     roles belong to the Canvas's Nodes (canvas/kind-colours.ts), so the Tickets take the amber. */
   --mind-idea: var(--span-verifier);
   --mind-question: var(--working-text);
   --mind-decision: var(--ready-text);
   --mind-rejected: var(--text-muted);
   --mind-objection: var(--blocked-text);
-  --mind-ticket: var(--kind-epic);
+  --mind-ticket: var(--span-ci);
   --mind-topic: var(--text);
 }
 
@@ -30,7 +31,7 @@
   background: var(--surface);
 }
 
-.w-mind__zoom {
+.w-mind__camera {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -119,7 +120,7 @@
 .w-mind__node--ticket {
   --mind-kind: var(--mind-ticket);
   font-weight: 600;
-  background: var(--kind-epic-tint);
+  background: color-mix(in srgb, var(--mind-ticket) 12%, var(--surface-raised));
 }
 .w-mind__node--idea {
   --mind-kind: var(--mind-idea);

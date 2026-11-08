@@ -262,7 +262,7 @@ function ZoomControls() {
   const flow = useReactFlow()
   const zoom = useStore((store) => store.transform[2])
   return (
-    <div className="w-mind__zoom" role="group" aria-label="Zoom">
+    <div className="w-mind__camera" role="group" aria-label="Zoom">
       <button type="button" className="w-mind__button" aria-label="Zoom out" title="Zoom out" onClick={() => void flow.zoomOut({ duration: 0 })}>
         −
       </button>
