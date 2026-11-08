@@ -113,6 +113,9 @@ export async function marksInFile(profile: Pick<PipelineProfile, 'mode' | 'finis
   return profile.finish === 'local-green' && !(await hasOrigin())
 }
 
+/** How many branches that could not be read the problems name one by one; the rest are counted. */
+export const BRANCH_ERRORS_SHOWN = 3
+
 const columnsOf = (pipeline: readonly PipelineStage[]): PipelineColumn[] => pipeline.map((stage) => ({ ...stage, id: stageId(stage), title: stageLabel(stage) }))
 
 /** Computes one snapshot of a Project; keeps what is worth keeping between snapshots. */
@@ -137,6 +140,12 @@ export class StageReader {
     }
     if (profile.pipelineReason !== null) problems.push(`the default Pipeline stands in: ${profile.pipelineReason}`)
     if (model?.error) problems.push(`the workflow model is empty: ${model.error.message}`)
+    // Worktree branches whose `epic-status --ref` failed (the reader); not the gh look-ups of PRs below.
+    const unreadBranches = model?.branchErrors ?? []
+    for (const { branch, message } of unreadBranches.slice(0, BRANCH_ERRORS_SHOWN)) {
+      problems.push(`the worktree branch ${branch} could not be read, the status of its Ticket may be behind it (an open Ticket goes into no Wave): ${message}`)
+    }
+    if (unreadBranches.length > BRANCH_ERRORS_SHOWN) problems.push(`${unreadBranches.length - BRANCH_ERRORS_SHOWN} more worktree branches could not be read`)
     const pipeline = profile.pipeline
     const tickets = model?.tickets ?? []
 

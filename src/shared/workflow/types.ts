@@ -142,6 +142,12 @@ export const ticketSchema = epicStatusTicketSchema.extend({
    */
   fromBranch: z.string().nullable(),
   /**
+   * The worktree branch of the Ticket whose last read failed (`branchErrors` has the reason): the
+   * status may be behind that branch, so the Ticket goes into no Wave until a read works. Absent
+   * otherwise, from an older worfy (a Linked machine), and on a Ticket blocked or done in the checkout.
+   */
+  unreadBranch: z.string().optional(),
+  /**
    * The manual items of the done section, in file order. Optional, and absent reads
    * as none: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid.
    */

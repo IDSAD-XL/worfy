@@ -7,8 +7,10 @@
 //   of events (an agent rewriting Tickets) does not postpone the read for good: it starts at the
 //   latest 1 s after the first event of the series (max-wait).
 // - in Full mode, the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree
-//   list (`worktrees/<name>/HEAD`): only branches whose head moved are read again. In Silent mode
-//   the status lives in the Workflow folder only (ADR-0042), so refs are not watched.
+//   list (`worktrees/<name>/HEAD`): only branches whose head moved are read again. A branch whose
+//   read failed is read again by a timer once its wait is over (BRANCH_RETRY_MS: 30 s, 1 min, 2 min,
+//   then every 5 minutes), with no event needed. In Silent mode the status lives in the Workflow
+//   folder only (ADR-0042), so refs are not watched.
 // Where the workflow lives is read once, when the watch starts. When that read fails (the `profile`
 // call, src/main/workflow/folder.ts: no node, a broken registry, a timeout), nothing is watched:
 // the model carries the reason, and the layout is asked again after 10 s, 30 s, 60 s and then every
@@ -104,6 +106,8 @@ export interface WatchOptions {
    * the last repeated (LAYOUT_RETRY_MS by default).
    */
   layoutRetryMs?: number | readonly number[]
+  /** How long a branch whose read failed waits before it is read again, one wait per failure in a row (BRANCH_RETRY_MS by default). */
+  branchRetryMs?: readonly number[]
   /**
    * How the Tickets root is watched: 'links-read-first' (link-safe-watch.ts) on Windows, 'chokidar'
    * elsewhere. Tests name one to run it on any system.
@@ -317,6 +321,8 @@ export class WorkflowWatcher {
    */
   private layoutRequest: HarnessScriptEnvRequest | null = null
   private retry: NodeJS.Timeout | null = null
+  /** The timer of the next read of a branch whose read failed (`retryBranches`). */
+  private branchRetry: NodeJS.Timeout | null = null
   /** Retries of the failed layout so far, for the wait before the next one. */
   private retries = 0
   /** Resolves when `close` is called: a watch waiting for chokidar's `ready` stops waiting. */
@@ -383,6 +389,8 @@ export class WorkflowWatcher {
     this.debounce.cancel()
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
+    if (this.branchRetry) clearTimeout(this.branchRetry)
+    this.branchRetry = null
     if (this.rootLook) clearTimeout(this.rootLook)
     this.rootLook = null
     await this.unwatch()
@@ -444,6 +452,19 @@ export class WorkflowWatcher {
       this.request()
     }, wait)
     this.retry.unref?.()
+  }
+
+  /** Reads the branches again when the earliest wait of a failed branch read is over; one timer, set anew after each read. */
+  private retryBranches(): void {
+    if (this.branchRetry) clearTimeout(this.branchRetry)
+    this.branchRetry = null
+    const due = Math.min(...[...this.branches.values()].map((snapshot) => snapshot.retry?.at ?? Infinity))
+    if (this.closed || due === Infinity) return
+    this.branchRetry = setTimeout(() => {
+      this.branchRetry = null
+      this.schedule('branches')
+    }, Math.max(0, due - Date.now()))
+    this.branchRetry.unref?.()
   }
 
   private async watch(): Promise<void> {
@@ -772,8 +793,9 @@ export class WorkflowWatcher {
       }
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
-        this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)
+        this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run, this.options.branchRetryMs ? { retryMs: this.options.branchRetryMs } : {})
       }
+      this.retryBranches()
       const previous = this.model
       const next = applyBranches(checkout, this.branches)
       this.model = next
