@@ -1,7 +1,8 @@
 // Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021), the list of
-// the user's plugins and skills its Sessions get (ADR-0084, `readSkillsAllowlist`), the
-// GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01) and the Pipeline
-// with what the Stage of a Ticket is computed from (ADR-0067, `readPipelineProfile`).
+// the user's plugins and skills its Sessions get (ADR-0084, `readSkillsAllowlist`), the Profile
+// folder that holds the Project's private skills (ADR-0102, `readProfileFolder`), the GitHub
+// account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01) and the Pipeline with what
+// the Stage of a Ticket is computed from (ADR-0067, `readPipelineProfile`).
 //
 // The Profile lives outside the repository — `<claude home>/profiles/<name>/profile.json` with the
 // old Harness, `<Harness home>/projects/<name>/` with the plugin — and its only reader is the
@@ -611,6 +612,36 @@ export async function readSkillsAllowlist(options: ReadProfileOptions): Promise<
   const parsed = serverNames.safeParse(json)
   if (!parsed.success) return none(`${SKILLS_ALLOWED_FIELD} is not a list of names: ${JSON.stringify(field.stdout.slice(0, 200))}`)
   return { names: [...new Set(parsed.data)], reason: null }
+}
+
+// ── the Profile folder ───────────────────────────────────────────────────────
+
+/** The field of `bin/profile` that names the Profile folder, the one `bin/profile --dir` prints. */
+export const PROFILE_DIR_FIELD = '_resolved.dir'
+
+/** The Profile folder of a Project, or null with the reason there is none. */
+export interface ProfileFolder {
+  dir: string | null
+  reason: string | null
+}
+
+/**
+ * The Profile folder of the Project at `root` (`_resolved.dir`), where the Project's private skills live
+ * (worfy-human-review ticket 05, ADR-0102). Without one — any exit code but 0, no script, a timeout, a
+ * value that is not one absolute path — the folder is null and the reason goes to the log in one line.
+ * Read at each Session start, like the MCP and skills lists.
+ */
+export async function readProfileFolder(options: ReadProfileOptions): Promise<ProfileFolder> {
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const none = (reason: string): ProfileFolder => {
+    log(`[profile] Profile folder of ${options.root}: none, the Session starts without the Project's private skills, because ${reason}`)
+    return { dir: null, reason }
+  }
+  const field = await readField(options, PROFILE_DIR_FIELD)
+  if (!field.ok) return none(field.reason)
+  const dir = field.stdout
+  if (dir.includes('\n') || !isAbsolutePath(dir)) return none(`${PROFILE_DIR_FIELD} is not an absolute path: ${JSON.stringify(dir.slice(0, 200))}`)
+  return { dir, reason: null }
 }
 
 // ── the GitHub account ───────────────────────────────────────────────────────

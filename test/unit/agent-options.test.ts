@@ -603,3 +603,65 @@ describe('toolUseHooks with a guard', () => {
     expect(asked).toEqual([['Write', {}, '/repo']])
   })
 })
+
+// worfy-human-review ticket 05 (ADR-0102): the Project's private skills — the team reviewer the generator
+// writes into <Profile folder>/state/human-review/.claude/skills/ — reach a Session as a second extra
+// directory, after the Cards folder. Claude Code loads `.claude/skills/` of such a directory (checked on
+// Claude Code 2.1.289, the Ticket's summary). A Session without a person at it never gets the folder.
+describe('the private skills folder of a Session', () => {
+  const PRIVATE = '/harness home/projects/demo/state/human-review'
+  const WINDOWS = 'C:\\Users\\A B\\Harness home\\projects\\demo\\state\\human-review'
+
+  it('comes after the Cards folder, which stays first', () => {
+    expect(sessionOptions(input({ canvas, privateSkills: PRIVATE })).additionalDirectories).toEqual([canvas.cardsDir, PRIVATE])
+  })
+
+  it('is the only extra directory of a Session without a canvas', () => {
+    expect(sessionOptions(input({ privateSkills: PRIVATE })).additionalDirectories).toEqual([PRIVATE])
+  })
+
+  it('leaves the options as they were without one: a Project without a Profile, or a Profile without the skill', () => {
+    expect(sessionOptions(input({ canvas, privateSkills: null })).additionalDirectories).toEqual([canvas.cardsDir])
+    expect(sessionOptions(input({ canvas })).additionalDirectories).toEqual([canvas.cardsDir])
+    expect(sessionOptions(input({ privateSkills: null }))).not.toHaveProperty('additionalDirectories')
+    expect(sessionOptions(input({}))).not.toHaveProperty('additionalDirectories')
+  })
+
+  it('is never given to an unattended Session: nobody is there to say "yes"', () => {
+    expect(sessionOptions(input({ canvas, privateSkills: PRIVATE, unattended: true })).additionalDirectories).toEqual([canvas.cardsDir])
+    expect(sessionOptions(input({ privateSkills: PRIVATE, unattended: true }))).not.toHaveProperty('additionalDirectories')
+  })
+
+  it('goes to a Session with a person at it whatever its kind: a Product Session too', () => {
+    expect(sessionOptions(input({ canvas, privateSkills: PRIVATE, unattended: false })).additionalDirectories).toEqual([canvas.cardsDir, PRIVATE])
+    expect(sessionOptions(input({ canvas, privateSkills: PRIVATE, kind: 'product', productFolder: '/repo/docs/product' })).additionalDirectories).toEqual([canvas.cardsDir, PRIVATE])
+  })
+
+  it('is passed as it is spelled: spaces and a Windows drive letter', () => {
+    const options = sessionOptions(input({ cwd: 'C:\\repo', runtime: { ...runtime, platform: 'win32' }, canvas: { ...canvas, cardsDir: 'C:\\Users\\A B\\worfy\\cards' }, privateSkills: WINDOWS }))
+    expect(options.additionalDirectories).toEqual(['C:\\Users\\A B\\worfy\\cards', WINDOWS])
+  })
+
+  it('stays with skills.allowed [], and the flag settings never turn off its human-review skill', () => {
+    const options = sessionOptions(input({ canvas, privateSkills: PRIVATE, skillsAllowlist: [], userExtensions: { plugins: ['figma@claude-plugins-official'], skills: ['wrangler'] } }))
+    expect(options.additionalDirectories).toEqual([canvas.cardsDir, PRIVATE])
+    expect(options.settings).toMatchObject({ skillOverrides: { wrangler: 'off' } })
+    expect((options.settings as { skillOverrides: Record<string, unknown> }).skillOverrides).not.toHaveProperty('human-review')
+  })
+
+  it('is never given to the draft Session of a Project connection', () => {
+    const draft = draftSessionOptions({
+      cwd: '/repo',
+      env,
+      runtime,
+      settings: settings('default'),
+      canUseTool,
+      outputFormat: { type: 'json_schema', schema: { type: 'object' } },
+      allowedTools: ['Read', 'Glob', 'Grep'],
+      disallowedTools: ['Bash'],
+      // Not in the draft's input type; a caller that slips it in anyway is ignored.
+      ...({ privateSkills: PRIVATE } as object),
+    })
+    expect(draft).not.toHaveProperty('additionalDirectories')
+  })
+})

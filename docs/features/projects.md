@@ -236,6 +236,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   `fetched_at`, the last read of the history, and only without either the time the skill file was written. `<N> PRs`
   and the short history come from `meta.json` of `review-history`. "Build", or "Rebuild" once built, starts the same Session as the offer and closes the dialog. "Delete"
   asks first, then erases that folder and nothing else. A read-only Linked machine sees the state without the buttons.
+  Once built, the reviewer reaches every Claude Code Session of the Project that a person is at, as `/human-review`: the
+  Orchestrator, "New session", "Ship ticket" and a Product Session. Each start reads the Profile folder and adds the private
+  folder as an extra directory after the Cards folder. `skills.allowed` does not remove it. An Autopilot Session, the draft
+  Session of "Add project" and a Codex Session never get it (ADR-0102).
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
@@ -296,7 +300,8 @@ it is refused.
 - `src/main/projects/settings.ts`, `src/shared/projects/action-templates.ts`: the settings of a Project.
   `src/main/projects/review-offer.ts`: the team reviewer offer after an add, and the state and "Delete" of "Team reviewer";
   `src/renderer/projects/review-offer.ts`: its toast. `ActionLauncher.buildTeamReviewer` (`src/main/actions/launch.ts`)
-  starts the generator's Session.
+  starts the generator's Session. `privateSkillsFolder` (`src/main/vendors/claude/query.ts`) gives the reviewer's folder to
+  a Session, read with `readProfileFolder` (`src/main/workflow/profile.ts`).
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` turns a window's choice into a hold.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: the channels and their access. `projects.select` is `local`,
   `projects.pickFolder` is `desktop`, and `projects.list`, `projects.remove`, `projects.add` and `projects.hold` are `project`.

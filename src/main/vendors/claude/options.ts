@@ -44,6 +44,13 @@
 // flag settings it only hides them for this process (SDK 0.3.289, Settings). The SDK's `skills`
 // option is not used: it filters the main session's listing only, not a Subagent's.
 //
+// The Project's private skills (ADR-0102, worfy-human-review ticket 05): the team reviewer lives in
+// `<Profile folder>/state/human-review/.claude/skills/`, never in the repository nor in ~/.claude/skills.
+// That folder goes as a second extra directory (`additionalDirectories`, the `--add-dir` flag), after the
+// Cards folder, and Claude Code loads the `.claude/skills/` of an extra directory as it loads a project's
+// (checked on Claude Code 2.1.289). The skills list above does not touch it: `skillOverrides` names only
+// the skills of <claude home>/skills. An unattended Session and the draft Session never get the folder.
+//
 // The Harness (ADR-0040, ADR-0049, worfy-harness ticket 12): unless the old Harness is on the
 // machine, a Session gets the Harness copy of this build inline (`plugins`, sessionHarnessPlugin).
 // Its MCP servers (worfy-harness ticket 17, ADR-0048 item 4): no `serverName` lets a plugin's own
@@ -274,6 +281,12 @@ export interface SessionOptionsInput {
   spawned?: ((child: ChildProcess) => void) | undefined
   /** Absent when the Session's cwd is in no Project: it then runs without canvas tools. */
   canvas?: CanvasAttachment | null | undefined
+  /**
+   * The private folder of the Project's own skills (worfy-human-review ticket 05, ADR-0102):
+   * `<Profile folder>/state/human-review/`, whose `.claude/skills/` Claude Code loads from an extra
+   * directory. Added after the Cards folder; never to an unattended Session. Absent or null: none.
+   */
+  privateSkills?: string | null | undefined
   /** The Browser server of the Session's Project; absent outside a Project. */
   browser?: BrowserAttachment | null | undefined
   /** The Mind map server of a Product Session (worfy-product-session ticket 04); read only with `kind: 'product'`. */
@@ -479,7 +492,7 @@ function extensionSettings(allowlist: readonly string[], extensions: UserExtensi
 }
 
 /** The options of the draft Session of a Project's connection; see the header. */
-export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'browser' | 'mcpAllowlist' | 'skillsAllowlist' | 'userExtensions' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
+export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources' | 'permissionRulesFromPolicyOnly' | 'canvas' | 'privateSkills' | 'browser' | 'mcpAllowlist' | 'skillsAllowlist' | 'userExtensions' | 'outputFormat' | 'disallowedTools' | 'allowedTools'> & {
   outputFormat: ClaudeOutputFormat
   allowedTools: readonly string[]
   disallowedTools: readonly string[]
@@ -489,9 +502,10 @@ export type DraftSessionOptionsInput = Omit<SessionOptionsInput, 'settingSources
  * The draft Session: no canvas, only the user's settings, allow rules from the policy tier alone,
  * and no MCP server at all (an empty allowlist): it may use only Read, Glob and Grep, so the user's
  * servers and the claude.ai connectors only filled its first request (worfy-throughput ticket 45).
+ * Nor the Project's private skills (ADR-0102): it is a one-off read of a folder, not a person's Session.
  */
 export function draftSessionOptions(input: DraftSessionOptionsInput): Options {
-  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true, mcpAllowlist: [] })
+  return sessionOptions({ ...input, settingSources: ['user'], permissionRulesFromPolicyOnly: true, mcpAllowlist: [], privateSkills: null })
 }
 
 /** The name worfy registers a server of the Harness plugin under: `plugin_worfy_qmd` for `qmd`. */
@@ -637,8 +651,12 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   // Added to the user's own MCP servers from settingSources, not instead of them.
   const servers: Record<string, McpServerConfig> = {}
   const appended: string[] = []
+  const directories: string[] = []
+  if (input.canvas) directories.push(input.canvas.cardsDir)
+  // The Project's private skills (ADR-0102): nobody at an unattended Session can say "yes" to what they draft.
+  if (input.privateSkills != null && input.unattended !== true) directories.push(input.privateSkills)
+  if (directories.length > 0) options.additionalDirectories = directories
   if (input.canvas) {
-    options.additionalDirectories = [input.canvas.cardsDir]
     if (allowed(CANVAS_SERVER_NAME)) {
       servers[CANVAS_SERVER_NAME] = sdkServerConfig(input.canvas.server)
       appended.push(input.canvas.instructions)
