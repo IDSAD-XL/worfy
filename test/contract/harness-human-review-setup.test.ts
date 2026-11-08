@@ -295,12 +295,13 @@ describe('the template of the generated skill', () => {
     const seven = templateStep(7)
     const block = /```json\n([\s\S]*?)\n```/.exec(seven)
     expect(block, seven).not.toBeNull()
-    const draft = JSON.parse(block![1]) as Record<string, unknown>
+    const example = block?.[1] ?? ''
+    const draft = JSON.parse(example) as Record<string, unknown>
     expect(Object.keys(draft)).toEqual(['payload', 'tiers', 'body_tier'])
     expect(seven).toContain('review-draft-lint "<tmp>/review-<n>.json" --rules "<private folder>/lint.json"')
     const dir = join(root, 'draft')
     mkdirSync(dir)
-    writeFileSync(join(dir, 'draft.json'), block![1])
+    writeFileSync(join(dir, 'draft.json'), example)
     writeFileSync(join(dir, 'lint.json'), lintTemplate)
     const run = runLint([join(dir, 'draft.json'), '--rules', join(dir, 'lint.json')])
     expect(run.status, run.out).toBe(0)
