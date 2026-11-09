@@ -7,7 +7,8 @@
 # pull request — dropped; authors outside the team — context; a person's reply to a bot — kept); the window
 # (older than 12 months and the 501st pull request are not read, a silent approval counts, --since reads only the
 # new and keeps the history's counts and the cursor in meta.json); the voice threshold (29 and 30); probe stops at
-# the 30th substantive comment and writes no file; a rate limit is retried only after retry-after has passed and
+# the 30th substantive comment and writes no file; a plain approval of any length is not substantive and has a line of
+# its own in the estimate; a rate limit is retried only after retry-after has passed and
 # gives up after three retries with raw/ untouched; the global gh account
 # is never switched; clean removes raw/ and nothing else; stats names no login; profiles/README.md names the folder.
 # Run: bash harness/bin/tests/review-history.test.sh; exit code 0 — everything passed.
@@ -150,7 +151,18 @@ out="$(cat "$T/out")"
 # --- 2. the voice threshold -----------------------------------------------------------------------------------------
 make "$T/fx-v29" voice 29 && make "$T/fx-v30" voice 30
 rh v29 "$T/fx-v29" fetch; rc=$?
-[ "$rc" -eq 0 ] && grep -qx "voice: no (29 of 30)" "$T/out" && ok "29 substantive comments (LGTM, +1, emoji, a quote not counted): voice: no (29 of 30), exit 0" || bad "voice 29: exit $rc $(cat "$T/out") $(cat "$T/err")"
+[ "$rc" -eq 0 ] && grep -qx "voice: no (29 of 30)" "$T/out" && ok "29 substantive comments (two approvals with a remark counted; LGTM, +1, emoji, a quote, long plain approvals not): voice: no (29 of 30), exit 0" || bad "voice 29: exit $rc $(cat "$T/out") $(cat "$T/err")"
+# worfy-human-review 13: a plain approval ("LGTM, thanks for the fix! Looks good to me.") is no substantive comment
+# however long, and the estimate counts the plain approvals on a line of their own.
+grep -qx "plain approvals of the team (LGTM, thanks, +1, an emoji; not substantive): 6" "$T/out" \
+    && ok "estimate: the plain approvals on a line of their own, 6" || bad "plain approvals line: $(cat "$T/out")"
+rh v29 "$T/fx-v29" estimate --json; rc=$?
+[ "$rc" -eq 0 ] && [ "$(jfield plain_approvals <"$T/out")" = 6 ] && [ "$(jfield substantive <"$T/out")" = 29 ] \
+    && ok "estimate --json: plain_approvals 6, substantive 29" || bad "estimate --json plain approvals: exit $rc $(cat "$T/out")"
+# An approval with a remark ("LGTM, but rename retryLimit…", "Thanks! One thing: …") stays substantive: the 29 above
+# count both, and a plain approval is only a text with nothing but approval words.
+grep -q "LGTM, but rename" "$(state v29)/raw/prs.jsonl" && grep -q "Thanks! One thing" "$(state v29)/raw/prs.jsonl" \
+    && ok "fetch keeps the two approvals with a remark in raw/" || bad "approvals with a remark missing in raw/"
 rh v30 "$T/fx-v30" estimate; rc=$?
 [ "$rc" -eq 1 ] && grep -q "fetch first" "$T/err" && ok "estimate without raw/: exit 1, says to fetch first" || bad "estimate without raw: exit $rc $(cat "$T/err")"
 rh v30 "$T/fx-v30" fetch && rh v30 "$T/fx-v30" estimate; rc=$?

@@ -83,7 +83,9 @@ The parts below run in this order; "step <n>" in this file always means a `## <n
   history) below and ask nothing: no model will read anything.
 - **The question**, on `voice: yes`. Show the person, in this order:
   - the output of `estimate` as it is: pull requests, reviews by state, comments by kind, substantive
-    comments, reviewers, characters and the token estimate (the word "estimate" stays);
+    comments, plain approvals of the team (a text of approval words only — "LGTM", "thanks", an emoji: not
+    substantive however long; the script knows those words only, and an approval that reports a check, "tested
+    locally, works", is left to the analysis of step 4), reviewers, characters and the token estimate (the word "estimate" stays);
   - the content of `ignore.json` (`<private folder>/ignore.json`): the person may add logins of service
     accounts or prefixes of agent reports there; after an edit run the fetch and the estimate again;
   - that the texts of the colleagues' comments will go to the vendor of the model, as any code of this
@@ -95,7 +97,29 @@ The parts below run in this order; "step <n>" in this file always means a `## <n
   `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"`, which deletes `raw/`, tell the person
   nothing was read by a model, and stop.
 
-After the "yes", before the analysis, hold 5 pull requests out of it for the check of step 6, so the check
+**Full history.** After the "yes" and before anything else, make sure the git history is whole: step 6 finds where
+each pull request branched with `git merge-base`, and a shallow clone (`git clone --depth …`) has no common history
+to find it in. In each checkout of the project's repositories — the project root, or the folder of each repository
+in a project of several — run:
+
+```bash
+git rev-parse --is-shallow-repository; echo "EXIT=$?"
+```
+
+`false`: nothing to do. `true`: tell the person "This checkout is a shallow clone: fetching its full history with
+`git fetch --unshallow`, so the check of step 6 can find where each pull request branched", and run there:
+
+```bash
+git fetch --unshallow origin; echo "EXIT=$?"
+```
+
+Exit 0 and the first command now prints `false`: go on. When `git fetch --unshallow` failed — any other exit, or
+the checkout is still shallow — stop before the analysis: tell the person "This checkout is a shallow clone and
+`git fetch --unshallow` failed: <its last line>. Run `git fetch --unshallow` in <the checkout> yourself, then run
+/worfy:human-review-setup again", run `"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"`, and stop:
+no model has read a comment yet.
+
+After the full history, before the analysis, hold 5 pull requests out of it for the check of step 6, so the check
 does not grade the skill on answers it has already seen:
 
 - the newest pull requests of the window with a comment of the team at least 20 characters long (the

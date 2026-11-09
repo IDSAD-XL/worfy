@@ -11,4 +11,4 @@ allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, TaskCreate, TaskGet, 
 
 I am away for this whole run, so here are my answers in advance, and this message is my explicit "yes". To the question after the estimate: yes, read and analyse them. To the question of step 7: keep. Nothing else needs me.
 
-When the skill has finished, copy the `SKILL.md` and `voice-examples.md` it installed and the `research.md` of its private folder into a new folder `built/` in the current folder. Then run the same `review-draft-lint --skill` the skill ran, on `built/`, and write its output and then the line `EXIT=<its exit code>` into `built/lint.txt`.
+When the skill has finished, copy the `SKILL.md` and `voice-examples.md` it installed and the `research.md` of its private folder into a new folder `built/` in the current folder. Then run `review-draft-lint --skill` on `built/`, without `--prs`: the skill's "Keep" has deleted the `raw/prs.jsonl` that option reads. Write its output and then the line `EXIT=<its exit code>` into `built/lint.txt`.

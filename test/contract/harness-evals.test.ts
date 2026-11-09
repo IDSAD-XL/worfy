@@ -925,7 +925,7 @@ describe('harness/evals: human-review-setup', () => {
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" clean; echo "EXIT=$?"')
     expect(skill).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/review-history" estimate --passes 2; echo "EXIT=$?"')
     expect(refresh).toContain('"<plugin>/bin/review-history" fetch --since <date> --passes 2; echo "EXIT=$?"')
-    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill"; echo "EXIT=$?"')
+    expect(write).toContain('"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"; echo "EXIT=$?"')
     expect(analyse).toContain('\n## R1 — Triage: approved without comments\n')
     expect(skill).toContain('Use the words N of 30 as they are')
     expect(skill).toContain('/worfy:code-review')
@@ -942,6 +942,13 @@ describe('harness/evals: human-review-setup', () => {
     expect(bash(commands.estimate)).toMatch(inputMatch(declined, 'estimate-run.md'))
     expect(bash(commands.clean)).toMatch(inputMatch(declined, 'clean-run.md'))
     expect(bash(commands.lint)).toMatch(inputMatch('human-review-setup-full', 'lint-run.md'))
+    // worfy-human-review 13: the build checks its links against raw/prs.jsonl (grader lint-prs-run), while the run's
+    // own lint on built/ goes without --prs: "Keep" has deleted raw/ by then.
+    const lintPrs = `"${root}/bin/review-draft-lint" --skill "/home/someone/state/human-review/raw/skill" --prs "/home/someone/state/human-review/raw/prs.jsonl"; echo "EXIT=$?"`
+    expect(bash(lintPrs)).toMatch(inputMatch('human-review-setup-full', 'lint-prs-run.md'))
+    expect(bash(commands.lint)).not.toMatch(inputMatch('human-review-setup-full', 'lint-prs-run.md'))
+    const fullPrompt = readFileSync(join(HARNESS, 'evals', 'human-review-setup-full', 'prompt.md'), 'utf8').replace(/\s+/g, ' ')
+    expect(fullPrompt).toMatch(/review-draft-lint --skill` on `built\/`, without `--prs`/)
 
     // The session reads no comment before a "yes": a Read or a printing command of raw/ is caught, the scripts of the
     // skill that read raw/ themselves are not.

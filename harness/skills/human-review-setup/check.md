@@ -34,11 +34,12 @@ and say so. For each pull request of `held_out`:
 
 ```bash
 gh pr view <n> --repo <owner>/<name> --json number,url,title,body,baseRefName,mergeCommit,closingIssuesReferences; echo "EXIT=$?"
-git fetch origin "pull/<n>/head" "<baseRefName>"; echo "EXIT=$?"
+git fetch origin "pull/<n>/head" "+refs/heads/<baseRefName>:refs/remotes/origin/<baseRefName>"; echo "EXIT=$?"
 git cat-file -e "<commit_id>^{commit}"; echo "EXIT=$?"
 ```
 
-When the commit is still missing (the branch was force-pushed after the review), `git fetch origin "<commit_id>"`
+The base branch is fetched with a refspec of its own: a clone made by `git clone --depth 1` tracks one branch only,
+and a bare `<baseRefName>` would leave `origin/<baseRefName>` missing. When the commit is still missing (the branch was force-pushed after the review), `git fetch origin "<commit_id>"`
 once more; still missing, skip this pull request and say so. A merged pull request has `mergeCommit`
 (`mergeCommit.oid`, below `<mergeCommit>`); check it is here the same way and fetch it by its sha when it is not.
 
@@ -49,6 +50,10 @@ for every pull request:
   parent of `<mergeCommit>` does not hold `commit_id`: after a merge commit it is the base branch just before the
   merge, and a squash or a rebase writes new commits instead of the pull request's own;
 - not merged (open, or closed without a merge): `git merge-base "origin/<baseRefName>" "<commit_id>"`.
+
+Step 2 of SKILL.md made a shallow clone whole before the analysis. A `git merge-base` that still exits non-zero —
+1, no common history, or 128, a commit or a branch missing: this pull request goes into `skipped` of section 6 with
+the reason "no common history" or the last line of git, and the person hears it.
 
 Never the merge base of `origin/<baseRefName>` and `commit_id` for a merged pull request: after a merge by a merge
 commit, `commit_id` is itself an ancestor of `origin/<baseRefName>`, the merge base is `commit_id`, and the diff is
@@ -79,14 +84,21 @@ load it either: the brief carries the skill instead. Each brief has:
   `<private folder>/.claude/skills/human-review/voice-examples.md`, pasted in full, and the path of the private
   folder, which that skill otherwise finds three levels up from its own file;
 - what step 1 gave: the repository, the number, the title, the body, the linked task, `<base>`, `commit_id`, and
-  the two commands for the diff and for a file with both shas written out;
+  the commands of the item "only reading" below with both shas written out;
 - the output file `<private folder>/raw/check/<PR>-draft.json`;
 - the changes to the skill below, and these rules: the Subagent never reads `raw/` (it holds what the team said
   on this pull request) and never reads `check/`; it writes only its output file.
+- only reading: the Subagent runs nothing but `git diff "<base>" "<commit_id>"` (with `--stat` or `--shortstat` too),
+  `git show "<commit_id>:<path>"`, `git grep -n <pattern> "<commit_id>"` (with `-- <path>` too), and
+  `review-draft-lint` of step 7; besides those it only reads files — the files of the repository's standards
+  (`CLAUDE.md`, `AGENTS.md`) and the brief. It never runs the code of the repository: no build, no test, no package
+  manager (`npm`, `go`, `cargo`, `pip`, `make`…), no script of the repository, no checkout and no worktree. A
+  draft is a reading of the change; what only a run would show becomes a question, as step 4 of the skill says of a
+  candidate it could not check.
 - no history after `commit_id`: the later commits of the pull request — the ones that address the review — hold
-  the answer. Its only git commands are the diff and the file command of the brief, with `<base>` and `commit_id`
-  as given: no `git log` (not `git log <commit_id>..` either), no `FETCH_HEAD`, no `pull/<n>/head`, no
-  `origin/<baseRefName>` and no other commit.
+  the answer. Its git commands are those of "only reading", with `<base>` and `commit_id` as given: no `git log`
+  (not `git log <commit_id>..` either), no `FETCH_HEAD`, no `pull/<n>/head`, no `origin/<baseRefName>` and no other
+  commit.
 
 The Subagent follows the skill with these changes:
 
@@ -141,13 +153,15 @@ candidate pairs and the remarks of the team:
 
 - for each candidate pair: are the two comments about the same problem — the same defect, risk or request, not the
   same words or the same place;
-- for each remark of the team: its tier, by those seven tiers (the analysis never saw these pull requests).
+- for each remark of the team: its tier, by those seven tiers (the analysis never saw these pull requests), or
+  `approval` for a plain approval of that section.
 
 ```json
 {"pairs": [{"team": 0, "draft": 2, "same": true}], "team_tiers": ["nit", "question"]}
 ```
 
-Then a short Node script matches one to one: each remark of the team keeps at most one draft remark and each
+A remark of the team the judge marks `approval` is not a remark: it leaves N and every pair. Then a short Node
+script matches one to one: each remark of the team keeps at most one draft remark and each
 draft remark at most one of the team, a line pair before a general one and the nearer lines first. K is the
 remarks of the team with a match; M is the draft remarks with none. Every pull request checked gets its line, and
 all of them together the total:

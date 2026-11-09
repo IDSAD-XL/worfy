@@ -23,7 +23,8 @@ already, worfy runs `review-history probe` of the Harness in the background, wit
 2-minute limit. The probe reads pull requests updated in the last 12 months that have a review of the team, and stops
 at the 30th substantive comment. A comment counts when its author is in the team (owner, member or collaborator of the
 repository), is not a bot and is not the author of that pull request, and its own text, quotes left out, is at least 20
-characters long or holds a `suggestion` block; "LGTM", "+1", "thanks" or an emoji alone do not count. With 30 such
+characters long or holds a `suggestion` block, and it is not a plain approval: "LGTM", "+1", "thanks for the fix",
+"looks good to me", "nice work", an emoji, or only such words however long, do not count. With 30 such
 comments (`voice: yes`) the Project gets an `action` toast "Build a reviewer in your team's style?" with "Build" and
 "Later". `voice: no`, no `origin` on GitHub, no `gh`, a failure or the time limit show nothing, and the log gets one
 line. "Later", or closing the toast, is saved in the Project's settings, and the offer is not made again. A Project
@@ -35,7 +36,8 @@ this order:
 
 1. **Read and estimate.** It reads the history into a temporary folder: pull requests updated in the last 12 months with
    a review of the team, at most 500 per repository. Then it shows the counts (pull requests, reviews by state,
-   comments by kind, substantive comments, reviewers), the characters and an estimate of the tokens a model would
+   comments by kind, substantive comments, plain approvals on a line of their own, reviewers), the characters and an
+   estimate of the tokens a model would
    read, and the list of ignored logins and text openings, which the person may extend. It says that the colleagues'
    comments will go to the Vendor of the model, as any code of the Session does. No model reads a comment before an
    explicit "yes". Without it the temporary folder is deleted and nothing else happens.
@@ -45,16 +47,23 @@ this order:
 3. **One reviewer.** When one reviewer wrote 80% or more of the team's comments, it says so: the voice will mostly be
    that person's. The voice is still built from everyone's numbers, and no reviewer gives more than a third of the
    examples of a tier when three or more people gave examples.
-4. **Analysis.** After the "yes", 5 recent pull requests are held out for the check below, or a third of them when
-   fewer than 15 qualify. Subagents read the rest in
+4. **Analysis.** After the "yes", a shallow clone of the project is fetched in full (`git fetch --unshallow`, with a
+   message), because the check below needs the common history of each pull request; when that fetch fails, the run
+   stops before the analysis and says to run it by hand. Then 5 recent pull requests are held out for the check
+   below, or a third of them when fewer than 15 qualify. Subagents read the rest in
    batches by area of code and sort every comment of the team by tier (let go, nit, question, heads-up, followup,
-   argued, blocker) and by theme. The result is `research.md`, the evidence file: sections `R1`, `R2`, … with the
-   numbers and the links to the comments.
+   argued, blocker) and by theme. A plain approval ("LGTM, thanks", or only what the reviewer tested before
+   approving) gets no tier: it is counted apart, under the review states, and never shapes the voice. The result is
+   `research.md`, the evidence file: sections `R1`, `R2`, … with the numbers and the links to the comments, each link
+   copied from the history as GitHub gave it.
 5. **The skill.** It fills a template of eight steps (load the pull request, triage, a checklist by area, verify and
    grade, voice by tier, review state, draft, show the person). Every rule ends with the `[R<n>]` of the section of
-   `research.md` behind it, and a script refuses the skill while a rule has no such section.
+   `research.md` behind it, and a script refuses the skill while a rule has no such section, a place of the template
+   is left unfilled (a `{{` inside a quoted comment is fine), or a link to a pull request is not one the history
+   holds.
 6. **The check on 5 pull requests.** One Subagent per held-out pull request drafts a review at the commit the team's
-   first review saw, and posts nothing. The draft's remarks are paired with the team's real comments on that commit:
+   first review saw, and posts nothing. It only reads — the diff, files and `git grep` at that commit — and never
+   builds, tests or runs the repository's code. The draft's remarks are paired with the team's real comments on that commit:
    two line comments only when they are on the same file within 10 lines, and a judge Subagent confirms each pair. Each
    pull request gets a page with the team's comments beside the draft, and the line "matched K of N remarks of the
    team, M extra"; the total carries the words "a rough measure". Comments the team wrote on later commits are listed

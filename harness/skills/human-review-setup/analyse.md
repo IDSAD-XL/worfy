@@ -10,9 +10,15 @@ comments. The skill that step 5 writes takes every rule from one of these sectio
 exact.
 
 A line of `raw/prs.jsonl` has `repo`, `number`, `url`, `title`, `additions`, `deletions`, `files` (paths),
-`reviews[]` (`state`, `body`, `commit_id`, `author`, `role`), `threads[]` (`path`, `line`, `is_resolved`,
-`is_outdated`, `comments[]` with `body`, `url`, `diff_hunk`, `in_reply_to`, `author`, `role`) and `comments[]`
-(the conversation, `body`, `url`, `author`, `role`). `role` is `team` (the voice) or `context` (an author outside
+`reviews[]` (`id`, `url`, `state`, `body`, `submitted_at`, `commit_id`, `author`, `role`), `threads[]` (`id`, `path`,
+`line`, `is_resolved`, `is_outdated`, `comments[]` with `id`, `url`, `body`, `created_at`, `path`, `line`,
+`original_line`, `diff_hunk`, `in_reply_to`, `commit_id`, `author`, `role`) and `comments[]` (the conversation, `id`,
+`url`, `body`, `created_at`, `author`, `role`).
+
+A link is a `url` of `raw/prs.jsonl`, copied as it is: never build a link from an `id`, a number or the pattern of
+other links. The `url` of a review body is `reviews[].url`, of a line comment `threads[].comments[].url`, of a
+conversation comment `comments[].url`, of the pull request itself the `url` of its line. `review-draft-lint --skill
+--prs` at step 5 refuses a link to a pull request that is not one of these. `role` is `team` (the voice) or `context` (an author outside
 the team: read it to understand a thread, never count it as the team's voice). Bots, ignored logins and an
 author's comments on their own pull request are already gone.
 
@@ -48,7 +54,8 @@ One Subagent per batch, several at a time, all in the foreground; wait for every
 - the output file `raw/analysis/<batch>.jsonl` and its format below;
 - the rules: classify every comment of `role` `team` with text — review bodies, line comments, conversation
   comments; a review with an empty body is no comment (stats counts silent approvals); `context` comments
-  only explain a thread; no login in the output, reviewers by their label only.
+  only explain a thread; no login in the output, reviewers by their label only; the `url` of each line and every
+  link of the answer is the comment's own `url` in `raw/prs.jsonl`, copied as it is, never built from an `id`.
 
 One line per team comment:
 
@@ -58,7 +65,8 @@ One line per team comment:
  "split_request": false, "phrase": "up to 12 words of the comment, as written"}
 ```
 
-`chars` — the length of the comment's own text without quoted lines (`>`). `theme` — a short noun phrase of
+`chars` — the length of the comment's own text without quoted lines (`>`). `tier` — one of the seven tiers of
+section 3, or `"approval"` for a plain approval, which is no tier (section 3). `theme` — a short noun phrase of
 what the remark is about (error handling, naming, tests, migration safety, a public API change…), the same
 wording for the same theme across the batch. `withdrawn` — the reviewer took the remark back, or accepted the
 author's pushback. `split_request` — the comment asks to split the pull request.
@@ -79,6 +87,14 @@ Every team comment gets exactly one:
 - **argued** — asks for a change in this pull request and gives the reason, without blocking the merge.
 - **blocker** — must change before the merge: a `CHANGES_REQUESTED` review, or words such as "must", "blocking".
 
+**A plain approval is not a tier.** A comment that only approves or thanks — "LGTM", "LGTM, thanks!", "Looks good to
+me", "Thanks for the fix", an emoji — or that only reports what the reviewer checked before approving ("tested
+locally, works", "ran it on Windows, all good"), with no remark on the code, gets `"tier": "approval"` and no theme
+(`"theme": null`). It is never heads-up: a heads-up tells the author something about the change they may not know,
+and never let go: a let go names a thing the reviewer saw and lets stay. A plain approval is not a substantive
+comment of the voice: it goes into no Voice section, no theme and no limit of `lint.json`; section 5 counts it apart.
+An approval with a remark ("LGTM, but rename `x`") is a comment of the tier of its remark.
+
 ## 4. The signals that a reviewer insisted
 
 Record each one that holds in `insisted`; together they tell a remark the team really holds to from one it
@@ -95,7 +111,8 @@ A signal does not set the tier by itself: a resolved nit stays a nit.
 ## 5. Join the results
 
 A short Node script over `raw/analysis/*.jsonl` and `raw/stats.json` gives the numbers of research.md: comments
-by tier; the median and the 90th percentile of `chars` by tier; themes by area with their counts and their share
+by tier, with the plain approvals (`"tier": "approval"`) apart, as one count by kind of comment (review body, line,
+conversation) and out of every other number below; the median and the 90th percentile of `chars` by tier; themes by area with their counts and their share
 of the area's comments; the share of each reviewer label in each tier; the comments with `withdrawn` and with
 `split_request` and the sizes (`additions` + `deletions`) of the pull requests they are on; the small pull
 requests (up to 50 changed lines) with a `CHANGES_REQUESTED` review or a blocker comment, by path and kind.
@@ -150,7 +167,8 @@ What each section holds:
 - **Triage: requests to split a pull request** — how often the team asked to split, at what sizes; none in the
   window — say so: the written skill then uses its template's default.
 - **Review states** — the shares of `APPROVED`, `COMMENTED`, `CHANGES_REQUESTED` (`review_states` of the stats),
-  and what the comments look like under each: when the team approves with nits, comments only, requests changes.
+  and what the comments look like under each: when the team approves with nits, comments only, requests changes;
+  and the count of plain approvals of section 3 on a line of its own (`analysis`), never a Voice section.
 - **Theme** — one per theme an area really catches: the count, its share of the area's comments, the share that
   insisted, links.
 - **Do not touch** — what the team objects to when a reviewer raises it, or never comments on: withdrawn remarks,
@@ -162,7 +180,7 @@ Rules for every section:
 
 - The heading is `## R<n> — <title>`: two hashes, `R` and the number, a space, an em dash, a space, the title.
 - A line `Numbers:` with each number and its source — `stats.<key>` or `analysis` — and a line `Comments:` with
-  up to 5 links to comments. A required section with no evidence says "No evidence in the window" and the numbers
+  up to 5 links to comments, each a `url` of `raw/prs.jsonl` as it is. A required section with no evidence says "No evidence in the window" and the numbers
   that show it.
 - No login anywhere: reviewers are `reviewer A`, `reviewer B`, … of `raw/reviewers.json`, as shares.
 - Quotes stay in the language of the history; the rest is in English.

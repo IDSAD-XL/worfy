@@ -43,7 +43,11 @@
 //     CONTRIBUTOR, NONE, a first-timer): kept as the context of a thread, never counted as the team's voice;
 //   - team: everyone else. A person's reply to a bot's comment stays.
 // A substantive comment of the team: at least 20 characters of its own text (quoted lines `>` left out) or a
-// ```suggestion block, and not only LGTM, +1, thanks, emoji. 30 of them make a voice.
+// ```suggestion block, and not a plain approval. 30 of them make a voice. A plain approval is a text that only
+// approves or thanks, however long: LGTM, +1, thanks (for the fix), looks good (to me), nice work, ship it, ok, an
+// emoji (APPROVAL below), and nothing else. The estimate counts the plain approvals of the team on a line of their own.
+// The script knows approval words only: an approval that reports a check ("tested locally, works") is substantive
+// here, and the analysis (skills/human-review-setup/analyse.md, section 3) still gives it no tier.
 //
 // The token estimate: Latin and other characters / 4, Cyrillic / 2, of the texts and the diff context of the
 // threads, times the number of model passes (--passes, default 1). It is an estimate and the output says so.
@@ -378,16 +382,40 @@ function ownText(body) {
         .trim()
 }
 
+// The words of a plain approval; what is left of a text without them, its punctuation and its emoji decides.
+const APPROVAL = new RegExp(
+    "\\b(?:" +
+        [
+            "(?:thanks|thank you|thx|ty)(?: (?:so much|a lot))?(?: for (?:the|this|your) (?:fix|pr|change|changes|work|update|patch|contribution))?",
+            "(?:lgtm|sgtm)",
+            "looks (?:good|great|fine|right)(?: to me)?",
+            "(?:great|nice|good) (?:work|job|one)",
+            "well done",
+            "ship ?it",
+            "approved?",
+            "(?:nice|great|perfect|awesome|ok|okay)",
+        ].join("|") +
+        ")\\b",
+    "g",
+)
+
+function isPlainApproval(body) {
+    const own = ownText(body)
+    if (!own || /```suggestion\b/.test(own)) return false
+    const rest = own
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/\+1|:\+1:|:shipit:/g, " ")
+        .replace(APPROVAL, " ")
+        .replace(/[^\p{L}\p{N}]+/gu, "")
+    return rest.length === 0
+}
+
 function isSubstantive(body) {
     const own = ownText(body)
     if (/```suggestion\b/.test(own)) return true
     if ([...own].length < MIN_OWN_CHARS) return false
-    const rest = own
-        .toLowerCase()
-        .replace(/\+1/g, " ")
-        .replace(/\b(lgtm|thanks|thank you|thx|ty)\b/g, " ")
-        .replace(/[^\p{L}\p{N}]+/gu, "")
-    return rest.length > 0
+    return !isPlainApproval(body)
 }
 
 // A pull request as raw/ keeps it, and the counts of what the filter dropped.
@@ -516,6 +544,7 @@ function summarize(pulls, meta, passes) {
     const reviewers = new Set()
     let context = 0
     let substantive = 0
+    let plainApprovals = 0
     let text = ""
     let hunks = ""
     for (const p of pulls) {
@@ -534,6 +563,7 @@ function summarize(pulls, meta, passes) {
             comments[t.kind]++
             if (t.author) reviewers.add(t.author.toLowerCase())
             if (isSubstantive(t.body)) substantive++
+            else if (isPlainApproval(t.body)) plainApprovals++
         }
     }
     const textChars = [...text].length
@@ -546,6 +576,7 @@ function summarize(pulls, meta, passes) {
         comments: { ...comments, total: comments.review_body + comments.line + comments.conversation },
         context,
         substantive,
+        plain_approvals: plainApprovals,
         reviewers: reviewers.size,
         dropped: meta?.dropped || null,
         characters: { text: textChars, diff_context: hunkChars },
@@ -566,6 +597,7 @@ function estimateText(s) {
         `comments of the team: ${s.comments.total} — review bodies ${s.comments.review_body}, line comments ${s.comments.line}, conversation ${s.comments.conversation}`,
         `context (authors outside the team): ${s.context}`,
         `substantive comments of the team: ${s.substantive}`,
+        `plain approvals of the team (LGTM, thanks, +1, an emoji; not substantive): ${s.plain_approvals}`,
         `reviewers of the team: ${s.reviewers}`,
         d ? `dropped: bots ${d.bot}, ignored logins ${d.ignored_login}, ignored prefixes ${d.ignored_prefix}, authors on their own pull request ${d.pr_author}` : "dropped: not recorded",
         `characters: ${num(s.characters.text)} of text, ${num(s.characters.diff_context)} of diff context`,
@@ -741,7 +773,7 @@ function cmdFetch(opts, R, f) {
     const { lower, ...window } = win
     const record = { fetched_at: now().toISOString(), window, repositories: perRepo, dropped, requests }
     const summary = summarize(pulls, record, opts.passes)
-    record.counts = { pull_requests: summary.pull_requests, reviews: summary.reviews, comments: summary.comments, context: summary.context, substantive: summary.substantive, reviewers: summary.reviewers, characters: summary.characters }
+    record.counts = { pull_requests: summary.pull_requests, reviews: summary.reviews, comments: summary.comments, context: summary.context, substantive: summary.substantive, plain_approvals: summary.plain_approvals, reviewers: summary.reviewers, characters: summary.characters }
     record.voice = summary.voice.line
     writeJson(f.meta, withRecord(readJson(f.meta) || {}, record, !!opts.since))
 

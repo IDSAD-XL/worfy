@@ -2,7 +2,7 @@
 // review-draft-lint — checks a review draft before a person sees it, and the rules of a generated review skill.
 //
 //   review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
-//   review-draft-lint --skill <folder>
+//   review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 //
 // A draft is { payload, tiers, body_tier }: payload — the body of the GitHub request
 // POST /repos/{owner}/{repo}/pulls/{number}/reviews as it is (event, body, comments[] with path, line, side,
@@ -24,7 +24,13 @@
 //
 // --skill <folder>: every rule of <folder>/SKILL.md — a list item under a `## ` heading, outside code blocks —
 // ends with one or more references `[R<n>]`, and <folder>/research.md has a section `## R<n> — <title>` for
-// each. A rule without a reference and a reference to a missing section are findings.
+// each. A rule without a reference and a reference to a missing section are findings. So is a placeholder of the
+// template left in SKILL.md or <folder>/voice-examples.md: `{{<name>` followed by `:` or `}}`, where <name> is one
+// of the template of skills/human-review-setup/ (`rules`, `examples`); any other `{{`, such as a Go composite
+// literal in a quoted comment, is text. With --prs, every link to a pull request (`…/pull/<n>…`) in SKILL.md,
+// research.md and voice-examples.md must be a `url` of <prs.jsonl> — of a pull request, a review, a line comment or
+// a conversation comment — as it is, or a link the `body` of one of them holds (a quote of that comment); --known <file> (repeatable) adds the links written in that file, the
+// research.md of before that an update keeps. A link built by hand is a finding.
 //
 // Exit codes: 0 — clean; 1 — findings; 2 — usage error or broken input (a file not read, not JSON, an unknown
 // field of lint.json, a tier lint.json does not name, a profile that could not be read). Reads only.
@@ -44,7 +50,7 @@ const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
 
 const USAGE = `usage: review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
-       review-draft-lint --skill <folder>
+       review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 exit: 0 clean, 1 findings, 2 usage error or broken input`
 
 // The personal data of every printed value is masked: findings, and the error lines, which quote paths, field
@@ -63,6 +69,8 @@ let dir = process.cwd()
 let draftFile = null
 let rulesFile = null
 let skillDir = null
+let prsFile = null
+const knownFiles = []
 const argv = process.argv.slice(2)
 for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -74,6 +82,8 @@ for (let i = 0; i < argv.length; i++) {
     if (a === "-C") dir = path.resolve(next())
     else if (a === "--rules") rulesFile = next()
     else if (a === "--skill") skillDir = next()
+    else if (a === "--prs") prsFile = next()
+    else if (a === "--known") knownFiles.push(next())
     else if (a === "-h" || a === "--help") {
         process.stdout.write(USAGE + "\n")
         process.exit(0)
@@ -110,10 +120,81 @@ const finish = (found, clean) => {
 }
 
 // --- --skill ---------------------------------------------------------------------
+if (skillDir === null && (prsFile !== null || knownFiles.length)) die(2, `--prs and --known go with --skill only\n${USAGE}`)
+
+// The placeholders of the template the generator fills: their names, read from the template itself, so a new
+// placeholder there is checked without a change here.
+const TEMPLATE = path.join(BIN, "..", "skills", "human-review-setup", "template")
+function placeholderNames() {
+    const names = new Set()
+    for (const name of ["SKILL.template.md", "voice-examples.md"])
+        for (const m of readText(path.join(TEMPLATE, name), "the template").matchAll(/\{\{\s*([A-Za-z][\w-]*)\s*(?::|\}\})/g)) names.add(m[1])
+    return names
+}
+
+function placeholdersLeft(files) {
+    const names = placeholderNames()
+    const found = []
+    for (const [name, text] of files)
+        text.split(/\r?\n/).forEach((line, i) => {
+            for (const m of line.matchAll(/\{\{\s*([A-Za-z][\w-]*)\s*(?::|\}\})/g))
+                if (names.has(m[1])) {
+                    const rest = line.slice(m.index)
+                    const end = rest.indexOf("}}")
+                    const shown = end === -1 || end > 60 ? `${rest.slice(0, 60)}…` : rest.slice(0, end + 2)
+                    found.push(`${name}:${i + 1}: placeholder of the template left: "${show(shown)}"`)
+                }
+        })
+    return found
+}
+
+// A link to a pull request or to something on it: …/pull/<n>, with a fragment or a path after it.
+const PULL_LINK = /https?:\/\/[^\s<>()\[\]"'`]+\/pull\/\d+[^\s<>()\[\]"'`]*/g
+const linksOf = (text) => [...text.matchAll(PULL_LINK)].map((m) => m[0].replace(/[.,;:!?]+$/, ""))
+
+function knownLinks() {
+    const known = new Set()
+    const lines = readText(prsFile, "prs.jsonl").split(/\r?\n/)
+    lines.forEach((line, i) => {
+        if (!line.trim()) return
+        let pull
+        try {
+            pull = JSON.parse(line)
+        } catch (e) {
+            die(2, `prs.jsonl ${prsFile}:${i + 1} is not JSON: ${e.message}`)
+        }
+        if (!isObject(pull)) die(2, `prs.jsonl ${prsFile}:${i + 1} is not an object`)
+        // Its own url, and every link its body quotes: a verbatim quote of a comment may carry a link of its own.
+        const add = (x) => {
+            if (!isObject(x)) return
+            if (typeof x.url === "string") known.add(x.url)
+            if (typeof x.body === "string") for (const link of linksOf(x.body)) known.add(link)
+        }
+        add(pull)
+        for (const r of Array.isArray(pull.reviews) ? pull.reviews : []) add(r)
+        for (const t of Array.isArray(pull.threads) ? pull.threads : []) for (const c of isObject(t) && Array.isArray(t.comments) ? t.comments : []) add(c)
+        for (const c of Array.isArray(pull.comments) ? pull.comments : []) add(c)
+    })
+    for (const file of knownFiles) for (const link of linksOf(readText(file, "the known links of"))) known.add(link)
+    return known
+}
+
+function linksNotInHistory(files) {
+    const known = knownLinks()
+    const found = []
+    for (const [name, text] of files)
+        text.split(/\r?\n/).forEach((line, i) => {
+            for (const link of linksOf(line)) if (!known.has(link)) found.push(`${name}:${i + 1}: link not in prs.jsonl: ${show(link)}`)
+        })
+    return found
+}
+
 if (skillDir !== null) {
     if (draftFile !== null || rulesFile !== null) die(2, `--skill takes no draft and no --rules\n${USAGE}`)
     const skill = readText(path.join(skillDir, "SKILL.md"), "the skill")
     const research = readText(path.join(skillDir, "research.md"), "the research")
+    const examplesFile = path.join(skillDir, "voice-examples.md")
+    const examples = fs.existsSync(examplesFile) ? readText(examplesFile, "the voice examples") : null
     const sections = new Set()
     for (const line of research.split(/\r?\n/)) {
         const m = /^##[ \t]+R(\d+)[ \t]+[—–-][ \t]+\S/.exec(line)
@@ -155,7 +236,10 @@ if (skillDir !== null) {
         for (const ref of m[1].matchAll(/\[R(\d+)\]/g))
             if (!sections.has(Number(ref[1]))) found.push(`SKILL.md:${n}: [R${ref[1]}] — no section "## R${ref[1]} — …" in research.md`)
     }
-    finish(found, `${items.length} rules, each with a section of research.md`)
+    const files = [["SKILL.md", skill], ["voice-examples.md", examples]].filter(([, text]) => text !== null)
+    found.push(...placeholdersLeft(files))
+    if (prsFile !== null) found.push(...linksNotInHistory([files[0], ["research.md", research], ...files.slice(1)]))
+    finish(found, `${items.length} rules, each with a section of research.md${prsFile !== null ? "; every link is in prs.jsonl" : ""}`)
 }
 
 // --- the draft and lint.json --------------------------------------------------------

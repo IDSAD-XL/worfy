@@ -62,23 +62,27 @@ whole number; a tier without comments keeps the template's default. `forbidden` 
 Run, in the project root:
 
 ```bash
-"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill"; echo "EXIT=$?"
+"<plugin>/bin/review-draft-lint" --skill "<private folder>/raw/skill" --prs "<private folder>/raw/prs.jsonl"; echo "EXIT=$?"
 "<plugin>/bin/evidence-check" "<private folder>/raw/skill/SKILL.md" "<private folder>/raw/skill/voice-examples.md"; echo "EXIT=$?"
 ```
 
-The first: every rule ends with `[R<n>]` and `research.md` has that section. The second: no home folder path,
-host name, email or token. Then check `lint.json` itself with an empty draft,
+The first: every rule ends with `[R<n>]` and `research.md` has that section; no placeholder of the template is
+left in `SKILL.md` or `voice-examples.md` — a `{{rules: …}}` or `{{examples: …}}` place, by the names the template
+uses; and every link to a pull request in the three files is a `url` of `raw/prs.jsonl`. A `{{` inside a quote of
+the team, such as a Go composite literal `[]T{{…}}`, is no finding. The second: no home folder path, host name,
+email or token. Then check `lint.json` itself with an empty draft,
 `{"payload": {"event": "COMMENT", "comments": []}, "tiers": []}` in `raw/skill/empty-draft.json`:
 
 ```bash
 "<plugin>/bin/review-draft-lint" "<private folder>/raw/skill/empty-draft.json" --rules "<private folder>/raw/skill/lint.json"; echo "EXIT=$?"
 ```
 
-And a short Node script over `raw/skill/`: no `{{` left in `SKILL.md` and `voice-examples.md`; none of the
-logins of `raw/reviewers.json` (case-insensitive) and no `@<name>` but `@someone` in either file; in each tier of
-`voice-examples.md` with examples from three or more labels, no label gives more than a third of them.
+And a short Node script over `raw/skill/`: none of the logins of `raw/reviewers.json` (case-insensitive) and no
+`@<name>` but `@someone` in `SKILL.md` and `voice-examples.md`; in each tier of `voice-examples.md` with examples
+from three or more labels, no label gives more than a third of them.
 
-A finding (exit 1) — fix it: add the missing reference, drop a rule no section supports, take a login out — and
+A finding (exit 1) — fix it: add the missing reference, drop a rule no section supports, fill a place left, put the
+`url` of `raw/prs.jsonl` in place of a link it does not hold or drop the link, take a login out — and
 run all the checks again until each one passes. Exit 2 — show its line and stop.
 
 ## 6. Install
