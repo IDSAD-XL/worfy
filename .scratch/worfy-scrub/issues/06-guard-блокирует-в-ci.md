@@ -1,7 +1,8 @@
 # 06 — Guard блокирует в CI, находок ноль
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T01:59Z
+Branch: worfy-scrub/06
 Blocked by: 01, 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Как работает» → «Guard личных строк»; «Волны», Wave 3; «Риски», п. 7; Q3
 

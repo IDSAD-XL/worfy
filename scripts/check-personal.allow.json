@@ -1,3 +1,10 @@
 {
-  "allow": []
+  "allow": [
+    {
+      "path": "pnpm-lock.yaml",
+      "rule": "email",
+      "sha256": "b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7",
+      "reason": "the contact address of the glob package maintainer in the deprecation notice of glob@7.2.3, third-party metadata pnpm copies from the registry; the lockfile is not edited by hand"
+    }
+  ]
 }

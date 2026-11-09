@@ -16,7 +16,12 @@
 //                       The finding is the name, not the whole path.
 //         host          a machine name: *.local, *.ts.net (Tailscale MagicDNS), DESKTOP- and seven
 //                       letters or digits, *-MacBook*, *s-Mac*, *-PC, and options.hostname (its
-//                       first label, matched case-insensitively as a whole word).
+//                       first label, matched case-insensitively as a whole word). A property read
+//                       of code is not a *.local host: labels that are identifiers starting with a
+//                       lower-case letter (side.local, this.options.local), followed by what follows
+//                       an expression in code — ) , ; ] }, a comparison, &&, ||, ??, ?., an
+//                       assignment or a colon that does not start a port. A one-word host in prose
+//                       followed by the same (`(studio.local)`) is missed by that.
 //         tailscale-ip  an IPv4 address in 100.64.0.0/10, the Tailscale network (a network written as
 //                       CIDR, 100.64.0.0/10, is not an address).
 //         uuid          a UUID of any version.
@@ -63,8 +68,9 @@ const RULES = [
     { rule: "home-path", re: new RegExp(String.raw`(?<![\w.~>…*-])(?:/mnt)?(?:/[A-Za-z])?/(?:Users|home)/(${NAME})`, "g"), group: 1 },
     // C:\Users\<name>, C:\\Users\\<name> (JSON), and with / in place of \.
     { rule: "home-path", re: new RegExp(String.raw`(?<![A-Za-z])[A-Za-z]:(?:\\+|/)Users(?:\\+|/)(${NAME})`, "gi"), group: 1 },
-    // *.local — not .env.local, ~/.local, settings.local.json or localhost.
-    { rule: "host", re: /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.local(?![\w-]|\.[A-Za-z0-9])/g },
+    // *.local — not .env.local, ~/.local, settings.local.json or localhost, nor a property read of
+    // code (propertyRead).
+    { rule: "host", re: /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.local(?![\w-]|\.[A-Za-z0-9])/g, local: true },
     { rule: "host", re: /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*\.ts\.net(?![\w-])/gi },
     { rule: "host", re: /\bDESKTOP-[A-Za-z0-9]{7}(?![\w-])/g },
     { rule: "host", re: /(?<![\w.-])[A-Za-z0-9][A-Za-z0-9-]*-MacBook[A-Za-z0-9-]*/g },
@@ -85,6 +91,16 @@ const RULES = [
     { rule: "token", re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/g },
     { rule: "token", re: /\bBearer\s+([A-Za-z0-9._~+/-]{16,}=*)/g, group: 1 },
 ]
+
+// A *.local match that is a property read of code (side.local, root.local !== true, this.options.local)
+// rather than a machine name: every label an identifier that starts with a lower-case letter (a host
+// name with a hyphen or an upper-case first letter is never one), and after it what follows an
+// expression in code. A colon followed by a digit starts a port (<host>.local:52000), so it is a host.
+const CODE_LABELS = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*\.local$/
+const CODE_AFTER = /^[ \t]*(?:[),;\]}]|[!=]==?|&&|\|\||\?\?|\?\.|=(?![=>])|:(?![ \t]*\d))/
+function propertyRead(text, index, value) {
+    return CODE_LABELS.test(value) && CODE_AFTER.test(text.slice(index + value.length, index + value.length + 8))
+}
 
 // A stand-in user name of a home path.
 function standInName(name) {
@@ -120,7 +136,7 @@ function findings(text, options = {}) {
     const add = (rule, index, length) => {
         if (length > 0) found.push({ rule, index, length })
     }
-    for (const { rule, re, group } of RULES) {
+    for (const { rule, re, group, local } of RULES) {
         re.lastIndex = 0
         for (const m of s.matchAll(re)) {
             let index = m.index
@@ -136,6 +152,7 @@ function findings(text, options = {}) {
             if (rule === "uuid" && standInUuid(value)) continue
             if (rule === "email" && standInEmail(value)) continue
             if (rule === "host" && /(?:^|\.)example\./i.test(value)) continue
+            if (local && propertyRead(s, index, value)) continue
             add(rule, index, value.length)
         }
     }

@@ -170,7 +170,7 @@ Old files are not checked: only what the branch adds.
 | Rule | What | Not a finding |
 |---|---|---|
 | `home-path` | The user name in a home folder path: `/Users/<name>/`, `/home/<name>/`, `C:\Users\<name>\` (any number of `\`, or `/`), the same path as Git Bash (`/c/…`) and WSL (`/mnt/c/…`) write it | The names `test`, `someone`, `user`, `you`, `runner`, `runneradmin`, `RUNNER~1`, `Shared`; any `<…>`; an ellipsis; a variable (`$USER`, `%USERNAME%`); a name that starts with a dot (`/home/.cache`); `~` and `%USERPROFILE%` |
-| `host` | A name ending in `.local` (in lower case only) or `.ts.net` (Tailscale MagicDNS, in any case), `DESKTOP-` and seven letters or digits, names with `-MacBook`, `s-Mac` or ending in `-PC`, and the short host name of the machine that runs the check | `localhost`; a host with an `example` label |
+| `host` | A name ending in `.local` (in lower case only) or `.ts.net` (Tailscale MagicDNS, in any case), `DESKTOP-` and seven letters or digits, names with `-MacBook`, `s-Mac` or ending in `-PC`, and the short host name of the machine that runs the check | `localhost`; a host with an `example` label; a property read of code such as `side.local)` or `root.local !== true` |
 | `tailscale-ip` | An IPv4 address of the Tailscale network, 100.64.0.0/10 | That network written as CIDR |
 | `uuid` | A UUID of any version | A UUID of one repeated digit, `00000000-0000-0000-0000-000000000000`, and one whose digits but the version and variant digits are one repeated digit, `44444444-4444-4444-8444-444444444444` |
 | `email` | An email address | `noreply@…`, `no-reply@…`, addresses at `users.noreply.github.com`, `git@github.com`, any address at `example.*`, a file name with `@` |
@@ -220,6 +220,8 @@ XML entities and percent-encoding, a path split in UTF-16, a bare zlib stream, a
   the sheet. That is why an agent may check only clips of the fixture build, which holds no data of the machine.
 - A host or user name in an unpredictable form, such as a short form or another spelling, that is not in the personal list.
   A `.local` name in upper case (`BOX.LOCAL`) is such a form: that rule is case-sensitive.
+  A one-word `.local` name followed by what follows code (`(studio.local)`, `studio.local,`) is taken for a property read
+  and missed; with a port, in a path or before a word it is found.
 - The name of the other machine (the PC on the Mac and back) until it is in the personal list: the host name is known only
   for the machine the check runs on, and on CI for none.
 - A secret broken by a line break, base64, and other encodings than UTF-8 and UTF-16. Among them: a path written with XML

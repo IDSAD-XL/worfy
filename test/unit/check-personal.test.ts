@@ -1,5 +1,5 @@
 // scripts/check-personal.mjs: the guard of personal strings in the tracked files of the repository
-// (epic worfy-scrub, ticket 01). Each test builds a small git repository in the temporary folder,
+// (epic worfy-scrub, tickets 01 and 06). Each test builds a small git repository in the temporary folder,
 // with its own scripts/check-personal.hashes.json and scripts/check-personal.allow.json, and runs
 // the guard on it with --root.
 //
@@ -8,7 +8,7 @@
 // are invented words with their hashes, the user name and the host are made up.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -32,6 +32,8 @@ const UUID = ['5f0c2a8e', '9b1d', '4c3e', 'a7f2', '6d8e1b4c9a02'].join('-')
 const WORD = ['zor', 'blax'].join('')
 const PAIR = ['vex', 'moor'].join('-')
 const TRIPLE = ['kel', 'dun', 'ra'].join('-')
+// An invented Cyrillic word: the guard cuts words of any script.
+const CYRILLIC = ['жмый', 'хорт'].join('')
 
 const dirs: string[] = []
 afterEach(() => {
@@ -142,7 +144,7 @@ function mask(value: string): string {
 }
 
 describe('check-personal: stand-ins', () => {
-  it('finds none of the stand-ins of fixtures: the invented host, example.ts.net hosts, the Tailscale DNS address and the invented Tailscale addresses, /Users/someone', () => {
+  it('finds none of the stand-ins of fixtures: the invented host, example.ts.net hosts, the Tailscale DNS address and the invented Tailscale addresses, /Users/someone, the capture host and home of the Codex recordings', () => {
     const root = repo({
       'test/fixtures/hosts.md': [
         'host someones-mac answers',
@@ -153,6 +155,10 @@ describe('check-personal: stand-ins', () => {
         'dns 100.100.100.100',
         'peers 100.64.0.1 100.64.0.2 100.64.0.9 100.64.0.10',
         `home ${['', 'Users', 'someone', 'x'].join('/')}`,
+        // The host and the home folder scripts/codex-capture.mjs writes into the Codex recordings.
+        'host capture-host answers',
+        `host ${['capture-host', 'local'].join('.')} answers`,
+        `home ${['', 'home', 'owner', '.zshrc'].join('/')}`,
         '',
       ].join('\n'),
     })
@@ -176,6 +182,20 @@ describe('check-personal: stand-ins', () => {
   })
 })
 
+describe('check-personal: a property read of code is not a host', () => {
+  it('finds no host in code that reads a .local property, and still finds a one-word host in prose, with a port and in a path', () => {
+    const local = (name: string): string => [name, 'local'].join('.')
+    const root = repo({
+      'src/link.ts': [`if (${local('root')} !== true) send(${local('side')}, x)`, `f(${local('this.options')})`, `const a = ${local('opts')} ?? b`, ''].join('\n'),
+      'docs/hosts.md': [`ssh ${local('studio')} to connect`, `open ${local('studio')}:52000 now`, `see /Volumes/x/${local('studio')}/file`, ''].join('\n'),
+    })
+    const { status, stdout } = run(['--root', root])
+    expect(status).toBe(1)
+    const host = mask(local('studio'))
+    expect(findings(stdout)).toEqual([`docs/hosts.md:1: host: ${host}`, `docs/hosts.md:2: host: ${host}`, `docs/hosts.md:3: host: ${host}`])
+  })
+})
+
 describe('check-personal: the hash list of words', () => {
   it('finds a word, two neighbouring words and three neighbouring words in any case and with any separator', () => {
     const root = repo({
@@ -194,6 +214,17 @@ describe('check-personal: the hash list of words', () => {
       `docs/a.md:7: deny-word: ${mask('Vex\nMoor')}`,
     ])
     expect(stdout).not.toMatch(/zorblax|vex.moor|kel.dun/i)
+  })
+
+  it('finds a word of any script: an invented Cyrillic word, in any case and in its decomposed form, and not inside a longer word', () => {
+    const decomposed = CYRILLIC.toUpperCase().normalize('NFD')
+    expect(decomposed).not.toBe(CYRILLIC.toUpperCase()) // its short i has a combining breve in NFD
+    const root = repo({ 'docs/ru.md': [`сказал ${CYRILLIC} вчера`, `${CYRILLIC.toUpperCase()}!`, decomposed, `${CYRILLIC}ович не целое слово`, ''].join('\n') }, [CYRILLIC])
+    const { status, stdout } = run(['--root', root])
+    expect(status).toBe(1)
+    expect(findings(stdout)).toEqual([`docs/ru.md:1: deny-word: ${mask(CYRILLIC)}`, `docs/ru.md:2: deny-word: ${mask(CYRILLIC.toUpperCase())}`, `docs/ru.md:3: deny-word: ${mask(decomposed)}`])
+    expect(stdout).not.toContain(CYRILLIC)
+    expect(stdout.toLowerCase()).not.toContain(CYRILLIC)
   })
 
   it('finds a word of the list in a path', () => {
@@ -263,6 +294,15 @@ describe('check-personal: exit codes and the summary', () => {
   })
 })
 
+describe('check-personal in pnpm lint', () => {
+  it('pnpm lint runs the guard without --report, so a finding fails lint', () => {
+    const lint = (JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: { lint: string } }).scripts.lint
+    const steps = lint.split('&&').map((step) => step.trim())
+    const guard = steps.filter((step) => step.includes('check-personal.mjs'))
+    expect(guard).toEqual(['node scripts/check-personal.mjs'])
+  })
+})
+
 describe('check-personal --hash-from', () => {
   function list(deny: readonly unknown[]): string {
     const dir = mkdtempSync(join(tmpdir(), 'worfy-check-personal-list-'))
@@ -286,6 +326,24 @@ describe('check-personal --hash-from', () => {
       `docs/a.md:1: deny-word: ${mask(PAIR)}`,
       `docs/a.md:2: deny-word: ${mask(TRIPLE)}`,
       `docs/a.md:3: deny-word: ${mask(WORD)}`,
+    ])
+  })
+
+  it('turns entries with - and . and a Cyrillic entry into hashes that find them in the text, written with -, . or a space', () => {
+    const dash = ['quill', 'fen'].join('-')
+    const dot = ['brask', 'oy'].join('.')
+    const { status, stdout, stderr } = run(['--hash-from', list([dash, dot, CYRILLIC])])
+    expect(stderr).toBe('')
+    expect(status).toBe(0)
+    expect((JSON.parse(stdout) as { sha256: string[] }).sha256).toEqual([sha(dash), sha(dot.replace('.', '-')), sha(CYRILLIC)].sort())
+    const root = repo({ 'docs/a.md': [dash, dot, 'Quill Fen', 'brask-oy', CYRILLIC, ''].join('\n') }, [])
+    writeFileSync(join(root, 'scripts', 'check-personal.hashes.json'), stdout)
+    expect(findings(run(['--root', root]).stdout)).toEqual([
+      `docs/a.md:1: deny-word: ${mask(dash)}`,
+      `docs/a.md:2: deny-word: ${mask(dot)}`,
+      `docs/a.md:3: deny-word: ${mask('Quill Fen')}`,
+      `docs/a.md:4: deny-word: ${mask('brask-oy')}`,
+      `docs/a.md:5: deny-word: ${mask(CYRILLIC)}`,
     ])
   })
 

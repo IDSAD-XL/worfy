@@ -117,6 +117,14 @@ expect_rule "Tailscale address" "ip $TS_IP:22" tailscale-ip
 expect_none "address outside 100.64/10, and the network itself" "ip 100.""128.1.2 and 100.""63.1.2, net 100.""64.0.0/10"
 expect_none "localhost" "http://localhost:3000 .env.local ~/.local/share"
 expect_none "hosts with an example label" "pc.example.ts.net other.example.local"
+# A property read of code is not a *.local host; the same one-word name in prose, in a path or with a port is.
+expect_none "property reads of code" "if (root.lo""cal !== true) send(side.lo""cal, x); f(this.options.lo""cal); a = opts.lo""cal ?? b; c ? opts.lo""cal: d"
+expect_rule "a one-word host in prose" "ssh name.lo""cal to connect" host
+expect_rule "a one-word host at the end of a sentence" "it answers on name.lo""cal." host
+expect_rule "a one-word host with a port" "open studio.lo""cal:52000 now" host
+expect_rule "a one-word host in a path" "/Volumes/x/name.lo""cal/file" host
+expect_rule "a capitalised host in code quotes" 'os.hostname(): `Name.lo''cal` on a Mac' host
+expect_rule "a host with a hyphen before a code token" "connect(box-""two.lo""cal)" host
 expect_rule "the machine's short host name" "from $OWN_HOST today" host "{\"hostname\":\"$OWN_HOST.lan\"}"
 expect_rule "a word of the deny list" "said ${DENY_WORD}s" deny "{\"deny\":[\"$DENY_WORD\"]}"
 printf '{"deny":["%s"]}\n' "$DENY_WORD" >"$HARNESS_HOME/user/privacy.json"
