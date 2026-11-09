@@ -325,6 +325,16 @@ mt claim mr 05 >/dev/null 2>&1; mt done mr 05 --pr 3 >/dev/null 2>&1
 [ "$(hdr 05)" = "Status: done T|PR: #3|Blocked by: —|" ] && ok "no Repo: line: claim and done --pr write what they did before" || bad "no repo: $(hdr 05)"
 out="$(mt done mr 05 --pr 3 --pr 4 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && grep -qx 'PR: #3' "$ME/05-t.md" && ok "one repository: two --pr -> exit 2" || bad "one repo two --pr: exit $rc, $out"
+# Two PR lines on a ticket of one repository (written by hand): done --pr keeps one line and prints, as before, only
+# the first line against the new one.
+mk 07 'PR: #3' 'PR: #4'
+out="$(mt done mr 07 --pr 5 2>&1 | sed -E "s/$NOW/T/g")"
+[ "$out" = "$(printf '%s\n' '.scratch/mr/issues/07-t.md:4' '  was: Status: open' '  now: Status: done T' '  - PR: #3' '  + PR: #5')" ] \
+    && [ "$(hdr 07)" = "Status: done T|PR: #5|Blocked by: —|" ] && ok "one repository, two PR lines: done --pr prints and writes what it did before" || bad "one repo two PR lines: [$out] $(hdr 07)"
+# One --repo on a header of two Repo: lines: the set becomes that one line.
+mk 08 'Repo: lib' 'Repo: app'
+mt claim mr 08 --repo app >/dev/null 2>&1
+[ "$(hdr 08)" = "Status: claimed T|Repo: app|Blocked by: —|" ] && ok "claim with one --repo on a header of two Repo: lines leaves one line" || bad "claim one of two: $(hdr 08)"
 out="$(mt release mr 05 api tag v1 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && ok "release on a ticket without Repo: lines -> exit 2" || bad "release no repo: exit $rc, $out"
 out="$(mt open mr 05 --repo api 2>&1)"; rc=$?
