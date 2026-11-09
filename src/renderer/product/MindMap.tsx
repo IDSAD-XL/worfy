@@ -1,6 +1,7 @@
 import {
   Background,
   BackgroundVariant,
+  getViewportForBounds,
   Handle,
   Position,
   ReactFlow,
@@ -14,7 +15,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { createContext, Fragment, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import type { ProductLayoutInput, ProductTopicState } from '../../shared/ipc/product'
 import { elkEngine } from '../canvas/elk/client'
 import { invoke } from '../ipc'
@@ -23,13 +24,16 @@ import { useReadOnly } from '../projects/useProjects'
 import { SegmentedControl } from '../theme/primitives'
 import {
   buildMindMapGraph,
+  cardPlace,
   layoutElk,
   layoutKey,
   layoutSync,
+  linesIn,
   MIND_MAP_FONT,
   NODE_PAD,
   nodeShape,
   nodeSize,
+  setTextMeasure,
   SHAPE_OF,
   withFilePlaces,
   type MapGraph,
@@ -38,6 +42,8 @@ import {
   type MindMapView,
   type Placed,
   type Placement,
+  type ScreenBox,
+  type TextMeasure,
 } from './mind-map-layout'
 import { showMessage, useMindMapFocus } from './node-chips'
 import './mind-map.css'
@@ -65,6 +71,33 @@ export interface MindMapProps {
   /** Scrolls the chat to a message (a transcript event uuid); without it a node's message shows as its id. */
   onShowMessage?: ((message: string) => void) | undefined
 }
+
+/**
+ * The page's measure of a node's text for nodeSize (ticket 23): a canvas `measureText` in the node's font,
+ * the page's UI font (tokens.css `--font-ui` on `body`). Null where the page has no canvas (jsdom).
+ */
+function canvasMeasure(): TextMeasure | null {
+  if (typeof OffscreenCanvas === 'undefined') return null
+  const context = new OffscreenCanvas(1, 1).getContext('2d')
+  if (context === null) return null
+  const widths = new Map<string, number>()
+  let family: string | null = null
+  return (text, size, bold) => {
+    family ??= getComputedStyle(document.body).fontFamily || 'sans-serif'
+    const font = `${bold ? '600 ' : ''}${size}px ${family}`
+    const key = `${font}\n${text}`
+    let width = widths.get(key)
+    if (width === undefined) {
+      context.font = font
+      width = context.measureText(text).width
+      // shortcut: the cache only grows, as large as the node texts and their pieces this window measured; redo when one window opens topics of thousands of nodes.
+      widths.set(key, width)
+    }
+    return width
+  }
+}
+
+setTextMeasure(canvasMeasure())
 
 const VIEW_PREFIX = 'worfy.mindMap.view:'
 const viewKey = (projectId: string, name: string): string => `${VIEW_PREFIX}${projectId}:${name}`
@@ -245,7 +278,10 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
           {iconOf(node)}
         </span>
       )}
-      <span className="w-mind__text">{rejected ? <s>{node.text}</s> : node.text}</span>
+      {/* Clamped to the lines its box holds: a text the browser wraps wider than measured ends in an ellipsis inside the box. */}
+      <span className="w-mind__text" style={{ WebkitLineClamp: linesIn(node, view, size.height) }}>
+        {rejected ? <s>{node.text}</s> : node.text}
+      </span>
       {fold !== null ? <FoldMark id={node.id} fold={fold} /> : null}
       <Handle type="source" position={source} isConnectable={false} className="w-mind__handle" />
       {cross.map((side) => (
@@ -519,21 +555,48 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
   return { placement, byElk: elkPlaces !== null }
 }
 
-function ZoomControls() {
+/** «−», «+» and «Fit»; `onMoved` hears whether the owner set the zoom by hand (true) or fitted the map (false). */
+function ZoomControls({ onMoved }: { onMoved: (byHand: boolean) => void }) {
   const flow = useReactFlow()
   const zoom = useStore((store) => store.transform[2])
   return (
     <div className="w-mind__camera" role="group" aria-label="Zoom">
-      <button type="button" className="w-mind__button" aria-label="Zoom out" title="Zoom out" onClick={() => void flow.zoomOut({ duration: 0 })}>
+      <button
+        type="button"
+        className="w-mind__button"
+        aria-label="Zoom out"
+        title="Zoom out"
+        onClick={() => {
+          onMoved(true)
+          void flow.zoomOut({ duration: 0 })
+        }}
+      >
         −
       </button>
       <span className="w-mind__percent w-mono" data-testid="mind-map-zoom">
         {`${Math.round(zoom * 100)}%`}
       </span>
-      <button type="button" className="w-mind__button" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn({ duration: 0 })}>
+      <button
+        type="button"
+        className="w-mind__button"
+        aria-label="Zoom in"
+        title="Zoom in"
+        onClick={() => {
+          onMoved(true)
+          void flow.zoomIn({ duration: 0 })
+        }}
+      >
         +
       </button>
-      <button type="button" className="w-mind__button" title="Fit every node into view" onClick={() => void flow.fitView({ ...FIT, duration: 0 })}>
+      <button
+        type="button"
+        className="w-mind__button"
+        title="Fit every node into view"
+        onClick={() => {
+          onMoved(false)
+          void flow.fitView({ ...FIT, duration: 0 })
+        }}
+      >
         Fit
       </button>
     </div>
@@ -593,25 +656,84 @@ function Legend() {
   )
 }
 
-function MessageLink({ message, onShowMessage }: { message: string; onShowMessage: MindMapProps['onShowMessage'] }) {
+function MessageLink({ message, onShowMessage, label = 'Show the message in the chat' }: { message: string; onShowMessage: MindMapProps['onShowMessage']; label?: string }) {
   if (onShowMessage === undefined) return <span className="w-mono w-mind__muted">{message}</span>
   return (
-    <button type="button" className="w-mind__link" aria-label="Show the message in the chat" title={message} onClick={() => onShowMessage(message)}>
+    <button type="button" className="w-mind__link" aria-label={label} title={message} onClick={() => onShowMessage(message)}>
       Show in the chat
     </button>
   )
 }
 
-function NodeCard({ node, graph, onPick, onClose, onShowMessage }: { node: MapNode; graph: MapGraph; onPick: (id: string) => void; onClose: () => void; onShowMessage: MindMapProps['onShowMessage'] }) {
+/** One step of a Decision's history: its earlier states (`history`), then the state it is in now. */
+interface DecisionStep {
+  status: string
+  reason: string
+  message: string | undefined
+  /** This step rejected a Decision that was not rejected before it: drawn red, as the prototype does. */
+  overturn: boolean
+}
+
+/** Every step of a Decision with a history, oldest first; none for a node without one. */
+function decisionSteps(source: MapNode['source']): DecisionStep[] {
+  if (source?.history === undefined || source.history.length === 0 || source.status === undefined) return []
+  const states = [...source.history, { status: source.status, reason: source.reason ?? '', message: source.message }]
+  return states.map((state, index) => ({ status: state.status, reason: state.reason, message: state.message, overturn: index > 0 && state.status === 'rejected' && states[index - 1]!.status !== 'rejected' }))
+}
+
+/** The card's width where it cannot be measured (a test without layout); mind-map.css sets the same. */
+const CARD_WIDTH = 300
+
+function NodeCard({
+  node,
+  graph,
+  beside,
+  pane,
+  onPick,
+  onClose,
+  onShowMessage,
+}: {
+  node: MapNode
+  graph: MapGraph
+  /** The node on the screen; the card stands beside it. */
+  beside: ScreenBox | undefined
+  pane: { width: number; height: number }
+  onPick: (id: string) => void
+  onClose: () => void
+  onShowMessage: MindMapProps['onShowMessage']
+}) {
   const parent = node.parent === null ? undefined : graph.nodes.find((candidate) => candidate.id === node.parent)
   const source = node.source
+  const rejected = node.status === 'rejected'
+  const steps = decisionSteps(source)
+  // The message the node appeared in: the first step's when it has a history; each later step's message changed it.
+  const [first, ...changes] = steps
+  const appeared = first === undefined ? source?.message : first.message
+  // The card's own size, read after it is drawn, places it: its height follows the node it shows.
+  const own = useRef<HTMLElement>(null)
+  const [size, setSize] = useState({ width: CARD_WIDTH, height: 0 })
+  useLayoutEffect(() => {
+    const element = own.current
+    if (element === null) return
+    const next = { width: element.offsetWidth || CARD_WIDTH, height: element.offsetHeight }
+    if (next.width !== size.width || next.height !== size.height) setSize(next)
+  }, [node, pane.width, pane.height, size.width, size.height])
+  const at = beside === undefined || pane.width <= 0 ? undefined : cardPlace(beside, pane, size)
   return (
-    <section className="w-mind__card" aria-label="Node" data-testid="mind-map-card" data-kind={node.kind}>
+    <section
+      ref={own}
+      className="w-mind__card"
+      aria-label="Node"
+      data-testid="mind-map-card"
+      data-kind={node.kind}
+      style={at === undefined ? undefined : { left: `${Math.round(at.left)}px`, top: `${Math.round(at.top)}px`, right: 'auto' }}
+    >
       <header className="w-mind__card-head">
-        <span className={`w-mind__icon w-mind__icon--${node.status === 'rejected' ? 'rejected' : node.kind}`} aria-hidden="true">
-          {iconOf(node)}
+        {/* The kind as a bordered pill in the kind's colours, struck through for a rejected Decision (the prototype's). */}
+        <span className={`w-mind__kind-pill w-mind__kind-pill--${rejected ? 'rejected' : node.kind}`} data-testid="mind-map-card-kind">
+          {node.kind === 'topic' || node.kind === 'ticket' ? null : <span aria-hidden="true">{iconOf(node)}</span>}
+          <span>{kindLine(node)}</span>
         </span>
-        <span className="w-mind__card-kind">{kindLine(node)}</span>
         <button type="button" className="w-mind__card-close" aria-label="Close the card" title="Close" onClick={onClose}>
           ×
         </button>
@@ -638,15 +760,14 @@ function NodeCard({ node, graph, onPick, onClose, onShowMessage }: { node: MapNo
             <dd className="w-mono">{source.source}</dd>
           </>
         ) : null}
-        {source?.history !== undefined && source.history.length > 0 ? (
+        {steps.length > 0 ? (
           <>
             <dt>History</dt>
             <dd>
               <ol className="w-mind__history">
-                {source.history.map((entry, index) => (
-                  <li key={index}>
-                    <span>{`${entry.status} — ${entry.reason}`}</span>
-                    {entry.message !== undefined ? <MessageLink message={entry.message} onShowMessage={onShowMessage} /> : null}
+                {steps.map((step, index) => (
+                  <li key={index} className={step.overturn ? 'w-mind__history-step w-mind__history-step--overturn' : 'w-mind__history-step'} data-overturn={step.overturn ? 'true' : undefined}>
+                    {`${step.status} — ${step.reason}`}
                   </li>
                 ))}
               </ol>
@@ -663,14 +784,24 @@ function NodeCard({ node, graph, onPick, onClose, onShowMessage }: { node: MapNo
             </dd>
           </>
         ) : null}
-        {source?.message !== undefined ? (
+        {appeared !== undefined ? (
           <>
             <dt>Message</dt>
             <dd>
-              <MessageLink message={source.message} onShowMessage={onShowMessage} />
+              <MessageLink message={appeared} onShowMessage={onShowMessage} />
             </dd>
           </>
         ) : null}
+        {changes.map((step, index) =>
+          step.message === undefined ? null : (
+            <Fragment key={index}>
+              <dt>Changed by</dt>
+              <dd>
+                <MessageLink message={step.message} onShowMessage={onShowMessage} label="Show the message that changed it in the chat" />
+              </dd>
+            </Fragment>
+          ),
+        )}
       </dl>
       {node.source !== undefined ? <p className="w-mind__card-hint">To change this node, ask the advisor in the chat.</p> : null}
     </section>
@@ -820,6 +951,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     void flow.setCenter(place.x + place.width / 2, place.y + place.height / 2, { zoom: flow.getZoom(), duration: 0 })
   }, [focus, shown, flow])
 
+  // The owner zoomed or panned the map by hand (the wheel, a drag of the background, «+» or «−»): from then
+  // on the map keeps the owner's view; «Fit» and a fit on another topic or view clear it.
+  const movedByHand = useRef(false)
+
   // The map is fitted when it opens on a topic or a view, and once more when ELK's layout replaces
   // the first one; a node added later leaves the camera where the reader put it («Fit» brings it in).
   const fitted = useRef<string | null>(null)
@@ -827,8 +962,35 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   useEffect(() => {
     if (fitted.current === fitFor) return
     fitted.current = fitFor
+    movedByHand.current = false
     void flow.fitView({ ...FIT, duration: 0 })
   }, [fitFor, flow])
+
+  // As in the prototype (ticket 23): when the map's area changes size — the window, the divider beside the
+  // chat — the map is fitted again, so no column ends up cut off at the edge; not after the owner moved it.
+  // React Flow's own size of the pane, the one fitView fits into.
+  const paneWidth = useStore((state) => state.width)
+  const paneHeight = useStore((state) => state.height)
+  const paneWas = useRef<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    if (paneWidth <= 0 || paneHeight <= 0) return
+    const was = paneWas.current
+    paneWas.current = { width: paneWidth, height: paneHeight }
+    if (was === null || (was.width === paneWidth && was.height === paneHeight) || movedByHand.current) return
+    // At once, not through fitView: React Flow runs a fitView with its next change of the nodes, and a new size
+    // of the pane alone changes none, so the fit waited for the next click on the map.
+    const nodes = flow.getNodes()
+    if (nodes.length === 0) return
+    void flow.setViewport(getViewportForBounds(flow.getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
+  }, [paneWidth, paneHeight, flow])
+
+  // The node's card stands beside its node on the screen (cardPlace), following it as the map moves.
+  const camera = useStore((state) => state.transform)
+  const pickedPlace = picked === null ? undefined : shown.get(picked)
+  const pickedBox: ScreenBox | undefined =
+    pickedPlace === undefined
+      ? undefined
+      : { x: pickedPlace.x * camera[2] + camera[0], y: pickedPlace.y * camera[2] + camera[1], width: pickedPlace.width * camera[2], height: pickedPlace.height * camera[2] }
 
   const choose = (next: MindMapView) => {
     setChosen({ key: storeKey, view: next })
@@ -852,7 +1014,11 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
         <button type="button" className="w-mind__button w-mind__toggle" aria-pressed={hideRejected} title="Hide the rejected Decisions and their branches" onClick={() => setHideRejected((was) => !was)}>
           Hide rejected
         </button>
-        <ZoomControls />
+        <ZoomControls
+          onMoved={(byHand) => {
+            movedByHand.current = byHand
+          }}
+        />
       </div>
       <Errors errors={topic.errors} />
       {writeError !== null ? (
@@ -876,6 +1042,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
               setPicked(null)
               setPickNote(null)
             }}
+            // A move with an event is the owner's (the wheel, a drag of the background); fitView and setCenter have none.
+            onMove={(event) => {
+              if (event !== null) movedByHand.current = true
+            }}
             onNodesChange={onNodesChange}
             onNodeDragStart={(_, node) => {
               dragging.current = node.id
@@ -898,7 +1068,17 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
         </Actions>
         <Arrowheads flowId={flowId} />
         <Legend />
-        {pickedNode !== undefined ? <NodeCard node={pickedNode} graph={graph} onPick={setPicked} onClose={() => setPicked(null)} onShowMessage={showInChat} /> : null}
+        {pickedNode !== undefined ? (
+          <NodeCard
+            node={pickedNode}
+            graph={graph}
+            beside={pickedBox}
+            pane={{ width: paneWidth, height: paneHeight }}
+            onPick={setPicked}
+            onClose={() => setPicked(null)}
+            onShowMessage={showInChat}
+          />
+        ) : null}
       </div>
     </div>
   )

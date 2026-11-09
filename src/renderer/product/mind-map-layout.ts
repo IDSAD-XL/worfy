@@ -40,6 +40,8 @@ export interface MapNode {
   /** The node of mind-map.json; none for the root and the Tickets. */
   source?: MindMapNode | undefined
   ticket?: MapTicket | undefined
+  /** A node of mind-map.json with children drawn: it carries a fold mark beside its text (ticket 09). */
+  branch?: boolean | undefined
 }
 
 export interface MapEdge {
@@ -143,7 +145,7 @@ export function buildMindMapGraph(topic: ProductTopicState, { hideRejected }: { 
   for (let index = 0; index < queue.length; index += 1) {
     for (const id of children.get(queue[index]!) ?? []) {
       const source = byId.get(id)!
-      nodes.push({ id, kind: source.kind, text: source.text, parent: queue[index]!, status: source.status, source })
+      nodes.push({ id, kind: source.kind, text: source.text, parent: queue[index]!, status: source.status, source, branch: children.has(id) })
       queue.push(id)
     }
   }
@@ -159,6 +161,8 @@ export function buildMindMapGraph(topic: ProductTopicState, { hideRejected }: { 
 
 const WIDTH: Readonly<Record<MindMapView, number>> = { tree: 220, graph: 180 }
 const LINE = 1.35
+/** The room above and below a node's text, px: mind-map.css pads the node 9 px at the top and the bottom. */
+const NODE_PAD_Y = 20
 
 /**
  * The room left and right of a node's text, in em of the node's font, as the prototype Card of the
@@ -223,19 +227,90 @@ export function nodeShape(kind: MapNodeKind, width: number, height: number): str
       return roundRect(width, height, 3)
   }
 }
-/** A node shows at most this many lines of its text (mind-map.css clamps the rest). */
-export const MAX_LINES = 3
+/**
+ * A node shows at most this many lines of its text, as the prototype does (ticket 23); mind-map.css clamps a
+ * longer text with an ellipsis, and the node's card and its tooltip show it whole.
+ */
+export const MAX_LINES = 4
 
-/** The size of a node's box: the root and the Tickets are larger; the height follows the lines its text takes. */
+/**
+ * The room the fold mark of a branch takes beside the text (mind-map.css, .w-mind__fold), px: its widest
+ * label, «+999» in the 12 px mono font with its padding and border. The gap before it comes on top, 0.52 em.
+ */
+const FOLD_PX = 40
+
+/** The width of a node's text, px, in the node's font: `size` px, semibold when `bold` (the root and the Tickets). */
+export type TextMeasure = (text: string, size: number, bold: boolean) => number
+
+/** An estimate where nothing measures: an average glyph is about 0.55 of the font size. */
+const estimate: TextMeasure = (text, size) => text.length * size * 0.55
+
+let measureText: TextMeasure = estimate
+
+/**
+ * How nodeSize measures text: MindMap.tsx gives the page's canvas measure, so Cyrillic, which is wider than
+ * Latin, gets its true width; null puts back the estimate (no canvas: a test without layout).
+ */
+export function setTextMeasure(measure: TextMeasure | null): void {
+  measureText = measure ?? estimate
+}
+
+/**
+ * The lines `text` takes in a box `room` px wide, as the browser wraps it: at the spaces, and a word longer
+ * than the line anywhere (mind-map.css, `overflow-wrap: anywhere`). Counting stops past `most`.
+ */
+export function wrappedLines(text: string, room: number, measure: (text: string) => number, most = MAX_LINES): number {
+  let lines = 1
+  let line = ''
+  for (const word of text.split(/\s+/)) {
+    if (word === '') continue
+    const probe = line === '' ? word : `${line} ${word}`
+    if (measure(probe) <= room) {
+      line = probe
+      continue
+    }
+    if (line !== '') lines += 1
+    let rest = word
+    while (lines <= most && rest.length > 1 && measure(rest) > room) {
+      // The longest head of the word that fits, at least one glyph.
+      let [fits, over] = [1, rest.length]
+      while (over - fits > 1) {
+        const middle = Math.floor((fits + over) / 2)
+        if (measure(rest.slice(0, middle)) <= room) fits = middle
+        else over = middle
+      }
+      rest = rest.slice(fits)
+      lines += 1
+    }
+    line = rest
+    if (lines > most) return lines
+  }
+  return lines
+}
+
+/**
+ * The size of a node's box: the root and the Tickets are larger; the height follows the lines its text
+ * takes, measured in its font (setTextMeasure) and at most MAX_LINES. The text
+ * has the node's width less its padding, its icon and, on a branch, the fold mark. The text is wrapped 2 px
+ * narrower than the box it gets, so a measure a hair off makes the box a line taller, never too short.
+ */
 export function nodeSize(node: MapNode, view: MindMapView): { width: number; height: number } {
   const big = node.kind === 'topic' || node.kind === 'ticket'
-  const font = MIND_MAP_FONT[view] + (big ? 2 : 0)
+  const size = MIND_MAP_FONT[view] + (big ? 2 : 0)
   const width = WIDTH[view] + (big ? 40 : 0)
-  // An average glyph is about 0.55 of the font size; the text has the node's width less its padding and icon.
-  const inset = (NODE_PAD[node.kind].left + ICON_EM[node.kind] + NODE_PAD[node.kind].right) * font
-  const perLine = Math.max(8, Math.floor((width - inset) / (font * 0.55)))
-  const lines = Math.min(MAX_LINES, Math.max(1, Math.ceil(node.text.length / perLine)))
-  return { width, height: Math.ceil(lines * font * LINE + 20) }
+  const inset = (NODE_PAD[node.kind].left + ICON_EM[node.kind] + NODE_PAD[node.kind].right) * size + (node.branch === true ? FOLD_PX + 0.52 * size : 0)
+  const lines = Math.min(MAX_LINES, wrappedLines(node.text, Math.max(size, width - inset - 2), (text) => measureText(text, size, big)))
+  return { width, height: Math.ceil(lines * size * LINE + NODE_PAD_Y) }
+}
+
+/**
+ * The lines of text a node's box of `height` px holds, the clamp MindMap.tsx gives its text: where the
+ * browser wraps a text wider than measured, the last line that fits ends in an ellipsis instead of
+ * running over the box's border.
+ */
+export function linesIn(node: MapNode, view: MindMapView, height: number): number {
+  const size = MIND_MAP_FONT[view] + (node.kind === 'topic' || node.kind === 'ticket' ? 2 : 0)
+  return Math.max(1, Math.min(MAX_LINES, Math.floor((height - NODE_PAD_Y) / (size * LINE) + 0.001)))
 }
 
 /** The room between two depths (columns) and between two nodes of one depth, px; the Tree's is the prototype's. */
@@ -346,7 +421,42 @@ export async function layoutElk(graph: MapGraph, view: MindMapView, elk: ElkEngi
   return placement
 }
 
-/** What ELK's layout depends on: the view and each node's parent, kind and text length (its size); not the file's places. */
+/** A box on the screen, px from the map's top left corner. */
+export interface ScreenBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** The room between a node and its card, and between the card and the map's edge, px (the prototype's). */
+const CARD_GAP = 14
+const CARD_EDGE = 8
+
+/**
+ * Where a node's card goes, as the prototype puts it (ticket 23): beside the node, to its right, its top a
+ * little above the node's middle; to its left where the right has no room; under the node (or above it)
+ * where neither side has; always inside the map of `pane` size, so it covers the node only when the map is
+ * too small for both.
+ */
+export function cardPlace(node: ScreenBox, pane: { width: number; height: number }, card: { width: number; height: number }): { left: number; top: number } {
+  const clamp = (value: number, room: number, size: number): number => Math.max(CARD_EDGE, Math.min(value, room - size - CARD_EDGE))
+  const right = node.x + node.width + CARD_GAP
+  const left = node.x - CARD_GAP - card.width
+  if (right + card.width <= pane.width - CARD_EDGE || left >= CARD_EDGE) {
+    const x = right + card.width <= pane.width - CARD_EDGE ? right : left
+    return { left: clamp(x, pane.width, card.width), top: clamp(node.y + node.height / 2 - 30, pane.height, card.height) }
+  }
+  const below = node.y + node.height + CARD_GAP
+  const above = node.y - CARD_GAP - card.height
+  const y = below + card.height <= pane.height - CARD_EDGE || above < CARD_EDGE ? below : above
+  return { left: clamp(node.x + node.width / 2 - card.width / 2, pane.width, card.width), top: clamp(y, pane.height, card.height) }
+}
+
+/**
+ * What ELK's layout depends on: the view and each node's parent, kind, text and fold mark (its size, the
+ * text measured glyph by glyph); not the file's places.
+ */
 export function layoutKey(graph: MapGraph, view: MindMapView): string {
-  return JSON.stringify([view, graph.nodes.map((node) => [node.id, node.parent, node.text.length, node.kind])])
+  return JSON.stringify([view, graph.nodes.map((node) => [node.id, node.parent, node.text, node.kind, node.branch === true])])
 }
