@@ -23,13 +23,15 @@
 //   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
 //     skips this): the push runs of ci_workflow on the branch check the merged PRs together, so the latest one with a
 //     verdict must not be red. A run still queued or in progress is passed over (no merge waits the length of a push
-//     run); so is a cancelled one. A run's verdict is that of its latest attempt: a red run whose failed jobs were
+//     run); so is a cancelled one, and so is the run of a commit that changed documents only (by docs_only, see
+//     below): it may check far less than a run of code. A run's verdict is that of its latest attempt: a red run whose failed jobs were
 //     rerun once and passed is green — a flaky test, not the PR's fault. land reruns nothing and reverts nothing.
 //     While it is red a PR with code waits with the reason `<branch> red since <sha> (#<PR>, <time>), run <URL> —
 //     code PRs wait; fix forward until <time + 1 h>, then revert #<PR>`: the culprit is the PR whose merge commit has
 //     the first red push run after the last green one (`gh api repos/{owner}/{repo}/commits/<sha>/pulls`), <time>
-//     when that run finished. A PR with documents only still merges: docs_only, the project's rule, gets the PR's
-//     changed paths and exits 0. The newest run being rerun holds code PRs until its verdict. gh unable to read the
+//     when that run finished; with no green run among the newest 50, the culprit is older and the reason says to find
+//     it by hand. A PR with documents only still merges: docs_only, the project's rule, gets the PR's changed paths
+//     and exits 0. The newest run being rerun holds code PRs until its verdict. gh unable to read the
 //     runs — the PR waits (unverified), never merges;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
@@ -70,7 +72,8 @@
 //                 docs.handoff.check)
 //   docs_only     optional, null or a shell command run in the checkout: the paths a PR changes from its fork point,
 //                 one per line on stdin; exit 0 — documents only (the PR merges while the main branch is red), 1 —
-//                 code; any other exit code, or no command, counts as code
+//                 code; any other exit code counts as code. No command: documents only means every path inside the
+//                 tickets root. The same rule tells a push run of a documents-only commit, which gives no verdict
 //   tickets_root  optional, ".scratch": the tickets root, relative to the repository root (profile
 //                 tickets.root; an absolute one the orchestrator makes relative); null — the tickets are not
 //                 in the repository (Silent mode, a root outside it), no documents PR: `ticket done` is the

@@ -1187,7 +1187,8 @@ of `land`. For each PR, in the order of the state file, `land`:
   head. These marks are never carried: a new head needs its own;
 - needs the main branch not red: the latest push run of the CI workflow on it with a verdict is not red
   ("A red push run on the main branch" below). A run still queued or in progress is passed over, so no
-  merge waits the length of a push run; the newest run being rerun holds code PRs until its verdict. While
+  merge waits the length of a push run, and so is the run of a commit with documents only (it may check
+  far less than a run of code); the newest run being rerun holds code PRs until its verdict. While
   the branch is red a PR with code waits, the reason naming the run, the commit and the culprit PR; a PR
   with documents only (`docs_only` of the state file says so) and a PR marked `main-fix` still merge. gh
   unable to read the push runs — the PR waits, never merges;
@@ -1215,7 +1216,8 @@ project's rules, comma-separated, empty for none. For example, rules that give a
 checkout of the main branch, exits 1; nothing when it exits 0; another exit code — the PR stays out of
 the file and waits. `<documents-only command>` — the command the project's rules name for a change of
 documents only: it reads the paths a PR changes on stdin, one per line, and exits 0 for documents only;
-empty when the rules name none, and then every PR counts as code while the main branch is red. The tickets
+empty when the rules name none, and then only a change inside the tickets root counts as documents. The
+same command tells which push runs on the main branch are of documents only. The tickets
 root comes from `F tickets.root`; the block makes an absolute one relative to the repository, and one
 outside the repository, or Silent mode, means no documents PR:
 
@@ -1401,12 +1403,13 @@ push run on the main branch is red, no PR with code is merged; a PR with documen
 `bin/land` holds this pause itself ("Merge with land" above): it reads the push runs, passes over one
 still queued or in progress, and while the latest one with a verdict is red a PR with code waits with the
 reason `main red since <sha> (#<PR>, <time>), run <URL> — code PRs wait; fix forward until <time + 1 h>,
-then revert #<PR>`, and its output carries the same line without the URL. The culprit is the PR whose
+then revert #<PR>`, and its output carries the same line without the URL. With no green push run among
+the newest 50 the reason says the culprit is older than they are: find it by hand. The culprit is the PR whose
 squash commit got the first red push run after the last green one: a push run runs on every commit of
 the main branch, so the first red one names it. A red run is first repeated once: `gh run rerun <run>
 --failed`, one rerun per head, by the orchestrator (`land` reruns nothing). Green after the rerun —
 a flaky test, not the PR's fault: the main branch is green, the failing tests go into the wave report
-as a flaky test. Red again — the culprit stands. The fix goes forward first, for at most one hour from
+as a flaky test and into the quarantine the project's rules name for a flaky test. Red again — the culprit stands. The fix goes forward first, for at most one hour from
 the red run: a PR with the fix, marked `main-fix` in the state file of `land` and merged with its own
 green CI. No fix merged within the hour — revert the culprit PR (`git revert <sha>` of its squash commit
 on a branch, a PR with its own green CI, marked `main-fix` too; `land` reverts nothing), and the ticket of

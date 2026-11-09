@@ -65,3 +65,10 @@ Ticket-а 62.
 - Красный `main` на ПК (issue `pc-main-red`, ADR-0086) — своё правило, не меняется.
 - Автоматический revert — решение остаётся за Orchestrator-ом.
 - Повтор job-ов из `land` — нет: повтор один на head, и его делает Orchestrator.
+
+## Итог
+
+- После merge Orchestrator добавляет `node scripts/ci-scope.mjs --documents` в `rules-merge.md` Profile-а worfy
+  (команда документ-правила `docs_only` для state-файла `land`), как ADR-0103 сделал для `rules-merge.md`: Profile лежит
+  вне репозитория, implementer в `~/.claude` не пишет. Без этой строки при красном `main` документами считаются только
+  пути внутри `.scratch/`.

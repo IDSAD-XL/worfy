@@ -1221,6 +1221,10 @@ check "epic-wave: the culprit is the first red push run after the last green one
     has_flat "$EW" 'The culprit is the PR whose squash commit got the first red push run after the last green one'
 check "epic-wave: one rerun of the failed jobs is the line between a flaky test and the PR's fault" \
     has_flat "$EW" 'A red run is first repeated once: `gh run rerun <run> --failed`, one rerun per head, by the orchestrator (`land` reruns nothing).'
+check "epic-wave: a push run of documents only gives no verdict" \
+    has_flat "$EW" 'and so is the run of a commit with documents only (it may check far less than a run of code);'
+check "epic-wave: a flaky test after the rerun goes into the project's quarantine" \
+    has_flat "$EW" 'and into the quarantine the project'"'"'s rules name for a flaky test.'
 check "epic-wave: the fix and the revert merge through land as main-fix" has_flat "$EW" 'marked `main-fix` in the state file of `land`'
 check "epic-wave: the red set after a wave-gate merge follows the same rule" \
     has_flat "$EW" 'Red CI on the main branch after the set'"'"'s merges: the rule of "A red push run on the main branch" below.'
