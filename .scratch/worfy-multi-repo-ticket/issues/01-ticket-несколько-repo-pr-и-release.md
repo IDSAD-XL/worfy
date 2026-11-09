@@ -60,6 +60,7 @@ Release: lib tag lib-v1.4.0
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: `ticket done` без PR одного из `Repo:` — exit 2, файл не меняется; с PR каждого `Repo:` — `done`.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · c01a93ce54ef6330935d53715d5a6dcbe00f06be
 - [ ] Test: `ticket evidence … --repo R --sha S` пишет строку evidence с репозиторием.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: Ticket с одним репозиторием — те же выходы и файлы, что до правки (`PR: #N`, `done --pr N`).
@@ -68,6 +69,7 @@ Release: lib tag lib-v1.4.0
   - evidence: commit pass · ticket: several Repo: lines, PR: <repo>#N, ticket pr, ticket release, done only with every PR · - - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` — exit 0 на Mac.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` exit 0 · mac - · c01a93ce54ef6330935d53715d5a6dcbe00f06be
 - [ ] Те же test-ы на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.
