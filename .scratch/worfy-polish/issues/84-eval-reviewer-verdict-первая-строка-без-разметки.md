@@ -35,7 +35,7 @@ Eval case `harness/evals/reviewer-verdict` запускает одного аг�
       `rejected-first` зелёный в каждом; команда, exit code, балл и цена — в «Итог».
 - [ ] Платный `eval --changed origin/main` по остальным case-ам, которые покрывает `reviewer.md`, — на пороге или выше.
 - [ ] `node harness/bin/start-context` — exit 0 (reviewer в пороге).
-  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 11 923 tokens, 3 077 below the threshold) · mac - · 792242aae
+  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 11 923 tokens, 3 077 below the threshold) · mac - · 70e791e61
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
