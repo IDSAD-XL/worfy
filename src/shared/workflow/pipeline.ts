@@ -140,6 +140,19 @@ export interface DeployFact {
   containsMerge: boolean
 }
 
+/** The facts of one repository of a Ticket over several repositories (ADR-0104): what StageFacts holds for a Ticket of one. */
+export interface RepoStageFacts {
+  /** The repository's name, as the Ticket's `Repo:` line says it. */
+  repo: string
+  /** The head of the Ticket's branch in this repository: its PR's head while the PR is open, else the branch's own. */
+  headSha: string | null
+  /** The PR of the Ticket's branch in this repository, found by the pair (repo, branch). */
+  pr: PullFacts | null
+  /** The Ticket's marks: only those on this repository's head count for it. */
+  marks: readonly MarkFact[]
+  deploys: readonly DeployFact[]
+}
+
 export interface StageFacts {
   mode: 'full' | 'silent'
   status: TicketState
@@ -156,6 +169,12 @@ export interface StageFacts {
   deploys: readonly DeployFact[]
   /** The e2e lock (`workflow.e2e_lock`): null when it is free; `prs` null when holder.json is empty or unreadable. */
   lock: { prs: readonly number[] | null } | null
+  /**
+   * A Ticket over several repositories (ADR-0104): the facts of each repository its `Repo:` lines name, in their
+   * order; `headSha`, `pr`, `marks` and `deploys` above are not read then. Absent or empty for a Ticket of one
+   * repository.
+   */
+  repos?: readonly RepoStageFacts[]
 }
 
 // ── the Stage ────────────────────────────────────────────────────────────────
@@ -188,6 +207,11 @@ export const ticketStageSchema = z.object({
    * Optional, and absent reads as null: a Linked machine's older worfy does not send it.
    */
   statusAt: z.string().nullable().optional(),
+  /**
+   * A Ticket over several repositories (ADR-0104, item 8): how many of its repositories have their PR merged, of
+   * how many («1/2 merged»). Absent for a Ticket of one repository, and from a Linked machine's older worfy.
+   */
+  merged: z.object({ count: z.number().int().nonnegative(), of: z.number().int().positive() }).optional(),
 })
 export type TicketStage = z.infer<typeof ticketStageSchema>
 
@@ -209,8 +233,35 @@ function marksOn(marks: readonly MarkFact[], sha: string | null): Map<string, Ma
   return last
 }
 
-/** The Stage of one Ticket in `pipeline` from its facts. */
+/**
+ * The Stage of one Ticket in `pipeline` from its facts. A Ticket over several repositories (`facts.repos`, ADR-0104,
+ * items 4, 5, 8) is judged in each repository by the facts of that repository, and stands on the earliest of their
+ * Stages: a `review` mark counts only on the head of every branch, so a new head of any branch takes the verdict off
+ * the whole Ticket; red CI of any PR is red CI of the Ticket; one PR merged leaves the Ticket on the Stage of the
+ * other.
+ */
 export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): TicketStage {
+  const repos = facts.repos ?? []
+  if (repos.length === 0) return stageOfOne(facts, pipeline)
+  const each = repos.map((repo) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline))
+  const index = Math.min(...each.map((stage) => stage.index))
+  const behind = each.filter((stage) => stage.index === index)
+  // Every repository on the Ticket's Stage has passed the same Stages before it.
+  const first = behind[0]!
+  const entered = latest(behind.map((stage) => timeOf(stage.enteredAt)))
+  return {
+    ...first,
+    skipped: first.passed.filter((id) => each.some((stage) => stage.skipped.includes(id))),
+    rework: behind.some((stage) => stage.rework),
+    // `failing` first: red CI of any PR is red CI of the Ticket.
+    sub: stageSubSchema.options.find((sub) => behind.some((stage) => stage.sub === sub)) ?? null,
+    enteredAt: entered === null ? null : new Date(entered).toISOString(),
+    merged: { count: repos.filter((repo) => repo.pr?.state === 'MERGED').length, of: repos.length },
+  }
+}
+
+/** The Stage of a Ticket from the facts of one repository. */
+function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[]): TicketStage {
   const pull = facts.pr !== null && facts.pr.state !== 'CLOSED' ? facts.pr : null
   const open = pull?.state === 'OPEN' ? pull : null
   const merged = pull?.state === 'MERGED'

@@ -13,6 +13,7 @@ import {
   stuckOf,
   type PipelineStage,
   type PullFacts,
+  type RepoStageFacts,
   type StageFacts,
   type TicketStage,
 } from '../../src/shared/workflow/pipeline'
@@ -318,5 +319,113 @@ describe('a snapshot across the link between Machines (worfy-pipeline ticket 06)
     // A snapshot of this build keeps its time, and null stays null.
     expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, statusAt: '2026-10-18T10:00Z' }], error: null }).tickets[0]?.statusAt).toBe('2026-10-18T10:00Z')
     expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, statusAt: null }], error: null }).tickets[0]?.statusAt).toBeNull()
+  })
+})
+
+// ── a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-0104 items 4, 5, 8) ─────────
+
+describe('stageOf: a Ticket over several repositories', () => {
+  const LIB = 'e'.repeat(40)
+  const APP = 'f'.repeat(40)
+  const NEW_APP = '1'.repeat(40)
+  /** The facts of one repository: the head of its branch, its PR, and the Ticket's marks (one marks file for all). */
+  const repo = (name: string, headSha: string | null, extra: Partial<RepoStageFacts> = {}): RepoStageFacts => ({ repo: name, headSha, pr: null, marks: [], deploys: [], ...extra })
+  const both = (lib: Partial<RepoStageFacts>, app: Partial<RepoStageFacts>, extra: Partial<StageFacts> = {}): StageFacts =>
+    facts({ mode: 'silent', headSha: null, repos: [repo('lib', LIB, lib), repo('app', APP, app)], ...extra })
+  const ATALAYA_INDEX = (id: string) => ATALAYA.findIndex((stage) => stageId(stage) === id)
+
+  it('before the PRs: review on the head of one branch keeps the Ticket before Agent review; on the heads of both it goes on', () => {
+    const one = [mark('review', 'success', LIB)]
+    const onOne = stageOf(both({ marks: one }, { marks: one }), ATALAYA)
+    expect(onOne).toMatchObject({ stage: 'implementing', passed: ['queued'], merged: { count: 0, of: 2 } })
+    expect(onOne.index).toBeLessThanOrEqual(ATALAYA_INDEX('agent-review'))
+    const all = [mark('review', 'success', LIB), mark('review', 'success', APP, '2026-10-17T11:02:00Z')]
+    // Past Agent review, and CI waits for the PRs; the Ticket entered CI with the later of the two marks.
+    expect(stageOf(both({ marks: all }, { marks: all }), ATALAYA)).toMatchObject({ stage: 'ci', passed: ['queued', 'implementing', 'agent-review'], enteredAt: '2026-10-17T11:02:00.000Z' })
+  })
+
+  it('a pending review on the head of each branch: Agent review', () => {
+    const pending = [mark('review', 'pending', LIB), mark('review', 'pending', APP)]
+    expect(stageOf(both({ marks: pending }, { marks: pending }), ATALAYA)).toMatchObject({ stage: 'agent-review' })
+  })
+
+  it('a new head of one branch after the review takes the verdict off the whole Ticket', () => {
+    const reviewed = [mark('review', 'success', LIB), mark('review', 'success', APP)]
+    expect(stageOf(both({ marks: reviewed }, { marks: reviewed }), ATALAYA).stage).toBe('ci')
+    const after = stageOf(both({ marks: reviewed }, { headSha: NEW_APP, marks: reviewed }), ATALAYA)
+    expect(after).toMatchObject({ stage: 'implementing', rework: false })
+    expect(after.passed).not.toContain('agent-review')
+    // The new review marks the new head too: the Ticket is on Agent review, then past it.
+    const again = [...reviewed, mark('review', 'pending', NEW_APP, '2026-10-17T12:00:00Z')]
+    expect(stageOf(both({ marks: again }, { headSha: NEW_APP, marks: again }), ATALAYA).stage).toBe('agent-review')
+    const passed = [...again, mark('review', 'success', NEW_APP, '2026-10-17T12:10:00Z')]
+    expect(stageOf(both({ marks: passed }, { headSha: NEW_APP, marks: passed }), ATALAYA).stage).toBe('ci')
+  })
+
+  it('a review failure on the head of either branch sends the whole Ticket back to Implementing with rework', () => {
+    const marks = [mark('review', 'success', LIB), mark('review', 'failure', APP, '2026-10-17T11:30:00Z')]
+    expect(stageOf(both({ marks }, { marks }), ATALAYA)).toMatchObject({ stage: 'implementing', rework: true, enteredAt: '2026-10-17T11:30:00.000Z' })
+    // lib not reviewed yet is on Implementing too, without rework: the failure on app's head still makes it rework.
+    const failed = [mark('review', 'failure', APP, '2026-10-17T11:30:00Z')]
+    expect(stageOf(both({ marks: failed }, { marks: failed }), ATALAYA)).toMatchObject({ stage: 'implementing', rework: true })
+  })
+
+  it('after the PRs: red CI of either PR is red CI of the Ticket', () => {
+    const marks = [mark('review', 'success', LIB), mark('review', 'success', APP)]
+    const libPr = (checks: PullFacts['checks']) => pr({ number: 41, headSha: LIB, checks })
+    const appPr = (checks: PullFacts['checks']) => pr({ number: 118, headSha: APP, checks })
+    expect(stageOf(both({ marks, pr: libPr([green]) }, { marks, pr: appPr([red]) }), ATALAYA)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(stageOf(both({ marks, pr: libPr([red]) }, { marks, pr: appPr([green]) }), ATALAYA)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    // One red and one running: still failing, whichever repository comes first.
+    expect(stageOf(both({ marks, pr: libPr([running]) }, { marks, pr: appPr([red]) }), ATALAYA)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(stageOf(both({ marks, pr: libPr([green]) }, { marks, pr: appPr([running]) }), ATALAYA)).toMatchObject({ stage: 'ci', sub: null })
+    expect(stageOf(both({ marks, pr: libPr([green]) }, { marks, pr: appPr([green]) }), ATALAYA)).toMatchObject({ stage: 'human-review', sub: null })
+  })
+
+  it('one PR merged and the other open: the Stage is the open one\'s, 1 of 2 merged; both merged: past the merge', () => {
+    const marks = [mark('review', 'success', APP)]
+    const libMerged = merged({ number: 41, headSha: LIB })
+    const appOpen = pr({ number: 118, headSha: APP, checks: [green] })
+    expect(stageOf(both({ marks, pr: libMerged }, { marks, pr: appOpen }), ATALAYA)).toMatchObject({ stage: 'human-review', merged: { count: 1, of: 2 } })
+    expect(stageOf(both({ marks, pr: libMerged }, { marks, pr: appOpen }, { mode: 'full' }), DEFAULT_PIPELINE)).toMatchObject({ stage: 'gate-merge', merged: { count: 1, of: 2 } })
+    // The order of the Repo: lines does not matter: the earliest Stage of any repository is the Ticket's.
+    expect(stageOf(both({ marks, pr: appOpen, headSha: APP }, { marks, pr: libMerged }), ATALAYA)).toMatchObject({ stage: 'human-review', merged: { count: 1, of: 2 } })
+    const appMerged = merged({ number: 118, headSha: APP, mergedAt: '2026-10-18T12:00:00Z' })
+    expect(stageOf(both({ pr: libMerged }, { pr: appMerged }, { mode: 'full' }), DEFAULT_PIPELINE)).toMatchObject({ stage: 'closing', merged: { count: 2, of: 2 }, enteredAt: '2026-10-18T12:00:00.000Z' })
+  })
+
+  it('a repository with no branch yet keeps the Ticket on Implementing', () => {
+    const marks = [mark('review', 'success', LIB)]
+    expect(stageOf(both({ marks }, { headSha: null, marks }), ATALAYA)).toMatchObject({ stage: 'implementing', merged: { count: 0, of: 2 } })
+  })
+
+  it('a Check passed with skipped in one repository is named skipped', () => {
+    const marks = [mark('review', 'success', LIB), mark('review', 'success', APP), mark('check/windows', 'success', LIB), mark('check/windows', 'skipped', APP)]
+    const open = (sha: string) => pr({ headSha: sha, checks: [green] })
+    expect(stageOf(both({ marks, pr: open(LIB) }, { marks, pr: open(APP) }, { mode: 'full' }), WORFY)).toMatchObject({ stage: 'gate-merge', skipped: ['check/windows'] })
+  })
+
+  it('the gate lock: the PR of either repository in holder.json is the gate running', () => {
+    const marks = [mark('review', 'success', LIB), mark('review', 'success', APP), mark('check/windows', 'success', LIB), mark('check/windows', 'success', APP)]
+    const input = both({ marks, pr: pr({ number: 41, headSha: LIB, checks: [green] }) }, { marks, pr: pr({ number: 118, headSha: APP, checks: [green] }) }, { mode: 'full', lock: { prs: [118] } })
+    expect(stageOf(input, WORFY)).toMatchObject({ stage: 'gate-merge', sub: 'gate running' })
+  })
+
+  it('Status done passes every Stage but Done whatever the repositories say', () => {
+    expect(stageOf(both({}, {}, { status: 'done' }), ATALAYA)).toMatchObject({ stage: 'done', merged: { count: 0, of: 2 } })
+  })
+
+  it('a Ticket of one repository: the Stage as before, without merged', () => {
+    const input = facts({ pr: pr({ checks: [green] }), marks: [mark('review', 'success')] })
+    const stage = stageOf(input, WORFY)
+    expect('merged' in stage).toBe(false)
+    expect(stageOf({ ...input, repos: [] }, WORFY)).toEqual(stage)
+  })
+
+  it('a snapshot with merged reads; one without it (a Linked machine\'s older worfy) still reads', async () => {
+    const { pipelineSnapshotSchema } = await import('../../src/shared/ipc/pipeline')
+    const ticket = { epic: 'demo', num: 5, stage: 'ci', index: 2, kind: 'ci', passed: ['queued', 'implementing'], skipped: [], blocked: null, rework: false, sub: null, waits: 'agent', enteredAt: null }
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, merged: { count: 1, of: 2 } }], error: null }).tickets[0]?.merged).toEqual({ count: 1, of: 2 })
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [ticket], error: null }).tickets[0]?.merged).toBeUndefined()
   })
 })

@@ -1,15 +1,26 @@
 // The stub epic-status of test/contract/workflow-reader.test.ts, imported by ./epic-status, which
 // node runs. It reads Tickets the way the real script does for those tests' simple files: from the
 // working tree, or from a branch for `--ref`. The header is the one-fact-per-line format of
-// harness/bin/TICKETS.md: `Status: <word> [<time>]`, `Blocked reason:`, `Waits:`, `PR: #N` (and, for a Ticket over
-// several repositories, the lists `repos`, `prs`, `releases`); any other
+// harness/bin/TICKETS.md: `Status: <word> [<time>]`, `Blocked reason:`, `Waits:`, `PR: #N`; any other
 // Status line is an old header, state none. The title is the first H1 on any line, as the real script
-// reads it; the code blocks it skips do not occur in those files. STUB_LOG, STUB_DELAY_MS, STUB_SCRATCH and STUB_MODE
-// come from the environment the test hands the reader.
+// reads it. The lists `repos`, `prs` and `releases` of a Ticket over several repositories are read with the real
+// script's patterns (FIELD, VALUE, PR_ITEM, RELEASE_TAG, RELEASE_PACKAGE of harness/bin/epic-status) and its code
+// blocks (harness/lib/code-fence.cjs): a PR or Release line with spaces before it, `Release: lib package nover` and
+// lines in a fence are not items. The other fields keep the simple reading: they skip no code block, `PR: #N` is
+// the first such line of the whole file, and `Status:` the first one in any spelling — those tests' files have none of
+// those forms. STUB_LOG, STUB_DELAY_MS, STUB_SCRATCH and STUB_MODE come from the environment the test hands the reader.
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import process from 'node:process'
+const { codeLines } = createRequire(import.meta.url)('../../../harness/lib/code-fence.cjs')
+// The patterns of harness/bin/epic-status, copied: the lines of a Ticket over several repositories.
+const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
+const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
+const PR_ITEM = /^(?:([A-Za-z0-9._-]+))?#([0-9]+)$/
+const RELEASE_TAG = /^([A-Za-z0-9._-]+)[ \t]+tag[ \t]+([^ \t]+)$/
+const RELEASE_PACKAGE = /^([A-Za-z0-9._-]+)[ \t]+package[ \t]+(@?[^@ \t]+@[^@ \t]+)$/
 const args = process.argv.slice(2)
 const ref = args.includes('--ref') ? args[args.indexOf('--ref') + 1] : null
 appendFileSync(process.env.STUB_LOG, (ref ?? '.') + '\n')
@@ -55,15 +66,24 @@ for (const [path, read] of files) {
   // Branch: and Repo: as the Harness of Silent mode gives them; only when the Ticket has the line.
   const lines = {}
   for (const [key, name] of [['branch', 'Branch'], ['repo', 'Repo']]) { const v = last(name); if (v !== null) lines[key] = v }
-  // A Ticket over several repositories (worfy-multi-repo-ticket 02): every Repo line, each once, and the PR and Release
-  // lines of the header (up to the first "## " after the Status line), in file order; only for such a Ticket.
-  const all = text.split('\n')
-  const statusAt = all.findIndex((l) => /^\**status\**\s*:/i.test(l))
-  const end = all.findIndex((l, i) => i > statusAt && l.startsWith('## '))
+  // A Ticket over several repositories (worfy-multi-repo-ticket 02), as the real parse() reads it: every Repo line outside
+  // code blocks, each once, and the PR and Release lines of the header (up to the first "## " after a Status line), in
+  // file order; only for such a Ticket.
+  const isCode = codeLines()
+  const all = text.split('\n').filter((l) => !isCode(l))
+  const statusAt = all.findIndex((l) => FIELD.exec(l.toLowerCase())?.[1] === 'status')
+  const end = statusAt === -1 ? -1 : all.findIndex((l, i) => i > statusAt && l.startsWith('## '))
   const header = all.slice(0, end === -1 ? all.length : end)
-  const repos = [...new Set(all.flatMap((l) => { const x = /^\**repo\**\s*:\s*(.*)$/i.exec(l); return x ? [x[1].replace(/[*`]/g, '').trim()] : [] }))].filter(Boolean)
-  const prs = fmt ? header.flatMap((l) => { const x = /^PR:\s*(?:([A-Za-z0-9._-]+))?#([0-9]+)$/.exec(l.trim()); return x ? [{ repo: x[1] ?? null, number: Number(x[2]) }] : [] }) : []
-  const releases = fmt ? header.flatMap((l) => { const x = /^Release:\s*([A-Za-z0-9._-]+)\s+(tag|package)\s+(\S+)$/.exec(l.trim()); return x ? [{ repo: x[1], kind: x[2], ref: x[3] }] : [] }) : []
+  const after = (l, name) => l.slice(name.length).replace(/^[ \t]*/, '').replace(/[ \t]+$/, '')
+  const word = (x) => x.replace(/\*|`/g, '').replace(/^[ \t]+/, '').replace(/[ \t]+$/, '')
+  const repos = [...new Set(all.filter((l) => FIELD.exec(l.toLowerCase())?.[1] === 'repo').map((l) => word(l.replace(VALUE, ''))))].filter((r) => r !== '')
+  const prs = fmt ? header.filter((l) => l.startsWith('PR:')).flatMap((l) => { const x = PR_ITEM.exec(after(l, 'PR:')); return x ? [{ repo: x[1] ?? null, number: Number(x[2]) }] : [] }) : []
+  const releases = fmt ? header.filter((l) => l.startsWith('Release:')).flatMap((l) => {
+    const v = after(l, 'Release:')
+    const t = RELEASE_TAG.exec(v)
+    const k = t ? null : RELEASE_PACKAGE.exec(v)
+    return t ? [{ repo: t[1], kind: 'tag', ref: t[2] }] : k ? [{ repo: k[1], kind: 'package', ref: k[2] }] : []
+  }) : []
   if (repos.length > 1 || prs.some((p) => p.repo !== null) || releases.length > 0) Object.assign(lines, { repos, prs, releases })
   tickets.push({ epic, num: Number(m[1]), slug: m[2], title: /^#[ \t]+([^ \t].*?)[ \t]*$/m.exec(text.replace(/\r/g, ''))?.[1] ?? '', statusRaw: status, state, ...facts,
     blockedRaw: blocked, blockedNums: nums, blockedParsed: nums.every((n) => !Number.isNaN(n)), ...lines, ref: ref ?? '.', secret: 'not-for-the-renderer' })

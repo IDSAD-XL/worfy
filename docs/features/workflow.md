@@ -302,7 +302,14 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   last subscriber leaves.
 - **Several repositories.** A Ticket's facts come from the repository in its `Repo:` line
   ([ADR-0045](../adr/0045-one-ticket-one-repository.md)). A `claimed` Ticket without one has no facts, so it stays on the first
-  Stage that needs them, usually Implementing. `gh` never runs in a root that is a plain folder.
+  Stage that needs them, usually Implementing. `gh` never runs in a root that is a plain folder. A Ticket with two or more
+  `Repo:` lines ([ADR-0104](../adr/0104-one-ticket-several-repositories.md)) gets the facts of each repository it names: the
+  head of its branch there, found by the pair (repo, branch), and the PR of that branch there. Each repository is judged on
+  its own facts, and the Ticket stands on the earliest of their Stages. So a `review` mark counts only once it is on the head
+  of every branch, a new head of any branch takes the verdict off the whole Ticket, red CI of any PR is red CI of the Ticket,
+  and with one PR merged the Ticket stands where the other PR stands. Its Stage then carries `merged`: how many of its
+  repositories have their PR merged, of how many. A Ticket of one repository has no `merged`. A repository whose folder is not
+  the top level of its own git repository gives no branch heads, so git never reports a parent repository's branches.
 - **A Profile that cannot be read** gives the default Pipeline and a reason in the snapshot.
 - **The editor never writes the Profile itself.** It goes through the Harness's `bin/profile-set` with the fingerprint of what
   it read ([ADR-0073](../adr/0073-profile-set-writes-the-pipeline.md)). The rules of a Pipeline exist in the Harness and in

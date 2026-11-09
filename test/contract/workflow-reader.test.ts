@@ -32,7 +32,7 @@ import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptio
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, repoFactsOf, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
-import { hasSh, NODE_DIR, withPath } from '../harness-node'
+import { hasSh, NODE, NODE_DIR, scriptsEnv, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
@@ -1006,6 +1006,67 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
       { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' },
       { repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0' },
     ])
+    // repoFactsOf keeps the file order of both lists, the two releases of one repository included.
+    expect(repoFactsOf(ticket)).toEqual({ repos: ['lib', 'app'], prs: ticket.prs, releases: ticket.releases })
+    expect(repoFactsOf({ ...ticket, releases: [...ticket.releases!].reverse() }).releases.map((release) => release.kind)).toEqual(['package', 'tag'])
+  })
+
+  it('the stub reads the edge lines of a Ticket over several repositories as harness/bin/epic-status does', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    // A PR line with a space before it, a package Release without a version, and lines in a code block: none is an item.
+    const edges = SEVERAL_REPOS.replace('PR: app#118', 'PR: app#118\n PR: lib#9\nRelease: lib package nover').replace(
+      '## What we do\n',
+      '## What we do\n\n```\nRepo: docs\nPR: docs#3\nRelease: docs tag d1\n```\n',
+    )
+    const fenced = ['Repo: lib', 'Repo: app', '```md', 'Repo: docs', 'PR: docs#3', '```', 'PR: lib#41'].join('\n')
+    writeFileSync(join(repo, '.scratch', 'demo', 'issues', '05-edges.md'), edges)
+    writeFileSync(join(repo, '.scratch', 'demo', 'issues', '06-fenced.md'), SEVERAL_REPOS.replace(/Repo: lib\nRepo: app\nPR: lib#41/u, fenced).replace('# 05', '# 06'))
+    const lists = (stdout: string) =>
+      (JSON.parse(stdout) as { tickets: { num: number; repos?: unknown; prs?: unknown; releases?: unknown }[] }).tickets
+        .filter((each) => each.num >= 5)
+        .map(({ num, repos, prs, releases }) => ({ num, repos, prs, releases }))
+    const real = spawnSync(NODE, [join(__dirname, '..', '..', 'harness', 'bin', 'epic-status'), '--json', '--root', join(repo, '.scratch')], {
+      cwd: repo,
+      encoding: 'utf8',
+      env: scriptsEnv([NODE_DIR], { HOME: home, USERPROFILE: home }),
+    })
+    expect(real.status, real.stderr).toBe(0)
+
+    const stub = lists(await epicStatusRunner(home, ownEnv)(repo, null))
+    expect(stub).toEqual(lists(real.stdout))
+    expect(stub[0]).toEqual({
+      num: 5,
+      repos: ['lib', 'app'],
+      prs: [{ repo: 'lib', number: 41 }, { repo: 'app', number: 118 }],
+      releases: [{ repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }, { repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0' }],
+    })
+    expect(stub[1]).toMatchObject({ num: 6, repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 41 }, { repo: 'app', number: 118 }] })
+  })
+
+  it('a PR line numbered 0 drops that PR, not the whole board: the other PR and every other Ticket are read', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    writeFileSync(join(issues, '05-several.md'), SEVERAL_REPOS.replace('PR: lib#41', 'PR: lib#0'))
+    // The bare form as well: `PR: #0` was a refusal of the whole answer before.
+    writeFileSync(join(issues, '06-bare.md'), ticketText(6, 'claimed 2026-11-10T09:00Z', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nPR: #0'))
+    const run = epicStatusRunner(home, ownEnv)
+    // The stub gives what the real script gives for these lines: the PR numbered 0 is in the answer.
+    const raw = JSON.parse(await run(repo, null)) as { tickets: { num: number; pr: unknown; prs?: unknown }[] }
+    expect(raw.tickets.find((each) => each.num === 5)?.prs).toEqual([{ repo: 'lib', number: 0 }, { repo: 'app', number: 118 }])
+    expect(raw.tickets.find((each) => each.num === 6)?.pr).toBe(0)
+
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, run)
+
+    expect(model.error).toBeNull()
+    expect(model.tickets.length).toBe(raw.tickets.length)
+    expect(ticketOf(model, 5)?.prs).toEqual([{ repo: 'app', number: 118 }])
+    expect(ticketOf(model, 6)?.pr).toBeNull()
+    // A release that does not read is dropped the same way; one that reads stays.
+    const output = JSON.parse(MULTI_REPO_OUTPUT) as { tickets: { releases?: unknown[] }[] }
+    output.tickets[0]!.releases = [{ repo: 'lib', kind: 'tag' }, { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }]
+    expect(parseEpicStatus(JSON.stringify(output)).tickets[0]!.releases).toEqual([{ repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }])
   })
 
   it('takes both shapes of epic-status: the three lists of a Ticket over several repositories, and none of them for a Ticket of one', async () => {
@@ -1101,6 +1162,26 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
     expect(new Set(found.filter((each) => each.branch === 'fix/lot-withdraw-flag').map((each) => `${each.epic}/${each.num}`))).toEqual(new Set(['demo/5']))
     // Only read: every checkout, .git included, is byte-for-byte the same (ADR-0005).
     expect(treeState(dir)).toEqual(before)
+  })
+
+  it('a checkout that is a folder inside another repository, not its own, gives no branch of that repository', async () => {
+    const parent = join(dir, 'parent')
+    mkdirSync(parent, { recursive: true })
+    git(dir, 'init', '-q', '-b', 'main', parent)
+    writeFileSync(join(parent, 'README.md'), 'parent\n')
+    git(parent, 'add', '-A')
+    git(parent, 'commit', '-qm', 'parent')
+    git(parent, 'branch', 'fix/lot-withdraw-flag')
+    const inner = join(parent, 'lib')
+    mkdirSync(inner)
+    const tickets = [{ epic: 'demo', num: 5, branch: 'fix/lot-withdraw-flag', repo: 'app', repos: ['lib', 'app'] }]
+
+    // git would walk up from `inner` to `parent` and list its branch as lib's.
+    expect(await ticketBranches([{ name: 'lib', path: inner }], tickets)).toEqual([])
+    // The repository itself, named by a path with a `..` in it, is its own top level.
+    expect(await ticketBranches([{ name: 'lib', path: join(inner, '..') }], tickets)).toEqual([
+      { repo: 'lib', path: join(inner, '..'), branch: 'fix/lot-withdraw-flag', head: git(parent, 'rev-parse', 'fix/lot-withdraw-flag').trim(), epic: 'demo', num: 5 },
+    ])
   })
 })
 
