@@ -41,6 +41,7 @@ diff-е PR кириллицы нет; implementer тратит время на �
   - evidence: test-run pass · `pnpm lint` exit 0 with an ignored harness/evals/results/x/report.html holding Cyrillic; old script exit 1 on it · mac - · 6db5c4b4d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, test) · mac - · e30af911eb53301666afe1901333254b94e9982a
+  - evidence: gate pass · gate fast exit 0 after rebase onto origin/main 922e661d9 (lint, typecheck, test) · mac - · a252b41bde92dde12652861c7285f9a156979c47
 
 ## Где в коде
 
