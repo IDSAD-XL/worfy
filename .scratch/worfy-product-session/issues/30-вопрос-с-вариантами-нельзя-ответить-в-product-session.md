@@ -37,13 +37,20 @@ Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session
 
 - [ ] e2e test (`test/e2e/product-session.spec.ts`): вопрос открыт, окно перезагружено — карточка вопроса в чате
   Product Session, Badge «Waits for answer», ответ доходит до Claude Code (красный до правки).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (reload test red before the fix: exit 1, 0 question cards at needs permission) · mac dev · 7b16e63db513633cbc13410c808ad3eda1221c7b
 - [ ] e2e test: в окне 1160 со списком агентов вопрос Session и вопрос Subagent-а отвечаются (вариант, «Other»),
   запрос разрешения Subagent-а — Allow (tool выполнился), Session — Deny (отказ); кнопки внутри колонки чата.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 7b16e63db513633cbc13410c808ad3eda1221c7b
 - [ ] Contract test `agent.requests` (`test/contract/permissions.test.ts`) и unit test `useWaitingRequests`
   (`test/unit/waiting-requests.test.tsx`); строка «cannot show» в виде Session (`test/unit/session-view.test.tsx`).
+  - evidence: test-run pass · `pnpm test` exit 0 (139 test files importing the changed modules; mutants of the cannot-show line, the ask delay and the stretch reset killed) · mac - · 7b16e63db513633cbc13410c808ad3eda1221c7b
 - [ ] Снимок (тёмная тема) `../evidence/30-permission-card-dark.png`, только текст fixture.
+  - evidence: screenshot pass · `../evidence/30-permission-card-dark.png` · mac dev · 7b16e63db513633cbc13410c808ad3eda1221c7b · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/30-question-card-dark.png` · mac dev · 7b16e63db513633cbc13410c808ad3eda1221c7b · scrub: 2026-11-09
 - [ ] `pnpm lint`, `pnpm typecheck`, unit test-ы, что импортируют `src/renderer/session`, e2e
   `test/e2e/product-session.spec.ts`, gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (gate fast, all unit tests) · mac - · 7b16e63db513633cbc13410c808ad3eda1221c7b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7b16e63db513633cbc13410c808ad3eda1221c7b
 
 ## Тесты
 
