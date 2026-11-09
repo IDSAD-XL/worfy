@@ -375,3 +375,109 @@ describe('the other tools of a Product Session', () => {
     expect(productToolDecision(tool, { file_path: '/p/src/a.ts' }, { productDir: null, cwd: null }, 'darwin')).toEqual(allowed)
   })
 })
+
+// A write outside the Product Session folder (worfy-polish ticket 82): not a plain refusal but one a person
+// may lift — the refusal carries `ask`, the file's real path and its folder. A folder of the Project's list
+// lets a write below it through, judged by the real path, so neither `..` nor a link leaves the folder by
+// it; `.git` of any repository and the closed folders (worfy's data folder, the Claude home) are refused
+// without `ask`, listed or not.
+describe('a Product Session write outside its folder on the file system of this machine', () => {
+  let top: string
+  let root: string
+  let product: string
+  let strong: string
+  let data: string
+  let claude: string
+  const host = process.platform
+  const sep = host === 'win32' ? '\\' : '/'
+  const place = (more: Partial<ProductGuardPlace> = {}): ProductGuardPlace => ({ productDir: product, cwd: root, closed: [data, claude], ...more })
+  const write = (file_path: string, at: ProductGuardPlace = place()) => productToolDecision('Write', { file_path, content: 'x' }, at, host)
+  const asked = (path: string, folder: string) => ({ allow: false, reason: expect.any(String) as unknown, ask: { path, folder } })
+  const plainRefusal = (decision: ReturnType<typeof write>): boolean => !decision.allow && decision.ask === undefined
+
+  beforeAll(() => {
+    top = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-product-outside-')))
+    root = join(top, 'project')
+    product = join(root, 'docs', 'product')
+    strong = join(root, 'context', 'strong')
+    data = join(top, 'worfy-data')
+    claude = join(top, 'claude-home')
+    for (const dir of [product, strong, join(root, 'context', 'weak'), join(root, '.git'), data, join(claude, 'worfy-harness'), join(top, 'elsewhere')]) mkdirSync(dir, { recursive: true })
+    // A link from the listed folder out of it, and one from outside into the closed data folder.
+    symlinkSync(join(top, 'elsewhere'), join(strong, 'out'), host === 'win32' ? 'junction' : 'dir')
+    symlinkSync(data, join(root, 'context', 'to-data'), host === 'win32' ? 'junction' : 'dir')
+  })
+
+  afterAll(() => removeTestTree(top))
+
+  it('asks about a file outside the folder: the refusal names the file and its folder', () => {
+    expect(write(join(strong, 'brief.md'))).toEqual(asked(join(strong, 'brief.md'), strong))
+    expect(write('context/strong/brief.md')).toEqual(asked(join(strong, 'brief.md'), strong))
+    // A folder not made yet is the folder asked about.
+    expect(write(join(root, 'context', 'new', 'a.md'))).toEqual(asked(join(root, 'context', 'new', 'a.md'), join(root, 'context', 'new')))
+    expect(productToolDecision('Edit', { file_path: join(strong, 'brief.md') }, place(), host)).toEqual(asked(join(strong, 'brief.md'), strong))
+  })
+
+  it('names the real file when the written path goes through a link: the link that leaves the folder is asked about where it leads', () => {
+    expect(write(join(strong, 'out', 'a.md'))).toEqual(asked(join(top, 'elsewhere', 'a.md'), join(top, 'elsewhere')))
+  })
+
+  it('lets a write below a listed folder through without asking, and asks about the folder next to it', () => {
+    const listed = place({ alsoWritable: [strong] })
+    expect(write(join(strong, 'brief.md'), listed)).toEqual(allowed)
+    expect(write(join(strong, 'deeper', 'new', 'b.md'), listed)).toEqual(allowed)
+    expect(write(join(root, 'context', 'weak', 'c.md'), listed)).toEqual(asked(join(root, 'context', 'weak', 'c.md'), join(root, 'context', 'weak')))
+    // A folder whose name only starts like the listed one is another folder.
+    expect(write(`${strong}-old${sep}d.md`, listed)).toEqual(asked(`${strong}-old${sep}d.md`, `${strong}-old`))
+    // The listed folder itself is no file to write.
+    expect(write(strong, listed)).toEqual(asked(strong, join(root, 'context')))
+  })
+
+  it('does not let `..` or a link leave a listed folder: the real path decides', () => {
+    const listed = place({ alsoWritable: [strong] })
+    expect(write(`${strong}${sep}..${sep}weak${sep}e.md`, listed)).toEqual(asked(join(root, 'context', 'weak', 'e.md'), join(root, 'context', 'weak')))
+    expect(write(join(strong, 'out', 'f.md'), listed)).toEqual(asked(join(top, 'elsewhere', 'f.md'), join(top, 'elsewhere')))
+  })
+
+  it.runIf(host === 'darwin')('on a macOS disk takes a listed folder written in another case as the same folder, and no other', () => {
+    const listed = place({ alsoWritable: [strong] })
+    // The disk ignores case: CONTEXT/STRONG is the listed folder itself, by its real path.
+    expect(write(join(root, 'CONTEXT', 'STRONG', 'g.md'), listed)).toEqual(allowed)
+    // A missing folder written in another case is not below the listed one: asked.
+    expect(write(join(root, 'context', 'Strong-two', 'g.md'), listed).allow).toBe(false)
+  })
+
+  it('refuses .git of any repository without asking, listed or not', () => {
+    for (const path of [join(root, '.git', 'config'), join(root, '.git', 'hooks', 'pre-commit'), join(top, 'other', '.git', 'HEAD'), join(root, '.GIT', 'config'), join(root, 'sub', '.git')]) {
+      const decision = write(path, place({ alsoWritable: [root, top] }))
+      expect(decision).toEqual(refused)
+      expect(plainRefusal(decision)).toBe(true)
+      expect(decision.allow ? '' : decision.reason).toContain('.git')
+    }
+  })
+
+  it("refuses worfy's data folder and the Claude home (the Harness in it) without asking, listed or not, and through a link too", () => {
+    const listed = place({ alsoWritable: [data, claude, top] })
+    for (const path of [join(data, 'settings.json'), join(data, 'p', 'layout.json'), join(claude, 'settings.json'), join(claude, 'worfy-harness', 'projects', 'x', 'profile.json'), join(root, 'context', 'to-data', 'y.json'), data]) {
+      const decision = write(path, listed)
+      expect(decision).toEqual(refused)
+      expect(plainRefusal(decision)).toBe(true)
+    }
+    expect(write(join(claude, 'CLAUDE.md'), listed).allow ? '' : (write(join(claude, 'CLAUDE.md'), listed) as { reason: string }).reason).toContain(claude)
+  })
+
+  it('still allows the Product Session folder inside a closed folder (a Silent-mode Workflow folder in the Harness)', () => {
+    const workflow = join(claude, 'worfy-harness', 'workflow')
+    expect(write(join(workflow, 'product', 'topic', 'map.md'), place({ productDir: join(workflow, 'product') }))).toEqual(allowed)
+    expect(plainRefusal(write(join(workflow, 'notes.md'), place({ productDir: join(workflow, 'product') })))).toBe(true)
+  })
+
+  it('asks about nothing it cannot place: no folder, a relative path with no cwd, a link that leads nowhere', () => {
+    expect(plainRefusal(write(join(strong, 'a.md'), place({ productDir: null })))).toBe(true)
+    expect(plainRefusal(productToolDecision('Write', { file_path: 'context/strong/a.md' }, place({ cwd: null }), host))).toBe(true)
+    if (host !== 'win32') {
+      symlinkSync(join(top, 'elsewhere', 'missing', 'x.md'), join(strong, 'dangling.md'))
+      expect(plainRefusal(write(join(strong, 'dangling.md')))).toBe(true)
+    }
+  })
+})

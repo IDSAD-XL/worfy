@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { AgentEvent, PermissionOption, PermissionOptionKind } from '../../shared/agent/events'
+import type { AgentEvent, PermissionOptionKind } from '../../shared/agent/events'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
@@ -14,7 +14,9 @@ import { useSessionLog } from './store'
 // option's id — goes to main with `agent.permission`; once the request is resolved (answered here,
 // or refused by Interrupt or by closing the Session) the card says how and its buttons are gone. An
 // option of kind `allow_always` covers the subject until the end of this Session only
-// (src/main/agent/permissions.ts).
+// (src/main/agent/permissions.ts) — except on a Product Session's write outside its folder
+// (`productWrite`, worfy-polish ticket 82), where it is «Always allow in <folder>»: the folder goes to
+// the Project's list in Project settings, and the card says so.
 
 export type PermissionRequestEvent = Extract<AgentEvent, { type: 'permission_request' }>
 /** The id of the option picked, or `cancelled`. */
@@ -41,11 +43,22 @@ const BUTTON: Record<PermissionOptionKind, { className: string; testId: string }
   deny: { className: 'w-permission__button w-permission__button--deny', testId: 'permission-deny' },
 }
 
-/** What the card says of a resolution: by the kind of the option picked, its label for an option it does not know. */
-function resolutionText(options: readonly PermissionOption[], resolution: Resolution): string {
+/**
+ * What the card says of a resolution: by the kind of the option picked, its label for an option it does
+ * not know; the folder of a Product Session's write outside its folder for its `allow_always`.
+ */
+function resolutionText(request: PermissionRequestEvent, resolution: Resolution): string {
   if (resolution === 'cancelled') return 'Cancelled'
-  const option = options.find((each) => each.id === resolution)
-  return option === undefined ? resolution : RESOLVED[option.kind]
+  const option = request.options.find((each) => each.id === resolution)
+  if (option === undefined) return resolution
+  return option.kind === 'allow_always' && request.productWrite !== undefined ? `Always allowed in ${request.productWrite.folder}` : RESOLVED[option.kind]
+}
+
+/** The tooltip of an `allow_always` button: until the Session ends, or for good in a Product Session's folder. */
+function alwaysTooltip(request: PermissionRequestEvent): string {
+  return request.productWrite === undefined
+    ? `Allow ${request.subject} until this Session ends`
+    : `Product Session may write in ${request.productWrite.folder} from now on; remove the folder in Project settings`
 }
 
 const fields = (input: unknown): Record<string, unknown> | null => (typeof input === 'object' && input !== null && !Array.isArray(input) ? (input as Record<string, unknown>) : null)
@@ -139,9 +152,9 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
           {open ? (
             <div className="w-permission__actions">
               {request.options.map((option) => (
-                <button key={option.id} type="button" className={BUTTON[option.kind].className} data-testid={BUTTON[option.kind].testId} data-option-id={option.id}
+                <button key={option.id} type="button" className={option.kind === 'allow_always' && request.productWrite !== undefined ? `${BUTTON[option.kind].className} w-permission__button--folder` : BUTTON[option.kind].className} data-testid={BUTTON[option.kind].testId} data-option-id={option.id}
                   disabled={sending}
-                  {...writeAction(readOnly, () => void answer(option.id), option.kind === 'allow_always' ? `Allow ${request.subject} until this Session ends` : undefined)}
+                  {...writeAction(readOnly, () => void answer(option.id), option.kind === 'allow_always' ? alwaysTooltip(request) : undefined)}
                 >
                   {option.label}
                 </button>
@@ -149,7 +162,7 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
             </div>
           ) : (
             <div className="w-permission__resolved w-mono" data-testid="permission-resolution">
-              {resolution === null ? 'Not answered' : resolutionText(request.options, resolution)}
+              {resolution === null ? 'Not answered' : resolutionText(request, resolution)}
             </div>
           )}
           {problem !== null ? (

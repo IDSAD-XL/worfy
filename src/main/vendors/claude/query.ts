@@ -8,7 +8,9 @@
 // registry (src/main/agent/app-registry.ts), which this driver never imports.
 //
 // A Product Session (worfy-product-session ticket 04) also gets the Mind map server `worfy-mind-map`, bound
-// to its Project's Product Session folder, next to its canvas; no other Session gets it.
+// to its Project's Product Session folder, next to its canvas; no other Session gets it. Its guard
+// (worfy-polish ticket 82) gets the Project's list «Product Session may also write here», the folders no
+// write reaches and the person to ask (productWritesFor); the fake agent runs the same guard (productHooks).
 //
 // The Project's private skills (worfy-human-review ticket 05, ADR-0102): a Session in a Project that a
 // person is at — Orchestrator, "New session", "Ship ticket", a Product Session — gets the team reviewer's
@@ -21,24 +23,29 @@
 // A window the person never chose gives way to `autoCompactWindow` of the user's settings.json,
 // read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
 import { appendFileSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 import { productFolder } from '../../../shared/product/paths'
 import { autoCompactWindowFor } from '../../../shared/settings/app-settings'
 import { agentEnv, type Env } from '../../agent/env'
-import { fakeQueryFactory } from '../../agent/fake-query'
+import { fakeQueryFactory, type FakePreToolUse } from '../../agent/fake-query'
+import type { ProductWriteList } from '../../agent/product-guard'
 import type { QueryFactory, QueryHandle, QueryRequest } from '../../agent/session'
 import { readUserAutoCompactWindow } from '../../claude-home/user-model'
 import { currentHarness } from '../../harness/locate'
 import { browserForSession, type BrowserResolver, type BrowserSession } from '../../mcp/browser-server'
-import { canvasForSession, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
+import { canvasForSession, projectForCwd, type CanvasResolver, type CanvasSession } from '../../mcp/canvas-server'
 import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
 import { privateFolder, reviewerSkill } from '../../projects/review-offer'
+import { addProductWriteFolder, readProjectSettings } from '../../projects/settings'
+import { projectStore } from '../../projects/store'
 import { appSettingsStore } from '../../settings/store'
-import { claudeHome } from '../../storage/paths'
+import { claudeHome, dataRoot, harnessHome } from '../../storage/paths'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
-import { sessionHarnessPlugin, sessionOptions, userExtensions, withBrowserServer, withMindMapServer } from './options'
+import { productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -169,6 +176,82 @@ export const layoutProductFolder = async (cwd: string, layouts: () => ProjectLay
 }
 
 /**
+ * The Project's list «Product Session may also write here» for a Product Session in `cwd` (worfy-polish
+ * ticket 82); null when `cwd` is in no Project: nothing is listed and «Always allow» is not offered.
+ */
+export type ProductWriteListResolver = (cwd: string) => ProductWriteList | null
+
+/**
+ * The list in the settings of the Project whose root holds `cwd` (src/main/projects/settings.ts), read
+ * at each write and added to by «Always allow in <folder>».
+ */
+export const projectProductWriteList: ProductWriteListResolver = (cwd) => {
+  const project = projectForCwd(projectStore().list(), cwd)
+  if (project === undefined) return null
+  const dir = projectStore().dataDir(project.id)
+  return {
+    read: () => readProjectSettings(dir).productWriteFolders ?? [],
+    add: (folder) => void addProductWriteFolder(dir, folder),
+  }
+}
+
+/**
+ * The folders a Product Session never writes, asked or listed (worfy-polish ticket 82): worfy's data
+ * folder, the Claude home with the Harness in it — the one worfy reads and, when a test or an e2e run
+ * points WORFY_CLAUDE_HOME elsewhere, the user's own ~/.claude too — and the Harness wherever
+ * WORFY_HARNESS_HOME puts it.
+ */
+export function productClosedFolders(env: Readonly<Record<string, string | undefined>> = process.env): string[] {
+  return [...new Set([dataRoot(env), claudeHome(env), join(homedir(), '.claude'), harnessHome(env)])]
+}
+
+/** What a Product Session's guard needs for a write outside its folder (options.ts, ProductWrites). */
+function productWritesFor(request: QueryRequest, list: ProductWriteListResolver): ProductWrites {
+  let found: ProductWriteList | null
+  try {
+    found = list(request.cwd)
+  } catch (error) {
+    console.warn(`[agent] no list of folders a Product Session may also write for ${request.cwd}`, error)
+    found = null
+  }
+  return { list: found, closed: productClosedFolders(), ask: request.askProductWrite }
+}
+
+/**
+ * The PreToolUse hooks of a Product Session's query — the guard sdkQueryFactory gives Claude Code — for
+ * the fake agent (WORFY_AGENT=fake), which runs them before it asks canUseTool, as Claude Code does: an
+ * e2e run then meets the guard and its question. Undefined for any other Session.
+ */
+export async function productHooks(
+  request: QueryRequest,
+  productFolderOf: ProductFolderResolver = (cwd) => layoutProductFolder(cwd),
+  list: ProductWriteListResolver = projectProductWriteList,
+): Promise<NonNullable<Options['hooks']> | undefined> {
+  if (request.kind !== 'product') return undefined
+  const folder = await productFolderOf(request.cwd).catch(() => null)
+  return toolUseHooks(undefined, productGuard(folder, request.cwd, process.platform, productWritesFor(request, list)))
+}
+
+/**
+ * `hooks` run as Claude Code runs the PreToolUse hooks of a query, for the fake agent: each callback gets
+ * the hook input Claude Code gives (`hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, `cwd`), and
+ * the first `permissionDecision` of `deny` or `allow` decides. Undefined without hooks.
+ */
+export function fakePreToolUse(hooks: NonNullable<Options['hooks']> | undefined): FakePreToolUse | undefined {
+  const callbacks = hooks?.PreToolUse?.flatMap((matcher) => matcher.hooks) ?? []
+  if (callbacks.length === 0) return undefined
+  return async (call, signal) => {
+    const input = { hook_event_name: 'PreToolUse', session_id: '', transcript_path: '', cwd: call.cwd, tool_name: call.toolName, tool_input: call.input, tool_use_id: call.toolUseId }
+    for (const callback of callbacks) {
+      const output = (await callback(input as Parameters<typeof callback>[0], call.toolUseId, { signal })) as { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } }
+      const decision = output.hookSpecificOutput?.permissionDecision
+      if (decision === 'deny' || decision === 'allow') return { decision, reason: output.hookSpecificOutput?.permissionDecisionReason ?? null }
+    }
+    return { decision: null, reason: null }
+  }
+}
+
+/**
  * The part of the Agent SDK a Session start uses: query(), which starts the Claude Code process with
  * the options sessionOptions() made.
  */
@@ -197,6 +280,8 @@ export interface SdkQueryFactoryOptions {
   mindMap?: MindMapResolver
   /** The Project's private skills folder; the team reviewer's in the Profile folder by default. Never asked for an unattended Session. */
   privateSkills?: PrivateSkillsResolver
+  /** The list «Product Session may also write here» of a Product Session's Project; its Project settings by default. Never asked for another Session. */
+  productWriteList?: ProductWriteListResolver
 }
 
 /**
@@ -222,6 +307,7 @@ export function sdkQueryFactory(
     productFolder: productFolderOf = (cwd) => layoutProductFolder(cwd),
     mindMap = mindMapForSession,
     privateSkills = privateSkillsFolder,
+    productWriteList = projectProductWriteList,
   }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
@@ -273,7 +359,8 @@ export function sdkQueryFactory(
       environment: request.environment,
       toolUse: request.toolUse,
       // A Product Session's limits (worfy-product-session ticket 02): the PreToolUse guard and its kind in the environment.
-      ...(product ? { kind: 'product' as const, productFolder: folder } : {}),
+      // A write outside its folder is asked about (worfy-polish ticket 82): the Project's list, the closed folders, the person.
+      ...(product ? { kind: 'product' as const, productFolder: folder, productWrites: productWritesFor(request, productWriteList) } : {}),
     })
     request.processEnv?.(options.env ?? environment.env)
     const handle = query({ prompt: request.prompt, options }) as QueryHandle
@@ -293,5 +380,7 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
     record: log ? (call) => appendFileSync(log, `${JSON.stringify(call)}\n`) : undefined,
     // WORFY_AGENT_REGISTRY=1: each fake Claude Code writes its entry to <WORFY_CLAUDE_HOME>/sessions, as the real one does.
     registryHome: env.WORFY_AGENT_REGISTRY === '1' ? env.WORFY_CLAUDE_HOME : undefined,
+    // A Product Session's guard, which Claude Code would run before canUseTool (worfy-polish ticket 82).
+    preToolUse: (request) => (request.kind === 'product' ? productHooks(request).then(fakePreToolUse) : undefined),
   })
 }

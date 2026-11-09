@@ -85,6 +85,10 @@ const timed = <Shape extends z.ZodRawShape>(shape: Shape) => z.object({ ...shape
  * Claude Code proposed and where it would write; worfy applies none of them. `parked`: the approval
  * policy of an unattended Session left the request to the owner (worfy-auto-approve ticket 07,
  * src/main/agent/auto-approve/park.ts) — the id of its rule and the paths it judged; absent otherwise.
+ * `productWrite`: a Product Session wants to write a file outside its folder (worfy-polish ticket 82,
+ * src/main/agent/product-guard.ts) — the file's real path and its folder, which the `allow_always`
+ * option adds to the Project's list «Product Session may also write here» instead of this Session's
+ * memory; absent otherwise.
  */
 const permissionRequestEvent = timed({
   type: z.literal('permission_request'),
@@ -99,6 +103,7 @@ const permissionRequestEvent = timed({
   suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
   options: z.array(permissionOptionSchema).min(1),
   parked: z.object({ rule: z.string().min(1), targets: z.array(z.string()) }).optional(),
+  productWrite: z.object({ path: z.string().min(1), folder: z.string().min(1) }).optional(),
 })
 
 /**

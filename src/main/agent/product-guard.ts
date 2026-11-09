@@ -12,6 +12,13 @@
 //   the folder's real path. A link that leads out, a `..` after a missing folder, a path in another case
 //   (macOS and Windows disks ignore case, a Linux one does not) and, on Windows, a name the system
 //   rewrites (`x.`, `x:stream`, `PRODUC~1`) are refused.
+// - A write outside that folder (worfy-polish ticket 82, the owner's decision 2026-11-09) is no plain
+//   refusal: a person may allow it. Below a folder of the Project's list «Product Session may also write
+//   here» (`alsoWritable`, the real path below the folder's real path) it is allowed; elsewhere the
+//   refusal carries `ask` — the file's real path and its folder — and the PreToolUse hook puts the
+//   question to the person at the Session (src/main/vendors/claude/options.ts, productGuard). Never asked
+//   and never allowed, list or not: a path through a `.git` folder of any repository and a path below a
+//   closed folder (`closed`: worfy's data folder, the Claude home with the Harness in it).
 // - Bash (and PowerShell, Claude Code's shell tool on Windows) is refused the known commands that write
 //   to the repository or to Tickets: the Ticket CLI (`bin/ticket`), `git add|commit|push|merge|rebase|
 //   reset`, `gh pr create|merge`, `pnpm` and `npm`. The command is read as the shell reads it: words
@@ -25,7 +32,52 @@
 // a refusal, never an allowance.
 import { normalizePath, nodeFileSystem, type FileSystem } from './auto-approve/roots'
 
-export type ProductToolDecision = { allow: true } | { allow: false; reason: string }
+/**
+ * A write outside the Product Session folder a person may still allow (worfy-polish ticket 82): the file's
+ * real path, and its folder — what «Always allow in <folder>» adds to the Project's list.
+ */
+export interface ProductWriteTarget {
+  path: string
+  folder: string
+}
+
+/**
+ * `ask` on a refusal: a person may allow the call (ProductWriteTarget); without one, the refusal stands.
+ * `asked` on an allowance: the person at the Session allowed it, and Claude Code is told so, so it does
+ * not ask again (src/main/vendors/claude/options.ts, toolUseHooks).
+ */
+export type ProductToolDecision = { allow: true; asked?: true } | { allow: false; reason: string; ask?: ProductWriteTarget }
+
+/**
+ * What the person at the Session answered to a write outside the Product Session folder: this write
+ * (`once`), this one and every later one in its folder (`always`), or no (`deny`); `unattended` — no
+ * one is there to ask; `cancelled` — the turn was interrupted or the Session closed first.
+ */
+export type ProductWriteAnswer = 'once' | 'always' | 'deny' | 'unattended' | 'cancelled'
+
+/** The question about one write outside the Product Session folder. */
+export interface ProductWriteQuestion {
+  toolName: string
+  toolUseId: string | null
+  input: unknown
+  target: ProductWriteTarget
+  /** «Always allow in <folder>» is offered: the Session is in a Project, whose settings keep the list. */
+  alwaysOffered: boolean
+  signal: AbortSignal
+}
+
+/** Puts the question to the person at the Session (the Claude driver over the Session's gate, src/main/vendors/claude/session.ts). */
+export type ProductWriteAsker = (question: ProductWriteQuestion) => Promise<ProductWriteAnswer>
+
+/**
+ * The Project's list «Product Session may also write here» (`productWriteFolders` of its settings,
+ * src/main/projects/settings.ts): read at each write, so a folder removed in Project settings is asked
+ * about again, and added to by «Always allow in <folder>».
+ */
+export interface ProductWriteList {
+  read(): readonly string[]
+  add(folder: string): void
+}
 
 /** Where a Product Session's tool call is judged. */
 export interface ProductGuardPlace {
@@ -33,6 +85,10 @@ export interface ProductGuardPlace {
   productDir: string | null
   /** The folder a relative path is read against: the shell's folder of the call, else the Session's cwd; null when unknown. */
   cwd: string | null
+  /** The Project's list «Product Session may also write here» (worfy-polish ticket 82): a write below one of them is allowed. Absent: none. */
+  alsoWritable?: readonly string[] | undefined
+  /** Folders no write reaches, asked or listed: worfy's data folder, the Claude home (the Harness in it). Absent: none. */
+  closed?: readonly string[] | undefined
 }
 
 /** The tools that write a file, and the field of their input that names it. */
@@ -66,8 +122,7 @@ const INTERPRETERS: ReadonlySet<string> = new Set(['node', 'sh', 'bash', 'zsh', 
 /** How deep `bash -c`, `eval`, `$(…)` and backticks are followed; deeper is refused. */
 const MAX_NESTING = 8
 
-const FOLDER_REASON =
-  'A Product Session writes files only below its Product Session folder'
+const FOLDER_REASON = 'A Product Session writes files only below its Product Session folder'
 const SHELL_REASON =
   'A Product Session changes no code, takes no Tickets and never touches git, so the command is refused. Read and check freely (git log, gh pr view, epic-status); name the change for the Orchestrator instead of making it.'
 
@@ -111,12 +166,50 @@ function fileDecision(path: unknown, place: ProductGuardPlace, win: boolean, fsy
   if (raw === null || written === null || folder === null) return refuse(`${below}; ${path} is not a path it can place.`)
   if (win && rewrittenName(raw, [folder, place.cwd === null ? null : systemForm(place.cwd, win)])) return refuse(`${below}; ${path} has a name Windows rewrites before it opens it.`)
   // Written in another case, the path may be another folder on a disk that does not ignore case.
-  if (!strictlyBelow(written, folder, win)) return refuse(`${below}; ${path} is not below it.`)
+  const writtenBelow = strictlyBelow(written, folder, win)
   const real = realForm(raw, win, fsys)
-  const realFolder = realForm(folder, win, fsys)
-  if (real === null || realFolder === null) return refuse(`${below}; where ${path} really leads cannot be told.`)
-  if (!strictlyBelow(real, realFolder, win)) return refuse(`${below}; ${path} leads to ${real}, which is not below it.`)
-  return ALLOW
+  if (real === null) return refuse(writtenBelow ? `${below}; where ${path} really leads cannot be told.` : `${below}; ${path} is not below it.`)
+  if (writtenBelow) {
+    const realFolder = realForm(folder, win, fsys)
+    if (realFolder === null) return refuse(`${below}; where ${path} really leads cannot be told.`)
+    if (strictlyBelow(real, realFolder, win)) return ALLOW
+  }
+  const outside = writtenBelow ? `${below}; ${path} leads to ${real}, which is not below it` : `${below}; ${path} is not below it`
+  // Outside the folder: closed places stay refused without a question, whatever the list says.
+  const closed = closedPlace([written, real], place.closed ?? [], win, fsys)
+  if (closed !== null) return refuse(`${outside}, and ${closed} is never written by a Product Session, not even with a person's leave.`)
+  for (const each of place.alsoWritable ?? []) {
+    const listed = normalizePath(each, win)
+    const realListed = listed === null ? null : realForm(listed, win, fsys)
+    if (realListed !== null && strictlyBelow(real, realListed, win)) return ALLOW
+  }
+  return { allow: false, reason: `${outside}.`, ask: { path: real, folder: parentOf(real, win) } }
+}
+
+/**
+ * The closed place `paths` (normalized, absolute) reach, in words; null when none does: a `.git` folder
+ * or file of any repository, or a folder of `closed` and anything below it. Compared without regard to
+ * case: refusing a path in another case is safe, and macOS and Windows disks ignore it.
+ */
+function closedPlace(paths: readonly string[], closed: readonly string[], win: boolean, fsys: FileSystem): string | null {
+  const sep = win ? '\\' : '/'
+  const key = (path: string): string => path.toLowerCase()
+  if (paths.some((path) => path.split(sep).some((name) => key(name) === '.git'))) return 'a .git folder'
+  for (const each of closed) {
+    const normal = normalizePath(each, win)
+    if (normal === null) continue
+    const forms = [normal, realForm(normal, win, fsys)].filter((form): form is string => form !== null).map(key)
+    for (const path of paths.map(key)) {
+      if (forms.some((form) => path === form || strictlyBelow(path, form, win))) return normal
+    }
+  }
+  return null
+}
+
+/** The folder `path` (normalized, absolute) lies in; a root stays itself. */
+function parentOf(path: string, win: boolean): string {
+  const at = path.lastIndexOf(win ? '\\' : '/')
+  return topOf(at <= 0 ? path.slice(0, at + 1) : path.slice(0, at), win)
 }
 
 /**

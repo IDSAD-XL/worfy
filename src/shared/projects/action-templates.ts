@@ -188,6 +188,12 @@ export const projectSettingsSchema = z.object({
   defaultVendor: vendorIdSchema.optional(),
   /** The team reviewer (worfy-human-review ticket 09); absent in a file saved before it, which reads as not answered. */
   humanReview: humanReviewSettingsSchema.optional(),
+  /**
+   * «Product Session may also write here» (worfy-polish ticket 82): folders outside the Product Session
+   * folder where a Product Session of the Project writes without a question, each added by «Always allow
+   * in <folder>» and removed in Project settings. Absent until the first one.
+   */
+  productWriteFolders: z.array(z.string().min(1)).optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
@@ -206,6 +212,7 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
     .extend({ offer: humanReviewSettingsSchema.shape.offer.catch(undefined), remindedAt: humanReviewSettingsSchema.shape.remindedAt.catch(undefined) })
     .optional()
     .catch(undefined),
+  productWriteFolders: projectSettingsSchema.shape.productWriteFolders.catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 
@@ -225,6 +232,8 @@ export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
  * a Vendor sets it, `null` clears it ("Default vendor" set back to none, worfy-multi-vendor ticket 24),
  * and its absence keeps the saved one, as a build from before the field sends it. `humanReview` absent
  * keeps the saved one too: the dialog's Save does not send it (worfy-human-review ticket 09).
+ * `productWriteFolders` absent keeps the saved list (worfy-polish ticket 82): the dialog sends it only
+ * when a folder was removed there, and a build from before the list never does.
  */
 export const projectSettingsInputSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),

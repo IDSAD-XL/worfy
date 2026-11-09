@@ -43,7 +43,13 @@
 //                                    the shell's folder for the call (the Session's cwd when absent)
 //                                    and the scratchpad (worfy-auto-approve ticket 04). With
 //                                    "bypassImmune":true it asks in bypassPermissions too, as Claude
-//                                    Code does for a few of its own checks (dangerousRemoval)
+//                                    Code does for a few of its own checks (dangerousRemoval).
+//                                    The query's PreToolUse hooks (FakeQueryOptions.preToolUse: a
+//                                    Product Session's guard, worfy-polish ticket 82) run first, in
+//                                    every mode, as Claude Code runs them: a `deny` refuses the call
+//                                    with its reason and an `allow` lets it run, canUseTool not asked.
+//                                    With "writes":true a call that ran writes input.content to
+//                                    input.file_path, as the Write tool would
 //   {"fake":"question","toolUseId":"toolu_…","questions":[...]}
 //                                    the model asks the user questions with answer options (Claude
 //                                    Code's AskUserQuestion, worfy-ui ticket 17): a `permission` line
@@ -83,7 +89,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { ASK_USER_QUESTION, MULTI_SELECT_SEPARATOR } from '../../shared/agent/questions'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
@@ -155,6 +161,8 @@ type Step =
       /** What the PreToolUse hook says of the call (QueryRequest.toolUse): the shell's folder (null: the Session's cwd) and the scratchpad. */
       cwd: string | null
       scratchpad: string | null
+      /** A call that ran writes `input.content` to `input.file_path`, as Write would. */
+      writes: boolean
     }
 
 type Line = Step | { kind: 'config'; config: FakeConfig }
@@ -181,6 +189,7 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     agentID: typeof value.agentID === 'string' ? value.agentID : null,
     cwd: typeof value.cwd === 'string' ? value.cwd : null,
     scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : null,
+    writes: value.writes === true,
   }),
   question: (value) => ({
     kind: 'permission',
@@ -195,6 +204,7 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     agentID: typeof value.agentID === 'string' ? value.agentID : null,
     cwd: null,
     scratchpad: null,
+    writes: false,
   }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
@@ -341,6 +351,8 @@ class FakeQuery implements QueryHandle {
   private registryEntry: string | null
   /** What getContextUsage() answers, set by the last `context` line played. */
   private context: ContextAnswer = { error: 'the fake agent has no context usage to report' }
+  /** The query's PreToolUse hooks (FakeQueryOptions.preToolUse), made when the query starts; null: none. */
+  private readonly preToolUse: Promise<FakePreToolUse | undefined> | null
 
   constructor(
     path: string,
@@ -349,7 +361,10 @@ class FakeQuery implements QueryHandle {
     private readonly settingsHome: string | null,
     private readonly releases: FakeReleases,
     registryHome: string | null,
+    preToolUse: FakeQueryOptions['preToolUse'] = undefined,
   ) {
+    // A failure to make them leaves the query without hooks, as a Claude Code without them would run.
+    this.preToolUse = preToolUse?.(request)?.catch(() => undefined) ?? null
     this.session = request.resume ?? request.sessionId ?? randomUUID()
     this.registryEntry = registryHome === null ? null : register(registryHome, this.session, request.cwd)
     const lines = parseScript(path, this.session, request.cwd)
@@ -446,6 +461,9 @@ class FakeQuery implements QueryHandle {
    * where nothing is asked unless the line is `bypassImmune`.
    */
   private async ask(line: Extract<Step, { kind: 'permission' }>): Promise<PermissionAnswer | null> {
+    // Awaited only with hooks: a query without them asks canUseTool in the same tick as before.
+    const hooked = this.preToolUse === null ? null : await this.hooks(line, this.preToolUse)
+    if (hooked !== null) return hooked
     if (this.permissionMode === 'bypassPermissions' && !line.bypassImmune) return null
     // Claude Code runs the PreToolUse hooks before it asks canUseTool.
     this.request.toolUse?.({ toolUseId: line.toolUseId, cwd: line.cwd ?? this.request.cwd, scratchpad: line.scratchpad })
@@ -475,6 +493,36 @@ class FakeQuery implements QueryHandle {
       throw new Error(line.crash)
     }
     return answer
+  }
+
+  /**
+   * What the query's PreToolUse hooks decided on the call of a `permission` line, as canUseTool's answer:
+   * a refusal with their reason, or an allowance; null when they decided nothing (or there are none).
+   * Interrupt and close abort their signal, as Claude Code does.
+   */
+  private async hooks(line: Extract<Step, { kind: 'permission' }>, made: Promise<FakePreToolUse | undefined>): Promise<PermissionAnswer | null> {
+    const run = await made
+    if (run === undefined) return null
+    const controller = new AbortController()
+    this.requests.add(controller)
+    try {
+      const said = await run({ toolName: line.toolName, toolUseId: line.toolUseId, input: { ...line.input }, cwd: line.cwd ?? this.request.cwd }, controller.signal)
+      if (said.decision === null) return null
+      const result: PermissionAnswer = said.decision === 'deny' ? { behavior: 'deny', message: said.reason ?? 'Refused by a PreToolUse hook.' } : { behavior: 'allow', updatedInput: { ...line.input } }
+      this.record({ kind: 'permission', toolName: line.toolName, input: { ...line.input }, result: { ...result } })
+      return result
+    } finally {
+      this.requests.delete(controller)
+    }
+  }
+
+  /** The file a `writes` line's call writes, when it ran. */
+  private written(line: Extract<Step, { kind: 'permission' }>, answer: PermissionAnswer | null): void {
+    if (!line.writes || answer?.behavior === 'deny') return
+    const file = line.input.file_path
+    if (typeof file !== 'string') return
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, typeof line.input.content === 'string' ? line.input.content : '')
   }
 
   /** Writes an answer's `updatedPermissions` to the settings files they name, as Claude Code does. */
@@ -608,6 +656,7 @@ class FakeQuery implements QueryHandle {
             yield this.toolUse(line)
             const answer = await this.ask(line)
             if (this.closed) return
+            this.written(line, answer)
             yield this.toolResult(line, answer)
             break
           }
@@ -659,7 +708,24 @@ export interface FakeQueryOptions {
    * Code does before system/init; without it nothing is written.
    */
   registryHome?: string | undefined
+  /**
+   * The query's PreToolUse hooks for a request (worfy-polish ticket 82: a Product Session's guard,
+   * src/main/vendors/claude/query.ts productHooks), run before canUseTool on each `permission` line;
+   * undefined — from the option or from its promise —, or absent: none.
+   */
+  preToolUse?: ((request: QueryRequest) => Promise<FakePreToolUse | undefined> | undefined) | undefined
 }
+
+/** One tool call as the PreToolUse hooks get it: the tool, its id, its input and the shell's folder. */
+export interface FakeToolCall {
+  toolName: string
+  toolUseId: string
+  input: Record<string, unknown>
+  cwd: string
+}
+
+/** Runs the query's PreToolUse hooks on one call: what they decided (`allow`, `deny` or nothing) and the reason they gave. */
+export type FakePreToolUse = (call: FakeToolCall, signal: AbortSignal) => Promise<{ decision: 'allow' | 'deny' | null; reason: string | null }>
 
 export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
   const record = options.record ?? (() => {})
@@ -672,6 +738,6 @@ export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
   const shared = releases
   return (request) => {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
-    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null))
+    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse))
   }
 }

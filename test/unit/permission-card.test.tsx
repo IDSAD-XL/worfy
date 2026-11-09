@@ -131,6 +131,40 @@ describe('the permission card', () => {
     expect(within(card).queryByTestId('permission-allow')).toBeNull()
   })
 
+  // A Product Session's write outside its folder (worfy-polish ticket 82): the same card, its three answers,
+  // and an «Always allow in <folder>» that says where it allows, not "until this Session ends".
+  it('asks about a Product Session write outside its folder: the file, Allow once / Always allow in <folder> / Deny, and the folder once allowed', async () => {
+    const { useSessionLog } = await import('../../src/renderer/session/store')
+    const { Transcript } = await import('../../src/renderer/session/Transcript')
+    function Live() {
+      const log = useSessionLog('s1')
+      return <Transcript events={log.events} sessionId="s1" />
+    }
+    render(<Live />)
+    const path = '/repo/context/strong/brief.md'
+    const folder = '/repo/context/strong'
+    emit(
+      's1',
+      request({
+        toolName: 'Write',
+        subject: 'Write',
+        input: { file_path: path, content: 'x' },
+        title: `Product Session wants to write ${path}`,
+        description: null,
+        blockedPath: path,
+        options: [{ id: 'allow', label: 'Allow once', kind: 'allow' }, { id: 'always_allow_folder', label: `Always allow in ${folder}`, kind: 'allow_always' }, { id: 'deny', label: 'Deny', kind: 'deny' }],
+        productWrite: { path, folder },
+      }),
+    )
+    const card = screen.getByTestId('permission-card')
+    expect(within(card).getByText(`Product Session wants to write ${path}`)).toBeTruthy()
+    expect(within(card).getByTestId('permission-blocked-path').textContent).toBe(path)
+    expect([...card.querySelectorAll('button')].map((button) => button.textContent)).toEqual(['Allow once', `Always allow in ${folder}`, 'Deny'])
+    expect(within(card).getByTestId('permission-always-allow').getAttribute('title')).toContain(`Product Session may write in ${folder} from now on`)
+    emit('s1', { type: 'permission_resolved', requestId: 'req-1', decision: 'always_allow_folder' })
+    expect(within(screen.getByTestId('permission-card')).getByTestId('permission-resolution').textContent).toBe(`Always allowed in ${folder}`)
+  })
+
   it('offers no "Always allow" when Claude Code says the request must not', async () => {
     await renderTranscript([request({ options: [{ id: 'allow', label: 'Allow', kind: 'allow' }, { id: 'deny', label: 'Deny', kind: 'deny' }] })])
     expect(screen.queryByTestId('permission-always-allow')).toBeNull()

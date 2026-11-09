@@ -33,6 +33,7 @@ import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import { createParker, PARK_EXPIRED_HINT, PARK_STOPPED_HINT, type Parker } from '../../agent/auto-approve/park'
 import { HINTS } from '../../agent/auto-approve/policy'
 import { CommandCatalog } from '../../agent/commands'
+import type { ProductWriteAsker } from '../../agent/product-guard'
 import { userContent } from '../../agent/attachments'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../../claude-home/user-model'
 import { InputQueue } from '../../agent/session/input-queue'
@@ -246,6 +247,50 @@ function liveCanUseTool(opts: SessionStart, folders: ToolUseFolders | undefined)
   const unattended = unattendedCanUseTool(opts.refused, opts.approval, folders, createParker(opts.permissions))
   const attended = claudeCanUseTool(opts.permissions)
   return (toolName, input, options) => (opts.unattended ? unattended : attended)(toolName, input, options)
+}
+
+/** The ids of the answers to a Product Session's write outside its folder (claudeProductWriteAsker). */
+export const PRODUCT_WRITE_OPTION_IDS = { once: 'allow', always: 'always_allow_folder', deny: 'deny' } as const
+
+/**
+ * The answers to a Product Session's write outside its folder (worfy-polish ticket 82): this write; this
+ * one and every later one in `folder`, kept in the Project's settings; no. Without `always` (a Session in
+ * no Project) the middle one is left out.
+ */
+export function productWriteOptions(folder: string, always: boolean): PermissionOption[] {
+  return [
+    { id: PRODUCT_WRITE_OPTION_IDS.once, label: 'Allow once', kind: 'allow' },
+    ...(always ? [{ id: PRODUCT_WRITE_OPTION_IDS.always, label: `Always allow in ${folder}`, kind: 'allow_always' as const }] : []),
+    { id: PRODUCT_WRITE_OPTION_IDS.deny, label: 'Deny', kind: 'deny' },
+  ]
+}
+
+/**
+ * Asks the person at a Product Session about a write outside its folder (worfy-polish ticket 82): the
+ * question goes on the Session's gate as a permission request with `productWrite`, the way every other
+ * request does, in every permission mode. While the Session is unattended — read at each write, like
+ * canUseTool's answer — no one is asked and the answer is `unattended`.
+ */
+export function claudeProductWriteAsker(opts: Pick<SessionStart, 'permissions' | 'unattended'>): ProductWriteAsker {
+  return async (question) => {
+    if (opts.unattended) return 'unattended'
+    const { path, folder } = question.target
+    const picked = await opts.permissions.ask({
+      subject: question.toolName,
+      toolName: question.toolName,
+      toolUseId: question.toolUseId,
+      input: question.input,
+      title: `Product Session wants to write ${path}`,
+      description: null,
+      blockedPath: path,
+      suggestions: [],
+      options: productWriteOptions(folder, question.alwaysOffered),
+      productWrite: { path, folder },
+      signal: question.signal,
+    })
+    if (picked === null) return 'cancelled'
+    return picked === PRODUCT_WRITE_OPTION_IDS.once ? 'once' : picked === PRODUCT_WRITE_OPTION_IDS.always && question.alwaysOffered ? 'always' : 'deny'
+  }
 }
 
 /** The user's own model and effort (user-model.ts); tests give fixed answers. */
@@ -503,6 +548,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       spawned: opts.spawned,
       orchestrator: opts.orchestrator,
       ...(opts.kind === undefined ? {} : { kind: opts.kind }),
+      ...(opts.kind === 'product' ? { askProductWrite: claudeProductWriteAsker(opts) } : {}),
       ...(opts.environment === undefined ? {} : { environment: opts.environment }),
       ...(folders === undefined ? {} : { toolUse: folders.record, processEnv: folders.started }),
     })
