@@ -972,6 +972,19 @@ describe("the question about a Product Session's write outside its folder", () =
     expect(await next).toBe('deny')
   })
 
+  it('«Always allow in <folder>» does not let an ordinary Write of this Session through: that one is still asked', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const outside = claudeProductWriteAsker({ permissions: gate, unattended: false })(question())
+    expect(gate.answer(opened(events)[0]?.requestId ?? '', 'always_allow_folder')).toBe(true)
+    expect(await outside).toBe('always')
+    expect(gate.alwaysAllowed()).toEqual([])
+    const ordinary = claudeCanUseTool(gate)('Write', { file_path: '/repo/docs/product/a.md' }, { signal: new AbortController().signal })
+    expect(gate.pending).toBe(1)
+    expect(gate.answer(opened(events)[1]?.requestId ?? '', 'deny')).toBe(true)
+    expect(await ordinary).toEqual({ behavior: 'deny', message: DENIED_MESSAGE })
+  })
+
   it('an open question is not settled by an ordinary «Always allow» of the same tool', async () => {
     const events: AgentEvent[] = []
     const gate = new PermissionGate((event) => events.push(event), () => undefined)
