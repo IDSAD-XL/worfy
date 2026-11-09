@@ -36,7 +36,11 @@
 
 **Read-only view.** Session, запущенная в другом месте, открывается в том же view с пометкой «Read-only: started in terminal» или
 «Read-only: started in Claude desktop». Transcript Subagent-а открывается как «Read-only: Subagent transcript». Без файла view пишет
-«No transcript of this Session yet». Пока открыт transcript Subagent-а, стрелка назад или ⌘[ ведёт к тому, кто его запустил.
+«No transcript of this Session yet». Session, которую worfy запускал на Session Node, Product Session тоже, открывается здесь, пока
+она не работает, например после перезапуска worfy. Источник у неё — «worfy», строка — «Not running — Resume to continue», рядом
+кнопка Resume. Resume продолжает Session на её Node с Vendor и kind этого Node, как Resume самого Node, и view становится
+live. Отказ Resume виден рядом с кнопкой. Пока worfy эту Session запускает, строка — «Running in worfy», и Open показывает
+live view. Пока открыт transcript Subagent-а, стрелка назад или ⌘[ ведёт к тому, кто его запустил.
 
 #### Windows
 
@@ -64,7 +68,7 @@
 | Find | `src/shared/transcript/find.ts`, `src/main/claude-home/transcript-find.ts`, `src/renderer/session/transcript-find.ts`, `src/renderer/session/SessionFind.tsx` |
 | Hide tools | `src/renderer/session/transcript-view.ts`, `src/renderer/session/HideToolsButton.tsx` |
 | Поиск по Project | `src/main/claude-home/search.ts`, `src/renderer/palette/CommandPalette.tsx` |
-| Read-only view | `src/renderer/session/ExternalSessionPanel.tsx` |
+| Read-only view | `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/session/read-only-line.ts` |
 | Загрузка файла и слежение за ним | `src/renderer/claude-home/useClaudeHome.ts` |
 
 **Поток данных.** Renderer просит у `claudeHome.transcript` последнее окно. Main читает строки, разбирает их и отвечает событиями и
@@ -72,7 +76,7 @@
 события файла с live-событиями, а `foldTranscript` превращает их в строки.
 
 **Главные test-ы.** `test/contract/transcript-parse.test.ts`, `test/contract/transcript-find.test.ts`,
-`test/unit/transcript-find.test.ts`, `test/unit/transcript-hide-tools.test.tsx`, `test/unit/session-find.test.tsx`,
+`test/unit/transcript-find.test.ts`, `test/unit/transcript-hide-tools.test.tsx`, `test/unit/session-find.test.tsx`, `test/unit/session-read-only-resume.test.tsx`,
 `test/contract/session-history-tail.test.tsx`, `test/e2e/session-history-tail.spec.ts`, `test/e2e/external-session.spec.ts`.
 
 ## Claude home
