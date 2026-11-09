@@ -6,14 +6,16 @@
 //   not asked for a Full mode repository whose marks are in the marks file (it has no GitHub);
 // - the marks file of the Ticket (src/main/workflow/marks.ts) where `marksInFile` says so: in Silent
 //   mode, and in Full mode with `workflow.finish` `local-green` in a repository without `origin`;
-// - git: the heads of the branches (`for-each-ref`) and, for a Ticket on Deploy, whether its merge
-//   commit is in a deployed commit (`merge-base --is-ancestor`);
+// - git: the heads of the branches (`for-each-ref`; in a Project over several repositories ticketBranches, by the
+//   pair (repo, branch)) and, for a Ticket on Deploy, whether its merge commit is in a deployed commit
+//   (`merge-base --is-ancestor`);
 // - the Deployments and deploy marks (src/main/github/deployments.ts), only for Tickets on Deploy;
 // - the e2e lock of the Profile (`workflow.e2e_lock`): whether its folder is there, and its holder.json.
 // The Stages are computed again on every change of the workflow model and on every tick of the PR
 // interval (the tracker runs gh only when its interval has passed); subscribers get the whole snapshot
 // when anything in it changed. Only Tickets in work (`claimed`, `blocked`) get PR, git and marks facts:
-// an open Ticket is Queued and a done one Done whatever else is true.
+// an open Ticket is Queued and a done one Done whatever else is true. A Ticket over several repositories (ADR-0104)
+// gets these facts in each repository its `Repo:` lines name, and stageOf puts it on the earliest of their Stages.
 import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
@@ -22,13 +24,14 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { PipelineColumn, PipelineSnapshot, PipelineTicket } from '../../shared/ipc/pipeline'
 import { pullOfTicket } from '../../shared/ipc/checks'
-import { DEFAULT_PIPELINE, stageId, stageLabel, stageOf, type DeployFact, type MarkFact, type PipelineStage, type StageFacts } from '../../shared/workflow/pipeline'
-import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
+import { DEFAULT_PIPELINE, stageId, stageLabel, stageOf, type DeployFact, type MarkFact, type PipelineStage, type RepoStageFacts, type StageFacts } from '../../shared/workflow/pipeline'
+import { repoFactsOf, type Ticket, type WorkflowModel } from '../../shared/workflow/types'
 import { repoOfPullUrl, type DeploymentReader, type Deployed } from '../github/deployments'
 import type { PrRead, TrackedPull } from '../github/prs'
 import type { PathRules } from '../remote-links'
 import { marksFromStatuses, SilentMarks } from './marks'
 import type { PipelineProfile } from './profile'
+import { ticketBranches } from './reader'
 import type { WorkflowSubscriber } from './watch'
 
 const run = promisify(execFile)
@@ -149,17 +152,21 @@ export class StageReader {
     const pipeline = profile.pipeline
     const tickets = model?.tickets ?? []
 
-    // Which repository each Ticket in work is checked in: the root, or its `Repo:` in a Project over several.
-    // The root only when it is inside a git work tree: a Profile that could not be read names no
-    // repositories, and the root of a Project over several (a multi-repo one) is a plain folder — gh and git
-    // never run there.
+    // Which repositories each Ticket in work is checked in: the root, or in a Project over several the repositories
+    // of its `Repo:` lines (a Ticket over several repositories names more than one, ADR-0104). The root only when
+    // it is inside a git work tree: a Profile that could not be read names no repositories, and the root of a
+    // Project over several (a multi-repo one) is a plain folder — gh and git never run there.
     const several = profile.repos.length > 1
     const rootRepo = !several && tickets.some(inWork) && (await this.isInWorkTree(root)) ? root : null
-    const repoOf = (ticket: Ticket): string | null => (several ? (profile.repos.find((repo) => repo.name === ticket.repo)?.path ?? null) : rootRepo)
+    const pathOf = (name: string | null | undefined): string | null => profile.repos.find((repo) => repo.name === name)?.path ?? null
+    const reposOf = (ticket: Ticket): { name: string; path: string | null }[] => {
+      if (!several) return [{ name: '', path: rootRepo }]
+      const names = repoFactsOf(ticket).repos
+      return names.length > 1 ? names.map((name) => ({ name, path: pathOf(name) })) : [{ name: ticket.repo ?? '', path: pathOf(ticket.repo) }]
+    }
     const byRepo = new Map<string, Ticket[]>()
     for (const ticket of tickets.filter(inWork)) {
-      const repo = repoOf(ticket)
-      if (repo !== null) byRepo.set(repo, [...(byRepo.get(repo) ?? []), ticket])
+      for (const { path } of reposOf(ticket)) if (path !== null) byRepo.set(path, [...(byRepo.get(path) ?? []), ticket])
     }
 
     const lock = await readE2eLock(profile.e2eLock)
@@ -169,7 +176,6 @@ export class StageReader {
     }
 
     const pulls = new Map<string, TrackedPull[]>()
-    const heads = new Map<string, Map<string, string>>()
     const fileMarks = new Set<string>()
     for (const [repo, own] of byRepo) {
       const inFile = await marksInFile(profile, () => this.hasOrigin(repo))
@@ -183,8 +189,9 @@ export class StageReader {
         for (const failed of read.branchErrors ?? []) problems.push(`gh could not look up the PR of branch ${failed.branch} in ${repo}: ${failed.error}`)
         pulls.set(repo, read.pulls)
       }
-      heads.set(repo, await this.branchHeads(repo))
     }
+    const heads = several ? await this.ticketHeads(profile.repos.filter((repo) => byRepo.has(repo.path)), tickets.filter(inWork)) : new Map<string, Map<string, string>>()
+    if (!several) for (const repo of byRepo.keys()) heads.set(repo, await this.branchHeads(repo))
 
     const entries: PipelineTicket[] = []
     for (const ticket of tickets) {
@@ -200,23 +207,41 @@ export class StageReader {
         deploys: [],
         lock,
       }
-      const repo = inWork(ticket) ? repoOf(ticket) : null
-      let pull: TrackedPull | null = null
-      if (repo !== null) {
-        pull = this.pullOf(pulls.get(repo) ?? [], ticket)
+      // The facts of each repository of the Ticket; a repository the Profile does not have gives none.
+      const where = inWork(ticket) ? reposOf(ticket) : []
+      const read: { name: string; path: string | null; pull: TrackedPull | null; facts: RepoStageFacts }[] = []
+      for (const { name, path } of where) {
+        const pull = path === null ? null : this.pullOf(pulls.get(path) ?? [], ticket)
         const open = pull?.state === 'OPEN' ? pull : null
-        facts.headSha = open?.headSha ?? heads.get(repo)?.get(branchOfTicket(ticket)) ?? null
-        facts.pr =
-          pull === null
-            ? null
-            : { number: pull.number, state: pull.state, headSha: pull.headSha, checks: pull.checks, reviewDecision: pull.reviewDecision, mergedAt: pull.mergedAt, mergeCommit: pull.mergeCommit }
-        facts.marks = await this.marksOf(fileMarks.has(repo), ticket, open)
+        read.push({
+          name,
+          path,
+          pull,
+          facts: {
+            repo: name,
+            headSha: path === null ? null : (open?.headSha ?? heads.get(path)?.get(branchOfTicket(ticket)) ?? null),
+            pr: pull === null ? null : { number: pull.number, state: pull.state, headSha: pull.headSha, checks: pull.checks, reviewDecision: pull.reviewDecision, mergedAt: pull.mergedAt, mergeCommit: pull.mergeCommit },
+            marks: path === null ? [] : await this.marksOf(fileMarks.has(path), ticket, open),
+            deploys: [],
+          },
+        })
       }
+      // A Ticket over several repositories gets the facts of each; one of a single repository keeps them as before.
+      if (read.length > 1) facts.repos = read.map((each) => each.facts)
+      else if (read[0] !== undefined && read[0].path !== null) Object.assign(facts, { headSha: read[0].facts.headSha, pr: read[0].facts.pr, marks: read[0].facts.marks })
       let stage = stageOf(facts, pipeline)
       const deploy = pipeline[stage.index]
-      if (repo !== null && pull !== null && deploy?.kind === 'deploy') {
-        facts.deploys = await this.deploysOf(repo, pull, deploy, profile.mode)
-        stage = stageOf(facts, pipeline)
+      if (deploy?.kind === 'deploy') {
+        let found = false
+        for (const each of read) {
+          if (each.path === null || each.pull === null) continue
+          each.facts.deploys = await this.deploysOf(each.path, each.pull, deploy, profile.mode)
+          found = true
+        }
+        if (found) {
+          if (facts.repos === undefined) facts.deploys = read[0]!.facts.deploys
+          stage = stageOf(facts, pipeline)
+        }
       }
       entries.push({ epic: ticket.epic, num: ticket.num, ...stage })
     }
@@ -244,6 +269,25 @@ export class StageReader {
   /** Whether the repository has a remote `origin`, as `bin/ticket mark` asks (`git remote get-url origin`). */
   private async hasOrigin(repo: string): Promise<boolean> {
     return (await this.git(repo, ['remote', 'get-url', 'origin'])).code === 0
+  }
+
+  /**
+   * Checkout → branch name → head SHA of the Tickets' branches in a Project over several repositories: ticketBranches,
+   * by the pair (repo, branch), only in a folder that is its own repository's top level.
+   */
+  private async ticketHeads(checkouts: readonly { name: string; path: string }[], tickets: readonly Ticket[]): Promise<Map<string, Map<string, string>>> {
+    const run = async (cwd: string, args: readonly string[]): Promise<string> => {
+      const result = await this.git(cwd, args)
+      if (result.code !== 0) throw new Error(`git ${args[0] ?? ''} exited with ${String(result.code)}`)
+      return result.stdout
+    }
+    const heads = new Map<string, Map<string, string>>()
+    for (const found of await ticketBranches(checkouts, tickets, run)) {
+      const own = heads.get(found.path) ?? new Map<string, string>()
+      own.set(found.branch, found.head)
+      heads.set(found.path, own)
+    }
+    return heads
   }
 
   /** Branch name → head SHA of the repository's local branches. */

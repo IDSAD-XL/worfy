@@ -41,6 +41,14 @@ export type TicketPr = z.infer<typeof ticketPrSchema>
 export const ticketReleaseSchema = z.object({ repo: z.string(), kind: z.string(), ref: z.string() })
 export type TicketRelease = z.infer<typeof ticketReleaseSchema>
 
+/**
+ * A list of epic-status whose items that do not read (`PR: lib#0`) are dropped: one bad line of one Ticket must not
+ * refuse the whole answer and empty the board. epic-status takes any digits as a PR number, and an older Harness
+ * gives what it gives.
+ */
+const readableItems = <T extends z.ZodType>(item: T) =>
+  z.preprocess((items) => (Array.isArray(items) ? items.filter((each) => item.safeParse(each).success) : items), z.array(item))
+
 /** One Ticket in `epic-status --json`. */
 export const epicStatusTicketSchema = z.object({
   epic: z.string().min(1),
@@ -61,8 +69,8 @@ export const epicStatusTicketSchema = z.object({
   blockedReason: z.string().nullable().optional(),
   /** The `Waits:` line: owner, team, agent or a Machine name. */
   waits: z.string().nullable().optional(),
-  /** The number of the `PR: #N` line. */
-  pr: z.number().int().positive().nullable().optional(),
+  /** The number of the `PR: #N` line; null for a number that does not read (`PR: #0`), as for no line. */
+  pr: z.number().int().positive().nullable().optional().catch(null),
   blockedRaw: z.string().nullable(),
   blockedNums: z.array(z.number().int().nonnegative()),
   blockedParsed: z.boolean(),
@@ -82,9 +90,9 @@ export const epicStatusTicketSchema = z.object({
   /** Every `Repo:` line, in file order, each repository once. */
   repos: z.array(z.string()).optional(),
   /** Every `PR:` line of the header, in file order. */
-  prs: z.array(ticketPrSchema).optional(),
+  prs: readableItems(ticketPrSchema).optional(),
   /** Every `Release:` line of the header, in file order. */
-  releases: z.array(ticketReleaseSchema).optional(),
+  releases: readableItems(ticketReleaseSchema).optional(),
 })
 
 /**

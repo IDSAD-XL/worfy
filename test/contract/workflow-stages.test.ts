@@ -808,3 +808,251 @@ describe('readPipelineProfile', () => {
     expect(await readPipelineProfile(options('not json'))).toMatchObject({ ok: false, miss: 'failed' })
   })
 })
+
+describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-0104)', () => {
+  const BRANCH = 'fix/lot-withdraw-flag'
+  const REVIEWED_AT = '2026-10-17T11:00:00.000Z'
+
+  /** A plain folder (no git) over two repositories, lib and app, each with the Ticket's branch at its first commit. */
+  const workspace = () => {
+    const root = join(dir, 'workspace')
+    mkdirSync(root)
+    const repoAt = (name: string): string => {
+      const path = join(root, name)
+      mkdirSync(path)
+      git(root, 'init', '-q', '-b', 'main', path)
+      writeFileSync(join(path, 'README.md'), `${name}\n`)
+      git(path, 'add', '-A')
+      git(path, 'commit', '-qm', name)
+      git(path, 'branch', BRANCH)
+      return path
+    }
+    const lib = repoAt('lib')
+    const app = repoAt('app')
+    const harnessHome = join(dir, 'harness-home')
+    mkdirSync(join(harnessHome, 'runs', 'atalaya', 'marks'), { recursive: true })
+    return { root, lib, app, harnessHome, head: (repo: string) => git(repo, 'rev-parse', BRANCH) }
+  }
+  type Workspace = ReturnType<typeof workspace>
+
+  /** A new commit on the Ticket's branch: a new head. */
+  const commit = (repo: string, name: string): string => {
+    git(repo, 'checkout', '-q', BRANCH)
+    writeFileSync(join(repo, `${name}.txt`), `${name}\n`)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-qm', name)
+    return git(repo, 'rev-parse', 'HEAD')
+  }
+
+  const profileOf = (ws: Workspace, repos = [{ name: 'lib', path: ws.lib }, { name: 'app', path: ws.app }]): PipelineProfile => ({
+    name: 'atalaya',
+    mode: 'silent',
+    finish: null,
+    pipeline: ATALAYA,
+    pipelineReason: null,
+    e2eLock: null,
+    repos,
+  })
+
+  /** Ticket 05: claimed, two Repo: lines (lib first), one Branch: line. */
+  const claimed = (extra: Partial<Ticket> = {}): Ticket => ({
+    epic: 'demo',
+    num: 5,
+    slug: 'withdraw',
+    title: '05 — Withdraw',
+    statusRaw: 'claimed 2026-10-17T09:00Z',
+    state: 'work',
+    statusAt: '2026-10-17T09:00Z',
+    blockedRaw: '—',
+    blockedNums: [],
+    blockedParsed: true,
+    files: [],
+    filesListed: false,
+    fromBranch: null,
+    branch: BRANCH,
+    repo: 'app',
+    repos: ['lib', 'app'],
+    prs: [],
+    releases: [],
+    ...extra,
+  })
+
+  const writeMarks = (ws: Workspace, marks: { kind: string; verdict: string; sha: string; at?: string }[]) =>
+    writeFileSync(markFilePath(ws.harnessHome, 'atalaya', 'demo', 5), JSON.stringify({ epic: 'demo', num: '05', marks: marks.map((mark) => ({ at: REVIEWED_AT, ...mark })) }))
+
+  /** A PR as the tracker gives it. */
+  const tracked = (number: number, headSha: string, state: 'OPEN' | 'MERGED', checks: TrackedPull['checks'] = []): TrackedPull =>
+    ({
+      number,
+      url: `https://github.com/o/r/pull/${number}`,
+      state,
+      branch: BRANCH,
+      ci: null,
+      verdict: null,
+      headSha,
+      reviewDecision: null,
+      mergeCommit: state === 'MERGED' ? '9'.repeat(40) : null,
+      mergedAt: state === 'MERGED' ? '2026-10-17T12:00:00Z' : null,
+      checks,
+      markStatuses: [],
+    }) as unknown as TrackedPull
+  const check = (state: 'success' | 'failure' | 'pending') => ({ name: 'test', state, startedAt: '2026-10-17T11:10:00Z', completedAt: state === 'pending' ? null : '2026-10-17T11:20:00Z' })
+
+  /** A reader over the real git of the workspace and a stub PR tracker: `pulls` answers each repository's PRs. */
+  const readerOver = (ws: Workspace, pulls: Map<string, TrackedPull[]>, asked: [string, string[]][] = [], profile = profileOf(ws)) =>
+    new StageReader({
+      workflow: { open: () => Promise.reject(new Error('unused')), close: () => Promise.resolve(false), model: () => Promise.resolve(null) },
+      prs: {
+        read: (folder, branches) => {
+          asked.push([folder, [...branches]])
+          return Promise.resolve({ gh: { available: true, error: null, intervalMs: 1 }, pulls: pulls.get(folder) ?? [] })
+        },
+      },
+      profile: () => Promise.resolve({ ok: true, profile }),
+      deployments: { environment: () => Promise.resolve([]), deployMarks: () => Promise.resolve([]) } as unknown as StageSources['deployments'],
+      harnessHome: ws.harnessHome,
+    })
+  const modelOf = (root: string, tickets: Ticket[]): WorkflowModel => ({ root, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] })
+  const stageIn = async (reader: StageReader, ws: Workspace, tickets = [claimed()]) => ticket(await reader.read(ws.root, modelOf(ws.root, tickets)), 5)
+
+  it('before the PRs: review on the head of one branch keeps the Ticket before Agent review; on the heads of both it goes on', async () => {
+    const ws = workspace()
+    const asked: [string, string[]][] = []
+    const reader = readerOver(ws, new Map(), asked)
+    const before = [treeState(ws.lib), treeState(ws.app)]
+
+    writeMarks(ws, [{ kind: 'review', verdict: 'success', sha: ws.head(ws.lib) }])
+    const one = await stageIn(reader, ws)
+    expect(one).toMatchObject({ stage: 'implementing', merged: { count: 0, of: 2 } })
+    expect(one.passed).not.toContain('agent-review')
+    // The PRs of the branch are asked for in each repository the Ticket names, by the pair (repo, branch).
+    expect(asked).toEqual([
+      [ws.lib, [BRANCH]],
+      [ws.app, [BRANCH]],
+    ])
+
+    writeMarks(ws, [
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.lib) },
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.app) },
+    ])
+    expect(await stageIn(reader, ws)).toMatchObject({ stage: 'ci', passed: ['queued', 'implementing', 'agent-review'], merged: { count: 0, of: 2 } })
+    // Only read: both repositories, .git included, are byte for byte the same (ADR-0005).
+    expect([treeState(ws.lib), treeState(ws.app)]).toEqual(before)
+  })
+
+  it('a new head of one branch after the review: the Ticket is back before Agent review until the new head is reviewed', async () => {
+    const ws = workspace()
+    const reader = readerOver(ws, new Map())
+    const reviewed = [
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.lib) },
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.app) },
+    ]
+    writeMarks(ws, reviewed)
+    expect((await stageIn(reader, ws)).stage).toBe('ci')
+
+    // A new head of lib, the first Repo: line: a Ticket read in the repository of its last Repo: line alone would miss it.
+    const newHead = commit(ws.lib, 'fix')
+    const after = await stageIn(reader, ws)
+    expect(after).toMatchObject({ stage: 'implementing', rework: false })
+    expect(after.passed).not.toContain('agent-review')
+
+    writeMarks(ws, [...reviewed, { kind: 'review', verdict: 'pending', sha: newHead, at: '2026-10-17T12:00:00.000Z' }])
+    expect((await stageIn(reader, ws)).stage).toBe('agent-review')
+    writeMarks(ws, [...reviewed, { kind: 'review', verdict: 'success', sha: newHead, at: '2026-10-17T12:10:00.000Z' }])
+    expect(await stageIn(reader, ws)).toMatchObject({ stage: 'ci', enteredAt: '2026-10-17T12:10:00.000Z' })
+  })
+
+  it('red CI of either PR is red CI of the Ticket', async () => {
+    const ws = workspace()
+    const lib = ws.head(ws.lib)
+    const app = ws.head(ws.app)
+    writeMarks(ws, [
+      { kind: 'review', verdict: 'success', sha: lib },
+      { kind: 'review', verdict: 'success', sha: app },
+    ])
+    const prsWith = (libCheck: 'success' | 'failure' | 'pending', appCheck: 'success' | 'failure' | 'pending') =>
+      new Map([
+        [ws.lib, [tracked(41, lib, 'OPEN', [check(libCheck)])]],
+        [ws.app, [tracked(118, app, 'OPEN', [check(appCheck)])]],
+      ])
+    expect(await stageIn(readerOver(ws, prsWith('success', 'failure')), ws)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(await stageIn(readerOver(ws, prsWith('failure', 'success')), ws)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(await stageIn(readerOver(ws, prsWith('success', 'pending')), ws)).toMatchObject({ stage: 'ci', sub: null })
+    expect(await stageIn(readerOver(ws, prsWith('success', 'success')), ws)).toMatchObject({ stage: 'human-review', sub: null })
+  })
+
+  it('one PR merged, the other open: the Stage is the open one\'s, 1 of 2 merged, the Ticket stays claimed', async () => {
+    const ws = workspace()
+    const app = ws.head(ws.app)
+    writeMarks(ws, [{ kind: 'review', verdict: 'success', sha: app }])
+    const issues = join(ws.root, '.scratch', 'demo', 'issues')
+    mkdirSync(issues, { recursive: true })
+    writeFileSync(join(issues, '05-withdraw.md'), ticketText(5, 'claimed 2026-10-17T09:00Z', ['Repo: lib', 'Repo: app', `Branch: ${BRANCH}`, 'PR: lib#41', 'PR: app#118']))
+    const before = treeState(ws.root)
+    const prs = new Map([
+      [ws.lib, [tracked(41, ws.head(ws.lib), 'MERGED')]],
+      [ws.app, [tracked(118, app, 'OPEN', [check('pending')])]],
+    ])
+    const stage = await stageIn(readerOver(ws, prs), ws)
+    expect(stage).toMatchObject({ stage: 'ci', merged: { count: 1, of: 2 }, statusAt: '2026-10-17T09:00Z', waits: 'agent', blocked: null })
+    // A Ticket of one merged PR of two is no further than the open PR, nowhere near Done; nothing is written.
+    expect(stage.passed).not.toContain('awaiting-merge')
+    expect(treeState(ws.root)).toEqual(before)
+
+    // The second PR merged too: past the merge, Done waits for the Status line (ATALAYA ends on Done).
+    prs.set(ws.app, [tracked(118, app, 'MERGED')])
+    expect(await stageIn(readerOver(ws, prs), ws)).toMatchObject({ stage: 'done', merged: { count: 2, of: 2 } })
+  })
+
+  it('a Repo: line the Profile does not have keeps the Ticket on Implementing; gh and git run only in the repositories it has', async () => {
+    const ws = workspace()
+    writeMarks(ws, [{ kind: 'review', verdict: 'success', sha: ws.head(ws.lib) }])
+    const asked: [string, string[]][] = []
+    const stage = await stageIn(readerOver(ws, new Map(), asked), ws, [claimed({ repos: ['lib', 'gone'] })])
+    expect(stage).toMatchObject({ stage: 'implementing', merged: { count: 0, of: 2 } })
+    expect(asked).toEqual([[ws.lib, [BRANCH]]])
+  })
+
+  it('a repository that is a plain folder inside another repository gives no heads: not the parent\'s branch', async () => {
+    const ws = workspace()
+    // `inner` is a folder of lib, not a repository of its own: git would walk up to lib and give lib's branch.
+    const inner = join(ws.lib, 'inner')
+    mkdirSync(inner)
+    writeMarks(ws, [
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.lib) },
+      { kind: 'review', verdict: 'success', sha: ws.head(ws.app) },
+    ])
+    const profile = profileOf(ws, [
+      { name: 'lib', path: inner },
+      { name: 'app', path: ws.app },
+    ])
+    expect(await stageIn(readerOver(ws, new Map(), [], profile), ws)).toMatchObject({ stage: 'implementing' })
+    // The same marks with lib at its own top level: both heads are reviewed.
+    expect(await stageIn(readerOver(ws, new Map()), ws)).toMatchObject({ stage: 'ci' })
+  })
+
+  it('a Ticket with one Repo: line in a Project over several repositories: the Stage as before, without merged', async () => {
+    const ws = workspace()
+    writeMarks(ws, [{ kind: 'review', verdict: 'success', sha: ws.head(ws.app) }])
+    const asked: [string, string[]][] = []
+    const stage = await stageIn(readerOver(ws, new Map(), asked), ws, [claimed({ repos: undefined, prs: undefined, releases: undefined })])
+    expect(stage).toMatchObject({ stage: 'ci' })
+    expect('merged' in stage).toBe(false)
+    expect(asked).toEqual([[ws.app, [BRANCH]]])
+  })
+
+  it('a Project of one repository (worfy itself): a Ticket naming two repositories is read in the root as before', async () => {
+    const ws = workspace()
+    writeMarks(ws, [{ kind: 'review', verdict: 'success', sha: ws.head(ws.app) }])
+    const asked: [string, string[]][] = []
+    const single = { ...profileOf(ws), repos: [{ name: 'app', path: ws.app }] }
+    const model = modelOf(ws.app, [claimed()])
+    const reader = readerOver(ws, new Map([[ws.app, [tracked(118, ws.head(ws.app), 'OPEN', [check('failure')])]]]), asked, single)
+    const stage = ticket(await reader.read(ws.app, model), 5)
+    expect(stage).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect('merged' in stage).toBe(false)
+    expect(asked).toEqual([[ws.app, [BRANCH]]])
+    // The same Ticket without the lists gives the very same Stage.
+    expect(ticket(await reader.read(ws.app, modelOf(ws.app, [claimed({ repos: undefined, prs: undefined, releases: undefined })])), 5)).toEqual(stage)
+  })
+})

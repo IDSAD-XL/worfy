@@ -457,18 +457,22 @@ export interface RepoTicketBranch {
  * checkout of each repository a Ticket names by its `Repo:` lines (repoFactsOf), so a branch is the Ticket's by the
  * pair (repo, branch): branchNamesTicket is asked only of the Tickets that name that repository. Every local branch
  * counts, checked out or not: `parallel: single` works without worktrees. In the order of `checkouts`, then of the
- * branch names; a checkout no Ticket names is not asked, and one outside git gives nothing. Only reads.
+ * branch names; a checkout no Ticket names is not asked, and one outside git gives nothing — nor does a folder that is
+ * not the top level of its own repository: git would walk up from it and give a parent repository's branches as this
+ * repository's. `run` runs a git command in a folder and rejects when it fails (the stages' runner in main). Only reads.
  */
 export async function ticketBranches(
   checkouts: readonly { name: string; path: string }[],
   tickets: readonly Pick<Ticket, 'epic' | 'num' | 'branch' | 'repo' | 'pr' | 'repos' | 'prs' | 'releases'>[],
+  run: (cwd: string, args: string[]) => Promise<string> = git,
 ): Promise<RepoTicketBranch[]> {
   const named = tickets.map((ticket) => ({ ticket, repos: repoFactsOf(ticket).repos }))
   const found = await Promise.all(
     checkouts.map(async ({ name, path }): Promise<RepoTicketBranch[]> => {
       const own = named.filter(({ repos }) => repos.includes(name)).map(({ ticket }) => ticket)
       if (own.length === 0) return []
-      const listed = await git(path, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads']).catch(() => '')
+      if (!(await isTopLevel(path, run))) return []
+      const listed = await run(path, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads']).catch(() => '')
       const result: RepoTicketBranch[] = []
       for (const line of listed.split('\n')) {
         const [branch, head] = line.replace(/\r$/u, '').split('\t')
@@ -480,6 +484,19 @@ export async function ticketBranches(
     }),
   )
   return found.flat()
+}
+
+/**
+ * Whether `folder` is the top level of a git work tree (`rev-parse --show-toplevel`), compared by their real paths:
+ * git gives the real one, with `/` on Windows too. False outside git and when either path does not resolve.
+ */
+async function isTopLevel(folder: string, run: (cwd: string, args: string[]) => Promise<string>): Promise<boolean> {
+  try {
+    const top = (await run(folder, ['rev-parse', '--show-toplevel'])).trim()
+    return top !== '' && (await realpath(top)) === (await realpath(folder))
+  } catch {
+    return false
+  }
 }
 
 /** Runs `tasks` with at most `limit` in flight. */

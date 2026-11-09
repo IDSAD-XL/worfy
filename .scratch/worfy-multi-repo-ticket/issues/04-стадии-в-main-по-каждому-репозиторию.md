@@ -1,7 +1,8 @@
 # 04 — Стадии в main: факты по каждому репозиторию, стадия до PR по head-ам веток, `merged`
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T20:51Z
+Branch: worfy-multi-repo-ticket/04
 Blocked by: 03
 Source: [spec.md](../spec.md), «Как работает» → «epic-status, wave-brief, Pipeline board» («Стадии в main»), «Работа
 implementer-а и ревью», «Половина влита (Q4, Q7)»; «Ticket-ы», «Волны» (Wave 2); «Ответ на критику», п. 2; «Решения
