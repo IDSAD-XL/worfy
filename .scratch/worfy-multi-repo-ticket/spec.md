@@ -1,45 +1,62 @@
 # worfy-multi-repo-ticket: один Ticket на несколько репозиториев
 
-Status: draft
-Critic: —
+Status: draft — решения владельца 2026-11-09 (Q0–Q8) записаны в spec; ждёт принятия владельцем
+Critic: [docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md](../../docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md) — Split; владелец выбрал Split (Q0), ответ — раздел «Ответ на критику»
 Source: [Ticket 80 Epic-а worfy-polish](../worfy-polish/issues/80-один-ticket-на-несколько-репозиториев.md) — список мест, которые
 считают один репозиторий на Ticket (строки сверены с `main` `964061f9a`; до `74d0e7f58` менялись только документы);
-решение владельца 2026-11-09 («да»: заменить пункт 1 ADR-0045); [ADR-0045](../../docs/adr/0045-one-ticket-one-repository.md)
-(один Ticket — один репозиторий; Project над несколькими репозиториями — всегда Silent mode);
-[ADR-0042](../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Silent mode: ветки, commit-ы и PR без следов workflow);
-[ADR-0104](../../docs/adr/0104-one-ticket-several-repositories.md) (предложен этим же PR); [TICKETS.md](../../harness/bin/TICKETS.md).
+решение владельца 2026-11-09 («да»: заменить пункт 1 ADR-0045) и его ответы Q0–Q8 того же дня;
+[ADR-0045](../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий; Project над несколькими
+репозиториями — всегда Silent mode); [ADR-0042](../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Silent
+mode: ветки, commit-ы и PR без следов workflow); [ADR-0104](../../docs/adr/0104-one-ticket-several-repositories.md)
+(предложен этим же PR); [TICKETS.md](../../harness/bin/TICKETS.md); [profiles/README.md](../../harness/profiles/README.md).
 Ticket-ы: Epic `worfy-multi-repo-ticket`, 8 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
 `Source:`. Код пишется только после того, как владелец примет этот spec.
 
 ## Цель
 
-Правка, которая задевает два репозитория одного Project-а (например, общую библиотеку и сервер, который её зовёт),
-сегодня — два Ticket-а со связью `Blocked by`. После Epic-а это один Ticket: несколько строк `Repo:`, своё worktree и
-свой PR в каждом репозитории, один verdict ревью, и `done`, когда влиты все его PR.
+Правка, которая задевает два репозитория одного Project-а (общую библиотеку и её потребителя), сегодня — два Ticket-а
+со связью `Blocked by`. После Epic-а это один Ticket: несколько строк `Repo:`, своя ветка и свой PR в каждом
+репозитории, один verdict ревью на всю правку, один шаг «release библиотеки и подъём версии у потребителя», одна
+карточка на Pipeline board, и `done`, когда влиты все PR.
 
-Два PR неизбежны: у GitHub нет PR через несколько репозиториев. Два Ticket-а — выбор worfy, и он хуже по пяти причинам:
+Два PR неизбежны: у GitHub нет PR через несколько репозиториев. Два Ticket-а — выбор worfy, и он хуже:
 
-1. **Ревью видит половину правки.** Ревьюер PR библиотеки не видит, как её новый API зовёт потребитель, и не может
-   сказать, удобен ли он и полон ли. Ревьюер PR потребителя видит библиотеку уже влитой: поправить её API — третий
-   Ticket.
-2. **Время.** Ticket потребителя ждёт, пока Ticket библиотеки пройдёт ревью, CI и merge: две Wave подряд вместо
-   одной. Implementer второго Ticket-а заново читает контекст, который у первого уже был.
-3. **«Готово, когда» режется пополам.** Пользователь видит результат только после второго Ticket-а. «Готово» первого
-   проверяет то, чего никто не видит; доказательства функции целиком (`ticket evidence`) лежат во втором.
-4. **API подгоняют вслепую.** Первый Ticket фиксирует API до того, как кто-то написал вызывающий код. Ошибка API
-   видна только во втором Ticket-е, когда первый уже влит.
-5. **Pipeline board показывает две карточки одной правки**, и владелец сам держит в голове, что они — одно.
+1. **Ревью видит половину правки.** Ревьюер ветки библиотеки не видит, как её новый API зовёт потребитель. Ревьюер
+   потребителя видит библиотеку уже влитой и выпущенной: поправить её API — третий Ticket.
+2. **API подгоняют вслепую.** Первый Ticket фиксирует API до того, как кто-то написал вызывающий код.
+3. **«Готово, когда» режется пополам.** Пользователь видит результат только после второго Ticket-а; доказательства
+   функции целиком (`ticket evidence`) лежат во втором.
+4. **Pipeline board показывает две карточки одной правки**, и владелец сам держит в голове, что они — одно.
+
+Чего Epic не даёт: выигрыша во времени до merge-а потребителя. Потребитель видит библиотеку только через выпущенную
+версию, поэтому между merge-ем библиотеки и merge-ем потребителя всегда стоят release и подъём версии (критика,
+возражение 3). Выигрыш — в том, что implementer пишет обе стороны в одном контексте и ревью видит стык до merge-а.
+
+## Для какого Project-а
+
+Единственный сегодня Project над несколькими репозиториями — рабочий проект из нескольких репозиториев (библиотека и
+её потребители). Его процесс (Profile и `rules.md` вне этого репозитория, критика, возражения 1–2):
+
+- `parallel: single`: одна рабочая папка, worktree нет, один Ticket за раз; каждый репозиторий — свой main checkout;
+- PR открываются только после `review success` агентов (Pipeline `queued → implementing → agent-review → ci → …`);
+- `workflow.merge: null`: вливают люди команды, никогда не агент и не worfy;
+- Silent mode: в ветках, commit-ах и PR нет следов workflow.
+
+Epic делает один Ticket на несколько репозиториев для этого процесса. Режим `parallel: worktrees` через несколько
+репозиториев и merge через `land` — позже (раздел «Не в этом Epic-е»).
 
 ## Что видит пользователь
 
-1. Ticket правки через два репозитория пишется одним файлом: две строки `Repo:`, в порядке merge-а.
-2. Implementer заводит по worktree на каждый репозиторий, одну и ту же ветку во всех, и открывает по PR в каждом.
-   Описание каждого PR ссылается на другие PR этой правки.
-3. Ревью смотрит все PR Ticket-а вместе и даёт один verdict.
-4. На Pipeline board — одна карточка: список PR с репозиториями, отметка «влит 1 из 2». Стадия карточки — по самому
-   отстающему PR.
-5. `land` вливает PR Ticket-а по порядку строк `Repo:` и закрывает Ticket после последнего merge-а.
-6. Ticket с одной строкой `Repo:` или без неё работает как сегодня.
+1. Ticket правки через два репозитория пишется одним файлом: две строки `Repo:`, библиотека первой.
+2. Implementer работает в main checkout-е каждого репозитория из строк `Repo:`, в одной и той же ветке.
+3. Ревью агентов смотрит head-ы веток всех репозиториев вместе и даёт один verdict.
+4. После `review success` открываются PR — по одному в каждом репозитории, вместе. PR друг о друге ничего не
+   говорят. PR потребителя несёт подъём версии библиотеки и остаётся draft, пока release с этой версией не вышел.
+5. На Pipeline board — одна карточка: список PR с репозиториями, «1/2 merged», а пока release нет — «waits for release
+   <version>». Стадия карточки — по самому отстающему репозиторию.
+6. Люди вливают PR библиотеки, команда делает release. worfy замечает release (tag или опубликованную версию), и PR
+   потребителя выходит из draft. Люди вливают его; Ticket — `done`, когда влиты все PR.
+7. Ticket с одной строкой `Repo:` или без неё работает как сегодня.
 
 ## Как работает
 
@@ -47,157 +64,130 @@ Ticket-ы: Epic `worfy-multi-repo-ticket`, 8 Ticket-ов, нумерация с 
 
 ```
 Status: claimed 2026-11-10T09:00Z
-Branch: fix/lot-withdraw-button
-Repo: shared
-Repo: server
-PR: shared#41
-PR: server#118
+Branch: fix/lot-withdraw-flag
+Repo: lib
+Repo: app
+PR: lib#41
+PR: app#118
+Release: lib tag lib-v1.4.0
 ```
 
-- **`Repo:` — по строке на репозиторий**, имя из `_resolved.repos` Profile-а. Порядок строк — порядок merge-а: сначала
-  то, от чего зависят другие (библиотека), потом потребитель.
-- **`Branch:` — одна строка, одно имя во всех репозиториях.** Project над несколькими репозиториями всегда в Silent
-  mode (ADR-0045, пункт 3), поэтому шаблона `<epic>/<NN>` у него нет: ветка названа по правке
-  (`harness/skills/ship-ticket/step-2-silent-branch.md`), и `silent-check` проверяет её в каждом репозитории. Ключ
-  ветки — пара (repo, branch); `branchOfTicket` (`src/main/workflow/stages.ts:82`) не меняется.
-- **`PR:` — по строке на PR, с именем репозитория**: `PR: <repo>#N`. Номера PR в разных репозиториях совпадают (#41 в
-  библиотеке и #41 в сервере), поэтому голый `#N` у Ticket-а с несколькими `Repo:` — ошибка формата. Ticket с одним
-  репозиторием пишет `PR: #N`, как сегодня.
+- **`Repo:` — по строке на репозиторий**, имя из `_resolved.repos` Profile-а. Порядок строк — порядок merge-а:
+  библиотека первой, потребители после неё (Q3).
+- **`Branch:` — одна строка, одно имя во всех репозиториях** (Q2). Ветку называет правка
+  (`harness/skills/ship-ticket/step-2-silent-branch.md`); `silent-check` проверяет её в каждом репозитории. Ключ ветки
+  — пара (repo, branch); `branchOfTicket` (`src/main/workflow/stages.ts:82`) не меняется.
+- **`PR:` — по строке на PR, с именем репозитория**: `PR: <repo>#N`. Номера PR в разных репозиториях совпадают,
+  поэтому голый `#N` у Ticket-а с несколькими `Repo:` — ошибка формата. Ticket с одним репозиторием пишет `PR: #N`,
+  как сегодня.
+- **`Release:` — чего ждёт потребитель**: `Release: <repo> tag <tag>` или `Release: <repo> package <name>@<version>`.
+  Строку пишет implementer, когда поднимает версию у потребителя. Строк может быть несколько (библиотека выпускает
+  несколько пакетов).
+- Связь PR между собой живёт только здесь, в файле Ticket-а в Workflow folder, и на Pipeline board (Q6). В описаниях
+  PR о соседних PR нет ни ссылки, ни фразы.
 - CLI: `ticket claim … --repo A --repo B` пишет обе строки; `ticket pr <epic> <NN> <repo>#N` дописывает строку `PR:`,
-  когда PR открыт; `ticket done --pr <repo>#N` повторяется на каждый PR. `markRepo` (`harness/bin/ticket:976`)
-  отмечает статус в Workflow folder, как сейчас: в Silent mode статус не живёт ни в одном из репозиториев.
-- Пути в `## Где в коде` у такого Ticket-а начинаются с имени репозитория (`server/src/lots.ts`). Иначе два
-  `src/index.ts` разных репозиториев выглядят общим файлом для `filesOverlap` (`src/shared/workflow/waves.ts`). Это
-  ложное совпадение только ставит Ticket-ы в разные Wave — безопасная сторона, но лишняя.
+  когда PR открыт; `ticket release <epic> <NN> <repo> tag <tag>` (или `package <name>@<version>`) — строку `Release:`;
+  `ticket done --pr <repo>#N` повторяется на каждый PR и отказывает (exit 2), если в наборе нет PR какого-то `Repo:`.
+  `ticket evidence … --sha S` получает `--repo R`. `markRepo` (`harness/bin/ticket:976`) отмечает статус в Workflow
+  folder, как сейчас.
+- Пути в `## Где в коде` у такого Ticket-а начинаются с имени репозитория (`app/src/lots.ts`): иначе два `src/index.ts`
+  разных репозиториев выглядят общим файлом для `filesOverlap` (`src/shared/workflow/waves.ts`).
 
-### Worktree (Ticket 07)
+### Работа implementer-а и ревью (Ticket 07; Q5)
 
-Одно worktree на репозиторий на Ticket: `worktree.implementer` Profile-а для каждой строки `Repo:`, база —
-`worktree.base` или `layout.repos.<repo>.default_branch`. Gate fast implementer гоняет в каждом worktree: у каждого
-репозитория своя запись в Gate (ADR-0018). Отчёт implementer-а перечисляет worktree, PR и коды выхода по каждому
-репозиторию. `reader.ts:422` (worktree Project-а, чья ветка называет Ticket) ищет по паре (repo, branch) и находит
-все worktree Ticket-а.
+- В `parallel: single` worktree нет (`harness/skills/ship-ticket/SKILL.md:155`): implementer создаёт ветку в main
+  checkout-е каждого репозитория из строк `Repo:` (пути — `_resolved.repos`) и работает в них. Один Ticket за раз —
+  правило Project-а, и он держится: Ticket занимает все свои checkout-ы.
+- Gate fast — в каждом checkout-е: у каждого репозитория своя запись в Gate (ADR-0018).
+- **Каждый PR безопасен сам по себе** (Q7). Изменение библиотеки обратно совместимо: старые потребители после её
+  merge-а и release работают. Implementer делает его таким, ревьюер это проверяет.
+- **Один verdict ревью на Ticket** (Q5) — на набор head-ов веток всех `Repo:`. Ревьюер получает diff-ы всех
+  репозиториев и проверяет каждый и стык: совпадают ли вызовы с API, совместима ли библиотека со старыми
+  потребителями. Отметка `review` ставится на head каждой ветки. Новый head любой ветки снимает verdict всего Ticket-а:
+  новое ревью смотрит дельту и стык.
+- После `review success` PR открываются вместе, в порядке строк `Repo:`, и записываются `ticket pr`. Описания PR — о
+  своей правке; `silent-check` проверяет каждое.
 
-### PR и перекрёстные ссылки (Ticket 07; Q6)
+### Release и подъём версии — стадия Ticket-а (Ticket-ы 04, 05; Q3)
 
-По PR на репозиторий. Сначала открывается PR первого репозитория по порядку, потом остальные со ссылками на уже
-открытые, потом `gh pr edit` дописывает ссылки в первый.
+Потребитель видит библиотеку только через выпущенную версию: зависимость — диапазон версий в `package.json`, а
+публикацию запускает tag в репозитории библиотеки. Поэтому:
 
-В Silent mode в PR нельзя писать имя Epic-а, номер Ticket-а, номер ADR, путь Workflow folder, `.scratch` и `HANDOFF`
-(`harness/lib/workflow-traces.cjs:83–93`). Ссылка на соседний PR — ссылка GitHub, следом workflow она не является.
-Предлагаемый текст, одна строка в конце описания:
+1. Ветка потребителя уже несёт подъём версии библиотеки (диапазон в `package.json`). Implementer пишет строку
+   `Release:` — какой tag или какая опубликованная версия нужна.
+2. PR потребителя открывается draft. Его CI до release может быть красным: версии ещё нет. Это ожидаемо, и Pipeline
+   не считает такой CI провалом, пока строка `Release:` не выполнена.
+3. Люди вливают PR библиотеки; команда делает release. worfy release не делает — только ждёт и замечает:
+   - `tag` — tag есть в remote репозитория библиотеки (`git ls-remote --tags`);
+   - `package` — версия опубликована (`npm view <name>@<version> version` в checkout-е потребителя, с его настройками
+     registry).
+4. Когда release замечен, Orchestrator выводит PR потребителя из draft (`gh pr ready`). Если lockfile потребителя
+   нужно обновить под выпущенную версию, это новый head: verdict снимается, ревью смотрит только эту дельту.
+5. Люди вливают PR потребителя.
 
-```
-Goes with org/shared#41 (adds the withdraw flag to the lot model). Merge after it.
-```
+На Pipeline это новая стадия `release` в каталоге стадий (`src/shared/workflow/pipeline.ts:15`,
+`harness/lib/pipeline.cjs`, `harness/profiles/README.md`, строка `workflow.pipeline`): Ticket стоит на ней, пока
+хоть одна строка `Release:` не выполнена; карточка показывает «waits for release <version>». Project без строк
+`Release:` эту стадию проходит сразу; Project, который её не включил в `workflow.pipeline`, её не видит.
 
-Ссылка называет только PR (`<owner>/<repo>#N`), одной фразой — что делает тот PR, и порядок merge-а. Никаких «part 2
-of 3», «same ticket», имени ветки как кода правки. Текст проходит `silent-check` вместе с остальным описанием. В Full
-mode ссылка та же, плюс может назвать Ticket.
+### Половина влита (Q4, Q7)
 
-### Ревью и CI (Ticket 07; Q5)
+- PR библиотеки влит, потребитель ещё нет — обычное состояние, а не авария: библиотека совместима со старыми
+  потребителями. Ticket остаётся в работе (`claimed`); Board показывает «1/2 merged».
+- Потребитель красный или ревью его отвергло — Ticket чинят вперёд в том же Ticket-е.
+- worfy никогда не предлагает revert влитого PR. Это решение владельца или команды.
+- Нового статуса нет. `done` — только когда влиты все PR из строк `Repo:`.
 
-- **CI — у каждого PR свой**, в своём репозитории. Факт CI Ticket-а — сумма: красный любой PR — красный Ticket;
-  идёт хоть один run — Ticket ждёт.
-- **Verdict ревью — один на Ticket**, на набор head-ов всех его PR. Ревьюер получает diff-ы всех PR и проверяет и
-  каждый PR, и стык между ними: совпадают ли вызовы с API, и работает ли каждый префикс порядка merge-а (ниже).
-  Отметка `review` `success` ставится на head каждого PR. Новый head любого PR снимает verdict всего Ticket-а: новое
-  ревью смотрит дельту этого PR и стык.
-- Evidence (`ticket evidence … --sha S`) получает `--repo R`: SHA без репозитория у такого Ticket-а неоднозначен.
-  `bin/evidence-check` проверяет только папку Ticket-ов в ветке (privacy) и с PR не связан — его не трогаем.
+### epic-status, wave-brief, Pipeline board (Ticket-ы 02, 03, 04, 06)
 
-### Порядок merge-а и половина влита (Ticket 06; Q3, Q4, Q7)
-
-Главный риск Epic-а: один PR влит, другой красный или отвергнут, и в `main` двух репозиториев лежит половина правки.
-Варианты:
-
-- **(а) По порядку `Repo:`, каждый префикс — рабочее состояние** (рекомендую). PR вливаются строго по порядку
-  строк `Repo:`. Правило для implementer-а и ревьюера: после merge-а любого начала этого списка все репозитории
-  работают. Библиотека добавляет новое, не ломая старых вызовов; потребитель переходит на новое вторым PR. Тогда
-  «влита половина» — не авария, а обычное промежуточное состояние: Ticket остаётся `claimed`, второй PR чинят
-  вперёд в том же Ticket-е, без спешки и без revert-а. Цена: иногда лишний шаг совместимости (старый API живёт до
-  следующей правки), а ревьюер проверяет префиксы явно.
-- **(б) Всё или ничего одним run-ом `land`.** Ни один PR не вливается, пока все не зелёные (`ci-ok` и `review`), потом
-  `land` вливает все подряд. Окно половины — секунды. Но окно есть: merge второго может упасть (конфликт, сбой
-  GitHub), а push-run на `main` второго репозитория может покраснеть после merge-а. И (б) не работает, когда CI
-  потребителя видит библиотеку только из её `main` (зависимость по ветке или по опубликованной версии): тогда CI
-  потребителя не может позеленеть до merge-а библиотеки.
-- **(в) Независимые PR в любом порядке.** Проще всего, но половина правки ничем не закрыта. Отвергаю.
-- **(г) Как сегодня — два Ticket-а с `Blocked by`.** Остаётся для правок, которые нельзя разбить на рабочие префиксы
-  и нельзя влить разом.
-
-**Рекомендация — (а), а (б) — исключение**, когда правку нельзя сделать совместимой: ревьюер пишет в verdict
-«префикс не рабочий», и `land` получает весь набор PR только когда все зелёные. Если CI потребителя видит библиотеку
-только после её merge-а, потребитель после этого merge-а получает новый head (поднять ссылку на библиотеку), новый
-CI и ревью этой дельты.
-
-Что делает `land`, когда первый PR влит, а следующий не может войти (Q7):
-
-- красный CI или новый head без ревью — `land` останавливает этот Ticket, другие Ticket-ы группы идут дальше; Ticket
-  остаётся `claimed`, строка `PR:` влитого уже записана, Board показывает «влит 1 из 2»;
-- ревью отвергло следующий PR — то же: работа продолжается в том же Ticket-е (rework round);
-- от правки отказались совсем — revert влитого PR новым PR в том же Ticket-е, решением владельца; правило красного
-  `main` (fix-forward 1 h, потом revert) здесь не срабатывает, потому что `main` при варианте (а) не красный.
-
-Нового статуса нет (Q4): частично влитый Ticket — `claimed`, с отметкой из фактов PR. `ticket done` — только когда
-влиты все PR из строк `Repo:`; `ticket done` с меньшим набором `--pr` отказывает с кодом выхода 2 и называет
-недостающий репозиторий. При `workflow.finish: local-green` то же: ветка вливается локально в каждый репозиторий по
-порядку, `done` — когда влиты все.
-
-### epic-status, Pipeline board, wave-brief (Ticket-ы 02, 03, 04, 05)
-
-- **epic-status** (`harness/bin/epic-status:224`, :283, :337): `Repo:` и `PR:` — списки, порядок файла; `Branch:` —
-  одна строка, как сейчас. Строка Ticket-а: `PR shared#41 ✓, server#118`. Ticket считается один раз.
-- **Модель в worfy** (`src/shared/workflow/types.ts:47`, :56, :58): `repos: string[]`, `prs: {repo, number}[]`;
-  старые поля `repo` и `pr` остаются для Ticket-а с одним репозиторием, пока их читают.
-- **Стадии в main** (`src/main/workflow/stages.ts:152`, :180, :205–206): `prs.read` по каждому репозиторию Ticket-а,
-  факты — по каждой паре (repo, PR). `src/shared/workflow/pipeline.ts:149–152`: у фактов список `pulls` с `repo`,
-  `headSha`, `pr`; стадия Ticket-а — самая ранняя из стадий его PR; «влит» — когда влиты все.
-- **Pipeline board** (`src/renderer/pipeline/PipelineBoard.tsx`): одна карточка, под заголовком — PR по одному на
-  строку, с именем репозитория и состоянием; бейдж «1/2 merged». Ticket с одним PR выглядит как сегодня.
-- **Ticket Node на Canvas** — места, которых нет в списке Ticket-а 80: chip репозитория
-  (`src/renderer/canvas/nodes/TicketNode.tsx`, `docs/features/projects.md:110–112`) называет все репозитории Ticket-а;
-  badge-и проверок (`src/renderer/canvas/badges/use-checks.ts`, `src/shared/ipc/checks.ts:121–149`) запрашивают
-  PR ветки в каждом репозитории из строк `Repo:`, а не в одном.
+- **epic-status** (`harness/bin/epic-status:224`, :283, :337): `Repo:`, `PR:` и `Release:` — списки, порядок файла;
+  `Branch:` — одна строка. Строка Ticket-а: `PR lib#41 ✓, app#118 · waits for release lib-v1.4.0`. Ticket считается
+  один раз.
 - **wave-brief** (`harness/bin/wave-brief:208–209`): `byBranch` — по паре (repo, branch), `byPr` — по паре (repo, N).
-
-### land (Ticket 06)
-
-`harness/bin/land:82` уже держит список PR с `epic` и `ticket`, но `:198` — один `repo` на файл состояния: один run —
-один репозиторий. Меняем: у каждой записи PR своё поле `repo` (путь checkout-а; по умолчанию — общий `repo` файла,
-так старые файлы состояния читаются как раньше). `gh` и `git` для записи работают в её checkout-е. PR одного Ticket-а
-идут подряд в порядке строк `Repo:`; `ticket done` (`:650`) зовётся после merge-а последнего PR Ticket-а, после
-каждого раньше — `ticket pr`, чтобы строка `PR:` влитого появилась сразу. PR документов (`docsEntry`, `:609–614`) в
-Silent mode не бывает; в Full mode проектов из нескольких репозиториев нет (ADR-0045, пункт 3).
+- **Модель в worfy** (`src/shared/workflow/types.ts:47`, :56, :58): `repos: string[]`, `prs: {repo, number}[]`,
+  `releases: {repo, kind, ref}[]`; старые `repo` и `pr` остаются для Ticket-а с одним репозиторием.
+- **Стадии в main** (`src/main/workflow/stages.ts:152`, :180, :205–206; `src/shared/workflow/pipeline.ts:149–152`):
+  факты — по каждому репозиторию. До PR стадия берётся по head-ам веток всех `Repo:` (критика, возражение 2), после —
+  по паре (repo, PR). Стадия Ticket-а — самая ранняя из стадий его репозиториев; `merged` — число влитых PR.
+  `src/main/workflow/reader.ts:422` ищет ветку Ticket-а по паре (repo, branch) в каждом checkout-е.
+- **Pipeline board и Ticket Node** (`src/renderer/pipeline/PipelineBoard.tsx`; места, которых нет в списке Ticket-а 80:
+  `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/use-checks.ts`,
+  `src/shared/ipc/checks.ts:121–149`): одна карточка, PR по одному на строку с именем репозитория, «1/2 merged»,
+  «waits for release <version>»; chip Ticket Node называет все репозитории; badge-и проверок запрашивают PR ветки в
+  каждом репозитории. Ticket с одним PR выглядит как сегодня.
 
 ## Что остаётся как есть
 
 - Один путь — один Project. Project над несколькими репозиториями — папка над ними, всегда Silent mode (ADR-0045,
   пункты 2–4 в силе).
-- Ticket с одной строкой `Repo:` или без неё (Project из одного репозитория, в том числе сам worfy) — как сегодня:
-  одна ветка, одно worktree, один PR, `PR: #N`, `ticket done --pr N`.
-- Связь `Blocked by` между Ticket-ами остаётся и для правок, которые нельзя разбить на рабочие префиксы.
-- `bin/evidence-check` не меняется.
+- Ticket с одной строкой `Repo:` или без неё (Project из одного репозитория, в том числе сам worfy) — как сегодня.
+- Связь `Blocked by` между Ticket-ами остаётся допустимой.
+- `bin/evidence-check` не меняется: он проверяет папку Ticket-ов в ветке (privacy) и с PR не связан.
+- Merge — как в Project-е сегодня: в рабочем проекте вливают люди.
 
 ## Решено без владельца
 
+- `Release:` знает два вида: `tag` и `package`. Другие (release на GitHub без tag-а, своя registry без `npm`) —
+  отдельным Ticket-ом, когда встретятся.
+- CI потребителя, красный до release, не красит Ticket, пока строка `Release:` не выполнена; после release красный CI
+  — обычный красный.
+- PR потребителя из draft выводит Orchestrator после release; если команда хочет делать это сама, `rules.md` Project-а
+  так и пишет, и Orchestrator только сообщает.
 - Пути в `## Где в коде` Ticket-а с несколькими `Repo:` начинаются с имени репозитория.
-- `ticket done` с неполным набором PR отказывает (exit 2), а не пишет `done`.
-- В `land` поле `repo` записи PR — необязательное, по умолчанию общий `repo`: старые файлы состояния не ломаются.
-- Новых терминов в `CONTEXT.md` нет: «PR Ticket-а» становится списком, слово то же.
+- Новых терминов в `CONTEXT.md` нет, кроме стадии `release` (Ticket 05 добавляет её в описание Pipeline).
 
 ## Ticket-ы
 
 | Ticket | Что | Глубина ревью | Платформенный | Blocked by |
 | --- | --- | --- | --- | --- |
-| 01 | `ticket`: несколько `--repo`, `PR: <repo>#N`, `ticket pr`, `done` только с полным набором, `evidence --repo`; TICKETS.md | `high` | да | — |
-| 02 | `epic-status`: списки `Repo:` и `PR:` | `medium` | да | — |
-| 03 | Модель Ticket-а в worfy: `repos`, `prs`; ветка по паре (repo, branch) | `medium` | нет | — |
-| 04 | Стадии в main и факты Pipeline по каждому PR | `high` | нет | 03 |
-| 05 | Pipeline board и Ticket Node: одна карточка, N PR, «1/2 merged», chip всех репозиториев | `medium` | нет | 04 |
-| 06 | `land` через несколько репозиториев и порядок merge-а; `wave-brief` | `high` | да | 01 |
-| 07 | Тексты skill-ов: worktree на репозиторий, PR со ссылками, один verdict, префиксы | `medium` | нет | 01, 06 |
-| 08 | Приёмка на fixture-проекте из двух репозиториев и, по решению владельца, на рабочем проекте | `low` | нет | 02, 05, 07 |
+| 01 | `ticket`: несколько `--repo`, `PR: <repo>#N`, `ticket pr`, `ticket release`, `done` только с полным набором, `evidence --repo`; TICKETS.md | `high` | да | — |
+| 02 | `epic-status` и `wave-brief`: списки `Repo:`, `PR:`, `Release:`; ключи (repo, branch) и (repo, N) | `medium` | да | — |
+| 03 | Модель Ticket-а в worfy: `repos`, `prs`, `releases`; ветка по паре (repo, branch) | `medium` | нет | — |
+| 04 | Стадии в main: факты по каждому репозиторию, стадия до PR по head-ам веток, `merged` | `high` | нет | 03 |
+| 05 | Стадия `release`: каталог стадий, проверка tag-а и опубликованной версии | `high` | да | 04 |
+| 06 | Pipeline board и Ticket Node: одна карточка, N PR, «1/2 merged», «waits for release», chip всех репозиториев | `medium` | нет | 05 |
+| 07 | Тексты skill-ов для `parallel: single` через несколько checkout-ов: ветка в каждом, одно ревью, PR вместе после ревью, draft потребителя до release, merge — люди | `medium` | нет | 01 |
+| 08 | Приёмка: fixture-проект из двух репозиториев со stub `gh` и `npm`; один настоящий Ticket в рабочем проекте ведёт владелец | `low` | нет | 02, 06, 07 |
 
 Платформенный Ticket — скрипт Harness, hook или путь ОС: PR ждёт Windows verdict до merge (ADR-0056).
 
@@ -206,68 +196,84 @@ Silent mode не бывает; в Full mode проектов из несколь
 | Тикет | Файлы из «Где в коде» (Ticket 80 и этот spec) | Волна |
 | --- | --- | --- |
 | 01 | `harness/bin/ticket`, `harness/bin/TICKETS.md`, `harness/bin/tests/ticket-header.test.sh`, `harness/bin/tests/ticket-mark.test.sh`, `harness/bin/tests/ticket-evidence.test.sh` | 1 |
-| 02 | `harness/bin/epic-status`, `harness/bin/tests/epic-status.test.sh` | 1 |
+| 02 | `harness/bin/epic-status`, `harness/bin/wave-brief`, `harness/bin/tests/epic-status.test.sh`, `harness/bin/tests/wave-brief.test.sh` | 1 |
 | 03 | `src/shared/workflow/types.ts`, `src/shared/workflow/ticket-ref.ts`, `src/main/workflow/reader.ts`, `test/contract/workflow-reader.test.ts`, `test/unit/ticket-ref.test.ts` | 1 |
 | 04 | `src/main/workflow/stages.ts`, `src/shared/workflow/pipeline.ts`, `test/contract/workflow-stages.test.ts`, `test/unit/pipeline.test.ts` | 2 |
-| 06 | `harness/bin/land`, `harness/bin/wave-brief`, `harness/bin/tests/land.test.sh`, `harness/bin/tests/wave-brief.test.sh` | 2 |
-| 05 | `src/renderer/pipeline/PipelineBoard.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/use-checks.ts`, `src/shared/ipc/checks.ts`, `test/unit/pipeline-board.test.tsx`, `docs/features/projects.md` | 3 |
-| 07 | `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (раздел 2), `harness/skills/ship-ticket/implementer-silent-mode.md`, `harness/skills/ship-ticket/step-9-merge.md`, `harness/skills/ship-ticket/step-2-silent-branch.md` | 3 |
-| 08 | `.scratch/worfy-multi-repo-ticket/evidence/08-*`, fixture-проект в `harness/bin/tests/fixtures/` | 4 |
+| 07 | `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md` (раздел 2), `harness/skills/ship-ticket/implementer-silent-mode.md`, `harness/skills/ship-ticket/step-2-silent-branch.md`, `harness/skills/ship-ticket/step-9-merge.md` | 2 |
+| 05 | `src/shared/workflow/pipeline.ts`, `src/main/workflow/stages.ts`, `src/main/workflow/release.ts` (новый), `harness/lib/pipeline.cjs`, `harness/profiles/README.md`, `CONTEXT.md`, `test/unit/pipeline.test.ts`, `test/contract/workflow-release.test.ts` (новый) | 3 |
+| 06 | `src/renderer/pipeline/PipelineBoard.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/badges/use-checks.ts`, `src/shared/ipc/checks.ts`, `test/unit/pipeline-board.test.tsx`, `docs/features/projects.md` | 4 |
+| 08 | `harness/bin/tests/fixtures/multi-repo/**`, `.scratch/worfy-multi-repo-ticket/evidence/08-*` | 5 |
 
 - **Wave 1 — 01, 02, 03.** Формат шапки задан этим spec-ом, поэтому читатели (02, 03) не ждут писателя (01).
-- **Wave 2 — 04, 06.** 04 ждёт модель из 03; 06 зовёт `ticket pr` и `ticket done` нового вида из 01.
-- **Wave 3 — 05, 07.** Board ждёт факты из 04; skill-ы описывают `land` из 06.
-- **Wave 4 — 08.** Приёмка по готовому.
+- **Wave 2 — 04, 07.** 04 ждёт модель из 03; 07 описывает команды `ticket` из 01. Общих файлов нет.
+- **Wave 3 — 05.** Правит те же `pipeline.ts` и `stages.ts`, что 04.
+- **Wave 4 — 06.** Board показывает факты из 04 и стадию из 05.
+- **Wave 5 — 08.** Приёмка по готовому.
 
 Ни один Ticket с несколькими `Repo:` не пишется, пока не влиты 01–03: старые `epic-status` и worfy берут последнюю
-строку `Repo:` и первую `PR:` и показали бы Ticket неверно. Имена test-файлов — предложение; implementer сверяет их с
+строку `Repo:` и первую `PR:` и показали бы Ticket неверно. Имена новых файлов — предложение; implementer сверяет их с
 `main`.
 
 ## Не в этом Epic-е
 
-- PR через несколько репозиториев на стороне GitHub: его нет.
-- Своя ветка на репозиторий (если владелец выберет (б) в Q2 — отдельный Ticket).
-- Атомарный merge через несколько репозиториев: у GitHub его нет, и merge queue доступна только организациям.
-- CI одного репозитория, который собирает ветку другого (cross-repo CI): это настройка проекта, не worfy.
+- **`land` через несколько репозиториев и merge в порядке `Repo:` силами worfy** (бывший Ticket 06 черновика). Позже —
+  отдельный Epic, когда появится Project над несколькими репозиториями, где вливает агент (`workflow.merge` не `null`).
+- **`parallel: worktrees` через несколько репозиториев** (worktree на репозиторий на Ticket) — тогда же.
+- Сам release библиотеки: это шаг команды.
+- Ссылки между PR в их описаниях — решение владельца Q6: связь только в файле Ticket-а и на Board.
+- PR через несколько репозиториев на стороне GitHub и атомарный merge: их нет.
 - Full mode для Project над несколькими репозиториями (ADR-0045, пункт 3 в силе).
 
 ## Риски
 
-- **Половина правки в `main`.** Закрывает правило рабочих префиксов (вариант (а)) и его проверка в ревью. Остаток:
-  ревьюер пропустил несовместимость. Тогда `main` потребителя красный — действует правило красного `main` того
-  проекта.
-- **Совпадение номеров PR.** `PR: #41` в двух репозиториях — разные PR. Закрыто форматом `<repo>#N` и отказом CLI на
-  голый `#N` у Ticket-а с несколькими `Repo:`.
+- **Несовместимое изменение библиотеки.** Если ревьюер пропустил поломку старых потребителей, `main` потребителя
+  ломается после release. Закрывает правило «каждый PR безопасен сам по себе» и его проверка в ревью; дальше —
+  правило красного `main` самого Project-а. worfy revert не предлагает.
+- **Release не приходит.** Команда не выпустила версию — Ticket стоит на `release`; `stuck_after` стадии
+  (`workflow.pipeline`) подсвечивает его как застрявший.
+- **`npm view` не видит частную registry.** Проверка `package` идёт в checkout-е потребителя с его `.npmrc`; если
+  registry недоступна, стадия пишет «release not checked», а не «released».
+- **Совпадение номеров PR.** Закрыто форматом `<repo>#N` и отказом CLI на голый `#N`.
 - **Старый читатель.** Stable copy worfy или Harness старше Ticket-ов 01–03 покажет один репозиторий Ticket-а.
   Закрыто порядком: Ticket-ы с несколькими `Repo:` пишутся только после Wave 1.
-- **Сдвиг verdict-а.** Push в один PR после ревью оставил бы verdict на старом наборе head-ов. Закрыто: новый head
-  любого PR снимает verdict Ticket-а.
-- **Проверить вживую негде.** Сам worfy — один репозиторий в Full mode. Приёмка — fixture-проект из двух локальных
-  репозиториев с bare remote и stub `gh`, и (Q8) один настоящий Ticket в рабочем проекте из нескольких репозиториев.
+- **Второй head потребителя.** Обновление lockfile после release — новый head и новое ревью дельты. Это цена release
+  через опубликованную версию, Epic её не убирает.
 
-## Вопросы владельцу
+## Ответ на критику
 
-1. **Q1. Форма шапки.** (а) Несколько строк `Repo:`, одна `Branch:`, строки `PR: <repo>#N`. (б) Одна строка на
-   репозиторий: `Repo: server · Branch: … · PR: #118`. (в) Пары `Repo:`/`Branch:`/`PR:` по порядку. **Рекомендую (а)**:
-   каждая строка — один факт, старый разбор `Branch:` не меняется, (в) ломается от одной пропущенной строки.
-2. **Q2. Имя ветки.** (а) Одно имя во всех репозиториях. (б) Своя `Branch:` на репозиторий. **Рекомендую (а)**: ветку
-   называет правка, а правка одна; ключ (repo, branch) не требует второго имени.
-3. **Q3. Порядок merge-а.** (а) По порядку `Repo:`, каждый префикс рабочий, (б) — исключение для несовместимой правки.
-   (б) Всегда всё или ничего. (в) Независимые PR. **Рекомендую (а)**: половина правки — рабочее состояние, а не
-   авария, и (а) работает, когда CI потребителя видит только `main` библиотеки.
-4. **Q4. Частично влитый Ticket.** (а) Остаётся `claimed`, Board показывает «1/2 merged» из фактов PR. (б) Новый статус
-   `merging`. **Рекомендую (а)**: новый статус пришлось бы учить `ticket`, `epic-status`, worfy и skill-ы, а факт и так
-   виден по PR.
-5. **Q5. Verdict ревью.** (а) Один на Ticket, на набор head-ов; новый head любого PR — новое ревью дельты и стыка.
-   (б) Отдельный verdict на каждый PR. **Рекомендую (а)**: ради ревью стыка Epic и затевается.
-6. **Q6. Ссылка между PR в Silent mode.** (а) Ссылка `<owner>/<repo>#N`, одна фраза о том PR и порядок merge-а.
-   (б) Без ссылок. **Рекомендую (а)**: людям команды нужен порядок merge-а, а ссылка на PR следом workflow не является.
-7. **Q7. Влит первый PR, второй отвергнут.** (а) Чинить вперёд в том же Ticket-е; revert влитого — только решением
-   владельца. (б) Автоматический revert через 1 h. **Рекомендую (а)**: при рабочих префиксах `main` не красный и
-   спешить некуда; revert чужого репозитория без человека опаснее половины правки.
-8. **Q8. Приёмка.** (а) Fixture-проект из двух репозиториев в test-ах и один настоящий Ticket в рабочем проекте с
-   тестировщиком. (б) Только fixture. **Рекомендую (а)**: fixture не покажет реальные правила веток, CI и ревью
-   команды.
+Критика: [docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md](../../docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md),
+verdict Split. Владелец 2026-11-09 выбрал Split (Q0 (б)).
+
+1. **`land` через несколько репозиториев — без пользователя.** Принято. Бывший Ticket 06 (`land`, порядок merge-а
+   силами worfy) вынесен в «Не в этом Epic-е»: в единственном Project-е над несколькими репозиториями вливают люди.
+   `wave-brief` остался (Ticket 02): ему нужны ключи (repo, N) и без `land`.
+2. **Skill-ы описывали worktree и PR от implementer-а.** Принято. Ticket 07 переписан под `parallel: single`: ветка в
+   main checkout-е каждого репозитория, одно ревью на head-ах веток до PR, PR вместе после `review success`, merge —
+   люди. Ticket 04 берёт стадию до PR по head-ам веток всех `Repo:`.
+3. **Release между двумя merge-ами.** Принято. Release и подъём версии — стадия Ticket-а (Ticket 05, строка
+   `Release:`): PR потребителя draft до release, Board показывает «waits for release <version>», worfy только ждёт и
+   замечает tag или опубликованную версию. Обещание «одна Wave вместо двух» снято (раздел «Цель»).
+4. **Ссылки между PR** (критик не знал, примет ли их команда). Владелец отказался (Q6): связь только в файле Ticket-а
+   и на Board.
+
+## Решения владельца 2026-11-09
+
+- **Q0 — (б) Split.** Сейчас — шапка, `epic-status`, модель, стадии, Board, приёмка и skill-ы под процесс рабочего
+  проекта; плюс стадия release. `land` через репозитории — позже.
+- **Q1 — да.** Несколько строк `Repo:`, одна `Branch:`, `PR: <repo>#N`.
+- **Q2 — да.** Одно имя ветки во всех репозиториях.
+- **Q3 — да.** Порядок merge-а — порядок строк `Repo:`, библиотека первой. PR потребителя несёт подъём версии и
+  остаётся draft, пока нет release с этой версией; Board показывает «waits for release <version>»; worfy только ждёт и
+  замечает release (tag или опубликованная версия), сам release — шаг команды.
+- **Q4 — да.** Нового статуса нет; «1/2 merged» на Board; `done` — только когда влиты все PR.
+- **Q5 — да.** Один verdict ревью на Ticket по head-ам всех его веток и PR; новый head любого снимает его.
+- **Q6 — нет.** Ссылка между PR в описаниях «подозрительна и ненадёжна — лучше держать на машине». PR ничего не
+  говорят друг о друге; связь — только строки `PR:` файла Ticket-а в Workflow folder и Board worfy.
+- **Q7 — да.** Частично влитый Ticket остаётся в работе и чинится вперёд в том же Ticket-е; worfy никогда не
+  предлагает revert влитого PR — это решение владельца или команды; каждый PR безопасен сам по себе (изменение
+  библиотеки обратно совместимо), implementer делает так, ревьюер проверяет.
+- **Q8 — да.** Fixture test-ы на stub-проекте из двух репозиториев и один настоящий Ticket в рабочем проекте, который
+  ведёт владелец.
 
 ## Готово, когда
 
