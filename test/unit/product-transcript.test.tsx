@@ -4,11 +4,11 @@
 // the time; «the advisor is thinking» at the end while a turn runs. Thinking, tool calls (a failed one
 // too), Subagents, hooks, notices, «Turn finished» and slash commands are not drawn, and find does not
 // look in them. A plain Session draws every row as before.
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { foldTranscript } from '../../src/renderer/session/fold'
-import { ProductSessionContext } from '../../src/renderer/session/product-session'
+import { chatQueue, ProductSessionContext, type ChatQueue } from '../../src/renderer/session/product-session'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { extensionTypes, rowMatches, findItems } from '../../src/renderer/session/transcript-find'
 
@@ -86,10 +86,10 @@ const EVERY_ROW: AgentEvent[] = [
 
 const HIDDEN = ['transcript-thinking', 'transcript-tools', 'tool-call', 'tool-error', 'transcript-subagent', 'transcript-hook', 'transcript-notice', 'transcript-command', 'transcript-turn-done']
 
-function Product({ events, working }: { events: readonly AgentEvent[]; working?: boolean }) {
+function Product({ events, working, queued }: { events: readonly AgentEvent[]; working?: boolean; queued?: ChatQueue | null }) {
   return (
     <ProductSessionContext value={true}>
-      <Transcript events={events} sessionId="s1" projectId="p1" working={working} />
+      <Transcript events={events} sessionId="s1" projectId="p1" working={working} queued={queued} />
     </ProductSessionContext>
   )
 }
@@ -176,5 +176,93 @@ describe('the chat of a Product Session', () => {
       expect(rowMatches(product, needle, false), needle).toEqual([])
     }
     expect(rowMatches(product, 'small teams', false)).toHaveLength(1)
+  })
+})
+
+// worfy-product-session ticket 28 (owner, 2026-11-09): a message sent while the advisor works waits in the
+// Session's queue (src/main/agent/queue.ts); the chat shows it at once, last, dimmed, with «queued», until
+// main delivers it (a `prompt` event) and it becomes an ordinary message at its place.
+describe('a queued message in the chat of a Product Session', () => {
+  const QUEUED = { items: [{ id: 'q-1', text: 'And for solo founders?' }], paused: false }
+  const two = { items: [...QUEUED.items, { id: 'q-2', text: 'Also: pricing' }], paused: false }
+
+  it('chatQueue: none without items; «queued» while it goes on its own, «held» after Interrupt, «not-sent» once the Session is closed', () => {
+    expect(chatQueue(null, 'busy')).toBeNull()
+    expect(chatQueue({ items: [], paused: false }, 'busy')).toBeNull()
+    expect(chatQueue(QUEUED, 'busy')).toEqual({ items: QUEUED.items, status: 'queued' })
+    expect(chatQueue({ ...QUEUED, paused: true }, 'idle')).toEqual({ items: QUEUED.items, status: 'held' })
+    expect(chatQueue({ ...QUEUED, paused: true }, 'error')).toEqual({ items: QUEUED.items, status: 'held' })
+    expect(chatQueue(QUEUED, 'closed')).toEqual({ items: QUEUED.items, status: 'not-sent' })
+    expect(chatQueue({ ...QUEUED, paused: true }, 'closed')).toEqual({ items: QUEUED.items, status: 'not-sent' })
+  })
+
+  it('stands last, below «the advisor is thinking», dimmed, with «queued» and no number; several in the order sent', () => {
+    render(<Product events={[prompt('What could we sell?')]} working queued={chatQueue(two, 'busy')} />)
+    const queued = screen.getAllByTestId('product-queued')
+    expect(queued.map((row) => within(row).getByTestId('product-message-bubble').textContent)).toEqual(['And for solo founders?', 'Also: pricing'])
+    for (const row of queued) {
+      expect(row.className).toContain('w-pmsg--queued')
+      expect(row.dataset['who']).toBe('you')
+      expect(within(row).getByTestId('product-queued-label').textContent).toBe('queued')
+      expect(within(row).queryByTestId('product-message-number')).toBeNull()
+    }
+    const log = screen.getByTestId('transcript')
+    expect(log.lastElementChild?.contains(queued[1]!)).toBe(true)
+    // «Advisor is thinking» stands before the queued messages: the running turn comes first.
+    const thinking = screen.getByTestId('product-thinking')
+    expect(thinking.compareDocumentPosition(queued[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Only one message of the chat carries a number: the one delivered.
+    expect(screen.getAllByTestId('product-message-number').map((n) => n.textContent)).toEqual(['#1'])
+  })
+
+  it('stays last as the advisor’s answer arrives, and becomes an ordinary message once delivered', () => {
+    const events = [prompt('What could we sell?')]
+    const { rerender } = render(<Product events={events} working queued={chatQueue(QUEUED, 'busy')} />)
+    const answered = [...events, text('Sell to small teams first.'), result(false)]
+    rerender(<Product events={answered} working queued={chatQueue(QUEUED, 'busy')} />)
+    const log = screen.getByTestId('transcript')
+    expect(log.lastElementChild?.contains(screen.getByTestId('product-queued'))).toBe(true)
+    // main took it out of the queue and gave it to the agent: an empty queue and a `prompt`.
+    rerender(<Product events={[...answered, prompt('And for solo founders?', AT + 120_000)]} working queued={chatQueue({ items: [], paused: false }, 'busy')} />)
+    expect(screen.queryByTestId('product-queued')).toBeNull()
+    const prompts = screen.getAllByTestId('transcript-prompt')
+    expect(prompts).toHaveLength(2)
+    expect(within(prompts[1]!).getByTestId('product-message-bubble').textContent).toBe('And for solo founders?')
+    expect(within(prompts[1]!).getByTestId('product-message-number').textContent).toBe('#3')
+  })
+
+  it('held after Interrupt: «queued · held», «Send queued» lets the queue go, × takes one out', async () => {
+    const { invoke } = await import('../../src/renderer/ipc')
+    const call = vi.mocked(invoke)
+    call.mockReset()
+    call.mockResolvedValue({ ok: true, value: undefined } as never)
+    render(<Product events={[prompt('What could we sell?'), result(false, true)]} queued={chatQueue({ ...two, paused: true }, 'idle')} />)
+    for (const label of screen.getAllByTestId('product-queued-label')) expect(label.textContent).toBe('queued · held')
+    fireEvent.click(screen.getByTestId('product-queue-send'))
+    expect(call).toHaveBeenCalledWith('agent.queueSend', { sessionId: 's1' })
+    fireEvent.click(screen.getAllByTestId('product-queued-remove')[1]!)
+    expect(call).toHaveBeenCalledWith('agent.queueRemove', { sessionId: 's1', id: 'q-2' })
+    // The log still ends with the queue: the button stands after the last held message.
+    expect(screen.getByTestId('transcript').lastElementChild?.contains(screen.getByTestId('product-queue-send'))).toBe(true)
+  })
+
+  it('while it goes on its own there is no «Send queued»; × still takes it out', () => {
+    render(<Product events={[prompt('What could we sell?')]} working queued={chatQueue(QUEUED, 'busy')} />)
+    expect(screen.queryByTestId('product-queue-send')).toBeNull()
+    expect(screen.getAllByTestId('product-queued-remove')).toHaveLength(1)
+  })
+
+  it('a closed Session never sends it: «not sent», still last, with no actions', () => {
+    render(<Product events={[prompt('What could we sell?')]} queued={chatQueue(QUEUED, 'closed')} />)
+    const row = screen.getByTestId('product-queued')
+    expect(row.dataset['status']).toBe('not-sent')
+    expect(within(row).getByTestId('product-queued-label').textContent).toBe('not sent')
+    expect(screen.queryByTestId('product-queue-send')).toBeNull()
+    expect(screen.queryByTestId('product-queued-remove')).toBeNull()
+  })
+
+  it('a plain Session draws no queued message in its log: its queue is the chip in the input field', () => {
+    render(<Transcript events={[prompt('What could we sell?')]} sessionId="s1" projectId="p1" working queued={chatQueue(QUEUED, 'busy')} />)
+    expect(screen.queryByTestId('product-queued')).toBeNull()
   })
 })

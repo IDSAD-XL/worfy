@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type { QueuedMessage, QueueSnapshot, SessionState } from '../../shared/agent/events'
 import type { TranscriptItem } from './fold'
 
 // What the Session view's parts share about a Product Session (worfy-product-session ticket 07), apart
@@ -36,4 +37,21 @@ export function shownInProductChat(item: TranscriptItem): boolean {
     default:
       return false
   }
+}
+
+/**
+ * The Session's queue as a Product Session's chat draws it (ticket 28, owner 2026-11-09): every message still
+ * queued, oldest first, after the last row. `queued` — it goes on its own after the running turn; `held` —
+ * Interrupt or a crash held the queue (src/main/agent/queue.ts), it waits for «Send queued»; `not-sent` —
+ * the Session is closed, and a closed Session sends nothing more. Null when nothing is queued.
+ */
+export interface ChatQueue {
+  items: readonly QueuedMessage[]
+  status: 'queued' | 'held' | 'not-sent'
+}
+
+export function chatQueue(queue: QueueSnapshot | null, state: SessionState): ChatQueue | null {
+  if (queue === null || queue.items.length === 0) return null
+  const status = state === 'closed' ? 'not-sent' : queue.paused ? 'held' : 'queued'
+  return { items: queue.items, status }
 }

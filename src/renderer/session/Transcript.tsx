@@ -8,7 +8,8 @@ import { NodeChips } from '../product/NodeChips'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
-import { ProductSessionContext, shownInProductChat } from './product-session'
+import { ProductSessionContext, shownInProductChat, type ChatQueue } from './product-session'
+import { QueuedRows } from './QueuedMessages'
 import { rowTypes } from './rows/index'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
@@ -56,6 +57,11 @@ export interface TranscriptProps {
   logRef?: RefObject<HTMLDivElement | null> | undefined
   /** The Session runs a turn: a Product Session's chat shows «Advisor is thinking…» at its end (ticket 19). */
   working?: boolean | undefined
+  /**
+   * The Session's queue (product-session.ts, chatQueue): a Product Session's chat draws its messages last,
+   * dimmed, with «queued» (ticket 28). A plain Session shows its queue in the input field instead.
+   */
+  queued?: ChatQueue | null | undefined
 }
 
 export interface EarlierControl {
@@ -697,7 +703,7 @@ function firstVisibleRow(log: HTMLElement): { row: HTMLElement; offset: number }
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false } = props
+  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false, queued = null } = props
   const inProduct = useContext(ProductSessionContext)
   const folded = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   // A Product Session's chat draws the conversation only; the rows are folded as for any Session.
@@ -1064,6 +1070,8 @@ export function Transcript(props: TranscriptProps) {
       </div>,
     )
   }
+  // What waits in the queue stands after everything, the running turn included, until main delivers it (ticket 28).
+  if (inProduct && queued !== null) rows.push(<QueuedRows key="queued" queue={queued} sessionId={sessionId} />)
 
   return (
     <div
