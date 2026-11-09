@@ -1,7 +1,7 @@
 // The chat of a Product Session as in the prototype (worfy-product-session ticket 19, Q1, Q2 and Q5 of the
 // owner's decisions of 2026-11-08): only the conversation — the owner's messages, the advisor's answers,
 // a failed turn, the Session's error, permission and question cards — drawn as bubbles with the role and
-// the time; «the advisor is thinking» at the end while a turn runs. Thinking, tool calls (a failed one
+// the time; the status line of the running turn at the end (ticket 29). Thinking, tool calls (a failed one
 // too), Subagents, hooks, notices, «Turn finished» and slash commands are not drawn, and find does not
 // look in them. A plain Session draws every row as before.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -22,6 +22,8 @@ const AT = new Date(2026, 10, 8, 14, 5).getTime()
 
 const prompt = (text: string, at = AT): AgentEvent => ({ type: 'notice', kind: 'user', text, at })
 const text = (value: string, synthetic = false, at = AT + 60_000): AgentEvent => ({ type: 'text', text: value, messageId: `m-${value}`, parentToolUseId: null, synthetic, at })
+const call = (id: string, name: string, input: unknown, at = AT + 1000): AgentEvent => ({ type: 'tool_use', id, name, input, parentToolUseId: null, at })
+const answer = (id: string, at = AT + 2000): AgentEvent => ({ type: 'tool_result', toolUseId: id, content: 'ok', isError: false, parentToolUseId: null, at })
 const usage = { inputTokens: 1, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }
 const result = (isError: boolean, interrupted = false): AgentEvent => ({
   type: 'result',
@@ -156,15 +158,28 @@ describe('the chat of a Product Session', () => {
     expect(screen.queryAllByTestId('product-message-number')).toEqual([])
   })
 
-  it('«the advisor is thinking» stands at the end of the chat while a turn runs and goes once it ends', () => {
+  it('the status line stands at the end of the chat while a turn runs, changes at each step and goes once it ends', () => {
     const events = [prompt('What could we sell?')]
     const { rerender } = render(<Product events={events} working />)
     const thinking = screen.getByTestId('product-thinking')
-    expect(thinking.textContent).toContain('Advisor is thinking')
+    expect(screen.getByTestId('product-status').textContent).toBe('Thinking…')
     const log = screen.getByTestId('transcript')
     expect(log.lastElementChild?.contains(thinking)).toBe(true)
-    rerender(<Product events={[...events, text('Sell to small teams first.'), result(false)]} working={false} />)
+    // A tool call the chat hides still names the step (ticket 29).
+    const reading = [...events, call('t1', 'Read', { file_path: '/Users/someone/project/docs/product/roadmap/map.md' })]
+    rerender(<Product events={reading} working />)
+    expect(screen.getByTestId('product-status').textContent).toBe('Reading map.md')
+    expect(screen.queryByTestId('transcript-tool')).toBeNull()
+    rerender(<Product events={[...reading, answer('t1'), call('t2', 'mcp__qmd__query', { searches: [] }, AT + 3000)]} working />)
+    expect(screen.getByTestId('product-status').textContent).toBe('Searching the docs')
+    rerender(<Product events={[...reading, text('Sell to small teams first.'), result(false)]} working={false} />)
     expect(screen.queryByTestId('product-thinking')).toBeNull()
+    expect(screen.queryByTestId('product-status')).toBeNull()
+  })
+
+  it('a plain Session shows no status line', () => {
+    render(<Transcript events={[prompt('Go'), call('t1', 'Read', { file_path: 'map.md' })]} sessionId="s1" projectId="p1" working />)
+    expect(screen.queryByTestId('product-status')).toBeNull()
   })
 
   it('find does not look in the rows the chat leaves out', () => {
@@ -196,7 +211,7 @@ describe('a queued message in the chat of a Product Session', () => {
     expect(chatQueue({ ...QUEUED, paused: true }, 'closed')).toEqual({ items: QUEUED.items, status: 'not-sent' })
   })
 
-  it('stands last, below «the advisor is thinking», dimmed, with «queued» and no number; several in the order sent', () => {
+  it('stands last, below the status line, dimmed, with «queued» and no number; several in the order sent', () => {
     render(<Product events={[prompt('What could we sell?')]} working queued={chatQueue(two, 'busy')} />)
     const queued = screen.getAllByTestId('product-queued')
     expect(queued.map((row) => within(row).getByTestId('product-message-bubble').textContent)).toEqual(['And for solo founders?', 'Also: pricing'])
@@ -208,8 +223,9 @@ describe('a queued message in the chat of a Product Session', () => {
     }
     const log = screen.getByTestId('transcript')
     expect(log.lastElementChild?.contains(queued[1]!)).toBe(true)
-    // «Advisor is thinking» stands before the queued messages: the running turn comes first.
+    // The status line stands before the queued messages: the running turn comes first (tickets 28, 29).
     const thinking = screen.getByTestId('product-thinking')
+    expect(within(thinking).getByTestId('product-status').textContent).toBe('Thinking…')
     expect(thinking.compareDocumentPosition(queued[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // Only one message of the chat carries a number: the one delivered.
     expect(screen.getAllByTestId('product-message-number').map((n) => n.textContent)).toEqual(['#1'])
