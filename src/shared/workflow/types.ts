@@ -131,7 +131,38 @@ export const evidenceItemSchema = z.object({
 })
 export type EvidenceItem = z.infer<typeof evidenceItemSchema>
 
+/*
+ * A Ticket over several repositories of a Project (ADR-0104): a `Repo:` line per repository, one `Branch:` for all of
+ * them, a `PR: <repo>#N` line per PR and a `Release: <repo> tag <tag>` or `Release: <repo> package <name>@<version>`
+ * line per release a consumer waits for (spec.md of Epic worfy-multi-repo-ticket, "Ticket header").
+ */
+
+/** One PR of a Ticket: the repository it is in, null for the bare `PR: #N` of a Ticket that names no repository. */
+export const ticketPrSchema = z.object({ repo: z.string().nullable(), number: z.number().int().positive() })
+export type TicketPr = z.infer<typeof ticketPrSchema>
+
+/**
+ * One `Release:` line: `kind` is `tag` or `package`, `ref` the tag or `<name>@<version>`. Kind is a plain string here,
+ * as the Evidence kinds are: a Linked machine's newer worfy may know a kind this one does not.
+ */
+export const ticketReleaseSchema = z.object({ repo: z.string(), kind: z.string(), ref: z.string() })
+export type TicketRelease = z.infer<typeof ticketReleaseSchema>
+
 export const ticketSchema = epicStatusTicketSchema.extend({
+  /*
+   * The repositories, PRs and releases of the Ticket, from its file (reader.ts, ticketHeader). Optional, and absent
+   * reads as []: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid. `repo` and
+   * `pr` above stay what they were: the Ticket of one repository is read by them as before.
+   */
+  /** Every `Repo:` line, in file order, each repository once; [] without one. */
+  repos: z.array(z.string()).optional(),
+  /**
+   * The PRs of the Ticket. With several repositories: its `PR: <repo>#N` lines in file order (a bare `#N` names no
+   * repository there and is not one of them). With one repository or none: `pr` with that repository, or [].
+   */
+  prs: z.array(ticketPrSchema).optional(),
+  /** The `Release:` lines of the header, in file order; [] without one. */
+  releases: z.array(ticketReleaseSchema).optional(),
   /** Paths in backticks from the list items of the trail section, in file order. */
   files: z.array(z.string()),
   /** False when the Ticket has no trail section at all ("files not listed"). */

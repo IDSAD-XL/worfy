@@ -21,8 +21,11 @@ import {
   readCheckout,
   readWorkflow,
   epicStatusRunner,
+  parseEpicStatus,
   REPO_URL_TTL_MS,
   repoUrlOf,
+  ticketBranches,
+  ticketHeader,
   ticketWorktrees,
   type EpicStatusRunner,
 } from '../../src/main/workflow/reader'
@@ -355,7 +358,7 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'evidence', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'evidence', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'prs', 'releases', 'repos', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
     )
   })
 
@@ -932,6 +935,162 @@ const silentProfile = (repo: string, folder: string) => ({
   name: 'silent',
   mode: 'silent',
   _resolved: { name: 'silent', mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'silent-repo', path: repo, gate_key: 'silent' }] },
+})
+
+// ── a Ticket over several repositories ───────────────────────────────────────
+
+// The header of spec.md of Epic worfy-multi-repo-ticket ("Ticket header"; ADR-0104, items 1-3, 6): one `Repo:` line per
+// repository, one `Branch:` for all of them, `PR: <repo>#N` per PR and `Release: <repo> tag <tag>` or
+// `Release: <repo> package <name>@<version>`. The repositories are not in alphabetical order, so file order shows.
+const SEVERAL_REPOS = [
+  '# 05 - One change in a library and its consumer',
+  '',
+  'Type: task',
+  'Status: claimed 2026-11-10T09:00Z',
+  'Blocked by: -',
+  'Branch: fix/lot-withdraw-flag',
+  'Repo: lib',
+  'Repo: app',
+  'PR: lib#41',
+  'PR: app#118',
+  'PR: #7',
+  'Release: lib tag lib-v1.4.0',
+  'Release: lib package @acme/lots@1.4.0',
+  'Release: lib tagless',
+  'Release: lib package no-version',
+  '',
+  '```',
+  'Repo: other',
+  'PR: other#9',
+  'Release: other tag in-a-fence',
+  '```',
+  '',
+  '## What we do',
+  '',
+  'text',
+  '',
+  '## Result',
+  '',
+  'PR: lib#77',
+  'Release: app tag app-v9',
+  '',
+].join('\n')
+
+describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-ticket 03)', () => {
+  it('reads two Repo lines, two PR <repo>#N lines and both kinds of Release line into repos, prs and releases, in file order', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    writeFileSync(join(repo, '.scratch', 'demo', 'issues', '05-several.md'), SEVERAL_REPOS)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+
+    expect(model.error).toBeNull()
+    const ticket = ticketOf(model, 5)!
+    expect(ticket.branch).toBe('fix/lot-withdraw-flag')
+    expect(ticket.repos).toEqual(['lib', 'app'])
+    // A bare #N names no repository of a Ticket over several: it is no PR of the list. A PR line after the header (in
+    // a later section) and the lines of a code fence are not the header's.
+    expect(ticket.prs).toEqual([
+      { repo: 'lib', number: 41 },
+      { repo: 'app', number: 118 },
+    ])
+    expect(ticket.releases).toEqual([
+      { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' },
+      { repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0' },
+    ])
+  })
+
+  it('a Ticket of one repository keeps the repo and pr it had before, and its prs is that one PR', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    writeFileSync(join(issues, '05-one-repo.md'), ticketText(5, 'claimed 2026-11-10T09:00Z', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nRepo: app\nPR: #12'))
+    writeFileSync(join(issues, '06-no-repo.md'), ticketText(6, 'claimed 2026-11-10T09:00Z', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nPR: #7'))
+    const run = epicStatusRunner(home, ownEnv)
+    const snapshot = parseEpicStatus(await run(repo, null))
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, run)
+
+    // Every key epic-status gives a Ticket has the value it had before the Ticket: nothing of the old model moved.
+    for (const before of snapshot.tickets) {
+      const after = model.tickets.find((t) => t.epic === before.epic && t.num === before.num)!
+      expect(Object.fromEntries(Object.keys(before).map((key) => [key, after[key as keyof typeof after]])), `Ticket ${before.num}`).toEqual(before)
+    }
+    expect(ticketOf(model, 5)).toMatchObject({ repo: 'app', pr: 12, repos: ['app'], prs: [{ repo: 'app', number: 12 }], releases: [] })
+    expect(ticketOf(model, 6)).toMatchObject({ pr: 7, repos: [], prs: [{ repo: null, number: 7 }], releases: [] })
+    expect(ticketOf(model, 6)!.repo).toBeUndefined()
+    expect(ticketOf(model, 2)).toMatchObject({ pr: null, repos: [], prs: [], releases: [] })
+  })
+
+  it('a branch of the same name in two checkouts is found in both and belongs to one Ticket; the pair (repo, branch) is the key', async () => {
+    const checkout = (name: string, branches: string[]): { name: string; path: string; heads: Map<string, string> } => {
+      const path = join(dir, name)
+      mkdirSync(path, { recursive: true })
+      git(dir, 'init', '-q', '-b', 'main', path)
+      writeFileSync(join(path, 'README.md'), `${name}\n`)
+      git(path, 'add', '-A')
+      git(path, 'commit', '-qm', name)
+      const heads = new Map<string, string>()
+      for (const branch of branches) {
+        git(path, 'branch', branch)
+        heads.set(branch, git(path, 'rev-parse', branch).trim())
+      }
+      return { name, path, heads }
+    }
+    const lib = checkout('lib', ['fix/lot-withdraw-flag', 'demo/06'])
+    const app = checkout('app', ['fix/lot-withdraw-flag', 'fix/other', 'demo/06'])
+    // A repository of the Project that the Ticket does not name: its branch of the same name is not the Ticket's.
+    const docs = checkout('docs', ['fix/lot-withdraw-flag'])
+    const notGit = { name: 'gone', path: join(dir, 'gone') }
+    const tickets = [
+      { epic: 'demo', num: 5, branch: 'fix/lot-withdraw-flag', repos: ['lib', 'app'] },
+      // No Branch line: its branch is `<epic>/<NN>`, and only in the repository it names.
+      { epic: 'demo', num: 6, branch: null, repos: ['app', 'gone'] },
+      // A Ticket of a Project of one repository names none: no branch is looked for.
+      { epic: 'demo', num: 7, branch: 'fix/other' },
+    ]
+    const before = treeState(dir)
+
+    const found = await ticketBranches([lib, app, docs, notGit], tickets)
+
+    expect(found).toEqual([
+      { repo: 'lib', path: lib.path, branch: 'fix/lot-withdraw-flag', head: lib.heads.get('fix/lot-withdraw-flag'), epic: 'demo', num: 5 },
+      { repo: 'app', path: app.path, branch: 'demo/06', head: app.heads.get('demo/06'), epic: 'demo', num: 6 },
+      { repo: 'app', path: app.path, branch: 'fix/lot-withdraw-flag', head: app.heads.get('fix/lot-withdraw-flag'), epic: 'demo', num: 5 },
+    ])
+    expect(new Set(found.filter((each) => each.branch === 'fix/lot-withdraw-flag').map((each) => `${each.epic}/${each.num}`))).toEqual(new Set(['demo/5']))
+    // Only read: every checkout, .git included, is byte-for-byte the same (ADR-0005).
+    expect(treeState(dir)).toEqual(before)
+  })
+})
+
+describe('ticketHeader: the Repo, PR and Release lines of a Ticket file', () => {
+  it('reads the lines of the header in file order, and none from a fence or after the header', () => {
+    expect(ticketHeader(SEVERAL_REPOS)).toEqual({
+      repos: ['lib', 'app'],
+      prs: [
+        { repo: 'lib', number: 41 },
+        { repo: 'app', number: 118 },
+      ],
+      releases: [
+        { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' },
+        { repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0' },
+      ],
+    })
+  })
+
+  it('reads Repo lines the way epic-status does: any spelling of the name, bold markers and backticks dropped, each repository once', () => {
+    const text = ['# 01 - x', '', 'Status: open', '**Repo:** `lib`', 'repo: app', 'Repo: lib', ''].join('\r\n')
+    expect(ticketHeader('\uFEFF' + text).repos).toEqual(['lib', 'app'])
+  })
+
+  it('skips a PR line it cannot read: a number 0, a number past the safe integers, a URL, a name with a space', () => {
+    const text = ['# 01 - x', 'Status: open', 'Repo: lib', 'Repo: app', 'PR: lib#0', 'PR: app#99999999999999999999', 'PR: https://example.invalid/pull/3', 'PR: my lib#4', 'PR: app#5', ''].join('\n')
+    expect(ticketHeader(text).prs).toEqual([{ repo: 'app', number: 5 }])
+  })
+
+  it('ends the header at the first second-level heading after the Status line, not before it', () => {
+    const text = ['# 01 - x', '## Before the status', 'Repo: lib', 'Status: open', 'Repo: app', 'PR: lib#1', '## After', 'PR: app#2', 'Release: lib tag v1', ''].join('\n')
+    expect(ticketHeader(text)).toEqual({ repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 1 }], releases: [] })
+  })
 })
 
 // ── the headings the Profile names ───────────────────────────────────────────

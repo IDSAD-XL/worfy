@@ -23,7 +23,7 @@ import { evidenceItems } from '../../shared/workflow/evidence'
 import { manualChecks } from '../../shared/workflow/manual-checks'
 import { repoPageUrl } from '../github/remote'
 import { versionOf } from '../docs/watch'
-import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
+import { branchNamesTicket, parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { cachedLinks, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
@@ -35,6 +35,8 @@ import {
   type BranchError,
   type EpicStatusSnapshot,
   type Ticket,
+  type TicketPr,
+  type TicketRelease,
   type WorkflowError,
   type WorkflowModel,
 } from '../../shared/workflow/types'
@@ -243,21 +245,97 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
  * harness/bin/tests/fixtures/ticket-title.
  */
 export function firstHeading(markdown: string): string | null {
+  for (const line of linesOutsideFences(markdown)) {
+    const match = /^#[ \t]+([^ \t].*?)[ \t]*$/u.exec(line)
+    if (match) return match[1]!
+  }
+  return null
+}
+
+/**
+ * The lines of a markdown file outside its ``` and ~~~ code blocks (the fence lines themselves dropped too), without a
+ * byte order mark at the start or a `\r` at the end of a line.
+ */
+function linesOutsideFences(markdown: string): string[] {
   // The run of ` or ~ that opened the code block we are in; '' outside code. A fence closes only with a line of the same
   // character, at least as long, and nothing after it: a ~~~ line inside a ``` block is text of the block. The same rule
   // as harness/lib/code-fence.cjs, which the Harness's ticket and epic-status share.
   let fence = ''
+  const lines: string[] = []
   for (const line of markdown.replace(/^\uFEFF/u, '').split(/\r?\n/u)) {
     const f = /^[ \t]*(`{3,}|~{3,})(.*)$/u.exec(line)
     if (fence !== '') {
       if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && /^[ \t]*$/u.test(f[2]!)) fence = ''
     } else if (f) fence = f[1]!
-    else {
-      const match = /^#[ \t]+([^ \t].*?)[ \t]*$/u.exec(line)
-      if (match) return match[1]!
+    else lines.push(line)
+  }
+  return lines
+}
+
+/** The repositories, PRs and releases a Ticket file names (ticketHeader). */
+export interface TicketHeader {
+  repos: string[]
+  prs: TicketPr[]
+  releases: TicketRelease[]
+}
+
+// The spellings epic-status reads (harness/bin/epic-status, parse): a `Repo:` or `Status:` line in any case, with bold
+// markers around the name; the value after the colon and the bold markers.
+const REPO_FIELD = /^\*?\*?repo[ \t]*\*?\*?[ \t]*:/iu
+const STATUS_FIELD = /^\*?\*?status[ \t]*\*?\*?[ \t]*:/iu
+const FIELD_VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/u
+// `PR: <repo>#N`: the repository is one word.
+const REPO_PR = /^([^\s#]+)#([0-9]+)$/u
+// `<name>@<version>`, the name may be scoped (`@acme/lots`).
+const PACKAGE_REF = /^@?[^@\s]+@[^@\s]+$/u
+
+/**
+ * The `Repo:`, `PR: <repo>#N` and `Release:` lines of a Ticket file, each list in file order (spec.md of Epic
+ * worfy-multi-repo-ticket, "Ticket header"; ADR-0104). The rules are those of epic-status: lines inside code fences do
+ * not count; `Repo:` lines anywhere in the file (bold markers and backticks dropped, each repository once); `PR:` and
+ * `Release:` lines only in the header, which ends at the first `## ` heading after the Status line. A bare `PR: #N` is
+ * not read here: it is `pr`, as epic-status gives it. A line that does not read is skipped.
+ */
+export function ticketHeader(markdown: string): TicketHeader {
+  const header: TicketHeader = { repos: [], prs: [], releases: [] }
+  let seenStatus = false
+  let inHeader = true
+  for (const line of linesOutsideFences(markdown)) {
+    if (seenStatus && line.startsWith('## ')) inHeader = false
+    if (STATUS_FIELD.test(line)) seenStatus = true
+    if (REPO_FIELD.test(line)) {
+      const repo = line.replace(FIELD_VALUE, '').replace(/[*`]/gu, '').trim()
+      if (repo !== '' && !header.repos.includes(repo)) header.repos.push(repo)
+    }
+    if (!inHeader) continue
+    if (line.startsWith('PR:')) {
+      const match = REPO_PR.exec(line.slice('PR:'.length).trim())
+      const number = match ? Number(match[2]) : 0
+      if (match && Number.isSafeInteger(number) && number > 0) header.prs.push({ repo: match[1]!, number })
+    }
+    if (line.startsWith('Release:')) {
+      const words = line.slice('Release:'.length).trim().split(/[ \t]+/u)
+      const [repo, kind, ref] = words
+      if (words.length === 3 && ((kind === 'tag' && ref !== '') || (kind === 'package' && PACKAGE_REF.test(ref!)))) header.releases.push({ repo: repo!, kind: kind!, ref: ref! })
     }
   }
-  return null
+  return header
+}
+
+/**
+ * The PRs of a Ticket: with several repositories its `PR: <repo>#N` lines; with one or none the one PR epic-status
+ * reads (`pr`), in that repository. So a Ticket of one repository has the same PR in `pr` and `prs`, also when a
+ * branch's status gives it (applyBranches).
+ */
+function prsOf(repos: readonly string[], pr: number | null | undefined, lines: TicketPr[]): TicketPr[] {
+  if (repos.length > 1) return lines
+  return pr ? [{ repo: repos[0] ?? null, number: pr }] : []
+}
+
+/** `repos`, `prs` and `releases` of a Ticket from its file; a file that could not be read gives what epic-status said. */
+function repoFacts(ticket: Pick<Ticket, 'repo' | 'pr'>, header: TicketHeader | null): Required<Pick<Ticket, 'repos' | 'prs' | 'releases'>> {
+  const repos = header?.repos ?? (ticket.repo ? [ticket.repo] : [])
+  return { repos, prs: prsOf(repos, ticket.pr, header?.prs ?? []), releases: header?.releases ?? [] }
 }
 
 /** `NN-slug.md` → the key epic-status gives the Ticket: its number and slug (same rules as the script). */
@@ -356,7 +434,8 @@ export async function enrichSnapshot(
       const evidence = markdown === null ? [] : evidenceItems(markdown, headings)
       // The version makes an edit of the text alone a change of the Ticket, so the focused Ticket reads it again.
       const version = markdown === null ? {} : { version: versionOf(markdown) }
-      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, evidence, ...version }
+      const repos = repoFacts(ticket, markdown === null ? null : ticketHeader(markdown))
+      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, evidence, ...repos, ...version }
     }),
   )
 
@@ -437,6 +516,47 @@ export async function ticketWorktrees(root: string): Promise<TicketWorktree[]> {
     if (parseTicketBranch(branch)) result.push({ path, branch, head })
   }
   return result
+}
+
+/** A branch of a Ticket in one of the repositories it names (ticketBranches). */
+export interface RepoTicketBranch {
+  /** The repository's name in the Profile (`_resolved.repos`). */
+  repo: string
+  /** Its checkout. */
+  path: string
+  branch: string
+  head: string
+  epic: string
+  num: number
+}
+
+/**
+ * The branches of the Tickets of a Project over several repositories (ADR-0104, item 2): one branch name stands in the
+ * checkout of each repository a Ticket names by its `Repo:` lines, so a branch is the Ticket's by the pair (repo,
+ * branch) — branchNamesTicket asked only of the Tickets that name that repository. Every local branch counts, checked
+ * out or not (`parallel: single` works without worktrees). In the order of `checkouts`, then of the branch names; a
+ * checkout no Ticket names is not asked, and one outside git gives nothing. Only reads.
+ */
+export async function ticketBranches(
+  checkouts: readonly { name: string; path: string }[],
+  tickets: readonly Pick<Ticket, 'epic' | 'num' | 'branch' | 'repos'>[],
+): Promise<RepoTicketBranch[]> {
+  const found = await Promise.all(
+    checkouts.map(async ({ name, path }): Promise<RepoTicketBranch[]> => {
+      const own = tickets.filter((ticket) => ticket.repos?.includes(name))
+      if (own.length === 0) return []
+      const listed = await git(path, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads']).catch(() => '')
+      const result: RepoTicketBranch[] = []
+      for (const line of listed.split('\n')) {
+        const [branch, head] = line.replace(/\r$/u, '').split('\t')
+        if (!branch || !head) continue
+        const ticket = own.find((each) => branchNamesTicket(branch, each))
+        if (ticket) result.push({ repo: name, path, branch, head, epic: ticket.epic, num: ticket.num })
+      }
+      return result
+    }),
+  )
+  return found.flat()
 }
 
 /** Runs `tasks` with at most `limit` in flight. */
@@ -539,7 +659,10 @@ export function applyBranches(checkout: CheckoutModel, branches: BranchCache): W
     const override = overrides.get(ticketKey(ticket))
     const fromBranch = override?.snapshot.ticket
     if (!override || !fromBranch || !branchOverrides(ticket.state, fromBranch.state) || fromBranch.statusRaw === ticket.statusRaw) return marked
-    return { ...marked, ...statusFacts(fromBranch), fromBranch: override.branch }
+    const facts = statusFacts(fromBranch)
+    // The PR of a Ticket of one repository comes with the branch's status: `prs` says the same as `pr`.
+    const prs = marked.prs === undefined ? {} : { prs: prsOf(marked.repos ?? [], facts.pr, marked.prs) }
+    return { ...marked, ...facts, ...prs, fromBranch: override.branch }
   })
   return { ...checkout, tickets, branchErrors }
 }

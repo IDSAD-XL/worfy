@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTicketBranch, parseWorktreeFolder } from '../../src/shared/workflow/ticket-ref'
+import { branchNamesTicket, parseTicketBranch, parseWorktreeFolder } from '../../src/shared/workflow/ticket-ref'
 
 describe('parseTicketBranch', () => {
   it('reads the <epic>/<NN> form worfy uses for its own branches', () => {
@@ -73,6 +73,32 @@ describe('parseWorktreeFolder', () => {
       '/Users/someone/repo/.claude/worktrees/07-',
     ]) {
       expect(parseWorktreeFolder(path), path).toBeNull()
+    }
+  })
+})
+
+describe('branchNamesTicket', () => {
+  it('takes the branch its Branch line names, and the <epic>/<NN> forms of the Ticket besides', () => {
+    const ticket = { epic: 'lots', num: 5, branch: 'fix/lot-withdraw-flag' }
+    expect(branchNamesTicket('fix/lot-withdraw-flag', ticket)).toBe(true)
+    expect(branchNamesTicket('lots/05', ticket)).toBe(true)
+    expect(branchNamesTicket('lots/05-withdraw', ticket)).toBe(true)
+    expect(branchNamesTicket('fix/lot-withdraw', ticket)).toBe(false)
+    expect(branchNamesTicket('fix/lot-withdraw-flag-2', ticket)).toBe(false)
+  })
+
+  it('without a Branch line takes only the <epic>/<NN> forms of that Epic and number', () => {
+    for (const ticket of [
+      { epic: 'lots', num: 5 },
+      { epic: 'lots', num: 5, branch: null },
+      { epic: 'lots', num: 5, branch: '' },
+    ]) {
+      expect(branchNamesTicket('lots/05', ticket)).toBe(true)
+      expect(branchNamesTicket('refs/heads/lots/5', ticket)).toBe(true)
+      expect(branchNamesTicket('lots/06', ticket)).toBe(false)
+      expect(branchNamesTicket('other/05', ticket)).toBe(false)
+      expect(branchNamesTicket('main', ticket)).toBe(false)
+      expect(branchNamesTicket('', ticket)).toBe(false)
     }
   })
 })

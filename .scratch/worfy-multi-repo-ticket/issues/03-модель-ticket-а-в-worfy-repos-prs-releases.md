@@ -1,7 +1,7 @@
 # 03 — Модель Ticket-а в worfy: `repos`, `prs`, `releases`; ветка по паре (repo, branch)
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T18:58Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Шапка Ticket-а» (формат) и «epic-status, wave-brief, Pipeline board»
 («Модель в worfy», `reader.ts:422`); «Ticket-ы», «Волны» (Wave 1); «Решения владельца 2026-11-09», Q1, Q2;
