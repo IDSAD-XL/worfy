@@ -148,6 +148,11 @@ time with Back and Next. The options are buttons with descriptions, or switches 
 the user's own words. 1–4 pick an option and Enter goes on. "Submit" works once every question has an answer. "Decline"
 refuses the call. The card has no "Always allow".
 
+**A window that missed the request.** A window that opened or reloaded after a request or a question went out asks main
+for the open ones and draws their cards, so a Session at "needs permission" always has its card. The Node's badge then
+tells a question ("Waits for answer") from a permission request ("Needs permission") as before. Should main have no open
+request either, the chat says the Session waits for an answer this window cannot show; Interrupt refuses it.
+
 **Attachments.** "+", a drop anywhere on the chat and a pasted image all add a chip. A message takes 20 attachments.
 
 - Images: PNG, JPEG, GIF and WebP, up to 3.75 MB each.

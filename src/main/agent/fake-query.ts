@@ -51,7 +51,8 @@
 //                                    bypassPermissions included, with requiresUserInteraction, as
 //                                    Claude Code does. Its result is the text Claude Code gives the
 //                                    model for the answer (questionResultText), recorded from the real
-//                                    binary in test/contract/ask-user-question-sdk.test.ts
+//                                    binary in test/contract/ask-user-question-sdk.test.ts. "agentID":
+//                                    the Subagent that asks, as for a `permission` line
 // In SDK messages, "{{session}}" becomes the SDK session id (the id passed as `resume`, else the one
 // passed as `sessionId`, else a new uuid), "{{cwd}}" the Session's cwd and "{{home}}" the user's
 // home folder (os.homedir()). After the last line the
@@ -191,7 +192,7 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     crash: null,
     bypassImmune: true,
     decisionReason: null,
-    agentID: null,
+    agentID: typeof value.agentID === 'string' ? value.agentID : null,
     cwd: null,
     scratchpad: null,
   }),

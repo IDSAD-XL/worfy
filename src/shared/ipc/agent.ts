@@ -19,12 +19,15 @@
 // worfy-ui ticket 17: Claude Code's questions with answer options arrive as a `question_request`
 // event and `agent.answerQuestion` answers them.
 //
+// worfy-product-session ticket 30: `agent.requests` answers the requests still open, for a window that did
+// not see their events go out.
+//
 // worfy-flight-recorder ticket 22: an Autopilot command typed in a chat starts Autopilot instead of
 // reaching the agent, and `agent.send` answers what became of it.
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
-import { agentEventEnvelope, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
+import { agentEvent as agentEventSchema, agentEventEnvelope, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { capabilitiesSchema } from '../vendors/capabilities'
@@ -90,6 +93,13 @@ export const agentList = invokeChannel('agent.list', z.void(), z.array(z.object(
 /** The Session's settings and queue as they are now. */
 export const agentControls = invokeChannel('agent.controls', z.object({ sessionId }), z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema }), 'project', 'read')
 
+/**
+ * The permission and question requests of the Session still open, as their `permission_request` and
+ * `question_request` events went out (worfy-product-session ticket 30): a window that opened or reloaded
+ * after a request went out never got its event, so its view asks for them to draw the cards.
+ */
+export const agentRequests = invokeChannel('agent.requests', z.object({ sessionId }), z.object({ requests: z.array(agentEventSchema) }), 'project', 'read')
+
 /** Changes some of the model, effort and permission mode; answers the settings now in force. */
 export const agentConfigure = invokeChannel('agent.configure', z.object({ sessionId, change: settingsChangeSchema }), sessionSettingsSchema, 'project', 'write')
 
@@ -149,6 +159,7 @@ declare module './channels' {
     'agent.close': typeof agentClose
     'agent.list': typeof agentList
     'agent.controls': typeof agentControls
+    'agent.requests': typeof agentRequests
     'agent.configure': typeof agentConfigure
     'agent.models': typeof agentModels
     'agent.capabilities': typeof agentCapabilities

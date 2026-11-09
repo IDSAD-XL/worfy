@@ -153,6 +153,23 @@ export async function loadControls(sessionId: string): Promise<void> {
   update(sessionId, (log) => ({ ...log, queue: log.queue ?? result.value.queue, settings: log.settings ?? result.value.settings }))
 }
 
+/**
+ * Asks main for a Session's open permission and question requests (worfy-product-session ticket 30), for a
+ * view whose window did not see their events go out — it opened or reloaded after them — while the Session
+ * stands at `needs_permission`. A request the log already holds, opened or resolved, is not added again;
+ * the others are taken as if they had just arrived, so their cards are drawn at the end of the transcript.
+ */
+export async function loadOpenRequests(sessionId: string): Promise<void> {
+  const result = await invoke('agent.requests', { sessionId })
+  if (!result.ok) {
+    console.error(`agent.requests ${sessionId} failed:`, result.error)
+    return
+  }
+  const known = new Set<string>()
+  for (const event of useSessionLogs.getState().logs[sessionId]?.events ?? EMPTY) if ('requestId' in event) known.add(event.requestId)
+  for (const event of result.value.requests) if ('requestId' in event && !known.has(event.requestId)) acceptAgentEvent({ sessionId, event })
+}
+
 let subscribed = false
 
 /** Subscribes to `agent.event` once for the whole renderer; safe to call on every render. */

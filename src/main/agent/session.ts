@@ -75,7 +75,7 @@ import { CLAUDE_CAPABILITIES, type Capabilities } from '../../shared/vendors/cap
 import type { VendorDriver } from '../vendors/driver'
 import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
 import { shownAttachments } from './attachments'
-import { PermissionGate } from './permissions'
+import { PermissionGate, type OpenRequestEvent } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { mergeSettings } from './session/models'
 import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, stopWaiting, waitForExit, within } from './session/process'
@@ -247,6 +247,11 @@ export class Session {
 
   controls(): SessionControls {
     return { settings: this.settings, queue: this.queue.snapshot() }
+  }
+
+  /** The permission and question requests still open, as their events went out (agent.requests, worfy-product-session ticket 30). */
+  openRequests(): OpenRequestEvent[] {
+    return this.permissions.openRequests()
   }
 
   /**

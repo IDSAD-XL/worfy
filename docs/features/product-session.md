@@ -76,7 +76,8 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   The numbers count the messages the view has read: with "Load earlier" not pressed, they start at the first message
   loaded. The chips of Mind map nodes stand under the message that made them.
 - A turn that failed shows its error, an interrupted turn shows "Interrupted", and an error of the Session shows too.
-  Permission requests and the advisor's questions with options are cards in the chat, as in any Session.
+  Permission requests and questions with options, the advisor's own and its Subagents', are cards in the chat, as in
+  any Session. They stay inside the narrowest chat, and a window that reloaded while one was open draws it again.
 - Thinking, tool calls and their output (a failed call too), Subagents, hooks, Claude Code's notices and the messages it
   adds, "Turn finished" and slash commands are not shown. The whole log is in the Flight Recorder.
 - While a turn runs, "Advisor is thinking" stands at the end of the chat. There is no switch to show the details.
@@ -180,6 +181,9 @@ changes make one message. One signal runs at a time per Project.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip, its four panels and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
+- `test/e2e/product-session.spec.ts` (question and permission cards), `test/unit/waiting-requests.test.tsx`,
+  `test/contract/permissions.test.ts` (`agent.requests`): the cards of the Session and its Subagents in the narrow chat,
+  and the open requests a reloaded window asks main for.
 
 ## Mind map
 
