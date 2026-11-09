@@ -232,7 +232,10 @@ and the reason.
 **By hand.** The owner only moves nodes and folds branches; what a node says is the advisor's, and the card has no field
 to type in.
 
-- A node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. Its new place is saved in the file.
+- A node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. In "Tree" its new place is saved in
+  the file. In "Graph" a drag moves the node only until the map is laid out again (a node added, a text changed, a
+  branch folded, the view switched) and saves nothing; "Graph" also ignores the places saved in the file, which are
+  "Tree" places.
 - The fold mark of a node with children, or ← and → on the node, folds and unfolds its branch. A folded mark tells how
   many nodes it hides. The fold is saved in the file.
 - When the change cannot be saved, the map says "Could not save the change:" and the reason.
@@ -294,8 +297,9 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 **Layout.** The Mind map is drawn with React Flow. ELK lays out "Tree" in the window's Web Worker with `mrtree`; until
 ELK answers, a quick tree layout draws it. "Graph" is laid out at once in the window by the prototype's algorithm: the
 leaves spread round the topic, each parent at the mean direction of its children, then springs on the arrows and
-pushes between boxes, and a last pass that moves a node straight away from the topic until it overlaps no other. A node with `x` and `y` in the file stands where
-the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
+pushes between boxes, and a last pass that moves a node straight away from the topic until it overlaps no other; it
+runs once per change of what it reads (the nodes, their parents, texts, kinds and fold marks). In "Tree" a node with `x`
+and `y` in the file stands where the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
 out again.
 
 ### Implementation

@@ -424,11 +424,15 @@ export async function layoutElk(graph: MapGraph, elk: ElkEngine): Promise<Placem
  */
 const RADIAL = { across: 170, down: 105, spring: 120, margin: 12, rounds: 700 } as const
 /**
- * Node-rounds a layout may take, so a map of thousands of nodes still lays out at once: a map of up to 300
- * nodes gets the prototype's 700 rounds, a larger one fewer (never under 40), and the last pass keeps the
- * boxes apart whatever the rounds left.
+ * Node-rounds a layout may take: it runs on the window's main thread, so its time is bounded whatever the
+ * map's size. A map of up to 57 nodes gets the prototype's 700 rounds, a larger one fewer (150 nodes 266, 300
+ * nodes 133, never under RADIAL_ROUNDS_MIN); the last pass keeps the boxes apart whatever the rounds left.
+ * Measured on the owner's Mac (Node, nine runs each, under a load average of about 45, so the median is
+ * mostly waiting for a core): 150 nodes 16 ms at best and 22 ms median, 300 nodes 19 and 47 ms, 1000 nodes
+ * 25 and 45 ms, 3000 nodes 40 and 65 ms. MindMap.tsx runs it once per layout key, not per topic.
  */
-const RADIAL_BUDGET = 210_000
+const RADIAL_BUDGET = 40_000
+const RADIAL_ROUNDS_MIN = 10
 /** The room the last pass keeps between two boxes, px. */
 const RADIAL_APART = 6
 
@@ -486,26 +490,43 @@ export function layoutRadial(graph: MapGraph): Placement {
     }
     angle[index] = Math.atan2(sumY, sumX)
   }
+  // Each depth one ring further out, as in the prototype; where the nodes up to a depth need more room than
+  // the ellipse inside its ring has, the ring goes out until they have it (a large map only: the prototype's
+  // maps never fill one), so the rounds do not start with hundreds of boxes in one place, which makes them slow.
+  const onRing: number[] = []
+  let room = 0
+  for (let index = 0; index < count; index += 1) {
+    onRing[depth[index]!] = (onRing[depth[index]!] ?? 0) + 1
+    room += (width[index]! + RADIAL.margin) * (height[index]! + RADIAL.margin)
+  }
+  const ring: number[] = [0]
+  let inside = 1
+  for (let at = 1; at < onRing.length; at += 1) {
+    inside += onRing[at] ?? 0
+    ring[at] = Math.max(ring[at - 1]! + 1, Math.sqrt((inside * room) / count / (Math.PI * RADIAL.across * RADIAL.down)))
+  }
   const x = new Float64Array(count)
   const y = new Float64Array(count)
   for (let index = 1; index < count; index += 1) {
-    x[index] = Math.cos(angle[index]!) * depth[index]! * RADIAL.across
-    y[index] = Math.sin(angle[index]!) * depth[index]! * RADIAL.down
+    x[index] = Math.cos(angle[index]!) * ring[depth[index]!]! * RADIAL.across
+    y[index] = Math.sin(angle[index]!) * ring[depth[index]!]! * RADIAL.down
   }
 
   // The rounds. `cell` is at least the largest box and the margin: two boxes that touch lie in neighbouring cells.
   const cell = Math.max(width.reduce((most, each) => Math.max(most, each), 0), height.reduce((most, each) => Math.max(most, each), 0)) + RADIAL.margin
   const cellKey = (column: number, row: number): number => (column + 2 ** 20) * 2 ** 21 + (row + 2 ** 20)
-  const rounds = Math.min(RADIAL.rounds, Math.max(40, Math.floor(RADIAL_BUDGET / count)))
+  const rounds = Math.min(RADIAL.rounds, Math.max(RADIAL_ROUNDS_MIN, Math.floor(RADIAL_BUDGET / count)))
   for (let round = 0; round < rounds; round += 1) {
     const cool = 1 - round / rounds
     for (let index = 1; index < count; index += 1) {
       const up = parent[index]!
       if (up < 0) continue
-      const [dx, dy] = [x[index]! - x[up]!, y[index]! - y[up]!]
-      const distance = Math.hypot(dx, dy) || 1
+      const dx = x[index]! - x[up]!
+      const dy = y[index]! - y[up]!
+      const distance = Math.sqrt(dx * dx + dy * dy) || 1
       const pull = (distance - RADIAL.spring) * 0.04 * cool
-      const [pullX, pullY] = [(dx / distance) * pull, (dy / distance) * pull]
+      const pullX = (dx / distance) * pull
+      const pullY = (dy / distance) * pull
       if (up !== 0) {
         x[up] = x[up]! + pullX
         y[up] = y[up]! + pullY
@@ -528,9 +549,12 @@ export function layoutRadial(graph: MapGraph): Placement {
     for (let a = 0; a < count; a += 1) {
       for (let column = columns[a]! - 1; column <= columns[a]! + 1; column += 1) {
         for (let row = rows[a]! - 1; row <= rows[a]! + 1; row += 1) {
-          for (const b of grid.get(cellKey(column, row)) ?? []) {
+          const near = grid.get(cellKey(column, row))
+          if (near === undefined) continue
+          for (const b of near) {
             if (b <= a) continue
-            const [dx, dy] = [x[b]! - x[a]!, y[b]! - y[a]!]
+            const dx = x[b]! - x[a]!
+            const dy = y[b]! - y[a]!
             const overX = (width[a]! + width[b]!) / 2 + RADIAL.margin - Math.abs(dx)
             const overY = (height[a]! + height[b]!) / 2 + RADIAL.margin - Math.abs(dy)
             // The root (index 0, always `a`) never moves: the other box takes the whole push.
@@ -547,7 +571,7 @@ export function layoutRadial(graph: MapGraph): Placement {
               }
             } else if (repel) {
               // A weak push between near boxes keeps the branches apart.
-              const distance = Math.hypot(dx, dy) || 1
+              const distance = Math.sqrt(dx * dx + dy * dy) || 1
               const push = (900 / (distance * distance)) * cool
               if (a !== 0) {
                 x[a] = x[a]! - (dx / distance) * push

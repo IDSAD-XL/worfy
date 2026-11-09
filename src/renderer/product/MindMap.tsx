@@ -32,6 +32,7 @@ import {
   graphEdgePath,
   layoutElk,
   layoutKey,
+  layoutRadial,
   layoutSync,
   linesIn,
   MIND_MAP_FONT,
@@ -61,7 +62,8 @@ import './mind-map.css'
 // drag of the background pans. A click on a node opens its card.
 //
 // By hand the owner only moves nodes and folds branches (ticket 09): a node of mind-map.json dragged and
-// let go, and the fold mark of a node with children (or ArrowLeft and ArrowRight on the node), ask main
+// let go in the Tree (in the Graph a drag moves the node until the next layout and writes nothing, ticket 26),
+// and the fold mark of a node with children (or ArrowLeft and ArrowRight on the node), ask main
 // to write its `x` and `y` or its `collapsed` through `product.layout`, the same writer as the advisor's
 // tools; the screen writes no file and keeps the dragged place only until main's change comes back. What a
 // node says is the advisor's: its card has no field to type in. A read-only screen (a Linked machine)
@@ -415,6 +417,8 @@ function whereIs(all: MapGraph, drawn: MapGraph, id: string): { folded: string[]
   return { folded, shownAs: isDrawn(id) ? id : isDrawn(top) ? top : null }
 }
 
+const NO_MOVES: ReadonlyMap<string, { x: number; y: number }> = new Map()
+
 /** The places with the nodes being dragged, or let go and not yet written back, where the owner put them. */
 function withDragged(placement: Placement, dragged: ReadonlyMap<string, { x: number; y: number }>): Placement {
   if (dragged.size === 0) return placement
@@ -552,7 +556,7 @@ function mergedPlaces(graph: MapGraph, elk: Placement, sync: Placement): Placeme
  * place is drawn next to its parent (`mergedPlaces`). The synchronous layout draws before ELK's first
  * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
  */
-function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; byElk: boolean } {
+function usePlacement(graph: MapGraph, view: MindMapView): { key: string; placement: Placement; byElk: boolean } {
   // Once per graph and view, not per drawing: the key strings every node's text.
   const key = useMemo(() => layoutKey(graph, view), [graph, view])
   // `placement` null: ELK failed on those inputs.
@@ -593,12 +597,22 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
     }
     send()
   }, [key, graph, view])
+  // The Graph's places, once per layout key (ticket 26, review round 2): it runs on this thread, so a new
+  // topic that changes no node's parent, text, kind or fold mark — a place written back, a status — lays
+  // out nothing again, and the places keep their identity.
+  const radial = useMemo(
+    () => (view === 'graph' ? layoutRadial(graph) : null),
+    // `key` stands for `graph` and `view`: the same nodes in a new graph get the same places.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
+  )
   const elkPlaces = answer?.view === view ? answer.placement : null
   const placement = useMemo(() => {
-    const sync = layoutSync(graph, view)
+    if (radial !== null) return radial
+    const sync = layoutSync(graph, 'tree')
     return elkPlaces === null ? sync : mergedPlaces(graph, elkPlaces, sync)
-  }, [elkPlaces, graph, view])
-  return { placement, byElk: elkPlaces !== null }
+  }, [radial, elkPlaces, graph])
+  return { key, placement, byElk: elkPlaces !== null }
 }
 
 /** «−», «+» and «Fit»; `onMoved` hears whether the owner set the zoom by hand (true) or fitted the map (false). */
@@ -898,7 +912,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const readOnly = useReadOnly()
   const whole = useMemo(() => buildMindMapGraph(topic, { hideRejected }), [topic, hideRejected])
   const { graph, folds } = useMemo(() => foldBranches(whole), [whole])
-  const { placement, byElk } = usePlacement(graph, view)
+  const { key: layoutAt, placement, byElk } = usePlacement(graph, view)
 
   // The places the owner dragged nodes to, until the file shows them: checked again with each new topic.
   const [dragged, setDragged] = useState<ReadonlyMap<string, { x: number; y: number }>>(() => new Map())
@@ -907,6 +921,18 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     setSeenTopic(topic)
     setDragged(pendingDrags(dragged, topic))
   }
+  // The places the owner dragged nodes to in the Graph (ticket 26, review round 2): for this layout only,
+  // never written. A place in the file is the Tree's, which grows left to right from the topic; the Graph
+  // lays out round the topic, so the Graph neither reads nor writes one. A new layout (another layout key)
+  // or a switch of the view drops them.
+  const [graphMoves, setGraphMoves] = useState<{ key: string; places: ReadonlyMap<string, { x: number; y: number }> }>(() => ({ key: '', places: new Map() }))
+  const movedInGraph = graphMoves.key === layoutAt ? graphMoves.places : NO_MOVES
+  const moveInGraph = (moves: readonly { id: string; at: { x: number; y: number } }[]): void =>
+    setGraphMoves((was) => {
+      const next = new Map(was.key === layoutAt ? was.places : NO_MOVES)
+      for (const { id, at } of moves) next.set(id, at)
+      return { key: layoutAt, places: next }
+    })
   const [writeError, setWriteError] = useState<string | null>(null)
 
   // Every node of the topic, the rejected ones too: where a chip's node is when the screen hides it.
@@ -920,7 +946,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const chatOpen = useMindMapFocus((state) => (state.chats[projectId] ?? 0) > 0)
   const showInChat = onShowMessage ?? (chatOpen ? (message: string) => showMessage(projectId, message) : undefined)
 
-  const shown = useMemo(() => withDragged(withFilePlaces(graph, placement), dragged), [graph, placement, dragged])
+  const shown = useMemo(
+    () => (view === 'graph' ? withDragged(placement, movedInGraph) : withDragged(withFilePlaces(graph, placement), dragged)),
+    [view, graph, placement, dragged, movedInGraph],
+  )
   const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
@@ -960,6 +989,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
       change.type === 'position' && change.position !== undefined && change.dragging === true && change.id === dragging.current ? [{ id: change.id, at: change.position }] : [],
     )
     if (moves.length === 0) return
+    if (view === 'graph') {
+      moveInGraph(moves)
+      return
+    }
     setDragged((was) => {
       const next = new Map(was)
       for (const { id, at } of moves) next.set(id, { x: at.x, y: at.y })
@@ -971,6 +1004,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     dragging.current = null
     // Whole pixels: the file stays readable, and the place written is the place the screen keeps.
     const at = { x: Math.round(node.position.x), y: Math.round(node.position.y) }
+    if (view === 'graph') {
+      moveInGraph([{ id: node.id, at }])
+      return
+    }
     setDragged((was) => new Map(was).set(node.id, at))
     write({ id: node.id, ...at }, () =>
       setDragged((was) => {
@@ -1071,6 +1108,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
 
   const choose = (next: MindMapView) => {
     setChosen({ key: storeKey, view: next })
+    setGraphMoves({ key: '', places: NO_MOVES })
     writeView(storeKey, next)
   }
 

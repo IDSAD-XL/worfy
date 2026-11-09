@@ -1,8 +1,9 @@
 // The graph and the layouts of the Mind map (src/renderer/product/mind-map-layout.ts, worfy-product-session
 // ticket 08): `replaces` never joins the tree the layout gets, so it makes no cycle there; a node of a
 // broken file, or one on a cycle main could not check, hangs from the root; «Hide rejected» leaves out a
-// rejected Decision with its branch; 150 nodes are laid out by ELK (without its worker, as the Canvas's
-// tests run it) in both views with no two boxes overlapping. WORFY_MIND_MAP_TIMING=1 prints the times.
+// rejected Decision with its branch; 150 nodes are laid out by ELK's Tree (without its worker, as the
+// Canvas's tests run it) and synchronously in both views with no two boxes overlapping; the Graph is radial
+// (ticket 26). WORFY_MIND_MAP_TIMING=1 prints the times.
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
