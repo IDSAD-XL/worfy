@@ -1710,6 +1710,7 @@ else echo "the Workflow folder is not a git repository of its own: the files are
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket (with deploy in the Pipeline — each DEPLOYED one); with local-green — without --pr
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <repo>#<N> --pr <repo>#<N>   # a ticket of several repositories: one --pr per Repo: line, once all its PRs are merged
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason it was rejected by the gate>"   # for each removed one; the reason in the docs' language
 ```
 
@@ -1843,23 +1844,26 @@ round, a narrow round.
 
 In Silent mode the status is one, in the Workflow folder, and a ticket names its branch in the `Branch:`
 line: the wave is read from those lines, not from the `<epic>/*` branches. `<repo>` is the main
-checkout; a ticket with a `Repo:` line is looked up in that repository:
+checkout; a ticket with a `Repo:` line is looked up in that repository, and a ticket with several
+`Repo:` lines in each of them — a row per repository, `in <its name>` after the branch's state:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@"; }
 (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json) \
-  | jq -r '.tickets[] | select(.epic=="<epic>" and .state!="open") | [.num, .state, (.branch // "-"), (.repo // "-")] | @tsv' \
-  | tr -d '\r' | while IFS=$'\t' read -r n st b r; do
+  | jq -r '.tickets[] | select(.epic=="<epic>" and .state!="open") | [.num, .state, (.branch // "-")] + ((.repos | length) as $k | (.repos // [.repo // "-"])[] | [., (if $k > 1 then " in " + . else "" end)]) | @tsv' \
+  | tr -d '\r' | while IFS=$'\t' read -r n st b r at; do
       d=<repo>; [ "$r" = - ] || d=$(F _resolved.repos | jq -r --arg r "$r" '.[] | select(.name==$r) | .path' | tr -d '\r')
       if [ "$b" = - ]; then w="no Branch: line"
       elif git -C "$d" rev-parse --verify -q "refs/heads/$b" >/dev/null; then w="local branch"
       elif git -C "$d" rev-parse --verify -q "refs/remotes/origin/$b" >/dev/null; then w="on origin only"
       else w="no such branch"; fi
-      printf '%s\t%s\t%s\t%s\n' "$n" "$st" "$b" "$w"
+      printf '%s\t%s\t%s\t%s%s\n' "$n" "$st" "$b" "$w" "$at"
     done
 ```
 
-With `pr-green-ci` the ticket's PR is `gh pr list --head <branch> --state all`; with `local-green` its
+With `pr-green-ci` the ticket's PR is `gh pr list --head <branch> --state all` (a ticket of several
+repositories: run it in each checkout, `cd <checkout> && gh pr list …`; its `PR: <repo>#N` lines name
+the PRs already opened); with `local-green` its
 verdicts are the `gate:` lines of its file. The rest of this section reads the same, with "the ticket's
 branch" meaning that branch. In Full mode:
 

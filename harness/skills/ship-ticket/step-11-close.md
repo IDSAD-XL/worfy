@@ -90,6 +90,7 @@ the fast-forward. With `pr-green-ci`:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr (step 3 above)
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <repo>#<N> --pr <repo>#<N>   # several Repo: lines: one --pr per repository, once all are merged
 ```
 
 With `deploy` in the Pipeline (section 0) `ticket done` waits for the deploy: skill

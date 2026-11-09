@@ -28,6 +28,11 @@ the order of merge, the library first and its consumers after it. There is no wo
 - Each repository has its own gate entry: run the checks and the gate fast in each checkout
   (`cd <checkout> && …`), each with its exit code, and report them per repository. Paths in the
   report start with the name of the repository: `app/src/lots.ts`.
+- Every Evidence line of yours (`implementer-finish.md`) carries `--repo <its repository>`: the line
+  is bound to the HEAD of that repository's checkout, and its ref starts with `[<repo>] `. A test run
+  or a gate is a line per checkout, under the same item. Without `--repo` the command, run from the
+  folder above the repositories, refuses (no git HEAD there), and run from one checkout it binds that
+  checkout's commit with no repository named.
 - Each change is safe on its own: the library change is backward compatible, so a consumer that
   still uses its old version keeps working after the library is merged and released. The reviewer
   checks this.
