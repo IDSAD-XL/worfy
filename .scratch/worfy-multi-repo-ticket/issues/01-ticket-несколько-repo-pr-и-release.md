@@ -1,7 +1,7 @@
 # 01 — `ticket`: несколько `--repo`, `PR: <repo>#N`, `ticket pr`, `ticket release`, `done` только с полным набором PR
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T18:58Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Шапка Ticket-а (Ticket 01; Q1, Q2)»; «Решено без владельца»; «Ticket-ы»,
 «Волны» (Wave 1); «Решения владельца 2026-11-09», Q1–Q4; [ADR-0104](../../../docs/adr/0104-one-ticket-several-repositories.md),

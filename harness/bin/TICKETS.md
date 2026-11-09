@@ -39,14 +39,60 @@ Source: …
 - `Waits: owner | team | agent | <machine name>` — who the ticket waits for (`team` — other people,
   for example reviewers). `ticket block … --waits <who>` writes it; `claim`, `open` and `done`
   remove it together with `Blocked reason:`.
-- `PR: #<N>` — `ticket done … --pr N` (Full mode; Silent mode has no `--pr`).
-- `Branch:`, `Repo:`, `Type:`, `Blocked by:`, `Source:` — as before.
+- `PR: #<N>` — `ticket done … --pr N` (Full mode; Silent mode has no `--pr`), or `ticket pr <epic> <NN> #N` when
+  the PR is open.
+- `Branch:`, `Repo:`, `Type:`, `Blocked by:`, `Source:` — as before. `ticket claim … --branch B --repo R` writes
+  `Branch:` and `Repo:`; the name of a repository comes from `_resolved.repos` of the profile.
 - `Roles: <role>, <role>` — optional: the roles whose Browser checks the ticket needs (for example
   `Roles: admin, user`); a role is the name of a Browser profile. No script reads it: skill
   `epic-wave` copies it into the brief's `Browser roles` line, and without it the brief says
   `Default`.
-`Blocked reason:`, `Waits:` and `PR:` are read only in the header: up to the first `## ` heading after
-the Status line. A `PR: <url>` line of a result section is not the ticket's PR.
+`Blocked reason:`, `Waits:`, `PR:`, `Release:` and `Repo:` are read only in the header: up to the first `## `
+heading after the Status line. A `PR: <url>` line of a result section is not the ticket's PR.
+
+**Ticket of several repositories**
+A ticket of a project of several repositories that changes more than one of them: a library and its
+consumer, for example. Its header names each repository on a `Repo:` line; the ticket of one repository, or of none
+named, keeps the lines above as they are, byte for byte.
+
+```text
+Status: claimed 2026-11-10T09:00Z
+PR: lib#41
+PR: app#118
+Release: lib tag lib-v1.4.0
+Branch: fix/lot-withdraw-flag
+Repo: lib
+Repo: app
+```
+
+- `Repo:` — a line per repository, a name from `_resolved.repos` of the profile. The order of the lines is the
+  order of merge: the library first, its consumers after it. `ticket claim <epic> <NN> --repo lib --repo app`
+  writes them in the order of the arguments; a later claim with `--repo` replaces the set. A name given twice is
+  refused.
+- `Branch:` — one line: one branch name in every repository of the ticket.
+- `PR: <repo>#N` — a line per PR, with the name of its repository: PR numbers of two repositories may be equal.
+  `ticket pr <epic> <NN> <repo>#N` writes it when the PR is open, and replaces the line of that repository where it
+  stands. A bare `#N`, or a repository that is not a `Repo:` line of the ticket, is exit 2 and nothing is written.
+  `ticket pr` does not touch the Status line.
+- `Release: <repo> tag <tag>` or `Release: <repo> package <name>@<version>` — what a consumer waits for: a tag of
+  the library repository, or a published version of its package. `ticket release <epic> <NN> <repo> tag <tag>`
+  (or `… <repo> package <name>@<version>`) writes it; there may be several lines, and the same line is written once.
+  `<repo>` is a `Repo:` line of the ticket. These two kinds are the only ones: any other kind, a tag git would refuse
+  as a name, or a package without `@<version>` is exit 2 and nothing is written.
+- `ticket done <epic> <NN> --pr <repo>#N` — `--pr` once per PR. `done` writes `Status: done` only when every
+  `Repo:` line has its `PR:` line — given in this call or written before by `ticket pr`; otherwise exit 2, the
+  missing repositories named, and nothing written. A bare `--pr N`, two PRs of one repository, or a repository
+  outside the `Repo:` lines are exit 2 as well. There is no status of its own for a ticket merged in some of its
+  repositories: it stays `claimed` until the last PR is merged.
+- `claim`, `open` and `block` keep every `PR:` and `Release:` line. The group lines stand after Status in the order
+  `Blocked reason:`, `Waits:`, `PR:`, `Release:`; `Branch:` and `Repo:` stay where they are.
+- `ticket evidence … --repo R [--sha S]` binds an Evidence line to a commit of repository R, a `Repo:` line of the
+  ticket: the ref starts with `[R] `, and without `--sha` the sha is the HEAD of R's checkout (`_resolved.repos`), not
+  of the working directory. The grammar of the line is the same (below): the repository is part of the ref.
+- `ticket mark` puts a commit status into the repository whose checkout holds the marked commit; a commit of
+  none of them is refused. In Silent mode a mark goes to the marks file, as for a ticket of one repository.
+- Paths in the trail section of the ticket (the heading `tickets.trail_section` of the profile) start with the name
+  of the repository: `app/src/lots.ts`. Otherwise `src/index.ts` of two repositories looks like one shared file.
 
 The header may stand before the title or after it. The title is the first H1 on any line: `#`, a space
 or a tab, then the text, with trailing spaces and tabs dropped. Lines inside ```` ``` ```` and `~~~`

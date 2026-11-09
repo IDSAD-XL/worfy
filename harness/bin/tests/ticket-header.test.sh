@@ -211,6 +211,131 @@ out="$("$TICKET" done fen 02 --root "$F" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(fstate 2)" = "done/-" ] && [ "$(sed -n 3p "$FE/02-four.md")" != "Status: open" ] && grep -Eqx "Status: done $NOW" "$FE/02-four.md" \
     && ok "ticket done on 02 writes the header line, and epic-status reads 02 as done" || bad "ticket done fen 02: exit $rc, $out, state $(fstate 2)"
 
+# ── 7c. a ticket of several repositories: Repo: per repository, one Branch:, PR: <repo>#N, Release: ───
+# In their own tickets root. No profile: --root outside the registry, so the names are not checked against
+# _resolved.repos (ticket-mark.test.sh and ticket-evidence.test.sh run with one).
+M="$T/multi/.scratch"; ME="$M/mr/issues"; mkdir -p "$ME"
+mk() { printf '%s\n' "# $1 — a ticket" '' 'Type: task' 'Status: open' "${@:2}" 'Blocked by: —' '' '## What to build' '' 'text' >"$ME/$1-t.md"; }
+mt() { "$TICKET" "$@" --root "$M"; }
+# hdr <NN>: the header lines from Status up to Blocked by, joined by "|", the time replaced by T.
+hdr() { sed -n '/^Status:/,/^Blocked by:/p' "$ME/$1-t.md" | sed -E "s/$NOW/T/" | tr '\n' '|'; }
+mk 01
+out="$(mt claim mr 01 --branch fix/lot-flag --repo lib --repo app 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 01)" = "Status: claimed T|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "claim --repo lib --repo app: two Repo: lines in the order of the arguments, one Branch:" || bad "claim two repos: exit $rc, $out, header $(hdr 01)"
+mt claim mr 01 --repo app --repo lib >/dev/null 2>&1
+[ "$(hdr 01)" = "Status: claimed T|Branch: fix/lot-flag|Repo: app|Repo: lib|Blocked by: —|" ] \
+    && ok "a second claim with --repo replaces the set of Repo: lines, in the new order" || bad "claim reorder: $(hdr 01)"
+mt claim mr 01 --repo lib --repo app >/dev/null 2>&1
+out="$(mt claim mr 01 --repo lib --repo lib 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"named twice"* ]] && ok "claim with one --repo given twice -> exit 1" || bad "claim lib lib: exit $rc, $out"
+
+# ticket pr
+cp "$ME/01-t.md" "$T/m01"
+out="$(mt pr mr 01 '#41' 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"<repo>#N"* ]] && cmp -s "$T/m01" "$ME/01-t.md" \
+    && ok "pr: a bare #N on a ticket of two repositories -> exit 2, the file unchanged" || bad "pr bare: exit $rc, $out"
+out="$(mt pr mr 01 web#41 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"lib, app"* ]] && cmp -s "$T/m01" "$ME/01-t.md" \
+    && ok "pr: a repository that is not a Repo: line of the ticket -> exit 2, the file unchanged" || bad "pr web: exit $rc, $out"
+out="$(mt pr mr 01 lib#41 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"+ PR: lib#41"* ]] && [ "$(hdr 01)" = "Status: claimed T|PR: lib#41|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "pr lib#41: the line PR: lib#41, Status untouched" || bad "pr lib#41: exit $rc, $out, header $(hdr 01)"
+mt pr mr/01 app#118 >/dev/null 2>&1
+mt pr mr 01 lib#40 >/dev/null 2>&1
+out="$(mt pr mr 01 lib#41 2>&1)"
+[ "$(hdr 01)" = "Status: claimed T|PR: lib#41|PR: app#118|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && [[ "$out" == *"- PR: lib#40"*"+ PR: lib#41"* ]] \
+    && ok "pr appends a line per repository and replaces the line of a repository in its place" || bad "pr lines: $out, header $(hdr 01)"
+out="$(mt pr mr 01 lib#41 extra 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "pr with an extra argument -> exit 2" || bad "pr extra: exit $rc, $out"
+out="$(mt pr mr 01 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "pr without the PR -> exit 2" || bad "pr none: exit $rc, $out"
+
+# ticket release
+cp "$ME/01-t.md" "$T/m01"
+out="$(mt release mr 01 lib tag lib-v1.4.0 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"+ Release: lib tag lib-v1.4.0"* ]] && grep -qx 'Release: lib tag lib-v1.4.0' "$ME/01-t.md" \
+    && ok "release <repo> tag <tag> writes Release: lib tag lib-v1.4.0" || bad "release tag: exit $rc, $out"
+out="$(mt release mr 01 lib package @acme/lots@1.4.0 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 01)" = "Status: claimed T|PR: lib#41|PR: app#118|Release: lib tag lib-v1.4.0|Release: lib package @acme/lots@1.4.0|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "release <repo> package <name>@<version> adds a second Release: line" || bad "release package: exit $rc, $out, header $(hdr 01)"
+mt release mr 01 lib tag lib-v1.4.0 >/dev/null 2>&1
+[ "$(grep -c '^Release: lib tag lib-v1.4.0$' "$ME/01-t.md")" = 1 ] && ok "the same release twice keeps one line" || bad "release duplicated"
+cp "$ME/01-t.md" "$T/m01"
+for c in "lib branch main" "lib tag" "lib tag bad..tag" "lib package lots" "lib package lots@" "web tag v1" "lib tag v1 extra"; do
+    # shellcheck disable=SC2086
+    out="$(mt release mr 01 $c 2>&1)"; rc=$?
+    [ "$rc" -eq 2 ] && cmp -s "$T/m01" "$ME/01-t.md" && ok "release $c -> exit 2, the file unchanged" || bad "release $c: exit $rc, $out"
+done
+
+# the status writers keep every PR: and Release: line of a ticket of several repositories
+mt block mr 01 "waits for the review" --waits team >/dev/null 2>&1
+mt claim mr 01 >/dev/null 2>&1
+[ "$(hdr 01)" = "Status: claimed T|PR: lib#41|PR: app#118|Release: lib tag lib-v1.4.0|Release: lib package @acme/lots@1.4.0|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "block and claim keep the PR: and Release: lines of a ticket of several repositories" || bad "block/claim: $(hdr 01)"
+out="$(mt show mr 01 2>&1)"
+[[ "$out" == *"PR: lib#41"*"PR: app#118"*"Release: lib tag lib-v1.4.0"*"Release: lib package @acme/lots@1.4.0"* ]] && ok "show prints every PR: and Release: line" || bad "show: $out"
+
+# ticket done: only with a PR of every Repo:
+mk 02 'Repo: lib' 'Repo: app'
+mt pr mr 02 lib#41 >/dev/null 2>&1
+cp "$ME/02-t.md" "$T/m02"
+out="$(mt done mr 02 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"app"* ]] && cmp -s "$T/m02" "$ME/02-t.md" \
+    && ok "done without a PR of Repo: app -> exit 2 naming app, the file unchanged" || bad "done incomplete: exit $rc, $out"
+out="$(mt done mr 02 --pr lib#42 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && cmp -s "$T/m02" "$ME/02-t.md" && ok "done --pr lib#42, still no PR of app -> exit 2, the file unchanged" || bad "done lib only: exit $rc, $out"
+out="$(mt done mr 02 --pr 118 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"<repo>#N"* ]] && cmp -s "$T/m02" "$ME/02-t.md" && ok "done --pr N (bare) on a ticket of two repositories -> exit 2" || bad "done bare: exit $rc, $out"
+out="$(mt done mr 02 --pr web#3 --pr app#118 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && cmp -s "$T/m02" "$ME/02-t.md" && ok "done --pr of a repository outside Repo: -> exit 2" || bad "done web: exit $rc, $out"
+out="$(mt done mr 02 --pr app#118 --pr app#119 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && cmp -s "$T/m02" "$ME/02-t.md" && ok "done with two PRs of one repository -> exit 2" || bad "done app twice: exit $rc, $out"
+out="$(mt done mr 02 --pr app#118 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 02)" = "Status: done T|PR: lib#41|PR: app#118|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "done --pr app#118 with lib#41 already there: Status done, a PR of every Repo:" || bad "done complete: exit $rc, $out, header $(hdr 02)"
+mk 03 'Repo: lib' 'Repo: app'
+out="$(mt done mr 03 --pr lib#5 --pr app#6 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 03)" = "Status: done T|PR: lib#5|PR: app#6|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "done --pr lib#5 --pr app#6: both lines, in the order given" || bad "done two --pr: exit $rc, $out, header $(hdr 03)"
+mt pr mr 03 lib#7 >/dev/null 2>&1
+grep -Eqx "Status: done $NOW" "$ME/03-t.md" && grep -qx 'PR: lib#7' "$ME/03-t.md" && ok "pr on a done ticket keeps Status done" || bad "pr on done: $(hdr 03)"
+
+# a ticket of one repository: the same lines and the same output as before the change
+mk 04 'Repo: api'
+out="$(mt claim mr 04 --repo api --branch mr/04 2>&1 | sed -E "s/$NOW/T/")"
+[ "$out" = "$(printf '%s\n' '.scratch/mr/issues/04-t.md:4' '  was: Status: open' '  now: Status: claimed T' '  branch: Branch: mr/04' '  repo: Repo: api -> Repo: api')" ] \
+    && [ "$(hdr 04)" = "Status: claimed T|Branch: mr/04|Repo: api|Blocked by: —|" ] \
+    && ok "one repository: claim --repo --branch prints and writes what it did before" || bad "one repo claim: [$out] $(hdr 04)"
+out="$(mt done mr 04 --pr 12 2>&1 | sed -E "s/$NOW/T/g")"
+[ "$out" = "$(printf '%s\n' '.scratch/mr/issues/04-t.md:4' '  was: Status: claimed T' '  now: Status: done T' '  + PR: #12')" ] \
+    && [ "$(hdr 04)" = "Status: done T|PR: #12|Branch: mr/04|Repo: api|Blocked by: —|" ] \
+    && ok "one repository: done --pr 12 writes PR: #12 and prints what it did before" || bad "one repo done: [$out] $(hdr 04)"
+out="$(mt done mr 04 --pr '#13' 2>&1 | sed -E "s/$NOW/T/g")"
+[ "$out" = "$(printf '%s\n' '.scratch/mr/issues/04-t.md:4' '  was: Status: done T' '  now: Status: done T' '  - PR: #12' '  + PR: #13')" ] \
+    && [ "$(grep -c '^PR:' "$ME/04-t.md")" = 1 ] && ok "one repository: a second done --pr replaces PR: #N" || bad "one repo second done: [$out]"
+cp "$ME/04-t.md" "$T/m04"
+out="$(mt pr mr 04 api#14 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && cmp -s "$T/m04" "$ME/04-t.md" && ok "one repository: pr <repo>#N -> exit 2, a ticket of one repository writes PR: #N" || bad "one repo pr api#14: exit $rc, $out"
+out="$(mt pr mr 04 '#14' 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 04)" = "Status: done T|PR: #14|Branch: mr/04|Repo: api|Blocked by: —|" ] && ok "one repository: pr #14 replaces the line PR: #N" || bad "one repo pr #14: exit $rc, $out, $(hdr 04)"
+mk 05
+mt claim mr 05 >/dev/null 2>&1; mt done mr 05 --pr 3 >/dev/null 2>&1
+[ "$(hdr 05)" = "Status: done T|PR: #3|Blocked by: —|" ] && ok "no Repo: line: claim and done --pr write what they did before" || bad "no repo: $(hdr 05)"
+out="$(mt done mr 05 --pr 3 --pr 4 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && grep -qx 'PR: #3' "$ME/05-t.md" && ok "one repository: two --pr -> exit 2" || bad "one repo two --pr: exit $rc, $out"
+out="$(mt release mr 05 api tag v1 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "release on a ticket without Repo: lines -> exit 2" || bad "release no repo: exit $rc, $out"
+out="$(mt open mr 05 --repo api 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"--repo goes only with claim"* ]] && ok "--repo with open is refused" || bad "open --repo: exit $rc, $out"
+out="$(mt pr mr 05 '#3' --pr 4 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"--pr goes only with done"* ]] && ok "--pr with pr is refused" || bad "pr --pr: exit $rc, $out"
+# An old header is refused by pr and release, like by the other writers.
+cp "$T/orig/ep/issues/01-bold.md" "$ME/06-t.md"
+out="$(mt pr mr 06 '#1' 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"run ticket migrate first"* ]] && ok "pr on an old header -> exit 1" || bad "pr old header: exit $rc, $out"
+
 # ── 8. no writes into the real home ───────────────────────────────────────────────────────────────
 [ "$(real_home_snapshot "$HOME" "$T")" = "$home_before" ] && ok "real home untouched" || bad "real home changed"
 

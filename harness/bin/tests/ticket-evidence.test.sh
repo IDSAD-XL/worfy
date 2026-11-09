@@ -381,6 +381,36 @@ tk "$T/sil" evidence demo 02 4 video pass --ref '`../evidence/02-alone.webm`' --
 [ "$rc" -eq 0 ] && grep -qF -- "video pass · \`../evidence/02-alone.webm\`" "$T/sil-wf/.scratch/demo/issues/02-states.md" \
     && ok "Silent mode: a clip with its sheet and --scrub is written" || bad "silent video write: exit $rc $(cat "$T/err")"
 
+# --- 13. --repo R: a ticket of several repositories binds a line to a commit of one of them ---------------------------
+# duo — two repositories of one profile, its tickets root above them; the HEADs differ, so the test sees whose is taken.
+for r in lib app; do git init -q -b main "$T/duo/$r" && git -C "$T/duo/$r" commit -q --allow-empty -m "$r"; done
+git -C "$T/duo/app" commit -q --allow-empty -m second
+jq --arg lib "$T/duo/lib" --arg app "$T/duo/app" '.repos += [{key: "lib", match: $lib, profile: "duo", pm: "npm", root: {}, workspace: {}}, {key: "app", match: $app, profile: "duo", pm: "npm", root: {}, workspace: {}}]' \
+    "$CLAUDE_GATE_CONFIG" >"$T/config.new" && mv "$T/config.new" "$CLAUDE_GATE_CONFIG"
+mkdir -p "$CLAUDE_PROFILES_DIR/duo" "$T/duo/.scratch/demo/issues"; : >"$CLAUDE_PROFILES_DIR/duo/rules.md"
+printf '{"schema":1,"name":"duo","tickets":{"root":"%s","done_section":"## Done when","manual_mark":"manual"}}\n' "$T/duo/.scratch" >"$CLAUDE_PROFILES_DIR/duo/profile.json"
+DUO="$T/duo/.scratch/demo/issues/01-english.md"
+sed -e 's/^Status: open$/Status: claimed 2026-11-09T10:00Z\nRepo: lib\nRepo: app/' "$FX/en/01-english.md" >"$DUO"
+cp "$DUO" "$T/duo.orig"
+APP_HEAD="$(git -C "$T/duo/app" rev-parse HEAD)"; LIB_HEAD="$(git -C "$T/duo/lib" rev-parse HEAD)"
+tk "$T/duo/lib" evidence demo 01 1 test-run pass --ref '`pnpm test` exit 0' --repo app --platform mac
+[ "$rc" -eq 0 ] && grep -qxF -- "  - evidence: test-run pass · [app] \`pnpm test\` exit 0 · mac - · $APP_HEAD" "$DUO" \
+    && ok "--repo app without --sha, run from lib: the ref starts with [app], the sha is the HEAD of app" || bad "--repo app: exit $rc $(cat "$T/err") $(grep evidence "$DUO")"
+tk "$T/duo/lib" evidence demo 01 2 owner-check pass --ref 'the owner said yes' --repo lib --copy stable --sha abc1234
+[ "$rc" -eq 0 ] && grep -qxF -- "  - evidence: owner-check pass · [lib] the owner said yes · mac stable · abc1234" "$DUO" \
+    && ok "--repo lib --sha S: the line names lib and binds S" || bad "--repo lib --sha: exit $rc $(cat "$T/err")"
+tk "$T/duo/lib" evidence demo 01 > /dev/null
+[ "$rc" -eq 0 ] && has "1. verified — Shell test of the parser." && has "2. verified — (manual) The owner looked at the canvas." \
+    && ok "a line with [repo] in its ref reads back by the grammar as it was" || bad "matrix after --repo: $(cat "$T/out")"
+cp "$DUO" "$T/duo.now"
+tk "$T/duo/lib" evidence demo 01 1 test-run pass --ref 'x exit 0' --repo web --sha abc1234
+[ "$rc" -eq 2 ] && grep -qF '"web" is not a Repo: line' "$T/err" && cmp -s "$T/duo.now" "$DUO" && ok "--repo outside the Repo: lines -> exit 2, nothing written" || bad "--repo web: exit $rc $(cat "$T/err")"
+tk "$T/duo/lib" evidence demo 01 1 test-run pass --ref 'x exit 0' --repo lib --repo app --sha abc1234
+[ "$rc" -eq 2 ] && cmp -s "$T/duo.now" "$DUO" && ok "two --repo -> exit 2, nothing written" || bad "two --repo: exit $rc $(cat "$T/err")"
+tk "$T/en" evidence demo 01 1 test-run pass --ref 'x exit 0' --repo en --sha abc1234
+[ "$rc" -eq 2 ] && grep -qF "(none)" "$T/err" && ok "--repo on a ticket without Repo: lines -> exit 2" || bad "--repo without Repo: lines: exit $rc $(cat "$T/err")"
+[ "$LIB_HEAD" != "$APP_HEAD" ] && ok "the two HEADs differ (the sha check above means something)" || bad "lib and app have one HEAD"
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
 echo "passed $pass, failed $fail"
