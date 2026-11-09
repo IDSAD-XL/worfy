@@ -25,13 +25,12 @@ import {
   REPO_URL_TTL_MS,
   repoUrlOf,
   ticketBranches,
-  ticketHeader,
   ticketWorktrees,
   type EpicStatusRunner,
 } from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
+import { diffModels, repoFactsOf, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { readyWave } from '../../src/shared/workflow/waves'
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
@@ -358,7 +357,7 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'evidence', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'prs', 'releases', 'repos', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'evidence', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
     )
   })
 
@@ -953,28 +952,40 @@ const SEVERAL_REPOS = [
   'Repo: app',
   'PR: lib#41',
   'PR: app#118',
-  'PR: #7',
   'Release: lib tag lib-v1.4.0',
   'Release: lib package @acme/lots@1.4.0',
-  'Release: lib tagless',
-  'Release: lib package no-version',
-  '',
-  '```',
-  'Repo: other',
-  'PR: other#9',
-  'Release: other tag in-a-fence',
-  '```',
   '',
   '## What we do',
   '',
   'text',
   '',
-  '## Result',
-  '',
-  'PR: lib#77',
-  'Release: app tag app-v9',
-  '',
 ].join('\n')
+
+/**
+ * Three Tickets as `epic-status --json` of worfy-multi-repo-ticket 02 gives them (harness/bin/tests/epic-status.test.sh,
+ * section 6): 01 over two repositories, 02 over two with a bare `PR: #7`, 03 of one repository with `PR: #5`, which has
+ * none of the new keys.
+ */
+const MULTI_REPO_OUTPUT = JSON.stringify({
+  ref: 'main',
+  epics: [{ epic: 'mr', hasSpec: false, hasMap: false }],
+  tickets: [
+    {
+      epic: 'mr', num: 1, slug: 'both', title: '01 - Both', statusRaw: 'claimed 2026-11-10T09:00Z', state: 'work', statusAt: '2026-11-10T09:00Z', statusError: null,
+      blockedReason: null, waits: null, pr: null, blockedRaw: null, blockedNums: [], blockedParsed: false, branch: 'fix/lot-withdraw-flag', repo: 'app',
+      repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 41 }, { repo: 'app', number: 118 }], releases: [{ repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }], ref: 'main',
+    },
+    {
+      epic: 'mr', num: 2, slug: 'pkg', title: '02 - Package', statusRaw: 'open', state: 'open', statusAt: null, statusError: null,
+      blockedReason: null, waits: null, pr: 7, blockedRaw: null, blockedNums: [], blockedParsed: false, branch: null, repo: 'app',
+      repos: ['lib', 'app'], prs: [{ repo: null, number: 7 }], releases: [{ repo: 'lib', kind: 'package', ref: '@acme/lib@1.4.0' }, { repo: 'lib', kind: 'tag', ref: 'lib-v1.5.0' }], ref: 'main',
+    },
+    {
+      epic: 'mr', num: 3, slug: 'one', title: '03 - One', statusRaw: 'done 2026-11-09', state: 'done', statusAt: '2026-11-09', statusError: null,
+      blockedReason: null, waits: null, pr: 5, blockedRaw: null, blockedNums: [], blockedParsed: false, branch: null, repo: 'app', ref: 'main',
+    },
+  ],
+})
 
 describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-ticket 03)', () => {
   it('reads two Repo lines, two PR <repo>#N lines and both kinds of Release line into repos, prs and releases, in file order', async () => {
@@ -985,10 +996,8 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
 
     expect(model.error).toBeNull()
     const ticket = ticketOf(model, 5)!
-    expect(ticket.branch).toBe('fix/lot-withdraw-flag')
+    expect(ticket).toMatchObject({ branch: 'fix/lot-withdraw-flag', repo: 'app', pr: null })
     expect(ticket.repos).toEqual(['lib', 'app'])
-    // A bare #N names no repository of a Ticket over several: it is no PR of the list. A PR line after the header (in
-    // a later section) and the lines of a code fence are not the header's.
     expect(ticket.prs).toEqual([
       { repo: 'lib', number: 41 },
       { repo: 'app', number: 118 },
@@ -999,7 +1008,36 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
     ])
   })
 
-  it('a Ticket of one repository keeps the repo and pr it had before, and its prs is that one PR', async () => {
+  it('takes both shapes of epic-status: the three lists of a Ticket over several repositories, and none of them for a Ticket of one', async () => {
+    const repo = makeRepo(dir)
+    const model = await readCheckout(repo, () => Promise.resolve(MULTI_REPO_OUTPUT))
+
+    expect(model.error).toBeNull()
+    const [both, pkg, one] = model.tickets
+    expect(both).toMatchObject({ repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 41 }, { repo: 'app', number: 118 }], releases: [{ repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }] })
+    expect(pkg).toMatchObject({ pr: 7, prs: [{ repo: null, number: 7 }], releases: [{ repo: 'lib', kind: 'package', ref: '@acme/lib@1.4.0' }, { repo: 'lib', kind: 'tag', ref: 'lib-v1.5.0' }] })
+    // The Ticket of one repository: no new key comes into the model, so it is the model it was.
+    expect(Object.keys(one!).filter((key) => ['repos', 'prs', 'releases'].includes(key))).toEqual([])
+    expect(one).toMatchObject({ repo: 'app', pr: 5 })
+    expect(repoFactsOf(one!)).toEqual({ repos: ['app'], prs: [{ repo: null, number: 5 }], releases: [] })
+    expect(repoFactsOf(both!)).toEqual({ repos: both!.repos, prs: both!.prs, releases: both!.releases })
+  })
+
+  it('reads a Ticket from an older Harness, which gives no lists, by its repo and pr', () => {
+    expect(repoFactsOf({ repo: 'app', pr: 12 })).toEqual({ repos: ['app'], prs: [{ repo: null, number: 12 }], releases: [] })
+    expect(repoFactsOf({ repo: null, pr: null })).toEqual({ repos: [], prs: [], releases: [] })
+    expect(repoFactsOf({})).toEqual({ repos: [], prs: [], releases: [] })
+    // An empty list is a list epic-status gave: it stands, it is not filled from repo and pr.
+    expect(repoFactsOf({ repo: 'app', pr: 3, repos: [], prs: [], releases: [] })).toEqual({ repos: [], prs: [], releases: [] })
+  })
+
+  it('a release of a kind this worfy does not know is read, not refused', () => {
+    const output = JSON.parse(MULTI_REPO_OUTPUT) as EpicStatusSnapshot
+    output.tickets[0]!.releases = [{ repo: 'lib', kind: 'github-release', ref: 'v2' }]
+    expect(parseEpicStatus(JSON.stringify(output)).tickets[0]!.releases).toEqual([{ repo: 'lib', kind: 'github-release', ref: 'v2' }])
+  })
+
+  it('a Ticket of one repository keeps the repo and pr it had before, and no new key', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const issues = join(repo, '.scratch', 'demo', 'issues')
@@ -1009,38 +1047,16 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
     const snapshot = parseEpicStatus(await run(repo, null))
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, run)
 
-    // Every key epic-status gives a Ticket has the value it had before the Ticket: nothing of the old model moved.
+    // Every key epic-status gives a Ticket has the value it had before the Ticket, and there is no other key of it.
     for (const before of snapshot.tickets) {
       const after = model.tickets.find((t) => t.epic === before.epic && t.num === before.num)!
-      expect(Object.fromEntries(Object.keys(before).map((key) => [key, after[key as keyof typeof after]])), `Ticket ${before.num}`).toEqual(before)
+      const enriched = ['files', 'filesListed', 'fromBranch', 'manualChecks', 'evidence', 'version']
+      expect(Object.fromEntries(Object.entries(after).filter(([key]) => !enriched.includes(key))), `Ticket ${before.num}`).toEqual(before)
     }
-    expect(ticketOf(model, 5)).toMatchObject({ repo: 'app', pr: 12, repos: ['app'], prs: [{ repo: 'app', number: 12 }], releases: [] })
-    expect(ticketOf(model, 6)).toMatchObject({ pr: 7, repos: [], prs: [{ repo: null, number: 7 }], releases: [] })
-    expect(ticketOf(model, 6)!.repo).toBeUndefined()
-    expect(ticketOf(model, 2)).toMatchObject({ pr: null, repos: [], prs: [], releases: [] })
-  })
-
-  it('a Ticket of one repository whose PR line is in its worktree branch has that PR in prs as in pr', async () => {
-    const repo = makeRepo(dir)
-    const { home } = makeClaudeHome(dir)
-    const path = claimInWorktree(repo, 'demo/02', '02', '02-second.md')
-    const file = join(path, '.scratch', 'demo', 'issues', '02-second.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace('Type: task', 'Type: task\nPR: #31'))
-    git(path, 'commit', '-qam', 'pr')
-
-    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
-    expect(ticketOf(model, 2)).toMatchObject({ fromBranch: 'demo/02', pr: 31, repos: [], prs: [{ repo: null, number: 31 }] })
-  })
-
-  it('a Ticket file that cannot be read gives the repository and PR epic-status gave', async () => {
-    const snapshot: EpicStatusSnapshot = {
-      ref: 'main',
-      epics: [{ epic: 'demo', hasSpec: false, hasMap: false }],
-      tickets: [{ epic: 'demo', num: 1, slug: 'first', title: 'x', statusRaw: 'open', state: 'open', pr: 3, repo: 'app', blockedRaw: null, blockedNums: [], blockedParsed: false }],
-    }
-    const fs = { readText: () => Promise.resolve(null), readdir: () => Promise.resolve(['01-first.md']) }
-    const model = await enrichSnapshot(dir, snapshot, join(dir, '.scratch'), { fs })
-    expect(model.tickets[0]).toMatchObject({ repo: 'app', pr: 3, repos: ['app'], prs: [{ repo: 'app', number: 3 }], releases: [] })
+    expect(ticketOf(model, 5)).toMatchObject({ repo: 'app', pr: 12 })
+    expect(ticketOf(model, 6)).toMatchObject({ pr: 7 })
+    expect(repoFactsOf(ticketOf(model, 5)!)).toEqual({ repos: ['app'], prs: [{ repo: null, number: 12 }], releases: [] })
+    expect(repoFactsOf(ticketOf(model, 6)!)).toEqual({ repos: [], prs: [{ repo: null, number: 7 }], releases: [] })
   })
 
   it('a branch of the same name in two checkouts is found in both and belongs to one Ticket; the pair (repo, branch) is the key', async () => {
@@ -1060,13 +1076,15 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
     }
     const lib = checkout('lib', ['fix/lot-withdraw-flag', 'demo/06'])
     const app = checkout('app', ['fix/lot-withdraw-flag', 'fix/other', 'demo/06'])
-    // A repository of the Project that the Ticket does not name: its branch of the same name is not the Ticket's.
-    const docs = checkout('docs', ['fix/lot-withdraw-flag'])
+    // A repository that Ticket 05 does not name: its branch of the same name is not that Ticket's.
+    const docs = checkout('docs', ['fix/lot-withdraw-flag', 'demo/08'])
     const notGit = { name: 'gone', path: join(dir, 'gone') }
     const tickets = [
-      { epic: 'demo', num: 5, branch: 'fix/lot-withdraw-flag', repos: ['lib', 'app'] },
-      // No Branch line: its branch is `<epic>/<NN>`, and only in the repository it names.
-      { epic: 'demo', num: 6, branch: null, repos: ['app', 'gone'] },
+      { epic: 'demo', num: 5, branch: 'fix/lot-withdraw-flag', repo: 'app', repos: ['lib', 'app'] },
+      // No Branch line: its branch is `<epic>/<NN>`, and only in the repositories it names.
+      { epic: 'demo', num: 6, branch: null, repo: 'gone', repos: ['app', 'gone'] },
+      // One Repo line, so no lists from epic-status: the Repo line names its repository.
+      { epic: 'demo', num: 8, branch: null, repo: 'docs' },
       // A Ticket of a Project of one repository names none: no branch is looked for.
       { epic: 'demo', num: 7, branch: 'fix/other' },
     ]
@@ -1078,46 +1096,11 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
       { repo: 'lib', path: lib.path, branch: 'fix/lot-withdraw-flag', head: lib.heads.get('fix/lot-withdraw-flag'), epic: 'demo', num: 5 },
       { repo: 'app', path: app.path, branch: 'demo/06', head: app.heads.get('demo/06'), epic: 'demo', num: 6 },
       { repo: 'app', path: app.path, branch: 'fix/lot-withdraw-flag', head: app.heads.get('fix/lot-withdraw-flag'), epic: 'demo', num: 5 },
+      { repo: 'docs', path: docs.path, branch: 'demo/08', head: docs.heads.get('demo/08'), epic: 'demo', num: 8 },
     ])
     expect(new Set(found.filter((each) => each.branch === 'fix/lot-withdraw-flag').map((each) => `${each.epic}/${each.num}`))).toEqual(new Set(['demo/5']))
     // Only read: every checkout, .git included, is byte-for-byte the same (ADR-0005).
     expect(treeState(dir)).toEqual(before)
-  })
-})
-
-describe('ticketHeader: the Repo, PR and Release lines of a Ticket file', () => {
-  it('reads the lines of the header in file order, and none from a fence or after the header', () => {
-    expect(ticketHeader(SEVERAL_REPOS)).toEqual({
-      repos: ['lib', 'app'],
-      prs: [
-        { repo: 'lib', number: 41 },
-        { repo: 'app', number: 118 },
-      ],
-      releases: [
-        { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' },
-        { repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0' },
-      ],
-    })
-  })
-
-  it('reads Repo lines the way epic-status does: any spelling of the name, bold markers and backticks dropped, each repository once', () => {
-    const text = ['# 01 - x', '', 'Status: open', '**Repo:** `lib`', 'repo: app', 'Repo: lib', ''].join('\r\n')
-    expect(ticketHeader('\uFEFF' + text).repos).toEqual(['lib', 'app'])
-  })
-
-  it('skips a PR line it cannot read: a number 0, a number past the safe integers, a URL, a name with a space', () => {
-    const text = ['# 01 - x', 'Status: open', 'Repo: lib', 'Repo: app', 'PR: lib#0', 'PR: app#99999999999999999999', 'PR: https://example.invalid/pull/3', 'PR: my lib#4', 'PR: app#5', ''].join('\n')
-    expect(ticketHeader(text).prs).toEqual([{ repo: 'app', number: 5 }])
-  })
-
-  it('skips a Release line it cannot read: a kind other than tag and package, a word too many or too few', () => {
-    const text = ['# 01 - x', 'Status: open', 'Repo: lib', 'Release: lib branch main', 'Release: lib tag v1 v2', 'Release: lib tag', 'Release: lib package a@1 b@2', 'Release: lib tag v3', ''].join('\n')
-    expect(ticketHeader(text).releases).toEqual([{ repo: 'lib', kind: 'tag', ref: 'v3' }])
-  })
-
-  it('ends the header at the first second-level heading after the Status line, not before it', () => {
-    const text = ['# 01 - x', '## Before the status', 'Repo: lib', 'Status: open', 'Repo: app', 'PR: lib#1', '## After', 'PR: app#2', 'Release: lib tag v1', ''].join('\n')
-    expect(ticketHeader(text)).toEqual({ repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 1 }], releases: [] })
   })
 })
 
