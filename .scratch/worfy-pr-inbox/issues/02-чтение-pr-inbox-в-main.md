@@ -49,26 +49,26 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
 
 - [ ] Contract test: Project из двух репозиториев — поиск называет оба `repo:`, детали спрашивают только PR со
       сдвинутым `updatedAt`; чужой репозиторий того же аккаунта не спрашивается.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: поиск — раз в 5 минут; `GET /notifications` не вызывается ни разу.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: `refresh(repo, number)` читает детали этого PR сразу, вне очереди поиска.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: 504 на деталях — повтор с половиной страницы; ошибка подряд — удвоение интервала до 30 минут.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: два Project-а одного аккаунта — один запрос деталей на PR.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: `prInbox: false` — ни одного вызова gh для Project-а.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: за N циклов чтения журнал stub-а не содержит ни одной записи — ни `--method` кроме `GET`, ни
       `mutation`.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Contract test: `pr-inbox.json` после чтения — только id, sha и время; ни одного `body`.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Unit test: группы по fixture-снимку (каждая из пяти, «via team», повторный запрос ревью после моего ревью).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-groups.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-groups.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] Test: ничего не пишется в репозитории Project-а и в Claude home (ADR-0005).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 2cf332108d944f10ad91d7321706029c5bb4700b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
