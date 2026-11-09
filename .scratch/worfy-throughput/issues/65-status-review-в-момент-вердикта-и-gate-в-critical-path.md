@@ -1,7 +1,8 @@
 # 65 — Status `review` ставится в момент вердикта ревью, а не перед merge; потом `critical-path` читает его как Gate
 
 Type: task
-Status: claimed 2026-11-09T12:21Z
+Status: done 2026-11-09T20:00Z
+PR: #1734
 Branch: worfy-throughput/65
 Blocked by: 62
 Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md), часть 6 и продолжение 5 из части 5; решение

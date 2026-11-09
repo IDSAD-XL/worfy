@@ -1,7 +1,8 @@
 # 64 — Красный `main`: виноватый PR по первому красному push-run и пауза слияния PR с кодом
 
 Type: task
-Status: claimed 2026-11-09T10:37Z
+Status: done 2026-11-09T20:00Z
+PR: #1733
 Branch: worfy-throughput/64
 Blocked by: 62
 Source: решение владельца 2026-11-09, Q5 (ответ на «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md));

@@ -4,7 +4,9 @@ Type: feature
 Branch: worfy-product-session/32
 Blocked by: 29
 Source: владелец 2026-11-09: «для Product Session добавить параллельно дешёвую модель Haiku, которая бы просто
-Status: claimed 2026-11-09T17:55Z
+Status: blocked 2026-11-09T20:00Z
+Blocked reason: PR #1743 merged; owner's look in Mac Stable after the next update, with the first real Haiku call (item 8)
+Waits: owner
 
 показывала актуальные более развернутые статусы. Пока сессия работает, она обычно работает очень долго, непонятно,
 что происходит. Хотелось бы видеть, что происходит, хотя бы короткими статус-обновлениями, но чтобы они после полного

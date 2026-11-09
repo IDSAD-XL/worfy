@@ -1,7 +1,9 @@
 # 77 — Кнопки Health check показывают, что проверка идёт
 
 Type: task
-Status: claimed 2026-11-09T16:48Z
+Status: blocked 2026-11-09T20:00Z
+Blocked reason: PR #1739 merged; owner's look in Mac Stable after the next update
+Waits: owner
 Blocked by: —
 Source: решение владельца 2026-11-09 (отзыв тестера): после клика по кнопке в Health check не видно, идёт проверка
 или всё зависло. Строки перечитаны по main `964061f9a`.

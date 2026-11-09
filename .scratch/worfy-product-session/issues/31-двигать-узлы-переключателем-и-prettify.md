@@ -1,7 +1,9 @@
 # 31 — двигать узлы Mind map только с переключателем «Move nodes»; кнопка «Prettify» раскладывает карту заново
 
 Type: task
-Status: claimed 2026-11-09T16:58Z
+Status: blocked 2026-11-09T20:00Z
+Blocked reason: PR #1740 merged; owner's look in Mac Stable after the next update
+Waits: owner
 Branch: worfy-product-session/31
 Source: владелец 2026-11-09, дословно: «возможность перетаскивать ноды в продакт сессии нужно сделать переключалкой
 сверху, по дефолту запрещено, и добавить кнопку prettify которая сама расставит диаграмму, если вдруг юзер подвигал все

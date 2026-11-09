@@ -1,8 +1,8 @@
 # 14 — `review-history fetch` падает на большом репозитории с HTTP 504
 
 Type: bug
-Status: claimed 2026-11-09T13:35Z
-PR: —
+Status: done 2026-11-09T20:00Z
+PR: #1736
 Blocked by: —
 Source: отчёт владельца 2026-11-09 (обезличен): `review-history fetch --passes 2` в проекте Silent mode из трёх частных
 репозиториев, один из них — с тысячами PR

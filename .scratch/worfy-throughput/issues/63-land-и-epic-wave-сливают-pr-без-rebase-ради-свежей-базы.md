@@ -1,7 +1,8 @@
 # 63 — `land` и `epic-wave` сливают PR без rebase ради свежей базы
 
 Type: task
-Status: claimed 2026-11-09T09:58Z
+Status: done 2026-11-09T20:00Z
+PR: #1730
 Branch: worfy-throughput/63
 Blocked by: 62
 Source: решение владельца 2026-11-09, Q1 и Q4 (ответ на «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md));

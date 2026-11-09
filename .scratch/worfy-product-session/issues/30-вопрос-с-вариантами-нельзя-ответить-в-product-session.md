@@ -1,7 +1,9 @@
 # 30 — вопрос с вариантами нельзя ответить в Product Session
 
 Type: bug
-Status: claimed 2026-11-09T10:29Z
+Status: blocked 2026-11-09T20:00Z
+Blocked reason: PR #1731 merged; owner's look in Mac Stable after the next update
+Waits: owner
 Branch: worfy-product-session/30
 Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session задала вопрос с вариантами (AskUserQuestion),
 карточки не было вовсе, Session висела в «needs permission»; [spec.md](../spec.md)
