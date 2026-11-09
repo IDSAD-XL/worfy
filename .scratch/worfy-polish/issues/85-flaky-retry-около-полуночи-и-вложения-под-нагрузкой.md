@@ -1,7 +1,8 @@
 # 85 — Два flaky test-а: retry около полуночи и вложения чата под нагрузкой
 
 Type: bug
-Status: open
+Status: claimed 2026-11-09T22:52Z
+Branch: worfy-polish/85
 Blocked by: —
 Source: находки Orchestrator-а 2026-11-09…11-10 в прогонах `pnpm test` на Mac. Строки перечитаны по main `c69ffd43b`.
 
