@@ -38,9 +38,13 @@ Source: решение владельца 2026-11-09, Q1 и Q4 (ответ на 
 ## Готово, когда
 
 - [ ] «Итог»: GitHub вливает PR в `BEHIND` при `strict: false` — команда, ответ и exit code.
+  - evidence: commit pass · land merges a PR behind main without a rebase for a fresh base (worfy-throughput 63) · - - · aeccb8b05
 - [ ] `land` вливает PR в `BEHIND` с зелёным `ci-ok` и `review`; на `CONFLICTING` и `DIRTY` ждёт — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · aeccb8b05
 - [ ] В `harness/skills/epic-wave/SKILL.md` нет rebase ради свежей базы; rebase — только на конфликт.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 · mac - · aeccb8b05
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR (в нём job Windows).
+  - evidence: gate pass · `gate fast` exit 0 · mac - · aeccb8b05
 
 ## Где в коде
 
