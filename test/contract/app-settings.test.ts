@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, liveSummaryOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -519,6 +519,33 @@ describe('AppSettingsStore', () => {
     expect(readdirSync(join(file, '..'))).toEqual([APP_SETTINGS_FILE])
   })
 
+  it('the live summary of a Product Session (worfy-product-session ticket 32): on until chosen; off is written, read back after a restart and kept; a value of the wrong type in the file reads as on', () => {
+    expect(liveSummaryOf(DEFAULT_APP_SETTINGS)).toBe(true)
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(liveSummaryOf(store.get())).toBe(true)
+
+    expect(store.set({ productSession: { split: 0.7 } })).toMatchObject({ productSession: { split: 0.7 } })
+    expect(store.set({ productSession: { liveSummary: false } })).toMatchObject({ productSession: { split: 0.7, liveSummary: false } })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ productSession: { split: 0.7, liveSummary: false } })
+    // A restart: a new store reads the file.
+    const restarted = new AppSettingsStore(file).get()
+    expect(liveSummaryOf(restarted)).toBe(false)
+    expect(productSessionSplitOf(restarted)).toBe(0.7)
+    // Another setting and a new share keep it.
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ productSession: { split: 0.7, liveSummary: false } })
+    expect(store.set({ productSession: { split: 0.5 } })).toMatchObject({ productSession: { split: 0.5, liveSummary: false } })
+
+    for (const liveSummary of ['off', 0, null]) {
+      writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, productSession: { split: 0.4, liveSummary }, revision: 7 }))
+      const other = new AppSettingsStore(file).get()
+      expect(liveSummaryOf(other), JSON.stringify(liveSummary)).toBe(true)
+      expect(productSessionSplitOf(other)).toBe(0.4)
+    }
+  })
+
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
@@ -715,6 +742,16 @@ describe('appSettings channels', () => {
       expect((await call('appSettings.set', { productSession: outside })).ok, JSON.stringify(outside)).toBe(false)
     }
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { productSession: { split: 0.1 } } })
+  })
+
+  it('appSettings.set turns the live summary of a Product Session off and on, keeping the divider (worfy-product-session ticket 32)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.get')).not.toMatchObject({ value: { productSession: { liveSummary: expect.anything() as unknown } } })
+    expect(await call('appSettings.set', { productSession: { split: 0.7 } })).toMatchObject({ ok: true })
+    expect(await call('appSettings.set', { productSession: { liveSummary: false } })).toMatchObject({ ok: true, value: { productSession: { split: 0.7, liveSummary: false } } })
+    expect(await call('appSettings.set', { productSession: { split: 0.5 } })).toMatchObject({ ok: true, value: { productSession: { split: 0.5, liveSummary: false } } })
+    expect((await call('appSettings.set', { productSession: { liveSummary: 'no' } })).ok).toBe(false)
+    expect(await call('appSettings.set', { productSession: { liveSummary: true } })).toMatchObject({ ok: true, value: { productSession: { split: 0.5, liveSummary: true } } })
   })
 
   it('a change made in main (a menu item) reaches every window too', async () => {

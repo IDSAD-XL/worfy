@@ -5,7 +5,8 @@
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW when the shell sets it. Under each role a line names where the
 // window comes from (worfy-polish ticket 29): the person's own value, "Claude Code default", the
 // user's ~/.claude/settings.json, or worfy's default. What reaches Claude Code is checked in
-// test/contract/agent-autocompact.test.ts.
+// test/contract/agent-autocompact.test.ts. Below them, the switch of a Product Session's live summary
+// (worfy-product-session ticket 32).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -161,6 +162,34 @@ describe('Settings → Sessions', () => {
     expect(screen.getByTestId('settings-autocompact-orchestrator-row').textContent).not.toContain('Applies after restarting the Session.')
     // The field shows the window in force again.
     expect(field('orchestrator').value).toBe('400')
+  })
+
+  // worfy-product-session ticket 32: the switch of a Product Session's live summary.
+  describe('the live summary of a Product Session', () => {
+    const toggle = (): HTMLElement => screen.getByRole('switch', { name: 'Live summary while the advisor works' })
+
+    it('is a switch, on while nothing is chosen; a click turns it off in main', async () => {
+      const { main } = await mount(settings(1))
+      await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('true'))
+      expect(screen.getByTestId('settings-live-summary-row').textContent).toContain('Haiku writes a short line')
+      fireEvent.click(toggle())
+      expect(main.sets.map((set) => set.input)).toEqual([{ productSession: { liveSummary: false } }])
+    })
+
+    it('shows off when it is off, and a click turns it on', async () => {
+      const { main } = await mount({ ...settings(1), productSession: { liveSummary: false } })
+      await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('false'))
+      fireEvent.click(toggle())
+      expect(main.sets.map((set) => set.input)).toEqual([{ productSession: { liveSummary: true } }])
+    })
+
+    it('a change main refused says why', async () => {
+      const { main } = await mount(settings(1))
+      await waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('true'))
+      fireEvent.click(toggle())
+      await act(async () => main.sets[0]!.answer({ ok: false, error: 'disk full' }))
+      expect(screen.getByTestId('settings-live-summary-problem').textContent).toBe('Not saved: disk full')
+    })
   })
 
   describe('where each window comes from', () => {

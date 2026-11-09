@@ -6,6 +6,7 @@
 // Each Node's Session runs on its Vendor's driver (worfy-multi-vendor ticket 23); New session takes the
 // Project's `defaultVendor` from its settings when it names no Vendor. Closing or archiving a Product Session's
 // Node gives the save signal of its Project (src/main/product/save-signal.ts, worfy-product-session ticket 04).
+// Each Product Session has a narrator (app-narrator.ts, ticket 32).
 import { stat } from 'node:fs/promises'
 import { agentEvent } from '../../shared/ipc/agent'
 import { sessionsChanged } from '../../shared/ipc/sessions'
@@ -21,6 +22,7 @@ import { claudeHome } from '../storage/paths'
 import { appCodexSessions } from '../vendors/codex/sessions-on-canvas'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
+import { appNarrator } from './app-narrator'
 import { NodeSessions, signInRefusal, type KnownSessions } from './node-sessions'
 import { SessionSettingsStore } from './session-settings'
 
@@ -69,6 +71,7 @@ export function sharedNodeSessions(): NodeSessions {
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
       productEnded: (projectId) => void appSaveSignal().signal(projectId),
+      narrator: (emit) => appNarrator(emit),
     })
   }
   return shared

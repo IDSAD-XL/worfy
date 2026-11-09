@@ -27,7 +27,8 @@
 // id with `true` is dropped (reads as off); only setAutoContinue() writes it, through the `autoContinue`
 // IPC domain. `productSession` (worfy-product-session ticket 07) holds the share of the Product Session
 // divider the person chose; absent until the first drag, and a share outside 0.1–0.9 or of the wrong
-// type in the file reads as not chosen (60 / 40), the rest of the file stays.
+// type in the file reads as not chosen (60 / 40), the rest of the file stays. Its `liveSummary`
+// (ticket 32) is the switch of the live summary in Settings → Sessions; absent or not a boolean reads as on.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -178,7 +179,7 @@ const appSettingsFileSchema = z.object({
     .optional()
     .catch(undefined),
   productSession: z
-    .object({ split: productSessionSplitSchema.optional().catch(undefined) })
+    .object({ split: productSessionSplitSchema.optional().catch(undefined), liveSummary: z.boolean().optional().catch(undefined) })
     .optional()
     .catch(undefined),
   revision: z.number().int().nonnegative().default(0),
@@ -240,10 +241,12 @@ function guideLanguageAfter(current: GuideLanguage | undefined, patched: GuideLa
   return language === undefined ? {} : { guideLanguage: language }
 }
 
-/** The Product Session choice after `patch`, or nothing while no share is chosen. */
+/** The Product Session choice after `patch`, or nothing while neither a share nor the live summary is chosen. */
 function productSessionChoice(current: AppSettings['productSession'], patch?: AppSettings['productSession']): Pick<AppSettings, 'productSession'> {
   const split = patch?.split ?? current?.split
-  return split === undefined ? {} : { productSession: { split } }
+  const liveSummary = patch?.liveSummary ?? current?.liveSummary
+  if (split === undefined && liveSummary === undefined) return {}
+  return { productSession: { ...(split === undefined ? {} : { split }), ...(liveSummary === undefined ? {} : { liveSummary }) } }
 }
 
 /** One window and whether the person chose it. */
@@ -358,6 +361,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.autopilotRun?.windowTo === b.autopilotRun?.windowTo &&
     a.guideLanguage === b.guideLanguage &&
     a.productSession?.split === b.productSession?.split &&
+    a.productSession?.liveSummary === b.productSession?.liveSummary &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

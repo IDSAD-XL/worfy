@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
-import { NodeSessions } from '../../src/main/agent/node-sessions'
+import { NodeSessions, type NodeSessionsDeps } from '../../src/main/agent/node-sessions'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { PRODUCT_MODEL_MESSAGE, SessionSettingsStore } from '../../src/main/agent/session-settings'
@@ -67,7 +67,7 @@ interface Claude {
 }
 
 /** One run of the app: a Layout store over the data folder, a registry on the fake agent, the Node Sessions. */
-function harness(options: { script?: string | ((request: QueryRequest) => string); claude?: Claude } = {}) {
+function harness(options: { script?: string | ((request: QueryRequest) => string); claude?: Claude; narrator?: NodeSessionsDeps['narrator'] } = {}) {
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const requests: QueryRequest[] = []
   const fake = fakeQueryFactory({ scriptsDir, script: options.script ?? 'turn' })
@@ -89,6 +89,7 @@ function harness(options: { script?: string | ((request: QueryRequest) => string
     isDirectory: async (path) => (await stat(path).catch(() => null))?.isDirectory() === true,
     broadcast: (sessionId, event) => broadcast.push({ sessionId, event }),
     publish: (view) => published.push(view),
+    ...(options.narrator === undefined ? {} : { narrator: options.narrator }),
   })
   const nodes = (): LayoutNode[] => layout.get(PROJECT).layout.nodes
   const node = (id: string): LayoutNode => {
@@ -505,6 +506,40 @@ describe('the kind of a Session (worfy-product-session ticket 01)', () => {
       { unattended: false, kind: 'product' },
     ])
     expect(h.node('product-1').data).toStrictEqual({ origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: FINISHED })
+  })
+
+  // worfy-product-session ticket 32: the live summary of a Product Session's turn.
+  it('a Product Session’s narrator reads its events and its lines reach the windows as `narration` under the Session’s id; a plain Session has none', async () => {
+    const made: { events: string[]; closed: boolean; emit: (lines: readonly string[], first: number) => void }[] = []
+    const h = harness({
+      narrator: (emit) => {
+        const feed = { events: [] as string[], closed: false, emit }
+        made.push(feed)
+        return { event: (event) => feed.events.push(event.type), close: () => (feed.closed = true) }
+      },
+    })
+    const plain = await h.sessions.open(PROJECT)
+    await h.until(plain.nodeId, 'idle')
+    expect(made).toHaveLength(0)
+
+    const product = await h.sessions.open(PROJECT, undefined, 'product')
+    await h.until(product.nodeId, 'idle')
+    expect(made).toHaveLength(1)
+    const sessionId = h.view(product.nodeId).sessionId
+    h.registry.get(sessionId).send('hello')
+    await vi.waitFor(() => expect(made[0]!.events).toContain('result'))
+    expect(made[0]!.events).toEqual(expect.arrayContaining(['prompt', 'state', 'result']))
+
+    const after = h.view(product.nodeId).sessionId
+    made[0]!.emit(['Reads the roadmap'], 4)
+    expect(h.broadcast.at(-1)).toStrictEqual({ sessionId: after, event: { type: 'narration', lines: ['Reads the roadmap'], first: 4 } })
+    // No event of the Session's own: the narrator's lines go to the windows only.
+    expect(h.broadcast.filter((each) => each.event.type === 'narration')).toHaveLength(1)
+
+    h.sessions.close(product.nodeId)
+    await h.until(product.nodeId, 'closed')
+    expect(made[0]!.events.at(-1)).toBe('state')
+    expect(made[0]!.closed).toBe(true)
   })
 
   it('a Node without a kind is created and resumed as before: no kind in its data, view or launch', async () => {

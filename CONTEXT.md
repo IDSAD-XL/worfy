@@ -226,6 +226,10 @@ _Avoid_: продуктовый режим, product mode, режим совет�
 Живая схема Product Session: узлы Идея, Вопрос, Решение и Возражение и связи «из чего выросло» между ними. Это не «карта» поиска пути (wayfinder) с Ticket-ами-вопросами (решение владельца 2026-11-07, карта [worfy-product](.scratch/worfy-product/map.md)).
 _Avoid_: карта, mindmap, диаграмма решений
 
+**Live summary**:
+Короткие строки о том, что Product Session делает сейчас и зачем; их пишет Haiku по ходу turn-а. Видны только пока идёт ответ, под строкой статуса чата, и уходят, когда ответ пришёл. Это не сообщения чата: в транскрипте и истории Session их нет. Включается переключателем «Live summary while the advisor works» в Settings → Sessions (решение владельца 2026-11-09, ticket worfy-product-session 32).
+_Avoid_: narrator (имя внутри кода, не в UI и не в docs/features), сводка, статус-сообщения, комментарий Haiku
+
 **Subagent**:
 Агент, которого Session запустила для части работы (например, scout, implementer, reviewer); у него свой транскрипт и итог, и он принадлежит запустившей его Session.
 _Avoid_: субагент, воркер, teammate

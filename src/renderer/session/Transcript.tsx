@@ -7,12 +7,14 @@ import { attachChat, CHIPS_AT_END, lightNodes, messageQuote, publishQuotes, tran
 import { NodeChips } from '../product/NodeChips'
 import { advisorStatus } from './advisor-status'
 import { AdvisorStatus } from './AdvisorStatus'
+import { Narration } from './Narration'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
 import { ProductSessionContext, shownInProductChat, type ChatQueue } from './product-session'
 import { QueuedRows } from './QueuedMessages'
 import { rowTypes } from './rows/index'
+import type { NarrationLines } from './store'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
 // The transcript of one Session: the user's messages, the assistant's text as markdown, thinking
@@ -65,6 +67,11 @@ export interface TranscriptProps {
    * dimmed, with «queued» (ticket 28). A plain Session shows its queue in the input field instead.
    */
   queued?: ChatQueue | null | undefined
+  /**
+   * The live summary of the running turn (store.ts, `narration`; ticket 32): a Product Session's chat shows these
+   * lines under the status line while the turn runs. They are no rows of the transcript.
+   */
+  narration?: NarrationLines | null | undefined
 }
 
 export interface EarlierControl {
@@ -687,7 +694,7 @@ function firstVisibleRow(log: HTMLElement): { row: HTMLElement; offset: number }
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false, queued = null } = props
+  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false, queued = null, narration = null } = props
   const inProduct = useContext(ProductSessionContext)
   const folded = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   // A Product Session's chat draws the conversation only; the rows are folded as for any Session.
@@ -1038,7 +1045,8 @@ export function Transcript(props: TranscriptProps) {
     next = row + 1
   }
   if (next < n) rows.push(space('', next, n))
-  // The end of a Product Session's chat: the status line while a turn runs, and the chips of a turn with no row drawn.
+  // The end of a Product Session's chat: the status line and the live summary under it while a turn runs, and the
+  // chips of a turn with no row drawn.
   const endChips = product === null ? undefined : chips?.byRow.get(CHIPS_AT_END)
   if (inProduct && (status !== null || endChips !== undefined)) {
     const refs = product === null ? undefined : refsOf(product, endChips)
@@ -1052,6 +1060,7 @@ export function Transcript(props: TranscriptProps) {
         onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
       >
         {status !== null ? <AdvisorStatus status={status} /> : null}
+        {status !== null && narration !== null && narration.lines.length > 0 ? <Narration lines={narration.lines} first={narration.first} /> : null}
         {product !== null && endChips !== undefined ? <NodeChips projectId={product} chips={endChips} /> : null}
       </div>,
     )

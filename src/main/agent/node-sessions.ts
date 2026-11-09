@@ -20,6 +20,9 @@
 // `archive` operation of the Layout), ends its conversation: main then gives the save signal of the Node's
 // Project (productEnded, src/main/product/save-signal.ts; worfy-product-session ticket 04), as `product_save`
 // does. The signal itself sends the same changes once, so a Close and a later archive make one message.
+// A Product Session also has a narrator (narrator.ts, worfy-product-session ticket 32): it reads the Session's
+// events and sends the live summary of the running turn to the windows as `narration` events, under the
+// Session's id; the Session itself never sees them.
 //
 // The model, effort and permission mode picked on a Node are kept like the Orchestrator's
 // (session-settings.ts, worfy-daily ticket 23): each `settings` event of the Node's Session saves
@@ -97,6 +100,17 @@ export interface NodeSessionsDeps {
    * (worfy-product-session ticket 04). The save signal of its `docs/product` changes. Absent: nothing.
    */
   productEnded?(projectId: string): void
+  /**
+   * The live summary of a Product Session's turns (worfy-product-session ticket 32, narrator.ts): made when a
+   * Product Session starts, given each of its events, closed with it. `emit` sends the lines to show. Absent: none.
+   */
+  narrator?(emit: (lines: readonly string[], first: number) => void): NarratorFeed
+}
+
+/** What a Session's narrator is given: its events, and the end of the Session. */
+export interface NarratorFeed {
+  event(event: AgentEvent): void
+  close(): void
 }
 
 /** What a Vendor's home knows of a Project's Sessions: live processes, and each one's cwd. */
@@ -114,6 +128,10 @@ interface Run {
   sdkSessionId: string | null
   /** The picks last saved for the Node, or read when it started. */
   settings: SessionSettings
+  /** The live summary of a Product Session's turns; null for any other Session. */
+  narrator: NarratorFeed | null
+  /** The id the Session's events last came under: the narrator's lines go under it too. */
+  sessionId: string | null
 }
 
 /** Data of a Session Node that worfy runs. */
@@ -448,7 +466,8 @@ export class NodeSessions {
   }
 
   private launch(projectId: string, nodeId: string, cwd: string, resume: string | undefined, vendor: VendorId, kind?: SessionKind): SessionNodeView {
-    const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null, settings: this.savedSettings(projectId, nodeId) }
+    const run: Run = { projectId, nodeId, session: null, sdkSessionId: resume ?? null, settings: this.savedSettings(projectId, nodeId), narrator: null, sessionId: null }
+    if (kind === 'product') run.narrator = this.narrator(run)
     this.runs.set(nodeId, run)
     // The registry reports `starting` before start() returns: the view must exist by then.
     const ofKind = kind === undefined ? {} : { kind }
@@ -459,6 +478,7 @@ export class NodeSessions {
       run.session = this.deps.registry.start(cwd, resume, (sessionId, event) => this.onEvent(run, sessionId, event), run.settings, launch, undefined, vendor)
     } catch (error) {
       this.runs.delete(nodeId)
+      run.narrator?.close()
       // Closed, not `error`: no Session runs, so the Node can be removed or started again.
       this.setView({ ...this.view(nodeId), state: 'closed', error: error instanceof Error ? error.message : String(error) })
       throw error
@@ -468,11 +488,36 @@ export class NodeSessions {
   }
 
   private onEvent(run: Run, sessionId: string, event: AgentEvent): void {
+    run.sessionId = sessionId
     if (this.runs.get(run.nodeId) === run) this.apply(run, sessionId, event)
+    this.send(sessionId, event)
+    try {
+      run.narrator?.event(event)
+      // The Session is gone: so is its narrator.
+      if (event.type === 'state' && event.state === 'closed') run.narrator?.close()
+    } catch (error) {
+      console.warn('[sessions] the live summary failed on an event', error)
+    }
+  }
+
+  private send(sessionId: string, event: AgentEvent): void {
     try {
       this.deps.broadcast(sessionId, event)
     } catch (error) {
       console.warn('[sessions] could not send an event to the windows', error)
+    }
+  }
+
+  /** The narrator of a Product Session's run, when the app gives one: its lines go to the windows as `narration`. */
+  private narrator(run: Run): NarratorFeed | null {
+    if (this.deps.narrator === undefined) return null
+    try {
+      return this.deps.narrator((lines, first) => {
+        if (run.sessionId !== null) this.send(run.sessionId, { type: 'narration', lines: [...lines], first })
+      })
+    } catch (error) {
+      console.warn('[sessions] could not make the live summary of a Product Session', error)
+      return null
     }
   }
 
