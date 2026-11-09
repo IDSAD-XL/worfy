@@ -353,3 +353,46 @@ test('a click on text of the move form scrolled down leaves the form where it is
     await launched.close()
   }
 })
+
+// worfy-polish ticket 77: a pressed action shows that it is running. main's dialog waits for the
+// test's answer here, so the action is seen while it runs, without waiting on a clock.
+interface HeldDialog {
+  answerDialog?: (response: number) => void
+}
+
+test('a pressed action shows its work: "Installing…" with a spinner, its row "Running…" with the step and its time, the other buttons off with the reason', async () => {
+  const launched = await launch()
+  try {
+    const { app, window } = launched
+    await app.evaluate(({ dialog }) => {
+      const held = globalThis as HeldDialog
+      dialog.showMessageBox = (() =>
+        new Promise((resolve) => {
+          held.answerDialog = (response) => resolve({ response, checkboxChecked: false })
+        })) as typeof dialog.showMessageBox
+    })
+    const { health } = await openHealth(launched)
+    await checksOf(health)
+    const harness = health.locator('[data-check="harness"]')
+    await harness.getByRole('button', { name: 'Install' }).click()
+
+    const busy = harness.getByRole('button', { name: 'Installing…' })
+    await expect(busy).toHaveAttribute('aria-disabled', 'true')
+    await expect(busy.locator('.w-update-spinner')).toHaveCount(1)
+    await expect(harness.locator('.w-chip')).toHaveText('Running…')
+    await expect(harness.getByTestId('first-run-progress')).toHaveText(/^Installing the Harness… \d+:\d\d$/)
+    const again = health.getByRole('button', { name: 'Check again' })
+    await expect(again).toHaveAttribute('aria-disabled', 'true')
+    await expect(again).toHaveAttribute('title', 'Another check is running')
+    await expect.poll(() => app.evaluate(() => typeof (globalThis as HeldDialog).answerDialog)).toBe('function')
+    await snapshotThemes(window, 'settings-health-running')
+
+    // Cancel in main's dialog: the button says Install again and nothing is off.
+    await app.evaluate(() => (globalThis as HeldDialog).answerDialog?.(1))
+    await expect(harness.getByRole('button', { name: 'Install' })).not.toHaveAttribute('aria-disabled', 'true', { timeout: ms(30_000) })
+    await expect(harness.getByTestId('first-run-progress')).toHaveCount(0)
+    await expect(again).not.toHaveAttribute('aria-disabled', 'true')
+  } finally {
+    await launched.close()
+  }
+})

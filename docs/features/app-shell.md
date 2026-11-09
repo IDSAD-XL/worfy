@@ -275,7 +275,7 @@ nothing.
 | Section | What it holds |
 |---|---|
 | General | Interface scale; Memory in the toolbar; Version; Updates, where Update is on: see [Updates](updates.md) |
-| Health | The First run checks with their actions and "Check again". Opening the section checks |
+| Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
 | Shortcuts | The list of the Keyboard shortcuts window |
 | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
 | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
