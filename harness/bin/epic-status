@@ -8,6 +8,9 @@
 //   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
 //   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
 //   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
+//   A ticket over several repositories (TICKETS.md, "Header") also carries repos, prs and releases, between repo and ref:
+//   its `Repo:`, `PR:` and `Release:` lines as lists in file order (multiRepo below). A ticket with one `Repo:`
+//   line or none, a bare `PR: #N` and no `Release:` line has none of these keys: its object keeps its bytes.
 //   An epic with a spec.md also carries specStatus and acceptedAt — the spec's Status line and the date the owner
 //   accepted it (specStatusOf below; TICKETS.md, "Spec status"); an epic without one has neither key.
 //   --ref in a Silent project (profile mode "silent") is exit 3: there the status does not live in branches.
@@ -26,7 +29,9 @@
 //   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
 //   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
 //                                                   heading after Status), outside code
-// --json gives them as statusAt, blockedReason, waits, pr. Any other Status line — "**Status:**", a tail after
+//   PR: <repo>#N / Release: <repo> tag <tag> /       every one of them in the header, in file order
+//   Release: <repo> package <name>@<version>
+// --json gives them as statusAt, blockedReason, waits, pr (and prs, releases). Any other Status line — "**Status:**", a tail after
 // the word, a second Status line in the footer — is the old header: state none and statusError "old header",
 // not a guess; `ticket migrate` moves it.
 //
@@ -221,7 +226,8 @@ function refTree(entries, gitDir) {
 //   the FIRST Status line in any spelling is statusRaw; the state comes from it only when it is the only
 //   Status line of the file and has the new form, otherwise the state is none (with statusError "old header"
 //   when there was a Status line); the first Blocked reason / Waits / PR line of the header;
-//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped (lib/code-fence.cjs:
+//   the LAST Blocked by / Branch / Repo line wins (repos keeps every Repo line, each name once; prs and releases
+//   every PR: and Release: line of the header); lines inside ``` and ~~~ fences are skipped (lib/code-fence.cjs:
 //   a fence closes only with a line of the same character, at least as long as the one that opened it, and nothing
 //   after it);
 //   a trailing \r is stripped; a byte order mark at the start of the file is dropped; the title is the first H1
@@ -244,6 +250,13 @@ const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
 const H1 = /^#[ \t]+([^ \t].*?)[ \t]*$/
 const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
 const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
+// The lines of a ticket over several repositories (TICKETS.md, "Header"): `PR: #N` or `PR: <repo>#N`,
+// `Release: <repo> tag <tag>` or `Release: <repo> package <name>@<version>`. Values are split on spaces and
+// tabs only: \s of a byte string also takes the byte 0xA0 inside a UTF-8 letter. A line of any other form is
+// not one of them, as `PR: <url>` is not a PR for the old `pr` field.
+const PR_ITEM = /^(?:([A-Za-z0-9._-]+))?#([0-9]+)$/
+const RELEASE_TAG = /^([A-Za-z0-9._-]+)[ \t]+tag[ \t]+([^ \t]+)$/
+const RELEASE_PACKAGE = /^([A-Za-z0-9._-]+)[ \t]+package[ \t]+(@?[^@ \t]+@[^@ \t]+)$/
 
 function parse(epic, file, text) {
     // A file without a leading number is not a ticket; an empty file never reached awk's first line.
@@ -260,6 +273,9 @@ function parse(epic, file, text) {
     let blocked = ""
     let branchV = ""
     let repo = ""
+    const repoLines = [] // every Repo line, in file order; repo above is the last of them
+    const prLines = [] // every PR: and Release: line of the header, in file order
+    const releaseLines = []
     const isCode = codeLines()
     let sline = ""
     let nstatus = 0
@@ -281,6 +297,8 @@ function parse(epic, file, text) {
         if (hdr && reason === null && l.startsWith("Blocked reason:")) reason = after(l, "Blocked reason:")
         if (hdr && waits === null && l.startsWith("Waits:")) waits = after(l, "Waits:")
         if (hdr && prl === null && l.startsWith("PR:")) prl = after(l, "PR:")
+        if (hdr && l.startsWith("PR:")) prLines.push(after(l, "PR:"))
+        if (hdr && l.startsWith("Release:")) releaseLines.push(after(l, "Release:"))
         const m = FIELD.exec(l.toLowerCase())
         if (!m) return
         const v = l.replace(VALUE, "")
@@ -291,7 +309,10 @@ function parse(epic, file, text) {
             }
         } else if (m[1] === "blocked by") blocked = v
         else if (m[1] === "branch") branchV = v
-        else repo = v
+        else {
+            repo = v
+            repoLines.push(v)
+        }
     })
 
     let state = "none"
@@ -300,6 +321,9 @@ function parse(epic, file, text) {
     let rs = ""
     let wt = ""
     let pr = ""
+    // prs and releases, like pr, are read only from a header with a new Status line.
+    let prs = []
+    let releases = []
     if (nstatus === 1 && NEW_STATUS.test(sline)) {
         const w = sline.slice("Status: ".length)
         const word = w.replace(/[ \t].*$/s, "")
@@ -308,6 +332,16 @@ function parse(epic, file, text) {
         rs = reason ?? ""
         wt = waits ?? ""
         if (prl !== null && /^#[0-9]+$/.test(prl)) pr = String(Number(prl.slice(1)))
+        for (const v of prLines) {
+            const p = PR_ITEM.exec(v)
+            if (p) prs.push({ repo: p[1] ?? null, number: String(Number(p[2])) })
+        }
+        for (const v of releaseLines) {
+            const t = RELEASE_TAG.exec(v)
+            const k = t ? null : RELEASE_PACKAGE.exec(v)
+            if (t) releases.push({ repo: t[1], kind: "tag", ref: t[2] })
+            else if (k) releases.push({ repo: k[1], kind: "package", ref: k[2] })
+        }
     } else if (nstatus > 0) serr = "old header"
 
     // bn: the numbers as the line reads them (also when the parse failed); bp: the parse succeeded.
@@ -336,7 +370,30 @@ function parse(epic, file, text) {
     }
     // Branch and Repo are one word each: bold markers and surrounding backticks are not part of the value.
     const word = (x) => x.replace(/\*|`/g, "").replace(/^[ \t]+/, "").replace(/[ \t]+$/, "")
-    return { epic, num: String(Number(num)), slug, title, status, state, at, serr, rs, wt, pr, blocked, bn, bp, branch: word(branchV), repo: word(repo) }
+    // Repo lines in file order, each name once (an empty one is not a repository).
+    const repos = [...new Set(repoLines.map(word))].filter((r) => r !== "")
+    // A ticket over several repositories: more than one Repo line, a PR named by its repository, or a release
+    // it waits for. Only such a ticket gets the lists; any other keeps the old object, byte for byte.
+    const multiRepo = repos.length > 1 || prs.some((p) => p.repo !== null) || releases.length > 0
+    return {
+        epic,
+        num: String(Number(num)),
+        slug,
+        title,
+        status,
+        state,
+        at,
+        serr,
+        rs,
+        wt,
+        pr,
+        blocked,
+        bn,
+        bp,
+        branch: word(branchV),
+        repo: word(repo),
+        multi: multiRepo ? { repos, prs, releases } : null,
+    }
 }
 
 function rows(tree, only) {
@@ -363,7 +420,14 @@ const ticketJson = (t, ref) =>
     `"pr":${t.pr === "" ? "null" : t.pr},` +
     `"blockedRaw":${t.blocked === "" ? "null" : jstr(t.blocked)},"blockedNums":[${t.bp ? t.bn.join(",") : ""}],` +
     `"blockedParsed":${t.bp},"branch":${t.branch === "" ? "null" : jstr(t.branch)},` +
-    `"repo":${t.repo === "" ? "null" : jstr(t.repo)},"ref":${jstr(ref)}}`
+    `"repo":${t.repo === "" ? "null" : jstr(t.repo)},${multiJson(t.multi)}"ref":${jstr(ref)}}`
+// The lists of a ticket over several repositories, with the comma after them; nothing for any other ticket.
+const multiJson = (m) =>
+    m === null
+        ? ""
+        : `"repos":[${m.repos.map(jstr).join(",")}],` +
+          `"prs":[${m.prs.map((p) => `{"repo":${p.repo === null ? "null" : jstr(p.repo)},"number":${p.number}}`).join(",")}],` +
+          `"releases":[${m.releases.map((r) => `{"repo":${jstr(r.repo)},"kind":"${r.kind}","ref":${jstr(r.ref)}}`).join(",")}],`
 
 // A name of the old shell's own JSON (the ref label, an epic in the epics list): \r and \n dropped,
 // backslash and quote escaped, no other cleaning. The ticket fields are cleaned instead (jstr).
@@ -470,6 +534,13 @@ function lineFor(parent, epic, where) {
         const pad = pad2(cur.num)
         if (!title.startsWith(pad) && !title.startsWith(cur.num)) title = `${pad} ${B("—")} ${title}`
         line += `${DOT}ticket ${title}`
+        // A ticket over several repositories: its PRs in file order and the releases it waits for. epic-status
+        // reads files only, so it marks no PR as merged and no release as out: worfy's stages know that.
+        if (cur.multi !== null) {
+            const prs = cur.multi.prs.map((p) => (p.repo === null ? "" : p.repo) + "#" + p.number)
+            if (prs.length) line += `${DOT}PR ${clean(prs.join(", "))}`
+            if (cur.multi.releases.length) line += `${DOT}waits for release ${clean(cur.multi.releases.map((r) => r.ref).join(", "))}`
+        }
         const waiting = cur.bn.filter((n) => states.has(n) && states.get(n) !== "done").map(pad2)
         if (waiting.length) line += `${DOT}waits for ${waiting.join(" ")}`
         if (cur.state === "blocked") line += `${DOT}blocked`

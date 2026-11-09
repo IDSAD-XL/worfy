@@ -19,7 +19,10 @@
 //   Open PRs   the epic's open PRs (a branch <epic>/…, a ticket's `Branch:` line or `PR:` line): number,
 //              <epic>/<NN> (`?` for a branch of the epic no ticket matches), branch, head, labels, the commit
 //              statuses (`review`, `check/<name>`) and a count of the CI check runs. Not read with
-//              workflow.finish `local-green`; a gh that fails — one line saying so
+//              workflow.finish `local-green`; a gh that fails — one line saying so. A project of several
+//              repositories (the profile's _resolved.repos) reads the open PRs of each repository and
+//              names each PR `<repo>#N`: PR numbers repeat across repositories, so a PR is matched to a ticket by
+//              the pair (repo, N) and a branch by the pair (repo, branch)
 //   Next wave  the open tickets that are not in work and whose every blocker of `Blocked by:` is done
 //   Journal    the newest run folder of the epic, <HARNESS_HOME>/runs/<project>/<epic>-wave-<time>/ — the
 //              decision log of a wave without a human (decisions.tsv) and the saved brief (wave-brief.txt)
@@ -190,33 +193,73 @@ const fin = sibling("profile", ["--field", "workflow.finish"])
 const localGreen = fin.code === 0 && fin.out.trim() === "local-green"
 let prs = null
 let prError = null
+// The repositories gh reads: with two or more in the profile, each of them (in its own directory); otherwise
+// the checkout this runs in, with no repository name.
+let ghRepos = [{ name: null, cwd: undefined }]
+const prErrors = []
 if (!localGreen) {
+    const rp = sibling("profile", ["--field", "_resolved.repos"])
+    let list = null
+    try {
+        list = rp.code === 0 ? JSON.parse(rp.out) : null
+    } catch {
+        list = null
+    }
+    if (Array.isArray(list) && list.length > 1 && list.every((r) => r && typeof r.name === "string" && typeof r.path === "string"))
+        ghRepos = list.map((r) => ({ name: r.name, cwd: r.path }))
     const over = process.env.WAVE_BRIEF_GH
     const [ghFile, ghPre] = !over ? ["gh", []] : over.endsWith(".mjs") ? [process.execPath, [over]] : [over, []]
     const fields = "number,title,headRefName,headRefOid,labels,statusCheckRollup"
-    const r = run(ghFile, [...ghPre, "pr", "list", "--state", "open", "--limit", "200", "--json", fields])
-    try {
-        prs = r.code === 0 ? JSON.parse(r.out) : null
-    } catch {
-        prs = null
+    for (const repo of ghRepos) {
+        const r = run(ghFile, [...ghPre, "pr", "list", "--state", "open", "--limit", "200", "--json", fields], { cwd: repo.cwd })
+        let got = null
+        try {
+            got = r.code === 0 ? JSON.parse(r.out) : null
+        } catch {
+            got = null
+        }
+        if (!Array.isArray(got)) {
+            const why = `gh exit ${r.code}: ${cut(firstLine(r.err) || "no JSON")}`
+            prErrors.push(repo.name === null ? why : `in ${repo.name} — ${why}`)
+            continue
+        }
+        prs = [...(prs || []), ...got.filter(Boolean).map((p) => ({ ...p, repo: repo.name }))]
     }
-    if (!Array.isArray(prs)) {
-        prError = `gh exit ${r.code}: ${cut(firstLine(r.err) || "no JSON")}`
-        prs = null
-    }
+    // Every repository failed: the section says only that; some failed: their lines follow the PRs read.
+    if (prs === null) prError = prErrors.join("; ")
 }
-const byBranch = new Map(tickets.filter((t) => t.branch).map((t) => [t.branch, t]))
-const byPr = new Map(tickets.filter((t) => t.pr).map((t) => [t.pr, t]))
+// A ticket's repositories and PRs: the lists epic-status gives a ticket over several repositories (repos, prs),
+// otherwise its one Repo line and its `PR: #N`. A bare #N of a ticket with one repository is a PR of that one.
+const reposOf = (t) => (Array.isArray(t.repos) ? t.repos : t.repo ? [t.repo] : [])
+const prsOf = (t) => {
+    const list = Array.isArray(t.prs) ? t.prs : t.pr ? [{ repo: null, number: t.pr }] : []
+    const only = reposOf(t).length === 1 ? reposOf(t)[0] : null
+    return list.map((q) => ({ repo: q.repo ?? only, number: q.number }))
+}
+// The keys: (repo, branch) and (repo, N). A PR read in a project of one repository has no repo (null) and
+// matches by branch or number alone, as before; a ticket that names no repository matches a PR of any.
+// The last ticket with a key wins, as the maps of one key did.
+const lastOf = (pred) => {
+    for (let i = tickets.length - 1; i >= 0; i--) if (pred(tickets[i])) return tickets[i]
+    return undefined
+}
+const inRepo = (t, repo) => repo === null || reposOf(t).length === 0 || reposOf(t).includes(repo)
+const byBranch = (p) => lastOf((t) => t.branch && t.branch === p.headRefName && inRepo(t, p.repo))
+const byPr = (p) => lastOf((t) => prsOf(t).some((q) => q.number === p.number && (p.repo === null || q.repo === null || q.repo === p.repo)))
+// A PR as the brief names it: #N in a project of one repository, <repo>#N in one of several.
+const prName = (p) => `${p.repo ?? ""}#${p.number}`
 const ticketOf = (p) => {
-    if (byBranch.has(p.headRefName)) return byBranch.get(p.headRefName)
-    if (byPr.has(p.number)) return byPr.get(p.number)
+    const ofBranch = byBranch(p)
+    if (ofBranch) return ofBranch
+    const ofPr = byPr(p)
+    if (ofPr) return ofPr
     const n = numOfBranch(String(p.headRefName || ""))
     if (n === null) return String(p.headRefName || "").startsWith(prefix) ? { num: null } : null
     return tickets.find((t) => t.num === n) || { num: null }
 }
 const mine = (prs || []).map((p) => [p, ticketOf(p)]).filter(([, t]) => t)
 const prOfTicket = new Map()
-for (const [p, t] of mine) if (t.num !== null && !prOfTicket.has(t.num)) prOfTicket.set(t.num, p.number)
+for (const [p, t] of mine) if (t.num !== null && !prOfTicket.has(t.num)) prOfTicket.set(t.num, prName(p))
 
 // The epic's branches, local and of every remote: a ticket that reads `open` with such a branch is in work.
 const branchOfTicket = new Map()
@@ -230,7 +273,7 @@ for (const t of tickets) if (t.branch && !branchOfTicket.has(t.num) && g(["rev-p
 const inWork = new Map()
 for (const t of tickets) {
     if (t.state !== "open") continue
-    if (prOfTicket.has(t.num)) inWork.set(t.num, `PR #${prOfTicket.get(t.num)}`)
+    if (prOfTicket.has(t.num)) inWork.set(t.num, `PR ${prOfTicket.get(t.num)}`)
     else if (branchOfTicket.has(t.num)) inWork.set(t.num, `branch ${branchOfTicket.get(t.num)}`)
 }
 
@@ -245,7 +288,9 @@ const waitLines = [
         const parts = [`${pad2(t.num)} ${t.state === "work" ? "claimed" : "blocked"}`]
         if (t.waits) parts.push(`waits: ${cut(t.waits, 40)}`)
         if (t.blockedReason) parts.push(cut(t.blockedReason))
-        if (t.pr) parts.push(`PR #${t.pr}`)
+        if (Array.isArray(t.prs)) {
+            if (t.prs.length) parts.push(`PR ${t.prs.map(prName).join(", ")}`)
+        } else if (t.pr) parts.push(`PR #${t.pr}`)
         return parts.join(" · ")
     }),
     ...tickets.filter((t) => inWork.has(t.num)).map((t) => `${pad2(t.num)} in work: ${inWork.get(t.num)} (open on ${branch})`),
@@ -253,7 +298,7 @@ const waitLines = [
 const unread = tickets.filter((t) => t.state === "none")
 
 const prLines = mine.map(([p, t]) => {
-    const parts = [`#${p.number} ${epic}/${t.num !== null ? pad2(t.num) : "?"} · branch ${p.headRefName} @ ${short(p.headRefOid)}`]
+    const parts = [`${prName(p)} ${epic}/${t.num !== null ? pad2(t.num) : "?"} · branch ${p.headRefName} @ ${short(p.headRefOid)}`]
     const labels = (p.labels || []).map((l) => l && l.name).filter(Boolean)
     if (labels.length) parts.push(`labels: ${labels.join(", ")}`)
     const roll = Array.isArray(p.statusCheckRollup) ? p.statusCheckRollup.filter(Boolean) : []
@@ -322,6 +367,7 @@ function render(max) {
     else if (prError) say(`not read — ${prError}`)
     else if (!prLines.length) say("none")
     for (const l of capped(prLines)) say(l)
+    if (prs !== null) for (const e of prErrors) say(`not read ${e}`)
     say("")
     say("## Next wave")
     say(ready.length ? `ready (open, not in work, every blocker done): ${cut(ready.map((t) => pad2(t.num)).join(", "), 400)}` : "ready: none")
