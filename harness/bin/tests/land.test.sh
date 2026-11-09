@@ -68,7 +68,8 @@ if (cmd === "pr view") {
 } else if (cmd === "run list" && a.includes("--event")) {
     // the push runs of main: main-runs — their JSON list ([] without it); main-runs-fail — gh fails
     if (has("main-runs-fail")) { process.stderr.write("HTTP 502: Bad Gateway\n"); process.exit(1) }
-    process.stdout.write(read("main-runs", "[]") + "\n")
+    const limit = a.includes("--limit") ? +a[a.indexOf("--limit") + 1] : 20
+    out(JSON.parse(read("main-runs", "[]")).slice(0, limit))
 } else if (a[0] === "api" && /\/commits\/[0-9a-f]{40}\/pulls$/.test(a[1])) {
     // the PRs of a commit: pulls-<sha> — their JSON list ([] without it)
     process.stdout.write(read(`pulls-${/commits\/([0-9a-f]{40})\//.exec(a[1])[1]}`, "[]") + "\n")
@@ -755,6 +756,45 @@ red_main; mv "$GHD/main-runs" "$GHD/on-sleep/main-runs"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "$RED_REASON" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
     && ok "red main: read again under the lock; turned red while land waited, no merge, the lock released" || bad "main lock: exit $rc: $(cat "$W/out")"
+# a newer green run of a commit with documents only gives no verdict: main stays red, the culprit is the code PR below it
+# (a project may run only its lint for documents). By the docs_only rule, and with no rule for a commit inside the tickets root.
+for rule in docs_only tickets_root; do
+    new_world "maindocsrun-$rule" 1
+    state 1
+    if [ "$rule" = docs_only ]; then edit 's.docs_only=process.env.DOCS_ONLY'; doc=notes/n.md; else doc=.scratch/e/issues/09.md; fi
+    echo code >"$W/seed/code.txt" && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m code
+    code_sha="$(git -C "$W/seed" rev-parse HEAD)"
+    mkdir -p "$W/seed/$(dirname "$doc")" && echo note >"$W/seed/$doc" && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m docs && git -C "$W/seed" push -q origin main
+    docs_sha="$(git -C "$W/seed" rev-parse HEAD)"
+    main_runs "$(mrun 3 "$docs_sha" completed success 1 2026-11-09T10:20:00Z 2026-11-09T10:23:00Z)" "$(mrun 2 "$code_sha" completed failure 1 2026-11-09T10:00:00Z 2026-11-09T10:30:00Z)" "$R1"
+    printf '[{"number":41,"merge_commit_sha":"%s"}]' "$code_sha" >"$GHD/pulls-$code_sha"
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "main red since $(echo "$code_sha" | cut -c1-8) (#41, 2026-11-09T10:30:00Z) — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert #41" "$W/out" \
+        && grep -q "push run 3 on $(echo "$docs_sha" | cut -c1-8) (success): documents only, no verdict on the code" "$W/state.log" \
+        && ok "red main ($rule): a newer green run of a documents-only commit gives no verdict, the code PR below it is the culprit" || bad "docs run over red ($rule): exit $rc: $(cat "$W/out")"
+done
+# timed_out is red; a commit whose PRs include none merged as it names the commit, not another PR
+new_world maintimeout 1
+state 1
+main_runs "$(mrun 2 "$C2" completed timed_out 1 2026-11-09T10:00:00Z 2026-11-09T10:30:00Z)" "$R1"
+printf '[{"number":40,"merge_commit_sha":"%s"}]' "$C1" >"$GHD/pulls-$C2"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF 'main red since 22222222 (no PR, 2026-11-09T10:30:00Z) — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert 22222222' "$W/out" \
+    && ok "red main: timed_out is red; a PR that did not merge the commit is not its culprit" || bad "timed_out: exit $rc: $(cat "$W/out")"
+# no green run in the window of 50: the culprit is older, found by hand; fewer runs than the window are the whole history
+new_world mainwindow 1
+state 1
+runs=(); for n in $(seq 51 -1 1); do runs+=("$(mrun "$n" "$C2" completed failure 1 "2026-11-09T$(printf '%02d' $((n / 4))):$(printf '%02d' $((n % 4 * 10))):00Z")"); done
+main_runs "${runs[@]}"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF 'main red since before 22222222 (no green push run among the newest 50, the oldest red one 2026-11-09T00:20:00Z) — code PRs wait; the culprit is older than these runs: find it by hand' "$W/out" \
+    && ! grep -q '/pulls' "$GHD/log" && ok "red main: no green run among the newest 50 — the culprit is beyond the window, no revert named" || bad "window: exit $rc: $(cat "$W/out")"
+new_world mainhistory 1
+state 1
+main_runs "$(mrun 3 "$C3" completed failure 1 2026-11-09T10:10:00Z)" "$(mrun 2 "$C2" completed failure 1 2026-11-09T10:00:00Z 2026-11-09T10:30:00Z)"
+printf '[{"number":41,"merge_commit_sha":"%s"}]' "$C2" >"$GHD/pulls-$C2"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && grep -qxF "$RED_LINE" "$W/out" && ok "red main: fewer runs than the window and none green — the oldest red one is the culprit" || bad "history: exit $rc: $(cat "$W/out")"
 # the input: main_fix is a boolean, docs_only null or a command
 for bad_input in 's.prs[0].main_fix="yes"' 's.docs_only=""' 's.docs_only=3'; do
     i=$((i + 1)); new_world "input$i" 1
