@@ -2,6 +2,7 @@ import {
   Background,
   BackgroundVariant,
   BaseEdge,
+  getNodesBounds,
   getViewportForBounds,
   Handle,
   Position,
@@ -949,9 +950,15 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     setDragged(pendingDrags(dragged, topic))
     setCleared(false)
   }
-  // «Move nodes» (ticket 31): off each time the map opens and when it shows another topic, so a drag on a
-  // node pans the map; never on a read-only screen.
+  // «Move nodes» (ticket 31): off each time the map opens and whenever it shows another topic (back to the
+  // first one too), so a drag on a node pans the map; never on a read-only screen. The question of
+  // «Prettify» closes with another topic as well.
   const [moving, setMoving] = useState<{ key: string; on: boolean }>(() => ({ key: storeKey, on: false }))
+  const [asking, setAsking] = useState(false)
+  if (moving.key !== storeKey) {
+    setMoving({ key: storeKey, on: false })
+    setAsking(false)
+  }
   const moveNodes = readOnly === null && moving.key === storeKey && moving.on
   // The places the owner dragged nodes to in the Graph (ticket 26, review round 2): for this layout only,
   // never written. A place in the file is the Tree's, which grows left to right from the topic; the Graph
@@ -990,6 +997,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const movedByHandCount = view === 'graph' ? movedInGraph.size : new Set([...(cleared ? [] : filePlaced), ...dragged.keys()]).size
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
+  const askId = `${flowId}-prettify-ask`
   const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
@@ -1141,10 +1149,20 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     void flow.setViewport(getViewportForBounds(flow.getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
   }, [paneWidth, paneHeight, flow])
 
+  // The fit «Prettify» asks for (ticket 31), once the nodes it put back are drawn. Not through fitView: React
+  // Flow keeps that one queued until it has measured every node, and a node that only moved has lost its
+  // measure and is not measured again (its size is the same), so the fit never came. The viewport «Fit»
+  // gives, from the nodes' own boxes, as the fit on a new size above.
+  const fitPending = useRef(false)
+  useEffect(() => {
+    if (!fitPending.current || paneWidth <= 0 || paneHeight <= 0 || nodes.length === 0) return
+    fitPending.current = false
+    // The boxes of the nodes as passed: React Flow's own lookup may still hold a moved node's last place.
+    void flow.setViewport(getViewportForBounds(getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
+  }, [nodes, paneWidth, paneHeight, flow])
+
   const pickedPlace = picked === null ? undefined : shown.get(picked)
 
-  // The question of «Prettify» in the Tree is open.
-  const [asking, setAsking] = useState(false)
   const choose = (next: MindMapView) => {
     setChosen({ key: storeKey, view: next })
     setGraphMoves({ key: '', places: NO_MOVES })
@@ -1155,16 +1173,46 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   // «Prettify» (ticket 31): the Tree asks first, as the places in the file cannot be brought back; the Graph's
   // moves last until its next layout anyway, so it does not ask.
   const prettify = (): void => {
-    setAsking(false)
+    closeAsk()
     if (view === 'graph') setGraphMoves({ key: '', places: NO_MOVES })
     else {
+      // A refusal brings back the file's places and the drags still waiting for main, under any drag since.
+      const waiting = dragged
       setDragged(new Map())
       setCleared(true)
-      write({ clearPlaces: true }, () => setCleared(false))
+      write({ clearPlaces: true }, () => {
+        setCleared(false)
+        setDragged((now) => new Map([...waiting, ...now]))
+      })
     }
-    // Fitted with the next change of the nodes, which the dropped places make.
+    // Fitted once the nodes are drawn at their new places (the effect below), as «Fit» fits them.
     movedByHand.current = false
-    void flow.fitView({ ...FIT, duration: 0 })
+    fitPending.current = true
+  }
+  // The focus around the question of «Prettify», as the done stack's Expand and Collapse keep it (worfy-week
+  // ticket 15): the question takes it on its «Cancel»; when it closes, or «Prettify» in the Graph has dropped
+  // the moves, it goes back to «Prettify», or to «Move nodes» when «Prettify» is now inactive.
+  const prettifyButton = useRef<HTMLButtonElement>(null)
+  const moveButton = useRef<HTMLButtonElement>(null)
+  const cancelButton = useRef<HTMLButtonElement>(null)
+  const focusNext = useRef<'cancel' | 'back' | null>(null)
+  useEffect(() => {
+    const next = focusNext.current
+    if (next === null) return
+    focusNext.current = null
+    if (next === 'cancel') cancelButton.current?.focus()
+    else {
+      const back = prettifyButton.current
+      ;(back !== null && !back.disabled ? back : moveButton.current)?.focus()
+    }
+  })
+  const openAsk = (): void => {
+    focusNext.current = 'cancel'
+    setAsking(true)
+  }
+  const closeAsk = (): void => {
+    focusNext.current = 'back'
+    setAsking(false)
   }
   const prettifyTitle = readOnly ?? (movedByHandCount === 0 ? 'No node was moved by hand in this view' : 'Lay the map out again: drop the places nodes were moved to by hand in this view')
 
@@ -1188,6 +1236,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
         <button
           type="button"
           className="w-mind__button w-mind__toggle w-mind__button--icon"
+          ref={moveButton}
           aria-pressed={moveNodes}
           disabled={readOnly !== null}
           title={readOnly ?? (moveNodes ? 'Turn off so a drag on a node pans the map' : 'Turn on to drag nodes to new places. Off: a drag on a node pans the map')}
@@ -1198,22 +1247,34 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
           Move nodes
         </button>
         {asking && view === 'tree' && movedByHandCount > 0 && readOnly === null ? (
-          <span className="w-mind__ask" role="group" aria-label="Prettify" data-testid="mind-map-prettify-ask">
-            {`Drop ${movedByHandCount} moved place${movedByHandCount === 1 ? '' : 's'}?`}
+          <span
+            className="w-mind__ask"
+            role="group"
+            aria-label="Prettify"
+            aria-describedby={askId}
+            data-testid="mind-map-prettify-ask"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return
+              event.stopPropagation()
+              closeAsk()
+            }}
+          >
+            <span id={askId} aria-live="polite">{`Drop ${movedByHandCount} moved place${movedByHandCount === 1 ? '' : 's'}?`}</span>
             <button type="button" className="w-mind__button" onClick={prettify}>
               Prettify
             </button>
-            <button type="button" className="w-mind__button" onClick={() => setAsking(false)}>
+            <button ref={cancelButton} type="button" className="w-mind__button" onClick={closeAsk}>
               Cancel
             </button>
           </span>
         ) : (
           <button
             type="button"
+            ref={prettifyButton}
             className="w-mind__button w-mind__button--icon"
             disabled={readOnly !== null || movedByHandCount === 0}
             title={prettifyTitle}
-            onClick={() => (view === 'graph' ? prettify() : setAsking(true))}
+            onClick={() => (view === 'graph' ? prettify() : openAsk())}
             data-testid="mind-map-prettify"
           >
             <SparkleIcon />

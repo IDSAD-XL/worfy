@@ -286,9 +286,10 @@ to type in.
   many nodes it hides. The fold is saved in the file.
 - "Prettify" lays the view shown out again. In "Tree" it drops the places saved in the file for every node of the topic,
   hidden ones included, in one write through the same writer as a drag. The map has no undo, so it asks first in the
-  toolbar: "Drop N moved places?" with "Prettify" and "Cancel". In "Graph" it drops the moves made since the last layout
-  at once, without asking, and leaves the file alone. Then the map fits into view. The button is inactive while the
-  view has no place moved by hand.
+  toolbar: "Drop N moved places?" with "Prettify" and "Cancel". The focus goes to "Cancel", and Escape closes the
+  question as "Cancel" does; once it closes, the focus is back on "Prettify", or on "Move nodes" when nothing is left to
+  drop. In "Graph" it drops the moves made since the last layout at once, without asking, and leaves the file alone.
+  Then the map fits into view as "Fit" fits it. The button is inactive while the view has no place moved by hand.
 - When the change cannot be saved, the map says "Could not save the change:" and the reason, and the places stay.
 
 **Chips in the chat.** A node that a `mind_map_add`, `mind_map_update` or `mind_map_decide` call wrote gets a chip

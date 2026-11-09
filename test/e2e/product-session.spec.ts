@@ -146,7 +146,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await window.mouse.up()
     expect(await drawnPlace(node)).toEqual(before)
     await expect.poll(async () => (await node.boundingBox())!.x).toBeGreaterThan(offBox.x + 30)
-    expect(readMap().nodes[0]?.x).toBeUndefined()
+    await expect.poll(() => readMap().nodes[0]?.x).toBeUndefined()
 
     // A drag with the mouse once «Move nodes» is on; let go, main writes the place into the file.
     await moveNodes.click()
@@ -198,6 +198,13 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(map.getByRole('button', { name: 'Move nodes' })).toHaveAttribute('aria-pressed', 'false')
     const toolbar = map.locator('.w-mind__toolbar')
     await toolbar.screenshot({ path: test.info().outputPath('31-toolbar-dark.png') })
+    // A zoom by hand first: «Prettify» fits the map as «Fit» does, whatever the owner's view was.
+    const viewport = map.locator('.react-flow__viewport')
+    const transform = (): Promise<string> => viewport.evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
+    const zoomedFrom = await transform()
+    await map.getByRole('button', { name: 'Zoom in' }).click()
+    await expect.poll(transform).not.toBe(zoomedFrom)
+    const zoomed = await transform()
     await map.getByRole('button', { name: 'Prettify' }).click()
     const ask = map.getByRole('group', { name: 'Prettify' })
     await expect(ask).toContainText('Drop 1 moved place?')
@@ -206,6 +213,10 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect.poll(() => readMap().nodes).toEqual([NODE])
     await expect.poll(() => drawnPlace(node)).not.toEqual(seen.written)
     await expect(map.getByRole('button', { name: 'Prettify' })).toBeDisabled()
+    await expect.poll(transform).not.toBe(zoomed)
+    const afterPrettify = await transform()
+    await map.getByRole('button', { name: 'Fit' }).click()
+    await expect.poll(transform).toBe(afterPrettify)
     // Both Product Sessions are on the Canvas: the first start's and this one.
     const nodes = await window.evaluate(async (projectId) => {
       const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
