@@ -59,13 +59,16 @@ Source: владелец 2026-11-09, дословно: «возможность 
   записи и без вопроса, и места «Tree» в файле остаются; без ручных мест «Prettify» неактивна; на экране только для
   чтения оба элемента неактивны.
   - evidence: test-run pass · `pnpm test` in gate fast exit 0; test/unit/mind-map-hand.test.tsx 20 passed, 6 mutants killed · mac - · 6635a8f3b
+  - evidence: test-run pass · `pnpm test` on 16 Mind map and Product Session files 280 passed exit 0; mind-map-hand 27 tests, 10 review-round mutants killed · mac - · 59a4434dd
 - [ ] Contract test `product.layout` (`test/contract/product-layout.test.ts`): `clearPlaces` снимает `x`, `y`,
   `placed` у всех узлов одной записью, остальное байт в байт; `clearPlaces` вместе с `id`, `x` или `collapsed`
   отклоняется схемой.
   - evidence: test-run pass · `pnpm test` in gate fast exit 0; test/contract/product-layout.test.ts 8 passed · mac - · 6635a8f3b
+  - evidence: test-run pass · `pnpm test test/contract/product-layout.test.ts` 8 passed exit 0 · mac - · 59a4434dd
 - [ ] e2e test (`test/e2e/product-session.spec.ts`): drag при выключенном «Move nodes» не пишет в файл, при
   включённом пишет; «Prettify» снимает место из файла.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` 8 passed exit 0 · mac dev · 6635a8f3b
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` 8 passed exit 0 (Prettify viewport equals Fit) · mac dev · 59a4434dd
 - [ ] Снимок строки инструментов (тёмная тема) в папке вывода test-а, в репозиторий не кладётся.
 - [ ] `docs/features/product-session.md` (только английская страница, ADR-0088).
   - evidence: commit pass · Mind map nodes move only with the Move nodes toggle; Prettify lays the map out again (worfy-product-session 31) · - - · 6635a8f3b
@@ -73,6 +76,7 @@ Source: владелец 2026-11-09, дословно: «возможность 
   `test/e2e/product-session.spec.ts`, gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6635a8f3b
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 6635a8f3b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 59a4434dd
 
 ## Тесты
 
