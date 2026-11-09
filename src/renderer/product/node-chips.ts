@@ -156,9 +156,10 @@ interface FocusState {
   litMessage: readonly NodeRef[]
   /**
    * The chat message a card or a chip asked to see; `seq` as for `picked`. `scroll: false` (a chip's click:
-   * its message is on screen) rings the message without moving the chat.
+   * its message is on screen) rings the message without moving the chat. `message: null` — the node card
+   * closed: the chat takes the ring off (ticket 25).
    */
-  shown: { projectId: string; message: string; seq: number; scroll?: boolean } | null
+  shown: { projectId: string; message: string | null; seq: number; scroll?: boolean } | null
   /** How many Product Session chats of each Project are on screen: a card offers «Show in the chat» only with one. */
   chats: Readonly<Record<string, number>>
   /** How the Product Session chat of each Project quotes the messages it has loaded, by the message's uuid. */
@@ -187,6 +188,11 @@ export function lightNodes(refs: readonly NodeRef[]): void {
 /** Asks the Project's Product Session chat to ring a message and, unless `scroll` is false, scroll to it. */
 export function showMessage(projectId: string, message: string, { scroll = true }: { scroll?: boolean } = {}): void {
   useMindMapFocus.setState({ shown: { projectId, message, seq: ++seq, ...(scroll ? {} : { scroll }) } })
+}
+
+/** Asks the Project's Product Session chat to take the ring off its message, as the prototype does when the card closes. */
+export function hideMessage(projectId: string): void {
+  useMindMapFocus.setState({ shown: { projectId, message: null, seq: ++seq } })
 }
 
 /** A chat message as a node card quotes it: its number in the chat, who wrote it and the start of its text. */

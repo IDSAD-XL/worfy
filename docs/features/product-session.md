@@ -220,11 +220,13 @@ and the reason.
 - A click on a node opens its card beside the node: to its right, to its left where the right has no room, under or
   above it where neither side has, always inside the map. The card shows the kind and status as a pill (struck through
   for a rejected Decision), text, Reason, Source, History (every status of a Decision, oldest first, the one that
-  rejected it in red), Grew from (a link to the parent's card), Message (where the node appeared)
+  rejected it in red; "step 5: …" names each by its message's number in the chat when the chat has loaded every
+  one of them, else the list is numbered 1, 2, …), Grew from (a link to the parent's card), Message (where the node appeared)
   and Changed by (the message of each later status). A message the chat has loaded is quoted: "#2 Advisor: “…”", its
   start cut to 60 characters, the number a link to it; any other reads "Show in the chat". The card of a map Ticket shows its Status
   and its file. The card of a node of `mind-map.json` says "To change this node, ask the advisor in the chat."
-- Tab moves between nodes, Enter or Space opens a card, Escape closes it.
+- Tab moves between nodes, Enter or Space opens a card, Escape closes it. Closing the card (Escape, its "×", a click on
+  the empty map) takes the ring off the chat's message.
 
 **By hand.** The owner only moves nodes and folds branches; what a node says is the advisor's, and the card has no field
 to type in.
@@ -320,7 +322,8 @@ out again.
 - `test/e2e/product-session.spec.ts`: in the running app, a node the advisor adds shows without a reload with its
   chip, the open agents list widens its column without covering the chat, and a dragged node keeps its place after a
   restart; in a 1160-wide window with the agents list open, the chat heading, the chips, the map's toolbar and the
-  input field fit the narrow column, a chip rings its message and the card quotes it. Folding is covered by the unit
+  input field fit the narrow column, a chip rings its message, the card quotes it, and closing the card takes the
+  ring off. Folding is covered by the unit
   tests only.
 
 ## Critic, ideas and the share of accepted advice

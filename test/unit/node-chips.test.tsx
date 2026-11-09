@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { CHIPS_AT_END, messageQuote, quoteLabel, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { CHIPS_AT_END, messageQuote, quoteLabel, showMessage, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { invoke } from '../../src/renderer/ipc'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { ProductSessionContext, shownInProductChat } from '../../src/renderer/session/product-session'
 import { Transcript } from '../../src/renderer/session/Transcript'
@@ -395,6 +396,147 @@ describe('chips of Mind map nodes under a message', () => {
     fireEvent.click(nodeOf('who-pays')!)
     card = screen.getByRole('region', { name: 'Node' })
     expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show in the chat')
+  })
+
+  // worfy-product-session ticket 25 (R1 of the final comparison): as the prototype's selectNode(null) clears
+  // highlightMsg, closing the node card takes the ring off the chat's message, whichever way the card closes;
+  // another chip moves the ring.
+  it('closing the node card takes the ring off the message: the close button, Escape, a click on the empty map', () => {
+    render(<ProductBody />)
+    const ringed = () => document.querySelector<HTMLElement>('[data-item][data-shown]')
+    const card = () => screen.queryByRole('region', { name: 'Node' })
+    const [first, second] = screen.getAllByTestId('node-chip')
+
+    act(() => fireEvent.click(first!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(within(card()!).getByRole('button', { name: 'Close the card' })))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    act(() => fireEvent.click(second!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.keyDown(card()!, { key: 'Escape' }))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    act(() => fireEvent.click(first!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(document.querySelector('.react-flow__pane')!))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    // A node's own «Show in the chat» rings while its card is open; picking another chip keeps a ring.
+    act(() => fireEvent.click(nodeOf('who-pays')!))
+    act(() => fireEvent.click(within(card()!).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(first!))
+    expect(card()).not.toBeNull()
+    expect(ringed()).not.toBeNull()
+  })
+
+  // Ticket 25, review round 2: a chip whose node is in a folded branch, clicked while another card is open. The
+  // node is selected before the branch unfolds and is drawn only after main's change comes back; that wait is not
+  // a closed card, so the ring the chip asked for stays, and stays once the card opens.
+  it('a chip of a node in a folded branch, clicked while another card is open, keeps its ring while the branch unfolds', () => {
+    vi.mocked(invoke).mockResolvedValue({ ok: true, value: null })
+    try {
+      const folded: ProductTopicState = { ...topic, nodes: topic.nodes.map((node) => (node.id === 'idea-teams' ? { ...node, collapsed: true } : node)) }
+      const body = (shown: ProductTopicState) => (
+        <>
+          <MindMap projectId="p1" topic={shown} />
+          <ProductSessionContext value={true}>
+            <Transcript events={events} projectId="p1" />
+          </ProductSessionContext>
+        </>
+      )
+      const { rerender } = render(body(folded))
+      const ringed = () => document.querySelector<HTMLElement>('[data-item][data-shown]')
+      const [teams, who] = screen.getAllByTestId('node-chip')
+      act(() => fireEvent.click(teams!))
+      expect(screen.getByRole('region', { name: 'Node' })).toBeTruthy()
+      expect(nodeOf('who-pays')).toBeNull()
+      act(() => fireEvent.click(who!))
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith('product.layout', { projectId: 'p1', name: 'demo-roadmap', id: 'idea-teams', collapsed: false })
+      expect(ringed()).not.toBeNull()
+      // main's change: the branch is unfolded, the node is drawn and its card opens with the ring still on.
+      rerender(body(topic))
+      expect(nodeOf('who-pays')!.className).toContain('w-mind__node--selected')
+      expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Who pays for it?')).toBeTruthy()
+      expect(ringed()).not.toBeNull()
+    } finally {
+      vi.mocked(invoke).mockReset()
+    }
+  })
+
+  // Ticket 25, review round 2: only a card that was open and closed takes the ring off. A Mind map mounted, or
+  // switched to another topic, with no card open leaves a ring «Show in the chat» set.
+  it('a Mind map mounted or switched to another topic with no card open leaves the ring on', () => {
+    // The chat keeps its place in the tree: a chat mounted again takes the last request as done (ticket 09).
+    const body = (map: ProductTopicState | null) => (
+      <>
+        {map === null ? null : <MindMap key={map.name} projectId="p1" topic={map} />}
+        <ProductSessionContext value={true}>
+          <Transcript events={events} projectId="p1" />
+        </ProductSessionContext>
+      </>
+    )
+    const { rerender } = render(body(null))
+    const ringed = () => document.querySelector<HTMLElement>('[data-item][data-shown]')
+    act(() => showMessage('p1', 'uuid-2'))
+    expect(ringed()).not.toBeNull()
+    rerender(body(topic))
+    expect(ringed()).not.toBeNull()
+    // Another topic: a new Mind map is mounted in place of the first.
+    rerender(body({ ...topic, name: 'other-topic', title: 'Other topic' }))
+    expect(ringed()).not.toBeNull()
+  })
+
+  // Ticket 25, row 14 of the comparison: the card's History numbers its steps by the chat's message numbers —
+  // «step 2:», «step 4:» — as the prototype numbers them; without the chat the list keeps its plain order.
+  it('a Decision’s History names each step by its message’s number in the chat, and keeps the plain order without it', () => {
+    const ACCEPTED = { id: 'd-1', kind: 'decision', text: 'Harness first', from: null, status: 'accepted', reason: 'Fast', message: 'uuid-1' }
+    const OVERTURNED = { ...ACCEPTED, status: 'rejected', reason: 'Users first', history: [{ status: 'accepted', reason: 'Fast', message: 'uuid-1' }], message: 'uuid-2' }
+    const turns: AgentEvent[] = [
+      prompt('Start'),
+      text('Harness first.', 'msg-1'),
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'decision', text: ACCEPTED.text, from: null, status: 'accepted', reason: 'Fast' }),
+      answer('t1', ACCEPTED),
+      prompt('No, users first'),
+      text('Overturned.', 'msg-2'),
+      call('t2', DECIDE, { topic: 'demo-roadmap', id: 'd-1', status: 'rejected', reason: 'Users first' }),
+      answer('t2', OVERTURNED),
+    ]
+    const decided: ProductTopicState = { ...topic, nodes: [OVERTURNED as ProductTopicState['nodes'][number]] }
+    const steps = () => within(screen.getByRole('region', { name: 'Node' })).getAllByRole('listitem').map((item) => item.textContent)
+
+    const { unmount } = render(
+      <>
+        <MindMap projectId="p1" topic={decided} />
+        <ProductSessionContext value={true}>
+          <Transcript events={turns} projectId="p1" />
+        </ProductSessionContext>
+      </>,
+    )
+    fireEvent.click(nodeOf('d-1')!)
+    expect(steps()).toEqual(['step 2: accepted — Fast', 'step 4: rejected — Users first'])
+    unmount()
+
+    // The chat has loaded the first step's message only: no step is named by a number, the list keeps its order.
+    const { unmount: unmountPart } = render(
+      <>
+        <MindMap projectId="p1" topic={decided} />
+        <ProductSessionContext value={true}>
+          <Transcript events={turns.slice(0, 4)} projectId="p1" />
+        </ProductSessionContext>
+      </>,
+    )
+    fireEvent.click(nodeOf('d-1')!)
+    expect(steps()).toEqual(['accepted — Fast', 'rejected — Users first'])
+    unmountPart()
+
+    render(<MindMap projectId="p1" topic={decided} />)
+    fireEvent.click(nodeOf('d-1')!)
+    expect(steps()).toEqual(['accepted — Fast', 'rejected — Users first'])
   })
 
   it('a quoted message is cut to 60 characters, an owner’s prompt is «You», the whitespace of an answer is one space', () => {

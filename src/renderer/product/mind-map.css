@@ -518,6 +518,12 @@
   padding-left: 1.2em;
 }
 
+/* Steps named by their message, «step 5: …», carry their own number: the list draws none (ticket 25). */
+.w-mind__history--by-message {
+  padding-left: 0;
+  list-style: none;
+}
+
 /* The step that rejected the Decision, in the problem red, as the prototype draws the overturn. */
 .w-mind__history-step--overturn {
   color: var(--span-problem);

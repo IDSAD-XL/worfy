@@ -45,7 +45,7 @@ import {
   type ScreenBox,
   type TextMeasure,
 } from './mind-map-layout'
-import { quoteLabel, showMessage, useMindMapFocus } from './node-chips'
+import { hideMessage, quoteLabel, showMessage, useMindMapFocus } from './node-chips'
 import './mind-map.css'
 
 // The Mind map of a Product Session topic (Epic worfy-product-session, ticket 08), on React Flow as the
@@ -723,6 +723,11 @@ function NodeCard({
   // The message the node appeared in: the first step's when it has a history; each later step's message changed it.
   const [first, ...changes] = steps
   const appeared = first === undefined ? source?.message : first.message
+  // History names each step by its message's number in the chat, «step 5:», as the prototype does (ticket 25),
+  // when the loaded chat has every step's message; else the list keeps its plain order «1.», «2.».
+  const quotes = useMindMapFocus((state) => state.quotes[projectId])
+  const stepNumbers = steps.map((step) => (step.message === undefined ? undefined : quotes?.get(step.message)?.number))
+  const byMessage = stepNumbers.every((number) => number !== undefined)
   // The card's own size, read after it is drawn, places it: its height follows the node it shows.
   const own = useRef<HTMLElement>(null)
   const [size, setSize] = useState({ width: CARD_WIDTH, height: 0 })
@@ -782,10 +787,10 @@ function NodeCard({
           <>
             <dt>History</dt>
             <dd>
-              <ol className="w-mind__history">
+              <ol className={byMessage ? 'w-mind__history w-mind__history--by-message' : 'w-mind__history'}>
                 {steps.map((step, index) => (
                   <li key={index} className={step.overturn ? 'w-mind__history-step w-mind__history-step--overturn' : 'w-mind__history-step'} data-overturn={step.overturn ? 'true' : undefined}>
-                    {`${step.status} — ${step.reason}`}
+                    {`${byMessage ? `step ${stepNumbers[index]}: ` : ''}${step.status} — ${step.reason}`}
                   </li>
                 ))}
               </ol>
@@ -876,6 +881,16 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const flowId = useId().replace(/[^\w-]/g, '')
   const edges = useMemo(() => flowEdges(graph, shown, flowId), [graph, shown, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
+  // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
+  // the ring off its message, as the prototype's selectNode(null) does (ticket 25). A node picked in a folded
+  // branch is not drawn until the branch unfolds; its card is waited for, not closed, so it counts as open.
+  // A write only: the map reads nothing more.
+  const cardOpen = picked !== null && all.nodes.some((node) => node.id === picked)
+  const cardWasOpen = useRef(false)
+  useEffect(() => {
+    if (cardWasOpen.current && !cardOpen) hideMessage(projectId)
+    cardWasOpen.current = cardOpen
+  }, [cardOpen, projectId])
   const flow = useReactFlow()
 
   /** Asks main to write a node's place or fold; `undo` puts the screen back when it refuses. */
