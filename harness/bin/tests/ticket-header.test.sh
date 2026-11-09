@@ -282,8 +282,8 @@ mk 02 'Repo: lib' 'Repo: app'
 mt pr mr 02 lib#41 >/dev/null 2>&1
 cp "$ME/02-t.md" "$T/m02"
 out="$(mt done mr 02 2>&1)"; rc=$?
-[ "$rc" -eq 2 ] && [[ "$out" == *"app"* ]] && cmp -s "$T/m02" "$ME/02-t.md" \
-    && ok "done without a PR of Repo: app -> exit 2 naming app, the file unchanged" || bad "done incomplete: exit $rc, $out"
+[ "$rc" -eq 2 ] && [[ "$out" == *"no PR of app ("* ]] && cmp -s "$T/m02" "$ME/02-t.md" \
+    && ok "done without a PR of Repo: app -> exit 2 naming only app, the file unchanged" || bad "done incomplete: exit $rc, $out"
 out="$(mt done mr 02 --pr lib#42 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && cmp -s "$T/m02" "$ME/02-t.md" && ok "done --pr lib#42, still no PR of app -> exit 2, the file unchanged" || bad "done lib only: exit $rc, $out"
 out="$(mt done mr 02 --pr 118 2>&1)"; rc=$?
@@ -335,6 +335,46 @@ out="$(mt done mr 07 --pr 5 2>&1 | sed -E "s/$NOW/T/g")"
 mk 08 'Repo: lib' 'Repo: app'
 mt claim mr 08 --repo app >/dev/null 2>&1
 [ "$(hdr 08)" = "Status: claimed T|Repo: app|Blocked by: —|" ] && ok "claim with one --repo on a header of two Repo: lines leaves one line" || bad "claim one of two: $(hdr 08)"
+# The set of Repo: lines shrinks: a PR: or Release: line of a repository it leaves out is refused, not lost.
+mk 09 'PR: lib#1' 'PR: app#2' 'Repo: lib' 'Repo: app'
+cp "$ME/09-t.md" "$T/m09"
+out="$(mt claim mr 09 --repo app 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"leaves out lib"*"PR: lib#1"* ]] && cmp -s "$T/m09" "$ME/09-t.md" \
+    && ok "claim --repo app over lib and app with PR: lib#1 -> exit 2 naming the line, the file unchanged" || bad "shrink with a PR: exit $rc, $out, $(hdr 09)"
+out="$(mt done mr 09 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 09)" = "Status: done T|PR: lib#1|PR: app#2|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "after the refused claim, done keeps both PR lines" || bad "done after refused shrink: exit $rc, $out, $(hdr 09)"
+mk 10 'Release: lib tag v1' 'Repo: lib' 'Repo: app'
+cp "$ME/10-t.md" "$T/m10"
+out="$(mt claim mr 10 --repo app --repo web 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"Release: lib tag v1"* ]] && cmp -s "$T/m10" "$ME/10-t.md" \
+    && ok "claim --repo that leaves out lib with Release: lib … -> exit 2, the file unchanged" || bad "shrink with a release: exit $rc, $out"
+mk 11 'PR: app#2' 'Repo: lib' 'Repo: app'
+out="$(mt claim mr 11 --repo app 2>&1)"; rc=$?
+mt done mr 11 >/dev/null 2>&1
+[ "$rc" -eq 0 ] && [ "$(hdr 11)" = "Status: done T|PR: app#2|Repo: app|Blocked by: —|" ] \
+    && ok "claim --repo app over lib and app, only app has a PR: the PR line stays, done keeps it" || bad "shrink keeping app: exit $rc, $out, $(hdr 11)"
+# One repository grows into several: the bare PR: #N of that repository becomes PR: <repo>#N.
+mk 12 'PR: #5' 'Repo: api'
+out="$(mt claim mr 12 --repo api --repo web 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"- PR: #5"*"+ PR: api#5"* ]] && [ "$(hdr 12)" = "Status: claimed T|PR: api#5|Repo: api|Repo: web|Blocked by: —|" ] \
+    && ok "claim --repo api --repo web over Repo: api with PR: #5 -> PR: api#5" || bad "grow: exit $rc, $out, $(hdr 12)"
+mk 13 'PR: #5'
+cp "$ME/13-t.md" "$T/m13"
+out="$(mt claim mr 13 --repo api --repo web 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"PR: #5, which names no repository"* ]] && cmp -s "$T/m13" "$ME/13-t.md" \
+    && ok "claim of two repositories over a bare PR: #5 and no Repo: line -> exit 2, the file unchanged" || bad "grow without a repo: exit $rc, $out"
+mk 14 'PR: #5' 'Repo: api'
+out="$(mt claim mr 14 --repo web --repo app 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && ok "claim of two repositories that leaves out the one of a bare PR: #5 -> exit 2" || bad "grow without api: exit $rc, $out"
+# A bare PR: #N written by hand into a ticket of several repositories goes on the next write, named in the output.
+mk 15 'PR: #5' 'Repo: lib' 'Repo: app'
+out="$(mt done mr 15 --pr lib#1 --pr app#2 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"- PR: #5"* ]] && [ "$(hdr 15)" = "Status: done T|PR: lib#1|PR: app#2|Repo: lib|Repo: app|Blocked by: —|" ] \
+    && ok "done on two repositories drops a bare PR: #5 and names it" || bad "bare on several: exit $rc, $out, $(hdr 15)"
+mk 16 'PR: #5' 'Repo: lib' 'Repo: app'
+out="$(mt pr mr 16 lib#1 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"- PR: #5"* ]] && [ "$(grep -c '^PR:' "$ME/16-t.md")" = 1 ] && ok "pr on two repositories drops a bare PR: #5 and names it" || bad "pr bare on several: exit $rc, $out, $(hdr 16)"
 out="$(mt release mr 05 api tag v1 2>&1)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$out" == *"names no repository"* ]] && ok "release on a ticket without Repo: lines -> exit 2, naming the missing Repo:" || bad "release no repo: exit $rc, $out"
 out="$(mt open mr 05 --repo api 2>&1)"; rc=$?

@@ -68,12 +68,16 @@ Repo: app
 - `Repo:` — a line per repository, a name from `_resolved.repos` of the profile. The order of the lines is the
   order of merge: the library first, its consumers after it. `ticket claim <epic> <NN> --repo lib --repo app`
   writes them in the order of the arguments; a later claim with `--repo` replaces the set. A name given twice is
-  refused.
+  refused. A claim that leaves out a repository whose `PR:` or `Release:` line the header still has is exit 2, the
+  lines named and nothing written: those lines would stand for a repository the ticket no longer names. When one
+  repository grows into several, its bare `PR: #N` becomes `PR: <repo>#N`; a bare `PR: #N` that no `Repo:` line
+  accounts for (no `Repo:` line, or the claim leaves that repository out) is exit 2.
 - `Branch:` — one line: one branch name in every repository of the ticket.
 - `PR: <repo>#N` — a line per PR, with the name of its repository: PR numbers of two repositories may be equal.
   `ticket pr <epic> <NN> <repo>#N` writes it when the PR is open, and replaces the line of that repository where it
   stands. A bare `#N`, or a repository that is not a `Repo:` line of the ticket, is exit 2 and nothing is written.
-  `ticket pr` does not touch the Status line.
+  `ticket pr` does not touch the Status line. A bare `PR: #N` written by hand into the header of such a ticket goes on
+  the next write of `pr`, `claim`, `open`, `block` or `done`, and the output names it (`- PR: #N`).
 - `Release: <repo> tag <tag>` or `Release: <repo> package <name>@<version>` — what a consumer waits for: a tag of
   the library repository, or a published version of its package. `ticket release <epic> <NN> <repo> tag <tag>`
   (or `… <repo> package <name>@<version>`) writes it; there may be several lines, and the same line is written once.
@@ -83,9 +87,14 @@ Repo: app
   `Repo:` line has its `PR:` line — given in this call or written before by `ticket pr`; otherwise exit 2, the
   missing repositories named, and nothing written. A bare `--pr N`, two PRs of one repository, or a repository
   outside the `Repo:` lines are exit 2 as well. There is no status of its own for a ticket merged in some of its
-  repositories: it stays `claimed` until the last PR is merged.
-- `claim`, `open` and `block` keep every `PR:` and `Release:` line. The group lines stand after Status in the order
-  `Blocked reason:`, `Waits:`, `PR:`, `Release:`; `Branch:` and `Repo:` stay where they are.
+  repositories: it stays `claimed` until the last PR is merged. A project whose profile finishes without PRs
+  (`workflow.finish` `local-green`) closes such a ticket with `done` alone: the PR set is not checked there.
+- On a ticket of one repository `ticket done … --pr A --pr B` is exit 2: it has one PR. Before this rule the last
+  `--pr` won silently.
+- `claim`, `open` and `block` keep every `PR:` and `Release:` line. The group lines stand right after Status, in the
+  order `Blocked reason:`, `Waits:`, `PR:`, `Release:`; `Branch:` and `Repo:` stay where they are, after the group.
+  This is the order of the example above, not the one of the epic spec that introduced the header (`Branch:` and
+  `Repo:` first): the readers take every line by its key, so the order carries no meaning.
 - `ticket evidence … --repo R [--sha S]` binds an Evidence line to a commit of repository R, a `Repo:` line of the
   ticket: the ref starts with `[R] `, and without `--sha` the sha is the HEAD of R's checkout (`_resolved.repos`), not
   of the working directory. The grammar of the line is the same (below): the repository is part of the ref.
@@ -153,8 +162,9 @@ copy; `not-verified` — the rest, with the reason: `no evidence`, `review only`
 - `ticket evidence <epic> <NN>` prints the matrix: `<n>. <state> <reason?> — <text>` per item, its lines
   under it, and last `evidence: N of M verified` (M counts the items without lines). Exit 0.
 - `ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S]
-  [--scrub YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to
-  this system's (`ci` under GitHub Actions), the sha to `git rev-parse HEAD`, the copy to `-`. A line the
+  [--repo R] [--scrub YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to
+  this system's (`ci` under GitHub Actions), the sha to `git rev-parse HEAD`, the copy to `-`. With `--repo R` (a
+  `Repo:` line of the ticket) the ref starts with `[R] ` and the sha defaults to the HEAD of R's checkout. A line the
   grammar refuses, or an item outside the section, is exit 2 and nothing is written; `-n` prints the line only.
   More refusals, all with nothing written:
   - exit 2 — `--ref`, `--platform`, `--copy` or `--scrub` with no value, or with a flag as its value (`-n`
@@ -193,7 +203,9 @@ dates or two PRs — is a refusal, and then no file is written at all. `-n` prin
 `Status` is the word of the Status line. `State` folds it into one of five values: `done`, `work`
 (`claimed`), `blocked`, `open`, `none` (no Status line, or an old header). The fold lives in
 `epic-status`, in one copy; `--json` gives the header facts next to it as `statusAt`, `statusError`,
-`blockedReason`, `waits` and `pr`.
+`blockedReason`, `waits` and `pr`. A ticket of several repositories — more than one `Repo:` line, a `PR: <repo>#N`
+line or a `Release:` line — also has `repos` (the `Repo:` names in file order), `prs` (`[{repo, number}]`, `repo` null
+for a bare `#N`) and `releases` (`[{repo, kind, ref}]`); any other ticket has none of the three keys.
 
 **Stage**
 Where the epic is in the process: `/to-spec`, `/wayfinder`, `/to-tickets`, `/implement`, `closed`. It is derived from the ticket states and from whether `spec.md`/`map.md` exist, and is

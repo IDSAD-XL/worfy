@@ -594,6 +594,9 @@ function withPr(list, value) {
     const at = list.findIndex((v) => REPO_PR.exec(v)?.[1] === repo)
     return at === -1 ? [...list, value] : list.map((v, i) => (i === at ? value : v))
 }
+// The PR lines a ticket of several repositories keeps: those of its Repo: lines. A bare `#N` or a line of another
+// repository (written by hand) goes, and the output names it (`- PR: …`).
+const ownPrs = (list) => list.filter((v) => sh.repos.includes(REPO_PR.exec(v)?.[1]))
 // `<repo>#N` of one of the ticket's Repo: lines, or a refusal.
 function repoPr(value, where) {
     const m = REPO_PR.exec(value)
@@ -609,7 +612,7 @@ let prNum = null
 let prList = null
 if (severalRepos) {
     // done --pr <repo>#N, once per PR; done itself only with a PR of every Repo: line.
-    prList = sh.all.PR
+    prList = ownPrs(sh.all.PR)
     const given = new Set()
     for (const p of prs) {
         const v = repoPr(p, "--pr")
@@ -618,7 +621,8 @@ if (severalRepos) {
         given.add(repo)
         prList = withPr(prList, v)
     }
-    if (cmd === "done") {
+    // A project that finishes without PRs (workflow.finish local-green) closes its tickets without --pr.
+    if (cmd === "done" && prof?.workflow?.finish !== "local-green") {
         const missing = sh.repos.filter((r) => !prList.some((v) => REPO_PR.exec(v)?.[1] === r))
         if (missing.length)
             refuse(`no PR of ${missing.join(", ")} (Repo: ${sh.repos.join(", ")}): done needs a PR of every repository — give --pr <repo>#N; nothing written`)
@@ -649,11 +653,31 @@ if (repoArgs.length && Array.isArray(prof?._resolved?.repos) && prof._resolved.r
     const names = prof._resolved.repos.map((r) => r.name)
     for (const r of repoArgs) if (!names.includes(r)) die(`--repo: "${r}" is not a repository of the project (${names.join(", ")})`)
 }
+// claim --repo sets the repositories of the ticket. A repository it leaves out must not leave its PR: or Release: line
+// behind: that line would stand for a repository the ticket no longer names, so the claim is refused and the person
+// decides. One repository growing into several: a bare `PR: #N` was the PR of that one repository and becomes
+// `PR: <repo>#N`; a bare line no Repo: line accounts for is refused.
+let grownPrs = null
+if (cmd === "claim" && repoArgs.length) {
+    const dropped = sh.repos.filter((r) => !repoArgs.includes(r))
+    const stale = [
+        ...sh.all.PR.filter((v) => dropped.includes(REPO_PR.exec(v)?.[1])).map((v) => `PR: ${v}`),
+        ...sh.all.Release.filter((v) => dropped.includes(v.split(/\s+/)[0])).map((v) => `Release: ${v}`),
+    ]
+    if (stale.length) refuse(`--repo leaves out ${dropped.join(", ")}, and the header still has ${stale.join(", ")}; nothing written`)
+    if (repoArgs.length > 1 && !severalRepos) {
+        const bare = sh.all.PR.filter((v) => !REPO_PR.test(v))
+        const owner = sh.repos.length === 1 && repoArgs.includes(sh.repos[0]) ? sh.repos[0] : null
+        if (bare.some((v) => owner === null || !/^#\d+$/.test(v)))
+            refuse(`the header has ${bare.map((v) => `PR: ${v}`).join(", ")}, which names no repository: claim --repo <its repository> first, then add the others; nothing written`)
+        grownPrs = sh.all.PR.map((v) => (REPO_PR.test(v) ? v : `${owner}${v}`))
+    }
+}
 const word = { done: "done", claim: "claimed", open: "open", block: "blocked" }[cmd]
 const statusLine = onlyWaits ? lines[sh.first] : `Status: ${word} ${now()}`
 // A ticket of one repository prints its PR change as before: the first PR line against the new one.
 const before = severalRepos ? groupNow(sh) : { ...groupNow(sh), PR: sh.group.PR }
-const after = { PR: severalRepos ? prList : prNum !== null ? `#${prNum}` : sh.group.PR ?? null, Release: sh.all.Release }
+const after = { PR: severalRepos ? prList : grownPrs ?? (prNum !== null ? `#${prNum}` : sh.group.PR ?? null), Release: sh.all.Release }
 if (cmd === "block") {
     after["Blocked reason"] = onlyWaits ? before["Blocked reason"] ?? null : reason
     after.Waits = waitsArg
@@ -766,7 +790,7 @@ function prCmd() {
     const value = rest[0]
     if (severalRepos) {
         const v = repoPr(value, "pr")
-        writeHeaderLines({ PR: withPr(sh.all.PR, v) }, `PR: ${v}`)
+        writeHeaderLines({ PR: withPr(ownPrs(sh.all.PR), v) }, `PR: ${v}`)
     }
     const m = /^#?(\d+)$/.exec(value)
     if (!m) refuse(`a ticket of one repository writes PR: #N, got "${value}"`)

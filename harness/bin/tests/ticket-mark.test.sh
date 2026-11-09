@@ -252,6 +252,17 @@ tk "$T/r/plain" mark shopfront 02 review success --sha "$SHA" --root "$T/r/shop/
 (cd "$T" && node "$TICKET" mark --contexts shopfront) >"$T/out" 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "--contexts with arguments -> exit 2" || bad "--contexts with arguments: exit $rc"
 
+# --- done of a ticket of several repositories: the PR set is checked unless the project finishes without PRs ---------
+ticket "$T/r/demo" 03 'Repo: a' 'Repo: b'
+tk "$T/r/demo" done shopfront 03; rc=$?
+[ "$rc" -eq 0 ] && grep -Eq '^Status: done [0-9-]+T[0-9:]+Z$' "$T/r/demo/.scratch/shopfront/issues/03-a-ticket.md" \
+    && ok "local-green: done of a ticket with two Repo: lines and no PR -> done" || bad "local-green done: exit $rc $(cat "$T/out")"
+ticket "$T/r/demopr" 03 'Repo: a' 'Repo: b'
+cp "$T/r/demopr/.scratch/shopfront/issues/03-a-ticket.md" "$T/demopr03"
+tk "$T/r/demopr" done shopfront 03; rc=$?
+[ "$rc" -eq 2 ] && grep -q "no PR of a, b (" "$T/out" && cmp -s "$T/demopr03" "$T/r/demopr/.scratch/shopfront/issues/03-a-ticket.md" \
+    && ok "pr-green-ci: done of a ticket with two Repo: lines and no PR -> exit 2, the file unchanged" || bad "pr finish done: exit $rc $(cat "$T/out")"
+
 # --- Silent mode, a ticket of several repositories: the marks file, as for one repository; never gh ---------------
 : >"$GH_LOG"
 ticket "$T/wf" 05 'Repo: quiet' 'Repo: other'

@@ -60,9 +60,10 @@ lines reads `0 of m`, and nothing else changes for it.
 
 - `ticket evidence <epic> <NN>` prints the items as `<n>. <state> <reason> — <text>`, each with its lines under it, and last
   `evidence: N of M verified`. Exit 0.
-- `ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S] [--scrub
-  YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to this system's (`ci`
-  under GitHub Actions), the SHA to `HEAD`, the copy to `-`. `-n` prints the line and writes nothing. The rest of the file,
+- `ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S] [--repo R]
+  [--scrub YYYY-MM-DD] [-n]` writes one line after the last line of item `<item>`. The platform defaults to this system's
+  (`ci` under GitHub Actions), the SHA to `HEAD`, the copy to `-`. On a ticket of several repositories `--repo R` (one of
+  its `Repo:` lines) starts the ref with `[R] ` and takes the SHA from the HEAD of R's checkout. `-n` prints the line and writes nothing. The rest of the file,
   its byte order mark and its line ends included, stays as it was.
 - Refused with exit 2, nothing written: a line the grammar refuses, an item outside the section, a flag without its value,
   a `screenshot` whose ref is a path and that has no `--scrub` ("check the pixels by eye first"), a `video` without
