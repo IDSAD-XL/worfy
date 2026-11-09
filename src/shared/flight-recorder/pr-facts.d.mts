@@ -56,7 +56,7 @@ export interface GhPr {
   number: number
   headRefName?: string
   /** The head commit; critical-path asks for it on top of GH_FIELDS. */
-  headRefOid?: string
+  headRefOid?: string | null
   state?: string
   createdAt?: string
   mergedAt?: string | null
