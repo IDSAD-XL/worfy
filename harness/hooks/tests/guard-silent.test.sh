@@ -381,11 +381,13 @@ expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 
 unset CLAUDE_SILENT_CHECK_BIN
 
 # gh api that only reads never asks the check: a stand-in that finds traces in anything would refuse it otherwise.
+# A heredoc next to a read, and a field named body on a GET (gh sends it as a query parameter), are no text to publish.
 stub traces "gh api POST …/replies asks the check" deny "${REPLY}'Done'" 'ticket number' 1
-for c in 'gh api repos/o/r/pulls/7/comments' 'gh api /repos/o/r/pulls/7/comments --paginate --jq ".[].body"' \
-         'gh api -X GET repos/o/r/issues/7/comments -f per_page=100' 'gh api --method DELETE repos/o/r/issues/comments/12' \
+for c in $'gh api repos/o/r/pulls/7/comments >c.json && cat <<\'EOF\'\nnotes\nEOF' 'gh api /repos/o/r/pulls/7/comments --paginate --jq ".[].body"' \
+         'gh api -X GET repos/o/r/issues/7/comments -f per_page=100 -f body=x' 'gh api --method DELETE repos/o/r/issues/comments/12' \
          "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 7) { title } } }'"; do
-    stub traces "gh api read: ${c:0:60}… -> allow, no check" allow "$c" '' 0
+    d="${c%%$'\n'*}"
+    stub traces "gh api read: ${d:0:60}… -> allow, no check" allow "$c" '' 0
 done
 
 TRY_MS=3000
