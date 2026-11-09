@@ -881,9 +881,11 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const flowId = useId().replace(/[^\w-]/g, '')
   const edges = useMemo(() => flowEdges(graph, shown, flowId), [graph, shown, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
-  // The card closed — its button, Escape, a click on the empty map, its node gone: the chat takes the ring off
-  // its message, as the prototype's selectNode(null) does (ticket 25). A write only: the map reads nothing more.
-  const cardOpen = pickedNode !== undefined
+  // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
+  // the ring off its message, as the prototype's selectNode(null) does (ticket 25). A node picked in a folded
+  // branch is not drawn until the branch unfolds; its card is waited for, not closed, so it counts as open.
+  // A write only: the map reads nothing more.
+  const cardOpen = picked !== null && all.nodes.some((node) => node.id === picked)
   const cardWasOpen = useRef(false)
   useEffect(() => {
     if (cardWasOpen.current && !cardOpen) hideMessage(projectId)
