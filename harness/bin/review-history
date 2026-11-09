@@ -33,7 +33,12 @@
 // without a single comment counts. Pages of 100 pull requests, one request at a time; a pull request with more
 // than 30 reviews, 50 review threads, 50 conversation comments or 20 comments in a thread is read on with
 // requests of its own. A rate limit answer is retried after `retry-after`, else after `x-ratelimit-reset`, else
-// after 60 s, at most 3 times; then exit 1. A failed fetch leaves raw/ as it was: the new one is written
+// after 60 s, at most 3 times; then exit 1. A failure of GitHub's side (readPage below): a timeout — HTTP 504 or
+// 502, GitHub's GraphQL timeout error, an answer cut short that is not JSON — asks the same page again from the same
+// cursor with half the pull requests (100, 50, 25, 12, 10 at the smallest) after a pause of 5 s, and the smaller page
+// stays for the rest of the repository; HTTP 503 asks the same page again. At the smallest page the same request is
+// retried at most 3 times, after a pause of 5 s, 10 s, 15 s; then exit 1 naming the page size and the cursor. A request that reads on is retried the
+// same way, without a page size to change. A failed fetch leaves raw/ as it was: the new one is written
 // beside it (.raw-next/) and moved in place only when the whole window is read.
 //
 // Whose words count (the voice is all the team's reviewers together, never one person):
@@ -54,11 +59,12 @@
 //
 // GH_TOKEN is taken as the caller set it (the session hook of the profile's github.account, or the app); this
 // script never switches the global gh account. REVIEW_HISTORY_GH names a program run instead of gh (a .mjs file
-// runs with this node); REVIEW_HISTORY_NOW (an ISO date) is the "now" of the window; CLAUDE_PROFILE_BIN replaces
-// bin/profile. All three are for tests.
+// runs with this node); REVIEW_HISTORY_NOW (an ISO date) is the "now" of the window; REVIEW_HISTORY_RETRY_WAIT (seconds)
+// replaces the 5 s pause after a failure of GitHub's side; CLAUDE_PROFILE_BIN replaces bin/profile. All four are for
+// tests.
 //
-// Exit codes: 0 — done (estimate and probe: whether or not there is a voice); 1 — failed (the rate limit after 3
-// retries, a gh error, no raw/ for estimate or stats, a broken ignore.json); 2 — usage; 3 — not available: the
+// Exit codes: 0 — done (estimate and probe: whether or not there is a voice); 1 — failed (the rate limit or a failure
+// of GitHub's side after 3 retries, a gh error, no raw/ for estimate or stats, a broken ignore.json); 2 — usage; 3 — not available: the
 // directory is not a registered project, no origin on GitHub, no gh, or no access to the repository. A failure is
 // one line on stderr.
 "use strict"
@@ -78,6 +84,9 @@ const MAX_PRS = 500
 const VOICE_THRESHOLD = 30
 const MIN_OWN_CHARS = 20
 const RETRIES = 3
+const PAGE_SIZE = 100
+const PAGE_FLOOR = 10
+const RETRY_WAIT_S = 5
 const DEFAULT_WAIT_S = 60
 const MAX_WAIT_S = 3700
 const TEAM = new Set(["OWNER", "MEMBER", "COLLABORATOR"])
@@ -96,6 +105,16 @@ class Stop extends Error {
 }
 const fail = (message) => new Stop(1, message)
 const unavailable = (message) => new Stop(3, message)
+
+// A failure of GitHub's side that a retry may get past; `timeout` — one a lighter request may get past.
+class Transient extends Stop {
+    constructor(what, timeout, why) {
+        super(1, `${what}: ${why}`)
+        this.what = what
+        this.timeout = timeout
+        this.why = why
+    }
+}
 
 // --- arguments -----------------------------------------------------------------------------------------------
 function parseArgs(argv) {
@@ -239,7 +258,14 @@ function sleepSeconds(s) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, s * 1000)
 }
 
-// The output of `gh api --include`: the status line and the headers, a blank line, the body.
+// The pause before the n-th retry after a failure of GitHub's side: 5 s, 10 s, 15 s.
+function retryWait(n) {
+    const v = process.env.REVIEW_HISTORY_RETRY_WAIT
+    return (v && /^\d+(\.\d+)?$/.test(v) ? Number(v) : RETRY_WAIT_S) * n
+}
+
+// The output of `gh api --include`: the status line and the headers, a blank line, the body. `broken` — a body that
+// is there but is not JSON: an answer cut short.
 function parseIncluded(stdout) {
     let status = 0
     const headers = {}
@@ -256,12 +282,13 @@ function parseIncluded(stdout) {
         }
     }
     let body = null
+    let broken = false
     try {
         body = rest.trim() ? JSON.parse(rest) : null
     } catch {
-        body = null
+        broken = true
     }
-    return { status, headers, body }
+    return { status, headers, body, broken }
 }
 
 // null, or {wait, why} when the answer is a rate limit.
@@ -291,12 +318,32 @@ function noAccess(res, code, stderr) {
     return /Could not resolve to a Repository|gh auth login|HTTP 40[134]|Bad credentials/i.test(stderr || "")
 }
 
-// One GraphQL request, retried on a rate limit; the `data` of the answer.
-function graphql(query, vars, repo) {
+// null, or {what, timeout} when the answer is a failure of GitHub's side that a retry may get past. A timeout says
+// the request may have taken longer than GitHub's time limit of a request: GitHub's GraphQL error "Something went
+// wrong while executing your query. This may be the result of a timeout" (whatever the status, 502 included), HTTP
+// 504, HTTP 502 (GitHub answers a heavy query with it too), or an answer cut short (a body that is not JSON, or gh
+// saying so: "unexpected end of JSON input") with no status, a 2xx or a 5xx. HTTP 503 says nothing of the request.
+// A 3xx or 4xx answer is never retried.
+function transient(res, stderr) {
+    const status = res.status || Number(/\bHTTP (\d{3})\b/.exec(stderr || "")?.[1] || 0)
+    if (status >= 300 && status < 500) return null // a redirect or a refusal, a proxy page among them: never retried
+    if ((res.body?.errors || []).some((e) => /\btimeout\b|something went wrong while executing your query/i.test(e.message || ""))) return { what: "a GraphQL timeout", timeout: true }
+    if (status === 504 || status === 502) return { what: `HTTP ${status}`, timeout: true }
+    if (status === 503) return { what: "HTTP 503", timeout: false }
+    if (res.broken || /unexpected end of JSON input|unexpected EOF|invalid character .* looking for/i.test(stderr || "")) return { what: "an answer cut short (not JSON)", timeout: true }
+    return null
+}
+
+// One GraphQL request, retried on a rate limit and, unless `page` (readPage decides then), on a failure of GitHub's
+// side; the `data` of the answer. `page` is readPage's {limits}: the rate limit retries of the page, counted across
+// its page sizes. The two kinds of retries have counters of their own.
+function graphql(query, vars, repo, page = null) {
     const args = ["api", "graphql", "--include", "-f", `query=${query}`]
     for (const [k, v] of Object.entries(vars)) if (v !== undefined && v !== null) args.push(typeof v === "number" ? "-F" : "-f", `${k}=${v}`)
     const [file, pre] = ghProgram()
-    for (let retry = 0; ; retry++) {
+    const limits = page || { limits: 0 }
+    let failures = 0
+    for (;;) {
         requests++
         const r = spawnSync(file, [...pre, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "pipe"] })
         if (r.error) {
@@ -307,13 +354,23 @@ function graphql(query, vars, repo) {
         const limited = rateLimit(res, r.stderr)
         if (!limited && r.status === 0 && res.body?.data && !res.body.errors) return res.body.data
         if (limited) {
-            if (retry >= RETRIES) throw fail(`GitHub rate limit: still limited after ${RETRIES} retries — ${limited.why}`)
-            process.stderr.write(`review-history: GitHub rate limit — ${limited.why}; waiting ${limited.wait} s, retry ${retry + 1} of ${RETRIES}\n`)
+            if (limits.limits >= RETRIES) throw fail(`GitHub rate limit: still limited after ${RETRIES} retries — ${limited.why}`)
+            limits.limits++
+            process.stderr.write(`review-history: GitHub rate limit — ${limited.why}; waiting ${limited.wait} s, retry ${limits.limits} of ${RETRIES}\n`)
             sleepSeconds(limited.wait)
             continue
         }
         const why = (res.body?.errors?.[0]?.message || res.body?.message || r.stderr || `exit ${r.status}`).trim().split("\n")[0]
         if (noAccess(res, r.status, r.stderr)) throw unavailable(`no access to ${repo}: ${why}`)
+        const t = transient(res, r.stderr)
+        if (t && page) throw new Transient(t.what, t.timeout, why)
+        if (t) {
+            if (failures >= RETRIES) throw fail(`gh api graphql failed for ${repo}: ${t.what} after ${RETRIES} retries — ${why}`)
+            failures++
+            process.stderr.write(`review-history: ${t.what} from GitHub for ${repo}, retry ${failures} of ${RETRIES} in ${retryWait(failures)} s\n`)
+            sleepSeconds(retryWait(failures))
+            continue
+        }
         throw fail(`gh api graphql failed for ${repo} (exit ${r.status}): ${why}`)
     }
 }
@@ -333,7 +390,7 @@ const PULL = [
     `comments(first: 50) { ${PAGE_INFO} nodes { ${COMMENT} } }`,
 ].join(" ")
 const Q = {
-    page: `query ReviewHistoryPage($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(first: 100, after: $endCursor, orderBy: {field: UPDATED_AT, direction: DESC}) { ${PAGE_INFO} nodes { ${PULL} } } } }`,
+    page: `query ReviewHistoryPage($owner: String!, $name: String!, $first: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(first: $first, after: $endCursor, orderBy: {field: UPDATED_AT, direction: DESC}) { ${PAGE_INFO} nodes { ${PULL} } } } }`,
     reviews: `query ReviewHistoryReviews($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviews(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${REVIEW} } } } } }`,
     threads: `query ReviewHistoryThreads($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${THREAD(20)} } } } } }`,
     comments: `query ReviewHistoryComments($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { comments(first: 100, after: $endCursor) { ${PAGE_INFO} nodes { ${COMMENT} } } } } }`,
@@ -497,6 +554,39 @@ function windowOf(since) {
     return { from: from.toISOString(), to: to.toISOString(), since: since ? since.toISOString() : null, months: WINDOW_MONTHS, max_prs_per_repository: MAX_PRS, lower }
 }
 
+// One page of pull requests of `size` after `cursor`: {data, size} with the page size that got the answer. A page
+// is the heaviest request here (each pull request brings its files, reviews, threads with their diff hunks and
+// comments), so a timeout says this page is too heavy for GitHub's time limit, and the same page again would be as
+// heavy: it is asked again at once, after a pause, from the same cursor with half the pull requests, down to
+// PAGE_FLOOR. HTTP 503, and a timeout at the smallest page, ask the same page again: at most RETRIES times, then
+// exit 1 naming the page size and the cursor. A rate limit is retried at most RETRIES times for the page, whatever
+// its size.
+function readPage(repo, cursor, size) {
+    const full = `${repo.owner}/${repo.name}`
+    const at = cursor ? `after cursor ${cursor}` : "the first page"
+    const page = { limits: 0 }
+    let failures = 0
+    for (;;) {
+        try {
+            return { data: graphql(Q.page, { owner: repo.owner, name: repo.name, first: size, endCursor: cursor }, full, page), size }
+        } catch (e) {
+            if (!(e instanceof Transient)) throw e
+            if (e.timeout && size > PAGE_FLOOR) {
+                const smaller = Math.max(PAGE_FLOOR, Math.floor(size / 2))
+                process.stderr.write(`review-history: ${e.what} on a page of ${size} PRs, retrying with ${smaller} (${full}, ${at})\n`)
+                size = smaller
+                failures = 0
+                sleepSeconds(retryWait(1))
+                continue
+            }
+            if (failures >= RETRIES) throw fail(`gh api graphql failed for ${full}: ${e.what} on a page of ${size} PRs${e.timeout ? " (the smallest page)" : ""}, ${at}, still failing after ${RETRIES} retries — ${e.why}`)
+            failures++
+            process.stderr.write(`review-history: ${e.what} on a page of ${size} PRs, retry ${failures} of ${RETRIES} in ${retryWait(failures)} s (${full}, ${at})\n`)
+            sleepSeconds(retryWait(failures))
+        }
+    }
+}
+
 // Walks the window of one repository: onPull(pull) for each pull request with a review of the team, until it
 // returns true, the window ends, or MAX_PRS were given. Returns the counts of what the filter dropped.
 function walk(repo, win, ignore, onPull) {
@@ -504,8 +594,13 @@ function walk(repo, win, ignore, onPull) {
     const full = `${repo.owner}/${repo.name}`
     let cursor = null
     let given = 0
+    // shortcut: a page made smaller after a timeout stays small for the rest of the repository, never grows back;
+    // redo if a repository with a few heavy pull requests among light ones makes the walk slow.
+    let size = PAGE_SIZE
     for (;;) {
-        const data = graphql(Q.page, { owner: repo.owner, name: repo.name, endCursor: cursor }, full)
+        const page = readPage(repo, cursor, size)
+        size = page.size
+        const data = page.data
         const conn = data?.repository?.pullRequests
         if (!conn) throw unavailable(`no access to ${full}: the answer has no repository`)
         for (const node of conn.nodes || []) {
