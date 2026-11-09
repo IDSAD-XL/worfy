@@ -196,7 +196,7 @@ Rules of evidence:
   the answer.
 
 Answer format — no more than 30 lines (under the lens implementer's report the verdict line comes
-first, before everything below; see that lens):
+first, before every line below: the findings, what you ran, what you could not verify; see that lens):
 - `path:line: [high|med|low] <defect>; scenario: <which input or state gives which wrong
   behaviour> — <the fix in one sentence>`, in descending order of severity;
 - a separate line: what you ran and with what exit code;
@@ -240,19 +240,23 @@ The first line of the answer is the verdict, plain text exactly as written here:
 `REJECTED:` and the unconfirmed claims.
 Right: `REJECTED: node --test exits 1, the report says 0`.
 Wrong: `**REJECTED — node --test exits 1**` (bold around the verdict, a dash in place of the colon).
+Wrong: a first paragraph about what you ran, what you could not verify or what `qmd` showed, and the
+verdict line at the end.
 
-`VERIFIED` when every claim held, `REJECTED: <the unconfirmed claims>` when at least one did not. If you run the project's gate, as
-the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code
-— the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires,
-whatever the claims show. An exit 3 under a temporary HOME without `HARNESS_HOME` (above)
-does not count: run the gate again by the recipe first. Every unconfirmed claim on the list
-comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
-Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
-which comes second under this lens. The answer's very first characters are `VERIFIED` or
-`REJECTED:`: no label in front (`Verdict:`), no bold, italics or heading mark around them, no dash
-in place of the colon, no sentence about what you checked or are about to say. One verdict only: `VERIFIED` and
-`REJECTED` never share the line. The other lines of the answer keep the format above, and the
-whole answer stays within its 30 lines. What happens to the verdict — where it is recorded, which
+`VERIFIED` when every claim held, `REJECTED: <the unconfirmed claims>` when at least one did not.
+If you run the project's gate, as the brief or the calling skill asks, and it exits 3 or 127 — a
+broken environment, not broken code — the verdict is `REJECTED: gate 3 — <the gate's reason line>`,
+as the calling skill requires, whatever the claims show. An exit 3 under a temporary HOME without
+`HARNESS_HOME` (above) does not count: run the gate again by the recipe first. Every unconfirmed
+claim on the list comes with its `file:line`, or with the command and both exit codes, the reported
+one and yours. Nothing comes before the verdict line: no heading, no summary, no remark about `qmd`
+or an ADR, not the line of a failed `profile`, which comes second under this lens. What you ran and
+what you could not verify come after the verdict line, as the format above lists them. The answer's
+very first characters are `VERIFIED` or `REJECTED:`: no label in front (`Verdict:`), no bold,
+italics or heading mark around them, no dash in place of the colon, no sentence about what you
+checked or are about to say. One verdict only: `VERIFIED` and `REJECTED` never share the line, and
+the verdict is not repeated at the end of the answer. The other lines of the answer keep the format
+above, and the whole answer stays within its 30 lines. What happens to the verdict — where it is recorded, which
 commit it marks — is the business of the skill that launched the review.
 
 ### Lens: documentation
