@@ -494,6 +494,21 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
 
+  it('prInbox: false survives a save that does not send it; true turns the PR inbox on again (worfy-pr-inbox ticket 02)', async () => {
+    const { project } = await addOk(makeRepo('auberge'))
+    const file = join(dataDir, project.id, 'settings.json')
+    const templates = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '' }
+    expect(await value('projects.settings.set', { id: project.id, settings: { actionTemplates: templates, prInbox: false } })).toStrictEqual({ actionTemplates: templates, prInbox: false })
+    // "Save" of Project settings sends no prInbox: the switch stays off.
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: templates } })
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { prInbox?: unknown }).prInbox).toBe(false)
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: templates, prInbox: true } })
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { prInbox?: unknown }).prInbox).toBe(true)
+    // A value that is not a boolean reads as absent: on, as by default.
+    writeFileSync(file, JSON.stringify({ actionTemplates: templates, prInbox: 'no' }))
+    expect(await value('projects.settings.get', { id: project.id })).toEqual({ actionTemplates: templates })
+  })
+
   it('a save without gateQueue (a Linked machine on an older build) keeps the saved template (worfy-windows ticket 17)', async () => {
     const { project } = await addOk(makeRepo('auberge'))
     const file = join(dataDir, project.id, 'settings.json')
