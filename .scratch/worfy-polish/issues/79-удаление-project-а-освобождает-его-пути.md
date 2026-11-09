@@ -65,11 +65,18 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 
 - [ ] «Remove project…» с подтверждением зовёт `project-connect --remove <name>`; после успеха записей registry с этим
   Profile-ом нет, папки Profile-а нет, Project-а нет в списке.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
+  - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/contract/projects.test.ts) · mac - · 5f636c185
 - [ ] Повторное подключение того же репозитория после «Remove project…» проходит без отказа «already in the gate
   registry».
+  - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 5f636c185
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
 - [ ] Silent mode с ticket-ами в Workflow folder по умолчанию: отказ виден, ничего не удалено.
+  - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/unit/remove-project.test.tsx) · mac - · 5f636c185
 - [ ] «Remove from list» — прежнее поведение.
+  - evidence: gate pass · `gate fast` exit 0 (test/contract/projects.test.ts projects.remove, test/unit/use-projects.test.tsx) · mac - · 5f636c185
 - [ ] `docs/features/projects.md:259` (и перевод в `docs/features/ru/`) описывает обе строки меню.
+  - evidence: commit pass · Remove project frees the Project's paths in the Harness (worfy-polish 79) · - - · 1949a9caf
 
 ## Тесты
 
