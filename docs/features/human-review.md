@@ -138,7 +138,10 @@ for the reminder: answering it writes the reminder's date. A screen with full ac
   run, in `raw/`.
 - **Reading GitHub costs API points, not tokens.** `review-history` reads with `gh api graphql`, 100 pull requests a
   page, one request at a time, under the GitHub account of the Profile; it never switches the global `gh` account. A
-  rate-limit answer is retried three times.
+  rate-limit answer is retried three times. A page GitHub cannot answer in time (HTTP 504, a GraphQL timeout, an
+  answer cut short) is asked again from the same place with half the pull requests, down to 10, and the smaller page
+  stays for the rest of that repository; HTTP 502 and 503 ask the same page again. Each request is retried at most
+  three times, after a pause of 5, 10 and 15 seconds; the final error names the page size and the cursor.
 - **A draft is checked before a person sees it.** `review-draft-lint` refuses a comment longer than the limit of its
   tier, a trace of the workflow (an Epic, a Ticket, an ADR number, `.scratch`, `HANDOFF`), an AI authorship line,
   personal data, and a word the person added to `forbidden` in `lint.json`.

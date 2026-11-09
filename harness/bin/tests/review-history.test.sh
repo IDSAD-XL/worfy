@@ -9,7 +9,11 @@
 # new and keeps the history's counts and the cursor in meta.json); the voice threshold (29 and 30); probe stops at
 # the 30th substantive comment and writes no file; a plain approval of any length is not substantive and has a line of
 # its own in the estimate; a rate limit is retried only after retry-after has passed and
-# gives up after three retries with raw/ untouched; the global gh account
+# gives up after three retries with raw/ untouched, and never makes the page smaller; GitHub's failures a retry may
+# get past (worfy-human-review 14): HTTP 504, a GraphQL timeout and an answer cut short halve the page of pull
+# requests from the same cursor, keep the smaller page, lose and repeat no pull request, and at the smallest page
+# give up after three retries naming the page size and the cursor; HTTP 502 retries the same page after a pause; a
+# read-on request is retried too; the global gh account
 # is never switched; clean removes raw/ and nothing else; stats names no login; profiles/README.md names the folder.
 # Run: bash harness/bin/tests/review-history.test.sh; exit code 0 — everything passed.
 set -u
@@ -33,26 +37,43 @@ export REVIEW_HISTORY_NOW="2026-06-01T00:00:00Z"
 # One line per call into $GH_LOG: the call number, the GraphQL operation, the cursor, the GH_TOKEN it saw and its
 # first two arguments. Answers like `gh api --include`: headers, a blank line, the body of the fixture file
 # $GH_FIX/<page|reviews-N|…>-<cursor>.json. $RL_CALLS (",2,3,") — the call numbers answered with a rate limit
-# (HTTP 403, retry-after 1), and with it set the time of each call in ms goes to $GH_TIMES; $DENY — a GraphQL
-# NOT_FOUND, as for a repository the token cannot see.
+# (HTTP 403, retry-after 1), and with it or $ERR_CALLS set the time of each call in ms goes to $GH_TIMES; $DENY — a GraphQL
+# NOT_FOUND, as for a repository the token cannot see. $ERR_CALLS (",1:504,2:trunc,") — a failure of GitHub's side for
+# those call numbers: 504 and 502 (the status line, no body, "gh: HTTP 50x" on stderr), trunc (an answer cut short,
+# "unexpected end of JSON input"), cutquiet (the same, gh saying nothing), gqltimeout (GitHub's GraphQL "Something went wrong … timeout" error); $ERR_FROM
+# ("2:504") — that failure for every call from that number on. A fixture folder with nodes.json is one list of pull
+# requests: the stand-in pages it by the page size asked for ($GH_SERVE, serve-page.cjs).
 STUBS="$T/stubs"; mkdir -p "$STUBS"
 cat >"$STUBS/gh" <<'EOF'
 #!/usr/bin/env bash
 n=$(( $(cat "$GH_COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$GH_COUNT"
-op=none cursor=1 number="" id=""
+op=none cursor=1 number="" id="" first=""
 for a in "$@"; do
     case "$a" in
         query=*) [[ "$a" =~ ^query=query\ ([A-Za-z]+) ]] && op="${BASH_REMATCH[1]}" ;;
         endCursor=*) cursor="${a#endCursor=}" ;;
         number=*) number="${a#number=}" ;;
         id=*) id="${a#id=}" ;;
+        first=*) first="${a#first=}" ;;
     esac
 done
-echo "call=$n op=$op cursor=$cursor token=${GH_TOKEN:-unset} args=${1:-} ${2:-}" >>"$GH_LOG"
-[ -z "${RL_CALLS:-}" ] || node -e 'process.stdout.write(Date.now() + "\n")' >>"$GH_TIMES"
+echo "call=$n op=$op cursor=$cursor token=${GH_TOKEN:-unset} args=${1:-} ${2:-} first=$first" >>"$GH_LOG"
+[ -z "${RL_CALLS:-}${ERR_CALLS:-}" ] || node -e 'process.stdout.write(Date.now() + "\n")' >>"$GH_TIMES"
 case ",${RL_CALLS:-}," in *",$n,"*)
     printf 'HTTP/2.0 403 Forbidden\r\nRetry-After: 1\r\nX-Ratelimit-Remaining: 0\r\n\r\n{"message":"You have exceeded a secondary rate limit."}\n'
     echo "gh: You have exceeded a secondary rate limit. (HTTP 403)" >&2; exit 1 ;;
+esac
+err=""
+case ",${ERR_CALLS:-}," in *",$n:"*) err="${ERR_CALLS#*",$n:"}"; err="${err%%,*}" ;; esac
+[ -n "${ERR_FROM:-}" ] && [ "$n" -ge "${ERR_FROM%%:*}" ] && err="${ERR_FROM#*:}"
+case "$err" in
+    "") ;;
+    504|502) printf 'HTTP/2.0 %s Bad Gateway\r\nContent-Length: 0\r\n\r\n' "$err"; echo "gh: HTTP $err" >&2; exit 1 ;;
+    trunc) printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNex'; echo "unexpected end of JSON input" >&2; exit 1 ;;
+    cutquiet) printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"data":{"repository":{"pullRequest":{"rev'; exit 1 ;;
+    gqltimeout) printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"data":null,"errors":[{"message":"Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug."}]}\n'
+        echo "gh: Something went wrong while executing your query. This may be the result of a timeout, or it could be a GitHub bug." >&2; exit 1 ;;
+    *) echo "stand-in: unknown failure $err" >&2; exit 1 ;;
 esac
 if [ -n "${DENY:-}" ]; then
     printf 'HTTP/2.0 200 OK\r\n\r\n{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","message":"Could not resolve to a Repository with the name acme/x."}]}\n'
@@ -66,6 +87,11 @@ case "$op" in
     ReviewHistoryThreadComments) f="thread-$id-$cursor.json" ;;
     *) echo "stand-in: not a review-history query: $*" >&2; exit 1 ;;
 esac
+if [ "$op" = ReviewHistoryPage ] && [ -f "$GH_FIX/nodes.json" ]; then
+    list="$GH_FIX/nodes.json"; command -v cygpath >/dev/null 2>&1 && list="$(cygpath -m "$list")"
+    body="$(node "$GH_SERVE" "$list" "$cursor" "$first")" || exit 1
+    printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n\r\n%s\n' "$body"; exit 0
+fi
 [ -f "$GH_FIX/$f" ] || { echo "stand-in: no fixture $f" >&2; exit 1; }
 printf 'HTTP/2.0 200 OK\r\nContent-Type: application/json\r\nX-Ratelimit-Remaining: 4990\r\n\r\n'
 cat "$GH_FIX/$f"
@@ -91,7 +117,7 @@ project() { # project <name> <origin url or "">
     mkdir -p "$HH/projects/$1" && printf '{"schema":2,"name":"%s","mode":"full"}\n' "$1" >"$HH/projects/$1/profile.json"
     entries="$entries${entries:+,}{\"key\":\"$1\",\"match\":\"$TN/r/$1\",\"profile\":\"$1\"}"
 }
-for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean; do project "$p" "git@github.com:acme/$p.git"; done
+for p in filt v29 v30 chars cap since probe probe2 rl rlmid deny nogh clean trbase tr504 trtrunc trshrink trfloor tr502 trrl tron; do project "$p" "git@github.com:acme/$p.git"; done
 project local "$T/elsewhere.git"
 printf '{"repos":[%s]}\n' "$entries" >"$HH/gate/config.json"
 state() { echo "$HH/projects/$1/state/human-review"; }
@@ -106,6 +132,9 @@ calls() { [ -f "$T/gh-$1.log" ] && wc -l <"$T/gh-$1.log" | tr -d ' ' || echo 0; 
 raw_has() { grep -qF -- "$2" "$(state "$1")/raw/prs.jsonl"; }
 jfield() { node -e 'let v=JSON.parse(require("fs").readFileSync(0,"utf8")); for (const k of process.argv[1].split(".")) v=v?.[k]; process.stdout.write(typeof v==="object"?JSON.stringify(v):String(v))' "$1"; }
 make() { node "$FIX/make-pages.cjs" "$@"; }
+export GH_SERVE="$(node_path "$FIX/serve-page.cjs")"
+# The pause before a retry after a failure of GitHub's side, in seconds: none in the tests, except where one is timed.
+export REVIEW_HISTORY_RETRY_WAIT=0
 
 # --- 1. fetch: the filter -------------------------------------------------------------------------------------------
 mkdir -p "$(state filt)" && cp "$FIX/filter/ignore.json" "$(state filt)/ignore.json"
@@ -242,6 +271,67 @@ RL_CALLS=",1,2,3,4,5," rh rl "$FIX/filter" fetch; rc=$?
 make "$T/fx-rlmid" cap 150
 RL_CALLS=",2,3,4,5," rh rlmid "$T/fx-rlmid" fetch; rc=$?
 [ "$rc" -eq 1 ] && [ ! -e "$(state rlmid)/raw" ] && [ ! -e "$(state rlmid)/.raw-next" ] && ok "a rate limit on the second page: no half-written raw/ is left" || bad "rate limit mid: exit $rc $(ls -a "$(state rlmid)" 2>&1)"
+
+# --- 5a. failures of GitHub's side: retries and the page size (worfy-human-review 14) -----------------------------------
+# 230 reviewed pull requests as one list: the stand-in pages it by the page size asked for, so a smaller page reads on
+# from the same cursor the way GitHub does. trbase reads it without a failure: the raw/ every other case must equal.
+make "$T/fx-dyn" nodes 230
+pages_of() { grep "op=ReviewHistoryPage" "$T/gh-$1.log" | sed -E 's/.* cursor=([^ ]*) .* first=([0-9]*)$/\1:\2/' | tr '\n' ' '; }
+# same_raw <project> [<base project>]: its raw/prs.jsonl holds what the base's holds (trbase by default), line for line,
+# apart from the repository name each project reads under.
+same_raw() {
+    node -e 'const fs = require("fs"), read = (f) => fs.readFileSync(f, "utf8").replace(/"repo":"acme\/[a-z0-9]+"/g, "\"repo\":\"acme/x\"")
+process.exit(read(process.argv[1]) === read(process.argv[2]) ? 0 : 1)' "$(node_path "$(state "${2:-trbase}")/raw/prs.jsonl")" "$(node_path "$(state "$1")/raw/prs.jsonl")" 2>/dev/null
+}
+rh trbase "$T/fx-dyn" fetch; rc=$?
+uniq_n="$(node -e 'const n = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").map((l) => JSON.parse(l).number); process.stdout.write(n.length + " " + new Set(n).size)' "$(node_path "$(state trbase)/raw/prs.jsonl")")"
+[ "$rc" -eq 0 ] && [ "$uniq_n" = "230 230" ] && [ "$(pages_of trbase)" = "1:100 c100:100 c200:100 " ] \
+    && ok "pages of 100 by default: 230 pull requests in 3 requests, each once" || bad "base: exit $rc [$uniq_n] [$(pages_of trbase)] $(cat "$T/err")"
+
+REVIEW_HISTORY_RETRY_WAIT=1 ERR_CALLS=",1:504," rh tr504 "$T/fx-dyn" fetch; rc=$?
+gap="$(node -e 'const t = require("fs").readFileSync(0, "utf8").trim().split("\n").map(Number); process.stdout.write(String(t[1] - t[0]))' <"$T/times-tr504")"
+[ "$rc" -eq 0 ] && grep -q "^review-history: HTTP 504 on a page of 100 PRs, retrying with 50 (acme/tr504, the first page)$" "$T/err" && same_raw tr504 \
+    && [ "$(pages_of tr504)" = "1:100 1:50 c50:50 c100:50 c150:50 c200:50 " ] \
+    && ok "HTTP 504, then success: says so, asks the same page with 50, keeps 50 to the end; raw/ the same as without the failure" || bad "504 then success: exit $rc [$(pages_of tr504)] $(cat "$T/err")"
+[ "${gap:-0}" -ge 1000 ] && ok "HTTP 504: the smaller page is asked after the pause (${gap} ms with a pause of 1 s)" || bad "504 pause: ${gap:-none} ms"
+
+ERR_CALLS=",1:trunc," rh trtrunc "$T/fx-dyn" fetch; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^review-history: an answer cut short (not JSON) on a page of 100 PRs, retrying with 50 " "$T/err" && same_raw trtrunc \
+    && [ "$(pages_of trtrunc)" = "1:100 1:50 c50:50 c100:50 c150:50 c200:50 " ] \
+    && ok "an answer cut short (unexpected end of JSON input), then success: the page of 50, raw/ the same" || bad "trunc then success: exit $rc [$(pages_of trtrunc)] $(cat "$T/err")"
+
+ERR_CALLS=",2:504,3:gqltimeout,4:504," rh trshrink "$T/fx-dyn" fetch; rc=$?
+[ "$rc" -eq 0 ] && same_raw trshrink \
+    && [ "$(pages_of trshrink)" = "1:100 c100:100 c100:50 c100:25 c100:12 c112:12 c124:12 c136:12 c148:12 c160:12 c172:12 c184:12 c196:12 c208:12 c220:12 " ] \
+    && grep -q "HTTP 504 on a page of 100 PRs, retrying with 50 (acme/trshrink, after cursor c100)" "$T/err" \
+    && grep -q "a GraphQL timeout on a page of 50 PRs, retrying with 25 " "$T/err" && grep -q "HTTP 504 on a page of 25 PRs, retrying with 12 " "$T/err" \
+    && ok "504, a GraphQL timeout, 504 on page 2: 100 -> 50 -> 25 -> 12 from the same cursor c100, 12 to the end, no PR lost or read twice" \
+    || bad "shrink: exit $rc [$(pages_of trshrink)] $(cat "$T/err")"
+
+ERR_FROM="2:504" rh trfloor "$T/fx-dyn" fetch; rc=$?
+[ "$rc" -eq 1 ] && [ "$(pages_of trfloor)" = "1:100 c100:100 c100:50 c100:25 c100:12 c100:10 c100:10 c100:10 c100:10 " ] \
+    && grep -q "^review-history: gh api graphql failed for acme/trfloor: HTTP 504 on a page of 10 PRs (the smallest page), after cursor c100, still failing after 3 retries — gh: HTTP 504$" "$T/err" \
+    && [ ! -e "$(state trfloor)/raw" ] && [ ! -e "$(state trfloor)/.raw-next" ] \
+    && ok "HTTP 504 down to the smallest page of 10: 3 retries, then exit 1 naming the page size and the cursor; no raw/ left" || bad "floor: exit $rc [$(pages_of trfloor)] $(cat "$T/err")"
+
+ERR_CALLS=",1:502,2:502," rh tr502 "$T/fx-dyn" fetch; rc=$?
+[ "$rc" -eq 0 ] && same_raw tr502 && [ "$(pages_of tr502)" = "1:100 1:100 1:100 c100:100 c200:100 " ] \
+    && grep -q "^review-history: HTTP 502 on a page of 100 PRs, retry 1 of 3 in 0 s (acme/tr502, the first page)$" "$T/err" && grep -q "retry 2 of 3" "$T/err" \
+    && ok "HTTP 502 twice: the same page of 100 again after a pause, not a smaller one; raw/ the same" || bad "502: exit $rc [$(pages_of tr502)] $(cat "$T/err")"
+
+RL_CALLS=",1," rh trrl "$T/fx-dyn" fetch; rc=$?
+[ "$rc" -eq 0 ] && same_raw trrl && [ "$(pages_of trrl)" = "1:100 1:100 c100:100 c200:100 " ] && grep -q "GitHub rate limit — .*retry-after 1 s); waiting 1 s, retry 1 of 3" "$T/err" \
+    && ok "a rate limit is waited out as before and keeps the page of 100" || bad "rate limit page: exit $rc [$(pages_of trrl)] $(cat "$T/err")"
+
+mkdir -p "$(state tron)" && cp "$FIX/filter/ignore.json" "$(state tron)/ignore.json"
+ERR_CALLS=",2:502,3:cutquiet," rh tron "$FIX/filter" fetch; rc=$?
+[ "$rc" -eq 0 ] && same_raw tron filt && [ "$(grep -c "op=ReviewHistoryReviews cursor=r2" "$T/gh-tron.log")" = 3 ] \
+    && grep -q "^review-history: HTTP 502 from GitHub for acme/tron, retry 1 of 3 in 0 s$" "$T/err" && grep -q "an answer cut short (not JSON) from GitHub for acme/tron, retry 2 of 3" "$T/err" \
+    && ok "a read-on request (reviews past the first 30): HTTP 502 and an answer cut short (gh silent about it) are retried, raw/ as without them" || bad "read-on retry: exit $rc $(cat "$T/err") $(cat "$T/gh-tron.log")"
+: >"$T/gh-tron.log"; rm -f "$T/count-tron"
+ERR_FROM="2:504" rh tron "$FIX/filter" fetch; rc=$?
+[ "$rc" -eq 1 ] && [ "$(calls tron)" = 5 ] && grep -q "^review-history: gh api graphql failed for acme/tron: HTTP 504 after 3 retries — gh: HTTP 504$" "$T/err" \
+    && ok "a read-on request failing four times: exit 1 after 3 retries with the reason" || bad "read-on give up: exit $rc calls $(calls tron) $(cat "$T/err")"
 
 # --- 6. the gh account --------------------------------------------------------------------------------------------------
 all="$(cat "$T"/gh-*.log)"
