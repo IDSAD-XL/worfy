@@ -462,6 +462,16 @@ Timeout-ы не тронуты, ожиданий по часам нет.
   подставляет систему, которая отвечает как Node на Windows: точные id при `bigint` и округлённые числа без него.
   Id — `(40 << 48) + 1000` и на 1 больше. С кодом до правки этот test красный с тем же `expected 200 to be 404`,
   с правкой зелёный. Вердикт — Windows-job-ы CI.
+- **Force stop через `setUnattended(false)` — пробел в test-ах, закрыт здесь; код не менялся.** Часть 10 утверждает,
+  что Force stop не отвечает раньше выхода старого процесса: `release` → `setUnattended(false)`
+  (`src/main/autopilot/run.ts:3178`) → `await this.relaunch(entry, ATTENDED)` (`src/main/agent/orchestrator.ts:361`).
+  Review #1703 нашёл, что mutant «`void` вместо `await` на строке 361» переживают все шесть файлов, которые
+  пользуются `test/contract/claude-process-stub.ts`. Новый test в `test/contract/orchestrator-relaunch.test.ts`
+  («going attended while idle (the path of Force stop…)»): Orchestrator без человека и без turn-а, stub
+  `ignore-term`, затем `await setUnattended(false)`. Сразу после ответа порядок событий stub-а —
+  `spawn 1, exit 1, spawn 2, exit 2, spawn 3`, живых процессов — один (`alive()`), запрос третьего процесса — attended.
+  С mutant-ом test красный: `expected [ 'spawn 1', 'exit 1 SIGKILL', …(1) ] to deeply equal [ …(3) ]` — ответ
+  пришёл до выхода второго процесса. Без mutant-а зелёный.
 
 ## Наблюдения 2026-11-06 (CI)
 
