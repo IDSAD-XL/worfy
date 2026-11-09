@@ -207,6 +207,17 @@ Project Machine этого окна. Строка секции Pipeline или n
 - Раздел «Team reviewer» в «Project settings…» показывает состояние ревьюера голосом команды Project-а (`Not built`,
   `Built <date>, <N> PRs` или `Too little history: <N> of 30`) с кнопками «Build» (у собранного — «Update») и «Delete».
   Подробно — [Team reviewer](human-review.md).
+- «Edit profile…» в «Project settings…» открывает Profile Project-а формой поверх диалога. В ней поля шага Review из «Add
+  project» и те, которых там нет: title, команды, путь тикета, spec, раздел файлов, раздел «готово», ветка, finish,
+  `parallel`, линзы ревью и тикета, MCP servers, разрешённые skills, GitHub account, папка ADR, метка статуса ADR, feature
+  pages, glossary, файл состояния, три языка, attribution и четыре поля worktree. Имя, `mode` и Workflow folder видны текстом:
+  mode и папка — «Changed by moving the workflow files». Записей Gate registry и `rules.md` в форме нет. Каждую правку Harness
+  проверяет правилами схемы черновика (`harness/profiles/draft.schema.json`); отказ виден под его полем и выключает Save. Так
+  отклоняются пустой `verify`, путь тикета без `NN` и неизвестный finish. Save пишет поля через `harness/bin/profile-set`, с
+  commit-ом в git папки Harness, и только пока Profile такой, каким форма его прочла. Если он изменился, Save отказывает с
+  «The profile changed since you opened it», и форма показывает Profile, каким он стал. «Change account…» открывает шаг GitHub
+  account из «Add project»: аккаунты gh с правом push, аккаунт Profile-а остаётся выбранным, пока gh его знает, finish — по
+  выбранному аккаунту. Linked machine с доступом только на чтение видит форму без Save.
 - «Process gate queue» есть только тогда, когда роль Project-а в межмашинной очереди Gate — `serve`. Пункт отправляет шаблон
   Orchestrator-у Project-а.
 - «Remove from list» действует сразу, без вопроса. Project уходит из списка. Если он был активным, активным становится первый из

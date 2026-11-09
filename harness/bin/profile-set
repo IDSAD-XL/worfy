@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // profile-set — writes the Pipeline of one project, the field workflow.pipeline of its profile.json, or
-// with --field the fields workflow.agents and agents (the agents of a ticket and the model and effort of
-// each Harness agent role, profiles/README.md), and nothing else. bin/profile stays the reader that
-// writes nothing; an editor, worfy's preset of a plan or any other caller writes them through this script.
+// with --field other fields of it (workflow.agents and agents — the agents of a ticket and the model and
+// effort of each Harness agent role, profiles/README.md —, the commands, the ticket paths, the languages
+// and the rest), and nothing else. bin/profile stays the reader that writes nothing; an editor, worfy's
+// preset of a plan, its "Edit profile" form or any other caller writes them through this script.
 //
 //   profile-set [-C <dir>] --read                          prints JSON { name, path, pipeline, resolved, fingerprint }:
 //                                                          the field as written (null without it), the
@@ -11,13 +12,24 @@
 //                                                          writes the Pipeline (JSON; `-` — read it from stdin)
 //   profile-set [-C <dir>] --expect <fingerprint> --reset  removes the field: the default Pipeline from then on
 //
-//   With one or more `--field <name>` (workflow.agents, agents) the same three act on those fields instead:
+//   With one or more `--field <name>` the same three act on those fields instead, and a fourth only checks:
 //   --read prints { name, path, fields: { <name>: value | null }, fingerprint }; --set takes a JSON object
-//   with exactly the named fields as keys (a null value removes that field); --reset removes them all. The
-//   fingerprint is of the named fields together (never null), so --expect takes the one that --read printed.
-//   A value is checked by the draft schema's rules (profiles/draft.schema.json): workflow.agents "eco" or
-//   "full"; agents an object of the roles implementer, reviewer, scout and verifier, each an object of
-//   model ("sonnet" | "opus") and effort ("low" | "medium" | "high"), any of them null.
+//   with exactly the named fields as keys; --reset removes them all; --check <json | -> takes what --set
+//   takes, checks it as --set would and writes nothing: exit 0 with { ok: true }, exit 1 with the problems.
+//   The fingerprint is of the named fields together (never null), so --expect takes the one that --read
+//   printed.
+//   A name is a field of the profile, dotted below the top ("tickets.path", "docs.context.path"); one
+//   name inside another ("docs" and "docs.adr_dir") is refused. name, mode, schema, workflow.folder,
+//   workflow.pipeline and an object holding one of them (workflow) are read but never written here: the
+//   name holds the profile's folder, the mode and the Workflow folder move with the workflow files, the
+//   Pipeline has the calls above. A field the schema closes (agents.orchestrator) is a usage error.
+//   A value is checked by the draft schema's rules for that field (profiles/draft.schema.json, through
+//   lib/draft-schema.cjs, the checker bin/project-connect uses); a field the schema has no rules for takes
+//   any JSON value. null leaves an absent field absent; on a field present in the file it removes the
+//   field, unless the schema requires it in its object: then null is written, and checked like a value.
+//   The objects on the way to a field are made when absent or null; one of another type (an old string
+//   form) is a problem, exit 1. A refused value prints { ok: false, errors: [{ path, message }] } on
+//   stdout and each problem on a line of stderr.
 //
 // The project is the one `bin/profile -C <dir>` finds (the current directory without -C); this script
 // asks bin/profile for the profile's directory, so both name the same file.
@@ -32,8 +44,9 @@
 // A commit that cannot be made — no repository there, git missing, the commit refused — does not undo
 // the write: the commit is the history, not a condition. It is reported as a warning.
 //
-// Exit codes: 0 — written (or nothing to change, or --read); 1 — the Pipeline breaks a rule or is not
-// JSON, the profile cannot be read or written: nothing written, the reason in stderr; 2 — usage
+// Exit codes: 0 — written (or nothing to change, or --read, or --check found nothing); 1 — the Pipeline or
+// a field breaks a rule or is not JSON, the profile cannot be read or written: nothing written, the reason
+// in stderr; 2 — usage
 // error; 3 — the directory is in no registered project, or the project has no profile (bin/profile's
 // code); 5 — the Pipeline in the file is not the one the caller read: nothing written; 6 — another
 // profile-set held the profile's lock for the whole wait (10 s): nothing written, try again.
@@ -49,10 +62,11 @@ const { randomBytes } = require("node:crypto")
 // The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 const { pipelineProblem, pipelineField, resolvePipeline, pipelineFingerprint } = require("../lib/pipeline.cjs")
+const { loadDraftSchema, validate, fieldSchema } = require("../lib/draft-schema.cjs")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
-const USAGE = `usage: profile-set [-C <dir>] [--field workflow.agents|agents]... (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset)
-exit: 0 written or read, 1 invalid value or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the value changed since it was read, 6 another write held the lock (try again)`
+const USAGE = `usage: profile-set [-C <dir>] [--field <name>]... (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset | --field <name>... --check <json|->)
+exit: 0 written, read or checked, 1 invalid value or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the value changed since it was read, 6 another write held the lock (try again)`
 
 const out = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n")
 const err = (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n")
@@ -73,9 +87,14 @@ let expect
 let target = process.cwd()
 // The fields of --field, in the order given; empty — workflow.pipeline, as without the option.
 const fields = []
-const FIELDS = ["workflow.agents", "agents"]
+// Read, never written here: the profile's folder name, the mode and the Workflow folder (moved with the
+// workflow files), the schema version, and the Pipeline, written by the calls without --field.
+const READ_ONLY = ["name", "mode", "schema", "workflow.folder", "workflow.pipeline"]
+const SEGMENT = /^[A-Za-z0-9_-]+$/
+const NOT_KEYS = ["__proto__", "constructor", "prototype"]
+const within = (inner, outer) => inner === outer || inner.startsWith(`${outer}.`)
 const setMode = (m) => {
-    if (mode) usage("only one of --read/--set/--reset at a time")
+    if (mode) usage("only one of --read/--set/--reset/--check at a time")
     mode = m
 }
 const argv = process.argv.slice(2)
@@ -87,9 +106,10 @@ for (let i = 0; i < argv.length; i++) {
             setMode(a.slice(2))
             break
         case "--set":
-            setMode("set")
+        case "--check":
+            setMode(a.slice(2))
             given = argv[++i]
-            if (given === undefined) usage("--set needs the Pipeline as JSON, or - to read it from stdin")
+            if (given === undefined) usage(`${a} needs the value as JSON, or - to read it from stdin`)
             break
         case "--expect":
             expect = argv[++i]
@@ -97,7 +117,9 @@ for (let i = 0; i < argv.length; i++) {
             break
         case "--field": {
             const f = argv[++i]
-            if (!FIELDS.includes(f)) usage(`--field takes ${FIELDS.join(" or ")}${f === undefined ? "" : `, not ${f}`}`)
+            if (f === undefined) usage("--field needs the name of a profile field")
+            const keys = f.split(".")
+            if (!keys.every((k) => SEGMENT.test(k) && !NOT_KEYS.includes(k))) usage(`--field takes a dotted name of a profile field (letters, digits, _ and -), not ${f}`)
             if (!fields.includes(f)) fields.push(f)
             break
         }
@@ -113,11 +135,29 @@ for (let i = 0; i < argv.length; i++) {
             usage(`unknown argument: ${a}`)
     }
 }
-if (!mode) usage("say what to do: --read, --set or --reset")
+if (!mode) usage("say what to do: --read, --set, --reset or --check")
 // What is written, in messages: the Pipeline, or the fields of --field.
 const WHAT = fields.length === 0 ? "the Pipeline" : fields.join(", ")
-if (mode !== "read" && expect === undefined) usage(`--${mode} needs --expect: the fingerprint of ${WHAT} the change was made over (null when the Pipeline was absent)`)
-if (mode === "read" && expect !== undefined) usage("--expect goes with --set or --reset")
+if (mode === "check" && fields.length === 0) usage("--check goes with --field")
+if ((mode === "read" || mode === "check") && expect !== undefined) usage("--expect goes with --set or --reset")
+if (mode !== "read" && mode !== "check" && expect === undefined) usage(`--${mode} needs --expect: the fingerprint of ${WHAT} the change was made over (null when the Pipeline was absent)`)
+for (const f of fields) {
+    const other = fields.find((g) => g !== f && within(f, g))
+    if (other !== undefined) usage(`--field ${f} lies inside --field ${other}: name one of them`)
+    if (mode === "read") continue
+    const fixed = READ_ONLY.find((r) => within(r, f))
+    if (fixed !== undefined) usage(`--field ${f}: ${fixed} is read, never written by --field${fixed === "workflow.pipeline" ? " (write the Pipeline without --field)" : ""}`)
+}
+// The draft schema, for the rules of the fields; only a write or a check of fields reads it.
+let schema = null
+if (fields.length > 0 && mode !== "read") {
+    try {
+        schema = loadDraftSchema().properties.profile
+    } catch (e) {
+        die(1, `the draft schema cannot be read: ${e.message}`)
+    }
+    for (const f of fields) if (fieldSchema(schema, f).closed) usage(`--field ${f}: the draft schema allows no such field`)
+}
 
 // --- the profile: the one bin/profile finds ------------------------------------------
 // The node running this script, not the first `node` on PATH.
@@ -147,44 +187,97 @@ function readProfile() {
 
 // --- the fields of --field ------------------------------------------------------------------
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
+/** The object that holds field `f` in `profile` and its last key; holder undefined when an object on the way is absent or not an object. */
+function holderOf(profile, f) {
+    const keys = f.split(".")
+    const last = keys.pop()
+    let at = profile
+    for (const k of keys) at = isObject(at) && Object.hasOwn(at, k) ? at[k] : undefined
+    return { holder: isObject(at) ? at : undefined, last }
+}
 /** The value of a field of --field as the file has it; null when absent. */
 function fieldValue(profile, f) {
-    const v = f === "agents" ? profile.agents : isObject(profile.workflow) ? profile.workflow.agents : undefined
-    return v === undefined ? null : v
+    const { holder, last } = holderOf(profile, f)
+    return holder !== undefined && Object.hasOwn(holder, last) ? holder[last] : null
+}
+/** True when the file has the field (null included). */
+function fieldPresent(profile, f) {
+    const { holder, last } = holderOf(profile, f)
+    return holder !== undefined && Object.hasOwn(holder, last)
 }
 /** The named fields as the file has them, in the order of --field. */
 const fieldValues = (profile) => Object.fromEntries(fields.map((f) => [f, fieldValue(profile, f)]))
 // The fingerprint of the named fields together: the canonical JSON of an object (pipelineFingerprint takes
 // any value), so the order of --field does not change it, and it is never null.
 const fieldsFingerprint = (values) => pipelineFingerprint(values)
-const ROLES = ["implementer", "reviewer", "scout", "verifier"]
-const ROLE_FIELDS = { model: ["sonnet", "opus"], effort: ["low", "medium", "high"] }
-/** Why a value of a field breaks the draft schema's rules, or null. */
-function fieldProblem(f, v) {
-    if (v === null) return null
-    if (f === "workflow.agents") return v === "eco" || v === "full" ? null : `workflow.agents: "eco", "full" or null, not ${JSON.stringify(v)}`
-    if (!isObject(v)) return `agents: an object of roles or null, not ${JSON.stringify(v)}`
-    for (const [role, r] of Object.entries(v)) {
-        if (!ROLES.includes(role)) return `agents.${role}: not a role (${ROLES.join(", ")})`
-        if (r === null) continue
-        if (!isObject(r)) return `agents.${role}: an object of model and effort or null`
-        for (const [k, x] of Object.entries(r)) {
-            if (!Object.hasOwn(ROLE_FIELDS, k)) return `agents.${role}.${k}: not a field (model, effort)`
-            if (x !== null && !ROLE_FIELDS[k].includes(x)) return `agents.${role}.${k}: ${ROLE_FIELDS[k].map((y) => `"${y}"`).join(", ")} or null, not ${JSON.stringify(x)}`
+/** What a value does to field `f` of `profile`: "absent" (null on an absent field), "remove", or "write". */
+function effectOf(profile, f, v) {
+    if (v !== null) return "write"
+    if (!fieldPresent(profile, f)) return "absent"
+    return fieldSchema(schema, f).required ? "write" : "remove"
+}
+/** The problems of the value of the fields, without the file: an object with exactly the named fields, each by the schema. */
+function shapeProblems(value) {
+    if (!isObject(value)) return [{ path: "", message: `the value is not a JSON object of ${WHAT}` }]
+    const errors = []
+    for (const k of Object.keys(value)) if (!fields.includes(k)) errors.push({ path: k, message: `not a field of this write (${WHAT})` })
+    for (const f of fields) {
+        if (!Object.hasOwn(value, f)) errors.push({ path: f, message: "missing; null removes the field" })
+        else if (value[f] !== null) {
+            const rules = fieldSchema(schema, f).schema
+            if (rules !== null) errors.push(...validate(rules, value[f], f).map(({ path: p, message }) => ({ path: p, message })))
         }
     }
-    return null
+    return errors
 }
-/** Why a --set value of the fields is refused, or null: an object with exactly the named fields, each valid. */
-function fieldsProblem(value) {
-    if (!isObject(value)) return `the value is not a JSON object of ${WHAT}`
-    for (const k of Object.keys(value)) if (!fields.includes(k)) return `${k}: not a field of this write (${WHAT})`
+/** The problems the file adds: null written where the schema requires the field, an object on the way of another type. */
+function fileProblems(profile, value) {
+    const errors = []
     for (const f of fields) {
-        if (!Object.hasOwn(value, f)) return `${f}: missing; null removes the field`
-        const problem = fieldProblem(f, value[f])
-        if (problem !== null) return problem
+        const v = value[f]
+        const effect = effectOf(profile, f, v)
+        if (effect === "absent") continue
+        if (v === null && effect === "write") {
+            const rules = fieldSchema(schema, f).schema
+            if (rules !== null) errors.push(...validate(rules, null, f).map(({ path: p, message }) => ({ path: p, message })))
+        }
+        if (effect !== "write") continue
+        const keys = f.split(".")
+        let at = profile
+        for (let i = 0; i < keys.length - 1; i++) {
+            const next = Object.hasOwn(at, keys[i]) ? at[keys[i]] : undefined
+            if (next === undefined || next === null) break
+            if (!isObject(next)) {
+                errors.push({ path: keys.slice(0, i + 1).join("."), message: `is ${Array.isArray(next) ? "a list" : `a ${typeof next}`} in the profile, not an object: change it by hand first` })
+                break
+            }
+            at = next
+        }
     }
-    return null
+    return errors
+}
+/** Refuses the value: the problems on stdout as JSON and on stderr one per line, exit 1. */
+function refuse(errors) {
+    out(JSON.stringify({ ok: false, errors }))
+    for (const e of errors) err(`profile-set: ${pjPath}: ${e.path ? `${e.path}: ` : ""}${e.message} — not written`)
+    process.exit(1)
+}
+/** Sets field `f` of `profile` by its effect: the objects on the way made when absent or null. */
+function apply(profile, f, v) {
+    const effect = effectOf(profile, f, v)
+    if (effect === "absent") return
+    const keys = f.split(".")
+    const last = keys.pop()
+    let at = profile
+    for (const k of keys) {
+        if (!isObject(at[k])) {
+            if (effect === "remove") return
+            at[k] = {}
+        }
+        at = at[k]
+    }
+    if (effect === "remove") delete at[last]
+    else at[last] = v
 }
 const nameOf = (profile) => (typeof profile.name === "string" && profile.name ? profile.name : path.basename(dir))
 
@@ -204,7 +297,7 @@ if (mode === "read") {
 // --- the new value, read and checked before the profile is ---------------------------
 // stdin first: a caller slow to send the Pipeline must not hold a fingerprint taken before another write.
 let value = null
-if (mode === "set") {
+if (mode === "set" || mode === "check") {
     let text = given
     if (given === "-") {
         try {
@@ -219,12 +312,19 @@ if (mode === "set") {
         die(1, `${WHAT} is not JSON: ${e.message} — not written`)
     }
     if (fields.length > 0) {
-        const problem = fieldsProblem(value)
-        if (problem !== null) die(1, `${pjPath}: ${problem} — not written`)
+        const problems = shapeProblems(value)
+        if (problems.length > 0) refuse(problems)
     } else {
         const problem = pipelineProblem(value)
         if (problem !== null) die(1, `${pjPath}: workflow.pipeline${problem} — not written`)
     }
+}
+// --check: the value against the file as it is now, without the lock; nothing is written.
+if (mode === "check") {
+    const problems = fileProblems(readProfile().profile, value)
+    if (problems.length > 0) refuse(problems)
+    out(JSON.stringify({ ok: true }))
+    process.exit(0)
 }
 
 // --- the lock: one writer of a profile at a time ---------------------------------------
@@ -409,17 +509,16 @@ if (expected !== currentFingerprint) {
     die(5, `${fields.length === 0 ? "workflow.pipeline" : WHAT} of ${pjPath} changed since it was read — not written; read it again`)
 }
 
-if (fields.length > 0) {
-    // Each field set, or removed when null (and by --reset); a workflow that is not an object becomes one only to hold a value.
+if (fields.length > 0 && mode === "set") {
+    // Checked again against the file under the lock: it may have changed since a --check.
+    const problems = fileProblems(profile, value)
+    if (problems.length > 0) refuse(problems)
+    for (const f of fields) apply(profile, f, value[f])
+} else if (fields.length > 0) {
+    // --reset: each field removed, required or not.
     for (const f of fields) {
-        const v = mode === "set" ? value[f] : null
-        if (f === "agents") {
-            if (v === null) delete profile.agents
-            else profile.agents = v
-        } else if (v !== null) {
-            if (!isObject(profile.workflow)) profile.workflow = {}
-            profile.workflow.agents = v
-        } else if (isObject(profile.workflow)) delete profile.workflow.agents
+        const { holder, last } = holderOf(profile, f)
+        if (holder !== undefined) delete holder[last]
     }
 } else if (mode === "set") {
     if (profile.workflow === null || typeof profile.workflow !== "object" || Array.isArray(profile.workflow)) profile.workflow = {}

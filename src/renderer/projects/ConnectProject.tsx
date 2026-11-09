@@ -21,13 +21,15 @@ import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
+import { PROFILE_COMMANDS } from '../../shared/ipc/profile-edit'
 import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
 import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../shared/temp-folder'
 import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
 import { StatusChip } from '../theme/primitives'
-import { Select } from '../theme/Select'
 import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
+import { fieldStyles, getAt, isJson, issuesAt, list, setAt, text, words } from './profile-fields'
+import { Field, ListField, SelectField, TextField } from './ProfileFields'
 
 export interface ConnectedProject {
   project: ProjectView
@@ -103,22 +105,10 @@ const styles = {
   },
   modeCardOn: { borderColor: 'var(--accent)', background: 'var(--selected)' },
   modeName: { fontWeight: 600 },
-  field: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 'var(--space-2)' },
-  grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 'var(--space-3)' },
-  label: { fontSize: 'var(--text-12)', fontWeight: 600 },
-  input: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-2)',
-    borderRadius: 'var(--radius-button)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'var(--border-strong)',
-    background: 'var(--bg)',
-    color: 'var(--text)',
-    fontFamily: 'var(--font-mono)',
-    fontSize: 'var(--text-12)',
-    minWidth: 0,
-  },
+  field: fieldStyles.field,
+  grid: fieldStyles.grid,
+  label: fieldStyles.label,
+  input: fieldStyles.input,
   textarea: {
     minHeight: 140,
     padding: 'var(--space-2)',
@@ -132,10 +122,9 @@ const styles = {
     fontSize: 'var(--text-12)',
     resize: 'vertical',
   },
-  readOnly: { padding: '4px var(--space-2)', borderRadius: 'var(--radius-button)', border: '1px solid var(--border)', background: 'var(--surface-raised)' },
-  fieldError: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)' },
-  /** An input whose value the Harness refused: the blocked colour on its border (the focus ring is connect-project.css). */
-  invalid: { borderColor: 'var(--blocked-text)' },
+  readOnly: fieldStyles.readOnly,
+  fieldError: fieldStyles.fieldError,
+  invalid: fieldStyles.invalid,
   issues: { margin: '0 0 var(--space-3)', padding: 'var(--space-2) var(--space-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-button)', background: 'var(--surface-raised)', listStyle: 'none' },
   json: { margin: 'var(--space-2) 0 0', padding: 'var(--space-2)', maxHeight: 220, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-button)', background: 'var(--surface-raised)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-11)', whiteSpace: 'pre-wrap' },
   status: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: '0 0 var(--space-2)' },
@@ -149,34 +138,7 @@ const styles = {
 
 const STEPS = ['Folder', 'Mode', 'Harness', 'Draft', 'Review'] as const
 
-type Json = Record<string, unknown>
-const isJson = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
-
-/** The value at a dotted path of the profile. */
-function getAt(value: unknown, path: readonly string[]): unknown {
-  return path.reduce<unknown>((at, key) => (isJson(at) ? at[key] : undefined), value)
-}
-
-/** A copy of `value` with `path` set to `next`. */
-function setAt(value: Json, path: readonly string[], next: unknown): Json {
-  const [key, ...rest] = path
-  if (key === undefined) return value
-  return { ...value, [key]: rest.length === 0 ? next : setAt(isJson(value[key]) ? value[key] : {}, rest, next) }
-}
-
-const text = (value: unknown): string => (typeof value === 'string' ? value : '')
-const list = (value: unknown, separator: string): string => (Array.isArray(value) ? value.filter((item) => typeof item === 'string').join(separator) : '')
-const words = (input: string, split: RegExp): string[] =>
-  input
-    .split(split)
-    .map((word) => word.trim())
-    .filter((word) => word !== '')
-
-/** The problems of one field: its own path, or a path below it. */
-const issuesAt = (issues: readonly DraftIssue[], path: string): DraftIssue[] =>
-  issues.filter((issue) => issue.path === path || issue.path.startsWith(`${path}.`) || issue.path.startsWith(`${path}[`))
-
-const COMMANDS = ['install', 'lint', 'typecheck', 'test', 'test_one', 'contract', 'e2e', 'build', 'verify', 'prepare_tree'] as const
+const COMMANDS = PROFILE_COMMANDS
 
 /** The fields of the form, by their draft path; every other path is shown in the list above the form. */
 function formPaths(draft: ProfileDraft): string[] {
@@ -202,33 +164,6 @@ function Chip({ tone, children }: { tone: 'working' | 'blocked' | 'neutral'; chi
     <span className={tone === 'working' ? 'w-chip' : 'w-chip w-chip--bordered'} style={style}>
       {children}
     </span>
-  )
-}
-
-interface FieldProps {
-  label: string
-  path: string
-  issues: readonly DraftIssue[]
-  children: (props: { id: string; invalid: boolean; describedBy: string | undefined }) => ReactNode
-}
-
-/** A labelled field with its problems under it. */
-function Field({ label, path, issues, children }: FieldProps) {
-  const id = useId()
-  const errorId = useId()
-  const own = issuesAt(issues, path)
-  return (
-    <div style={styles.field} data-field={path}>
-      <label htmlFor={id} style={styles.label}>
-        {label}
-      </label>
-      {children({ id, invalid: own.length > 0, describedBy: own.length > 0 ? errorId : undefined })}
-      {own.length > 0 ? (
-        <span id={errorId} role="alert" style={styles.fieldError} data-testid="connect-field-error">
-          {own.map((issue) => issue.message).join('; ')}
-        </span>
-      ) : null}
-    </div>
   )
 }
 
@@ -604,54 +539,12 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
       break
     case 'form': {
       const at = (path: string): string[] => path.split('.')
-      const input = (path: string, label: string) => (
-        <Field key={path} label={label} path={path} issues={issues}>
-          {({ id, invalid, describedBy }) => (
-            <input
-              id={id}
-              className="w-connect-input"
-              style={invalid ? { ...styles.input, ...styles.invalid } : styles.input}
-              value={text(getAt(draft, at(path)))}
-              aria-invalid={invalid ? 'true' : undefined}
-              aria-describedby={describedBy}
-              disabled={writing}
-              onChange={(event) => edit(at(path), event.target.value === '' ? null : event.target.value)}
-            />
-          )}
-        </Field>
-      )
+      const input = (path: string, label: string) => <TextField key={path} path={path} label={label} value={getAt(draft, at(path))} issues={issues} disabled={writing} onChange={(value) => edit(at(path), value)} />
       const listInput = (path: string, label: string) => (
-        <Field key={path} label={label} path={path} issues={issues}>
-          {({ id, invalid, describedBy }) => (
-            <input
-              id={id}
-              className="w-connect-input"
-              style={invalid ? { ...styles.input, ...styles.invalid } : styles.input}
-              defaultValue={list(getAt(draft, at(path)), ', ')}
-              aria-invalid={invalid ? 'true' : undefined}
-              aria-describedby={describedBy}
-              disabled={writing}
-              onChange={(event) => edit(at(path), words(event.target.value, /,/))}
-            />
-          )}
-        </Field>
+        <ListField key={path} path={path} label={label} value={getAt(draft, at(path))} issues={issues} disabled={writing} separator=", " onChange={(value) => edit(at(path), value)} />
       )
       const select = (path: string, label: string, options: readonly string[]) => (
-        <Field key={path} label={label} path={path} issues={issues}>
-          {({ id, invalid, describedBy }) => (
-            <Select
-              id={id}
-              className="w-connect-input"
-              style={invalid ? { ...styles.input, ...styles.invalid } : styles.input}
-              value={text(getAt(draft, at(path)))}
-              options={options.map((option) => ({ value: option, label: option }))}
-              aria-invalid={invalid ? 'true' : undefined}
-              aria-describedby={describedBy}
-              disabled={writing}
-              onChange={(next) => edit(at(path), next)}
-            />
-          )}
-        </Field>
+        <SelectField key={path} path={path} label={label} value={getAt(draft, at(path))} issues={issues} disabled={writing} options={options} onChange={(value) => edit(at(path), value)} />
       )
       body = draft ? (
         <>

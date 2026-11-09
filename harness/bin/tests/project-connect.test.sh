@@ -198,6 +198,11 @@ for f in tickets.done_section tickets.manual_mark docs.adr_status_label docs.fea
     jq --arg f "$f" '.profile |= setpath($f | split("."); "")' "$T/shop.json" >"$T/blank.json"
     check "a blank $f is refused by the schema" 1 "\"path\": \"profile.$f\"" "$CONNECT" --schema-only <"$T/blank.json"
 done
+# An empty verify and a ticket path without the place of the number (worfy-polish ticket 78, the shared lib/draft-schema.cjs).
+jq '.profile.commands.verify = ""' "$T/shop.json" >"$T/verify-blank.json"
+check "an empty commands.verify is refused by the schema" 1 '"message": "must not be empty"' "$CONNECT" --schema-only <"$T/verify-blank.json"
+jq '.profile.tickets.path = ".scratch/<epic>/issues/*.md"' "$T/shop.json" >"$T/path-no-nn.json"
+check "a tickets.path without NN is refused by the schema" 1 '"path": "profile.tickets.path"' "$CONNECT" --schema-only <"$T/path-no-nn.json"
 jq '.profile.tickets.done_section = "## Done when" | .profile.tickets.manual_mark = null | .profile.docs = {adr_status_label: "Status"}' "$T/shop.json" >"$T/named.json"
 check "the names of the document sections pass the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/named.json"
 # docs.feature_pages: optional, a path or null. The draft above has none and passes.

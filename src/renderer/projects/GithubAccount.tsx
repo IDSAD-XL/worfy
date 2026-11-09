@@ -2,7 +2,9 @@
 // knows for the hosts of the folder's origins, each with its write access and the finish it allows
 // (`projects.connect.accounts`), "No account", and "Sign in with gh", which runs `gh auth login` in a
 // terminal inside the dialog. The user answers gh there; when gh exits the accounts are read again.
-// The choice goes into the draft through `onChoose`; nothing is written before "Connect".
+// The choice goes into the draft through `onChoose`; nothing is written before "Connect". "Edit profile"
+// (EditProfile.tsx, worfy-polish ticket 78) opens the same step over a connected Project's Profile, with
+// its account as `initial`.
 //
 // The sign-in runs in main's pseudo-terminal of its own (`projects.connect.signIn`), not in a
 // Terminal Node: a Project being connected has no Canvas yet.
@@ -31,6 +33,11 @@ export interface GithubAccountProps {
   /** The name of a Linked machine, for "sign in on <name>". */
   machineName?: string
   disabled: boolean
+  /**
+   * The account picked when the step opens: "Edit profile" (worfy-polish ticket 78) passes the Profile's,
+   * so a load keeps it while the accounts list it. Left out: the step's default, as on "Add project".
+   */
+  initial?: string | null
   /** The account and the finish for the draft: on every load and every choice. */
   onChoose: (choice: GithubChoice) => void
   /** True while the accounts are read again, false when they came: "Connect" waits for them. The first read is busy from the start. */
@@ -69,13 +76,13 @@ function choiceOf(step: GithubAccountsStep, picked: string | null | undefined): 
   return githubChoice(step, step.status === 'accounts' ? step.selected : null)
 }
 
-export function GithubAccount({ root, machine, machineName, disabled, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
+export function GithubAccount({ root, machine, machineName, disabled, initial, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
   /** A Linked machine's folder: its gh is not signed in from this screen. */
   const remote = typeof machine === 'string'
   /** The read the answer belongs to, and the answer; a read whose answer has not come is loading. */
   const [answer, setAnswer] = useState<{ read: number; load: Load } | null>(null)
   /** What the person picked: undefined until they pick; null is "No account". */
-  const [picked, setPicked] = useState<string | null | undefined>(undefined)
+  const [picked, setPicked] = useState<string | null | undefined>(initial)
   const [signIn, setSignIn] = useState<string | null>(null)
   const [reads, setReads] = useState(0)
 

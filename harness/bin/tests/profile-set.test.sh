@@ -626,8 +626,12 @@ agents_of() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.arg
 ROLES='{"implementer":{"model":"sonnet","effort":"medium"},"reviewer":{"model":"sonnet","effort":"medium"},"scout":{"model":"sonnet","effort":"medium"},"verifier":{"model":"sonnet","effort":"medium"}}'
 PRESET="{\"workflow.agents\":\"eco\",\"agents\":$ROLES}"
 
-run "$SET" -C "$T/r/demo" --field workflow.pipeline --read >/dev/null 2>&1
-check "--field: a field profile-set does not write -> exit 2" [ $? -eq 2 ]
+for fixed in mode name schema workflow.folder workflow.pipeline workflow; do
+    run "$SET" -C "$T/r/demo" --field "$fixed" --expect null --set '{}' >/dev/null 2>&1
+    check "--field $fixed: a field profile-set does not write -> exit 2" [ $? -eq 2 ]
+done
+run "$SET" -C "$T/r/demo" --field mode --field workflow.folder --read >"$T/out" 2>&1
+check "--field mode --read: read, not refused" [ "$(json_get fields <"$T/out")" = '{"mode":"full","workflow.folder":null}' ]
 out="$(run "$SET" -C "$T/r/demo" --field workflow.agents --field agents --read)"
 rc=$?
 check "--field --read without the fields: exit 0" [ "$rc" -eq 0 ]
@@ -651,9 +655,9 @@ for bad_value in \
     '{"workflow.agents":"eco","agents":{"implementer":{"effort":"max"}}}|agents.implementer.effort' \
     '{"workflow.agents":"eco","agents":{"orchestrator":{"model":"sonnet"}}}|agents.orchestrator' \
     '{"workflow.agents":"eco","agents":{"scout":{"model":"sonnet","temperature":1}}}|agents.scout.temperature' \
-    '{"workflow.agents":"eco","agents":{"scout":{"toString":"sonnet"}}}|agents.scout.toString: not a field' \
-    '{"workflow.agents":"eco","agents":{"scout":{"__proto__":"sonnet"}}}|agents.scout.__proto__: not a field' \
-    '{"workflow.agents":"eco","agents":{"__proto__":{"model":"sonnet"}}}|agents.__proto__: not a role' \
+    '{"workflow.agents":"eco","agents":{"scout":{"toString":"sonnet"}}}|agents.scout.toString: is not a field' \
+    '{"workflow.agents":"eco","agents":{"scout":{"__proto__":"sonnet"}}}|agents.scout.__proto__: is not a field' \
+    '{"workflow.agents":"eco","agents":{"__proto__":{"model":"sonnet"}}}|agents.__proto__: is not a field' \
     '{"workflow.agents":"eco"}|agents' \
     '{"workflow.agents":"eco","agents":null,"review":{}}|review' \
     '"eco"|not a JSON object'; do
@@ -698,6 +702,90 @@ check "--field --reset: exit 0" [ $? -eq 0 ]
 check "--field --reset: both fields are gone" [ "$(agents_of "$PJ")" = '{"w":"absent","a":"absent"}' ]
 check "--field --reset: the Pipeline stays" [ "$(field "$PJ")" = "$OTHER" ]
 check "--field: no lock folder left" [ ! -e "$LOCKDIR" ]
+
+# --- --field: any field of the profile, by the draft schema's rules (worfy-polish ticket 78) -----------------
+EDIT=(--field commands.verify --field tickets.path --field workflow.finish --field docs.adr_dir)
+json_path() { node -e 'const v=JSON.parse(require("fs").readFileSync(0,"utf8")); const at=process.argv[1].split("/").reduce((o,k)=>o==null?undefined:o[k],v); process.stdout.write(at===undefined?"absent":JSON.stringify(at))' "$1"; }
+at_of() { json_path "$2" <"$1"; }
+out="$(run "$SET" -C "$T/r/demo" "${EDIT[@]}" --read)"
+check "fields --read: absent fields read null" [ "$(json_get fields <<<"$out")" = '{"commands.verify":null,"tickets.path":null,"workflow.finish":null,"docs.adr_dir":null}' ]
+efp="$(json_get fingerprint <<<"$out")"
+cp "$PJ" "$T/pj-before-edit"
+before_commits="$(commits)"
+for bad_value in \
+    '{"commands.verify":"","tickets.path":null,"workflow.finish":null,"docs.adr_dir":null}|commands.verify|must not be empty' \
+    '{"commands.verify":null,"tickets.path":".scratch/<epic>/issues/*.md","workflow.finish":null,"docs.adr_dir":null}|tickets.path|must match the pattern' \
+    '{"commands.verify":null,"tickets.path":null,"workflow.finish":"merge-train","docs.adr_dir":null}|workflow.finish|must be one of' \
+    '{"commands.verify":7,"tickets.path":null,"workflow.finish":null,"docs.adr_dir":null}|commands.verify|must be string or null'; do
+    value="${bad_value%%|*}"
+    rest="${bad_value#*|}"
+    where="${rest%%|*}"
+    why="${rest#*|}"
+    for how in --set --check; do
+        if [ "$how" = --set ]; then run "$SET" -C "$T/r/demo" "${EDIT[@]}" --expect "$efp" --set "$value" >"$T/out" 2>"$T/err"; else run "$SET" -C "$T/r/demo" "${EDIT[@]}" --check "$value" >"$T/out" 2>"$T/err"; fi
+        rc=$?
+        check "fields $how refuses $where ($why): exit 1" [ "$rc" -eq 1 ]
+        check "fields $how refuses $where: stderr names it" grep -qF -- "$where: $why" "$T/err"
+        check "fields $how refuses $where: stdout names the field" [ "$(at_of "$T/out" errors/0/path)" = "\"$where\"" ]
+    done
+done
+check "fields refused: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-edit"
+check "fields refused: no commit" [ "$(commits)" -eq "$before_commits" ]
+
+GOODV='{"commands.verify":"make check","tickets.path":".scratch/<epic>/issues/NN-*.md","workflow.finish":"local-green","docs.adr_dir":"docs/adr"}'
+out="$(run "$SET" -C "$T/r/demo" "${EDIT[@]}" --check "$GOODV" 2>"$T/err")"
+check "fields --check of a valid value: exit 0, ok" [ "$(json_get ok <<<"$out")" = true ]
+check "fields --check: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-edit"
+run "$SET" -C "$T/r/demo" "${EDIT[@]}" --expect "sha256:$(printf '0%.0s' $(seq 64))" --set "$GOODV" >"$T/out" 2>"$T/err"
+check "fields with a stranger's fingerprint: exit 5" [ $? -eq 5 ]
+check "fields with a stranger's fingerprint: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-edit"
+out="$(run "$SET" -C "$T/r/demo" "${EDIT[@]}" --expect "$efp" --set "$GOODV" 2>"$T/err")"
+rc=$?
+check "fields --set of a valid value: exit 0" [ "$rc" -eq 0 ]
+[ "$rc" -eq 0 ] || echo "     stderr: $(head -c 400 "$T/err")"
+check "fields --set: bin/profile prints the new commands.verify" [ "$(run "$PROFILE" -C "$T/r/demo" --field commands.verify)" = "make check" ]
+check "fields --set: bin/profile prints the new tickets.path" [ "$(run "$PROFILE" -C "$T/r/demo" --field tickets.path)" = ".scratch/<epic>/issues/NN-*.md" ]
+check "fields --set: the fields beside them stay" [ "$(at_of "$PJ" commands/test)" = '"make test"' ]
+check "fields --set: one commit more" [ "$(commits)" -eq $((before_commits + 1)) ]
+check "fields --set: the commit names the fields" git -C "$HH" log -1 --format=%s | grep -qF "commands.verify, tickets.path, workflow.finish, docs.adr_dir"
+efp="$(json_get fingerprint <<<"$out")"
+
+# null: a required field present is written null; an optional one present is removed; an absent one stays absent.
+NULLS='{"commands.verify":null,"tickets.path":".scratch/<epic>/issues/NN-*.md","workflow.finish":"local-green","docs.adr_dir":null}'
+out="$(run "$SET" -C "$T/r/demo" "${EDIT[@]}" --expect "$efp" --set "$NULLS" 2>"$T/err")"
+check "fields null: exit 0" [ $? -eq 0 ]
+check "fields null: a required field is written null" [ "$(at_of "$PJ" commands/verify)" = null ]
+check "fields null: an optional field is removed" [ "$(at_of "$PJ" docs/adr_dir)" = absent ]
+efp="$(json_get fingerprint <<<"$out")"
+cp "$PJ" "$T/pj-before-null"
+run "$SET" -C "$T/r/demo" "${EDIT[@]}" --expect "$efp" --set '{"commands.verify":null,"tickets.path":".scratch/<epic>/issues/NN-*.md","workflow.finish":null,"docs.adr_dir":null}' >"$T/out" 2>"$T/err"
+check "fields null on a required field that takes no null: exit 1" [ $? -eq 1 ]
+check "fields null on a required field that takes no null: the reason" grep -qF "workflow.finish: must be one of" "$T/err"
+check "fields null refused: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-null"
+fp_title="$(run "$SET" -C "$T/r/demo" --field title --read | json_get fingerprint)"
+out="$(run "$SET" -C "$T/r/demo" --field title --expect "$fp_title" --set '{"title":null}' 2>"$T/err")"
+check "fields null on an absent field: nothing written" [ "$(json_get written <<<"$out")" = false ]
+
+# The names: one inside another, a field the schema closes, a field of no schema rules.
+run "$SET" -C "$T/r/demo" --field docs --field docs.adr_dir --check '{}' >/dev/null 2>"$T/err"
+check "--field docs with docs.adr_dir: exit 2" [ $? -eq 2 ]
+run "$SET" -C "$T/r/demo" --field agents.orchestrator --check '{"agents.orchestrator":null}' >/dev/null 2>"$T/err"
+check "--field agents.orchestrator: a field the schema closes -> exit 2" [ $? -eq 2 ]
+run "$SET" -C "$T/r/demo" --field __proto__.x --read >/dev/null 2>"$T/err"
+check "--field __proto__.x: exit 2" [ $? -eq 2 ]
+fp_ctx="$(run "$SET" -C "$T/r/demo" --field docs.context.path --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field docs.context.path --expect "$fp_ctx" --set '{"docs.context.path":"CONTEXT.md"}' >/dev/null 2>"$T/err"
+check "--field docs.context.path: the objects on the way are made" [ "$(at_of "$PJ" docs/context)" = '{"path":"CONTEXT.md"}' ]
+
+# An object on the way of another type (the old string form of language) is not replaced.
+node -e 'const f=process.argv[1]; const p=JSON.parse(require("fs").readFileSync(f,"utf8")); p.language="ru"; require("fs").writeFileSync(f, JSON.stringify(p,null,2)+"\n")' "$PJ"
+cp "$PJ" "$T/pj-before-lang"
+fp_lang="$(run "$SET" -C "$T/r/demo" --field language.team --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field language.team --expect "$fp_lang" --set '{"language.team":"en"}' >"$T/out" 2>"$T/err"
+check "language as a string: exit 1" [ $? -eq 1 ]
+check "language as a string: the reason names it" grep -qF "language: is a string in the profile" "$T/err"
+check "language as a string: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-lang"
+check "fields: no lock folder left" [ ! -e "$LOCKDIR" ]
 
 # --- a Harness home inside another git repository gets no commit -----------------------------------------
 OUTER="$T/outer"

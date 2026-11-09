@@ -229,6 +229,12 @@ the way the project really runs them.
 | `dev_stack` | `{check, web_port}` \| null | how to make sure the local stack is up | continuous-audit `--live` |
 | `audit_lenses` | `[{id, title, where[], finding}]` | continuous-audit lenses: where to look and what counts as a finding | continuous-audit |
 
+After the connection a field is changed through `bin/profile-set --field <name>` (worfy's "Edit profile"
+form calls it): any field except `name`, `mode`, `schema`, `workflow.folder` and `workflow.pipeline`
+(written by `profile-set` without `--field`), checked by the rules of `profiles/draft.schema.json` before
+it is written, with the same `--expect <fingerprint>` and a commit in the git repository of the Harness
+home. The header of `bin/profile-set` holds the details.
+
 Secrets are not written into the profile: no environment variable values, no passwords, no
 addresses of private databases. The profile names the variable (`$API_URL`), not its value.
 

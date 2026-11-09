@@ -13,12 +13,14 @@ import {
 import type { TeamReviewerState } from '../../shared/ipc/projects'
 import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../shared/vendors/vendor'
 import { invoke, invokeOn, windowMachine } from '../ipc'
+import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
 import { PrimaryButton } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
 export interface ProjectSettingsProps {
-  project: { id: string; name: string }
+  /** `path`, the repository root, opens "Edit profile"; without it the button is not shown. */
+  project: { id: string; name: string; path?: string }
   /**
    * The Machine of the Project (worfy-link ticket 09): null — this Machine, an id — a Linked
    * machine. Left out: the Machine the window shows.
@@ -116,6 +118,10 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * folder where its writes go without a question, one row each with "Remove". «Always allow in <folder>»
  * on a Product Session's question adds them; a removal is sent with Save, and only then, so a Save of
  * the other fields never touches the list.
+ *
+ * "Edit profile…" (worfy-polish ticket 78) opens the fields of the Project's Profile over this window
+ * (EditProfile.tsx): they are the Harness's, written by its `bin/profile-set` on their own Save, not with
+ * the settings of this window.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -133,6 +139,15 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   const [shells, setShells] = useState<ShellOptions>([])
   const [failure, setFailure] = useState<string>()
   const [saving, setSaving] = useState(false)
+  // "Edit profile" is open over the window; the line its Save left.
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [profileSaved, setProfileSaved] = useState<string>()
+  // Focus goes back to "Edit profile…" when its dialog closes, so the keyboard stays where it was.
+  const editProfileButton = useRef<HTMLButtonElement>(null)
+  const closeProfile = (): void => {
+    setEditingProfile(false)
+    editProfileButton.current?.focus()
+  }
   // A Project of a Linked machine that shares it read-only (worfy-link ticket 25): the settings show, Save is off.
   const readOnly = useReadOnly(machine === undefined ? windowMachine() : machine)
   const titleId = useId()
@@ -326,6 +341,23 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </section>
         ) : null}
 
+        {project.path === undefined ? null : (
+          <section style={styles.field} aria-label="Profile" data-testid="project-settings-profile">
+            <span style={styles.label}>Profile</span>
+            <span style={styles.hint}>The Harness&apos;s profile of the Project: commands, ticket paths, review lenses, languages, worktrees.</span>
+            <div style={styles.actions}>
+              <button ref={editProfileButton} type="button" style={styles.secondary} onClick={() => setEditingProfile(true)}>
+                Edit profile…
+              </button>
+            </div>
+            {profileSaved === undefined ? null : (
+              <span role="status" style={styles.hint} data-testid="project-settings-profile-saved">
+                {profileSaved}
+              </span>
+            )}
+          </section>
+        )}
+
         <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={() => {
             if (edited) return false
             onClose()
@@ -368,6 +400,18 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </PrimaryButton>
         </div>
       </div>
+      {editingProfile && project.path !== undefined ? (
+        <EditProfile
+          project={{ name: project.name, path: project.path }}
+          machine={machine}
+          readOnly={readOnly}
+          onClose={closeProfile}
+          onSaved={(warning) => {
+            closeProfile()
+            setProfileSaved(warning === null ? 'Profile saved.' : `Profile saved; ${warning}.`)
+          }}
+        />
+      ) : null}
     </div>,
     document.body,
   )
