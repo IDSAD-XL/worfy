@@ -89,7 +89,7 @@ afterEach(async () => {
 })
 
 /** A narrator over the fake agent, playing `scripts` one per request (the last one again once they run out). */
-function harness(scripts: string[], options: { enabled?: () => boolean } = {}) {
+function harness(scripts: string[], options: { enabled?: () => boolean; deaf?: boolean } = {}) {
   const calls: FakeCall[] = []
   const emitted: string[][] = []
   const logged: string[] = []
@@ -102,8 +102,10 @@ function harness(scripts: string[], options: { enabled?: () => boolean } = {}) {
     releases,
   })
   const clock = new ManualClock()
+  const ask = narratorAskOver(fake, join(dir, 'narrator'))
   const narrator = new Narrator({
-    ask: narratorAskOver(fake, join(dir, 'narrator')),
+    // `deaf`: a request that does not hear the stop, as Claude Code may answer just before it goes.
+    ask: options.deaf === true ? (digest) => ask(digest, new AbortController().signal) : ask,
     enabled: options.enabled ?? (() => true),
     emit: (lines) => emitted.push([...lines]),
     log: (message) => logged.push(message),
@@ -228,6 +230,22 @@ describe('the narrator’s cadence', () => {
     expect(h.logged).toEqual([])
   })
 
+  it('drops an answer that comes after the turn ended, even from a request that did not stop', async () => {
+    const h = harness(['held', 'line-b'], { deaf: true })
+    h.send(prompt(), busy, read('t1'))
+    h.clock.advance(NARRATOR_FIRST_MS)
+    await vi.waitFor(() => expect(h.digests()).toHaveLength(1))
+    h.send(turnResult())
+    h.releases.release('answer')
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(h.emitted).toEqual([])
+    // The next turn still gets its own lines.
+    h.send(prompt('And the price?'), busy, read('t2'))
+    h.clock.advance(NARRATOR_FIRST_MS)
+    await vi.waitFor(() => expect(h.emitted).toEqual([['Compares three sources on competitor prices to size the niche']]))
+  })
+
   it('asks nothing while the live summary is off, and asks again once it is on', async () => {
     let on = false
     const h = harness(['line-a'], { enabled: () => on })
@@ -296,6 +314,12 @@ describe('narratorDigest', () => {
     expect(digest).not.toContain('Tool0:')
     expect(digest).toContain('- Reads the roadmap\n- Compares prices')
     for (const line of digest.split('\n')) expect(line.length).toBeLessThanOrEqual(820)
+  })
+
+  it('is cut to the cap even when what it may not leave out is longer', () => {
+    const lines = Array.from({ length: 80 }, (_, index) => `Line ${index} ${'l'.repeat(200)}`)
+    const digest = narratorDigest({ prompt: 'Hi', elapsedMs: 0, calls: [], snippets: [], lines })
+    expect(digest).toHaveLength(NARRATOR_DIGEST_MAX)
   })
 
   it('says nothing of a part the turn has not got yet', () => {
