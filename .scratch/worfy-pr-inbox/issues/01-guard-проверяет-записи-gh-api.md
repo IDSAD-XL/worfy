@@ -43,14 +43,22 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard на `gh 
 
 - [ ] Test: `gh api --method POST repos/o/r/pulls/7/comments/11/replies -f body='…<epic>/03…'` в Silent project —
       отказ; тот же чистый текст — проходит.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Test: неявный `POST` (`gh api repos/o/r/issues/7/comments -f body=…` без `--method`) проверяется так же.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Test: `gh api --method POST repos/o/r/pulls/7/reviews --input payload.json` — следы в `comments[].body` дают
       отказ; нечитаемый `--input` — отказ с причиной.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Test: `gh api graphql -f query='mutation { addPullRequestReviewThreadReply(…body: "…ADR-0042…") … }'` — отказ.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Test: `gh api repos/o/r/pulls/7/comments` (GET) и `gh api graphql -f query='query { … }'` — `silent-check` не
       вызывается.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Test: Full project с attribution on — `gh api` записи проходят, как и `gh pr comment` сегодня.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] `bash harness/hooks/tests/guard-silent.test.sh` — exit 0 на Mac.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
 - [ ] Тот же test на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.
@@ -68,3 +76,27 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard на `gh 
 
 - `harness/hooks/guard.mjs`
 - `harness/hooks/tests/guard-silent.test.sh`
+
+## Итог
+
+- Сначала падающий: на `main` (45deec736) 14 новых проверок `guard-silent.test.sh` красные — `gh api … /replies
+  -f body='checkout-flow/03'` в Silent project проходил, `silent-check` не вызывался вовсе.
+- `ghCommand` отдаёт `gh api` новой функции `ghApi` (`harness/hooks/guard.mjs`). Запись — явный `-X`/`--method`
+  `POST`/`PATCH`/`PUT` или неявный `POST` gh (есть `-f`/`-F`/`--field`/`--raw-field`/`--input`, метода нет); формы флагов
+  `--field=…`, `-fbody=…`, `-XPOST` тоже. Путь — без хоста, ведущих `/`, `api/v3/` и query; `<o>/<r>` и номера — любое
+  слово, переменная shell тоже.
+- Пути записи: из списка тикета и ещё два, решено без владельца: `repos/<o>/<r>/issues` (новый issue — та же запись
+  в issue) и `…/pulls/<n>/merge` (поля `commit_title`, `commit_message` — то же, что `gh pr merge --subject/--body`,
+  которые раздел 3 уже проверяет); `…/pulls/<n>/reviews/<id>` (`PUT` — правка текста review) тоже.
+- Текст REST-записи — поля `body`, `title`, `commit_title`, `commit_message` (вложенное поле — по последнему ключу,
+  `comments[][body]`), `-F key=@file`, а у `--input` JSON — те же поля на любой глубине (`body` и `comments[].body`
+  review). Решено без владельца: файл `--input` не проверяется «целиком», если это JSON — `comments[].path` не
+  публикуемый текст, а Epic часто назван по области кода (`silent-check`, комментарий про diff), и путь файла дал бы
+  ложный отказ. Не JSON — весь текст. Heredoc (`--input -`, `@-`, `"$(cat <<EOF …)"`) — так же.
+- GraphQL: проверяется, только когда в тексте запроса или в полях есть `mutation`; тогда все значения `-f`/`-F` и
+  весь файл `--input`. `query { … }` — без вызова `silent-check`.
+- Нечитаемый файл (`--input`, `-F @file`) уходит в `silent-check` как `--file <путь>`: Full project с attribution on
+  отвечает 0 до чтения файлов — команда проходит; проект, который проверяет, падает с `cannot read`, и guard
+  отказывает с причиной «a file it sends could not be read (…)». Сообщения отказа называют `gh api <path>`.
+- Не проверяются (как и раньше): `gh api … --input -` без heredoc (текст приходит по pipe, hook его не видит — так же
+  ведёт себя `gh pr create --body-file -` по pipe), `-f body="$(cat file)"`, записи вне PR и issue (labels, refs).
