@@ -112,16 +112,17 @@ describe('the release reader', () => {
     const lib = repoAt(join(dir, 'lib'), join(dir, 'lib-origin.git'))
     const reader = new ReleaseReader({ env, intervalMs: 0 })
     const places: ReleasePlaces = { library: lib, consumer: null }
-    // A local tag that is not in the remote is not a release.
+    // A local tag that is not in the remote is not a release; nor is a remote tag whose path only ends like the line's,
+    // which the ls-remote pattern lists too.
     git(lib, 'tag', TAG)
+    git(lib, 'tag', `x/refs/tags/${TAG}`)
+    git(lib, 'push', '-q', 'origin', `x/refs/tags/${TAG}`)
     const before = treeState(lib)
     expect(await reader.check(tagLine, places)).toEqual({ state: 'waiting', reason: null })
     expect(treeState(lib)).toEqual(before)
 
     git(lib, 'push', '-q', 'origin', TAG)
     expect(await reader.check(tagLine, places)).toEqual({ state: 'released', reason: null })
-    // A tag whose name only ends like the line's is not it.
-    expect(await reader.check({ ...tagLine, ref: 'v1.4.0' }, places)).toEqual({ state: 'waiting', reason: null })
   })
 
   it('tag: an annotated tag counts; a remote that does not answer is not checked, never released', async () => {
