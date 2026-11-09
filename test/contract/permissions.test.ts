@@ -426,6 +426,45 @@ describe('after Claude Code died and the Session was started again by the next s
   })
 })
 
+describe('agent.requests: the open requests for a window that did not see them go out (worfy-product-session ticket 30)', () => {
+  it('answers the open permission request as its event went out, and nothing once it is answered', async () => {
+    const h = await harness('permission')
+    const id = await h.start()
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [] })
+    await h.ok('agent.send', { sessionId: id, text: 'build it' })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
+    const [sent] = h.ofType('permission_request')
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [sent] })
+    await h.ok('agent.permission', { sessionId: id, requestId: sent?.requestId, decision: 'allow' })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(2))
+    const second = h.ofType('permission_request')[1]
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [second] })
+    await h.ok('agent.permission', { sessionId: id, requestId: second?.requestId, decision: 'deny' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [] })
+  })
+
+  // The second question of the script carries a Subagent's agentID, as Claude Code gives it; an attended
+  // Session's canUseTool reads no agentID (src/main/vendors/claude/session.ts, claudeCanUseTool), so this is the
+  // same gate as the Session's own question.
+  it('answers an open question with answer options; Interrupt leaves none', async () => {
+    const h = await harness('product-question')
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'who comes first?' })
+    await vi.waitFor(() => expect(h.ofType('question_request')).toHaveLength(1))
+    await h.ok('agent.answerQuestion', { sessionId: id, requestId: h.ofType('question_request')[0]?.requestId, answers: [{ selected: ['Small teams'], other: null }] })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    await h.ok('agent.send', { sessionId: id, text: 'ask the critic' })
+    await vi.waitFor(() => expect(h.ofType('question_request')).toHaveLength(2))
+    const asked = h.ofType('question_request')[1]
+    expect(h.registry.get(id).state).toBe('needs_permission')
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [asked] })
+    await h.ok('agent.interrupt', { sessionId: id })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [] })
+  })
+})
+
 describe('agent.permission at the IPC boundary', () => {
   it('refuses a decision it does not know and a request id of the wrong type', async () => {
     const h = await harness('permission')

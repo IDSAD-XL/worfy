@@ -179,6 +179,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.controls',
     'agent.list',
     'agent.models',
+    // The open permission and question requests, for a window that did not see them go out (worfy-product-session ticket 30).
+    'agent.requests',
     // The Orchestrator modes of a Project (worfy-retry ticket 13): a read-only screen sees them in the Modes menu.
     'autoApproval.read',
     'autoContinue.read',

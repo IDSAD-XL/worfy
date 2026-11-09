@@ -1,6 +1,6 @@
 import { openSession } from '../../session/navigation'
 import { useSessionNodeViewOf } from '../../session/node-sessions'
-import { useOpenRequests } from '../../session/open-requests'
+import { useWaitingRequests } from '../../session/open-requests'
 import { StatusChip } from '../../theme/primitives'
 import type { SlotProps } from './index'
 import './needs-permission.css'
@@ -14,7 +14,8 @@ export const order = 5
 export default function NeedsPermission({ subject }: SlotProps) {
   const sessionId = subject.kind === 'session' ? subject.sessionId : ''
   const view = useSessionNodeViewOf(subject.kind === 'session' ? subject.projectId : undefined, sessionId)
-  const open = useOpenRequests(view?.sessionId ?? null)
+  // A window that reloaded after the request went out asks main for it (worfy-product-session ticket 30).
+  const open = useWaitingRequests(view?.sessionId ?? null, view?.state ?? null)
   if (subject.kind !== 'session' || view?.state !== 'needs_permission') return null
   if (open.permissions === 0 && open.questions.length > 0) return null
   return (

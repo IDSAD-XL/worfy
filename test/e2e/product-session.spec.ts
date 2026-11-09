@@ -631,3 +631,168 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     await launched.close()
   }
 })
+
+// A question with answer options and a permission request in a Product Session (worfy-product-session
+// ticket 30): the owner saw the Session stand at «needs permission» with no card to answer. The script
+// test/fixtures/agent-scripts/product-question.jsonl asks the Session's own question (AskUserQuestion, in
+// bypassPermissions as the real Claude Code does), then a Subagent's question, a Subagent's permission
+// request and one of the Session's own; WORFY_AGENT_LOG records what canUseTool answered. The window is
+// 1160 wide with the agents list open: the narrowest chat column.
+const OWN_QUESTION = 'Which group should the first Epic serve?'
+const AGENT_QUESTION = 'Which source should the critic trust for usage numbers?'
+
+type CanUseToolCall = { kind: string; toolName?: string; result?: { behavior: string; updatedInput?: { answers?: Record<string, string> } } }
+
+test('a Product Session’s question and permission cards stand in the narrow chat and answer the Session and its Subagents', async () => {
+  const log = join(scratch, 'agent.log')
+  const answered = (): CanUseToolCall['result'][] =>
+    readFileSync(log, 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as CanUseToolCall)
+      .filter((call) => call.kind === 'permission')
+      .map((call) => call.result)
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-question', WORFY_AGENT_LOG: log } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 860))
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1160)
+    await view.getByTestId('product-agents-toggle').click()
+    await expect(view.getByTestId('product-agents-panel')).toBeVisible()
+    const chat = view.locator('section.w-session__main')
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    const state = view.getByTestId('session-state')
+    /** Whether `box` lies inside the chat column, left to right, and above the input field. */
+    const inChat = async (element: Locator): Promise<void> => {
+      await element.scrollIntoViewIfNeeded()
+      const [box, column, input] = [(await element.boundingBox())!, (await chat.boundingBox())!, (await view.getByTestId('message-input-box').boundingBox())!]
+      expect(box.x).toBeGreaterThanOrEqual(column.x - 0.5)
+      expect(box.x + box.width).toBeLessThanOrEqual(column.x + column.width + 0.5)
+      expect(box.y + box.height).toBeLessThanOrEqual(input.y + 0.5)
+    }
+
+    // ── The Session's own question: the card in the chat, its options and Submit inside the column.
+    await field.fill('Who comes first?')
+    await field.press('Enter')
+    const questions = view.getByTestId('question-card')
+    await expect(questions).toHaveCount(1)
+    await expect(state).toHaveText('needs permission')
+    const own = questions.nth(0)
+    await expect(own.getByTestId('question-text')).toHaveText(OWN_QUESTION)
+    await expect(own.getByTestId('question-option')).toHaveCount(3)
+    await own.getByTestId('question-option').nth(0).click()
+    await expect(own.getByTestId('question-option').nth(0)).toHaveAttribute('aria-checked', 'true')
+    for (const part of [own.getByTestId('question-option').nth(2), own.getByTestId('question-other'), own.getByTestId('question-submit'), own.getByTestId('question-decline')]) await inChat(part)
+    await view.screenshot({ path: test.info().outputPath('30-question-card-dark.png') })
+    await own.getByTestId('question-submit').click()
+    await expect(own).toHaveAttribute('data-resolution', 'answered')
+    await expect(view.getByText('Small teams it is').first()).toBeVisible()
+    await expect(state).toHaveText('idle')
+
+    // ── A Subagent's question, answered with «Other».
+    await field.fill('Ask the critic')
+    await field.press('Enter')
+    await expect(questions).toHaveCount(2)
+    const agent = questions.nth(1)
+    await expect(agent.getByTestId('question-text')).toHaveText(AGENT_QUESTION)
+    await expect(state).toHaveText('needs permission')
+    await agent.getByTestId('question-other').fill('Both, side by side')
+    await inChat(agent.getByTestId('question-submit'))
+    await agent.getByTestId('question-submit').click()
+    await expect(agent).toHaveAttribute('data-resolution', 'answered')
+    await expect(view.getByText('The critic uses the source you named').first()).toBeVisible()
+
+    // ── A Subagent's permission request, allowed: the tool runs.
+    const permissions = view.getByTestId('permission-card')
+    await field.fill('Read the PR')
+    await field.press('Enter')
+    await expect(permissions).toHaveCount(1)
+    await expect(state).toHaveText('needs permission')
+    const allow = permissions.nth(0)
+    await expect(allow.getByTestId('permission-input')).toHaveText('gh pr view 12 --json title')
+    await inChat(allow.getByTestId('permission-allow'))
+    await inChat(allow.getByTestId('permission-deny'))
+    await view.screenshot({ path: test.info().outputPath('30-permission-card-dark.png') })
+    await allow.getByTestId('permission-allow').click()
+    await expect(allow).toHaveAttribute('data-resolution', 'allow')
+    await expect(view.getByText('The critic read the PR title').first()).toBeVisible()
+
+    // ── The Session's own permission request, denied: the tool is refused.
+    await field.fill('List the issues')
+    await field.press('Enter')
+    await expect(permissions).toHaveCount(2)
+    const deny = permissions.nth(1)
+    await inChat(deny.getByTestId('permission-deny'))
+    await deny.getByTestId('permission-deny').click()
+    await expect(deny).toHaveAttribute('data-resolution', 'deny')
+    await expect(view.getByText('Left the issues unread').first()).toBeVisible()
+    await expect(state).toHaveText('idle')
+
+    expect(answered()).toEqual([
+      expect.objectContaining({ behavior: 'allow', updatedInput: expect.objectContaining({ answers: { [OWN_QUESTION]: 'Small teams' } }) }),
+      expect.objectContaining({ behavior: 'allow', updatedInput: expect.objectContaining({ answers: { [AGENT_QUESTION]: 'Both, side by side' } }) }),
+      expect.objectContaining({ behavior: 'allow' }),
+      expect.objectContaining({ behavior: 'deny' }),
+    ])
+  } finally {
+    await launched.close()
+  }
+})
+
+// The owner's case (ticket 30): the Session stands at «needs permission» and the chat shows no card. A window
+// that did not see the request go out — reloaded (View ▸ Reload, Ctrl+R) or opened after it — had no event
+// to draw the card from; the Product chat does not even show the AskUserQuestion tool call, so nothing at
+// all said what the Session waits for. The view now asks main for the open requests and draws their cards.
+test('a Product Session’s open question still has its card after the window reloads, and the answer reaches the Session', async () => {
+  const log = join(scratch, 'agent.log')
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-question', WORFY_AGENT_LOG: log } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1160, height: 860 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('Who comes first?')
+    await field.press('Enter')
+    await expect(view.getByTestId('question-card')).toHaveCount(1)
+    await expect(view.getByTestId('session-state')).toHaveText('needs permission')
+
+    await window.reload()
+    await canvasReady(launched)
+    const node = window.locator('[data-testid="session-node"][data-live="true"]')
+    await expect(node).toHaveCount(1)
+    // The Node's badge tells the question from a permission request again, as before the reload.
+    await expect(node.getByTestId('badge-waits-for-answer')).toBeVisible()
+    await expect(node.getByTestId('badge-needs-permission')).toHaveCount(0)
+    await node.getByTestId('session-node-kind').dblclick()
+    await expect(view.getByTestId('product-session-panel')).toBeVisible()
+    await expect(view.getByTestId('session-state')).toHaveText('needs permission')
+    const card = view.getByTestId('question-card')
+    await expect(card).toHaveCount(1)
+    await expect(card.getByTestId('question-text')).toHaveText(OWN_QUESTION)
+    await card.getByTestId('question-option').nth(1).click()
+    await card.getByTestId('question-submit').click()
+    await expect(card).toHaveAttribute('data-resolution', 'answered')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    const calls = readFileSync(log, 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('"kind":"permission"'))
+      .map((line) => JSON.parse(line) as CanUseToolCall)
+    expect(calls.map((call) => call.result?.updatedInput?.answers)).toEqual([{ [OWN_QUESTION]: 'Solo builders' }])
+  } finally {
+    await launched.close()
+  }
+})

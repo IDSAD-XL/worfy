@@ -18,6 +18,7 @@ import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
+import { useWaitingRequests } from './open-requests'
 import { AcceptedAdvice, ProductSessionPanel, ProductTopicName } from './ProductSessionPanel'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
@@ -180,6 +181,9 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const facts = useMemo(() => sessionFacts(live), [live])
   const state = view?.state ?? 'starting'
   const chip = STATE_CHIPS[state]
+  // A window that opened or reloaded after a request went out asks main for the open ones, so their cards
+  // stand in the transcript, a Product Session's chat too (worfy-product-session ticket 30).
+  const { unseen } = useWaitingRequests(sessionId, view === undefined ? null : state)
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
   const { settings, modelPick } = useSessionControls(sessionId)
@@ -286,6 +290,12 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         logRef={logRef}
         working={state === 'busy'}
       />
+      {/* Main has no open request either: no card to draw, so the chat says what the Session waits for. */}
+      {unseen ? (
+        <p className="w-session__unseen" role="alert" data-testid="session-request-unseen">
+          The Session waits for an answer this window cannot show. Interrupt refuses the request.
+        </p>
+      ) : null}
       <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
     </section>
   )

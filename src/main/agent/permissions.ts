@@ -29,7 +29,7 @@
 // A parked request answers one tool call only: the `allow_always` list neither answers it nor is
 // answered by it, and releaseParked (a stop of the run) cancels the parked requests alone.
 import { randomUUID } from 'node:crypto'
-import type { AgentEvent, PermissionOption } from '../../shared/agent/events'
+import type { AgentEvent, OpenRequestEvent, PermissionOption } from '../../shared/agent/events'
 import { formatAnswers, type Question, type QuestionPick } from '../../shared/agent/questions'
 import type { PermissionAsk, PermissionAsker, QuestionAsk, QuestionReply } from '../vendors/session'
 
@@ -48,8 +48,11 @@ interface Pending {
   options: readonly PermissionOption[]
   /** The questions of a question request; null for a permission request. */
   questions: Question[] | null
+  /** The event that opened it, for a window that did not see it go out (openRequests). */
+  request: OpenRequestEvent
   settle(outcome: Outcome): void
 }
+
 
 const CANCELLED: Outcome = { kind: 'cancelled' }
 
@@ -79,6 +82,15 @@ export class PermissionGate implements PermissionAsker {
     return count
   }
 
+  /**
+   * The events of the requests still open, oldest first (worfy-product-session ticket 30): a window that
+   * opened or reloaded after a request went out has no event to draw its card from, while the Session
+   * stands at `needs_permission`; the view asks for these (`agent.requests`).
+   */
+  openRequests(): OpenRequestEvent[] {
+    return [...this.open.values()].map((pending) => pending.request)
+  }
+
   /** The subjects (Claude: tools) an `allow_always` answer covers in this Session. */
   alwaysAllowed(): string[] {
     return [...this.remembered.keys()]
@@ -91,6 +103,20 @@ export class PermissionGate implements PermissionAsker {
     const { signal } = request
     if (signal.aborted) return Promise.resolve(null)
     const requestId = randomUUID()
+    const opened: OpenRequestEvent = {
+      type: 'permission_request',
+      requestId,
+      subject: request.subject,
+      toolName: request.toolName,
+      toolUseId: request.toolUseId,
+      input: request.input,
+      title: request.title,
+      description: request.description,
+      blockedPath: request.blockedPath,
+      suggestions: request.suggestions,
+      options: request.options.map((option) => ({ ...option })),
+      ...(request.parked === undefined ? {} : { parked: { rule: request.parked.rule, targets: [...request.parked.targets] } }),
+    }
     return new Promise<string | null>((resolve) => {
       const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
@@ -98,6 +124,7 @@ export class PermissionGate implements PermissionAsker {
         parked,
         options: request.options,
         questions: null,
+        request: opened,
         settle: (outcome) => {
           signal.removeEventListener('abort', onAbort)
           const picked = outcome.kind === 'option' ? outcome.id : null
@@ -106,20 +133,7 @@ export class PermissionGate implements PermissionAsker {
         },
       })
       signal.addEventListener('abort', onAbort, { once: true })
-      this.emit({
-        type: 'permission_request',
-        requestId,
-        subject: request.subject,
-        toolName: request.toolName,
-        toolUseId: request.toolUseId,
-        input: request.input,
-        title: request.title,
-        description: request.description,
-        blockedPath: request.blockedPath,
-        suggestions: request.suggestions,
-        options: request.options.map((option) => ({ ...option })),
-        ...(request.parked === undefined ? {} : { parked: { rule: request.parked.rule, targets: [...request.parked.targets] } }),
-      })
+      this.emit(opened)
       this.changed(this.open.size)
     })
   }
@@ -128,6 +142,7 @@ export class PermissionGate implements PermissionAsker {
     const { signal, questions } = request
     if (signal.aborted) return Promise.resolve({ outcome: 'cancelled' })
     const requestId = randomUUID()
+    const opened: OpenRequestEvent = { type: 'question_request', requestId, toolUseId: request.toolUseId, questions }
     return new Promise<QuestionReply>((resolve) => {
       const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
@@ -135,6 +150,7 @@ export class PermissionGate implements PermissionAsker {
         parked: false,
         options: [],
         questions,
+        request: opened,
         settle: (outcome) => {
           signal.removeEventListener('abort', onAbort)
           const reply: QuestionReply =
@@ -144,7 +160,7 @@ export class PermissionGate implements PermissionAsker {
         },
       })
       signal.addEventListener('abort', onAbort, { once: true })
-      this.emit({ type: 'question_request', requestId, toolUseId: request.toolUseId, questions })
+      this.emit(opened)
       this.changed(this.open.size)
     })
   }

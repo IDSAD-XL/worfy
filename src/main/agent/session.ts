@@ -60,7 +60,7 @@ import { randomUUID } from 'node:crypto'
 import type { Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { sameContextUsage, type AgentEvent, type ContextUsage, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { sameContextUsage, type AgentEvent, type ContextUsage, type OpenRequestEvent, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import type { QuestionPick } from '../../shared/agent/questions'
 import {
   DEFAULT_SETTINGS,
@@ -247,6 +247,11 @@ export class Session {
 
   controls(): SessionControls {
     return { settings: this.settings, queue: this.queue.snapshot() }
+  }
+
+  /** The permission and question requests still open, as their events went out (agent.requests, worfy-product-session ticket 30). */
+  openRequests(): OpenRequestEvent[] {
+    return this.permissions.openRequests()
   }
 
   /**

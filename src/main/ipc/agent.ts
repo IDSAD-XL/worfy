@@ -52,6 +52,7 @@ import {
   agentPermission,
   agentQueueRemove,
   agentQueueSend,
+  agentRequests,
   agentSend,
   agentStart,
   type ChatCommandAnswer,
@@ -323,6 +324,7 @@ export function agentHandlers(
     // A Linked machine does not see the Sessions of a Project local to this Machine.
     defineHandler(agentList, (_input, { event }) => registry().list().filter((session) => !isRemoteCall(event) || localProjectOf(session.cwd) === null)),
     defineHandler(agentControls, ({ sessionId }) => registry().get(sessionId).controls()),
+    defineHandler(agentRequests, ({ sessionId }) => ({ requests: registry().get(sessionId).openRequests() })),
     defineHandler(agentConfigure, ({ sessionId, change }) => {
       const session = registry().get(sessionId)
       // A refused change of mode is a person stepping in all the same (ADR-0022).

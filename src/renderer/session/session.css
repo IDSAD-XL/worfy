@@ -918,6 +918,22 @@ body.w-split-dragging * {
   text-overflow: ellipsis;
 }
 
+/* The permission and question cards of a Product Session's chat take the chat's whole width: no «ask» / «permission»
+   column beside them, so their options and buttons keep room in the narrowest chat (worfy-product-session ticket 30). */
+.w-product .w-tr__row:has(> .w-tr__body > .w-permission) > .w-tr__who {
+  display: none;
+}
+
+/* A Session at «needs permission» with no request this window can draw (worfy-product-session ticket 30). */
+.w-session__unseen {
+  margin: 0 14px var(--space-2);
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
 /* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps and a compact
    Send, so the field keeps the width the prototype's has in the same column — the attach button stays. */
 .w-product .w-session__main {
