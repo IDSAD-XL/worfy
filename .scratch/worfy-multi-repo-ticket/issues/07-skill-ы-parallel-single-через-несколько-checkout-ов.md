@@ -1,7 +1,8 @@
 # 07 — Тексты skill-ов для `parallel: single` через несколько checkout-ов
 
 Type: task
-Status: claimed 2026-11-09T20:29Z
+Status: done 2026-11-09T22:39Z
+PR: #1750
 Branch: worfy-multi-repo-ticket/07
 Blocked by: 01
 Source: [spec.md](../spec.md), «Для какого Project-а»; «Что видит пользователь», п. 2–6; «Как работает» → «Работа
@@ -51,13 +52,14 @@ ADR-0074):
 
 ## Готово, когда
 
-- [ ] `epic-wave/SKILL.md`, `ship-ticket/SKILL.md` (раздел 2), `implementer-silent-mode.md`, `step-2-silent-branch.md`,
+- [x] `epic-wave/SKILL.md`, `ship-ticket/SKILL.md` (раздел 2), `implementer-silent-mode.md`, `step-2-silent-branch.md`,
       `step-9-merge.md` описывают п. 1–7 для Ticket-а с несколькими `Repo:` и не меняют путь Ticket-а с одним.
   - evidence: commit pass · Skill texts: a ticket of several repositories in a parallel: single project (worfy-multi-repo-ticket 07) · - - · e171ad5ae6ec4d67dfc87bebf7d7aca11b020b79
-- [ ] Ни один текст не обещает `land` через несколько репозиториев, `parallel: worktrees` через несколько репозиториев
+- [x] Ни один текст не обещает `land` через несколько репозиториев, `parallel: worktrees` через несколько репозиториев
       или ссылки между PR (spec, «Не в этом Epic-е»).
   - evidence: commit pass · Skill texts: a ticket of several repositories in a parallel: single project (worfy-multi-repo-ticket 07) · - - · e171ad5ae6ec4d67dfc87bebf7d7aca11b020b79
-- [ ] Test-ы Harness-а, которые читают эти skill-ы, — exit 0; `ci-ok` на PR зелёный.
+- [x] Test-ы Harness-а, которые читают эти skill-ы, — exit 0; `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42702913975/job/129457136439 · ci - · ee83796c46910ad65fae68bea753113d2848bc23
 
 ## Тесты
 
