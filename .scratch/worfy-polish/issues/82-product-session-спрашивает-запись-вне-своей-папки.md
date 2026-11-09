@@ -51,6 +51,7 @@ Source: решение владельца 2026-11-09: тестер дал Produc
 - `test/unit/product-guard.test.ts`
 - test-ы permission-запросов и настроек Project-а, которые затронет правка (`git grep -l "product-guard\|productGuard\|writeProjectSettings" test/`)
 - `test/e2e/product-session.spec.ts`
+- `test/e2e/product-write-outside.spec.ts` (e2e test этого ticket-а, вынесен из product-session.spec.ts после review round 1)
 
 ## Готово, когда
 
