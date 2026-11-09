@@ -608,7 +608,7 @@ check "epic-wave section 5: the report shows the four groups, the status block s
     'A table for the wave, then the four groups of findings of every ticket whose gate gave any (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line status block, which stays last.'
 
 # 7e. Two machines on one repository: the open PRs
-# of other epics before a wave, BEHIND rebased, the Windows step of the manual GUI checks, and the cross-machine
+# of other epics before a wave, a BEHIND PR merged without a rebase, the Windows step of the manual GUI checks, and the cross-machine
 # gate — the label, the checks section, the report before the merge, gate full on the fresh base on `request`.
 # The names of the label and of the section come from the profile, never from the text.
 ew1="$(section "$EW" 1 | tr '\n' ' ' | tr -s ' ')"; ew4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
@@ -620,12 +620,20 @@ check "epic-wave section 1: the open-PR block takes number,headRefName,files and
 check "epic-wave section 1: the open-PR block is in section 1" in_ "$ew1" 'gh pr list --state open --limit 200 --json number,headRefName,files'
 check "epic-wave section 1: a ticket sharing a file is not dispatched until that PR is merged" in_ "$ew1" 'is **not dispatched until that PR is merged**'
 check "epic-wave section 1: the plan and the report name the ticket, the file and the PR" in_ "$ew1" 'The plan table and the wave report name the ticket, the file and the PR number.'
-check "epic-wave section 4: BEHIND is rebased onto the fresh base, pushed, and CI runs again" in_ "$ew4" \
-    'Rebase the branch onto the fresh base in the ticket'"'"'s worktree and push it with a lease on the head the PR had before the rebase'
-check "epic-wave section 4: the BEHIND push holds a lease on the PR's head" in_ "$ew4" \
+check "epic-wave section 4: a base that moved is no reason to rebase" in_ "$ew4" 'A base that moved is no reason to rebase'
+check "epic-wave section 4: a BEHIND PR with its merge condition merges as it is" in_ "$ew4" \
+    'merges in state `BEHIND`, or when its base moved after its checks ran, as it is — no rebase, no push, no new CI run for a fresh base.'
+check "epic-wave section 4: a rebase only on a conflict" in_ "$ew4" \
+    'A rebase is needed only on a conflict: `mergeable` `CONFLICTING` or `mergeStateStatus` `DIRTY`.'
+check "epic-wave section 4: the status block merges CLEAN and BEHIND" in_ "$ew4" '# CLEAN, BEHIND — merge; DIRTY — conflict, rebase; BLOCKED, UNSTABLE — wait'
+check "epic-wave section 4: the conflict push holds a lease on the PR's head" in_ "$ew4" \
     '`git push --force-with-lease=<branch>:<headRefOid> origin HEAD:<branch>`, `<headRefOid>` from `gh pr view <N> --json headRefOid`'
-check "epic-wave section 4: CI again after the BEHIND push" in_ "$ew4" 'then wait for CI again with the CI wait block below'
-check "epic-wave section 4: BEHIND no longer means only wait" in_ "$ew4" '`BEHIND` no longer means only "wait".'
+check "epic-wave section 4: CI again after the conflict push" in_ "$ew4" 'then wait for CI again with the CI wait block below'
+check "epic-wave section 4: strict protection — GitHub refuses BEHIND, rebase then" in_ "$ew4" \
+    'GitHub reports `BEHIND` and refuses the merge itself — rebase then as on a conflict.'
+check "epic-wave section 4: land waits only on a conflict" in_ "$ew4" '`CONFLICTING` or `DIRTY` — the PR waits with `conflict: rebase`'
+check "epic-wave: no rebase for a fresh base left" lacks "$EW" 'BEHIND — rebase (below)'
+check "epic-wave: no BEHIND among the states land waits on" lacks "$EW" '`CONFLICTING`, `DIRTY` or `BEHIND` — the PR waits'
 check "epic-wave section 4: git fetch before each merge" in_ "$ew4" 'Before each merge run `git -C <repo> fetch`.'
 check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'The lock is seen only on its own machine'
 check "epic-wave section 4: the main-branch lock is at the repository's shared path, as gate-queue's" in_ "$ew4" 'L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"'
@@ -635,7 +643,7 @@ check "ship-ticket section 6: the Windows paragraph checks the process path with
     '`powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"`'
 check "ship-ticket section 6: the agent's environment on Windows is named" in_ "$st6" 'NoDefaultCurrentDirectoryInExePath=1'
 # The label. With serve, section 1 runs skill gate-queue: the pass is written only there, and
-# section 1 keeps no copy of it (section 4 still has its own BEHIND rebase with --force-with-lease; not looked at here).
+# section 1 keeps no copy of it (section 4 still has its own conflict rebase with --force-with-lease; not looked at here).
 check "epic-wave section 1: cross_machine_gate" in_ "$ew1" cross_machine_gate
 check "epic-wave section 1: with serve, /worfy:gate-queue before the preflight" in_ "$ew1" 'With `serve` — before the preflight, run skill `/worfy:gate-queue`'
 check "epic-wave section 1: the gate queue before the preflight" before "$ew1" '/worfy:gate-queue' 'bin/preflight" --epic <epic>'
@@ -661,8 +669,6 @@ check "epic-wave section 1: request — the worktree of the base is detached" in
 for f in "$EW" "$ST"; do
     check "$(name_of "$f"): no origin/<base>" lacks "$f" 'origin/<base>'
 done
-check "epic-wave section 4: the BEHIND rebase is for PRs merged outside wave-gate" in_ "$ew4" \
-    'A PR merged outside `wave-gate` (with `"each"`, or one out of the set) in state `BEHIND`'
 check "epic-wave section 4: the PRs of a wave-gate set are not rebased" in_ "$ew4" 'PRs of a `wave-gate` set are not rebased'
 check "epic-wave section 1: request — fix the base first" in_ "$ew1" 'Red — **fix the base first**'
 check "epic-wave section 1: the cross-machine gate comes before the preflight" before "$ew1" 'The cross-machine gate comes first' 'bin/preflight" --epic <epic>'
