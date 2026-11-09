@@ -69,12 +69,14 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/contract/projects.test.ts) · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (round 1: projects-remove, projects contract tests) · mac - · d02b622cb
   - evidence: gate pass · gate fast exit 0 (Windows rename rule: projects-remove, projects contract tests) · mac - · f0ca8d9ed
+  - evidence: gate pass · gate fast exit 0 (round 2: hub hold tests, projects-remove) · mac - · ff510cc79
 - [ ] Повторное подключение того же репозитория после «Remove project…» проходит без отказа «already in the gate
   registry».
   - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 5f636c185
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 (round 1) · mac - · d02b622cb
   - evidence: test-run pass · pnpm test:e2e test/e2e/projects-connect.spec.ts exit 0 (Windows fix round) · mac - · f0ca8d9ed
+  - evidence: test-run pass · pnpm test:e2e test/e2e/projects-connect.spec.ts exit 0 (round 2) · mac - · ff510cc79
 - [ ] Silent mode с ticket-ами в Workflow folder по умолчанию: отказ виден, ничего не удалено.
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/unit/remove-project.test.tsx) · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (round 1: commits-only Workflow folder refused before any stop) · mac - · d02b622cb
@@ -161,3 +163,14 @@ Windows CI (PR #1741, run 42688371258, job `windows-e2e (3/4)`), commit `f0ca8d9
 - Contract test `projects-remove.test.ts` гоняет настоящие hub-ы над Silent Project-ом с Harness-ом, который отказывает,
   как Windows, пока watch держит папку внутри Profile-а; без fix-а он падает с тем же текстом EPERM. Mutation testing в
   копии под /tmp: 6 mutant-ов, все убиты. Сам Windows проверит только CI.
+
+Round 2 ревью Windows fix-а, commit `ff510cc79`:
+
+- Чтение epic-status, которое шло в момент hold, обновляло модель закрытого watcher-а и ничего не отправляло; release
+  сравнивал с этой моделью и тоже молчал. Теперь первый hold запоминает модель, которую подписчики получили последней
+  (до close), и release отправляет разницу от неё с тем же правилом для изменения только текста Ticket-а, что и
+  `onChange` (подписчик только полей, Autopilot, его не получает).
+- Ответ удаления не ждёт первого полного чтения watch-ей после release.
+- Отказ rename с EPERM или EBUSY дополнен фразой о папке, которую держит Windows, и о том, что закрыть.
+- Test-ы обоих hub-ов: доставка после release, чтение во время hold, вложенные hold, `open` во время hold, уход
+  последнего подписчика. Mutation testing в копии под /tmp: 13 mutant-ов, все убиты.
