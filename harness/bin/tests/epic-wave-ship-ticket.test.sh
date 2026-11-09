@@ -1216,6 +1216,16 @@ check "epic-wave: while main is red, code waits and documents may merge" \
 check "epic-wave: the fix forward for at most one hour" has_flat "$EW" 'The fix goes forward first, for at most one hour from the red run'
 check "epic-wave: then the revert of the culprit PR" has_flat "$EW" 'No fix merged within the hour — revert the culprit PR'
 check "epic-wave: no bisection" has_flat "$EW" 'There is no bisection.'
+check "epic-wave: land holds the pause itself" has_flat "$EW" '`bin/land` holds this pause itself ("Merge with land" above)'
+check "epic-wave: the culprit is the first red push run after the last green one" \
+    has_flat "$EW" 'The culprit is the PR whose squash commit got the first red push run after the last green one'
+check "epic-wave: one rerun of the failed jobs is the line between a flaky test and the PR's fault" \
+    has_flat "$EW" 'A red run is first repeated once: `gh run rerun <run> --failed`, one rerun per head, by the orchestrator (`land` reruns nothing).'
+check "epic-wave: a push run of documents only gives no verdict" \
+    has_flat "$EW" 'and so is the run of a commit with documents only (it may check far less than a run of code);'
+check "epic-wave: a flaky test after the rerun goes into the project's quarantine" \
+    has_flat "$EW" 'and into the quarantine the project'"'"'s rules name for a flaky test.'
+check "epic-wave: the fix and the revert merge through land as main-fix" has_flat "$EW" 'marked `main-fix` in the state file of `land`'
 check "epic-wave: the red set after a wave-gate merge follows the same rule" \
     has_flat "$EW" 'Red CI on the main branch after the set'"'"'s merges: the rule of "A red push run on the main branch" below.'
 check "epic-wave: no immediate revert of a red set" lacks "$EW" 'Open a revert of the squash commit'

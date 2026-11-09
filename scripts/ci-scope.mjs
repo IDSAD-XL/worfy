@@ -35,7 +35,8 @@
 //   before CI ran on pull requests; JOB=full-macos runs lint-typecheck and the macOS jobs.
 //
 // The answer is also printed, with the files that decided it. `--darwin-tests` only prints the
-// macOS-only test files (darwinTestFiles) of the working tree. Any other event or JOB is refused with
+// macOS-only test files (darwinTestFiles) of the working tree; `--documents` only says whether the
+// paths on stdin are documents (the exit code). Any other event or JOB is refused with
 // exit code 1. Only Node's own modules and git are used: the script runs on the Node the runner
 // image ships.
 
@@ -625,7 +626,15 @@ function pullRequestE2e(code, base) {
 
 // `node scripts/ci-scope.mjs --darwin-tests` prints the macOS-only test files of the working tree,
 // one per line (exit 1 when they cannot be listed): the contract test compares them with its own look.
+// `node scripts/ci-scope.mjs --documents` reads paths on stdin, one per line, and exits 0 when every
+// one is a document (isDocument), 1 when one is code or no path is given: the docs_only rule of the
+// Harness's bin/land, which merges a pull request of documents only while main is red.
 function main() {
+  if (process.argv[2] === '--documents') {
+    const paths = readFileSync(0, 'utf8').split(/\r?\n/).filter((line) => line !== '')
+    process.exitCode = paths.length > 0 && paths.every(isDocument) ? 0 : 1
+    return
+  }
   const answer = process.argv[2] === '--darwin-tests' ? { darwin: darwinTestFiles() } : decide(process.env)
   if (answer.darwin !== undefined) {
     if (answer.darwin === null) process.exitCode = 1

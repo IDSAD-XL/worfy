@@ -1,7 +1,8 @@
 # 64 — Красный `main`: виноватый PR по первому красному push-run и пауза слияния PR с кодом
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T10:37Z
+Branch: worfy-throughput/64
 Blocked by: 62
 Source: решение владельца 2026-11-09, Q5 (ответ на «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md));
 [ADR-0103](../../../docs/adr/0103-merge-without-rebase-for-a-fresh-base.md), пункт 3; продолжение 3 из «Итог», часть 5,
@@ -40,9 +41,13 @@ Ticket-а 62.
 
 - [ ] `land` не вливает PR с кодом, пока последний завершённый push-run `main` красный; причина называет run, commit
       и виноватый PR — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] PR только с документами при красном `main` вливается — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] Push-run, зелёный после одного повтора упавших job-ов, не держит merge — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] Раздел skill-а `epic-wave` о красном `main` описывает поиск виноватого и повтор; без деления пополам.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR (в нём job Windows).
 
 ## Где в коде
@@ -60,3 +65,10 @@ Ticket-а 62.
 - Красный `main` на ПК (issue `pc-main-red`, ADR-0086) — своё правило, не меняется.
 - Автоматический revert — решение остаётся за Orchestrator-ом.
 - Повтор job-ов из `land` — нет: повтор один на head, и его делает Orchestrator.
+
+## Итог
+
+- После merge Orchestrator добавляет `node scripts/ci-scope.mjs --documents` в `rules-merge.md` Profile-а worfy
+  (команда документ-правила `docs_only` для state-файла `land`), как ADR-0103 сделал для `rules-merge.md`: Profile лежит
+  вне репозитория, implementer в `~/.claude` не пишет. Без этой строки при красном `main` документами считаются только
+  пути внутри `.scratch/`.

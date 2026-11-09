@@ -20,10 +20,23 @@
 //   - every commit status of prs[].checks (`check/<name>`; the orchestrator lists the Checks of the Pipeline
 //     the project's rules require for this PR) is success on the head — a `skipped` mark is a success status
 //     too. These marks are never carried;
+//   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
+//     skips this): the push runs of ci_workflow on the branch check the merged PRs together, so the latest one with a
+//     verdict must not be red. A run still queued or in progress is passed over (no merge waits the length of a push
+//     run); so is a cancelled one, and so is the run of a commit that changed documents only (by docs_only, see
+//     below): it may check far less than a run of code. A run's verdict is that of its latest attempt: a red run whose failed jobs were
+//     rerun once and passed is green — a flaky test, not the PR's fault. land reruns nothing and reverts nothing.
+//     While it is red a PR with code waits with the reason `<branch> red since <sha> (#<PR>, <time>), run <URL> —
+//     code PRs wait; fix forward until <time + 1 h>, then revert #<PR>`: the culprit is the PR whose merge commit has
+//     the first red push run after the last green one (`gh api repos/{owner}/{repo}/commits/<sha>/pulls`), <time>
+//     when that run finished; with no green run among the newest 50, the culprit is older and the reason says to find
+//     it by hand. A PR with documents only still merges: docs_only, the project's rule, gets the PR's changed paths
+//     and exits 0. The newest run being rerun holds code PRs until its verdict. gh unable to read the
+//     runs — the PR waits (unverified), never merges;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
 //     CONFLICTING or DIRTY — the PR waits with "conflict: rebase" (land rebases nothing); the head must still
-//     be the checked one; the CI check and the marks are read again (the lock may have been waited for a long
+//     be the checked one; the CI check, the marks and the main branch are read again (the lock may have been waited for a long
 //     time); then `gh pr merge <N> --squash --match-head-commit <head>`.
 //     A base that moved is no reason to wait: a PR is not rebased only to get a fresh base, the CI run on the
 //     push to the main branch checks the merged PRs together. With branch protection `strict` false GitHub
@@ -57,25 +70,31 @@
 //   ci_workflow   the workflow (file name) of the CI runs on a PR head
 //   docs_check    null, or a shell command run in the documents worktree before its commit (profile
 //                 docs.handoff.check)
+//   docs_only     optional, null or a shell command run in the checkout: the paths a PR changes from its fork point,
+//                 one per line on stdin; exit 0 — documents only (the PR merges while the main branch is red), 1 —
+//                 code; any other exit code counts as code. No command: documents only means every path inside the
+//                 tickets root. The same rule tells a push run of a documents-only commit, which gives no verdict
 //   tickets_root  optional, ".scratch": the tickets root, relative to the repository root (profile
 //                 tickets.root; an absolute one the orchestrator makes relative); null — the tickets are not
 //                 in the repository (Silent mode, a root outside it), no documents PR: `ticket done` is the
 //                 orchestrator's
 //   main_lock     optional absolute path of the main-branch lock
-//   prs           [{number, epic, ticket, head, checks, evidence}] in merge order; epic and ticket — the PR's ticket
+//   prs           [{number, epic, ticket, head, checks, evidence, main_fix}] in merge order; epic and ticket — the PR's ticket
 //                 (without them no `ticket done`); head — optional, the head SHA the review verified; checks —
 //                 the Check marks the PR needs, ["windows"] or ["check/windows"] alike, [] for none; evidence —
 //                 optional, [{item, kind, verdict, ref, platform?, copy?, sha?}]: the Evidence lines `ticket
 //                 evidence` writes before `ticket done` (item — the checkbox item of the "done" section, from 1). The
 //                 defaults: sha — prs[].head (an entry without a sha needs it), platform — "-" for review and commit,
-//                 "ci" for ci-check, otherwise the one `ticket` takes, copy — "-"
+//                 "ci" for ci-check, otherwise the one `ticket` takes, copy — "-"; main_fix — optional, true for the
+//                 fix of a red main branch or the revert of its culprit: it merges while the branch is red
 // land adds: prs[].result {status: merged|waits, sha | reason, kind, at}, docs [{branch, prs, pr, closed,
 // result}], runs [{started, ended, land}].
 //
-// Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way, then
-// `LAND=green` (every PR and the documents PR merged), `LAND=red` (a PR waits on a red verdict: a red or
-// cancelled check, a review or Check mark failure, a red docs_check) or `LAND=unverified` (something waits
-// for CI, a person or a rebase). Exit 0 green, 2 red, 3 unverified, 1 error in the input. The full log goes
+// Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way; while the
+// main branch is red, the line `<branch> red since <sha> (#<PR>, <time>) — code PRs wait; fix forward until
+// <time + 1 h>, then revert #<PR>`; then `LAND=green` (every PR and the documents PR merged), `LAND=red` (a PR waits
+// on a red verdict: a red or cancelled check, a review or Check mark failure, a red docs_check) or `LAND=unverified`
+// (something waits for CI, a person, a rebase or the fix of a red main branch — not the PR's own red). Exit 0 green, 2 red, 3 unverified, 1 error in the input. The full log goes
 // to <state>.log.
 //
 // --watch: passes every POLL_S seconds while a PR or the documents PR waits for CI (a run in progress, a
@@ -154,8 +173,8 @@ function run([file, pre], args, cwd) {
     const r = spawnSync(file, [...pre, ...args], { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
     return { code: r.error ? 127 : (r.status ?? 128 + (SIGNALS[r.signal] || 0)), out: r.stdout || "", err: r.error ? r.error.message : r.stderr || "" }
 }
-const sh = (command, cwd) => {
-    const r = spawnSync(command, { cwd, encoding: "utf8", windowsHide: true, shell: true, maxBuffer: 64 << 20 })
+const sh = (command, cwd, input) => {
+    const r = spawnSync(command, { cwd, input, encoding: "utf8", windowsHide: true, shell: true, maxBuffer: 64 << 20 })
     return { code: r.error ? 127 : (r.status ?? 128 + (SIGNALS[r.signal] || 0)), out: r.stdout || "", err: r.stderr || "" }
 }
 async function sleep(s) {
@@ -200,6 +219,7 @@ function load(file) {
         fail(`${file}: "tickets_root" must be a folder inside the repository, relative to its root, or null`)
     if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
         fail(`${file}: "main_lock" must be an absolute path`)
+    if (st.docs_only !== undefined && st.docs_only !== null && !text("docs_only")) fail(`${file}: "docs_only" must be null or a command`)
     if (!Array.isArray(st.prs) || !st.prs.length) fail(`${file}: "prs" must be a list of PRs`)
     const seen = new Set()
     for (const pr of st.prs) {
@@ -207,6 +227,7 @@ function load(file) {
         if (seen.has(pr.number)) fail(`${file}: PR #${pr.number} is listed twice`)
         seen.add(pr.number)
         if (pr.head !== undefined && pr.head !== null && !SHA.test(pr.head)) fail(`${file}: PR #${pr.number}: "head" must be a full SHA`)
+        if (pr.main_fix !== undefined && pr.main_fix !== null && typeof pr.main_fix !== "boolean") fail(`${file}: PR #${pr.number}: "main_fix" must be true or false`)
         for (const key of ["epic", "ticket"])
             if (pr[key] !== undefined && pr[key] !== null && (typeof pr[key] !== "string" || !pr[key])) fail(`${file}: PR #${pr.number}: "${key}" must be a string`)
         // a missing list would merge without the Checks the project requires
@@ -336,6 +357,152 @@ function checked(pr, head, marks) {
         throw new Wait(`${context} is ${state} on ${short(head)}`, red(state))
     }
 }
+// --- the main branch: its push runs check the merged PRs together --------------------------------------
+// The push runs of the CI workflow on the main branch, newest first (a push run per commit: none cancels another).
+// The latest one with a verdict decides: success — green; failure, timed_out, startup_failure — red. A run still
+// queued or in progress has no verdict yet and is passed over, so no merge waits the length of a push run; a
+// cancelled, skipped or neutral one says nothing about the code and is passed over too, and so does the run of a
+// commit that changed documents only (pathsAreDocuments): such a run may check far less than a run of code (a project
+// may run only its lint for documents), so its green must not clear a red run of code below it. A run's conclusion is that
+// of its latest attempt: a red run whose failed jobs were rerun and passed is green (a flaky test, not a broken
+// branch). A run newer than every verdict that is being rerun (attempt above 1, not completed) holds code PRs
+// until its verdict: only a finished run is rerun, and it is rerun because it was red.
+const MAIN_RUNS = 50
+const VERDICT = { success: "green", failure: "red", timed_out: "red", startup_failure: "red" }
+const plusHour = (t) => {
+    const ms = Date.parse(t)
+    return Number.isFinite(ms) ? new Date(ms + 3600e3).toISOString().replace(/\.\d+Z$/, "Z") : "an hour after it"
+}
+const culprits = new Map()
+// The PR whose merge commit sha is: "#N", or null for a commit with no PR (a direct push) or one gh cannot tell.
+function culpritPr(st, sha) {
+    if (culprits.has(sha)) return culprits.get(sha)
+    const r = gh(st, ["api", `repos/{owner}/{repo}/commits/${sha}/pulls`])
+    let pr = null
+    try {
+        const list = r.code === 0 ? JSON.parse(r.out) : []
+        const mine = (Array.isArray(list) ? list : []).filter((p) => p && Number.isInteger(p.number))
+        // only the PR this commit merged: a PR that merely contains the commit is not its merge
+        const hit = mine.find((p) => p.merge_commit_sha === sha)
+        if (hit) pr = `#${hit.number}`
+    } catch {}
+    if (r.code !== 0) log(`the PRs of ${short(sha)}: gh exit ${r.code}: ${firstLine(r.err)}`)
+    culprits.set(sha, pr)
+    return pr
+}
+// A wait on the main branch's verdict (red, or a rerun of a red run), not on gh: a PR with documents only may still merge.
+const mainWait = (reason, kind) => Object.assign(new Wait(reason, kind), { main: true })
+// The line for the orchestrator while the main branch is red, from the last reading of its push runs (null — not red).
+let mainRed = null
+// Whether the commit sha of the main branch changed documents only (pathsAreDocuments over its diff with its first
+// parent); a commit git cannot get counts as code, so its run keeps its verdict.
+const docCommits = new Map()
+function documentsCommit(st, sha) {
+    if (docCommits.has(sha)) return docCommits.get(sha)
+    let docs = false
+    if (st.docs_only || ticketsRoot(st)) {
+        try {
+            if (haveCommit(st, sha)) {
+                const paths = git(["-c", "core.quotePath=false", "diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--no-renames", "-z", "-m", "--first-parent", sha], st.repo).split("\0").filter(Boolean)
+                docs = pathsAreDocuments(st, paths, `the commit ${short(sha)}`)
+            }
+        } catch (e) {
+            if (!(e instanceof Wait)) throw e
+            log(`the commit ${short(sha)}: documents only? ${e.message} — counted as code`)
+        }
+    }
+    docCommits.set(sha, docs)
+    return docs
+}
+// The state of the main branch: throws Wait when a PR with code may not merge now. The culprit is the first red push
+// run after the last green one. With no green one among the newest MAIN_RUNS, the culprit is older than they are, unless
+// they are the whole history of the branch.
+function mainGreen(st) {
+    const what = `the ${st.ci_workflow} push runs on ${st.branch}`
+    const runs = ghJson(st, ["run", "list", "--workflow", st.ci_workflow, "--branch", st.branch, "--event", "push", "--limit", String(MAIN_RUNS), "--json", "databaseId,headSha,status,conclusion,attempt,createdAt,updatedAt,url"], what)
+    if (!Array.isArray(runs)) throw new Wait(`${what}: gh printed no list`)
+    const newest = [...runs].sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")) || (b.databaseId || 0) - (a.databaseId || 0))
+    let first = null
+    let running = false
+    let green = false
+    for (const r of newest) {
+        if (r.status !== "completed") {
+            if (!first && Number(r.attempt) > 1) {
+                mainRed = null
+                throw mainWait(`the push run ${r.url || r.databaseId} on ${st.branch} (${short(r.headSha)}) is being rerun (attempt ${r.attempt}): code PRs wait for its verdict`, "ci")
+            }
+            if (!first) running = true
+            continue
+        }
+        const verdict = VERDICT[r.conclusion]
+        if (!verdict) continue
+        if (documentsCommit(st, r.headSha)) {
+            log(`push run ${r.databaseId} on ${short(r.headSha)} (${r.conclusion}): documents only, no verdict on the code`)
+            continue
+        }
+        if (verdict === "green") {
+            green = true
+            break
+        }
+        first = r
+    }
+    if (!first) {
+        mainRed = null
+        return
+    }
+    if (!green && runs.length >= MAIN_RUNS) {
+        const since = first.updatedAt || first.createdAt
+        mainRed = `${st.branch} red since before ${short(first.headSha)} (no green push run among the newest ${MAIN_RUNS}, the oldest red one ${since}) — code PRs wait; the culprit is older than these runs: find it by hand`
+        throw mainWait(`${mainRed.replace(" — ", `, run ${first.url || first.databaseId} — `)}`, running ? "ci" : "waits")
+    }
+    const pr = culpritPr(st, first.headSha)
+    const since = first.updatedAt || first.createdAt
+    const head = `${st.branch} red since ${short(first.headSha)} (${pr || "no PR"}, ${since})`
+    const tail = `code PRs wait; fix forward until ${plusHour(since)}, then revert ${pr || short(first.headSha)}`
+    mainRed = `${head} — ${tail}`
+    // a newer run in progress may bring the green verdict: a later pass may merge (--watch keeps asking)
+    throw mainWait(`${head}, run ${first.url || first.databaseId} — ${tail}`, running ? "ci" : "waits")
+}
+// The tickets root inside the repository, or null (tickets_root null: the tickets are elsewhere).
+const ticketsRoot = (st) => (st.tickets_root === null ? null : (st.tickets_root || ".scratch").replace(/[\\/]+$/, ""))
+// Whether paths are documents only, by the project's rule (docs_only): the paths go to the command on stdin, one per line;
+// exit 0 — documents only, 1 — code, any other exit code — code. With no rule: every path inside the tickets root (the
+// documents PR of land itself). No path at all: code.
+function pathsAreDocuments(st, paths, what) {
+    if (!paths.length) return false
+    if (!st.docs_only) {
+        const root = ticketsRoot(st)
+        return !!root && paths.every((x) => x.startsWith(`${root}/`))
+    }
+    const r = sh(st.docs_only, st.repo, paths.map((x) => `${x}\n`).join(""))
+    log(`${what}: ${st.docs_only} — exit ${r.code}${r.code > 1 ? `: ${firstLine(r.err || r.out)}` : ""}`)
+    return r.code === 0
+}
+// Whether the PR at head changes documents only (pathsAreDocuments over its diff from its fork point). A head git cannot
+// get: code.
+function documentsOnly(st, pr, head) {
+    try {
+        if (!haveCommit(st, head, pr.number)) return false
+        const base = git(["merge-base", head, `refs/remotes/${st.remote || "origin"}/${st.branch}`], st.repo)
+        // -z: a path as it is, not quoted (non-ASCII letters, spaces)
+        const paths = git(["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "-z", base, head], st.repo).split("\0").filter(Boolean)
+        return pathsAreDocuments(st, paths, `#${pr.number}`)
+    } catch (e) {
+        if (!(e instanceof Wait)) throw e
+        log(`#${pr.number}: documents only? ${e.message} — counted as code`)
+        return false
+    }
+}
+// The main branch's condition of a PR: a fix of the red branch (main_fix) and a PR with documents only merge while it is red.
+function mainAllows(st, pr, head) {
+    if (pr.main_fix) return
+    try {
+        mainGreen(st)
+    } catch (e) {
+        if (!(e instanceof Wait) || !e.main || !documentsOnly(st, pr, head)) throw e
+        log(`#${pr.number}: documents only, merged while ${st.branch} is red`)
+    }
+}
 // The whole merge condition of a code PR on head; carry — whether a missing review may be carried.
 function ready(st, pr, head, carry) {
     ciGreen(st, head)
@@ -343,6 +510,7 @@ function ready(st, pr, head, carry) {
     const marks = statuses(st, head)
     reviewed(st, pr, head, marks, carry)
     checked(pr, head, marks)
+    mainAllows(st, pr, head)
 }
 
 // --- the merge, under the main-branch lock -------------------------------------------------------------
@@ -596,6 +764,8 @@ async function main() {
         const name = d.pr ? `#${d.pr}` : `documents ${d.branch}`
         lines.push(d.result.status === "merged" ? `${name} merged ${d.result.sha}` : `${name} waits: ${d.result.reason}`)
     }
+    // while the main branch is red: one line with the culprit and the deadline of the fix forward
+    if (mainRed) lines.push(mainRed)
     const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
     const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"
     st.runs.push({ started, ended: now(), land: verdict })
