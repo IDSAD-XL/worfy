@@ -47,9 +47,14 @@ Health check у тестера зелёный, а диалог Project-а — к
 
 - [ ] Stub gh, который на `auth status --json hosts` отвечает «unknown flag: --json» (exit 1), а на `auth status` —
   текстом старого формата: шаг «GitHub account» находит аккаунт, его host, active и state.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gh-auth-text.test.ts test/contract/github-accounts.test.ts` exit 0 · mac - · 7c3d148ed428e9a90c00ad8d23cc36f1d86b6078
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7c3d148ed428e9a90c00ad8d23cc36f1d86b6078
 - [ ] Stub gh нового формата (JSON): прежний результат, второго запуска `gh auth status` нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gh-auth-text.test.ts test/contract/github-accounts.test.ts` exit 0 · mac - · 7c3d148ed428e9a90c00ad8d23cc36f1d86b6078
 - [ ] Текст без аккаунтов: причина называет версию gh и команду обновления.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gh-auth-text.test.ts test/contract/github-accounts.test.ts` exit 0 · mac - · 7c3d148ed428e9a90c00ad8d23cc36f1d86b6078
 - [ ] Health check (`ghAccounts`) разбирает те же образцы текста так же, как раньше.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/gh-auth-text.test.ts test/contract/github-accounts.test.ts` exit 0 · mac - · 7c3d148ed428e9a90c00ad8d23cc36f1d86b6078
 
 ## Тесты
 
