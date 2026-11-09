@@ -159,6 +159,8 @@ expect "silent: gh api --input <payload with a byte order mark>, clean bodies ->
 # -F body=@- publishes the heredoc as it is, also when it looks like JSON: only --input - is a payload.
 FIELD_HD=$'gh api repos/o/r/issues/7/comments -F body=@- <<\'EOF\'\n{"path": "a.ts", "note": "Ticket 05"}\nEOF'
 expect "silent: gh api -F body=@- with a JSON-looking heredoc -> deny on the whole text" deny "$R" "$FIELD_HD" 'Ticket 05'
+INPUT_HD_CLEAN=$'gh api --method POST repos/o/r/pulls/7/reviews --input - <<\'EOF\'\n{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"Keep it."}]}\nEOF'
+expect "silent: gh api --input - from a heredoc, clean bodies, the epic name only in comments[].path -> allow" allow "$R" "$INPUT_HD_CLEAN"
 # A payload nested deeper than the call stack: the hook still answers, with the trace.
 node -e 'const n = 20000; process.stdout.write("{\"body\":\"Ticket 05\",\"x\":" + "{\"a\":".repeat(n) + "1" + "}".repeat(n) + "}")' >"$T/review-deep.json"
 expect "silent: gh api --input <a payload nested 20000 deep> -> deny with the trace" deny "$R" \
