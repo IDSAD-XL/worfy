@@ -51,11 +51,22 @@ Source: сравнение собранного экрана с прототип
 ## Готово, когда
 
 - [ ] После сужения области карты карта вписана заново; после ручного zoom или pan — нет (test).
+  - evidence: test-run pass · `pnpm test -- test/unit/mind-map-view.test.tsx` exit 0 (refit on resize, kept after zoom or wheel by hand; mutants red) · mac - · 4dc2146552812c9bab58428bfa46077e184d4bb1
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (1440 to 1160: zoom 47 to 35 percent, all nodes in the pane; zoom kept after Zoom in) · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1
 - [ ] Длинный текст узла (русский и английский) не выходит за край узла (test с измерением текста; снимок).
+  - evidence: test-run pass · `pnpm test -- test/unit/mind-map-layout.test.ts test/unit/mind-map-view.test.tsx` exit 0 (long Russian and English labels fit, clamp equals the lines the box holds) · mac - · 4dc2146552812c9bab58428bfa46077e184d4bb1
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (real font: no node text past its border, only texts over four lines clamped) · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1
 - [ ] Карточка узла открывается рядом с узлом, переходит на другую сторону у края и не выходит за карту (test).
+  - evidence: test-run pass · `pnpm test -- test/unit/mind-map-layout.test.ts test/unit/mind-map-view.test.tsx` exit 0 (cardPlace right, left, under, above, clamped; card beside the clicked node) · mac - · 4dc2146552812c9bab58428bfa46077e184d4bb1
 - [ ] Строка вида в карточке — плашка с рамкой; у отклонённого Решения зачёркнута; ссылки синие (test).
+  - evidence: test-run pass · `pnpm test -- test/unit/mind-map-view.test.tsx` exit 0 (kind pill classes; e2e checks line-through on the rejected pill) · mac - · 4dc2146552812c9bab58428bfa46077e184d4bb1
 - [ ] История показывает все шаги, отмена красным, строка «Changed by» ведёт к сообщению отмены (test).
+  - evidence: test-run pass · `pnpm test -- test/unit/mind-map-view.test.tsx` exit 0 (both history steps, overturn marked, Changed by opens the overturning message) · mac - · 4dc2146552812c9bab58428bfa46077e184d4bb1
 - [ ] Снимки экрана в тёмной теме при окне 1440 и после сужения до 1160, просмотренные исполнителем.
+  - evidence: screenshot pass · `../evidence/23-mind-map-1440.png` dark theme, window 1440, Tree after Fit, long texts inside their nodes · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1 · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/23-node-card-1440.png` dark theme, window 1440, card of the overturned Decision under its node, no room on either side at this width · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1 · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/23-mind-map-1160.png` dark theme, window narrowed to 1160, map fitted again at 35 percent · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1 · scrub: 2026-11-09
+  - evidence: screenshot pass · `../evidence/23-node-card-1160.png` dark theme, window 1160, accepted Decision card with its kind pill under the node · mac dev · 4dc2146552812c9bab58428bfa46077e184d4bb1 · scrub: 2026-11-09
 - [ ] (manual) Владелец в Mac Stable: размер, текст узлов и карточка как в прототипе.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
@@ -76,4 +87,50 @@ Source: сравнение собранного экрана с прототип
 
 ## Итог
 
-(заполняется по ходу)
+Сверено с файлом Card-а прототипа (`card-2dffdc46/index.html`: `ResizeObserver` с `userMoved`, `wrap` и `textWidth`
+через canvas `measureText`, `positionDetail`, `.kind-chip`, `renderDetail`). Что сделано по строкам сравнения:
+
+- **Строка 2, окно меньше.** Карта вписывается заново, когда меняется размер её области — React Flow сам меряет её
+  (`width` и `height` в store). Ручной zoom («+», «−», колесо) и pan ставят флаг `movedByHand`; «Fit», смена темы или
+  вида его снимают. Найдено в e2e: `flow.fitView` в React Flow 12 ждёт следующей смены узлов, а новая ширина панели
+  узлы не меняет, и вписывание откладывалось до следующего клика по карте. Поэтому при изменении размера вид
+  ставится сразу: `setViewport(getViewportForBounds(…))` с теми же отступом и пределом zoom, что у «Fit». В собранном
+  приложении при сужении окна с 1440 до 1160 zoom сменился с 47 % на 35 %, все узлы в панели.
+- **Строка 3, длинный текст.** Высота узла считается по тексту, измеренному canvas `measureText` шрифтом приложения
+  (`--font-ui` на `body`), перенос по словам, длинное слово рвётся где угодно, как `overflow-wrap: anywhere`. Текст
+  переносится на 2 px уже, чем его область, так что ошибка измерения даёт лишнюю строку, а не вылет. До 4 строк, как
+  в прототипе (было 3). У узла с детьми учтено место метки сворачивания (40 px и промежуток). Кроме того, у текста
+  `-webkit-line-clamp` равен числу строк, которое вмещает его узел, так что даже неточно измеренный текст кончается
+  многоточием внутри узла. Полный текст — в карточке и в `title`. Без canvas (jsdom) остаётся прежняя оценка 0,55 em.
+  В e2e с настоящим шрифтом: ни один текст не выходит за край узла, обрезаны только тексты длиннее 4 строк.
+- **Строка 12, место карточки.** `cardPlace` (`mind-map-layout.ts`) по правилу прототипа: справа от узла, если не
+  помещается — слева, если нет места ни там, ни там — под узлом (у нижнего края — над ним), всегда не ближе 8 px к краю
+  карты. Карточка следует за узлом при pan, zoom и перетаскивании. При ширине карты около 700 px (окно 1440, Mind map
+  60 %) у узлов среднего столбца места сбоку нет, и карточка встаёт под узел — как в прототипе, где она в таком случае
+  тоже уходит под узел.
+- **Строка 13, строка вида.** Плашка с рамкой цвета вида на его оттенке (`.w-mind__kind-pill`), у отклонённого
+  Решения серая и зачёркнутая. В светлой теме текст плашки темнее контура, чтобы мелкая подпись держала контраст.
+  Ссылки карточки — `--working-text` (синий прототипа), подчёркивание только при наведении и фокусе.
+- **Строка 14, история.** Все шаги Решения: прежние из `history` и текущее состояние; шаг, который отклонил Решение,
+  красный (`--span-problem`). «Message» — сообщение, где узел появился (первый шаг истории), «Changed by» — сообщение
+  каждого следующего шага (у текущего — `message` узла: «где узел появился или последний раз изменился»). Ссылки
+  внутри списка истории убраны: те же сообщения теперь в строках «Message» и «Changed by».
+
+Не сделано, данных нет в `mind-map.json`: номер шага («шаг 5»), номер сообщения и цитата сообщения
+(«#5 Советник: «…»»). Файл хранит только uuid события транскрипта; текст и номер сообщения есть только в транскрипте,
+которого Mind map не получает. Ссылка по-прежнему «Show in the chat».
+
+Не трогалось (вопросы владельца и Ticket 22): радиальная раскладка Graph, «Hide rejected», метки сворачивания, место
+панели инструментов, правила чипов в `mind-map.css`. Первое вписывание до ответа ELK (замечание Ticket 21) — прежнее.
+
+Test-ы: `test/unit/mind-map-view.test.tsx` (вписывание при изменении размера; вид владельца после «+» и после
+колеса; clamp по высоте узла; место карточки; плашка, шаги истории и «Changed by»), `test/unit/mind-map-layout.test.ts`
+(высота узла по измеренному тексту с кириллицей шире латиницы, место метки сворачивания, перенос, `cardPlace`),
+`test/e2e/product-session.spec.ts` (настоящий шрифт, карточка, сужение окна). Шесть mutant-ов красные: без
+вписывания, без флага от колеса, без флага от «+», постоянный clamp 4, без отметки отмены, карточка в углу.
+В тесте вида React Flow теперь получает размер панели и через `.react-flow__renderer` (раньше его store в jsdom
+всегда был 500 × 500); тест ELK сверяет место темы, а не `too-wide`, которое обе раскладки теперь ставят одинаково.
+
+Снимки (тёмная тема, данные fixture без личных данных):
+[1440, карта](../evidence/23-mind-map-1440.png) · [1440, карточка](../evidence/23-node-card-1440.png) ·
+[1160, карта](../evidence/23-mind-map-1160.png) · [1160, карточка](../evidence/23-node-card-1160.png).
