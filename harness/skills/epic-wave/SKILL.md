@@ -881,19 +881,25 @@ Each step is status and merge as two commands; "no checks reported" is what `gh 
 on a conflict, not a value of `mergeStateStatus`:
 
 ```bash
-gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BEHIND — rebase (below); BLOCKED, UNSTABLE — wait
+gh pr view <N> --json mergeStateStatus   # CLEAN, BEHIND — merge; DIRTY — conflict, rebase; BLOCKED, UNSTABLE — wait
 gh pr merge <N> --squash
 ```
 
 **Merge in turn across machines**. Another machine may merge into the same
-main branch, and nothing here waits for it. Before each merge run `git -C <repo> fetch`. A PR merged outside
-`wave-gate` (with `"each"`, or one out of the set) in state `BEHIND`, or whose base moved after its
-checks ran, does not wait: nothing will update its branch. Rebase the branch onto the fresh base in the ticket's worktree and push it with a lease
-on the head the PR had before the rebase — `git push --force-with-lease=<branch>:<headRefOid> origin
-HEAD:<branch>`, `<headRefOid>` from `gh pr view <N> --json headRefOid` — so a push from elsewhere is
-not overwritten; then wait for CI again with the CI wait block below (with `F workflow.ci` `batch`: `mergeable` again). `BEHIND` no longer means only
-"wait". PRs of a `wave-gate` set are not rebased (below): `wave-gate merge` checks that each merge
-gives the tree it checked.
+main branch, and nothing here waits for it. Before each merge run `git -C <repo> fetch`. A base that
+moved is no reason to rebase: a PR whose own head has its merge condition (CI green on that head, the
+`review` mark, the Check marks) merges in state `BEHIND`, or when its base moved after its checks ran,
+as it is — no rebase, no push, no new CI run for a fresh base. The CI run on the push to the main branch
+checks the merged PRs together. A rebase is needed only on a conflict: `mergeable` `CONFLICTING` or
+`mergeStateStatus` `DIRTY`. Then the implementer rebases the branch onto the fresh base in the ticket's
+worktree and pushes it with a lease on the head the PR had before the rebase — `git push
+--force-with-lease=<branch>:<headRefOid> origin HEAD:<branch>`, `<headRefOid>` from `gh pr view <N>
+--json headRefOid` — so a push from elsewhere is not overwritten; then wait for CI again with the CI wait
+block below (with `F workflow.ci` `batch`: `mergeable` again). One exception: when the base branch's
+protection requires an up-to-date branch (`gh api repos/<owner>/<repo>/branches/<branch>/protection --jq
+.required_status_checks.strict` is `true`), GitHub reports `BEHIND` and refuses the merge itself — rebase
+then as on a conflict. PRs of a `wave-gate` set are not rebased (below): `wave-gate merge` checks that
+each merge gives the tree it checked.
 
 Wait for CI with one long command, not frequent polling: an agent has a limited number of turns,
 and polling `gh pr checks` twice cut a merge off in the middle of CI. The Bash call has timeout
@@ -930,7 +936,7 @@ until mkdir "$L" 2>/dev/null; do
   if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck; BSD and GNU find alike
   sleep 30
 done; echo LOCKED
-# rebase on a fresh base → merge or commit → push; then:
+# merge or commit → push; then:
 rmdir "$L"
 ```
 
@@ -938,8 +944,8 @@ The path is the repository's shared git folder, the same in every worktree of th
 for every session: the waves of one session, a wave of another session, and the merges of skill
 `/worfy:gate-queue` all see the same lock. A scratchpad would not do — each session has its own,
 and locks there do not see each other. The lock is seen only on its own machine: a session on
-another machine does not see it and merges on its own, so the order across machines comes from the
-fetch and rebase before each merge (above), not from the lock.
+another machine does not see it and merges on its own: GitHub serializes the merges across machines,
+and a merge that conflicts with what the other machine merged shows up as `DIRTY` (above).
 
 **PRs with the cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the project has
 one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request` a PR with the
@@ -1180,9 +1186,12 @@ of `land`. For each PR, in the order of the state file, `land`:
 - needs each Check mark the state file lists for the PR (`check/<name>`) `success` or `skipped` on the
   head. These marks are never carried: a new head needs its own;
 - under the main-branch lock (the one above): asks `mergeable` again while it is `UNKNOWN`, up to 6
-  times 10 s apart; `CONFLICTING`, `DIRTY` or `BEHIND` — the PR waits, `land` does not rebase it (the
-  implementer does, after the status block above); reads the final check and the marks again (the lock may
-  have taken long); then `gh pr merge <N> --squash --match-head-commit <head>`;
+  times 10 s apart; `CONFLICTING` or `DIRTY` — the PR waits with `conflict: rebase`, `land` does not
+  rebase it (the implementer does, after the status block above); `BEHIND` without a conflict is no reason
+  to wait — the PR merges as it is; reads the final check and the marks again (the lock may have taken
+  long); then `gh pr merge <N> --squash --match-head-commit <head>`. When the base branch's protection
+  requires an up-to-date branch, GitHub refuses a `BEHIND` merge, and the PR waits with `BEHIND: the base
+  branch requires an up-to-date branch, rebase`;
 - goes on to the next PR when one waits: each PR merges on its own head's condition, not only a green
   prefix of the list;
 - after the merges, one documents PR per run: `ticket done <epic> <NN> --pr <N>` for every merged PR
@@ -1248,7 +1257,8 @@ line per PR — `#N merged <sha>` or `#N waits: <reason>`, the documents PR the 
 or Check, a red documents check) or `LAND=unverified` (`EXIT=3`: something waits for CI, a mark or a
 rebase). `EXIT=1` — the state file is wrong, the message says how. The full log is `<state file>`
 without `.json`, plus `.log`. A `waits` PR: red CI — a rework round or the project's quarantine rule;
-no `review` — section 3; `DIRTY` or `BEHIND` — the implementer rebases; a Check mark missing —
+no `review` — section 3; `conflict: rebase` (or `BEHIND: … rebase` under protection that requires an
+up-to-date branch) — the implementer rebases; a Check mark missing —
 the Check's verdict, as "Checks before merge" says; a changed head — verify it and write a new state file. After a session break, run the same command on the same file: a PR merged before
 is not merged again, and the documents PR goes on from where it stopped.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, the review
-# mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND and DIRTY, the
+# mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND merged without a rebase and a conflict waiting, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
 # off by a kill and resumed, and --watch.
@@ -348,7 +348,7 @@ grep -q "^#1 waits: check/windows is missing on" "$W/out" && [ "$(merged_of 1)" 
 grep -q "^#3 waits: check/windows is failure on" "$W/out" && [ "$(merged_of 3)" = 0 ] && [ "$rc" = 2 ] && ok "checks: a failed Check is red" || bad "checks failure: exit $rc: $(cat "$W/out")"
 [ "$(merged_of 4)" = 1 ] && ok "checks: a PR that lists no Check merges whatever marks its head has" || bad "checks none: $(cat "$W/out")"
 
-# --- mergeable UNKNOWN: asked again 6 times, 10 s apart, then waits; BEHIND and DIRTY wait ----------------------
+# --- mergeable UNKNOWN: asked again 6 times, 10 s apart, then waits ----------------------------------------------
 new_world unknown 1
 state 1
 echo UNKNOWN >"$GHD/mergeable-1"
@@ -369,12 +369,49 @@ echo 0123456789abcdef0123456789abcdef01234567 >"$GHD/moved-1"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: the head moved from $(head_of 1 | cut -c1-8) to 01234567" "$W/out" \
     && ok "a push between the check and the merge: waits, no gh pr merge" || bad "moved: exit $rc: $(cat "$W/out")"
-for st in BEHIND DIRTY; do
+# --- a base that moved is no reason to wait; only a conflict is ----------------------------------------
+# BEHIND without a conflict, green ci-ok and review on the PR's own head: merged as it is, no rebase
+new_world mss-BEHIND 1
+state 1
+echo '{"mergeStateStatus":"BEHIND"}' >"$GHD/pr-1.json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].result.status')" = merged ] && grep -q "^#1 merged " "$W/out" \
+    && [ "$(git -C "$W/origin.git" show "refs/heads/main:f1.txt")" = 1 ] && ok "BEHIND + green ci-ok: merged without a rebase" || bad "BEHIND: exit $rc: $(cat "$W/out")"
+grep -q "#1: BEHIND without a conflict — merging without a rebase" "${S%.json}.log" \
+    && ok "BEHIND: the log says it merged without a rebase" || bad "BEHIND log: $(cat "${S%.json}.log" 2>/dev/null)"
+! grep -q "update-branch\|push" "$GHD/log" && ok "BEHIND: land does not update the branch" || bad "BEHIND: gh $(cat "$GHD/log")"
+# BEHIND with a red ci-ok on the head: the condition of the head still rules, no merge
+new_world mss-BEHIND-red 1
+state 1
+echo '{"mergeStateStatus":"BEHIND"}' >"$GHD/pr-1.json"
+echo '[{"id":1,"name":"ci-ok","status":"completed","conclusion":"failure","started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 1)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 2 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: ci-ok failure on" "$W/out" && ok "BEHIND + red ci-ok: red, no merge" || bad "BEHIND red: exit $rc: $(cat "$W/out")"
+# BEHIND and the head moved between the check and the merge: still refused
+new_world mss-BEHIND-moved 1
+state 1
+echo '{"mergeStateStatus":"BEHIND"}' >"$GHD/pr-1.json"
+echo 0123456789abcdef0123456789abcdef01234567 >"$GHD/moved-1"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: the head moved from $(head_of 1 | cut -c1-8) to 01234567" "$W/out" \
+    && ok "BEHIND + a moved head: waits, no gh pr merge" || bad "BEHIND moved: exit $rc: $(cat "$W/out")"
+# BEHIND under strict protection (strict true): GitHub refuses the merge itself — the PR waits for a rebase
+new_world mss-BEHIND-strict 1
+state 1
+echo '{"mergeStateStatus":"BEHIND"}' >"$GHD/pr-1.json"
+touch "$GHD/merge-fail-1"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(q "$S" 's.prs[0].result.status')" = waits ] \
+    && grep -q "^#1 waits: BEHIND: the base branch requires an up-to-date branch, rebase — gh pr merge exit 1" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
+    && ok "BEHIND refused by GitHub (strict): waits for a rebase, the lock is released" || bad "BEHIND strict: exit $rc: $(cat "$W/out")"
+# a conflict — DIRTY, or mergeable CONFLICTING — waits with the reason "conflict: rebase", and land rebases nothing
+for st in DIRTY CONFLICTING; do
     new_world "mss-$st" 1
     state 1
-    echo "{\"mergeStateStatus\":\"$st\"}" >"$GHD/pr-1.json"
+    if [ "$st" = DIRTY ]; then echo '{"mergeStateStatus":"DIRTY"}' >"$GHD/pr-1.json"; else echo CONFLICTING >"$GHD/mergeable-1"; fi
     "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-    [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: $st: " "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] && ok "$st: waits, no rebase, no merge" || bad "$st: exit $rc: $(cat "$W/out")"
+    [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: conflict: rebase — the PR conflicts with its base" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
+        && ok "$st: waits with \"conflict: rebase\", no merge" || bad "$st: exit $rc: $(cat "$W/out")"
     ! grep -q "update-branch\|push" "$GHD/log" && ok "$st: land does not update the branch" || bad "$st: gh $(cat "$GHD/log")"
 done
 

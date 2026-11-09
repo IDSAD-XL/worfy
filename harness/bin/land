@@ -22,9 +22,14 @@
 //     too. These marks are never carried;
 //   - then, under the main-branch lock (mkdir of main_lock, by default <git common dir>/main.lock — the lock
 //     the skills share): `mergeable` UNKNOWN is asked again up to MERGEABLE_RETRIES times, RETRY_S apart;
-//     CONFLICTING, DIRTY or BEHIND — the PR waits (land rebases nothing); the head must still be the checked
-//     one; the CI check and the marks are read again (the lock may have been waited for a long time); then
-//     `gh pr merge <N> --squash --match-head-commit <head>`.
+//     CONFLICTING or DIRTY — the PR waits with "conflict: rebase" (land rebases nothing); the head must still
+//     be the checked one; the CI check and the marks are read again (the lock may have been waited for a long
+//     time); then `gh pr merge <N> --squash --match-head-commit <head>`.
+//     A base that moved is no reason to wait: a PR is not rebased only to get a fresh base, the CI run on the
+//     push to the main branch checks the merged PRs together. With branch protection `strict` false GitHub
+//     does not report BEHIND for such a PR; with `strict` true it reports BEHIND and
+//     refuses the merge itself — that refusal is the wait, with the reason "BEHIND: the base branch requires
+//     an up-to-date branch, rebase".
 // A PR that waits does not hold back the next one: each PR is merged on its own head's condition, in the
 // order of the state file. No local gate runs here, and workflow.ci "batch" is refused: with it a PR head has no CI run to merge on
 // (wave-gate is that path).
@@ -386,10 +391,15 @@ async function mergeOne(st, n, head, verify) {
             await sleep(T.retry)
         }
         if (v.mergeable === "UNKNOWN") throw new Wait(`mergeable UNKNOWN after ${MERGEABLE_RETRIES} retries`, "ci")
-        if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY") throw new Wait("DIRTY: the PR conflicts with its base, rebase it")
-        if (v.mergeStateStatus === "BEHIND") throw new Wait("BEHIND: the base moved, rebase the PR")
+        if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY")
+            throw new Wait(`conflict: rebase — the PR conflicts with its base (mergeable ${v.mergeable}, mergeStateStatus ${v.mergeStateStatus})`)
+        // BEHIND without a conflict merges like CLEAN: a fresh base is no merge condition (GitHub refuses it under strict protection)
+        const behind = v.mergeStateStatus === "BEHIND"
+        if (behind) log(`#${n}: BEHIND without a conflict — merging without a rebase`)
         verify()
         const r = gh(st, ["pr", "merge", String(n), "--squash", "--match-head-commit", head])
+        if (r.code !== 0 && behind)
+            throw new Wait(`BEHIND: the base branch requires an up-to-date branch, rebase — gh pr merge exit ${r.code}: ${firstLine(r.err)}`)
         if (r.code !== 0) throw new Wait(`gh pr merge failed (exit ${r.code}): ${firstLine(r.err)}`)
         let sha = null
         try {
