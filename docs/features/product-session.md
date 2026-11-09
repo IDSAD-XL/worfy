@@ -48,11 +48,13 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
   now" in the first minute); an agent with no time known shows none. `worfy:critic` reads "Critic",
   `worfy:product-ideas` "Idea generator", any other Subagent its type. The states are "working", "done", "error" and
   "interrupted". The critic's number of objections comes from the review it wrote, read from its transcript; until it
-  has written one, no number shows. Escape or "›" closes the list. The rail blocks of a plain Session are not shown: a
+  has written one, no number shows. The working agents come first, the later started higher, each nested agent under
+  its parent. Escape or "›" closes the list. The rail blocks of a plain Session are not shown: a
   Product Session is bound to no Ticket and no Epic.
 
 **The chat.** It is headed "Conversation with the advisor", with the Vendor as a small bordered tag, and shows the
-conversation only:
+conversation only. The heading stays on one line: a narrow chat cuts its words with "…", and the Vendor tag stays whole.
+The input field keeps about 126 px in a chat as narrow as the agents list leaves in a 1160-wide window:
 
 - The owner's messages are bubbles at the right edge, under "You", the time and the message's number in the chat
   ("#1"). The advisor's answers are bubbles at the left edge, under a violet "A", "Advisor", the time and the number.
@@ -204,7 +206,7 @@ and the reason.
 **Looking at it.**
 
 - The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
-  "Fit". The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
+  "Fit". It stays one row: a narrow map tightens its gaps, and a row that still does not fit scrolls sideways. The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
 - When the map's area changes size (the window, the divider beside the chat), the map fits into it again. After the
   owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
 - A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
@@ -218,8 +220,9 @@ and the reason.
 - A click on a node opens its card beside the node: to its right, to its left where the right has no room, under or
   above it where neither side has, always inside the map. The card shows the kind and status as a pill (struck through
   for a rejected Decision), text, Reason, Source, History (every status of a Decision, oldest first, the one that
-  rejected it in red), Grew from (a link to the parent's card), Message (where the node appeared, "Show in the chat")
-  and Changed by (the message of each later status). The card of a map Ticket shows its Status
+  rejected it in red), Grew from (a link to the parent's card), Message (where the node appeared)
+  and Changed by (the message of each later status). A message the chat has loaded is quoted: "#2 Advisor: “…”", its
+  start cut to 60 characters, the number a link to it; any other reads "Show in the chat". The card of a map Ticket shows its Status
   and its file. The card of a node of `mind-map.json` says "To change this node, ask the advisor in the chat."
 - Tab moves between nodes, Enter or Space opens a card, Escape closes it.
 
@@ -238,7 +241,8 @@ One message shows a node once, as its last call there left it. A turn none of wh
 starts in its tool calls) shows its chips under the next message, or at the end of the chat. A chip is a pill with a
 small square of the node's kind colour and a muted line that names the kind: "+ Idea: …", "+ Question: …",
 "+ Decision ✓: …", "+ Decision ✕: …", "+ Objection: …" for a node the call added, the same without "+" for a node it
-changed. A `mind_map_decide` that turned a Decision's status the other way shows a red chip, "↺ “…” → rejected". A click on a chip selects the node on the Mind map and brings it into view. A
+changed. A `mind_map_decide` that turned a Decision's status the other way shows a red chip, "↺ “…” → rejected". A chip is never wider than the chat: a text that does not fit ends in "…". A click on a chip selects the node on the
+Mind map, brings it into view and rings the message the chip stands under; the chat does not move. A
 hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing at a chip or
 focusing it lights its node; pointing at a message lights the nodes of all its chips. "Show in the chat" on a card
 scrolls the chat to the message that carries the node's chip.
@@ -315,7 +319,9 @@ out again.
   fold, their write to the file, and chips.
 - `test/e2e/product-session.spec.ts`: in the running app, a node the advisor adds shows without a reload with its
   chip, the open agents list widens its column without covering the chat, and a dragged node keeps its place after a
-  restart. Folding is covered by the unit tests only.
+  restart; in a 1160-wide window with the agents list open, the chat heading, the chips, the map's toolbar and the
+  input field fit the narrow column, a chip rings its message and the card quotes it. Folding is covered by the unit
+  tests only.
 
 ## Critic, ideas and the share of accepted advice
 

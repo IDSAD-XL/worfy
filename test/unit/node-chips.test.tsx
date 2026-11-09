@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { CHIPS_AT_END, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { CHIPS_AT_END, messageQuote, quoteLabel, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { ProductSessionContext, shownInProductChat } from '../../src/renderer/session/product-session'
 import { Transcript } from '../../src/renderer/session/Transcript'
@@ -346,5 +346,47 @@ describe('chips of Mind map nodes under a message', () => {
   it('a plain Session’s chat shows no chips', () => {
     render(<Transcript events={events} projectId="p1" />)
     expect(screen.queryAllByTestId('node-chip')).toEqual([])
+  })
+
+  // worfy-product-session ticket 24 (N5): as the prototype's selection, a chip's click rings the message the
+  // chip stands under, with the ring «Show in the chat» gives; the chat does not move, the message is on screen.
+  it('a click on a chip also rings the message it stands under, and asks the chat not to scroll', () => {
+    render(<ProductBody />)
+    expect(document.querySelector('[data-item][data-shown]')).toBeNull()
+    act(() => fireEvent.click(screen.getAllByTestId('node-chip')[1]!))
+    expect(useMindMapFocus.getState().shown).toMatchObject({ projectId: 'p1', message: 'uuid-2', scroll: false })
+    const shown = document.querySelector<HTMLElement>('[data-item][data-shown]')
+    expect(shown).not.toBeNull()
+    expect(within(shown!).getByTestId('transcript-text').textContent).toContain('Two nodes: an idea and the question it raises.')
+    expect(nodeOf('who-pays')!.className).toContain('w-mind__node--selected')
+  })
+
+  // Ticket 24, row 14 of the comparison: the card's «Message» quotes the message — «#2 Advisor: “…”» — as the
+  // prototype does, when the loaded chat has it; else it keeps «Show in the chat».
+  it('a node card quotes its message with the number and the author when the chat has it, and keeps the link when not', () => {
+    const { unmount } = render(<ProductBody />)
+    fireEvent.click(nodeOf('who-pays')!)
+    let card = screen.getByRole('region', { name: 'Node' })
+    const link = within(card).getByRole('button', { name: 'Show the message in the chat' })
+    expect(link.textContent).toBe('#2 Advisor')
+    expect(link.closest('dd')!.textContent).toBe('#2 Advisor: “Two nodes: an idea and the question it raises.”')
+    act(() => fireEvent.click(link))
+    expect(within(document.querySelector<HTMLElement>('[data-item][data-shown]')!).getByTestId('transcript-text').textContent).toContain('Two nodes')
+    unmount()
+
+    // The chat holds only the first call: the second node's message is not in it.
+    render(<ProductBody shown={events.slice(0, 4)} />)
+    fireEvent.click(nodeOf('who-pays')!)
+    card = screen.getByRole('region', { name: 'Node' })
+    expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show in the chat')
+  })
+
+  it('a quoted message is cut to 60 characters, an owner’s prompt is «You», the whitespace of an answer is one space', () => {
+    expect(messageQuote(3, 'you', 'Short')).toEqual({ number: 3, who: 'you', text: 'Short' })
+    const long = 'A'.repeat(40) + ' ' + 'B'.repeat(30)
+    expect(messageQuote(1, 'advisor', long).text).toBe(long.slice(0, 58) + '…')
+    expect(messageQuote(1, 'advisor', '**Two** lines\n\n- and a list').text).toBe('Two lines - and a list')
+    expect(quoteLabel({ number: 5, who: 'advisor', text: 'x' })).toBe('#5 Advisor')
+    expect(quoteLabel({ number: 1, who: 'you', text: 'x' })).toBe('#1 You')
   })
 })

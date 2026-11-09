@@ -44,14 +44,30 @@
   }
 }
 
+/* One row at any width of the map (ticket 24): in a narrow map the row scrolls sideways instead of wrapping
+   the zoom and Fit onto a second row, which took the map's height. */
 .w-mind__toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.w-mind__toolbar > * {
+  flex: none;
+}
+
+/* A narrow map of a Product Session (session.css names the container): tighter gaps, so the row fits. */
+@container w-product-map (width < 440px) {
+  .w-mind__toolbar {
+    gap: var(--space-1);
+    padding: 6px var(--space-2);
+  }
 }
 
 .w-mind__camera {
@@ -672,7 +688,17 @@
   background: var(--mind-kind, var(--text-muted));
 }
 
+/* A chip is never wider than the chat column (ticket 24): the item and the text may shrink below their
+   content, so a narrow column cuts the text at its end with «…» and keeps the chip's left end — the «+ »
+   and the square — in view. 230 px is the text's limit in a wide column only. */
+.w-chips__item {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .w-chips__text {
+  min-width: 0;
   max-width: 230px;
   overflow: hidden;
   white-space: nowrap;

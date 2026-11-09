@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
 import { Markdown } from '../markdown/Markdown'
-import { attachChat, CHIPS_AT_END, lightNodes, transcriptChips, useMindMapFocus, type NodeChip, type NodeRef } from '../product/node-chips'
+import { attachChat, CHIPS_AT_END, lightNodes, messageQuote, publishQuotes, transcriptChips, useMindMapFocus, type MessageQuote, type NodeChip, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
@@ -710,6 +710,21 @@ export function Transcript(props: TranscriptProps) {
   const numbers = useMemo(() => (inProduct ? messageNumbers(items) : null), [inProduct, items])
   const shownMessage = useMindMapFocus((state) => state.shown)
   useEffect(() => (product === null ? undefined : attachChat(product)), [product])
+  // How a node card quotes the messages of its calls (ticket 24): the number, the author and the start of
+  // the message the call's chip stands under. A message not loaded has no quote; the card keeps its link.
+  const quotes = useMemo(() => {
+    if (chips === null || numbers === null) return null
+    const quoted = new Map<string, MessageQuote>()
+    for (const [message, row] of chips.rowOfMessage) {
+      const at = index.get(row)
+      const item = at === undefined ? undefined : items[at]
+      const number = numbers.get(row)
+      if (number === undefined || (item?.kind !== 'prompt' && item?.kind !== 'text')) continue
+      quoted.set(message, messageQuote(number, item.kind === 'prompt' ? 'you' : 'advisor', item.text))
+    }
+    return quoted
+  }, [chips, numbers, index, items])
+  useEffect(() => (product === null || quotes === null ? undefined : publishQuotes(product, quotes)), [product, quotes])
   // A chat that goes while the pointer is on one of its messages leaves no node lit.
   useEffect(() => (product === null ? undefined : () => lightNodes([])), [product])
   const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
@@ -938,12 +953,16 @@ export function Transcript(props: TranscriptProps) {
     const key = chips.rowOfMessage.get(shownMessage.message)
     // The chips of a turn with no row drawn stand at the end of the chat (node-chips.ts, CHIPS_AT_END).
     const end = key === CHIPS_AT_END ? element.querySelector<HTMLElement>(':scope > [data-chips-end]') : null
+    // A chip's click asks for its own message, which is on screen: the ring only, the chat stays (ticket 24).
+    const scroll = shownMessage.scroll !== false
     if (end !== null) {
       shownSeq.current = shownMessage.seq
       for (const was of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-shown]'))) was.removeAttribute('data-shown')
       end.setAttribute('data-shown', '')
-      element.scrollTop = element.scrollHeight
-      track()
+      if (scroll) {
+        element.scrollTop = element.scrollHeight
+        track()
+      }
       return
     }
     if (key === undefined || !index.has(key)) {
@@ -961,6 +980,7 @@ export function Transcript(props: TranscriptProps) {
     shownSeq.current = shownMessage.seq
     for (const was of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-shown]'))) was.removeAttribute('data-shown')
     row.setAttribute('data-shown', '')
+    if (!scroll) return
     element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - element.clientHeight / 3
     track()
   }, [chips, shownMessage, product, index, drawn, place, track])

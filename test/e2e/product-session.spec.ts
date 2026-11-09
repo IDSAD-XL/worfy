@@ -330,3 +330,129 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     await launched.close()
   }
 })
+
+// A Product Session in a narrow chat column (worfy-product-session ticket 24): the 1160-wide window with the
+// agents list open leaves the chat about 240 px, as in the prototype. The heading stays on one line with the
+// Vendor tag inside it; every chip stays inside the column, its text cut at the end; the map's toolbar keeps
+// one row; the input field keeps a usable width; the working Critic is listed above the Idea generator that is
+// done. A chip's click rings the message it stands under without moving the chat, and the node's card quotes
+// that message. The fake script product-narrow.jsonl plays one turn: a mind_map_add before the answer (its
+// chip under the owner's prompt), the answer, three more calls, an Idea generator that ends and a Critic that
+// still works. The screenshots go to the test's output folder.
+const NARROW_MESSAGE = (n: number): string => `00000000-0000-4000-8000-000000000a${String(n).padStart(2, '0')}`
+const NARROW_MAP = [
+  { id: 'screen', kind: 'idea', text: 'A separate product screen: the decision map next to the conversation with the advisor', from: null, advice: true, message: NARROW_MESSAGE(1) },
+  { id: 'first-epic', kind: 'decision', text: 'First Epic: try the advisor in the Harness first, with a minimal screen', from: 'screen', status: 'accepted', reason: 'cheaper to start without a screen', message: NARROW_MESSAGE(11) },
+  { id: 'who-decides', kind: 'question', text: 'Who decides when the advisor and the critic disagree about the scope of the first Epic?', from: 'screen', message: NARROW_MESSAGE(13) },
+  { id: 'agent-writes', kind: 'objection', text: 'The product files are written by the agent tool, never by the owner by hand', from: 'first-epic', source: 'docs/design/F-SPEC.md', message: NARROW_MESSAGE(15) },
+]
+const NARROW_PROMPT = 'Let us plan the product screen: what goes first, and who decides when the advisor and the critic disagree?'
+
+test('a narrow chat column keeps the heading on one line and every chip inside it; a chip rings its message and the card quotes it', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-narrow' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const map = view.getByTestId('product-session-map')
+    await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill(NARROW_PROMPT)
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Three more nodes on the map')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    // What the tools write; the fake agent called none.
+    writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: NARROW_MAP }, null, 2)}\n`)
+    await expect(map.getByTestId('mind-node')).toHaveCount(NARROW_MAP.length + 1)
+    const chips = view.getByTestId('node-chip')
+    await expect(chips).toHaveCount(NARROW_MAP.length)
+    await map.getByRole('button', { name: 'Fit' }).click()
+    await view.screenshot({ path: test.info().outputPath('24-product-session-1440.png') })
+
+    // The 1160-wide window with the agents list open.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 860))
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1160)
+    await view.getByTestId('product-agents-toggle').click()
+    const panel = view.getByTestId('product-agents-panel')
+    await expect(panel).toBeVisible()
+    await expect.poll(async () => Math.round((await view.getByTestId('product-agents').boundingBox())!.width)).toBe(300)
+    const chat = view.locator('section.w-session__main')
+    const chatBox = (await chat.boundingBox())!
+    expect(chatBox.width).toBeLessThan(260)
+
+    // The heading: one line inside its 40 px bar, the words cut, the Vendor tag whole and inside the chat.
+    const head = view.getByTestId('product-chat-head')
+    const name = view.getByTestId('product-chat-name')
+    const vendor = head.locator('.w-product__chat-vendor')
+    const [headBox, nameBox, vendorBox] = [(await head.boundingBox())!, (await name.boundingBox())!, (await vendor.boundingBox())!]
+    expect(Math.round(headBox.height)).toBe(40)
+    expect(nameBox.height).toBeLessThan(22)
+    expect(nameBox.y).toBeGreaterThanOrEqual(headBox.y)
+    expect(nameBox.y + nameBox.height).toBeLessThanOrEqual(headBox.y + headBox.height)
+    expect(vendorBox.height).toBeLessThan(22)
+    expect(vendorBox.x + vendorBox.width).toBeLessThanOrEqual(chatBox.x + chatBox.width + 0.5)
+    expect(vendorBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 0.5)
+    const cutAtEnd = (element: unknown): [boolean, string] => {
+      const own = element as { scrollWidth: number; clientWidth: number }
+      const style = (globalThis as unknown as { getComputedStyle(of: unknown): { textOverflow: string } }).getComputedStyle(element)
+      return [own.scrollWidth > own.clientWidth, style.textOverflow]
+    }
+    expect(await name.evaluate(cutAtEnd)).toEqual([true, 'ellipsis'])
+
+    // Every chip inside the column, its left end in view; a text that does not fit is cut at its end.
+    const chipBoxes = await chips.evaluateAll((elements) =>
+      elements.map((element) => {
+        type Box = { getBoundingClientRect(): { left: number; right: number }; scrollWidth: number; clientWidth: number }
+        const box = element.getBoundingClientRect()
+        const text = element.querySelector('.w-chips__text') as unknown as Box
+        const mark = element.querySelector('.w-chips__mark') as unknown as Box
+        const overflow = (globalThis as unknown as { getComputedStyle(of: unknown): { textOverflow: string } }).getComputedStyle(text).textOverflow
+        return { left: box.left, right: box.right, markLeft: mark.getBoundingClientRect().left, cut: text.scrollWidth > text.clientWidth, overflow }
+      }),
+    )
+    for (const each of chipBoxes) {
+      expect(each.left).toBeGreaterThanOrEqual(chatBox.x - 0.5)
+      expect(each.right).toBeLessThanOrEqual(chatBox.x + chatBox.width + 0.5)
+      expect(each.markLeft).toBeGreaterThanOrEqual(each.left)
+      expect(each.overflow).toBe('ellipsis')
+    }
+    expect(chipBoxes.filter((each) => each.cut).length).toBeGreaterThan(0)
+
+    // The map's toolbar on one row; the input field keeps its width.
+    const toolbar = map.locator('.w-mind__toolbar')
+    const tops = await toolbar.evaluate((element) => [...element.children].map((child) => Math.round(child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2)))
+    expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2)
+    expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    expect((await view.getByTestId('message-input-box').boundingBox())!.width).toBeGreaterThanOrEqual(126)
+
+    // The working Critic above the Idea generator that is done.
+    await expect.poll(async () => (await panel.getByTestId('product-agent-line').allTextContents()).map((line) => line.trim())).toEqual(['Critic', 'Idea generator'])
+    await view.screenshot({ path: test.info().outputPath('24-agents-list-1160.png') })
+
+    // A chip's click selects its node, rings the message the chip stands under and leaves the chat where it is.
+    const log = view.getByTestId('transcript')
+    const chip = view.locator('[data-testid="node-chip"][data-id="first-epic"]')
+    await chip.scrollIntoViewIfNeeded()
+    const scrolled = await log.evaluate((element) => element.scrollTop)
+    await chip.click()
+    const ringed = log.locator('[data-item][data-shown]')
+    await expect(ringed).toHaveCount(1)
+    await expect(ringed.getByTestId('transcript-text')).toContainText('Three more nodes on the map')
+    expect(await log.evaluate((element) => element.scrollTop)).toBe(scrolled)
+    // The card quotes the message: its number, the author and the start of the text.
+    const card = map.getByRole('region', { name: 'Node' })
+    await expect(card).toContainText('First Epic: try the advisor')
+    await expect(card.getByRole('button', { name: 'Show the message in the chat' })).toHaveText('#2 Advisor')
+    await expect(card).toContainText('#2 Advisor: “Three more nodes on the map. The advisor proposes, the cri…”')
+    await view.screenshot({ path: test.info().outputPath('24-chip-and-card-1160.png') })
+  } finally {
+    await launched.close()
+  }
+})
