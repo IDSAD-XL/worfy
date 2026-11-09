@@ -35,7 +35,7 @@ Eval case `harness/evals/reviewer-verdict` запускает одного аг�
       `rejected-first` зелёный в каждом; команда, exit code, балл и цена — в «Итог».
 - [ ] Платный `eval --changed origin/main` по остальным case-ам, которые покрывает `reviewer.md`, — на пороге или выше.
 - [ ] `node harness/bin/start-context` — exit 0 (reviewer в пороге).
-  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 11 923 tokens, 3 077 below the threshold) · mac - · 70e791e61
+  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 12 062 tokens, 2 938 below the threshold) · mac - · 177d2e642
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
@@ -70,13 +70,35 @@ Eval case `harness/evals/reviewer-verdict` запускает одного аг�
 - `case`-ы, которые выбирает `node scripts/eval-harness.mjs --changed origin/main --dry-run` (exit 0):
   `reviewer-intended-breakage`, `reviewer-simplification`, `reviewer-verdict`.
 
-Кто добавлял разметку — не проверено: run-ы 2026-11-09 (`2026-11-09T21-30-21-240Z-main-reviewer-verdict`
-в worktree тикета multi-repo 07 и повтор `2026-11-09T22-28-26-601Z` на копии `main`) на диске не
-сохранились — worktree-ы удалены после merge, а `claude plugin eval` без `--keep-temp` не оставляет
-sandbox run-а (workspace и `trace.jsonl`). Журналы Orchestrator-а показывают только итог grader-а
-(«pattern not found in file verdict.md» в run-ах 2 и 3). Поэтому правка — по основному пути тикета, в
-`reviewer.md`; `prompt.md` case-а не тронут. Платный run Orchestrator-а с `--keep-temp`
-(`node scripts/eval-harness.mjs --case reviewer-verdict --keep-temp`) оставит `trace.jsonl`: в нём видно,
-какой первой строкой ответил агент `verify-01` и что основная сессия записала в `verdict.md`.
 
-Платный eval не запускался (его запускает Orchestrator): пункты 2 и 3 «Готово, когда» открыты.
+Раунд 1 ревью (вердикт REJECTED): платный `eval --changed origin/main --keep-temp` Orchestrator-а на head
+`1f4556ab8` стоил 2.26 USD. Результаты: `reviewer-intended-breakage` 1.00, `reviewer-simplification` 1.00,
+`reviewer-verdict` 0.89 (на `main` было 0.78). Grader `rejected-first` не прошёл в run-е 1 из 3.
+
+Кто ломает первую строку — сам reviewer, не основная сессия eval-а. Это видно по сохранённому
+transcript-у упавшего run-а (`trace.jsonl` run-а 1, копия Orchestrator-а `eval-traces-1757/run1-failed-trace.jsonl`):
+- строка 46 — ответ агента `verify-01` (`tool_result` вызова Agent) начинается не с вердикта, а с абзаца
+  о `qmd` («Profile shows `qmd.collections: []` … not something already settled by ADR/lesson»);
+- строка 48 — основная сессия пишет этот ответ в `verdict.md` через Write без правок;
+- в ответе вердикт `REJECTED: node --test exits 1, the report says 0; …` стоит второй строкой, а в конце,
+  после строк «Ran: …» и «Could not verify: …», повторён ещё раз.
+
+В run-ах 2026-11-09 первой строкой был `**REJECTED — …**` (так записано в описании тикета). Те run-ы
+не сохранились: worktree-ы удалены после merge, а без `--keep-temp` `claude plugin eval` не оставляет
+sandbox. Значит, и там разметку, скорее всего, добавлял reviewer: основная сессия копирует ответ без
+правок. Правка `prompt.md` case-а не нужна.
+
+Правка раунда 2, `harness/agents/reviewer.md`:
+- в начале раздела «Answer format» сказано прямо: под линзой «implementer's report» вердикт стоит перед
+  всеми строками ниже, то есть перед findings, строкой «что запускал» и строкой «что не удалось проверить»;
+- в абзаце вердикта вторая строка `Wrong:` показывает порядок из transcript-а: сначала абзац о том, что
+  запускал, что не проверил или что показал `qmd`, а вердикт в конце;
+- в «Nothing comes before the verdict line» добавлено: никаких замечаний о `qmd` или ADR. Отдельное
+  предложение говорит, что строки «что запускал» и «что не удалось проверить» идут после вердикта;
+- «One verdict only» дополнено: вердикт не повторяют в конце ответа.
+
+`agents-text.test.sh` закрепляет новые предложения и строку второго `Wrong:`. До правки `reviewer.md`
+test был красным: 7 FAIL. После правки reviewer по `node harness/bin/start-context` весит 12 062 tokens,
+на 2 938 ниже порога (exit 0).
+
+Платный eval после раунда 2 запускает Orchestrator: пункты 2 и 3 «Готово, когда» открыты.
