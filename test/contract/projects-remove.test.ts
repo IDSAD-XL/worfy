@@ -131,19 +131,21 @@ function deps(sessions: { sessionId: string; cwd: string }[] = [], connectScript
   return {
     projects: {
       get: (id) => store.get(id),
+      list: () => store.list(),
       remove: (id) => {
         log.push(`list remove ${store.get(id).name}`)
         store.remove(id)
       },
     },
+    harnessHome: () => harnessHome,
     profileDir: (root) => readProfileDir((cwd, args) => runScript('profile', args, '', cwd), root),
     registeredRepos: gateRegistryRepos(() => join(harnessHome, 'gate')),
     connect: async (args, stdin) => {
       log.push(`project-connect ${args.join(' ')}`)
       return connectScript(args, stdin)
     },
-    stopOrchestrator: (projectId) => {
-      log.push(`stop ${store.get(projectId).name}`)
+    stopOrchestrators: (projectIds) => {
+      log.push(`stop ${projectIds.map((id) => store.get(id).name).join(' ')}`)
       return () => log.push('release')
     },
     sessions: {
@@ -199,7 +201,9 @@ describe('Remove project of a Full mode repository', () => {
       qmd: [],
       mode: 'full',
       workflowFolder: null,
+      alsoListed: [],
     })
+    expect(preview.status === 'ready' && preview.runs).toBe(join(harnessHome, 'runs', 'shop'))
 
     const sessions = [
       { sessionId: 'inside', cwd: join(shop, '.claude', 'worktrees', '05') },
@@ -258,21 +262,84 @@ describe('Remove project of a Full mode repository', () => {
     expect(existsSync(join(harnessHome, 'projects', 'shop', 'profile.json'))).toBe(true)
   })
 
-  it('a Profile the Harness no longer has is no failure: the Project leaves the list', async () => {
+  it('"no profile" from the script counts as done only when no registry entry of the Profile is left', async () => {
     const shop = makeRepo(join(scratch, 'shop'))
     await connect('shop', 'full', null, [shop])
     const project = await listed(shop)
-    const already: ConnectScript = () =>
-      Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'value', message: 'no profile shop: it does not exist' }] }), stderr: '' })
-    expect(await removeProject(deps([], already), project.id)).toStrictEqual({ status: 'removed', notes: [] })
+    const noProfile = { code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'value', message: 'no profile shop: it does not exist' }] }), stderr: '' }
+    // The registry still names the Profile: nothing was freed.
+    const stillListed = await removeProject(deps([], () => Promise.resolve(noProfile)), project.id)
+    expect(stillListed).toStrictEqual({
+      status: 'refused',
+      reason: `The Harness has no Profile shop to remove, but its gate registry still names it for ${shop}: nothing was freed, and the Project stays in the list.`,
+      workflowFolder: null,
+    })
+    expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
+    // Removed meanwhile by another run of the Harness: the registry is clear, so the list is all that is left.
+    const removedMeanwhile: ConnectScript = async () => {
+      expect((await realConnect(['--remove', 'shop', '--no-qmd'], '')).code).toBe(0)
+      return noProfile
+    }
+    expect(await removeProject(deps([], removedMeanwhile), project.id)).toStrictEqual({ status: 'removed', notes: [] })
     expect(store.list()).toStrictEqual([])
   })
 
+  it('a Profile in the old Harness folder (~/.claude/profiles) is refused before anything closes: --remove would not find it', async () => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    const old = join(home, '.claude', 'profiles', 'shop')
+    mkdirSync(old, { recursive: true })
+    writeFileSync(join(old, 'profile.json'), JSON.stringify({ schema: 1, name: 'shop' }))
+    mkdirSync(join(harnessHome, 'gate'), { recursive: true })
+    writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'shop', match: shop, profile: 'shop' }] }))
+    expect((await runScript('profile', ['-C', shop, '--dir'], '', shop)).stdout.trim()).toBe(old)
+    const project = await listed(shop)
+    const result = await removeProject(deps([{ sessionId: 'inside', cwd: shop }]), project.id)
+    expect(result).toStrictEqual({
+      status: 'refused',
+      reason: `The Profile shop is in the old Harness folder ${join(home, '.claude', 'profiles')}, and the Harness removes only Profiles in ${join(harnessHome, 'projects')}. Move the old Harness to the plugin first (Command palette: First-run checks), then remove the project. "Remove from list" takes it out of worfy's list only.`,
+      workflowFolder: null,
+    })
+    expect(log).toStrictEqual([])
+    expect(registry().map((entry) => entry.profile)).toStrictEqual(['shop'])
+    expect(existsSync(join(old, 'profile.json'))).toBe(true)
+    expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
+  })
+
+  it('qmd collections that stay are named: qmd not installed, real --remove output', async () => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'full', null, [shop])
+    // The qmd field the qmd step writes; the sandbox has no qmd, so --remove keeps the collections and says why.
+    const file = join(harnessHome, 'projects', 'shop', 'profile.json')
+    writeFileSync(file, JSON.stringify({ ...(JSON.parse(readFileSync(file, 'utf8')) as object), qmd: { collections: ['shop-docs', 'shared'] } }))
+    const project = await listed(shop)
+    expect(await removeProject(deps(), project.id)).toStrictEqual({ status: 'removed', notes: ['The qmd collections shop-docs, shared stay: qmd is not installed.'] })
+  })
+
+  it('another listed Project inside the folder shares the Profile: its Orchestrator is held too, and it stays in the list, named in the notes', async () => {
+    const code = join(scratch, 'code')
+    const m1 = makeRepo(join(code, 'm1'))
+    const m2 = makeRepo(join(code, 'm2'))
+    const folder = realpathSync.native(code)
+    await connect('code', 'silent', folder, [m1, m2])
+    const project = await listed(folder)
+    const inner = await listed(m1)
+    const preview = await removalPreview(deps(), project.id)
+    expect(preview.status === 'ready' && preview.alsoListed).toStrictEqual([`m1 (${m1})`])
+    expect(await removeProject(deps(), project.id)).toStrictEqual({
+      status: 'removed',
+      notes: ['m1 stays in the list without a Profile: Remove from list takes it out, or Add project connects its folder again.'],
+    })
+    expect(log).toStrictEqual(['stop code m1', 'project-connect --remove code', 'list remove code', 'release'])
+    expect(store.list().map((each) => each.id)).toStrictEqual([inner.id])
+  })
+
   it('a folder the Harness does not know is refused before anything is asked', async () => {
+    // A Harness with a registry that does not name the folder: bin/profile answers exit 3.
+    await connect('other', 'full', null, [makeRepo(join(scratch, 'other'))])
     const loose = makeRepo(join(scratch, 'loose'))
     const project = await listed(loose)
     const result = await removeProject(deps(), project.id)
-    expect(result.status === 'refused' && result.reason).toMatch(/^The Harness of this Machine has no Profile for .*"Remove from list" is all there is to do\.$/)
+    expect(result.status === 'refused' && result.reason).toBe(`The Harness of this Machine has no Profile for ${loose}, so none of its paths is taken. "Remove from list" takes it out of worfy's list only.`)
     expect(log).toStrictEqual([])
     expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
   })
@@ -300,7 +367,7 @@ describe('Remove project in Silent mode', () => {
     expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
   })
 
-  it('the Harness refusal itself (a Workflow folder with commits only) is shown with the folder, and nothing is removed', async () => {
+  it('a default Workflow folder with commits only is refused before anything closes, as the Harness would refuse it', async () => {
     const shop = makeRepo(join(scratch, 'shop'))
     await connect('shop', 'silent', null, [shop])
     const workflow = join(harnessHome, 'projects', 'shop', 'workflow')
@@ -310,12 +377,32 @@ describe('Remove project in Silent mode', () => {
     git(workflow, 'commit', '-q', '-m', 'tickets')
     git(workflow, 'rm', '-q', '01.md')
     git(workflow, 'commit', '-q', '-m', 'moved')
+    expect(readdirSync(workflow)).toStrictEqual(['.git'])
+    // The Harness itself refuses this folder: the check in main says the same before anything closes.
+    const before = registry()
+    const harnessSays = await realConnect(['--remove', 'shop', '--no-qmd'], '')
+    expect([harnessSays.code, harnessSays.stdout]).toStrictEqual([1, expect.stringContaining("holds the project's own files and commits") as unknown as string])
+    expect(registry()).toStrictEqual(before)
     const project = await listed(shop)
-    const result = await removeProject(deps(), project.id)
-    expect(result.status === 'refused' && result.reason).toMatch(/^The Harness did not remove the Profile shop, so the Project stays in the list: the Workflow folder .* holds the project's own files and commits/)
+    const result = await removeProject(deps([{ sessionId: 'inside', cwd: shop }]), project.id)
+    expect(result.status === 'refused' && result.reason).toMatch(/^The Workflow folder .* holds the project's own files \(its tickets\)\. worfy does not delete them: move the folder .* out of .* first\. Nothing was removed\.$/)
     expect(result.status === 'refused' && result.workflowFolder).toMatch(/[\\/]projects[\\/]shop[\\/]workflow$/)
+    // Nothing was stopped or closed, and the script never ran.
+    expect(log).toStrictEqual([])
     expect(git(workflow, 'rev-list', '--count', 'HEAD')).toBe('2')
     expect(registry().map((entry) => entry.profile)).toStrictEqual(['shop'])
+    expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
+  })
+
+  it('a refusal of the script about the Workflow folder after the preview (a race) still names the folder', async () => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'silent', null, [shop])
+    const project = await listed(shop)
+    const refusing: ConnectScript = () =>
+      Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'value', message: "the Workflow folder holds the project's own files: move it out first; nothing was removed" }] }), stderr: '' })
+    const result = await removeProject(deps([], refusing), project.id)
+    expect(result.status === 'refused' && result.workflowFolder).toMatch(/[\\/]projects[\\/]shop[\\/]workflow$/)
+    expect(log).toStrictEqual(['stop shop', 'project-connect --remove shop', 'release'])
     expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
   })
 

@@ -165,6 +165,11 @@ function machinesBridge(options: {
       case 'gateQueue.get':
       case 'actions.gateQueue':
         return gate(channel)
+      // "Remove project…" (worfy-polish ticket 79): this Machine's own channels.
+      case 'projects.removal.preview':
+        return { ok: true, value: { status: 'refused', reason: 'The Profile x also covers /elsewhere.' } }
+      case 'projects.remove':
+        return { ok: true, value: listOf('studio', 'studio-one-00000001') }
       case 'linked.invoke': {
         const call = input as { machine: string; channel: string }
         const held = options.held
@@ -520,5 +525,19 @@ describe('the Projects of Linked machines', () => {
       await act(async () => undefined)
       expect(items()).toEqual(['Project settings…', 'Remove from list', 'Remove project…'])
     })
+  })
+
+  it('"Remove from list" inside the "Remove project…" dialog removes from the list only, on this Machine, and closes the dialog', async () => {
+    const { calls } = await loadModules({ link: linkState([]), linked: linkedState([]) })
+    const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+    render(<ProjectsSection />)
+    await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(2))
+    fireEvent.contextMenu(screen.getAllByTestId('project-row')[1]!)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove project…' }))
+    await screen.findByTestId('remove-project-refused')
+    fireEvent.click(screen.getByTestId('remove-project-list-only'))
+    await waitFor(() => expect(calls.filter(([channel]) => channel === 'projects.remove')).toEqual([['projects.remove', { id: 'studio-two-00000002' }]]))
+    expect(screen.queryByTestId('remove-project')).toBeNull()
+    expect(calls.map(([channel]) => channel)).not.toContain('projects.removeProject')
   })
 })

@@ -218,9 +218,10 @@ const listedIds = (): Set<string> => new Set(store.list().map((project) => proje
 // ── "Remove project…" (worfy-polish ticket 79, src/main/projects/remove.ts) ─────────────────────
 
 /** The removal's Project list, gate registry and bin/profile; the Orchestrators and Sessions are added per removal. */
-const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrator' | 'sessions'> => ({
+const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrators' | 'sessions'> => ({
   projects: {
     get: (id) => store.get(id),
+    list: () => store.list(),
     // As projects.remove does: the Layout written while the Project is listed, forgotten once it is out.
     remove: (id) => {
       layoutStore().flush(id)
@@ -228,6 +229,7 @@ const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrator' | 'sessions'
       layoutStore().forget(id)
     },
   },
+  harnessHome: () => locateHarness(harnessHomes(claudeHome())).harnessHome,
   profileDir: appProfileDir,
   registeredRepos: gateRegistryRepos(() => locateHarness(harnessHomes(claudeHome())).gateDir),
   connect: appConnectScript(),
@@ -245,9 +247,12 @@ function projectRemover(): ProjectRemover {
     const registry = sharedRegistry()
     return {
       ...removalBase(),
-      stopOrchestrator: (projectId) => {
-        sharedOrchestrators().retain(new Set(store.list().map((project) => project.id).filter((id) => id !== projectId)))
-        return keepClosed(projectId)
+      stopOrchestrators: (projectIds) => {
+        sharedOrchestrators().retain(new Set(store.list().map((project) => project.id).filter((id) => !projectIds.includes(id))))
+        const releases = projectIds.map((id) => keepClosed(id))
+        return () => {
+          for (const release of releases) release()
+        }
       },
       sessions: {
         list: () => registry.list().map(({ sessionId, cwd }) => ({ sessionId, cwd })),

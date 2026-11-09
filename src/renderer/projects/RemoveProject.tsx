@@ -72,6 +72,7 @@ function stays(project: ProjectView, preview: Extract<RemovalPreview, { status: 
   if (preview.mode === 'full') items.push(<>The tickets, spec, ADRs and state file in the repository</>)
   const folder = preview.workflowFolder
   if (folder !== null && !folder.inside) items.push(<>Your Workflow folder {folder.path} and the tickets in it</>)
+  for (const other of preview.alsoListed) items.push(<>The Project {other} in the list, without a Profile until its folder is connected again</>)
   items.push(<>worfy&apos;s own settings of the Project, as with Remove from list</>)
   return items
 }
@@ -175,8 +176,8 @@ export function RemoveProject({ project, onCancel, onRemoveFromList, onRemoved }
           ) : null}
           {held && refusal === null ? (
             <p role="alert" style={styles.error} data-testid="remove-project-refused">
-              The Workflow folder {ready.workflowFolder?.path} holds the project&apos;s own files (its tickets). worfy never deletes them: move them out of {ready.profileDir}{' '}
-              first, then remove the project.
+              The Workflow folder {ready.workflowFolder?.path} holds the project&apos;s own files (its tickets). worfy never deletes them: move the folder{' '}
+              {ready.workflowFolder?.path} out of {ready.profileDir} first, then remove the project.
             </p>
           ) : null}
           {refusal !== null ? (

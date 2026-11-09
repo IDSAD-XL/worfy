@@ -269,12 +269,17 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   of the Project. "Remove project" closes the Project's Orchestrator and its Sessions, runs `project-connect --remove <profile>`,
   then takes the Project out of the list. "Remove from list" in the same dialog does what the menu row of that name does.
   worfy deletes nothing itself, and the Harness never touches a repository.
-- "Remove project…" refuses, and removes nothing, when the default Workflow folder of a Silent mode Profile holds files
-  (the project's tickets): the dialog says so and offers "Show in Finder" for that folder, so the person moves the tickets
-  out first. It also refuses a folder the Harness has no Profile for, and a repository listed on its own whose Profile also
-  covers other repositories: removing that Profile would take them too. A refusal or a failure of `project-connect` keeps
-  the Project in the list, and the dialog shows the script's words. Moving a Project between Full and Silent mode is not
-  part of it.
+- "Remove project…" refuses before anything closes, and removes nothing, when the default Workflow folder of a Silent
+  mode Profile holds files or commits (the project's tickets): the dialog says so and offers "Show in Finder" for that
+  folder, so the person moves the whole folder out of the Profile folder first. It also refuses a folder the Harness has no
+  Profile for; a Profile in the old Harness folder `~/.claude/profiles/`, which `project-connect --remove` does not look in
+  (moving the old Harness to the plugin comes first); a Profile with "no registry entry of this Profile", which has no path to free; and a repository
+  listed on its own whose Profile also covers other repositories: removing that Profile would take them too. A refusal or
+  a failure of `project-connect` keeps the Project in the list, and the dialog shows the script's words; its "no profile"
+  counts as done only when no registry entry of that Profile is left. Another listed Project inside the removed one's
+  folder shares its Profile: its Orchestrator is held closed during the removal, and it stays in the list without a
+  Profile, which the dialog and the notice after the removal say. qmd collections that stay (qmd not installed, or another
+  Profile names them) are named in that notice. Moving a Project between Full and Silent mode is not part of it.
 
 **A broken list.** A `projects.json` with broken JSON or the wrong shape is set aside, and the app starts with an empty list. A saved active
 Project that is not in the list reads as no active Project.

@@ -1581,7 +1581,7 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
 })
 
 describe('Remove project (worfy-polish ticket 79): projects.removal.preview, projects.removeProject, projects.removal.reveal', () => {
-  /** The Harness home of the stubs: <harness>/projects/<name>/profile.json; the old Harness's registry is <claudeHome>/gate. */
+  /** The Harness home of the app (<claudeHome>/worfy-harness): <harness>/projects/<name>/profile.json; the old Harness's registry is <claudeHome>/gate. */
   let harness: string
   /** One line per bin/project-connect run: its arguments. */
   let connectCalls: string
@@ -1626,7 +1626,7 @@ describe('Remove project (worfy-polish ticket 79): projects.removal.preview, pro
   const connects = (): string[] => (existsSync(connectCalls) ? readFileSync(connectCalls, 'utf8').split('\n').filter(Boolean) : [])
 
   beforeEach(async () => {
-    harness = join(scratch, 'harness-home')
+    harness = join(claudeHome, 'worfy-harness')
     connectCalls = join(scratch, 'connect-calls.txt')
     asked = []
     // The scripts get this process's environment, as in the team reviewer tests above: no login shell capture.
@@ -1669,6 +1669,7 @@ describe('Remove project (worfy-polish ticket 79): projects.removal.preview, pro
       qmd: [],
       mode: 'full',
       workflowFolder: null,
+      alsoListed: [],
     })
     const removed = await value<{ status: string; state: State; notes: string[] }>('projects.removeProject', { id: project.id })
     expect(removed.status).toBe('removed')

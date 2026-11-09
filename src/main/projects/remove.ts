@@ -4,47 +4,63 @@
 //
 // The Harness does the removal itself (ADR-0002: worfy changes the workflow only through its tools):
 // `bin/project-connect --remove <profile>` deletes <Harness home>/projects/<profile>/ (with the default
-// Workflow folder of a Silent mode Profile, only while that folder is empty), every gate registry
-// entry of the Profile, <Harness home>/runs/<profile>/ and the qmd collections no other Profile names,
-// in one commit, rolled back on a failure. It never touches a repository, nor a Workflow folder the
-// user chose outside the Profile folder; it refuses a default Workflow folder that holds the
-// project's own files, and nothing is removed then. worfy deletes nothing itself.
+// Workflow folder of a Silent mode Profile, only while that folder holds nothing but an empty
+// `git init`), every gate registry entry of the Profile, <Harness home>/runs/<profile>/ and the qmd
+// collections no other Profile names, in one commit, rolled back on a failure. It never touches a
+// repository, nor a Workflow folder the user chose outside the Profile folder; it refuses a default
+// Workflow folder that holds the project's own files or commits, and nothing is removed then. worfy
+// deletes nothing itself.
 //
 // The order (the ticket's section on what to do):
-//   1. the preview: the Profile of the Project's folder (`bin/profile -C <folder> --dir`), and its gate
-//      registry entries, which must all be the folder or inside it — a Profile that also covers paths
-//      outside it (the folder is one repository of a Project over several) is refused, since removing
-//      it would take the others with it;
-//   2. a default Workflow folder that holds files is refused here, before anything closes;
-//   3. the Project's Orchestrator stops and stays closed, and every Session whose folder is inside the
-//      Project's is closed and waited for;
+//   1. the preview: the Profile of the Project's folder (`bin/profile -C <folder> --dir`), which must lie
+//      in <Harness home>/projects/ — the only place `--remove` looks; a Profile in the old place
+//      (~/.claude/profiles/, before the Harness plugin) is refused — and its gate registry entries, which
+//      must all be the folder or inside it: a Profile that also covers paths outside it (the folder is
+//      one repository of a Project over several) is refused, since removing it would take the others;
+//   2. a default Workflow folder that holds files or commits is refused here, before anything closes;
+//   3. the Orchestrators of the Project and of every other listed Project inside its folder (they share
+//      the Profile) stop and stay closed, and every Session whose folder is inside the Project's is
+//      closed and waited for;
 //   4. `project-connect --remove <profile>`; a refusal or a failure leaves the Project in the list, with
-//      the script's words;
-//   5. the Project leaves worfy's list (its data folder stays, as with "Remove from list").
+//      the script's words. "No such profile" counts as done only when no registry entry of the Profile
+//      is left: otherwise nothing was freed;
+//   5. the Project leaves worfy's list (its data folder stays, as with "Remove from list"); the other
+//      listed Projects inside its folder stay, without a Profile, and the answer says so.
 //
 // Everything that reaches outside comes in through ProjectRemovalDeps (src/main/ipc/projects.ts wires
 // the app's), so the contract test runs it over a temporary Harness home.
+import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { RemovalPreview } from '../../shared/ipc/projects'
 import { isInsidePath } from '../claude-home/registry'
 import type { ConnectScript, ScriptRun } from './connect'
 import { realpathOrSelf } from './real-path'
 
+interface ListedProject {
+  id: string
+  name: string
+  path: string
+}
+
 export interface ProjectRemovalDeps {
   projects: {
-    get(id: string): { id: string; name: string; path: string }
+    get(id: string): ListedProject
+    list(): readonly ListedProject[]
     /** Takes the Project out of the list, as `projects.remove` does (its Layout written and forgotten). */
     remove(id: string): void
   }
+  /** The Harness home `bin/project-connect` works in (HARNESS_HOME of its runs). */
+  harnessHome: () => string
   /** The Profile folder of the folder: `bin/profile -C <folder> --dir`; throws with the reason when there is none. */
   profileDir: (root: string) => Promise<string>
   /** The `match` paths of the gate registry entries of a Profile. */
   registeredRepos: (profile: string) => Promise<readonly string[]>
   /** `bin/project-connect` of the Harness on the machine. */
   connect: ConnectScript
-  /** Stops the Project's Orchestrator and keeps it closed; the returned function lets go. */
-  stopOrchestrator: (projectId: string) => () => void
+  /** Stops the Orchestrators of these Projects and keeps them closed; the returned function lets go. */
+  stopOrchestrators: (projectIds: readonly string[]) => () => void
   /** The live Sessions; close() resolves once the Session's processes have exited. */
   sessions: {
     list(): readonly { sessionId: string; cwd: string }[]
@@ -64,6 +80,9 @@ function within(path: string, root: string): boolean {
   return spellings(path).some((one) => spellings(root).some((other) => isInsidePath(one.normalize('NFC'), other.normalize('NFC'))))
 }
 
+/** Whether two spellings name the same folder. */
+const sameFolder = (one: string, other: string): boolean => within(one, other) && within(other, one)
+
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The Profile's own file, or an empty object when it cannot be read: the Harness removes a broken one all the same. */
@@ -76,36 +95,64 @@ function readProfile(profileDir: string): Record<string, unknown> {
   }
 }
 
-/** The Workflow folder of a Silent mode Profile, as project-connect places it; null in Full mode. */
+/** Whether `folder` is a git repository of its own with at least one commit, as project-connect asks before it removes. */
+function hasCommits(folder: string): boolean {
+  if (!existsSync(join(folder, '.git'))) return false
+  // GIT_* of a surrounding hook would point git at another repository.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  return spawnSync('git', ['-C', folder, 'rev-parse', '-q', '--verify', 'HEAD'], { stdio: 'ignore', env }).status === 0
+}
+
+/**
+ * The Workflow folder of a Silent mode Profile, as project-connect places it; null in Full mode.
+ * `holdsFiles`: anything beside `.git`, or (for the default one, which `--remove` would delete) commits.
+ */
 function workflowFolderOf(profile: Record<string, unknown>, profileDir: string): { path: string; inside: boolean; holdsFiles: boolean } | null {
   if (profile.mode !== 'silent') return null
   const folder = isObject(profile.workflow) ? profile.workflow.folder : null
   const own = join(profileDir, 'workflow')
-  const inside = typeof folder !== 'string' || resolve(folder) === own
-  const path = inside ? own : folder
+  const chosen = typeof folder === 'string' && folder.startsWith('~/') ? join(homedir(), folder.slice(2)) : folder
+  const inside = typeof chosen !== 'string' || !isAbsolute(chosen) || sameFolder(chosen, own)
+  const path = inside ? own : chosen
   let holdsFiles = false
   try {
-    holdsFiles = existsSync(path) && readdirSync(path).some((entry) => entry !== '.git')
+    holdsFiles = existsSync(path) && (readdirSync(path).some((entry) => entry !== '.git') || (inside && hasCommits(path)))
   } catch {
     // Not readable: the Harness decides, and says why it refuses.
   }
   return { path, inside, holdsFiles }
 }
 
+const LIST_ONLY = '"Remove from list" takes it out of worfy\'s list only.'
+
+/** The other listed Projects inside the folder of `project`: they resolve to its Profile. */
+const listedInside = (deps: Pick<ProjectRemovalDeps, 'projects'>, project: ListedProject): ListedProject[] =>
+  deps.projects.list().filter((other) => other.id !== project.id && within(other.path, project.path))
+
 /** What "Remove project…" would remove for the Project `id`, or why it cannot. Never throws. */
-export async function removalPreview(deps: Pick<ProjectRemovalDeps, 'projects' | 'profileDir' | 'registeredRepos'>, id: string): Promise<RemovalPreview> {
+export async function removalPreview(deps: Pick<ProjectRemovalDeps, 'projects' | 'harnessHome' | 'profileDir' | 'registeredRepos'>, id: string): Promise<RemovalPreview> {
   try {
     const project = deps.projects.get(id)
     let profileDir: string
     try {
       profileDir = await deps.profileDir(project.path)
     } catch (error) {
-      return { status: 'refused', reason: `The Harness of this Machine has no Profile for ${project.path}: ${messageOf(error)}. "Remove from list" is all there is to do.` }
+      const message = messageOf(error)
+      // bin/profile's exit 3: the folder is in no registered project; anything else is a failure to say so.
+      if (/exit code 3\b/.test(message)) return { status: 'refused', reason: `The Harness of this Machine has no Profile for ${project.path}, so none of its paths is taken. ${LIST_ONLY}` }
+      return { status: 'refused', reason: `The Harness could not tell which Profile ${project.path} has: ${message}` }
     }
     const profile = basename(profileDir)
+    const projectsDir = join(deps.harnessHome(), 'projects')
+    if (!sameFolder(dirname(profileDir), projectsDir)) {
+      return {
+        status: 'refused',
+        reason: `The Profile ${profile} is in the old Harness folder ${dirname(profileDir)}, and the Harness removes only Profiles in ${projectsDir}. Move the old Harness to the plugin first (Command palette: First-run checks), then remove the project. ${LIST_ONLY}`,
+      }
+    }
     const paths = [...(await deps.registeredRepos(profile))]
     if (paths.length === 0) {
-      return { status: 'refused', reason: `The gate registry of this Machine has no entry of the Profile ${profile}, so there is no path to free. "Remove from list" is all there is to do.` }
+      return { status: 'refused', reason: `The gate registry of this Machine has no registry entry of this Profile (${profile}), so there is no path to free. ${LIST_ONLY}` }
     }
     const outside = paths.filter((path) => !within(path, project.path))
     if (outside.length > 0) {
@@ -121,10 +168,11 @@ export async function removalPreview(deps: Pick<ProjectRemovalDeps, 'projects' |
       profile,
       profileDir,
       paths,
-      runs: join(dirname(dirname(profileDir)), 'runs', profile),
+      runs: join(deps.harnessHome(), 'runs', profile),
       qmd,
       mode: stored.mode === 'silent' ? 'silent' : 'full',
       workflowFolder: workflowFolderOf(stored, profileDir),
+      alsoListed: listedInside(deps, project).map((other) => `${other.name} (${other.path})`),
     }
   } catch (error) {
     return { status: 'refused', reason: messageOf(error) }
@@ -143,19 +191,26 @@ function scriptMessages(run: ScriptRun): string[] {
   return [last || `exit code ${run.code === null ? 'none' : String(run.code)}`]
 }
 
-/** What the Harness says beside a removal that held: qmd skipped or failed, folders left behind. */
+type QmdAnswer = { status?: string; reason?: string | null; removed?: string[]; kept?: string[] }
+
+/** What the Harness says beside a removal that held: qmd collections that stay, folders left behind. */
 function notesOf(run: ScriptRun): string[] {
+  let removed: { qmd?: QmdAnswer; leftover?: string[] } | undefined
   try {
-    const removed = (JSON.parse(run.stdout) as { removed?: { qmd?: { status?: string; reason?: string | null }; leftover?: string[] } }).removed
-    const notes: string[] = []
-    const qmd = removed?.qmd
-    // A skip (no qmd, no collections) has nothing to say; a failure or a collection kept for another Profile has.
-    if (qmd?.reason && qmd.status !== 'skipped') notes.push(`qmd collections: ${qmd.reason}`)
-    for (const left of removed?.leftover ?? []) notes.push(`the Harness kept ${left}; delete it by hand once you no longer need it`)
-    return notes
+    removed = (JSON.parse(run.stdout) as { removed?: { qmd?: QmdAnswer; leftover?: string[] } }).removed
   } catch {
     return []
   }
+  const notes: string[] = []
+  const qmd = removed?.qmd
+  const kept = qmd?.kept ?? []
+  if (qmd?.status === 'failed') notes.push(`Some qmd collections were not removed: ${qmd.reason ?? 'no reason given'}.`)
+  else if (kept.length > 0) {
+    const why = qmd?.status === 'removed' ? 'another Profile names them' : (qmd?.reason ?? 'the Harness kept them')
+    notes.push(`The qmd collections ${kept.join(', ')} stay: ${why}.`)
+  }
+  for (const left of removed?.leftover ?? []) notes.push(`The Harness kept ${left}; delete it by hand once you no longer need it.`)
+  return notes
 }
 
 const UPDATE_HARNESS = "This Harness's project-connect does not know --remove. Update the Harness plugin in the first-run checks (Command palette: First-run checks), then try again."
@@ -180,17 +235,19 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
   if (folder !== null && folder.inside && folder.holdsFiles) {
     return {
       status: 'refused',
-      reason: `The Workflow folder ${folder.path} holds the project's own files (its tickets). worfy does not delete them: move the folder out of ${preview.profileDir} first. Nothing was removed.`,
+      reason: `The Workflow folder ${folder.path} holds the project's own files (its tickets). worfy does not delete them: move the folder ${folder.path} out of ${preview.profileDir} first. Nothing was removed.`,
       workflowFolder: folder.path,
     }
   }
-  let project: { id: string; path: string }
+  let project: ListedProject
+  let others: ListedProject[]
   try {
     project = deps.projects.get(id)
+    others = listedInside(deps, project)
   } catch (error) {
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   }
-  const release = deps.stopOrchestrator(project.id)
+  const release = deps.stopOrchestrators([project.id, ...others.map((other) => other.id)])
   try {
     await closeInside(deps, project.path)
     let run: ScriptRun
@@ -201,14 +258,28 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     }
     if (run.code === 2) return { status: 'refused', reason: UPDATE_HARNESS, workflowFolder: null }
     const messages = run.code === 0 ? [] : scriptMessages(run)
-    // A Profile already gone is no failure: its paths are free, the list is all that is left.
+    // "No such profile" is done only when the registry has no entry of it left: its paths are free then.
     const gone = messages.length > 0 && messages.every((message) => message.startsWith(`no profile ${preview.profile}`))
+    if (gone) {
+      const left = await deps.registeredRepos(preview.profile)
+      if (left.length > 0) {
+        return {
+          status: 'refused',
+          reason: `The Harness has no Profile ${preview.profile} to remove, but its gate registry still names it for ${left.join(', ')}: nothing was freed, and the Project stays in the list.`,
+          workflowFolder: null,
+        }
+      }
+    }
     if (run.code !== 0 && !gone) {
       const heldFiles = folder !== null && folder.inside && existsSync(folder.path)
       return { status: 'refused', reason: `The Harness did not remove the Profile ${preview.profile}, so the Project stays in the list: ${messages.join('; ')}`, workflowFolder: heldFiles ? folder.path : null }
     }
     deps.projects.remove(project.id)
-    return { status: 'removed', notes: notesOf(run) }
+    const notes = notesOf(run)
+    if (others.length > 0) {
+      notes.push(`${others.map((other) => other.name).join(', ')} stay${others.length === 1 ? 's' : ''} in the list without a Profile: Remove from list takes ${others.length === 1 ? 'it' : 'them'} out, or Add project connects ${others.length === 1 ? 'its folder' : 'their folders'} again.`)
+    }
+    return { status: 'removed', notes }
   } catch (error) {
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   } finally {

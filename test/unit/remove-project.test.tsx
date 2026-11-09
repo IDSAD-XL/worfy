@@ -19,6 +19,7 @@ const ready = (over: Partial<Extract<RemovalPreview, { status: 'ready' }>> = {})
   qmd: ['shop-docs'],
   mode: 'full',
   workflowFolder: null,
+  alsoListed: [],
   ...over,
 })
 
@@ -76,6 +77,11 @@ describe('Remove project: what goes and what stays', () => {
     expect(confirm().disabled).toBe(false)
   })
 
+  it('another listed Project inside the folder is named as staying, without a Profile', async () => {
+    await mount({ 'projects.removal.preview': () => ready({ alsoListed: ['m1 (/Users/someone/code/shop/m1)'] }) })
+    expect((await screen.findByTestId('remove-project-stays')).textContent).toContain('The Project m1 (/Users/someone/code/shop/m1) in the list, without a Profile until its folder is connected again')
+  })
+
   it('an empty default Workflow folder goes with the Profile', async () => {
     const folder = '/Users/someone/.claude/worfy-harness/projects/shop/workflow'
     await mount({ 'projects.removal.preview': () => ready({ mode: 'silent', workflowFolder: { path: folder, inside: true, holdsFiles: false } }) })
@@ -103,7 +109,10 @@ describe('Remove project: the removal and its refusals', () => {
       'projects.removal.reveal': () => ({ path: folder }),
     })
     const refused = await screen.findByTestId('remove-project-refused')
-    expect(refused.textContent).toContain(`The Workflow folder ${folder} holds the project's own files (its tickets). worfy never deletes them`)
+    // The folder goes out whole: its .git alone keeps the Harness refusing.
+    expect(refused.textContent).toBe(
+      `The Workflow folder ${folder} holds the project's own files (its tickets). worfy never deletes them: move the folder ${folder} out of /Users/someone/.claude/worfy-harness/projects/shop first, then remove the project.`,
+    )
     expect(confirm().disabled).toBe(true)
     fireEvent.click(screen.getByTestId('remove-project-reveal'))
     await waitFor(() => expect(view.calls.map(([channel]) => channel)).toContain('projects.removal.reveal'))

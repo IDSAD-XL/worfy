@@ -125,6 +125,8 @@ export const removalPreviewSchema = z.discriminatedUnion('status', [
      * the Profile folder (removed with it while it is empty); otherwise the user's own folder, which stays.
      */
     workflowFolder: z.object({ path: z.string().min(1), inside: z.boolean(), holdsFiles: z.boolean() }).nullable(),
+    /** Other listed Projects inside its folder, as `<name> (<path>)`: they share the Profile and stay in the list without it. */
+    alsoListed: z.array(z.string()),
   }),
   z.object({ status: z.literal('refused'), reason: z.string().min(1) }),
 ])
