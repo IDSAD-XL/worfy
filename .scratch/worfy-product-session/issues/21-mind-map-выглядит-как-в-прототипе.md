@@ -1,7 +1,9 @@
 # 21 — Mind map выглядит как в прототипе: узлы, связи, легенда
 
 Type: task
-Status: claimed 2026-11-08T21:37Z
+Status: blocked 2026-11-09T00:16Z
+Blocked reason: code merged (#1696); waits for the owner's look at the Mind map in Mac Stable after the next update, next to the prototype
+Waits: owner
 Branch: worfy-product-session/21
 Blocked by: 08
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-08: экран как в прототипе»; «Что видит владелец»; прототип —
