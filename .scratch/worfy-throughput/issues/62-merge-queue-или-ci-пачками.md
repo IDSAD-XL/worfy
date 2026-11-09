@@ -34,10 +34,14 @@ Ticket-ы после того, как владелец прочтёт сравн
 ## Готово, когда
 
 - [ ] «Итог» называет факты о merge queue со ссылками на docs.github.com и что из них следует для этого репозитория.
+  - evidence: commit pass · ticket 62 Итог section 1: merge queue facts with docs.github.com links; owner.type User via gh api exit 0 · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] «Итог» — таблица замера по истории: команды и их exit code, выборка и период.
+  - evidence: commit pass · ticket 62 Итог section 2: 150 merged PRs 2026-11-07..09, gh api reads exit 0 · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] «Итог» — оценка A/B/C по пяти осям и рекомендация с числами; список Ticket-ов-продолжений (заголовок + строка).
+  - evidence: commit pass · ticket 62 Итог sections 3-5: A/B/C table, recommendation B, six follow-ups · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] `node scripts/critical-path.mjs` берёт Gate из commit status `review` (`success`) на head PR, когда
       комментария VERIFIED нет; unit test это проверяет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/critical-path.test.ts test/unit/flight-recorder-sources.test.ts` exit 0 · mac - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] Владелец прочёл рекомендацию (вручную).
 
 ## Тесты
