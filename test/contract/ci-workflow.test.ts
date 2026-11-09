@@ -927,6 +927,22 @@ describe('scripts/ci-scope.mjs', () => {
     expect(result.files).toEqual([])
   })
 
+  it('--documents tells a change of documents only by isDocument, for the docs_only rule of bin/land', () => {
+    // The paths on stdin and the exit code: 0 — documents only, 1 — code, or no path at all.
+    const cases: Array<[string, number]> = [
+      ['.scratch/e/issues/01.md\ndocs/adr/0001-x.md\nCONTEXT.md\n', 0],
+      ['docs/features/x.md\r\n', 0],
+      ['docs/features/x.md\nharness/skills/epic-wave/SKILL.md\n', 1],
+      ['README.md\n', 1],
+      ['src/main/index.ts\n', 1],
+      ['', 1],
+    ]
+    for (const [input, status] of cases) {
+      const result = spawnSync(scriptNode(), [SCOPE, '--documents'], { cwd: REPO, input, encoding: 'utf8' })
+      expect(result.status, `${JSON.stringify(input)}: ${result.stderr}`).toBe(status)
+    }
+  })
+
   it('chooses windows-e2e by the files as it chooses macos-e2e; a run by hand never asks for it', () => {
     // The event, the files and whether the e2e tests run, on macOS and on Windows alike.
     const cases: Array<[string, string[], boolean]> = [

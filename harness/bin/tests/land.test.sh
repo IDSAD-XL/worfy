@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, the review
+# Tests of harness/bin/land: the merge condition (the CI check of the head, no CI run in progress, a main branch whose push
+# runs are not red — the culprit named, documents and a main fix merged, a rerun that passed is green —, the review
 # mark and its carry over a rebase, the Check marks a PR lists, the head the orchestrator verified), mergeable UNKNOWN asked again, BEHIND merged without a rebase and a conflict waiting, the
 # main-branch lock, one documents PR per run with `ticket done` for every merged PR, the Evidence lines of
 # prs[].evidence written by `ticket evidence` and the privacy check (evidence-check) before its push, a run broken
@@ -31,7 +32,8 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # default); mergeable-<N> — lines, the first is used and dropped while more than one is left (MERGEABLE without
 # the file); runs-<sha> — the JSON list of `gh run list` for that head ([] without it); checks-<sha> — the JSON
 # list of check runs (one ci-ok completed success without it); status-<sha>.json — {context: state} (review
-# success without it); merge-fail-<N> — `pr merge` refused; kill-after-merge-<N> — after the merge of N it
+# success without it); main-runs — the JSON list of the push runs on main ([] without it), main-runs-fail — reading
+# them fails; pulls-<sha> — the JSON list of the PRs of a commit; merge-fail-<N> — `pr merge` refused; kill-after-merge-<N> — after the merge of N it
 # kills its parent (land) with SIGKILL. `pr merge` squash-merges refs/pull/<N>/head into main of $GH_ORIGIN and
 # logs whether $LAND_TEST_LOCK was held. `pr create` gives numbers from 900 and points refs/pull/<n>/head at the
 # pushed branch.
@@ -63,6 +65,13 @@ if (cmd === "pr view") {
     fs.writeFileSync(f(`views-${n}`), String(views))
     const head = views > 1 && has(`moved-${n}`) ? read(`moved-${n}`).trim() : headOf(n)
     out({ number: +n, state: p.state, headRefOid: head, mergeable, mergeStateStatus: p.mergeStateStatus, mergeCommit: p.mergeCommit || null })
+} else if (cmd === "run list" && a.includes("--event")) {
+    // the push runs of main: main-runs — their JSON list ([] without it); main-runs-fail — gh fails
+    if (has("main-runs-fail")) { process.stderr.write("HTTP 502: Bad Gateway\n"); process.exit(1) }
+    process.stdout.write(read("main-runs", "[]") + "\n")
+} else if (a[0] === "api" && /\/commits\/[0-9a-f]{40}\/pulls$/.test(a[1])) {
+    // the PRs of a commit: pulls-<sha> — their JSON list ([] without it)
+    process.stdout.write(read(`pulls-${/commits\/([0-9a-f]{40})\//.exec(a[1])[1]}`, "[]") + "\n")
 } else if (cmd === "run list") {
     const sha = a[a.indexOf("--commit") + 1]
     process.stdout.write(read(`runs-${sha}`, "[]") + "\n")
@@ -147,6 +156,17 @@ if (n > 200) process.kill(process.ppid, "SIGKILL")
 if (fs.existsSync(path.join(D, "unlock-on-sleep")) && n >= 2) fs.rmSync(process.env.LAND_TEST_LOCK, { recursive: true, force: true })
 if (fs.existsSync(path.join(D, "on-sleep"))) for (const x of fs.readdirSync(path.join(D, "on-sleep"))) fs.renameSync(path.join(D, "on-sleep", x), path.join(D, x))
 if (fs.existsSync(path.join(D, "runs-done-on-sleep"))) for (const x of fs.readdirSync(D)) if (x.startsWith("runs-")) fs.rmSync(path.join(D, x))
+EOF
+# the documents-only rule of a project (docs_only): the changed paths on stdin; exit 0 when every one ends in .md, 1
+# otherwise (an empty list too); logs the paths and its cwd; $GHD/docs-only-rc — that exit code instead.
+cat >"$STUBS/docs-only.mjs" <<'EOF'
+import fs from "node:fs"
+import path from "node:path"
+const D = process.env.GHD
+const paths = fs.readFileSync(0, "utf8").split("\n").filter(Boolean)
+fs.appendFileSync(path.join(D, "docs-only.log"), `${paths.join(" ")} cwd=${path.basename(process.cwd())}\n`)
+const p = path.join(D, "docs-only-rc")
+process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : paths.length && paths.every((x) => x.endsWith(".md")) ? 0 : 1)
 EOF
 # the documents check: exit code from $GHD/docs-check-rc (0 without it).
 cat >"$STUBS/docs-check.mjs" <<'EOF'
@@ -379,7 +399,7 @@ echo '{"mergeStateStatus":"BEHIND"}' >"$GHD/pr-1.json"
     && [ "$(git -C "$W/origin.git" show "refs/heads/main:f1.txt")" = 1 ] && ok "BEHIND + green ci-ok: merged without a rebase" || bad "BEHIND: exit $rc: $(cat "$W/out")"
 grep -q "#1: BEHIND without a conflict — merging without a rebase" "${S%.json}.log" \
     && ok "BEHIND: the log says it merged without a rebase" || bad "BEHIND log: $(cat "${S%.json}.log" 2>/dev/null)"
-! grep -q "update-branch\|push" "$GHD/log" && ok "BEHIND: land does not update the branch" || bad "BEHIND: gh $(cat "$GHD/log")"
+! grep -v "^run list " "$GHD/log" | grep -q "update-branch\|push" && ok "BEHIND: land does not update the branch" || bad "BEHIND: gh $(cat "$GHD/log")"
 # BEHIND with a red ci-ok on the head: the condition of the head still rules, no merge
 new_world mss-BEHIND-red 1
 state 1
@@ -412,7 +432,7 @@ for st in DIRTY CONFLICTING; do
     "$LAND" "$S" >"$W/out" 2>&1; rc=$?
     [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q "^#1 waits: conflict: rebase — the PR conflicts with its base" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
         && ok "$st: waits with \"conflict: rebase\", no merge" || bad "$st: exit $rc: $(cat "$W/out")"
-    ! grep -q "update-branch\|push" "$GHD/log" && ok "$st: land does not update the branch" || bad "$st: gh $(cat "$GHD/log")"
+    ! grep -v "^run list " "$GHD/log" | grep -q "update-branch\|push" && ok "$st: land does not update the branch" || bad "$st: gh $(cat "$GHD/log")"
 done
 
 # --- the lock: waited for while another holds it, a stuck one removed, released on a refused merge -------------------
@@ -613,20 +633,151 @@ node -e 'const fs=require("fs"),s=JSON.parse(fs.readFileSync(process.argv[1]));s
 "$LAND" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 1 ] && grep -q 'usage: land' "$W/out" && ok "input: no state file -> usage, exit 1" || bad "input usage: exit $rc"
 
+# --- a red push run on main: a code PR waits naming the culprit, documents merge, a rerun that passed is green --------
+# sha <c>: a SHA of 40 times the character c
+sha() { printf "$1%.0s" $(seq 1 40); }
+# mrun <id> <sha> <status> <conclusion> <attempt> <createdAt> [<updatedAt>]: one push run of main as `gh run list --json` prints it
+mrun() { printf '{"databaseId":%s,"headSha":"%s","status":"%s","conclusion":"%s","attempt":%s,"createdAt":"%s","updatedAt":"%s","url":"https://github.com/o/r/actions/runs/%s"}' "$1" "$2" "$3" "$4" "$5" "$6" "${7:-$6}" "$1"; }
+# main_runs <run>…: the push runs of main, newest first
+main_runs() { local s="" sep=""; for r in "$@"; do s="$s$sep$r"; sep=","; done; printf '[%s]\n' "$s" >"$GHD/main-runs"; }
+# docs_pr <N>: PR N changes documents only: one note under notes/, its name in Cyrillic with a space, a path git would quote
+docs_pr() {
+    git -C "$W/seed" checkout -q -b "d$1" main && mkdir -p "$W/seed/notes" && echo note >"$W/seed/notes/заметка $1.md" && git -C "$W/seed" add -A \
+        && git -C "$W/seed" commit -q -m "docs $1" && git -C "$W/seed" push -q origin "d$1:refs/pull/$1/head" && git -C "$W/seed" checkout -q main
+}
+C1="$(sha 1)" C2="$(sha 2)" C3="$(sha 3)" C4="$(sha 4)"
+R1="$(mrun 1 "$C1" completed success 1 2026-11-09T09:00:00Z 2026-11-09T09:40:00Z)"
+# red_main: run 3 (newest) and run 2 red, run 1 green: run 2 is the first red one after the last green one, and its commit
+# is the merge commit of PR 41; $NEWER — a newer run before them
+red_main() {
+    main_runs ${NEWER:+"$NEWER"} "$(mrun 3 "$C3" completed failure 1 2026-11-09T10:10:00Z 2026-11-09T10:50:00Z)" "$(mrun 2 "$C2" completed failure 1 2026-11-09T10:00:00Z 2026-11-09T10:30:00Z)" "$R1"
+    printf '[{"number":40,"merge_commit_sha":"%s"},{"number":41,"merge_commit_sha":"%s"}]' "$C1" "$C2" >"$GHD/pulls-$C2"
+}
+RED_LINE='main red since 22222222 (#41, 2026-11-09T10:30:00Z) — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert #41'
+RED_REASON='#1 waits: main red since 22222222 (#41, 2026-11-09T10:30:00Z), run https://github.com/o/r/actions/runs/2 — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert #41'
+new_world mainred 1
+state 1
+red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "$RED_REASON" "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' && [ "$(q "$S" 's.prs[0].result.kind')" = waits ] \
+    && ok "red main: a code PR waits; the reason names the first red run after the green one, its commit and PR #41; exit 3" || bad "red main: exit $rc: $(cat "$W/out")"
+grep -qxF "$RED_LINE" "$W/out" && [ "$(tail -n 2 "$W/out" | head -n 1)" = "$RED_LINE" ] \
+    && ok "red main: one line for the orchestrator before the verdict — since, culprit, fix forward until +1 h, then revert" || bad "red main line: $(cat "$W/out")"
+grep -q '^run list --workflow ci.yml --branch main --event push ' "$GHD/log" && grep -q "^api repos/{owner}/{repo}/commits/$C2/pulls" "$GHD/log" \
+    && ok "red main: the push runs of main come from gh run list, the culprit PR from the commit's PRs" || bad "red main gh: $(cat "$GHD/log")"
+! grep -q '^run rerun\|revert\|^workflow run' "$GHD/log" && [ "$(git -C "$W/origin.git" rev-list --count main)" = 1 ] \
+    && ok "red main: land reruns nothing and reverts nothing" || bad "red main: gh $(cat "$GHD/log")"
+# the culprit's commit has no PR (a direct push): the commit is what to revert
+new_world mainred-nopr 1
+state 1
+red_main; rm -f "$GHD/pulls-$C2"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF 'main red since 22222222 (no PR, 2026-11-09T10:30:00Z) — code PRs wait; fix forward until 2026-11-09T11:30:00Z, then revert 22222222' "$W/out" \
+    && ok "red main: a culprit commit with no PR is named by its SHA" || bad "red main no PR: exit $rc: $(cat "$W/out")"
+# documents only merge while main is red, by the project's rule (docs_only); with no rule every PR counts as code
+new_world maindocs 1
+docs_pr 2
+state 1 2
+export DOCS_ONLY="node \"$(tn "$STUBS/docs-only.mjs")\""
+edit 's.docs_only=process.env.DOCS_ONLY'
+red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merged_of 2)" = 1 ] && [ "$(merged_of 1)" = 0 ] && grep -qxF "$RED_REASON" "$W/out" && grep -q '^#2 merged ' "$W/out" \
+    && ok "red main: a PR with documents only merges, the code PR waits" || bad "red main docs: exit $rc: $(cat "$W/out")"
+# PR 2 is asked twice: before the lock and under it
+[ "$(cat "$GHD/docs-only.log")" = "$(printf 'f1.txt cwd=repo\nnotes/заметка 2.md cwd=repo\nnotes/заметка 2.md cwd=repo')" ] \
+    && ok "red main: the docs_only rule gets the PR's changed paths on stdin, in the checkout, again under the lock" || bad "red main docs paths: $(cat "$GHD/docs-only.log" 2>/dev/null)"
+[ "$(merged_of 900)" = 1 ] && ok "red main: the documents PR of land merges" || bad "red main documents PR: $(cat "$W/out")"
+new_world maindocs-norule 2
+docs_pr 3
+state 3
+red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#3 waits: main red since 22222222' "$W/out" \
+    && ok "red main: with no docs_only rule a documents PR counts as code and waits" || bad "red main no rule: exit $rc: $(cat "$W/out")"
+new_world maindocs-rc 2
+docs_pr 3
+state 3
+edit 's.docs_only=process.env.DOCS_ONLY'
+red_main; echo 2 >"$GHD/docs-only-rc"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#3 waits: main red since 22222222' "$W/out" \
+    && ok "red main: a docs_only rule that exits neither 0 nor 1 counts the PR as code" || bad "red main rule exit 2: exit $rc: $(cat "$W/out")"
+# the fix of the red main branch (main_fix) merges while it is red
+new_world mainfix 1
+state 1
+edit 's.prs[0].main_fix=true'
+red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "red main: a PR marked main_fix merges while main is red" || bad "red main fix: exit $rc: $(cat "$W/out")"
+# flaky: the red run's failed jobs were rerun once and passed — its latest attempt is green, so main is green
+new_world mainflaky 1
+state 1
+main_runs "$(mrun 3 "$C3" completed success 2 2026-11-09T10:10:00Z 2026-11-09T11:20:00Z)" "$(mrun 2 "$C2" completed failure 1 2026-11-09T10:00:00Z)" "$R1"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q 'main red' "$W/out" \
+    && ok "flaky: the latest push run red, then green after a rerun of its failed jobs (attempt 2) — main green, merged" || bad "flaky: exit $rc: $(cat "$W/out")"
+new_world maingreen 1
+state 1
+main_runs "$(mrun 2 "$C2" completed success 1 2026-11-09T10:00:00Z)" "$(mrun 1 "$C1" completed failure 1 2026-11-09T09:00:00Z)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q 'main red' "$W/out" && ok "green main: the latest completed push run green, merged" || bad "green main: exit $rc: $(cat "$W/out")"
+# a push run in progress gives no verdict: the latest completed one decides; a cancelled one gives none either
+new_world mainrunning 1
+state 1
+main_runs "$(mrun 4 "$C4" in_progress "" 1 2026-11-09T11:00:00Z)" "$(mrun 3 "$C3" completed cancelled 1 2026-11-09T10:10:00Z)" "$(mrun 2 "$C2" completed success 1 2026-11-09T10:00:00Z)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ok "in progress: a push run in progress and a cancelled one are passed over, the green one before them decides, merged" || bad "main running: exit $rc: $(cat "$W/out")"
+new_world mainrunning-red 1
+state 1
+NEWER="$(mrun 4 "$C4" queued "" 1 2026-11-09T11:00:00Z)" red_main
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "$RED_REASON" "$W/out" && [ "$(q "$S" 's.prs[0].result.kind')" = ci ] \
+    && ok "in progress: a newer push run in progress does not lift a red one; the PR waits for CI (a later pass may merge it)" || bad "main running red: exit $rc: $(cat "$W/out") $(cat "$GHD/main-runs")"
+new_world mainrerun 1
+state 1
+main_runs "$(mrun 3 "$C3" in_progress "" 2 2026-11-09T10:10:00Z)" "$(mrun 2 "$C2" completed success 1 2026-11-09T10:00:00Z)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF '#1 waits: the push run https://github.com/o/r/actions/runs/3 on main (33333333) is being rerun (attempt 2): code PRs wait for its verdict' "$W/out" \
+    && [ "$(q "$S" 's.prs[0].result.kind')" = ci ] && ok "in progress: the newest push run being rerun holds code PRs until its verdict" || bad "main rerun: exit $rc: $(cat "$W/out")"
+# gh cannot read the push runs: not verified, never merged
+new_world mainghfail 1
+state 1
+: >"$GHD/main-runs-fail"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF '#1 waits: the ci.yml push runs on main: gh exit 1: HTTP 502: Bad Gateway' "$W/out" && tail -n 1 "$W/out" | grep -qx 'LAND=unverified' \
+    && ok "gh fails reading the push runs: waits, LAND=unverified, exit 3, not merged" || bad "main gh fail: exit $rc: $(cat "$W/out")"
+# main turns red while land waits for the lock: read again under the lock, no merge
+new_world mainlock 1
+state 1
+mkdir "$LAND_TEST_LOCK" "$GHD/on-sleep"; : >"$GHD/unlock-on-sleep"
+red_main; mv "$GHD/main-runs" "$GHD/on-sleep/main-runs"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "$RED_REASON" "$W/out" && [ ! -e "$LAND_TEST_LOCK" ] \
+    && ok "red main: read again under the lock; turned red while land waited, no merge, the lock released" || bad "main lock: exit $rc: $(cat "$W/out")"
+# the input: main_fix is a boolean, docs_only null or a command
+for bad_input in 's.prs[0].main_fix="yes"' 's.docs_only=""' 's.docs_only=3'; do
+    i=$((i + 1)); new_world "input$i" 1
+    state 1
+    edit "$bad_input"
+    "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+    [ "$rc" = 1 ] && [ ! -s "$GHD/log" ] && ok "input: $bad_input is refused before any gh call" || bad "input $bad_input: exit $rc: $(cat "$W/out")"
+done
+
 # --- the state-file block of skill epic-wave ("Merge with land") writes a file land takes -------------------------
 SKILL="${SKILL_FILE:-$HERE/../../skills/epic-wave/SKILL.md}"
 awk '/^\*\*Merge with land\*\*/{s=1} s && /<<.NODE.$/{n=1; next} n && /^NODE$/{exit} n' "$SKILL" >"$T/skill-state.js"
 new_world skill 1
-node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "1:e:01:$(head_of 1):windows" >"$W/out" 2>&1
+node "$T/skill-state.js" "$(tn "$S")" "$(tn "$W/repo")" main pr ci-ok ci.yml "node \"$(tn "$STUBS/docs-check.mjs")\"" ".scratch/" full "$DOCS_ONLY" "1:e:01:$(head_of 1):windows:main-fix" >"$W/out" 2>&1
 echo '{"review":"success","check/windows":"success"}' >"$GHD/status-$(head_of 1).json"
 "$LAND" "$S" >>"$W/out" 2>&1; rc=$?
 [ -s "$T/skill-state.js" ] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ "$(q "$S" 's.prs[0].head')" = "$(head_of 1)" ] && [ "$(q "$S" 's.prs[0].checks')" = '["windows"]' ] \
-    && [ "$(q "$S" 's.tickets_root')" = .scratch ] && [ "$(q "$S" '"scope" in s')" = false ] \
-    && ok "skill: the state file of the epic-wave block is one land merges from" || bad "skill block: exit $rc: $(cat "$W/out")"
+    && [ "$(q "$S" 's.tickets_root')" = .scratch ] && [ "$(q "$S" '"scope" in s')" = false ] && [ "$(q "$S" 's.docs_only')" = "$DOCS_ONLY" ] && [ "$(q "$S" 's.prs[0].main_fix')" = true ] \
+    && ok "skill: the state file of the epic-wave block is one land merges from, with docs_only and main_fix" || bad "skill block: exit $rc: $(cat "$W/out")"
 # the tickets root: an absolute one inside the repository becomes relative, one outside it and Silent mode give null; no Check — []
-skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
+skill_root() { node "$T/skill-state.js" "$(tn "$W/s-$1.json")" "$(tn "$W/repo")" main pr ci-ok ci.yml "" "$2" "$3" "" "1:e:01:$(head_of 1):" >/dev/null 2>&1 && q "$W/s-$1.json" 's.tickets_root'; }
 [ "$(skill_root abs "$(tn "$W/repo")/work/tickets/" full)" = work/tickets ] && [ "$(skill_root out "$(tn "$T")/elsewhere/" full)" = null ] \
-    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] \
+    && [ "$(skill_root silent .scratch/ silent)" = null ] && [ "$(skill_root dot ./ full)" = null ] && [ "$(skill_root repo "$(tn "$W/repo")/" full)" = null ] && [ "$(skill_root none "" full)" = .scratch ] && [ "$(q "$W/s-none.json" 's.prs[0].checks')" = '[]' ] && [ "$(q "$W/s-none.json" 's.docs_only')" = null ] && [ "$(q "$W/s-none.json" '"main_fix" in s.prs[0]')" = false ] \
     && ok "skill: tickets_root from the profile — absolute made relative, outside the repository, the repository itself or Silent mode null" || bad "skill roots: abs $(q "$W/s-abs.json" 's.tickets_root') out $(q "$W/s-out.json" 's.tickets_root') silent $(q "$W/s-silent.json" 's.tickets_root') dot $(q "$W/s-dot.json" 's.tickets_root') repo $(q "$W/s-repo.json" 's.tickets_root') none $(q "$W/s-none.json" 's.tickets_root')"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"

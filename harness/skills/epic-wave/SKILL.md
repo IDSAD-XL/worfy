@@ -1185,11 +1185,17 @@ of `land`. For each PR, in the order of the state file, `land`:
   `pending` review on the head is a reviewer's verdict and is never overwritten;
 - needs each Check mark the state file lists for the PR (`check/<name>`) `success` or `skipped` on the
   head. These marks are never carried: a new head needs its own;
+- needs the main branch not red: the latest push run of the CI workflow on it with a verdict is not red
+  ("A red push run on the main branch" below). A run still queued or in progress is passed over, so no
+  merge waits the length of a push run; the newest run being rerun holds code PRs until its verdict. While
+  the branch is red a PR with code waits, the reason naming the run, the commit and the culprit PR; a PR
+  with documents only (`docs_only` of the state file says so) and a PR marked `main-fix` still merge. gh
+  unable to read the push runs — the PR waits, never merges;
 - under the main-branch lock (the one above): asks `mergeable` again while it is `UNKNOWN`, up to 6
   times 10 s apart; `CONFLICTING` or `DIRTY` — the PR waits with `conflict: rebase`, `land` does not
   rebase it (the implementer does, after the status block above); `BEHIND` without a conflict is no reason
   to wait — the PR merges as it is; reads the final check and the marks again (the lock may have taken
-  long); then `gh pr merge <N> --squash --match-head-commit <head>`. When the base branch's protection
+  long), and the main branch; then `gh pr merge <N> --squash --match-head-commit <head>`. When the base branch's protection
   requires an up-to-date branch, GitHub refuses a `BEHIND` merge, and the PR waits with `BEHIND: the base
   branch requires an up-to-date branch, rebase`;
 - goes on to the next PR when one waits: each PR merges on its own head's condition, not only a green
@@ -1201,29 +1207,32 @@ of `land`. For each PR, in the order of the state file, `land`:
 
 The state file — one per set of PRs; a new set gets a new file. `<CI check>` and `<CI workflow>` are
 the final check and the workflow file the project's rules name. Each PR is
-`<N>:<epic>:<NN>:<head>:<checks>`: `<head>` — the head SHA the review verified; `<checks>` — the
+`<N>:<epic>:<NN>:<head>:<checks>[:main-fix]`: `<head>` — the head SHA the review verified; `main-fix` —
+the PR fixes the red main branch or reverts its culprit and merges while the branch is red; `<checks>` — the
 names of the Pipeline's `check` Stages (`F _resolved.pipeline`, `kind` `check`) this PR needs by the
 project's rules, comma-separated, empty for none. For example, rules that give a Check a scope command
 ("Checks before merge"): the Check's name when `<scope command> origin/<main branch> <head>`, run in a
 checkout of the main branch, exits 1; nothing when it exits 0; another exit code — the PR stays out of
-the file and waits. The tickets
+the file and waits. `<documents-only command>` — the command the project's rules name for a change of
+documents only: it reads the paths a PR changes on stdin, one per line, and exits 0 for documents only;
+empty when the rules name none, and then every PR counts as code while the main branch is red. The tickets
 root comes from `F tickets.root`; the block makes an absolute one relative to the repository, and one
 outside the repository, or Silent mode, means no documents PR:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" <N>:<epic>:<NN>:<head>:<checks>… <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
 const fs = require("fs"), path = require("path"), os = require("os")
-const [file, repo, branch, ci, check, workflow, docs, root, mode, ...prs] = process.argv.slice(2)
+const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...prs] = process.argv.slice(2)
 const val = (v) => (v === "" || v === "null" ? null : v)
 const abs = val(root) && (root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root)
 const rel = !abs ? ".scratch" : path.isAbsolute(abs) ? path.relative(repo, abs).split(path.sep).join("/") : abs
 const dir = path.normalize(rel || ".").replace(/[\\/]+$/, "")   // "." or "" — the repository itself, not a tickets folder
 const tickets_root = mode === "silent" || dir === "." || dir === "" || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel.replace(/[\\/]+$/, "")
-const list = prs.map((p) => { const [number, epic, ticket, head, checks] = p.split(":"); return { number: +number, epic, ticket, head, checks: checks ? checks.split(",") : [] } })
+const list = prs.map((p) => { const [number, epic, ticket, head, checks, fix] = p.split(":"); return { number: +number, epic, ticket, head, checks: checks ? checks.split(",") : [], ...(fix === "main-fix" ? { main_fix: true } : {}) } })
 if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ repo, branch, ci: ci || "pr", ci_check: check, ci_workflow: workflow,
-  docs_check: val(docs), tickets_root, prs: list }, null, 2) + "\n")
+  docs_check: val(docs), docs_only: val(docsOnly), tickets_root, prs: list }, null, 2) + "\n")
 NODE
 echo "EXIT=$?"
 ```
@@ -1389,11 +1398,20 @@ below. With `F workflow.ci` `batch` there are no push runs: the rule for a red b
 diff touches, as the project's `rules.md` says; every push to the main branch runs the whole suite,
 so a red push run names the merge that broke the main branch. While the final CI check of the latest
 push run on the main branch is red, no PR with code is merged; a PR with documents only may be.
-The fix goes forward first, for at most one hour from the red run: a PR with the fix, merged with its
-own green CI. No fix merged within the hour — revert the culprit PR, the one whose push run turned
-the main branch red (`git revert <sha>` of its squash commit on a branch, a PR with its own green
-CI), and the ticket of the reverted PR gets a rework round. There is no bisection. The wave report
-names the CI run's URL, the culprit PR, and the fix or the revert.
+`bin/land` holds this pause itself ("Merge with land" above): it reads the push runs, passes over one
+still queued or in progress, and while the latest one with a verdict is red a PR with code waits with the
+reason `main red since <sha> (#<PR>, <time>), run <URL> — code PRs wait; fix forward until <time + 1 h>,
+then revert #<PR>`, and its output carries the same line without the URL. The culprit is the PR whose
+squash commit got the first red push run after the last green one: a push run runs on every commit of
+the main branch, so the first red one names it. A red run is first repeated once: `gh run rerun <run>
+--failed`, one rerun per head, by the orchestrator (`land` reruns nothing). Green after the rerun —
+a flaky test, not the PR's fault: the main branch is green, the failing tests go into the wave report
+as a flaky test. Red again — the culprit stands. The fix goes forward first, for at most one hour from
+the red run: a PR with the fix, marked `main-fix` in the state file of `land` and merged with its own
+green CI. No fix merged within the hour — revert the culprit PR (`git revert <sha>` of its squash commit
+on a branch, a PR with its own green CI, marked `main-fix` too; `land` reverts nothing), and the ticket of
+the reverted PR gets a rework round. There is no bisection. The wave report names the CI run's URL, the
+culprit PR, the rerun, and the fix or the revert.
 
 **Batch CI on the main branch** (`F workflow.ci` `batch`). With `pr` — skip this
 paragraph: CI already ran on every head and every push. With `batch` the wave gets one CI run on the
