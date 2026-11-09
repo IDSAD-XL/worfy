@@ -1,7 +1,7 @@
 # 01 — `ticket`: несколько `--repo`, `PR: <repo>#N`, `ticket pr`, `ticket release`, `done` только с полным набором PR
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T18:58Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Шапка Ticket-а (Ticket 01; Q1, Q2)»; «Решено без владельца»; «Ticket-ы»,
 «Волны» (Wave 1); «Решения владельца 2026-11-09», Q1–Q4; [ADR-0104](../../../docs/adr/0104-one-ticket-several-repositories.md),
@@ -53,13 +53,23 @@ Release: lib tag lib-v1.4.0
 ## Готово, когда
 
 - [ ] Test: `ticket claim … --repo lib --repo app` пишет две строки `Repo:` в порядке аргументов и одну `Branch:`.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: `ticket pr` дописывает `PR: <repo>#N`; голый `#N` у Ticket-а с двумя `Repo:` — отказ, файл не меняется.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: `ticket release` пишет `Release:` обоих видов; неизвестный вид — отказ.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: `ticket done` без PR одного из `Repo:` — exit 2, файл не меняется; с PR каждого `Repo:` — `done`.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · c01a93ce54ef6330935d53715d5a6dcbe00f06be
 - [ ] Test: `ticket evidence … --repo R --sha S` пишет строку evidence с репозиторием.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-evidence.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] Test: Ticket с одним репозиторием — те же выходы и файлы, что до правки (`PR: #N`, `done --pr N`).
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] `TICKETS.md` описывает шапку из spec-а и все новые команды.
+  - evidence: commit pass · ticket: several Repo: lines, PR: <repo>#N, ticket pr, ticket release, done only with every PR · - - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
 - [ ] `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` — exit 0 на Mac.
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` exit 0 · mac - · 8ea1bd3530c2d01079cff3f537b631abd01809b5
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh`, `ticket-mark.test.sh`, `ticket-evidence.test.sh` exit 0 · mac - · c01a93ce54ef6330935d53715d5a6dcbe00f06be
 - [ ] Те же test-ы на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.

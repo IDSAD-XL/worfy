@@ -5,13 +5,25 @@
 //   Status: <open|claimed|blocked|done> <time>   time — ISO 8601 UTC to the minute, 2026-10-17T09:41Z
 //   Blocked reason: <text>                       only while blocked
 //   Waits: <owner|team|agent|machine name>       only while blocked, from block --waits
-//   PR: #<N>                                     from done --pr
+//   PR: #<N>                                     from done --pr or pr; a ticket of several repositories
+//                                                (two or more Repo: lines) has one `PR: <repo>#N` per repository
+//   Release: <repo> tag <tag>                    from release: what a consumer of a library waits for; may repeat
+//   Release: <repo> package <name>@<version>
 //
-//   ticket done  <epic> <NN> [--pr N]   Status: done <time>; with --pr also `PR: #N`
-//   ticket claim <epic> <NN> [--branch B] [--repo R]
+//   ticket done  <epic> <NN> [--pr N]   Status: done <time>; with --pr also `PR: #N`. A ticket of several
+//                                       repositories: --pr <repo>#N, once per PR, and done only when every Repo:
+//                                       line has its PR (given now or written before) — otherwise exit 2, nothing written
+//   ticket claim <epic> <NN> [--branch B] [--repo R]...
 //                                       Status: claimed <time>; with --branch also the line
 //                                       `Branch: B`, with --repo the line `Repo: R` (a name from
-//                                       _resolved.repos of the profile — a project of several repositories)
+//                                       _resolved.repos of the profile — a project of several repositories);
+//                                       several --repo write a Repo: line each, in the order given — the order of merge
+//   ticket pr    <epic> <NN> <repo>#N   the line `PR: <repo>#N` when the PR is open (a ticket of one repository: #N,
+//                                       the line `PR: #N`); Status is not touched. A bare #N on a ticket of several
+//                                       repositories, or a repository that is not its Repo: line — exit 2
+//   ticket release <epic> <NN> <repo> <tag <tag>|package <name>@<version>>
+//                                       the line `Release: <repo> tag <tag>` or `Release: <repo> package
+//                                       <name>@<version>`; <repo> is a Repo: line of the ticket. Another kind — exit 2
 //   ticket open  <epic> <NN>            Status: open <time>
 //   ticket block <epic> <NN> <reason> [--waits W]
 //                                       Status: blocked <time>, `Blocked reason: <reason>`, with --waits
@@ -35,10 +47,11 @@
 //                                       `<n>. <state> <reason?> — <text>` per checkbox item, its Evidence lines under
 //                                       it, last `evidence: N of M verified`; exit 0
 //   ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S]
-//                [--scrub YYYY-MM-DD] [-n]
+//                [--repo R] [--scrub YYYY-MM-DD] [-n]
 //                                       writes `- evidence: …` after the last line of item <item> (from 1); the
 //                                       platform defaults to this system's (ci under GitHub Actions), the sha to
-//                                       git HEAD, the copy to "-". A line the grammar refuses — exit 2, nothing written;
+//                                       git HEAD, the copy to "-". --repo R (a Repo: line of the ticket): the ref
+//                                       starts with `[R] ` and the sha defaults to the HEAD of R's checkout. A line the grammar refuses — exit 2, nothing written;
 //                                       so is a screenshot with a path in backticks and no --scrub, a video
 //                                       without --scrub, and a video whose first path in backticks is not a
 //                                       .webm or .mp4 file with <name>.sheet.png next to it. Each file a path
@@ -82,15 +95,21 @@ const die = (msg) => {
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [--branch B] [--repo R] [--waits W] [-n] [--root <dir>]
+const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N]... [--branch B] [--repo R]... [--waits W] [-n] [--root <dir>]
+       ticket pr <epic> <NN> <repo>#N|#N [-n] [--root <dir>]
+       ticket release <epic> <NN> <repo> tag <tag>|package <name>@<version> [-n] [--root <dir>]
        ticket migrate [--epic E] [-n] [--root <dir>]
        ticket root [--root <dir>]
        ticket mark <epic> <NN> <review|check/<name>> <pending|success|failure|skipped> --sha <full sha> [--root <dir>]
        ticket mark --contexts
        ticket evidence <epic> <NN> [--root <dir>]
-       ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S] [--scrub YYYY-MM-DD] [-n] [--root <dir>]
+       ticket evidence <epic> <NN> <item> <kind> <pass|fail> --ref "<text>" [--platform P] [--copy C] [--sha S] [--repo R] [--scrub YYYY-MM-DD] [-n] [--root <dir>]
        ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
+       ticket claim checkout-flow 06 --branch fix/lot-flag --repo lib --repo app
+       ticket pr checkout-flow 06 lib#41
+       ticket release checkout-flow 06 lib tag lib-v1.4.0
        ticket done disputes/03 --pr 42
+       ticket done checkout-flow 06 --pr lib#41 --pr app#118
        ticket block disputes 04 "waits for the API keys" --waits owner`
 
 const git = (args) => {
@@ -109,10 +128,11 @@ const evUsage = (msg) => {
 }
 const argv = process.argv.slice(2)
 let dryRun = false
-let pr = null
+// --pr and --repo may repeat: a ticket of several repositories has a PR in each (done) and names each (claim).
+const prs = []
 let rootArg = null
 let branchArg = null
-let repoArg = null
+const repoArgs = []
 let waitsArg = null
 let epicArg = null
 let shaArg = null
@@ -129,9 +149,10 @@ for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "-n") dryRun = true
     else if (a === "--pr") {
-        pr = argv[++i]
-        if (pr === undefined) die("--pr needs a number")
-    } else if (a.startsWith("--pr=")) pr = a.slice(5)
+        const v = argv[++i]
+        if (v === undefined) die("--pr needs a number")
+        prs.push(v)
+    } else if (a.startsWith("--pr=")) prs.push(a.slice(5))
     else if (a === "--root") {
         rootArg = argv[++i]
         if (!rootArg) die("--root needs a directory")
@@ -141,8 +162,8 @@ for (let i = 0; i < argv.length; i++) {
     }
     else if (a === "--branch") branchArg = valueOf("--branch", argv[++i])
     else if (a.startsWith("--branch=")) branchArg = valueOf("--branch", a.slice(9))
-    else if (a === "--repo") repoArg = valueOf("--repo", argv[++i])
-    else if (a.startsWith("--repo=")) repoArg = valueOf("--repo", a.slice(7))
+    else if (a === "--repo") repoArgs.push(valueOf("--repo", argv[++i]))
+    else if (a.startsWith("--repo=")) repoArgs.push(valueOf("--repo", a.slice(7)))
     else if (a === "--waits") waitsArg = valueOf("--waits", argv[++i])
     else if (a.startsWith("--waits=")) waitsArg = valueOf("--waits", a.slice(8))
     else if (a === "--epic") epicArg = valueOf("--epic", argv[++i])
@@ -164,7 +185,7 @@ for (let i = 0; i < argv.length; i++) {
 }
 
 const [cmd, ...where] = positional
-if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root", "mark", "evidence"].includes(cmd)) die(USAGE)
+if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root", "mark", "evidence", "pr", "release"].includes(cmd)) die(USAGE)
 if (waitsArg !== null) {
     // One line of the header: no line breaks, no surrounding spaces.
     waitsArg = waitsArg.trim()
@@ -229,8 +250,13 @@ function evidenceUsage() {
         if (!platform) evUsage(`no platform for ${process.platform}: give --platform`)
     }
     if (COPY_REQUIRED.includes(kind) && evArgs.copy === null) evUsage(`${kind} names the copy of the app it checked: give --copy`)
+    // --repo R: the line is bound to a commit of repository R of a ticket of several repositories. Without --sha the
+    // commit is the HEAD of that repository, which only the profile and the ticket's Repo: lines can name: evidence()
+    // resolves it once the ticket is read.
+    if (repoArgs.length > 1) evUsage("one --repo: an Evidence line is bound to a commit of one repository")
+    const repo = repoArgs[0] ?? null
     let sha = shaArg
-    if (sha === null) {
+    if (sha === null && repo === null) {
         sha = git(["rev-parse", "HEAD"])
         if (!sha) evUsage("no git HEAD here to bind the line to: give --sha")
     }
@@ -243,14 +269,15 @@ function evidenceUsage() {
         sha,
         scrub: evArgs.scrub,
     }
-    const problem = evidenceProblem(fields)
+    // A sha still to resolve (--repo without --sha) stands in as a valid one here; evidence() checks the real one.
+    const problem = evidenceProblem(sha === null ? { ...fields, sha: "0000000" } : fields)
     if (problem !== null) evUsage(problem)
     // A screenshot with a path to its file: a person looked at the pixels first: an image without that note is a finding of evidence-check.
     if (kind === "screenshot" && /`[^`]+`/.test(evArgs.ref) && evArgs.scrub === null)
         evUsage("a screenshot needs --scrub <date>: check the pixels by eye first")
     // A video always: nothing short of looking at every frame of its contact sheet says the clip shows no more than it should.
     if (kind === "video" && evArgs.scrub === null) evUsage("a video needs --scrub <date>: check every frame of its contact sheet first")
-    return { item: Number(item), fields }
+    return { item: Number(item), fields, repo }
 }
 const evLine = cmd === "evidence" ? evidenceUsage() : null
 
@@ -305,7 +332,7 @@ function ticketsRoot() {
     // calls it) and `ticket claim --root ../x` must point to the same directory. It needs no profile — unless
     // --repo has to be checked against the project's repositories.
     // mark reads the mode and the repositories of the project from the profile, also with --root.
-    if (rootArg !== null && repoArg === null && cmd !== "mark") return path.resolve(process.cwd(), rootArg)
+    if (rootArg !== null && !repoArgs.length && cmd !== "mark") return path.resolve(process.cwd(), rootArg)
     try {
         prof = JSON.parse(
             execScriptSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
@@ -352,8 +379,15 @@ const TIME_RE = "\\d{4}-\\d{2}-\\d{2}(?:T\\d{2}:\\d{2}Z)?"
 const STATUS_NEW = new RegExp(`^Status: (open|claimed|blocked|done)(?: (${TIME_RE}))?[ \\t]*$`)
 // Any spelling of the Status key — the same test epic-status uses to find the line.
 const STATUS_ANY = /^\*{0,2}status[ \t]*\*{0,2}[ \t]*:/i
-// The lines that follow Status in the header, in this order; each holds one fact.
-const GROUP = ["Blocked reason", "Waits", "PR"]
+// The lines that follow Status in the header, in this order; each holds one fact. PR and Release may repeat: a
+// ticket of several repositories has a `PR: <repo>#N` line per repository and a `Release:` line per release its
+// consumers wait for.
+const GROUP = ["Blocked reason", "Waits", "PR", "Release"]
+const MULTI = ["PR", "Release"]
+// `PR: <repo>#N` of a ticket of several repositories; a ticket of one repository writes `PR: #N`.
+const REPO_PR = /^([^\s#]+)#(\d+)$/
+// `Repo:` in any spelling the ticket claim and markRepo read (`Repo:`, `**Repo:**`).
+const REPO_LINE = /^\*{0,2}Repo\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*/i
 const FIELD_LINE = /^(\*{0,2})(Type|Status|Blocked by|Source|What to build)\b/i
 const now = () => new Date().toISOString().slice(0, 16) + "Z"
 
@@ -401,27 +435,52 @@ function shape(lines) {
                 end = i
                 break
             }
+    // group — the first value of each key; all — every value of the keys that may repeat (MULTI), in file order;
+    // repos — the names of the Repo: lines.
     const group = {}
+    const all = Object.fromEntries(MULTI.map((k) => [k, []]))
+    const repos = []
     if (first !== -1)
         for (let i = 0; i < end; i++) {
             if (code[i]) continue
             for (const k of GROUP)
-                if (group[k] === undefined && lines[i].startsWith(`${k}:`)) group[k] = lines[i].slice(k.length + 1).trim()
+                if (lines[i].startsWith(`${k}:`)) {
+                    const v = lines[i].slice(k.length + 1).trim()
+                    if (group[k] === undefined) group[k] = v
+                    if (all[k]) all[k].push(v)
+                }
+            if (REPO_LINE.test(lines[i])) repos.push(lines[i].replace(REPO_LINE, "").replace(/\*+[ \t]*$/, "").trim())
         }
     const kind = first === -1 ? "none" : statusAt.length === 1 && STATUS_NEW.test(lines[first]) ? "new" : "old"
-    return { code, statusAt, first, end, group, kind }
+    return { code, statusAt, first, end, group, all, repos, kind }
 }
 
-// Replaces every group line of the header with `values` (key → value or null), right after Status.
-// Returns the index of the last line of the group (Status itself when the group is empty).
+// Replaces every group line of the header with `values` (key → value, a list of values for PR and Release, or
+// null), right after Status. Returns the index of the last line of the group (Status itself when the group is empty).
 function writeGroup(lines, values) {
     let sh = shape(lines)
     for (let i = sh.end - 1; i >= 0; i--) if (!sh.code[i] && GROUP.some((k) => lines[i].startsWith(`${k}:`))) lines.splice(i, 1)
     sh = shape(lines)
-    const add = GROUP.filter((k) => values[k]).map((k) => `${k}: ${values[k]}`)
+    const add = GROUP.flatMap((k) => valuesOf(values[k]).map((v) => `${k}: ${v}`))
     lines.splice(sh.first + 1, 0, ...add)
     return sh.first + add.length
 }
+// The values of a group key: a list, one value, or none (null, undefined or empty — no line).
+function valuesOf(v) {
+    return (Array.isArray(v) ? v : [v]).filter(Boolean)
+}
+// Prints how the group lines changed: the values that went, then the values that came, key by key.
+function printGroup(before, after) {
+    for (const k of GROUP) {
+        const was = Array.isArray(before[k]) ? before[k] : before[k] === undefined || before[k] === null ? [] : [before[k]]
+        const now = valuesOf(after[k])
+        if (JSON.stringify(was) === JSON.stringify(now)) continue
+        for (const v of was) if (!now.includes(v)) console.log(`  - ${k}: ${v}`)
+        for (const v of now) if (!was.includes(v)) console.log(`  + ${k}: ${v}`)
+    }
+}
+// The group as it stands: the first value of each key, every value of the keys that may repeat.
+const groupNow = (sh) => ({ ...sh.group, ...sh.all })
 
 // The words epic-status folded the old Status value into, by the same rule: asterisks out, the first
 // token, punctuation out. An unknown word is a refusal — the old reader called it open, a guess.
@@ -453,18 +512,20 @@ const PR_REF = /\[PR #(\d+)\]\([^)]*\)|\bPR #(\d+)\b/g
 
 if (cmd === "migrate") migrate()
 
-// epic and number: "disputes 03" or "disputes/03"; the rest is the reason for block
-let epic, num, reason
+// epic and number: "disputes 03" or "disputes/03"; the rest is the reason for block, the PR of pr, the release of
+// release
+let epic, num, reason, rest
 if (where[0]?.includes("/")) {
     ;[epic, num] = where[0].split("/")
-    reason = where.slice(1).join(" ").replace(/\s+/g, " ").trim()
+    rest = where.slice(1)
 } else {
     ;[epic, num] = where
-    reason = where.slice(2).join(" ").replace(/\s+/g, " ").trim()
+    rest = where.slice(2)
 }
+reason = rest.join(" ").replace(/\s+/g, " ").trim()
 if (!epic || !num) die(USAGE)
 if (/[/\\]/.test(epic) || epic === "." || epic === "..") die(`an epic name is one directory in .scratch, got "${epic}"`)
-if (cmd !== "block" && reason) die(`extra arguments: ${reason}\n${USAGE}`)
+if (!["block", "pr", "release"].includes(cmd) && reason) die(`extra arguments: ${reason}\n${USAGE}`)
 if (!/^\d+$/.test(String(num).trim())) die(`a ticket number needs digits, got "${num}"`)
 const n = Number(num)
 
@@ -503,7 +564,11 @@ if (cmd === "show") {
     if (sh.first === -1) die(`${matches[0]}: no Status line`)
     console.log(`${matches[0]}:${sh.first + 1}  ${lines[sh.first].trim()}`)
     if (sh.kind === "old") console.log("  (old header — run ticket migrate)")
-    else for (const k of GROUP) if (sh.group[k] !== undefined) console.log(`  ${k}: ${sh.group[k]}`)
+    else
+        for (const k of GROUP) {
+            if (sh.all[k]) for (const v of sh.all[k]) console.log(`  ${k}: ${v}`)
+            else if (sh.group[k] !== undefined) console.log(`  ${k}: ${sh.group[k]}`)
+        }
     process.exit(0)
 }
 
@@ -511,11 +576,63 @@ if (sh.kind === "old")
     die(`${rel(target)}:${sh.first + 1}: old header "${lines[sh.first].trim()}" — run ticket migrate first (TICKETS.md, "Header")`)
 
 // --- new value --------------------------------------------------------------
-if (pr !== null && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
+if (prs.length && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
 if (branchArg !== null && cmd !== "claim") die(`--branch goes only with claim, not with ${cmd}`)
-if (repoArg !== null && cmd !== "claim") die(`--repo goes only with claim, not with ${cmd}`)
-const prNum = pr === null ? null : String(pr).replace(/\D/g, "")
-if (prNum === "") die(`--pr needs a number, got "${pr}"`)
+if (repoArgs.length && cmd !== "claim") die(`--repo goes only with claim and evidence, not with ${cmd}`)
+// A refusal of a PR or a release that does not fit the ticket (pr, release, done): exit 2, nothing written — the
+// caller passed a wrong fact, as with a usage error of mark and evidence.
+const refuse = (msg) => {
+    process.stderr.write(`ticket ${cmd}: ${msg}\n`)
+    process.exit(2)
+}
+// A ticket of several repositories: two or more Repo: lines in the header. Its PR lines carry the name of
+// the repository; a ticket of one repository, or of none named, keeps `PR: #N`.
+const severalRepos = sh.repos.length > 1
+// The PR lines with `<repo>#N` put in: the line of that repository is replaced where it stands, a new one goes last.
+function withPr(list, value) {
+    const repo = REPO_PR.exec(value)[1]
+    const at = list.findIndex((v) => REPO_PR.exec(v)?.[1] === repo)
+    return at === -1 ? [...list, value] : list.map((v, i) => (i === at ? value : v))
+}
+// The PR lines a ticket of several repositories keeps: those of its Repo: lines. A bare `#N` or a line of another
+// repository (written by hand) goes, and the output names it (`- PR: …`).
+const ownPrs = (list) => list.filter((v) => sh.repos.includes(REPO_PR.exec(v)?.[1]))
+// `<repo>#N` of one of the ticket's Repo: lines, or a refusal.
+function repoPr(value, where) {
+    const m = REPO_PR.exec(value)
+    if (!m)
+        refuse(`${where}: a ticket of several repositories (Repo: ${sh.repos.join(", ")}) names the repository of each PR: <repo>#N, got "${value}"`)
+    if (!sh.repos.includes(m[1])) refuse(`${where}: "${m[1]}" is not a Repo: line of the ticket (${sh.repos.join(", ")})`)
+    return `${m[1]}#${m[2]}`
+}
+if (cmd === "pr") prCmd()
+if (cmd === "release") releaseCmd()
+
+let prNum = null
+let prList = null
+if (severalRepos) {
+    // done --pr <repo>#N, once per PR; done itself only with a PR of every Repo: line.
+    prList = ownPrs(sh.all.PR)
+    const given = new Set()
+    for (const p of prs) {
+        const v = repoPr(p, "--pr")
+        const repo = REPO_PR.exec(v)[1]
+        if (given.has(repo)) refuse(`--pr: two PRs of ${repo}; a ticket has one PR per repository`)
+        given.add(repo)
+        prList = withPr(prList, v)
+    }
+    // A project that finishes without PRs (workflow.finish local-green) closes its tickets without --pr.
+    if (cmd === "done" && prof?.workflow?.finish !== "local-green") {
+        const missing = sh.repos.filter((r) => !prList.some((v) => REPO_PR.exec(v)?.[1] === r))
+        if (missing.length)
+            refuse(`no PR of ${missing.join(", ")} (Repo: ${sh.repos.join(", ")}): done needs a PR of every repository — give --pr <repo>#N; nothing written`)
+    }
+} else {
+    if (prs.length > 1) refuse(`a ticket of one repository has one PR, got --pr ${prs.join(" --pr ")}`)
+    const pr = prs[0] ?? null
+    prNum = pr === null ? null : String(pr).replace(/\D/g, "")
+    if (prNum === "") die(`--pr needs a number, got "${pr}"`)
+}
 const wasBlocked = sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "blocked"
 // `block --waits W` without a reason: the ticket stays blocked as it is, only Waits is set.
 const onlyWaits = cmd === "block" && !reason && waitsArg !== null && wasBlocked
@@ -529,16 +646,38 @@ if (branchArg !== null) {
         die(`--branch: "${branchArg}" is not a valid branch name`)
     }
 }
-// The repository of the ticket is one of the project's repositories (_resolved.repos: one ticket — one
-// repository). Without a profile (--root outside the registry) there is nothing to check against.
-if (repoArg !== null && Array.isArray(prof?._resolved?.repos) && prof._resolved.repos.length) {
+// Each repository of the ticket is one of the project's repositories (_resolved.repos), named once. Without a
+// profile (--root outside the registry) there is nothing to check the names against.
+for (const [i, r] of repoArgs.entries()) if (repoArgs.indexOf(r) !== i) die(`--repo: "${r}" is named twice`)
+if (repoArgs.length && Array.isArray(prof?._resolved?.repos) && prof._resolved.repos.length) {
     const names = prof._resolved.repos.map((r) => r.name)
-    if (!names.includes(repoArg)) die(`--repo: "${repoArg}" is not a repository of the project (${names.join(", ")})`)
+    for (const r of repoArgs) if (!names.includes(r)) die(`--repo: "${r}" is not a repository of the project (${names.join(", ")})`)
+}
+// claim --repo sets the repositories of the ticket. A repository it leaves out must not leave its PR: or Release: line
+// behind: that line would stand for a repository the ticket no longer names, so the claim is refused and the person
+// decides. One repository growing into several: a bare `PR: #N` was the PR of that one repository and becomes
+// `PR: <repo>#N`; a bare line no Repo: line accounts for is refused.
+let grownPrs = null
+if (cmd === "claim" && repoArgs.length) {
+    const dropped = sh.repos.filter((r) => !repoArgs.includes(r))
+    const stale = [
+        ...sh.all.PR.filter((v) => dropped.includes(REPO_PR.exec(v)?.[1])).map((v) => `PR: ${v}`),
+        ...sh.all.Release.filter((v) => dropped.includes(v.split(/\s+/)[0])).map((v) => `Release: ${v}`),
+    ]
+    if (stale.length) refuse(`--repo leaves out ${dropped.join(", ")}, and the header still has ${stale.join(", ")}; nothing written`)
+    if (repoArgs.length > 1 && !severalRepos) {
+        const bare = sh.all.PR.filter((v) => !REPO_PR.test(v))
+        const owner = sh.repos.length === 1 && repoArgs.includes(sh.repos[0]) ? sh.repos[0] : null
+        if (bare.some((v) => owner === null || !/^#\d+$/.test(v)))
+            refuse(`the header has ${bare.map((v) => `PR: ${v}`).join(", ")}, which names no repository: claim --repo <its repository> first, then add the others; nothing written`)
+        grownPrs = sh.all.PR.map((v) => (REPO_PR.test(v) ? v : `${owner}${v}`))
+    }
 }
 const word = { done: "done", claim: "claimed", open: "open", block: "blocked" }[cmd]
 const statusLine = onlyWaits ? lines[sh.first] : `Status: ${word} ${now()}`
-const before = { ...sh.group }
-const after = { PR: prNum !== null ? `#${prNum}` : before.PR ?? null }
+// A ticket of one repository prints its PR change as before: the first PR line against the new one.
+const before = severalRepos ? groupNow(sh) : { ...groupNow(sh), PR: sh.group.PR }
+const after = { PR: severalRepos ? prList : grownPrs ?? (prNum !== null ? `#${prNum}` : sh.group.PR ?? null), Release: sh.all.Release }
 if (cmd === "block") {
     after["Blocked reason"] = onlyWaits ? before["Blocked reason"] ?? null : reason
     after.Waits = waitsArg
@@ -568,17 +707,15 @@ let last = writeGroup(lines, after)
 console.log(`${rel(target)}:${at + 1}${viaLink ? `  (via link ${rel(file)})` : ""}`)
 if (was !== null) console.log(`  was: ${was.trim()}`)
 console.log(`  now: ${lines[at].trim()}`)
-for (const k of GROUP) {
-    if ((before[k] ?? null) === (after[k] ?? null)) continue
-    if (before[k] !== undefined) console.log(`  - ${k}: ${before[k]}`)
-    if (after[k]) console.log(`  + ${k}: ${after[k]}`)
-}
+printGroup(before, after)
 
 // `Branch:` and `Repo:` — header lines next to Status (machine lines, English keys). An existing line keeps its
 // prefix (`**Branch:**` or `Branch:`) and gets the new value; a missing one goes right after the Status group.
+// Several --repo, or a header with several Repo: lines, go to repoSet below.
+const oneRepo = repoArgs.length === 1 && sh.repos.length <= 1
 const extra = [
     ["Branch", branchArg],
-    ["Repo", repoArg],
+    ["Repo", oneRepo ? repoArgs[0] : null],
 ]
 for (const [key, val] of extra) {
     if (val === null) continue
@@ -594,6 +731,7 @@ for (const [key, val] of extra) {
         console.log(`  ${key.toLowerCase()}: ${key}: ${val}`)
     }
 }
+if (repoArgs.length && !oneRepo) repoSet(last)
 if (dryRun) {
     console.log("  (-n: file not touched)")
     process.exit(0)
@@ -610,6 +748,80 @@ if (cmd === "done") {
     }
 }
 process.exit(0)
+
+// --- several repositories: Repo:, PR:, Release: ----------------------------------
+// claim with several --repo, or on a header with several Repo: lines: the Repo: lines become the given ones, in the
+// order of the arguments, which is the order of merge (the library first, its consumers after it). They take the
+// place of the first Repo: line of the header, with its prefix; without one they go after the Status group and Branch.
+function repoSet(last) {
+    const s = shape(lines)
+    const at = []
+    for (let i = 0; i < s.end; i++) if (!s.code[i] && REPO_LINE.test(lines[i])) at.push(i)
+    const olds = at.map((i) => lines[i].trim())
+    const prefix = at.length ? lines[at[0]].match(REPO_LINE)[0] : "Repo: "
+    const news = repoArgs.map((r) => prefix + r)
+    for (const i of [...at].reverse()) lines.splice(i, 1)
+    lines.splice(at.length ? at[0] : last + 1, 0, ...news)
+    console.log(`  repo: ${olds.length ? `${olds.join(" | ")} -> ` : ""}${news.map((l) => l.trim()).join(" | ")}`)
+}
+
+// Writes the group lines of `values`, prints the change, writes the file (or not, with -n) and exits; the Status
+// line stays as it is.
+function writeHeaderLines(values, changed) {
+    const beforeNow = groupNow(sh)
+    writeGroup(lines, { ...sh.group, ...sh.all, ...values })
+    const s = shape(lines)
+    const at = lines.findIndex((l, i) => i < s.end && !s.code[i] && l === changed)
+    console.log(`${rel(target)}:${at + 1}${viaLink ? `  (via link ${rel(file)})` : ""}`)
+    printGroup(beforeNow, { ...sh.group, ...sh.all, ...values })
+    if (dryRun) {
+        console.log("  (-n: file not touched)")
+        process.exit(0)
+    }
+    writeTicket(target, doc)
+    process.exit(0)
+}
+
+// ticket pr <epic> <NN> <repo>#N — the PR of one repository, written when the PR is open; the line of that
+// repository is replaced where it stands. A ticket of one repository takes #N (or N) and keeps one `PR: #N` line.
+function prCmd() {
+    if (rest.length !== 1) refuse(`expected <epic> <NN> <repo>#N (#N for a ticket of one repository), got ${rest.length} argument(s) after the ticket\n${USAGE}`)
+    if (sh.first === -1) die(`${rel(target)}: no Status line — claim the ticket first`)
+    const value = rest[0]
+    if (severalRepos) {
+        const v = repoPr(value, "pr")
+        writeHeaderLines({ PR: withPr(ownPrs(sh.all.PR), v) }, `PR: ${v}`)
+    }
+    const m = /^#?(\d+)$/.exec(value)
+    if (!m) refuse(`a ticket of one repository writes PR: #N, got "${value}"`)
+    writeHeaderLines({ PR: `#${m[1]}` }, `PR: #${m[1]}`)
+}
+
+// ticket release <epic> <NN> <repo> tag <tag> | package <name>@<version> — what a consumer waits for: a tag of the
+// library repository or a published version of its package. Several lines may stand; the same one is written once.
+// Other kinds (a GitHub release without a tag, a registry of its own) are not known yet.
+function releaseCmd() {
+    if (rest.length !== 3) refuse(`expected <epic> <NN> <repo> tag <tag> or <epic> <NN> <repo> package <name>@<version>, got ${rest.length} argument(s) after the ticket\n${USAGE}`)
+    if (sh.first === -1) die(`${rel(target)}: no Status line — claim the ticket first`)
+    const [repo, kind, value] = rest
+    if (!sh.repos.length) refuse(`${rel(target)} names no repository (no Repo: line): ticket claim --repo first`)
+    if (!sh.repos.includes(repo)) refuse(`"${repo}" is not a Repo: line of the ticket (${sh.repos.join(", ")})`)
+    if (kind === "tag") {
+        try {
+            execFileSync(GIT, ["check-ref-format", `refs/tags/${value}`], { stdio: ["ignore", "ignore", "ignore"] })
+        } catch {
+            refuse(`"${value}" is not a valid tag name`)
+        }
+    } else if (kind === "package") {
+        if (!/^(@[^\s@/]+\/)?[^\s@/]+@[^\s@]+$/.test(value)) refuse(`a package is <name>@<version> (@scope/name@1.2.3), got "${value}"`)
+    } else refuse(`the kind of a release is tag or package, got "${kind}"`)
+    const line = `${repo} ${kind} ${value}`
+    if (sh.all.Release.includes(line)) {
+        console.log(`${rel(target)}: Release: ${line} is already there`)
+        process.exit(0)
+    }
+    writeHeaderLines({ Release: [...sh.all.Release, line] }, `Release: ${line}`)
+}
 
 // --- evidence -------------------------------------------------------------------
 // The headings of the "done" section: the profile's tickets.done_section and tickets.manual_mark; without a
@@ -728,6 +940,23 @@ function clipSheet(ref) {
     return sheetAbs
 }
 
+// --repo R of an Evidence line: R is a Repo: line of the ticket; the sha, when not given, is the HEAD of R's checkout
+// (the profile's _resolved.repos), not of the working directory; the ref starts with `[R] `. The grammar of the line
+// stays as it is (lib/evidence.cjs and its copy in worfy): the repository is a part of the free text of the ref.
+function repoEvidence(ev) {
+    const { repo, fields } = ev
+    if (!sh.repos.includes(repo)) evUsage(`--repo: "${repo}" is not a Repo: line of ${rel(target)} (${sh.repos.join(", ") || "none"})`)
+    if (fields.sha === null) {
+        const dir = (Array.isArray(prof?._resolved?.repos) ? prof._resolved.repos : []).find((r) => r.name === repo)?.path
+        if (!dir) evUsage(`--repo ${repo}: the project profile names no checkout of ${repo} to take HEAD from: give --sha`)
+        fields.sha = git(["-C", dir, "rev-parse", "HEAD"])
+        if (!fields.sha) evUsage(`--repo ${repo}: no git HEAD in ${dir} to bind the line to: give --sha`)
+    }
+    fields.ref = `[${repo}] ${fields.ref}`
+    const problem = evidenceProblem(fields)
+    if (problem !== null) evUsage(problem)
+}
+
 function evidence() {
     const items = doneItems(lines)
     if (evLine === null) {
@@ -747,6 +976,7 @@ function evidence() {
     }
     const it = items.find((x) => x.index === evLine.item)
     if (!it) evUsage(`no item ${evLine.item} in the "done" section of ${rel(target)}: it has ${items.length} checkbox item(s)`)
+    if (evLine.repo !== null) repoEvidence(evLine)
     checkRefFiles(evLine.fields.ref, evLine.fields.kind === "video" ? [clipSheet(evLine.fields.ref)] : [])
     const line = it.indent + formatEvidence(evLine.fields)
     // it.end is 1-based: the new line takes the index right after it.
@@ -776,7 +1006,7 @@ function evidence() {
 // -n prints the diff and writes nothing.
 function migrate() {
     if (where.length) die(`extra arguments: ${where.join(" ")}\n${USAGE}`)
-    if (pr !== null || branchArg !== null || repoArg !== null) die("migrate takes only --epic, -n and --root")
+    if (prs.length || branchArg !== null || repoArgs.length) die("migrate takes only --epic, -n and --root")
     if (epicArg !== null && (/[/\\]/.test(epicArg) || epicArg === "." || epicArg === ".."))
         die(`an epic name is one directory in .scratch, got "${epicArg}"`)
     if (!fs.existsSync(scratch)) die(`no tickets root: ${scratch}`)
@@ -974,15 +1204,31 @@ function marksStore() {
 }
 
 // The repository of the ticket: its `Repo:` line (a project of several repositories), otherwise the git
-// repository ticket runs in, otherwise the project's only repository.
+// repository ticket runs in, otherwise the project's only repository. A ticket with several Repo: lines: the one whose
+// checkout holds the commit of the mark, so a consumer's head gets the status in the consumer's repository.
 function markRepo() {
-    const REPO_LINE = /^\*{0,2}Repo\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*/i
-    const line = lines.slice(0, sh.end).find((l, i) => !sh.code[i] && REPO_LINE.test(l))
-    const repoName = line ? line.replace(REPO_LINE, "").replace(/\*+[ \t]*$/, "").trim() : null
+    const repoName = sh.repos[0] ?? null
     const repos = Array.isArray(prof._resolved?.repos) ? prof._resolved.repos : []
     const top = git(["rev-parse", "--show-toplevel"])
     let dir
-    if (repoName) {
+    if (sh.repos.length > 1) {
+        const known = sh.repos.map((name) => {
+            const found = repos.find((r) => r.name === name)
+            if (!found) die(`${rel(target)}: Repo: ${name} is not a repository of the project (${repos.map((r) => r.name).join(", ") || "none"})`)
+            return found
+        })
+        const hasCommit = (dir) => {
+            try {
+                execFileSync(GIT, ["-C", dir, "cat-file", "-e", `${markArgs.sha}^{commit}`], { stdio: ["ignore", "ignore", "ignore"] })
+                return true
+            } catch {
+                return false
+            }
+        }
+        const holder = known.find((r) => hasCommit(r.path))
+        if (!holder) die(`${rel(target)}: the commit ${markArgs.sha} is in none of the ticket's repositories (${sh.repos.join(", ")}): fetch it, or mark the head of a branch of the ticket`)
+        dir = holder.path
+    } else if (repoName) {
         const found = repos.find((r) => r.name === repoName)
         if (!found) die(`${rel(target)}: Repo: ${repoName} is not a repository of the project (${repos.map((r) => r.name).join(", ") || "none"})`)
         dir = found.path

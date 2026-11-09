@@ -116,6 +116,18 @@ tk "$T/r/multi" mark shopfront 04 review success --sha "$OTHER"; rc=$?
 [ "$rc" -eq 1 ] && [ "$(calls)" = "$n" ] && grep -q "Repo:" "$T/out" && ok "full: several repositories, no Repo: line, outside git -> exit 1 naming Repo:, no gh" || bad "full: no Repo: line: exit $rc $(cat "$T/out")"
 tk "$T/r/multi/front" mark shopfront 04 review success --sha "$OTHER" --root "$T/r/multi/.scratch"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$(last_call)" == *"repos/acme/front/statuses/$OTHER"* ]] && ok "full: no Repo: line, run in a repository -> its origin" || bad "full: cwd repository: exit $rc [$(last_call)] $(cat "$T/out")"
+# A ticket of several repositories (two Repo: lines): the status goes to the repository whose checkout holds the commit.
+git -C "$T/r/multi/back" commit -q --allow-empty -m back
+FRONT="$(git -C "$T/r/multi/front" rev-parse HEAD)"; BACK="$(git -C "$T/r/multi/back" rev-parse HEAD)"
+ticket "$T/r/multi" 05 'Repo: front' 'Repo: back'
+tk "$T/r/multi" mark shopfront 05 review success --sha "$BACK"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$(last_call)" == *"repos/acme/back/statuses/$BACK"* ]] && ok "full: two Repo: lines, the commit of back -> acme/back" || bad "full: two Repo: lines, back: exit $rc [$(last_call)] $(cat "$T/out")"
+tk "$T/r/multi" mark shopfront 05 review success --sha "$FRONT"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$(last_call)" == *"repos/acme/front/statuses/$FRONT"* ]] && ok "full: two Repo: lines, the commit of front -> acme/front" || bad "full: two Repo: lines, front: exit $rc [$(last_call)] $(cat "$T/out")"
+n="$(calls)"
+tk "$T/r/multi" mark shopfront 05 review success --sha "$OTHER"; rc=$?
+[ "$rc" -eq 1 ] && [ "$(calls)" = "$n" ] && grep -q "in none of the ticket's repositories (front, back)" "$T/out" \
+    && ok "full: two Repo: lines, a commit of neither -> exit 1, no gh" || bad "full: two Repo: lines, unknown commit: exit $rc $(cat "$T/out")"
 # origin not on GitHub; gh failing; gh missing
 n="$(calls)"
 tk "$T/r/local" mark shopfront 02 review success --sha "$SHA"; rc=$?
@@ -239,6 +251,24 @@ tk "$T/r/plain" mark shopfront 02 review success --sha "$SHA" --root "$T/r/shop/
 [ "$rc" -eq 0 ] && [ "$(cat "$T/out")" = "$(printf 'review\ncheck/*\ndeploy')" ] && ok "--contexts prints review, check/*, deploy (no profile needed)" || bad "--contexts: exit $rc [$(cat "$T/out")]"
 (cd "$T" && node "$TICKET" mark --contexts shopfront) >"$T/out" 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "--contexts with arguments -> exit 2" || bad "--contexts with arguments: exit $rc"
+
+# --- done of a ticket of several repositories: the PR set is checked unless the project finishes without PRs ---------
+ticket "$T/r/demo" 03 'Repo: a' 'Repo: b'
+tk "$T/r/demo" done shopfront 03; rc=$?
+[ "$rc" -eq 0 ] && grep -Eq '^Status: done [0-9-]+T[0-9:]+Z$' "$T/r/demo/.scratch/shopfront/issues/03-a-ticket.md" \
+    && ok "local-green: done of a ticket with two Repo: lines and no PR -> done" || bad "local-green done: exit $rc $(cat "$T/out")"
+ticket "$T/r/demopr" 03 'Repo: a' 'Repo: b'
+cp "$T/r/demopr/.scratch/shopfront/issues/03-a-ticket.md" "$T/demopr03"
+tk "$T/r/demopr" done shopfront 03; rc=$?
+[ "$rc" -eq 2 ] && grep -q "no PR of a, b (" "$T/out" && cmp -s "$T/demopr03" "$T/r/demopr/.scratch/shopfront/issues/03-a-ticket.md" \
+    && ok "pr-green-ci: done of a ticket with two Repo: lines and no PR -> exit 2, the file unchanged" || bad "pr finish done: exit $rc $(cat "$T/out")"
+
+# --- Silent mode, a ticket of several repositories: the marks file, as for one repository; never gh ---------------
+: >"$GH_LOG"
+ticket "$T/wf" 05 'Repo: quiet' 'Repo: other'
+tk "$T/r/quiet" mark shopfront 05 review success --sha "$OTHER"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(jq -r '.marks[0].kind + "=" + .marks[0].verdict' "$HH/runs/quiet/marks/shopfront-05.json" 2>/dev/null)" = "review=success" ] && [ "$(calls)" = 0 ] \
+    && ok "silent: two Repo: lines -> the marks file, no gh" || bad "silent: two Repo: lines: exit $rc $(cat "$T/out")"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
