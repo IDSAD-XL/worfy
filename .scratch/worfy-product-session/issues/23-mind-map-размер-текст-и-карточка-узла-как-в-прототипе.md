@@ -70,6 +70,8 @@ Source: сравнение собранного экрана с прототип
 - [ ] (manual) Владелец в Mac Stable: размер, текст узлов и карточка как в прототипе.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (705 files, 16580 tests) · mac - · 0f8057c1e922efb95dbcdb0acf979cc85e5bd479
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0f8057c1e922efb95dbcdb0acf979cc85e5bd479
 
 ## Тесты
 
