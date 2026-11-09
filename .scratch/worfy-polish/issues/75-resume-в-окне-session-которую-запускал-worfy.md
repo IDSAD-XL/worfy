@@ -2,7 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-09T08:44Z
-PR: —
+PR: #1723
 Branch: worfy-polish/75
 Blocked by: —
 Source: владелец 2026-11-09, Mac Stable: после перезапуска worfy Product Session, которую запускал сам worfy, не
