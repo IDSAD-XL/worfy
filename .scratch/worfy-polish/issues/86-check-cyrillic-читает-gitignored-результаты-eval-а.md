@@ -33,10 +33,14 @@ diff-е PR кириллицы нет; implementer тратит время на �
 
 - [ ] Test: gitignored `.html` с кириллицей под `harness/evals/results/` — `check-cyrillic` exit 0; тот же файл вне
       `.gitignore` (новый, не добавленный в git) — finding и exit 1.
+  - evidence: gate pass · `gate fast` exit 0 (test/unit/check-cyrillic.test.ts, describe the command: which files it reads) · mac - · e30af911eb53301666afe1901333254b94e9982a
 - [ ] Test: `--root` на папку без git — прежний обход, finding-и те же, что до правки.
+  - evidence: gate pass · `gate fast` exit 0 (test/unit/check-cyrillic.test.ts, outside a git work tree case) · mac - · e30af911eb53301666afe1901333254b94e9982a
 - [ ] Ручная проверка в своём worktree: положить `harness/evals/results/x/report.html` с кириллицей — `pnpm lint`
       exit 0; команда и exit code в «Итог».
+  - evidence: test-run pass · `pnpm lint` exit 0 with an ignored harness/evals/results/x/report.html holding Cyrillic; old script exit 1 on it · mac - · 6db5c4b4d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, test) · mac - · e30af911eb53301666afe1901333254b94e9982a
 
 ## Где в коде
 
