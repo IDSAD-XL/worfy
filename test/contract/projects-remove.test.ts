@@ -8,15 +8,37 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DocsHub } from '../../src/main/docs/watch'
 import { gateRegistryRepos } from '../../src/main/getting-started/demo'
 import type { ConnectScript, ScriptRun } from '../../src/main/projects/connect'
 import { ProjectRemover, removalPreview, removeProject, type ProjectRemovalDeps } from '../../src/main/projects/remove'
 import { readProfileDir } from '../../src/main/projects/review-offer'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
+import { WorkflowHub } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
+
+/**
+ * Every fs.watch handle worfy's watches open (the documents' watch and the Windows watch of the
+ * Tickets both go through watch-gone.ts), by the folder it holds, until it is closed.
+ */
+const { openWatches } = vi.hoisted(() => ({ openWatches: new Map<object, string>() }))
+vi.mock('../../src/main/watch-gone', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/main/watch-gone')>()
+  const watchWithNode: typeof real.watchWithNode = (path, recursive, onEvent, onError) => {
+    const handle = real.watchWithNode(path, recursive, onEvent, onError)
+    const close = handle.close.bind(handle)
+    openWatches.set(handle, path)
+    handle.close = () => {
+      openWatches.delete(handle)
+      close()
+    }
+    return handle
+  }
+  return { ...real, watchWithNode }
+})
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const BIN = join(REPO, 'harness', 'bin')
@@ -148,6 +170,13 @@ function deps(sessions: { sessionId: string; cwd: string }[] = [], connectScript
       log.push(`stop ${projectIds.map((id) => store.get(id).name).join(' ')}`)
       return () => log.push('release')
     },
+    holdWatches: (projects) => {
+      log.push(`hold watches ${projects.map((project) => project.name).join(' ')}`)
+      return Promise.resolve(() => {
+        log.push('watch again')
+        return Promise.resolve()
+      })
+    },
     sessions: {
       list: () => sessions,
       close: (sessionId) => {
@@ -211,7 +240,7 @@ describe('Remove project of a Full mode repository', () => {
     ]
     expect(await removeProject(deps(sessions), project.id)).toStrictEqual({ status: 'removed', notes: [] })
     // The order of the ticket: the Orchestrator and the Sessions of the Project, the script, then the list.
-    expect(log).toStrictEqual(['stop shop', 'close inside', 'project-connect --remove shop', 'list remove shop', 'release'])
+    expect(log).toStrictEqual(['stop shop', 'close inside', 'hold watches shop', 'project-connect --remove shop', 'list remove shop', 'release', 'watch again'])
 
     // What goes.
     expect(registry().map((entry) => entry.profile)).toStrictEqual(['other'])
@@ -243,7 +272,7 @@ describe('Remove project of a Full mode repository', () => {
       reason: 'The Harness did not remove the Profile shop, so the Project stays in the list: the commit failed; the removal was rolled back',
       workflowFolder: null,
     })
-    expect(log).toStrictEqual(['stop shop', 'project-connect --remove shop', 'release'])
+    expect(log).toStrictEqual(['stop shop', 'hold watches shop', 'project-connect --remove shop', 'release', 'watch again'])
     expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
     expect(registry().map((entry) => entry.profile)).toStrictEqual(['shop'])
   })
@@ -329,7 +358,7 @@ describe('Remove project of a Full mode repository', () => {
       status: 'removed',
       notes: ['m1 stays in the list without a Profile: Remove from list takes it out, or Add project connects its folder again.'],
     })
-    expect(log).toStrictEqual(['stop code m1', 'project-connect --remove code', 'list remove code', 'release'])
+    expect(log).toStrictEqual(['stop code m1', 'hold watches code m1', 'project-connect --remove code', 'list remove code', 'release', 'watch again'])
     expect(store.list().map((each) => each.id)).toStrictEqual([inner.id])
   })
 
@@ -402,7 +431,7 @@ describe('Remove project in Silent mode', () => {
       Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'value', message: "the Workflow folder holds the project's own files: move it out first; nothing was removed" }] }), stderr: '' })
     const result = await removeProject(deps([], refusing), project.id)
     expect(result.status === 'refused' && result.workflowFolder).toMatch(/[\\/]projects[\\/]shop[\\/]workflow$/)
-    expect(log).toStrictEqual(['stop shop', 'project-connect --remove shop', 'release'])
+    expect(log).toStrictEqual(['stop shop', 'hold watches shop', 'project-connect --remove shop', 'release', 'watch again'])
     expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
   })
 
@@ -454,5 +483,94 @@ describe('ProjectRemover', () => {
     expect(first).toStrictEqual({ status: 'removed', notes: [] })
     expect(second).toBe(first)
     expect(log.filter((line) => line.startsWith('project-connect'))).toStrictEqual(['project-connect --remove shop'])
+  })
+})
+
+// Windows refuses to rename a folder while a handle inside it is open (EPERM), and `project-connect
+// --remove` renames the Profile folder first. A Silent Project's Workflow folder lies in that folder,
+// and worfy watches it twice: the Tickets (link-safe-watch.ts on Windows) and the documents (one
+// recursive fs.watch). The Harness here acts as Windows would: while any of worfy's watches holds a
+// folder inside the Profile folder, it refuses with the words Windows CI showed, and removes nothing.
+describe('Remove project of a Silent Project that worfy watches (the Windows rename rule)', () => {
+  const EPIC_JSON = JSON.stringify({ ref: null, epics: [], tickets: [] })
+
+  const insideOf = (folder: string) => (path: string) => path === folder || path.startsWith(`${folder}${sep}`)
+  const watchesInside = (folder: string): string[] => [...openWatches.values()].filter(insideOf(folder))
+
+  /** The real script, refused as Windows refuses it while a watch holds a folder inside `profileDir`. */
+  const windowsConnect = (profileDir: string): ConnectScript => (args, stdin) => {
+    const held = watchesInside(profileDir)
+    if (held.length === 0) return realConnect(args, stdin)
+    const message = `EPERM: operation not permitted, rename '${profileDir}' -> '${join(harnessHome, '.remove-test', 'profile')}' (held: ${held.join(', ')}); the removal was rolled back`
+    return Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message }] }), stderr: '' })
+  }
+
+  async function until(what: string, ready: () => boolean): Promise<void> {
+    for (let tries = 0; !ready(); tries += 1) {
+      if (tries > 200) throw new Error(`timed out waiting for ${what}`)
+      await new Promise((done) => setTimeout(done, 25))
+    }
+  }
+
+  /** The app's two hubs over the Silent Project `shop`, opened as a window opens them, and the removal's parts with the app's hold of them. */
+  async function watched(connectScript: (profileDir: string) => ConnectScript): Promise<{ project: { id: string; name: string; path: string }; profileDir: string; workflowHub: WorkflowHub; docsHub: DocsHub; removal: ProjectRemovalDeps }> {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'silent', null, [shop])
+    const project = await listed(shop)
+    const profileDir = join(harnessHome, 'projects', 'shop')
+    const workflow = join(profileDir, 'workflow')
+    expect(existsSync(workflow)).toBe(true)
+    const workflowHub = new WorkflowHub({
+      claudeHome: join(home, '.claude'),
+      env: () => Promise.resolve({}),
+      run: () => Promise.resolve(EPIC_JSON),
+      layout: (root) => Promise.resolve({ root, mode: 'silent', workflowFolder: workflow, ticketsRoot: workflow, repos: [], workspace: null, reason: null, failed: false }),
+      ticketsWatch: 'links-read-first',
+    })
+    const docsHub = new DocsHub({ debounceMs: 20 })
+    cleanups.push(() => workflowHub.closeAll(), () => docsHub.closeAll())
+    await workflowHub.open(project.path, { id: 'window', send: () => undefined })
+    await docsHub.open(project.id, workflow, { id: 'window', send: () => undefined })
+    await until('the watches of the Workflow folder', () => watchesInside(profileDir).length >= 2)
+    const base = deps([], connectScript(profileDir))
+    const removal: ProjectRemovalDeps = {
+      ...base,
+      // As src/main/ipc/projects.ts holds them.
+      holdWatches: async (projects) => {
+        const holds = await Promise.all(projects.flatMap((each) => [workflowHub.hold(each.path), docsHub.hold(each.id)]))
+        return async () => {
+          await Promise.all(holds.map((watchAgain) => watchAgain()))
+        }
+      },
+    }
+    return { project, profileDir, workflowHub, docsHub, removal }
+  }
+
+  const cleanups: (() => Promise<void>)[] = []
+  afterEach(async () => {
+    await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()))
+  })
+
+  it('closes the Tickets and documents watches before the Harness renames the Profile folder: the removal succeeds and the folder connects again', async () => {
+    const { project, profileDir, workflowHub, removal } = await watched(windowsConnect)
+    const result = await removeProject(removal, project.id)
+    expect(result).toStrictEqual({ status: 'removed', notes: [] })
+    expect(existsSync(profileDir)).toBe(false)
+    expect(registry()).toStrictEqual([])
+    expect(store.list()).toStrictEqual([])
+    // The window still holds its subscription; the hub follows the folder again.
+    expect(workflowHub.roots).toStrictEqual([project.path])
+    await connect('shop', 'silent', null, [project.path])
+    expect(registry().map((entry) => entry.profile)).toStrictEqual(['shop'])
+  })
+
+  it('after a refusal of the Harness the watches of the Workflow folder are made again', async () => {
+    const refusing: ConnectScript = () => Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message: 'the commit failed; the removal was rolled back' }] }), stderr: '' })
+    const { project, profileDir, workflowHub, docsHub, removal } = await watched(() => refusing)
+    const result = await removeProject(removal, project.id)
+    expect(result.status).toBe('refused')
+    await until('the watches made again', () => watchesInside(profileDir).length >= 2)
+    expect(workflowHub.roots).toStrictEqual([project.path])
+    expect(docsHub.projects).toStrictEqual([project.id])
   })
 })

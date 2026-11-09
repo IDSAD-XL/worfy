@@ -217,8 +217,8 @@ const listedIds = (): Set<string> => new Set(store.list().map((project) => proje
 
 // ── "Remove project…" (worfy-polish ticket 79, src/main/projects/remove.ts) ─────────────────────
 
-/** The removal's Project list, gate registry and bin/profile; the Orchestrators and Sessions are added per removal. */
-const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrators' | 'sessions'> => ({
+/** The removal's Project list, gate registry and bin/profile; the Orchestrators, watches and Sessions are added per removal. */
+const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrators' | 'holdWatches' | 'sessions'> => ({
   projects: {
     get: (id) => store.get(id),
     list: () => store.list(),
@@ -238,15 +238,28 @@ const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrators' | 'sessions
 let remover: ProjectRemover | undefined
 
 /**
- * The app's remover, made on the first call. The Orchestrators and the Session registry are imported
- * on a removal, not with this module: loading the list's handlers starts neither.
+ * The app's remover, made on the first call. The Orchestrators, the Session registry and the
+ * Tickets and documents hubs are imported on a removal, not with this module: loading the list's
+ * handlers starts none of them.
  */
 function projectRemover(): ProjectRemover {
   remover ??= new ProjectRemover(async () => {
-    const [{ keepClosed, sharedOrchestrators }, { sharedRegistry }] = await Promise.all([import('../agent/app-orchestrators'), import('../agent/app-registry')])
+    const [{ keepClosed, sharedOrchestrators }, { sharedRegistry }, { workflowHub }, { docsHub }] = await Promise.all([
+      import('../agent/app-orchestrators'),
+      import('../agent/app-registry'),
+      import('./workflow'),
+      import('./docs'),
+    ])
     const registry = sharedRegistry()
     return {
       ...removalBase(),
+      // The Tickets watch is keyed by the Project's folder, the documents' by its id.
+      holdWatches: async (projects) => {
+        const holds = await Promise.all(projects.flatMap((project) => [workflowHub.hold(project.path), docsHub.hold(project.id)]))
+        return async () => {
+          await Promise.all(holds.map((watchAgain) => watchAgain()))
+        }
+      },
       stopOrchestrators: (projectIds) => {
         sharedOrchestrators().retain(new Set(store.list().map((project) => project.id).filter((id) => !projectIds.includes(id))))
         const releases = projectIds.map((id) => keepClosed(id))

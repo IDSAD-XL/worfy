@@ -20,12 +20,15 @@
 //   2. a default Workflow folder that holds files or commits is refused here, before anything closes;
 //   3. the Orchestrators of the Project and of every other listed Project inside its folder (they share
 //      the Profile) stop and stay closed, and every Session whose folder is inside the Project's is
-//      closed and waited for;
+//      closed and waited for; then worfy's own watches of those Projects (Tickets, documents) close
+//      until the end: a Silent Project's Workflow folder lies in the Profile folder, and Windows
+//      refuses the script's rename of a folder while a watch holds a handle inside it (EPERM);
 //   4. `project-connect --remove <profile>`; a refusal or a failure leaves the Project in the list, with
 //      the script's words. "No such profile" counts as done only when no registry entry of the Profile
 //      is left: otherwise nothing was freed;
 //   5. the Project leaves worfy's list (its data folder stays, as with "Remove from list"); the other
-//      listed Projects inside its folder stay, without a Profile, and the answer says so.
+//      listed Projects inside its folder stay, without a Profile, and the answer says so;
+//   6. whatever the answer, the Orchestrators are let go and the watches are made again.
 //
 // Everything that reaches outside comes in through ProjectRemovalDeps (src/main/ipc/projects.ts wires
 // the app's), so the contract test runs it over a temporary Harness home.
@@ -61,6 +64,12 @@ export interface ProjectRemovalDeps {
   connect: ConnectScript
   /** Stops the Orchestrators of these Projects and keeps them closed; the returned function lets go. */
   stopOrchestrators: (projectIds: readonly string[]) => () => void
+  /**
+   * Closes worfy's own watches of these Projects (Tickets, documents) and keeps them closed; the
+   * returned function watches them again. A Silent Project's Workflow folder lies in the Profile
+   * folder, and Windows refuses to rename a folder while a watch holds a handle inside it.
+   */
+  holdWatches: (projects: readonly ListedProject[]) => Promise<() => Promise<void>>
   /** The live Sessions; close() resolves once the Session's processes have exited. */
   sessions: {
     list(): readonly { sessionId: string; cwd: string }[]
@@ -248,8 +257,10 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   }
   const release = deps.stopOrchestrators([project.id, ...others.map((other) => other.id)])
+  let watchAgain: () => Promise<void> = () => Promise.resolve()
   try {
     await closeInside(deps, project.path)
+    watchAgain = await deps.holdWatches([project, ...others])
     let run: ScriptRun
     try {
       run = await deps.connect(['--remove', preview.profile], '')
@@ -284,6 +295,7 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   } finally {
     release()
+    await watchAgain().catch((error: unknown) => console.warn('[projects] watching a Project again after its removal failed', error))
   }
 }
 

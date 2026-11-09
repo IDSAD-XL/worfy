@@ -266,8 +266,10 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   entries with their paths, the agents' marks in `runs/<profile>/`, the qmd collections the Profile names (one that another
   Profile names stays) and an empty default Workflow folder. It lists what stays: the repositories and every file in them,
   the tickets, spec, ADRs and state file in a Full mode repository, a Workflow folder the person chose, and worfy's settings
-  of the Project. "Remove project" closes the Project's Orchestrator and its Sessions, runs `project-connect --remove <profile>`,
-  then takes the Project out of the list. "Remove from list" in the same dialog does what the menu row of that name does.
+  of the Project. "Remove project" closes the Project's Orchestrator and its Sessions, stops worfy's watch of its tickets
+  and documents, runs `project-connect --remove <profile>`, then takes the Project out of the list, and watches again
+  whatever the answer. The watch stops because a Silent mode Workflow folder lies in the Profile folder, and Windows
+  refuses to rename a folder while a watch holds a folder inside it. "Remove from list" in the same dialog does what the menu row of that name does.
   worfy deletes nothing itself, and the Harness never touches a repository.
 - "Remove project…" refuses before anything closes, and removes nothing, when the default Workflow folder of a Silent
   mode Profile holds files or commits (the project's tickets): the dialog says so and offers "Show in Finder" for that
@@ -366,8 +368,9 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
   team reviewer offer with "Later" and "Build".
 - `test/unit/use-projects.test.tsx`: revisions, the groups by Machine, windows on a Linked machine.
 - `test/contract/projects-remove.test.ts`: "Remove project…" over the real `bin/profile` and `bin/project-connect` in a
-  temporary Harness home: what goes, what stays, the refusals, and the same folders connected again.
-  `test/unit/remove-project.test.tsx`: its dialog. `test/e2e/projects-connect.spec.ts`: connect, remove, connect again in
+  temporary Harness home: what goes, what stays, the refusals, and the same folders connected again; with the real
+  Tickets and documents hubs, the removal of a watched Silent Project under a Harness that refuses as Windows does
+  while a watch holds the Workflow folder. `test/unit/remove-project.test.tsx`: its dialog. `test/e2e/projects-connect.spec.ts`: connect, remove, connect again in
   the built app. `harness/bin/tests/project-connect.test.sh`: `--remove`, then the same paths connected again.
 - `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`: holds. `test/contract/link-access.test.ts`,
   `test/unit/link-access.test.ts`: what a Linked machine may call.

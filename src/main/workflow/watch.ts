@@ -826,34 +826,84 @@ export interface WorkflowSubscriber {
   send(delta: WorkflowDelta): void
 }
 
+interface HubProject {
+  watcher: Promise<WorkflowWatcher>
+  subscribers: Map<number | string, WorkflowSubscriber>
+  /** How many holds (`WorkflowHub.hold`) keep the watch closed now. */
+  held: number
+}
+
 /**
  * One watcher per Project root, shared by every subscriber of that root. The watcher stops when
  * its last subscriber leaves.
  */
 export class WorkflowHub {
-  private readonly projects = new Map<string, { watcher: Promise<WorkflowWatcher>; subscribers: Map<number | string, WorkflowSubscriber> }>()
+  private readonly projects = new Map<string, HubProject>()
 
   constructor(private readonly options: Omit<WatchOptions, 'root' | 'onChange'>) {}
+
+  /** Starts the watcher of `key` for `project`; one that fails to start takes the Project out of the hub. */
+  private start(key: string, project: Omit<HubProject, 'watcher'>): Promise<WorkflowWatcher> {
+    return WorkflowWatcher.start({
+      ...this.options,
+      root: key,
+      onChange: (delta, textOnly) => {
+        for (const target of project.subscribers.values()) if (!(textOnly && target.fieldsOnly === true)) target.send(delta)
+      },
+    })
+  }
+
+  private forgetOnFailure(key: string, project: HubProject): void {
+    const watcher = project.watcher
+    watcher.catch(() => {
+      if (this.projects.get(key) === project && project.watcher === watcher) this.projects.delete(key)
+    })
+  }
 
   /** Starts watching `root` for `subscriber` (once per subscriber) and returns the current model. */
   async open(root: string, subscriber: WorkflowSubscriber): Promise<WorkflowModel> {
     const key = resolve(root)
     let project = this.projects.get(key)
     if (!project) {
-      const subscribers = new Map<number | string, WorkflowSubscriber>()
-      const watcher = WorkflowWatcher.start({
-        ...this.options,
-        root: key,
-        onChange: (delta, textOnly) => {
-          for (const target of subscribers.values()) if (!(textOnly && target.fieldsOnly === true)) target.send(delta)
-        },
-      })
-      project = { watcher, subscribers }
-      this.projects.set(key, project)
-      watcher.catch(() => this.projects.delete(key))
+      const base = { subscribers: new Map<number | string, WorkflowSubscriber>(), held: 0 }
+      const fresh: HubProject = { ...base, watcher: this.start(key, base) }
+      this.projects.set(key, fresh)
+      this.forgetOnFailure(key, fresh)
+      project = fresh
     }
     project.subscribers.set(subscriber.id, subscriber)
     return (await project.watcher).current
+  }
+
+  /**
+   * Closes the watch of `root` and keeps its subscribers while something else renames or removes
+   * the folders it watches: Windows refuses to rename a folder while a watch holds a handle inside
+   * it (EPERM), and the Harness's `project-connect --remove` renames the Profile folder, which holds
+   * a Silent Project's Workflow folder (src/main/projects/remove.ts). An `open` meanwhile gets the
+   * last model and starts nothing. The returned function watches `root` again for the subscribers
+   * left, once every hold of it has let go, and sends them what changed meanwhile. Nothing is held
+   * when `root` is not watched.
+   */
+  async hold(root: string): Promise<() => Promise<void>> {
+    const key = resolve(root)
+    const project = this.projects.get(key)
+    if (!project) return () => Promise.resolve()
+    project.held += 1
+    const before = await project.watcher.catch(() => null)
+    await before?.close()
+    let released = false
+    return async () => {
+      if (released) return
+      released = true
+      project.held -= 1
+      if (project.held > 0 || this.projects.get(key) !== project) return
+      project.watcher = this.start(key, project)
+      this.forgetOnFailure(key, project)
+      const fresh = await project.watcher.catch(() => null)
+      if (fresh === null || this.projects.get(key) !== project) return
+      const delta = diffModels(before?.current ?? null, fresh.current)
+      if (delta) for (const target of project.subscribers.values()) target.send(delta)
+    }
   }
 
   /**

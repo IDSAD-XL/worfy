@@ -1643,6 +1643,19 @@ describe('Remove project (worfy-polish ticket 79): projects.removal.preview, pro
       },
     }))
     vi.doMock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ list: () => [], get: () => undefined, noteInput: () => undefined }) }))
+    // The app's Tickets and documents hubs: a removal holds both watches closed while project-connect runs
+    // (Windows refuses to rename the Profile folder while a watch holds the Workflow folder inside it).
+    const hub = (what: string) => ({
+      hold: (key: string) => {
+        asked.push(`hold ${what} ${key} after ${connects().length} runs`)
+        return Promise.resolve(() => {
+          asked.push(`watch ${what} ${key} again after ${connects().length} runs`)
+          return Promise.resolve()
+        })
+      },
+    })
+    vi.doMock('../../src/main/ipc/workflow', () => ({ workflowHub: hub('tickets') }))
+    vi.doMock('../../src/main/ipc/docs', () => ({ docsHub: hub('documents') }))
     stubProfile()
     await start()
   })
@@ -1651,6 +1664,8 @@ describe('Remove project (worfy-polish ticket 79): projects.removal.preview, pro
     vi.doUnmock('../../src/main/agent/env')
     vi.doUnmock('../../src/main/agent/app-orchestrators')
     vi.doUnmock('../../src/main/agent/app-registry')
+    vi.doUnmock('../../src/main/ipc/workflow')
+    vi.doUnmock('../../src/main/ipc/docs')
   })
 
   it('previews the Profile and its paths, then removes it through project-connect --remove and takes the Project out of the list', async () => {
@@ -1677,7 +1692,15 @@ describe('Remove project (worfy-polish ticket 79): projects.removal.preview, pro
     expect(removed.state.projects.map((each) => each.id)).toStrictEqual([kept.id])
     expect((await value<State>('projects.list')).projects.map((each) => each.id)).toStrictEqual([kept.id])
     expect(connects()).toStrictEqual(['--remove shop'])
-    expect(asked).toStrictEqual([`retain ${kept.id}`, `keep closed ${project.id}`, `release ${project.id}`])
+    expect(asked).toStrictEqual([
+      `retain ${kept.id}`,
+      `keep closed ${project.id}`,
+      `hold tickets ${shop} after 0 runs`,
+      `hold documents ${project.id} after 0 runs`,
+      `release ${project.id}`,
+      `watch tickets ${shop} again after 1 runs`,
+      `watch documents ${project.id} again after 1 runs`,
+    ])
     // worfy deletes nothing itself: the stub removed nothing, so the Profile and the repository are as they were.
     expect(existsSync(join(profileDir, 'profile.json'))).toBe(true)
     expect(repoStatus(shop)).toBe('')
