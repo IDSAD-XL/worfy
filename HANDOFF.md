@@ -11,7 +11,7 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12. 75, 77 влиты 11-09, ждут взгляда владельца; в работе 76 (#1742), 79 (#1741), 82 (вопрос на запись Product Session вне её папки); дальше 78, потом 81.
+- `worfy-polish`: 76/85; 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца; 76, 79, 82 влиты 11-09. Дальше 78, 81, новые 83–86 (запас start context, reviewer-verdict, flaky test-ы, check-cyrillic).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
@@ -27,7 +27,7 @@
 - `worfy-product-session`: 20/32; 19–32 влиты 11-09 (32 — Live summary от Haiku, #1743); 08, 21, 23, 26–32 ждут взгляда владельца в Mac Stable. Дальше 15; 17 после 15.
 - `worfy-scrub`: guard `scripts/check-personal.mjs` блокирует `pnpm lint` (06); слова — только `<Harness home>/user/privacy.json` владельца, хэши — `--hash-from`.
 - `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09 (human-review-setup на его проекте), 14 — повторы на 504 (#1736).
-- `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): spec принят 11-09; Wave 1 — 02 влит (#1745), 01 (#1746) и 03 в работе.
+- `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 4/8; 01–03, 07 влиты 11-09 (#1746, #1745, #1748, #1750); 04 — PR #1752; дальше 05, 06, 08.
 
 ## Ждёт владельца
 

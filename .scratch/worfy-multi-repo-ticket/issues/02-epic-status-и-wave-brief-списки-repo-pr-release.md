@@ -1,7 +1,8 @@
 # 02 — `epic-status` и `wave-brief`: списки `Repo:`, `PR:`, `Release:`; ключи (repo, branch) и (repo, N)
 
 Type: task
-Status: claimed 2026-11-09T18:58Z
+Status: done 2026-11-09T22:39Z
+PR: #1745
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Шапка Ticket-а» (формат) и «epic-status, wave-brief, Pipeline board»;
 «Ticket-ы», «Волны» (Wave 1); «Ответ на критику», п. 1; «Решения владельца 2026-11-09», Q1–Q4;
@@ -29,19 +30,22 @@ Source: [spec.md](../spec.md), «Как работает» → «Шапка Tick
 
 ## Готово, когда
 
-- [ ] Test: Ticket с двумя `Repo:`, двумя `PR: <repo>#N` и строкой `Release:` — одна строка Ticket-а с обоими PR в
+- [x] Test: Ticket с двумя `Repo:`, двумя `PR: <repo>#N` и строкой `Release:` — одна строка Ticket-а с обоими PR в
       порядке файла и «waits for release …»; в счёте Epic-а Ticket один.
   - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` exit 0 (section 6, multi-repo line and count) · mac - · ca7df763a3968d9a812a83e81bbd5819206f6555
-- [ ] Test: два Ticket-а с одинаковым номером PR в разных репозиториях — `wave-brief` не путает их; одна ветка в двух
+- [x] Test: два Ticket-а с одинаковым номером PR в разных репозиториях — `wave-brief` не путает их; одна ветка в двух
       репозиториях — один Ticket.
   - evidence: test-run pass · `bash harness/bin/tests/wave-brief.test.sh` exit 0 (section 10, keys (repo, N) and (repo, branch)) · mac - · ca7df763a3968d9a812a83e81bbd5819206f6555
-- [ ] Test: Ticket с одним репозиторием — вывод `epic-status` и `wave-brief` прежний.
+- [x] Test: Ticket с одним репозиторием — вывод `epic-status` и `wave-brief` прежний.
   - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` exit 0 (section 1 slice unchanged, section 6 single-repo object) · mac - · ca7df763a3968d9a812a83e81bbd5819206f6555
-- [ ] `bash harness/bin/tests/epic-status.test.sh`, `bash harness/bin/tests/wave-brief.test.sh` — exit 0 на Mac.
+- [x] `bash harness/bin/tests/epic-status.test.sh`, `bash harness/bin/tests/wave-brief.test.sh` — exit 0 на Mac.
   - evidence: test-run pass · `bash harness/bin/tests/epic-status.test.sh` and `bash harness/bin/tests/wave-brief.test.sh` exit 0 · mac - · ca7df763a3968d9a812a83e81bbd5819206f6555
-- [ ] Те же test-ы на Windows (Git Bash) — exit 0.
+- [x] Те же test-ы на Windows (Git Bash) — exit 0.
   - needs: windows
-- [ ] `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · windows (harness-scripts 1/2) / full-suite success https://github.com/IDSAD-XL/worfy/actions/runs/42684699127/job/129388425495 · windows - · ba93ddc2789690fe8e658c85f3ff66bc99b954a3
+  - evidence: ci-check pass · windows (harness-scripts 2/2) / full-suite success https://github.com/IDSAD-XL/worfy/actions/runs/42684699127/job/129388425455 · windows - · ba93ddc2789690fe8e658c85f3ff66bc99b954a3
+- [x] `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42684699127/job/129392052533 · ci - · ba93ddc2789690fe8e658c85f3ff66bc99b954a3
 
 ## Тесты
 

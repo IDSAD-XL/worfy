@@ -1,7 +1,8 @@
 # 79 — Удаление Project-а освобождает его пути; перенос между Full и Silent mode
 
 Type: task
-Status: claimed 2026-11-09T16:49Z
+Status: done 2026-11-09T22:39Z
+PR: #1741
 Blocked by: —
 Source: решение владельца 2026-11-09 (отзыв тестера): репозиторий нельзя подключить своим Project-ом и ещё раз — частью
 папки над несколькими репозиториями; удаление Project-а путь не освобождает. Строки перечитаны по main `964061f9a`.
@@ -63,27 +64,28 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 
 ## Готово, когда
 
-- [ ] «Remove project…» с подтверждением зовёт `project-connect --remove <name>`; после успеха записей registry с этим
+- [x] «Remove project…» с подтверждением зовёт `project-connect --remove <name>`; после успеха записей registry с этим
   Profile-ом нет, папки Profile-а нет, Project-а нет в списке.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/contract/projects.test.ts) · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (round 1: projects-remove, projects contract tests) · mac - · d02b622cb
   - evidence: gate pass · gate fast exit 0 (Windows rename rule: projects-remove, projects contract tests) · mac - · f0ca8d9ed
   - evidence: gate pass · gate fast exit 0 (round 2: hub hold tests, projects-remove) · mac - · ff510cc79
-- [ ] Повторное подключение того же репозитория после «Remove project…» проходит без отказа «already in the gate
+- [x] Повторное подключение того же репозитория после «Remove project…» проходит без отказа «already in the gate
   registry».
   - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 5f636c185
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 (round 1) · mac - · d02b622cb
   - evidence: test-run pass · pnpm test:e2e test/e2e/projects-connect.spec.ts exit 0 (Windows fix round) · mac - · f0ca8d9ed
   - evidence: test-run pass · pnpm test:e2e test/e2e/projects-connect.spec.ts exit 0 (round 2) · mac - · ff510cc79
-- [ ] Silent mode с ticket-ами в Workflow folder по умолчанию: отказ виден, ничего не удалено.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42703613511/job/129469974656 · ci - · 84e94f18b03295bbe441c3f875a3a778b41af39e
+- [x] Silent mode с ticket-ами в Workflow folder по умолчанию: отказ виден, ничего не удалено.
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/unit/remove-project.test.tsx) · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (round 1: commits-only Workflow folder refused before any stop) · mac - · d02b622cb
-- [ ] «Remove from list» — прежнее поведение.
+- [x] «Remove from list» — прежнее поведение.
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects.test.ts projects.remove, test/unit/use-projects.test.tsx) · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (round 1: use-projects dialog Remove from list) · mac - · d02b622cb
-- [ ] `docs/features/projects.md:259` (и перевод в `docs/features/ru/`) описывает обе строки меню.
+- [x] `docs/features/projects.md:259` (и перевод в `docs/features/ru/`) описывает обе строки меню.
   - evidence: commit pass · Remove project frees the Project's paths in the Harness (worfy-polish 79) · - - · 1949a9caf
 
 ## Тесты
