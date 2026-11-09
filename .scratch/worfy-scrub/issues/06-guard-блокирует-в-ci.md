@@ -1,7 +1,8 @@
 # 06 — Guard блокирует в CI, находок ноль
 
 Type: task
-Status: claimed 2026-11-09T01:59Z
+Status: done 2026-11-09T03:03Z
+PR: #1711
 Branch: worfy-scrub/06
 Blocked by: 01, 02, 03, 04, 05
 Source: [spec.md](../spec.md), «Как работает» → «Guard личных строк»; «Волны», Wave 3; «Риски», п. 7; Q3
@@ -33,17 +34,21 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard личн�
 - [ ] `node scripts/check-personal.mjs` на `main` с этим PR — exit 0, находок ноль.
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, no findings in 6275 files · mac - · 270372ff411d01bd083e89091ccc01d25fb5cb8f
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0, no findings in 6275 files · mac - · 1ab814743017647945456a20baf53209e799a371
+  - evidence: review pass · PR #1711 · - - · d45346c8b4c7df333ffef83f6c5cc2f95a15ed15
 - [ ] Проверка блокировки: ветка с одной вымышленной находкой (домашний путь с именем пользователя) — `pnpm lint` exit 1 локально;
       в «Итог» — exit code и маска из вывода.
   - evidence: test-run pass · `pnpm lint` exit 1 on throwaway commit 8ae3337df with one invented home path, line home-path: qw…(7) · mac - · 270372ff411d01bd083e89091ccc01d25fb5cb8f
   - evidence: test-run pass · `pnpm lint` exit 1 on throwaway commit 16f51686d with one invented home path, line home-path: qw…(7) · mac - · 1ab814743017647945456a20baf53209e799a371
+  - evidence: review pass · PR #1711 · - - · d45346c8b4c7df333ffef83f6c5cc2f95a15ed15
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0, 16564 passed; ci-ok on the PR pending · mac - · 270372ff411d01bd083e89091ccc01d25fb5cb8f
   - evidence: gate pass · `gate fast` exit 0 · mac - · 270372ff411d01bd083e89091ccc01d25fb5cb8f
   - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, test); ci-ok on the PR pending · mac - · 1ab814743017647945456a20baf53209e799a371
+  - evidence: review pass · PR #1711 · - - · d45346c8b4c7df333ffef83f6c5cc2f95a15ed15
 - [ ] `node scripts/check-handoff.mjs` — exit 0.
   - evidence: test-run pass · `node scripts/check-handoff.mjs` exit 0 · mac - · 270372ff411d01bd083e89091ccc01d25fb5cb8f
   - evidence: test-run pass · `node scripts/check-handoff.mjs` exit 0 · mac - · 1ab814743017647945456a20baf53209e799a371
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42551470931/job/128955418970 · ci - · d45346c8b4c7df333ffef83f6c5cc2f95a15ed15
 
 ## Тесты
 
