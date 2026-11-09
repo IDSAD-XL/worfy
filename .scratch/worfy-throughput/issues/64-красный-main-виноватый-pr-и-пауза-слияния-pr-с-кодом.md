@@ -41,9 +41,13 @@ Ticket-а 62.
 
 - [ ] `land` не вливает PR с кодом, пока последний завершённый push-run `main` красный; причина называет run, commit
       и виноватый PR — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] PR только с документами при красном `main` вливается — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] Push-run, зелёный после одного повтора упавших job-ов, не держит merge — shell test.
+  - evidence: test-run pass · `bash harness/bin/tests/land.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] Раздел skill-а `epic-wave` о красном `main` описывает поиск виноватого и повтор; без деления пополам.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` exit 0 · mac - · 5a9fee64a8eeea8993c788c41fbe71e16da14adf
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR (в нём job Windows).
 
 ## Где в коде
