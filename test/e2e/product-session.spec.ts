@@ -88,7 +88,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await field.fill('What could we sell?')
     await field.press('Enter')
     // The chat draws the conversation only (ticket 19): the turn has ended once the answer is there and
-    // «Advisor is thinking» has gone; neither the call nor «Turn finished» is drawn.
+    // the status line has gone; neither the call nor «Turn finished» is drawn.
     await expect(view.getByTestId('transcript-text').last()).toContainText('One idea on the map')
     await expect(view.getByTestId('session-state')).toHaveText('idle')
     await expect(view.getByTestId('product-thinking')).toHaveCount(0)
@@ -772,7 +772,7 @@ test('a message sent while the advisor works shows last in the chat as queued, a
     await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the market notes first.')
     await expect(view.getByTestId('session-state')).toHaveText('busy')
 
-    // Sent during the turn: it waits in the queue, and the chat shows it at once, last, below «Advisor is thinking».
+    // Sent during the turn: it waits in the queue, and the chat shows it at once, last, below the status line.
     await field.fill('And for solo founders?')
     await field.press('Enter')
     const log = view.getByTestId('transcript')
@@ -848,6 +848,50 @@ test('a Product Session’s open question still has its card after the window re
       .filter((line) => line.includes('"kind":"permission"'))
       .map((line) => JSON.parse(line) as CanUseToolCall)
     expect(calls.map((call) => call.result?.updatedInput?.answers)).toEqual([{ [OWN_QUESTION]: 'Solo builders' }])
+  } finally {
+    await launched.close()
+  }
+})
+
+// Ticket 29 (owner, 2026-11-09): the chat hides tool calls and Subagents, so while a turn runs one status line at
+// its end says what the advisor does now, with the time of the step, and goes when the turn ends. The fake script
+// product-status.jsonl reads a file, holds (`wait_release` "read"), starts the critic Subagent, holds again
+// ("critic"), then answers. The screenshot goes to the test's output folder.
+test('the status line says what the advisor does at each step and goes when the turn ends', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-status' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('Check the roadmap draft')
+    await field.press('Enter')
+    const release = (name: string) => app.evaluate((_, step) => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease(step), name)
+
+    const status = view.getByTestId('product-status')
+    await expect(status).toHaveText('Reading map.md')
+    await expect(view.getByTestId('product-status-elapsed')).toHaveText(/^\d+ s$/u)
+    // The call itself stays out of the chat (ticket 19): only the line names it.
+    await expect(view.getByTestId('tool-call')).toHaveCount(0)
+
+    await release('read')
+    await expect(status).toHaveText('Critic is reviewing: Review the roadmap draft')
+    const log = view.getByTestId('transcript')
+    expect(await log.evaluate((element) => element.lastElementChild?.querySelector('[data-testid="product-status"]') !== null)).toBe(true)
+    await view.screenshot({ path: test.info().outputPath('29-status-line-dark.png') })
+
+    await release('critic')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('The critic keeps the roadmap draft.')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.getByTestId('product-thinking')).toHaveCount(0)
+    await expect(status).toHaveCount(0)
   } finally {
     await launched.close()
   }

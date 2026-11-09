@@ -5,6 +5,8 @@ import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcri
 import { Markdown } from '../markdown/Markdown'
 import { attachChat, CHIPS_AT_END, lightNodes, messageQuote, publishQuotes, transcriptChips, useMindMapFocus, type MessageQuote, type NodeChip, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
+import { advisorStatus } from './advisor-status'
+import { AdvisorStatus } from './AdvisorStatus'
 import { DRAW_ALL_UP_TO, FIRST_DRAWN, foldTranscript, ROW_ESTIMATE, rowFor, rowOrder, rowWindow, spanOf, stepOf, toolSegments, type SubagentRun, type ToolCall, type TranscriptItem } from './fold'
 import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
@@ -28,7 +30,8 @@ import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type
 // in the chat» scrolls to the row with the chip of the call its message came in, marked with `data-shown`.
 // That chat draws only the conversation (ticket 19, product-session.ts, shownInProductChat): the messages
 // are bubbles with the role, the time and their number, as in the owner's prototype; the pointer on a
-// message lights the nodes of its chips; while a turn runs, «Advisor is thinking…» stands at the end.
+// message lights the nodes of its chips; while a turn runs, a status line at the end says what the advisor does
+// now (advisor-status.ts, ticket 29).
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -55,7 +58,7 @@ export interface TranscriptProps {
   find?: TranscriptFind | undefined
   /** Gets the log element, for find to tell where the reader is. */
   logRef?: RefObject<HTMLDivElement | null> | undefined
-  /** The Session runs a turn: a Product Session's chat shows «Advisor is thinking…» at its end (ticket 19). */
+  /** The Session runs a turn: a Product Session's chat shows what the advisor does now at its end (tickets 19, 29). */
   working?: boolean | undefined
   /**
    * The Session's queue (product-session.ts, chatQueue): a Product Session's chat draws its messages last,
@@ -260,25 +263,6 @@ function Message({ who, at, number, testId, children }: { who: 'you' | 'advisor'
       </div>
       <div className="w-pmsg__bubble" data-testid="product-message-bubble">
         {children}
-      </div>
-    </div>
-  )
-}
-
-/** «Advisor is thinking…» at the end of a Product Session's chat while a turn runs (ticket 19, Q2). */
-function Thinking() {
-  return (
-    <div className="w-pmsg w-pmsg--advisor w-pmsg--thinking" role="status" data-testid="product-thinking">
-      <div className="w-pmsg__meta">
-        <span className="w-pmsg__avatar" aria-hidden="true">
-          A
-        </span>
-        <span>Advisor is thinking</span>
-        <span className="w-pmsg__dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </span>
       </div>
     </div>
   )
@@ -734,6 +718,8 @@ export function Transcript(props: TranscriptProps) {
   // A chat that goes while the pointer is on one of its messages leaves no node lit.
   useEffect(() => (product === null ? undefined : () => lightNodes([])), [product])
   const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
+  // What the advisor does now, from the latest events (ticket 29): only while a Product Session's turn runs.
+  const status = useMemo(() => (inProduct && working ? advisorStatus(events) : null), [inProduct, working, events])
   const now = useToday()
   const [lines] = useState(() => new Map<string, LineState>())
   const log = useRef<HTMLDivElement>(null)
@@ -1052,9 +1038,9 @@ export function Transcript(props: TranscriptProps) {
     next = row + 1
   }
   if (next < n) rows.push(space('', next, n))
-  // The end of a Product Session's chat: «Advisor is thinking» while a turn runs, and the chips of a turn with no row drawn.
+  // The end of a Product Session's chat: the status line while a turn runs, and the chips of a turn with no row drawn.
   const endChips = product === null ? undefined : chips?.byRow.get(CHIPS_AT_END)
-  if (inProduct && (working || endChips !== undefined)) {
+  if (inProduct && (status !== null || endChips !== undefined)) {
     const refs = product === null ? undefined : refsOf(product, endChips)
     rows.push(
       <div
@@ -1065,7 +1051,7 @@ export function Transcript(props: TranscriptProps) {
         onMouseEnter={refs === undefined ? undefined : () => lightNodes(refs)}
         onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
       >
-        {working ? <Thinking /> : null}
+        {status !== null ? <AdvisorStatus status={status} /> : null}
         {product !== null && endChips !== undefined ? <NodeChips projectId={product} chips={endChips} /> : null}
       </div>,
     )
