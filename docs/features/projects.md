@@ -100,7 +100,11 @@ write access. Preselected is the active account with write access, else the firs
 sets two Profile fields: `github.account`, and `workflow.finish`, which is `pr-green-ci` with write access to every such
 repository and `local-green` otherwise. "No account" means no account and `local-green`, and so does a folder with no
 `origin` on a GitHub host or a machine without gh. "Sign in with gh" runs `gh auth login` in a terminal inside the dialog,
-and the accounts are read again when gh exits.
+and the accounts are read again when gh exits. gh older than 2.81 has no JSON output for `gh auth status`: the accounts
+are then read from its text output, an account whose sign-in failed or timed out with its state. gh older than 2.40 has
+no `gh auth token -u`, so the step fails with its version and the command that updates it (`brew upgrade gh`, on Windows
+`winget upgrade GitHub.cli`); so does a text that names no account while gh exits with 0, asking for gh 2.81 or later.
+Without gh at all the step names `brew install gh`, on Windows `winget install GitHub.cli`.
 
 **What the form starts with.** The language of reports is the system language, `ru` or else `en`. In Silent mode the
 attribution starts as `off`, whatever the Session proposed, and what the user picks in the form is written as picked. In
@@ -172,7 +176,8 @@ Project joins the list there without changing that Machine's active Project, and
   `harnessBlocker` is step 3, `applyChoices` sets what worfy owns. `src/main/harness/attribution.ts`: the default attribution.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: the `projects.connect.*` channels.
 - `src/renderer/projects/ConnectProject.tsx`: the dialog. `src/renderer/projects/GithubAccount.tsx`,
-  `src/main/github/accounts.ts`: the account step. `src/renderer/projects/FolderBrowser.tsx`, `src/main/projects/browse.ts`: the
+  `src/main/github/accounts.ts`: the account step; `src/main/github/auth-text.ts` reads the text output of `gh auth status`,
+  for this step and for the Health check. `src/renderer/projects/FolderBrowser.tsx`, `src/main/projects/browse.ts`: the
   folders of a Linked machine. `src/main/projects/temp-folder.ts`: the `%TEMP%` rule.
 - `src/main/workflow/reader.ts`, `src/main/workflow/watch.ts`: read and watch by the layout; a failed layout is asked again
   on `LAYOUT_RETRY_MS`. `src/main/workflow/marks.ts`, `src/main/workflow/stages.ts`: the marks of both stores.
@@ -201,7 +206,8 @@ Project joins the list there without changing that Machine's active Project, and
 - `test/e2e/projects-connect.spec.ts`: Silent by default, the draft, the form, Connect, the Harness not installed, the account.
 - `test/e2e/silent-project.spec.ts`: a Silent Project and a Project over two repositories in the built app, with nothing
   written into the Workflow folder or the repositories.
-- `test/contract/github-accounts.test.ts`: the accounts. `test/unit/temp-folder.test.ts`: the `%TEMP%` rule.
+- `test/contract/github-accounts.test.ts`: the accounts, also from a gh without `--json`. `test/unit/gh-auth-text.test.ts`:
+  the text output of `gh auth status`. `test/unit/temp-folder.test.ts`: the `%TEMP%` rule.
 - `test/unit/add-project-machine.test.tsx`, `test/unit/folder-browser.test.tsx`, `test/e2e/linked-add-project.spec.ts`:
   "Add project" on a Linked machine.
 

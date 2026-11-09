@@ -72,6 +72,7 @@ import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, profileDocsLanguages, QMD_NODE_NEED, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import { programStart } from '../program'
+import { ghAccounts } from '../github/auth-text'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { Check, CheckGroup, CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
@@ -79,6 +80,8 @@ import { numberedVersion } from '../../shared/version-number'
 import { installCommand, runTool, WINGET_IDS, type Env, type ToolRun } from './tools'
 
 export { killTool, runTool, toolStart, windowsProgram, WINGET_IDS, type Env, type ToolRun } from './tools'
+// The accounts `gh auth status` names, `host: login`: the parser the GitHub account step shares (worfy-polish ticket 76).
+export { ghAccounts } from '../github/auth-text'
 
 /** A connected Project and what its Profile says about qmd. */
 export interface ProjectProfile {
@@ -494,13 +497,6 @@ function limits(deps: CheckDeps, machine: Machine): Row {
   if (state.kind === 'bridged') return row('ok', 'statusLine runs the bridge of this build')
   if (state.kind === 'unavailable') return row('warn', state.detail, state.reason)
   return row('warn', state.detail, 'Limits of Claude Code in a terminal reach worfy only through its bridge; the dialog shows the new statusLine first', null, [action('limits-bridge', 'Set up…')])
-}
-
-/** The accounts `gh auth status` names, `host: login`; gh prints them to stdout (2.40+) or stderr (older). */
-export function ghAccounts(output: string): string[] {
-  const accounts: string[] = []
-  for (const match of output.matchAll(/Logged in to (\S+) (?:account|as) ([A-Za-z0-9-]+)/g)) accounts.push(`${match[1] ?? ''}: ${match[2] ?? ''}`)
-  return accounts
 }
 
 async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {

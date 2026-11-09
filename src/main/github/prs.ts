@@ -49,8 +49,25 @@ export const FIELDS = 'number,headRefName,state,url,statusCheckRollup,comments,h
 /** Variables a gh call gets on top of the runner's environment, e.g. GH_TOKEN of the Project's account. */
 export type GhEnv = Readonly<Record<string, string>>
 
+/**
+ * What a gh call resolves: `stdout` (the default) — its stdout, and a non-zero exit rejects with a short reason;
+ * `all` — stdout and stderr together, for a report meant for people that gh before 2.40 prints to stderr
+ * (`gh auth status`, worfy-polish ticket 76); a non-zero exit rejects with a GhExitError that carries them. A gh
+ * that does not start or runs out of time rejects either way.
+ */
+export type GhOutput = 'stdout' | 'all'
+
+/** A gh call of output `all` that exited with a code other than 0: `output` is its stdout and stderr together. */
+export class GhExitError extends Error {
+  readonly output: string
+  constructor(message: string, output: string) {
+    super(message)
+    this.output = output
+  }
+}
+
 /** Runs `gh <args>` in `cwd`, with `env` added to its environment, and resolves its stdout; rejects with a short reason. */
-export type GhRunner = (args: readonly string[], cwd: string, env?: GhEnv) => Promise<string>
+export type GhRunner = (args: readonly string[], cwd: string, env?: GhEnv, output?: GhOutput) => Promise<string>
 
 export interface GhRunnerOptions {
   /** The gh executable; by default WORFY_GH (appGhOverride), else `gh` from PATH. WORFY_GH points tests at a stub. */
@@ -101,7 +118,7 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
   const override = options.command ?? appGhOverride(options.processEnv)
   const command = override ?? 'gh'
   const platform = options.platform ?? process.platform
-  return async (args, cwd, extra = {}) => {
+  return async (args, cwd, extra = {}, output = 'stdout') => {
     const program = windowsOverride(override, platform, options.exists ?? existsSync)
     const start = programStart(program, 'gh')
     const env = options.env ? await options.env() : process.env
@@ -114,10 +131,13 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
         [...start.args, ...args],
         { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', ...start.env }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
         (error, stdout, stderr) => {
-          if (!error) return resolve(stdout)
+          if (!error) return resolve(output === 'all' ? `${stdout}\n${stderr}` : stdout)
           const code = (error as NodeJS.ErrnoException).code
           if (code === 'ENOENT') return reject(new Error(`gh not found (${command})`))
-          reject(new Error(firstLine(stderr) || error.message))
+          const reason = firstLine(stderr) || error.message
+          // An exit code is a number; a timeout, a signal or a too long output leave none.
+          if (output === 'all' && typeof code === 'number') return reject(new GhExitError(reason, `${stdout}\n${stderr}`))
+          reject(new Error(reason))
         },
       )
     })
