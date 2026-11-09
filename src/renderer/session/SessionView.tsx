@@ -19,6 +19,7 @@ import { dropRefusal, useChatDrop } from './chat-drop'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
 import { AcceptedAdvice, ProductSessionPanel, ProductTopicName } from './ProductSessionPanel'
+import { chatQueue } from './product-session'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -182,7 +183,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const chip = STATE_CHIPS[state]
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
-  const { settings, modelPick } = useSessionControls(sessionId)
+  const { settings, modelPick, queue } = useSessionControls(sessionId)
   // The SDK session id: the live id once it is Claude Code's own — a resumed Session's is a temporary
   // `pending-…` until system/init (src/main/agent/session.ts) — else the one the Session resumes.
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
@@ -285,6 +286,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         find={find.transcript}
         logRef={logRef}
         working={state === 'busy'}
+        queued={product ? chatQueue(queue, state) : null}
       />
       <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
     </section>
