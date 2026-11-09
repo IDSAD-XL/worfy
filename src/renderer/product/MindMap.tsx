@@ -509,7 +509,8 @@ function mergedPlaces(graph: MapGraph, elk: Placement, sync: Placement): Placeme
  * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
  */
 function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; byElk: boolean } {
-  const key = layoutKey(graph, view)
+  // Once per graph and view, not per drawing: the key strings every node's text.
+  const key = useMemo(() => layoutKey(graph, view), [graph, view])
   // `placement` null: ELK failed on those inputs.
   const [answer, setAnswer] = useState<{ key: string; view: MindMapView; placement: Placement | null } | null>(null)
   // The newest inputs, the key of the last request sent, whether one is out, whether the map is still mounted.
@@ -687,7 +688,7 @@ const CARD_WIDTH = 300
 function NodeCard({
   node,
   graph,
-  beside,
+  place,
   pane,
   onPick,
   onClose,
@@ -695,8 +696,8 @@ function NodeCard({
 }: {
   node: MapNode
   graph: MapGraph
-  /** The node on the screen; the card stands beside it. */
-  beside: ScreenBox | undefined
+  /** The node's place on the map; the card stands beside it on the screen. */
+  place: Placed | undefined
   pane: { width: number; height: number }
   onPick: (id: string) => void
   onClose: () => void
@@ -718,6 +719,10 @@ function NodeCard({
     const next = { width: element.offsetWidth || CARD_WIDTH, height: element.offsetHeight }
     if (next.width !== size.width || next.height !== size.height) setSize(next)
   }, [node, pane.width, pane.height, size.width, size.height])
+  // The camera is read here, where only an open card follows it: the map itself is not drawn again for a move.
+  const camera = useStore((state) => state.transform)
+  const beside: ScreenBox | undefined =
+    place === undefined ? undefined : { x: place.x * camera[2] + camera[0], y: place.y * camera[2] + camera[1], width: place.width * camera[2], height: place.height * camera[2] }
   const at = beside === undefined || pane.width <= 0 ? undefined : cardPlace(beside, pane, size)
   return (
     <section
@@ -903,7 +908,12 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     )
   }
 
-  const actions: NodeActions = { open: setPicked, fold: (id, collapsed) => write({ id, collapsed }), readOnly }
+  // One value while the screen's write rights stay: a new one would draw every node again (they read it).
+  const writeLatest = useRef(write)
+  useEffect(() => {
+    writeLatest.current = write
+  })
+  const actions = useMemo<NodeActions>(() => ({ open: setPicked, fold: (id, collapsed) => writeLatest.current({ id, collapsed }), readOnly }), [readOnly])
 
   // A chip's click (NodeChips.tsx): the node of this topic is selected and brought into view. A node the
   // screen hides is shown first: «Hide rejected» is turned off for it, and the folded branches above it
@@ -984,13 +994,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     void flow.setViewport(getViewportForBounds(flow.getNodesBounds(nodes), paneWidth, paneHeight, ZOOM_MIN, FIT.maxZoom, FIT.padding), { duration: 0 })
   }, [paneWidth, paneHeight, flow])
 
-  // The node's card stands beside its node on the screen (cardPlace), following it as the map moves.
-  const camera = useStore((state) => state.transform)
   const pickedPlace = picked === null ? undefined : shown.get(picked)
-  const pickedBox: ScreenBox | undefined =
-    pickedPlace === undefined
-      ? undefined
-      : { x: pickedPlace.x * camera[2] + camera[0], y: pickedPlace.y * camera[2] + camera[1], width: pickedPlace.width * camera[2], height: pickedPlace.height * camera[2] }
 
   const choose = (next: MindMapView) => {
     setChosen({ key: storeKey, view: next })
@@ -1072,7 +1076,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
           <NodeCard
             node={pickedNode}
             graph={graph}
-            beside={pickedBox}
+            place={pickedPlace}
             pane={{ width: paneWidth, height: paneHeight }}
             onPick={setPicked}
             onClose={() => setPicked(null)}
