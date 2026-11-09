@@ -1,7 +1,8 @@
 # 01 — Guard: записи `gh api` в PR и issue и мутации GraphQL проверяются на следы workflow
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T22:05Z
+Branch: worfy-pr-inbox/01
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Guard на `gh api` (Ticket 01)»; «Риски» («Публикация по ошибке»);
 «Ticket-ы», «Волны» (Wave 1); [ADR-0105](../../../docs/adr/0105-pr-reply-only-on-the-users-click.md), пункт 5;

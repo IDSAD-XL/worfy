@@ -94,10 +94,48 @@ git -C "$R" add -f .scratch
 expect "silent: a staged .scratch file under a clean message -> deny" deny "$R" 'git commit -m "Fix it"' 'index file names .scratch/checkout-flow/n.md'
 git -C "$R" rm -rq --cached .scratch && rm -rf "$R/.scratch"
 
+# --- gh api: writes into PRs and issues, GraphQL mutations ----------------------------------------
+# A reply, a review or a comment sent through `gh api` publishes text the same way `gh pr comment` does. The hook
+# only reads the command: no gh runs here, and nothing is sent anywhere.
+REPLY='gh api --method POST repos/o/r/pulls/7/comments/11/replies -f body='
+expect "silent: gh api POST …/replies -f body=<epic>/03 -> deny" deny "$R" "${REPLY}'Done in checkout-flow/03'" 'checkout-flow/03'
+[[ "$got" == *'gh api repos/o/r/pulls/7/comments/11/replies'* ]] && ok "gh api: the refusal names gh api <path>" \
+    || bad "gh api: the refusal does not name gh api <path>: ${got:0:300}"
+expect "silent: gh api POST …/replies with a clean body -> allow" allow "$R" "${REPLY}'The state is kept now.'"
+expect "silent: gh api, implicit POST (-f, no --method) on issues/7/comments -> deny" deny "$R" \
+    "gh api repos/o/r/issues/7/comments -f body='Follows ADR-0042'" 'ADR number'
+printf 'Reply\n\nsee HANDOFF\n' >"$T/reply.md"
+expect "silent: gh api -F body=@<file> with HANDOFF -> deny" deny "$R" "gh api repos/o/r/issues/7/comments -F body=@$T/reply.md" 'HANDOFF'
+expect "silent: gh api --raw-field=body=… -> deny" deny "$R" "gh api repos/o/r/pulls/comments/12 -X PATCH --raw-field=body='Ticket 05 done'" 'Ticket 05'
+expect "silent: gh api -X PATCH /repos/…/pulls/7 -f title=<epic>/05 (leading slash) -> deny" deny "$R" \
+    "gh api -X PATCH /repos/o/r/pulls/7 -f title='checkout-flow/05: fix'" 'checkout-flow/05'
+printf '{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"See Ticket 05"}]}\n' >"$T/review.json"
+printf '{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"Keep the state here."}]}\n' >"$T/review-clean.json"
+expect "silent: gh api POST …/reviews --input <payload>, a trace in comments[].body -> deny" deny "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json" 'Ticket 05'
+# The file path a review comment sits on is not published text: an epic is often named after the code area it changes.
+expect "silent: gh api --input <payload>, clean bodies, the epic name only in comments[].path -> allow" allow "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-clean.json"
+expect "silent: gh api --input <a file that does not exist> -> deny with the reason" deny "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json" 'could not be read'
+[[ "$got" == *'no-such-review.json'* && "$got" == *'`gh api repos/o/r/pulls/7/reviews` was not run'* ]] \
+    && ok "gh api, unreadable --input: the refusal names the file and gh api <path>" || bad "gh api, unreadable --input: ${got:0:400}"
+INPUT_HD=$'gh api --method POST repos/o/r/pulls/7/reviews --input - <<\'EOF\'\n{"event":"COMMENT","body":"Follows ADR-0042"}\nEOF'
+expect "silent: gh api --input - from a heredoc -> deny" deny "$R" "$INPUT_HD" 'ADR-0042'
+expect "silent: gh api graphql mutation with ADR-0042 in the body -> deny" deny "$R" \
+    "gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: \"T1\", body: \"Follows ADR-0042\"}) { comment { id } } }'" 'ADR-0042'
+expect "silent: gh api graphql mutation, the text in a -f variable -> deny" deny "$R" \
+    "gh api graphql -f query='mutation(\$b: String!) { addComment(input: {subjectId: \"I1\", body: \$b}) { clientMutationId } }' -f b='Ticket 05 done'" 'Ticket 05'
+
 # --- Full project, attribution on: everything passes as before -------------------------------
 for c in 'git commit -m "Fix the button, Ticket 05"' 'git switch -c checkout-flow/05' 'gh pr create --title "x" --body "Follows ADR-0042"' \
          $'git commit -m "Fix" -m "Co-Authored-By: Claude Opus <noreply@anthropic.com>"' "$HD" 'git branch checkout-flow'; do
     expect "full: ${c%%$'\n'*} -> allow" allow "$FR" "$c"
+done
+for c in "${REPLY}'Done in checkout-flow/03'" "gh api repos/o/r/issues/7/comments -f body='Follows ADR-0042'" \
+         "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json" \
+         "gh api graphql -f query='mutation { addComment(input: {subjectId: \"I1\", body: \"Follows ADR-0042\"}) { clientMutationId } }'"; do
+    expect "full: ${c:0:70}… -> allow" allow "$FR" "$c"
 done
 expect "full: git reset --hard is still refused" deny "$FR" 'git reset --hard' 'reset --hard'
 expect "full: a pipe that eats the exit code is still refused" deny "$FR" 'pnpm test | tail -5' 'pipe eats the exit code'
@@ -341,6 +379,14 @@ stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEA
 export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
 unset CLAUDE_SILENT_CHECK_BIN
+
+# gh api that only reads never asks the check: a stand-in that finds traces in anything would refuse it otherwise.
+stub traces "gh api POST …/replies asks the check" deny "${REPLY}'Done'" 'ticket number' 1
+for c in 'gh api repos/o/r/pulls/7/comments' 'gh api /repos/o/r/pulls/7/comments --paginate --jq ".[].body"' \
+         'gh api -X GET repos/o/r/issues/7/comments -f per_page=100' 'gh api --method DELETE repos/o/r/issues/comments/12' \
+         "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 7) { title } } }'"; do
+    stub traces "gh api read: ${c:0:60}… -> allow, no check" allow "$c" '' 0
+done
 
 TRY_MS=3000
 stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2

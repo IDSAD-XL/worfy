@@ -233,8 +233,11 @@ if (firstPipe !== -1 && !textual) {
 // as a trace and whether the project checks anything at all is bin/silent-check's call (a Full project with
 // attribution on — exit 0 at once). Here: which commands publish text, what text, and from which directory.
 // Checked: git commit (-m, -F, and what the commit takes from the index), the branch name of git checkout -b,
-// git switch -c, git branch <name>, git worktree add -b, and gh pr create|edit|comment|review|merge (--title,
-// --body, --body-file, --subject).
+// git switch -c, git branch <name>, git worktree add -b, gh pr create|edit|comment|review|merge (--title,
+// --body, --body-file, --subject), and gh api: a write (POST, PATCH, PUT, or gh's implicit POST when fields or
+// --input are given) into a PR or an issue — a new PR or issue, its title and description, a comment, a reply, a
+// review, a merge (the body and title fields, the same fields in an --input JSON payload) — and a GraphQL
+// mutation (the query and every field). A gh api read (GET, DELETE, a GraphQL query) asks nothing.
 // bin/silent-check gets one try of SILENT_TRY_MS; a try that does not answer in time is repeated once. All the
 // checks of one command share a budget of two tries, so the hook ends within its own limit in hooks.json (30 s)
 // even when every try times out: a hook that overruns its limit is stopped, and the command runs unchecked.
@@ -290,7 +293,10 @@ const silentCheck = () => {
         // become a real case (the check would then need to run after `git init`, which a PreToolUse hook cannot).
         let dir = c.dir
         while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
-        const args = [SILENT_CHECK, "-C", dir, "--file", "-", ...c.diff]
+        // A file the command sends but the guard could not read goes to the check as it is: a project that checks
+        // nothing answers 0 before it reads any file, and one that checks fails with "cannot read" below.
+        const unread = c.unread || []
+        const args = [SILENT_CHECK, "-C", dir, "--file", "-", ...unread.flatMap((f) => ["--file", f]), ...c.diff]
         const byHand = `\`${["silent-check", "-C", dir, "--file", "<a file with the same text>", ...c.diff].join(" ")}\``
         const tries = []
         let r
@@ -321,6 +327,13 @@ const silentCheck = () => {
             )
         if (r.status === 0) continue
         if (r.status === 2 && /^silent-check: profile not read\b/m.test(r.stderr || "")) continue
+        if (r.status === 2 && unread.length && /^silent-check: cannot read /m.test(r.stderr || ""))
+            deny(
+                notRun +
+                    `a file it sends could not be read (${errText.replace(/^silent-check: /, "")}), ` +
+                    `so nothing tells whether ${lowerFirst(c.what)} carries traces. Nothing was published. ` +
+                    "Check the path (a relative one is read from the directory the command runs in), then run the same command again."
+            )
         if (r.status === 1 && r.stdout.trim())
             deny(
                 `${c.what} carries traces of the workflow, and this project keeps them out of its repository and PRs ` +
@@ -538,6 +551,7 @@ function gitCommand(w, dir, checks, bodies, flat) {
 }
 
 function ghCommand(w, dir, checks, bodies) {
+    if (w[0] === "api") return ghApi(w.slice(1), dir, checks, bodies)
     if (w[0] !== "pr" || !["create", "edit", "comment", "review", "merge"].includes(w[1])) return
     const texts = []
     const args = w.slice(2)
@@ -549,6 +563,122 @@ function ghCommand(w, dir, checks, bodies) {
         else if (a === "-F" || a === "--body-file") texts.push(...fileText(args[++k], dir))
     }
     if (texts.length) checks.push({ dir, what: `This PR text (gh pr ${w[1]})`, command: `gh pr ${w[1]}`, texts: [...texts, ...bodies], diff: [] })
+}
+
+// gh api writes that publish text into a PR or an issue. <o>/<r> and the numbers are any word, a shell variable
+// too (`repos/$OWNER/$REPO/pulls/$N/comments`).
+const GH_API_WRITES = [
+    /^repos\/[^/]+\/[^/]+\/(pulls|issues)$/, // a new PR or issue
+    /^repos\/[^/]+\/[^/]+\/(pulls|issues)\/[^/]+$/, // the title and description of one
+    /^repos\/[^/]+\/[^/]+\/(pulls|issues)\/[^/]+\/comments$/, // a comment
+    /^repos\/[^/]+\/[^/]+\/(pulls|issues)\/comments\/[^/]+$/, // an edit of a comment
+    /^repos\/[^/]+\/[^/]+\/pulls\/[^/]+\/comments\/[^/]+\/replies$/, // a reply in a review thread
+    /^repos\/[^/]+\/[^/]+\/pulls\/[^/]+\/reviews(\/[^/]+(\/events)?)?$/, // a review, its edit, its submission
+    /^repos\/[^/]+\/[^/]+\/pulls\/[^/]+\/merge$/, // the title and message of the merge commit
+]
+// The fields that carry published text; a nested field counts by its last key (`comments[][body]`).
+const GH_API_TEXT_KEYS = new Set(["body", "title", "commit_title", "commit_message"])
+// The flags of gh api that take a value; any other word that starts with - is a switch (--paginate, -i, --silent).
+const GH_API_VALUE = new Set(["-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "-q", "--jq", "-t", "--template", "--input", "--cache", "-p", "--preview", "--hostname"])
+
+function ghApi(args, dir, checks, bodies) {
+    let endpoint
+    let method
+    let input
+    const fields = [] // [flag, "key=value"]
+    for (let k = 0; k < args.length; k++) {
+        const a = args[k]
+        let flag
+        let value
+        const long = a.match(/^(--[a-z-]+)=([\s\S]*)$/)
+        const short = a.match(/^(-[XfFHqtp])([\s\S]+)$/) // -XPOST, -fbody=…, -X=POST
+        if (long && GH_API_VALUE.has(long[1])) [flag, value] = [long[1], long[2]]
+        else if (short) [flag, value] = [short[1], short[2].replace(/^=/, "")]
+        else if (GH_API_VALUE.has(a)) [flag, value] = [a, args[++k]]
+        else if (a.startsWith("-") && a !== "-") continue
+        else {
+            endpoint ??= a
+            continue
+        }
+        if (value === undefined) continue
+        if (flag === "-X" || flag === "--method") method = value.toUpperCase()
+        else if (flag === "--input") input = value
+        else if (["-f", "--raw-field", "-F", "--field"].includes(flag)) fields.push([flag, value])
+    }
+    if (endpoint === undefined) return
+    const p = endpoint
+        .replace(/^https?:\/\/[^/]+\//, "")
+        .replace(/^\/+/, "")
+        .replace(/^api\/v3\//, "")
+        .replace(/[?#].*$/, "")
+        .replace(/\/+$/, "")
+    const graphql = p === "graphql"
+    // gh sends POST when fields or --input are given and no method is.
+    const write = method ? ["POST", "PATCH", "PUT"].includes(method) : fields.length > 0 || input !== undefined
+    if (!graphql && !(write && GH_API_WRITES.some((re) => re.test(p)))) return
+
+    const texts = []
+    const unread = []
+    // A file the command sends. `-` is stdin — a heredoc body, which the check takes below.
+    const read = (f) => {
+        if (f === "-" || f === "") return null
+        const abs = path.resolve(dir, f)
+        try {
+            return fs.readFileSync(abs, "utf8")
+        } catch {
+            unread.push(abs)
+            return null
+        }
+    }
+    for (const [flag, kv] of fields) {
+        const eq = kv.indexOf("=")
+        if (eq === -1) continue
+        // A GraphQL request publishes any of its variables; a REST write publishes its text fields.
+        if (!graphql && !GH_API_TEXT_KEYS.has(kv.slice(0, eq).match(/([^[\]]*)\]?$/)[1])) continue
+        const value = kv.slice(eq + 1)
+        // -F reads `@<file>` (`@-` is stdin); -f takes the value as it is.
+        if ((flag === "-F" || flag === "--field") && value.startsWith("@")) {
+            const t = read(value.slice(1))
+            if (t !== null) texts.push(t)
+        } else texts.push(value)
+    }
+    if (input !== undefined) {
+        const t = read(input)
+        if (t !== null) texts.push(graphql ? t : payloadText(t))
+    }
+    const all = [...texts, ...bodies.map((b) => (graphql ? b : payloadText(b)))]
+    // A GraphQL query only reads; a mutation the guard cannot see in full (an unread file) is checked all the same.
+    if (graphql && !unread.length && !all.some((t) => /\bmutation\b/.test(t))) return
+    if (!all.length && !unread.length) return
+    checks.push({
+        dir,
+        what: graphql ? "This GraphQL mutation (gh api graphql)" : `This text of gh api ${endpoint}`,
+        command: `gh api ${endpoint}`,
+        texts: all,
+        diff: [],
+        unread,
+    })
+}
+
+// The published text of a JSON payload of a REST write: its text fields at any depth (a review's body and
+// comments[].body). The rest — a file path, a line, a commit — is not published text, and a file path often names
+// the code area an epic is named after. A text that is not JSON counts whole.
+function payloadText(text) {
+    let data
+    try {
+        data = JSON.parse(text.replace(/^﻿/, ""))
+    } catch {
+        return text
+    }
+    const out = []
+    const walk = (v, key) => {
+        if (typeof v === "string") {
+            if (GH_API_TEXT_KEYS.has(key)) out.push(v)
+        } else if (Array.isArray(v)) v.forEach((x) => walk(x, key))
+        else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k)
+    }
+    walk(data, "")
+    return out.join("\n")
 }
 
 // The text of a -F / --body-file argument read from disk. `-` is stdin — a heredoc body, which every check
