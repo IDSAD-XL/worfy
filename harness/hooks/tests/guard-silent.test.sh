@@ -135,7 +135,7 @@ done
 for c in "${REPLY}'Done in checkout-flow/03'" "gh api repos/o/r/issues/7/comments -f body='Follows ADR-0042'" \
          "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json" \
          "gh api graphql -f query='mutation { addComment(input: {subjectId: \"I1\", body: \"Follows ADR-0042\"}) { clientMutationId } }'"; do
-    expect "full: ${c:0:70}… -> allow" allow "$FR" "$c"
+    expect "full: ${c:0:45}…${c: -30} -> allow" allow "$FR" "$c"
 done
 expect "full: git reset --hard is still refused" deny "$FR" 'git reset --hard' 'reset --hard'
 expect "full: a pipe that eats the exit code is still refused" deny "$FR" 'pnpm test | tail -5' 'pipe eats the exit code'
