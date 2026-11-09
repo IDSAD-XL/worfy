@@ -40,8 +40,12 @@ Product Session предлагает и никогда не ставит Epic в
   краёв. Двойной click возвращает 60 / 40. Каждой стороне остаётся не меньше 10 %.
 - Доля одна на Machine. Она сохраняется в app settings, когда кончается перетаскивание или нажатие клавиши, поэтому её
   видят все окна и следующий запуск worfy.
-- Click по полосе агентов открывает поверх чата блоки rail обычной Session; Escape или «›» их закрывают. Блока Binding
-  нет: Product Session не привязана ни к Ticket-у, ни к Epic-у.
+- Click по полосе агентов открывает поверх чата список агентов Session, без скрытых: точка состояния, имя и состояние,
+  например «Critic — working · 3 objections» или «Idea generator — done», и задача под ними. `worfy:critic` назван
+  «Critic», `worfy:product-ideas` — «Idea generator», прочие Subagent-ы — своим типом. Состояния — «working», «done»,
+  «error» и «interrupted». Число возражений критика берётся из записанного им разбора, прочитанного из его
+  transcript; пока разбор не записан, числа нет. Escape или «›» закрывают список. Блоков rail обычной Session нет:
+  Product Session не привязана ни к Ticket-у, ни к Epic-у.
 
 **Чат.** Заголовок — «Conversation with the advisor», рядом Vendor; в чате только разговор:
 
@@ -128,6 +132,7 @@ Harness читает эту переменную: с ней печатаются
 | `src/shared/product/paths.ts` | `productFolder` и имена в папке темы |
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | Два входа «New Product Session» |
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Шапка, тело, заголовок чата и полоса агентов |
+| `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | Список агентов: имена, состояния, возражения критика |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями и «Advisor is thinking» |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | Строка ввода в одну линию, поиск по показанным строкам |

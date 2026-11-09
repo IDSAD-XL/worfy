@@ -1,15 +1,16 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PRODUCT_SESSION_SPLIT_DEFAULT, PRODUCT_SESSION_SPLIT_MIN, productSessionSplitOf } from '../../shared/settings/app-settings'
 import { adviceTotals, type AdviceShare } from '../../shared/product/share'
-import { flattenSubagents } from '../../shared/transcript/subagents'
+import { flattenSubagents, type SubagentInfo } from '../../shared/transcript/subagents'
 import { hiddenIdsOf, useHiddenSubagents, useSubagentTree, withoutHidden } from '../claude-home/subagents'
 import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { MindMap } from '../product/MindMap'
 import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
-import { PRODUCT_SESSION_HIDDEN_BLOCKS, ProductSessionContext } from './product-session'
-import type { RailBlock, RailBlockProps } from './rail/index'
+import { ProductAgentsList } from './ProductAgentsList'
+import { ProductSessionContext } from './product-session'
+import type { RailBlockProps } from './rail/index'
 import { SplitDivider } from './SplitDivider'
 
 // The body of a Product Session's view (worfy-product-session ticket 07), in place of the plain
@@ -21,7 +22,8 @@ import { SplitDivider } from './SplitDivider'
 // start of worfy show the same split. A double click puts it back to 60 / 40.
 //
 // The agents strip stands for the rail of a plain Session: a column of icons with the number of the
-// Session's Subagents; a click opens the rail blocks over the chat. The Binding block is left out: a
+// Session's Subagents; a click opens over the chat the list of those agents by name and state (ticket 20,
+// ProductAgentsList.tsx) — «Critic — working · 3 objections» — not the rail blocks of a plain Session. A
 // Product Session is bound to no Ticket and no Epic.
 //
 // The left pane draws the Mind map (../product/MindMap.tsx, ticket 08) of the topic the advisor works on.
@@ -39,18 +41,20 @@ import { SplitDivider } from './SplitDivider'
 // once. It counts the owner's decisions and does not grade the advice (owner, 2026-11-08); its tooltip says so.
 
 export interface ProductSessionPanelProps extends RailBlockProps {
-  /** The rail blocks of the plain Session; those of PRODUCT_SESSION_HIDDEN_BLOCKS are left out. */
-  blocks: readonly RailBlock[]
   /** The chat: the transcript and the input field, as the plain body has them. */
   children: ReactNode
 }
 
-/** How many Subagents the Session's Subagents block lists: every one in its tree, the hidden ones left out. */
-function useSubagentCount(projectId: string, session: string | null): number {
+/**
+ * The Session's Subagents as the Subagents block of a plain Session lists them: every one in its tree, the
+ * nested ones too, the hidden ones left out; and the Project's root their transcripts are read under.
+ */
+function useSessionAgents(projectId: string, session: string | null): { agents: readonly SubagentInfo[]; root: string | undefined } {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const tree = useSubagentTree(root, session)
   const hidden = useHiddenSubagents(projectId)
-  return useMemo(() => flattenSubagents(withoutHidden(tree, hiddenIdsOf(hidden, session))).length, [tree, hidden, session])
+  const agents = useMemo(() => flattenSubagents(withoutHidden(tree, hiddenIdsOf(hidden, session))), [tree, hidden, session])
+  return { agents, root }
 }
 
 const TOPIC_PREFIX = 'worfy.productSession.topic:'
@@ -213,7 +217,8 @@ function AgentsIcon() {
 }
 
 /** The strip at the right edge; its list opens over the chat. */
-function AgentsStrip({ count, blocks, rail }: { count: number; blocks: readonly RailBlock[]; rail: RailBlockProps }) {
+function AgentsStrip({ agents, root, session }: { agents: readonly SubagentInfo[]; root: string | undefined; session: string | null }) {
+  const count = agents.length
   const [open, setOpen] = useState(false)
   const listId = useId()
   const toggle = useRef<HTMLButtonElement>(null)
@@ -251,21 +256,17 @@ function AgentsStrip({ count, blocks, rail }: { count: number; blocks: readonly 
               ›
             </button>
           </div>
-          {blocks.map(({ id, Component }) => (
-            <section key={id} className="w-session__rail-block" data-block={id}>
-              <Component {...rail} />
-            </section>
-          ))}
+          <ProductAgentsList agents={agents} root={root} session={session} />
         </div>
       ) : null}
     </aside>
   )
 }
 
-export function ProductSessionPanel({ blocks, children, ...rail }: ProductSessionPanelProps) {
+export function ProductSessionPanel({ children, ...rail }: ProductSessionPanelProps) {
   const { share, move, commit } = useSplit()
-  const shown = useMemo(() => blocks.filter((block) => !PRODUCT_SESSION_HIDDEN_BLOCKS.includes(block.id)), [blocks])
-  const count = useSubagentCount(rail.projectId, rail.claudeSessionId ?? rail.sessionId)
+  const session = rail.claudeSessionId ?? rail.sessionId
+  const { agents, root } = useSessionAgents(rail.projectId, session)
   const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
   return (
     <div className="w-product" data-testid="product-session-panel">
@@ -295,7 +296,7 @@ export function ProductSessionPanel({ blocks, children, ...rail }: ProductSessio
         />
         <ProductSessionContext value={true}>{children}</ProductSessionContext>
       </div>
-      <AgentsStrip count={count} blocks={shown} rail={rail} />
+      <AgentsStrip agents={agents} root={root} session={session} />
     </div>
   )
 }

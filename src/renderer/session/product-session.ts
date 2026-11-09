@@ -7,9 +7,6 @@ import type { TranscriptItem } from './fold'
 /** True inside a Product Session's chat: the transcript draws the conversation only (ticket 19). */
 export const ProductSessionContext = createContext(false)
 
-/** The rail block a Product Session never shows: the Binding to a Ticket or an Epic. */
-export const PRODUCT_SESSION_HIDDEN_BLOCKS: readonly string[] = ['BindingRail']
-
 /**
  * The items of the input field's bar (composer/index.ts) a Product Session leaves out (Q4 of the owner's
  * decisions of 2026-11-08, ticket 19): the context meter, the queue and the model, effort and permission
