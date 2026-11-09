@@ -709,6 +709,11 @@ worfy уже читает оба окна (`src/shared/agent/limits.ts:1-13`, `:
 | 58 | Узкие правила e2e для путей `src/main` в `scripts/e2e-specs.table.json`; сначала замер по ~30 PR с кодом, какие пути шлют на весь набор | — | нет | нет | runner (правка `scripts/` и `test/contract/`) | вне Wave (решение владельца 2026-10-29, раунд 3, Q9) |
 | 60 | Переключатель «Eco mode» в чате Orchestrator-а: on — `workflow.agents: eco` и Sonnet/medium ролей агентов, off — поля удалены | — | нет | нет | CI (renderer + IPC) | вне Wave (просьба владельца 2026-10-30) |
 | 61 | `macos-tests` в PR только по путям macOS (таблица `MACOS_PATHS` в `scripts/ci-scope.mjs`); push в `main` — всё | — | нет | нет | runner (правка `scripts/`, `test/contract/` и комментариев `ci.yml`) | вне Wave (решение владельца 2026-11-05, round-2 Q7) |
+| 62 | Merge queue или CI пачками: замер 150 PR и рекомендация (вариант B) | 05 | нет | нет (только чтение) | не платформенный (документы) | вне Wave (решение владельца 2026-11-09, Q6); done, решение — ADR-0103 |
+| 63 | `land` и `epic-wave` сливают PR без rebase ради свежей базы: `BEHIND` без конфликта — merge (ADR-0103) | 62 | нет | да (`harness/bin/land`, `epic-wave/SKILL.md`, shell test) | платформенный PR (скрипт Harness): job Windows в `ci-ok` | вне Wave (решение владельца 2026-11-09, Q1, Q4) |
+| 64 | Красный `main`: виноватый PR по первому красному push-run, пауза merge PR с кодом, документы проходят, flaky — зелёный после одного повтора | 62 | нет | да (`harness/bin/land`, `epic-wave/SKILL.md`, shell test) | платформенный PR (скрипт Harness): job Windows в `ci-ok` | вне Wave (решение владельца 2026-11-09, Q5); после 63 — общий `land` |
+| 65 | Status `review` в момент вердикта ревью, потом `critical-path` читает его как Gate | 62 | нет | да, если источник — скрипт или текст skill-а | runner (`scripts/`, `test/unit/`); платформенный, если правит `harness/bin` | вне Wave (продолжение 5 Ticket-а 62) |
+| 66 | Повторный замер через неделю после 63: Gate → merge на Wave, минуты CI, красные `main` от несовместимых PR против порога Q2 | 63, 64 | нет | нет (только чтение) | не платформенный (документы) | через 7 дней после merge 63 (решение владельца 2026-11-09, Q2) |
 
 Почему так:
 

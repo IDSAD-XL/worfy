@@ -164,6 +164,14 @@ _Avoid_: полный гейт, полная проверка, full gate, ci-ok 
 Ответ на вопрос, работает ли изменение PR на Windows. С первого зелёного `ci-ok` на `main` (ADR-0083) для каждого PR это job `windows` в составе check `ci-ok` CI на GitHub-hosted runner-е; для платформенного PR, который трогает то, чего runner не проверяет (Terminal, окна, меню, уведомления, e2e, упаковку), — Gate full на Windows-ПК владельца. Какой из двух нужен, решает скрипт scope, а не человек ([ADR-0083](docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md)). С [ADR-0086](docs/adr/0086-pc-gate-full-once-per-wave.md) этот gate full идёт не на head PR, а на `main` после merge: PR со scope `pc` вливается по `ci-ok`.
 _Avoid_: проверка Windows, Windows-гейт, `check/windows` (это отметка, в которой Windows verdict записан)
 
+**Push run**:
+CI run на GitHub, который запускает push в `main`, то есть merge PR; свой у каждого commit-а `main`. Проверяет `main` целиком после merge — в том числе сочетание PR, которые влиты друг за другом. По [ADR-0103](docs/adr/0103-merge-without-rebase-for-a-fresh-base.md) первый красный push run называет виноватый PR.
+_Avoid_: batch CI run (это один run на Wave по ADR-0068), main CI
+
+**Rebase for a fresh base**:
+Rebase ветки PR на свежий `main` без конфликта, только чтобы CI прошёл на базе с последними merge-ами. С [ADR-0103](docs/adr/0103-merge-without-rebase-for-a-fresh-base.md) не нужен: PR с зелёным `ci-ok` на своём head вливается и при ушедшей вперёд базе; rebase нужен только при конфликте.
+_Avoid_: обновление ветки, update branch (кнопка GitHub делает merge `main` в ветку, а не rebase)
+
 **Harness**:
 Набор правил, skills, агентов, скриптов и hooks, по которому агенты Claude ведут работу над Project: Epic-и, Ticket-ы, Wave-ы, Gate, ревью. В Harness входит и qmd — поиск по документам и Ticket-ам Project. worfy ставит и обновляет Harness; остальные личные skills, MCP-серверы и память пользователя в него не входят.
 _Avoid_: kit, обвязка, тулинг
