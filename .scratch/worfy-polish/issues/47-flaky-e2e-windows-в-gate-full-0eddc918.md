@@ -90,8 +90,11 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 ## Готово, когда
 
 - [ ] Причина каждого записана в «Итог» с доказательством (журнал, повтор `--repeat-each`).
+  - Не выполнено (2026-11-09): у 9 test-ов причина неизвестна, они не видны в CI с 2026-11-06 (таблица Части 12); у двух Windows exception до 2026-12-15 причина тоже не установлена.
 - [ ] Каждый зелёный в одиночку `--repeat-each=5` и в шаге `test:e2e` gate full на ПК.
-- [ ] Пределы test-ов не подняты; Windows-job CI зелёный.
+  - Не выполнено (2026-11-09): gate full на ПК не идёт, приёмка Windows теперь — вердикт Windows-job-ов CI (решение владельца); пункт надо переписать под CI или снять.
+- [x] Пределы test-ов не подняты; Windows-job CI зелёный.
+  - evidence: test-run pass · CI run 42539844958 (ci.yml, push main): windows 1-3/3, harness-scripts 1-2/2 and windows-e2e 1-4/4 success; no existing test limit raised by parts 1-12 (diff scan of their commits) · windows - · 6ce2f6be5
 
 ## Где в коде
 
@@ -100,11 +103,14 @@ Source: gate full на ПК владельца 2026-10-31, main `0eddc918`, 8 wo
 - `test/contract/terminal-windows.test.ts`, `test/quarantine/terminal-windows-close-no-console-host.json`
 - `test/contract/workflow-branches-gone.test.ts`, `test/quarantine/workflow-branches-gone-worktree-then-repository.json`
 - `test/e2e/chat-attachments.spec.ts`
+- `src/main/workflow/watch.ts` (`folderIdentity`), `test/contract/workflow-reader.test.ts`
+- `test/contract/harness-evals-outcome.test.ts` (`keptRun`, `keptRuns`)
 - код, на который укажет причина
 
 ## Итог
 
-Заполняется при закрытии. Ticket open: ждёт 20 зелёных `windows-e2e` для `card-api`. Замеры ПК больше не нужны (ответ ПК
+Заполняется при закрытии. Условие «20 зелёных `windows-e2e` для `card-api`» выполнено 2026-11-09 (Часть 12). Ticket open:
+пункты 1 и 2 «Готово, когда» не выполнены (строки под ними), таблица закрытия — Часть 12. Замеры ПК больше не нужны (ответ ПК
 2026-11-01):
 
 - `subagent-tree`: на ПК в одиночку (main `2186dd28`, `--repeat-each=5 --workers=1 --retries=0`) exit 0, 5 passed;
@@ -472,6 +478,96 @@ Timeout-ы не тронуты, ожиданий по часам нет.
   `spawn 1, exit 1, spawn 2, exit 2, spawn 3`, живых процессов — один (`alive()`), запрос третьего процесса — attended.
   С mutant-ом test красный: `expected [ 'spawn 1', 'exit 1 SIGKILL', …(1) ] to deeply equal [ …(3) ]` — ответ
   пришёл до выхода второго процесса. Без mutant-а зелёный.
+
+### Часть 12. 2026-11-09, ветка `worfy-polish/47-part12`: аудит закрытия, folder identity workflow как bigint, сообщение kept run
+
+Timeout-ы не тронуты, ожиданий по часам нет.
+
+**Откуда данные.** Все run-ы `ci.yml` с 2026-11-06T00:03Z по 2026-11-09T01:00Z: 625 run-ов, из них 109 упавших или
+отменённых, в них 104 упавших Windows job-а (`windows (n/3)`, `windows (harness-scripts n/2)`, `windows-e2e`).
+Причины — annotations (`gh api repos/IDSAD-XL/worfy/check-runs/<job>/annotations`), а у job-ов без annotations test-а —
+журналы job-ов. 66 из 104 — сбой инфраструктуры 2026-11-08 08:52–10:50Z (`Response code 504` при загрузке Electron или
+«Electron failed to install»), его снял #1668. «Не виден с 2026-11-06» значит: красного этого test-а нет ни в одном из
+104 упавших Windows job-ов. Test, который упал и прошёл на retry в зелёном job-е, так не виден: зелёные job-ы не
+разбирались.
+
+**Таблица закрытия.** Все test-ы из «Что происходит», «Итог», Частей 7–11 и обоих разделов «Наблюдения».
+
+| Test | Статус | Доказательство |
+|---|---|---|
+| `test/e2e/two-windows.spec.ts:212` | исправлен test (#1136); причина на ПК не доказана | не виден с 2026-11-06 |
+| `test/e2e/linked-browser.spec.ts:90` | исправлен test (#1136); какой фокус не успевал, не доказано | не виден с 2026-11-06 |
+| `test/e2e/subagent-tree.spec.ts:312` | причина неизвестна; выбросы были только в gate full на ПК | не виден с 2026-11-06 |
+| `test/e2e/epic-frame.spec.ts:1104` | причина неизвестна; вопрос владельцу об эталоне на win32 открыт | не виден с 2026-11-06; на CI предел уже от эталона (`test/e2e/start-budget.ts:32`, `GITHUB_ACTIONS`), вопрос касается только gate full на ПК, который сейчас не идёт |
+| `test/contract/terminal-windows.test.ts:161` | Windows exception до 2026-12-15 (worfy-windows 117) | запись `test/quarantine/terminal-windows-close-no-console-host.json` |
+| `test/contract/terminal-git-bash-close.test.ts:33` и `:212` | исправлен #1197 (гонка test-а); баг продукта — worfy-windows 116 | не виден с 2026-11-06 |
+| `test/contract/workflow-branches-gone.test.ts:70` | Windows exception до 2026-12-15 (worfy-windows 117) | запись `test/quarantine/workflow-branches-gone-worktree-then-repository.json` |
+| `test/e2e/chat-attachments.spec.ts:148` | исправлен test (#1138) | не виден с 2026-11-06 |
+| `test/unit/docs-watch-root-gone.test.ts:450` | исправлен #1202, причина доказана | не виден с 2026-11-06 |
+| `bin/tests/wave-gate-merge.test.sh:159` | исправлен #1201 (дефект `wave-gate`), причина доказана | не виден с 2026-11-06 |
+| `test/e2e/card-api.spec.ts:124` | исправлен #1207; условие «20 зелёных `windows-e2e`» выполнено | ниже, «Условие card-api» |
+| `card-drag.spec.ts:179`, `:196`, `:213`, `:232`; `browser.spec.ts:554` и `:281`; `browser-sleep.spec.ts:215`; `codex-session.spec.ts:163`; `session-question.spec.ts:147`; `vendor-picker.spec.ts:72`; `browser-webview-guard.spec.ts:158` | исправлен #1519 (TEMP шага e2e на D:, Часть 9); записи quarantine сняты | строки «the window is N px wide» и «answered innerWidth only after» после merge #1519 (2026-11-06 18:43Z) нет ни в одном журнале; последний красный — 2026-11-06 16:23Z, run 42251858642 (ветка без #1519) |
+| `ship-ticket.spec.ts:334`, `palette-find.spec.ts:107` («did not come to rest») | причина неизвестна (задача renderer-а, Часть 8) | не виден с 2026-11-06; то же сообщение у `interface-scale.spec.ts:379` 2026-11-06 14:02Z (run 42230368761, ветка PR, до #1519) |
+| `test/e2e/browser-profile.spec.ts:127` | причина неизвестна | не виден с 2026-11-06 |
+| `test/e2e/harness-install.spec.ts:217` | исправлен test (#1226, Часть 6) | не виден с 2026-11-06 |
+| `test/contract/login-shell-capture.test.ts:144-146` | кандидат, причина не доказана | не виден с 2026-11-06 |
+| `harness/bin/tests/agents-text.test.sh:515-519` | причина неизвестна, был только на Mac | не виден с 2026-11-06 |
+| `test/unit/chat-attachments.test.tsx:293`, `:298` | причина неизвестна, были только на Mac | не виден с 2026-11-06 |
+| Windows `harness-scripts 1/2`, timeout job-а 45 min | причина неизвестна | не виден с 2026-11-06: job-ы `harness-scripts` красные только от сбоя 504 и на ветке `worfy-polish/73` (`rules-hooks.test`, diff самого PR) |
+| `test/contract/codex-app-server.test.ts:304` | исправлен #1617 (2026-11-07 23:54Z) | последний красный — 2026-11-07 21:34Z, run 42416471257, ветка без #1617 |
+| `test/contract/harness-evals-outcome.test.ts:1171` | причина неизвестна; один красный, не повторился | run 42292913448 (2026-11-06, PR #1530); в остальных 103 упавших Windows job-ах нет; здесь — сообщение с exit code, signal и stdout (ниже) |
+| `test/contract/autopilot-faults-api.test.ts:74` | исправлен #1703 | один красный, run 42296063770 (2026-11-06) |
+| `test/unit/feature-docs-lag.test.ts:233`, `test/unit/guide-lag.test.ts:104` | исправлен #1703 (TEMP шага unit на D:, merged 2026-11-09 00:06Z) | один красный, run 42251826160; под эпизодом диска C: правка ещё не наблюдалась |
+| `test/e2e/update-settings.spec.ts:98` | исправлен #1538 | красные только на ветках без #1538: run-ы 42299523332, 42302761123 (2026-11-06) |
+| `test/contract/evidence-image-protocol.test.ts:287` | исправлен #1706 (merged 2026-11-09 01:00Z) | последний красный — 2026-11-08 13:10Z, run 42483722519 (до #1706); run-ов после merge ещё нет |
+| `test/e2e/settings-health.spec.ts:128` | не flaky test | промежуточный commit PR #1611 |
+
+Сводка по 26 строкам: исправлено — 14 (у `two-windows`, `linked-browser`, `chat-attachments.spec.ts` и `card-api` —
+ожидание условия или правка без доказанной связи с красным); Windows exception — 2 (обе до 2026-12-15, всего записей
+quarantine 2 из 15); причина неизвестна и повторяется — 0; причина неизвестна, не виден с 2026-11-06 — 9 (с
+`harness-evals-outcome`); не flaky — 1.
+
+**Новые красные на `main` вне этого Ticket-а** (по одному разу, ни один не повторился; по правилу владельца о мелких
+находках только записаны):
+
+- `test/e2e/autopilot-queue.spec.ts:128` — `toBeInViewport` заголовка (строка 78), run 42334258562, 2026-11-07 03:29Z,
+  `windows-e2e (1/4)`; в том же job-е `autopilot-faults.spec.ts:36` flaky (ENOENT trace-файла Playwright).
+- `test/e2e/linked-machines.spec.ts:790` — `Execution context was destroyed`, run 42187093020, 2026-11-06 08:21Z.
+- `test/e2e/harness-install.spec.ts:138` — `Harness <версия>` не найден (строка 153), run 42253069981, 2026-11-06 16:30Z,
+  до #1519; то же, что отмечено в Части 6 под нагрузкой на диск.
+- `test/unit/affected-tests.test.ts:140` — `Hook timed out in 30000ms`, run 42290382544, 2026-11-06 20:40Z; TEMP шага unit
+  тогда был на C: (до #1703).
+- `test/contract/getting-started-state.test.ts` — все test-ы зелёные, job красный от `EnvironmentTeardownError: Closing rpc
+  while "onUserConsoleLog" was pending` vitest, run 42146001813, 2026-11-06 01:46Z.
+
+Красные только на ветках PR (`product-guard.test.ts:83/89`, `mind-map-tools.test.ts:114`, `projects.test.ts:1409`,
+`product-watch.test.ts:224`, `harness-evals.test.ts:244/463`, `auto-approve-*.test.ts`, `harness-hook-stdin.test.ts`,
+`terminal-windows.test.ts` «pwsh from the …», `flight-recorder.spec.ts:221`, `autopilot.spec.ts:247/414`) как flaky test-ы
+не разбирались: каждый на одной ветке, на `main` не повторился.
+
+**Условие card-api выполнено.** Push run-ы `main` с 2026-11-07T23:58Z по 2026-11-09T01:00Z: 89 run-ов, у 41 job-ы
+`windows-e2e` не пропущены, в 40 из них все четыре shard-а зелёные. Единственный красный — run 42466212103, shard 4/4:
+`Response code 504` при загрузке Electron, сбой инфраструктуры. `card-api.spec.ts` идёт в shard 4/4 (run 42457621588,
+job 128659954787: 119 passed). Пересчитано здесь тем же запросом, что у Orchestrator-а.
+
+**`src/main/workflow/watch.ts` — `folderIdentity` читает id как bigint.** `folderIdentity` складывала `dev`, `ino` и
+`birthtimeMs` как числа JavaScript. Это то же округление, что в #1706: id NTFS — 64 бита, `number` хранит 53. Две папки,
+созданные одна за другой, могли дать одну identity, и подмена корня Ticket-ов осталась бы незамеченной. Правка:
+`stat(path, { bigint: true })`, identity — `dev:ino:birthtimeNs`. Оговорка: на Windows по умолчанию корень Ticket-ов
+смотрит `link-safe-watch.ts`, а `folderIdentity` работает только на пути chokidar (`ticketsWatch: 'chokidar'`, по
+умолчанию macOS и Linux). Поэтому flaky test-а Windows эта правка не снимает: ни одного красного с этой причиной нет.
+64-битные inode бывают и на Linux. Test в `test/contract/workflow-reader.test.ts` («another folder at the path whose 64-bit
+id differs … only past 53 bits») подставляет `stat`, который отвечает как Node на Windows: точные id при `bigint` и
+округлённые числа без него. Id — `(40 << 48) + 1000` и на 1 больше, время рождения одно. С кодом до правки test красный
+(`timed out … waiting for the watch made anew`), с правкой зелёный.
+
+**`harness-evals-outcome.test.ts:1171` — причина из кода не читается, сообщение исправлено.** Красный: подготовка
+`keptRuns` (bash scaffold-а или stub agent-а) завершилась не с 0, а stderr пуст. stdout шёл в `ignore`, exit code и
+signal в сообщение не попадали, поэтому по журналу нельзя отличить скрипт, который упал с выводом только в stdout, от bash,
+убитого системой. Правка в test-е: stdout теперь тоже собирается, и сообщение после stderr называет скрипт («the scaffold
+of <имя>» или «the agent <имя>»), exit code, signal и хвост stdout. Сам test не ослаблен и не повторяется. Новый test в
+блоке `keptRuns` проверяет сообщение у скрипта с выводом только в stdout и `exit 5`. Следующий такой красный назовёт
+причину.
 
 ## Наблюдения 2026-11-06 (CI)
 

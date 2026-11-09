@@ -766,11 +766,22 @@ const judgeInputs = (log: string): string[] => (existsSync(log) ? readFileSync(l
  */
 function keptRun(parent: string, scaffold: string, agent: string, answer: string): { root: string; trace: string } {
   const run = newKeptRun(parent)
-  for (const script of [scaffold, agent]) {
+  for (const [which, script] of [['the scaffold', scaffold], ['the agent', agent]] as const) {
     const done = spawnSync('bash', ['-c', script], { cwd: run.work, encoding: 'utf8', env: run.env })
-    if (done.status !== 0) throw new Error(`kept run: ${done.stderr}`)
+    if (done.status !== 0) throw keptRunFailure(which, done.status, done.signal, done.stdout ?? '', done.stderr ?? '', done.error)
   }
   return sealKeptRun(run, agent, answer)
+}
+
+/**
+ * The error of a kept-run script that did not exit 0: its stderr first, then which script it was,
+ * its exit code or signal and the end of its stdout. A red of the Windows CI job (run 42292913448,
+ * worfy-polish 47) said only "kept run: " with an empty stderr, and nothing else to go on.
+ */
+function keptRunFailure(which: string, code: number | null, signal: string | null, stdout: string, stderr: string, error?: Error): Error {
+  const tail = (text: string): string => (text.length > 2000 ? `…${text.slice(-2000)}` : text).trim()
+  const spawnError = error ? `, spawn error ${error.message}` : ''
+  return new Error(`kept run: ${stderr.trim()} [${which}: exit code ${code ?? 'none'}, signal ${signal ?? 'none'}${spawnError}, stdout ${JSON.stringify(tail(stdout))}]`)
 }
 
 /**
@@ -780,13 +791,15 @@ function keptRun(parent: string, scaffold: string, agent: string, answer: string
  * another), so one after another they outgrew the setup timeout under the load of a gate full.
  */
 async function keptRuns(parent: string, scaffold: string, agents: Record<string, string>, answer: string): Promise<Record<string, { root: string; trace: string }>> {
-  const bash = (script: string, run: KeptRun): Promise<void> =>
+  const bash = (which: string, script: string, run: KeptRun): Promise<void> =>
     new Promise((done, fail) => {
-      const child = spawn('bash', ['-c', script], { cwd: run.work, env: run.env, stdio: ['ignore', 'ignore', 'pipe'] })
+      const child = spawn('bash', ['-c', script], { cwd: run.work, env: run.env, stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
       let stderr = ''
+      child.stdout.setEncoding('utf8').on('data', (data: string) => (stdout += data))
       child.stderr.setEncoding('utf8').on('data', (data: string) => (stderr += data))
       child.on('error', fail)
-      child.on('close', (code) => (code === 0 ? done() : fail(new Error(`kept run: ${stderr}`))))
+      child.on('close', (code, signal) => (code === 0 ? done() : fail(keptRunFailure(which, code, signal, stdout, stderr))))
     })
   const names = Object.keys(agents)
   const runs: Record<string, { root: string; trace: string }> = {}
@@ -795,7 +808,8 @@ async function keptRuns(parent: string, scaffold: string, agents: Record<string,
     for (let name = names[next++]; name !== undefined; name = names[next++]) {
       const run = newKeptRun(parent)
       try {
-        for (const script of [scaffold, agents[name]!]) await bash(script, run)
+        await bash(`the scaffold of ${name}`, scaffold, run)
+        await bash(`the agent ${name}`, agents[name]!, run)
       } catch (error) {
         // The block fails with this error: the other lanes start no new run.
         next = names.length
@@ -905,6 +919,13 @@ describe('keptRuns, the kept runs of several stub agents side by side', () => {
   it('fails with the stderr of a script that exits with a code other than 0', async () => {
     const parent = tempDir('outcome-kept-runs-')
     await expect(keptRuns(parent, 'true', { fine: 'true', broken: 'echo the agent broke >&2; exit 3' }, 'Done.')).rejects.toThrow(/^kept run: the agent broke/)
+  })
+
+  it('names the script, its exit code and its stdout, so a failure with an empty stderr still says something (worfy-polish 47)', async () => {
+    const parent = tempDir('outcome-kept-runs-')
+    await expect(keptRuns(parent, 'true', { fine: 'true', quiet: 'echo only on stdout; exit 5' }, 'Done.')).rejects.toThrow(
+      'kept run:  [the agent quiet: exit code 5, signal none, stdout "only on stdout"]',
+    )
   })
 })
 
