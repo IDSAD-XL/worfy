@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findOnPath } from '../../src/main/agent/env'
 import { parseAuthStatus, parseRemote, readGithubAccounts, signInCommand, signInRegistry, type FolderRepo } from '../../src/main/github/accounts'
-import { ghRunner } from '../../src/main/github/prs'
+import { GhExitError, ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { authStatus, authStatusText, ghWorld, STUB_COMMAND, type GhWorld, type OldGh, type StubAccount, type StubRepos } from './gh-world'
@@ -229,6 +229,12 @@ describe('gh missing or failing', () => {
     expect(step.status).toBe('no-gh')
     expect(step.status === 'no-gh' ? step.reason : '').toMatch(/^gh not found/)
     expect(githubChoice(step, 'alice')).toEqual({ account: null, finish: 'local-green' })
+    const web = repo('web', 'https://github.com/acme/web.git')
+    const missing = ghRunner({ command: join(scratch, 'no-such-gh') })
+    const onMac = await readGithubAccounts([web], { git: runGit, gh: missing, platform: 'darwin' })
+    expect(onMac.status === 'no-gh' ? onMac.reason : '').toContain('install it with brew install gh;')
+    const onWindows = await readGithubAccounts([web], { git: runGit, gh: missing, platform: 'win32' })
+    expect(onWindows.status === 'no-gh' ? onWindows.reason : '').toContain('install it with winget install GitHub.cli;')
   })
 
   it('gh failing otherwise: the reason, and no account', async () => {
@@ -285,17 +291,70 @@ describe('a gh without auth status --json', () => {
     expect(step).toEqual({ status: 'accounts', repos: [{ name: 'shop', host: 'github.com', slug: 'acme/shop' }], skipped: [], accounts: [], selected: null })
   })
 
-  it('a text with no account it can read: the reason names the version of gh and the command that updates it', async () => {
+  it('a text with no account it can read and exit code 0: the reason names the version and the update to the gh that prints JSON', async () => {
     const gh = oldWorld([ALICE], {}, { text: 'Some report this gh prints\n' })
     const shop = repo('shop', 'https://github.com/acme/shop.git')
     expect(await readGithubAccounts([shop], { git: runGit, gh: gh.run, platform: 'darwin' })).toEqual({
       status: 'failed',
-      reason: 'gh 2.60.1 is too old to list accounts: update it with brew upgrade gh (gh 2.40 or later)',
+      reason: 'gh 2.60.1 printed no account worfy can read: update it with brew upgrade gh (gh 2.81 or later lists them as JSON)',
     })
     expect(await readGithubAccounts([shop], { git: runGit, gh: gh.run, platform: 'win32' })).toEqual({
       status: 'failed',
-      reason: 'gh 2.60.1 is too old to list accounts: update it with winget upgrade GitHub.cli (gh 2.40 or later)',
+      reason: 'gh 2.60.1 printed no account worfy can read: update it with winget upgrade GitHub.cli (gh 2.81 or later lists them as JSON)',
     })
+  })
+
+  it('a text with no account and an exit code other than 0: gh auth status failed with its first line', async () => {
+    const gh = oldWorld([ALICE], {}, { text: '\n  error connecting to api.github.com\ncheck your internet connection\n', stream: 'stderr', code: 1 })
+    expect(await read([repo('shop', 'https://github.com/acme/shop.git')], gh)).toEqual({ status: 'failed', reason: 'gh auth status failed: error connecting to api.github.com' })
+  })
+
+  it('the active account timed out: it stays, active, with state timeout; the other account is not taken for active', async () => {
+    const gh = oldWorld([{ ...ALICE, active: false }, { ...BOB, active: true, state: 'timeout' }], { 'acme/shop': { alice: true, bob: true } }, { stream: 'stderr', code: 1 })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({
+      status: 'accounts',
+      accounts: [
+        { login: 'alice', host: 'github.com', active: false, state: 'success' },
+        { login: 'bob', host: 'github.com', active: true, state: 'timeout' },
+      ],
+      selected: 'bob',
+    })
+  })
+
+  it('a single timed-out account: listed with state timeout', async () => {
+    const gh = oldWorld([{ ...BOB, active: true, state: 'timeout' }], { 'acme/shop': { bob: true } }, { stream: 'stderr', code: 1 })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'bob', host: 'github.com', active: true, state: 'timeout' }] })
+  })
+
+  it('a failed token from the environment, listed before an account: its "Active account" line stays with it', async () => {
+    const token: StubAccount = { login: '', source: 'GH_TOKEN', state: 'error', active: true, token: 'gho_env_SECRET_0005' }
+    const gh = oldWorld([{ ...ALICE, active: false }, { ...token, host: 'ghe.example.com' }, { login: 'corp', host: 'ghe.example.com', active: false, token: 'gho_corp_SECRET_0003' }], { 'acme/shop': { alice: true } })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'alice', active: false }] })
+  })
+
+  it('gh 2.40.0, the first that has gh auth token -u: the accounts are read from the text', async () => {
+    const gh = oldWorld([ALICE], { 'acme/shop': { alice: true } }, { version: '2.40.0' })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'alice', active: true, push: true }], selected: 'alice' })
+  })
+
+  it('a host gh prints in capitals is matched to the origin in lower case', async () => {
+    const gh = oldWorld([ALICE], { 'acme/shop': { alice: true } }, { text: 'GitHub.com\n  ✓ Logged in to GitHub.com account alice (keyring)\n  - Active account: true\n' })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'alice', host: 'github.com', active: true, push: true }], selected: 'alice' })
+  })
+
+  it('output all of the runner: stderr with exit code 0 is read; another exit code rejects with GhExitError that carries both streams', async () => {
+    const gh = oldWorld([ALICE], {}, { stream: 'stderr', text: 'printed on stderr\n' })
+    expect(await gh.run(['auth', 'status'], scratch, undefined, 'all')).toContain('printed on stderr')
+    expect(await gh.run(['auth', 'status'], scratch)).toBe('')
+    const failing = oldWorld([ALICE], {}, { stream: 'stderr', text: 'failed on stderr\n', code: 1 })
+    const error = await failing.run(['auth', 'status'], scratch, undefined, 'all').catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(GhExitError)
+    expect(error).toMatchObject({ message: 'failed on stderr', output: expect.stringContaining('failed on stderr') })
   })
 
   it('gh before 2.40, which has no gh auth token -u: too old, without reading the accounts', async () => {

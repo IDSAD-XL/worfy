@@ -10,6 +10,8 @@ export interface StubAccount {
   host?: string
   active?: boolean
   state?: string
+  /** Where gh took the token: `keyring` by default; an environment variable such as GH_TOKEN for an entry with an empty login. */
+  source?: string
   token: string
 }
 
@@ -45,13 +47,28 @@ export function authStatus(accounts: readonly StubAccount[]): { hosts: Record<st
   return { hosts }
 }
 
-/** `gh auth status` without flags as gh 2.40 to 2.80 prints it, the accounts host by host. */
+/**
+ * `gh auth status` without flags as gh 2.40 to 2.80 prints it (pkg/cmd/auth/status/status.go, authEntry.String):
+ * an entry per account, `success`, `error` or `timeout`; an empty login is the entry of a token from the
+ * environment, "using token (<source>)". Every entry has its "Active account" line.
+ */
 export function authStatusText(accounts: readonly StubAccount[]): string {
   const hosts = new Map<string, string[]>()
   for (const account of accounts) {
     const host = account.host ?? 'github.com'
-    const first = (account.state ?? 'success') === 'success' ? `  ✓ Logged in to ${host} account ${account.login} (keyring)` : `  X Failed to log in to ${host} account ${account.login} (keyring)`
-    hosts.set(host, [...(hosts.get(host) ?? []), [first, `  - Active account: ${String(account.active ?? false)}`, '  - Git operations protocol: https', "  - Token scopes: 'gist', 'read:org', 'repo'"].join('\n')])
+    const source = account.source ?? 'keyring'
+    const who = account.login === '' ? `using token (${source})` : `account ${account.login} (${source})`
+    const active = `  - Active account: ${String(account.active ?? false)}`
+    const state = account.state ?? 'success'
+    let lines: string[]
+    if (state === 'success') lines = [`  ✓ Logged in to ${host} ${who}`, active, '  - Git operations protocol: https', '  - Token: gho_************************************', "  - Token scopes: 'gist', 'read:org', 'repo'"]
+    else if (state === 'timeout') lines = [`  X Timeout trying to log in to ${host} ${who}`, active]
+    else {
+      lines = [`  X Failed to log in to ${host} ${who}`, active, `  - The token in ${source} is invalid.`]
+      // gh offers to sign in again only for a token it stores itself, not for one from the environment.
+      if (!source.endsWith('_TOKEN')) lines.push(`  - To re-authenticate, run: gh auth login -h ${host}`, `  - To forget about this account, run: gh auth logout -h ${host} -u ${account.login}`)
+    }
+    hosts.set(host, [...(hosts.get(host) ?? []), lines.join('\n')])
   }
   if (hosts.size === 0) return 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n'
   return `${[...hosts].map(([host, blocks]) => `${host}\n${blocks.join('\n\n')}`).join('\n\n')}\n`

@@ -23,7 +23,7 @@ import { programStartInPty, windowsProgramPath, type ProgramStart } from '../pro
 import type { GitRunner } from '../projects/store'
 import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { ghVersion, parseAuthText } from './auth-text'
-import { accountAuth, appGhOverride, type GhRunner } from './prs'
+import { accountAuth, appGhOverride, GhExitError, type GhRunner } from './prs'
 import { parseRemote, type RemoteRepo } from './remote'
 
 // The parsing of a remote URL lives in ./remote.ts, a module with no imports, so readers outside the terminal
@@ -66,7 +66,7 @@ export interface AccountsDeps {
   git: GitRunner
   /** The app's gh: the same executable and environment as its other gh calls. */
   gh: GhRunner
-  /** Which command updates gh in the "too old" reason; process.platform by default. For tests. */
+  /** Which command installs or updates gh in a reason (brew, or winget on win32); process.platform by default. For tests. */
   platform?: NodeJS.Platform
 }
 
@@ -89,20 +89,33 @@ const olderThanTextMin = (version: string): boolean => {
 /** gh says so when no host has an account. */
 const NOT_SIGNED_IN = /not logged into any GitHub hosts/u
 
+const onWindows = (deps: AccountsDeps): boolean => (deps.platform ?? process.platform) === 'win32'
+
 /**
  * The accounts of a gh without `auth status --json`, from the text of `gh auth status` (stdout and
- * stderr: gh before 2.40 prints it to stderr). `tooOld`, a reason with the version and the command
- * that updates gh, for a gh before 2.40 — it has no `gh auth token -u` the access check needs — and
- * for a text that names no account and does not say that no one is signed in. Rejects as gh does.
+ * stderr: gh before 2.40 prints it to stderr; gh exits 1 when an account failed or none is signed in).
+ * A reason instead: for a gh before 2.40 — it has no `gh auth token -u` the access check needs — the
+ * version and the command that updates gh; for a text that names no account and does not say that
+ * no one is signed in, gh's first line when it failed, else the update to the gh that prints JSON.
  */
-async function textAccounts(deps: AccountsDeps, cwd: string): Promise<HostAccount[] | { tooOld: string }> {
+async function textAccounts(deps: AccountsDeps, cwd: string): Promise<HostAccount[] | { reason: string }> {
   const version = ghVersion(await deps.gh(['--version'], cwd).catch(() => ''))
-  const update = (deps.platform ?? process.platform) === 'win32' ? 'winget upgrade GitHub.cli' : 'brew upgrade gh'
-  const tooOld = { tooOld: `gh ${version ?? '(unknown version)'} is too old to list accounts: update it with ${update} (gh ${TEXT_MIN.join('.')} or later)` }
-  if (version !== null && olderThanTextMin(version)) return tooOld
-  const text = await deps.gh(['auth', 'status'], cwd, undefined, 'all')
+  const named = `gh ${version ?? '(unknown version)'}`
+  const update = onWindows(deps) ? 'winget upgrade GitHub.cli' : 'brew upgrade gh'
+  if (version !== null && olderThanTextMin(version)) return { reason: `${named} is too old to list accounts: update it with ${update} (gh ${TEXT_MIN.join('.')} or later)` }
+  let text: string
+  let failed: string | null = null
+  try {
+    text = await deps.gh(['auth', 'status'], cwd, undefined, 'all')
+  } catch (error) {
+    if (!(error instanceof GhExitError)) throw error
+    text = error.output
+    failed = text.split(/\r?\n/u).map((line) => line.trim()).find((line) => line !== '') ?? error.message
+  }
   const accounts = parseAuthText(text).map((account) => ({ ...account, host: account.host.toLowerCase() }))
-  return accounts.length === 0 && !NOT_SIGNED_IN.test(text) ? tooOld : accounts
+  if (accounts.length > 0 || NOT_SIGNED_IN.test(text)) return accounts
+  if (failed !== null) return { reason: `gh auth status failed: ${failed}` }
+  return { reason: `${named} printed no account worfy can read: update it with ${update} (gh 2.81 or later lists them as JSON)` }
 }
 
 /** `git remote get-url origin`, or null without an origin. */
@@ -141,15 +154,15 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
   try {
     known = parseAuthStatus(await deps.gh(['auth', 'status', '--json', 'hosts'], cwd))
   } catch (error) {
-    if (isMissingGh(error)) return { status: 'no-gh', reason: `${messageOf(error)}: install it with brew install gh; the first-run screen checks it.` }
+    if (isMissingGh(error)) return { status: 'no-gh', reason: `${messageOf(error)}: install it with ${onWindows(deps) ? 'winget install GitHub.cli' : 'brew install gh'}; the first-run screen checks it.` }
     if (!isUnknownFlag(error)) return { status: 'failed', reason: `gh auth status failed: ${messageOf(error)}` }
-    let fromText: HostAccount[] | { tooOld: string }
+    let fromText: HostAccount[] | { reason: string }
     try {
       fromText = await textAccounts(deps, cwd)
     } catch (fallback) {
       return { status: 'failed', reason: `gh auth status failed: ${messageOf(fallback)}` }
     }
-    if (!Array.isArray(fromText)) return { status: 'failed', reason: fromText.tooOld }
+    if (!Array.isArray(fromText)) return { status: 'failed', reason: fromText.reason }
     known = fromText
   }
   const githubHosts = new Set(['github.com', ...known.map((account) => account.host)])

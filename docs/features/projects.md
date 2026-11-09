@@ -101,8 +101,10 @@ sets two Profile fields: `github.account`, and `workflow.finish`, which is `pr-g
 repository and `local-green` otherwise. "No account" means no account and `local-green`, and so does a folder with no
 `origin` on a GitHub host or a machine without gh. "Sign in with gh" runs `gh auth login` in a terminal inside the dialog,
 and the accounts are read again when gh exits. gh older than 2.81 has no JSON output for `gh auth status`: the accounts
-are then read from its text output. gh older than 2.40 has no `gh auth token -u`, so the step fails with its version and
-the command that updates it (`brew upgrade gh`, on Windows `winget upgrade GitHub.cli`).
+are then read from its text output, an account whose sign-in failed or timed out with its state. gh older than 2.40 has
+no `gh auth token -u`, so the step fails with its version and the command that updates it (`brew upgrade gh`, on Windows
+`winget upgrade GitHub.cli`); so does a text that names no account while gh exits with 0, asking for gh 2.81 or later.
+Without gh at all the step names `brew install gh`, on Windows `winget install GitHub.cli`.
 
 **What the form starts with.** The language of reports is the system language, `ru` or else `en`. In Silent mode the
 attribution starts as `off`, whatever the Session proposed, and what the user picks in the form is written as picked. In

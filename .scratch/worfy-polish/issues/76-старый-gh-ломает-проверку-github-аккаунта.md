@@ -47,14 +47,9 @@ Health check у тестера зелёный, а диалог Project-а — к
 
 - [ ] Stub gh, который на `auth status --json hosts` отвечает «unknown flag: --json» (exit 1), а на `auth status` —
   текстом старого формата: шаг «GitHub account» находит аккаунт, его host, active и state.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/github-accounts.test.ts test/unit/gh-auth-text.test.ts` exit 0 · mac - · 7f097e3c2afc679381586b14366332f8b668cf31
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 7f097e3c2afc679381586b14366332f8b668cf31
 - [ ] Stub gh нового формата (JSON): прежний результат, второго запуска `gh auth status` нет.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/github-accounts.test.ts test/unit/gh-auth-text.test.ts` exit 0 · mac - · 7f097e3c2afc679381586b14366332f8b668cf31
 - [ ] Текст без аккаунтов: причина называет версию gh и команду обновления.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/github-accounts.test.ts test/unit/gh-auth-text.test.ts` exit 0 · mac - · 7f097e3c2afc679381586b14366332f8b668cf31
 - [ ] Health check (`ghAccounts`) разбирает те же образцы текста так же, как раньше.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/github-accounts.test.ts test/unit/gh-auth-text.test.ts` exit 0 · mac - · 7f097e3c2afc679381586b14366332f8b668cf31
 
 ## Тесты
 
@@ -86,11 +81,17 @@ Health check у тестера зелёный, а диалог Project-а — к
   даёт `login`, `host`, `active`, `state`; `ghAccounts` Health check-а теперь берёт его оттуда, `checks.ts` только
   импортирует и реэкспортирует функцию (`github/` от `first-run/` не зависит).
 - `readGithubAccounts`: на «unknown flag» от `gh auth status --json hosts` — `gh --version`, затем `gh auth status`
-  без флагов, stdout и stderr вместе при любом exit code (новый режим `'all'` у `GhRunner`, `src/main/github/prs.ts`).
+  без флагов, stdout и stderr вместе (новый режим `'all'` у `GhRunner`, `src/main/github/prs.ts`; exit code не 0 —
+  `GhExitError` с тем же текстом: gh выходит с 1, когда вход одного аккаунта не удался или не вошёл никто).
+- Разбор следует `pkg/cmd/auth/status/status.go` gh 2.40+: «Logged in» — `success`, «Failed to log in» — `error`,
+  «Timeout trying to log in» — `timeout`. Строка «Active account» относится только к entry, которую только что
+  прочли: entry без login («using token (GH_TOKEN)») и любая другая строка с ✓ или X сбрасывают текущий аккаунт.
 - gh старше 2.40 — сразу `failed` «gh <версия> is too old to list accounts: update it with brew upgrade gh (gh 2.40 or
   later)», на Windows — `winget upgrade GitHub.cli`: у такого gh нет `gh auth token -u`, без него доступ к репозиторию
-  не проверить. Та же причина — когда текст не назвал ни одного аккаунта и не сказал «not logged into any GitHub
-  hosts».
+  не проверить. Текст без аккаунтов и без «not logged into any GitHub hosts»: exit code не 0 — «gh auth status failed:
+  <первая непустая строка>»; exit code 0 — «gh <версия> printed no account worfy can read: update it with … (gh 2.81 or
+  later lists them as JSON)».
+- Причина «gh not found» на Windows называет `winget install GitHub.cli` вместо `brew install gh`.
 - Решено без владельца: текст «You are not logged into any GitHub hosts» — пустой список аккаунтов (как JSON нового gh
   без аккаунтов), а не «too old»: у gh 2.40–2.80 без входа причина не в версии, а шаг предлагает «Sign in with gh».
 - Login в разборе текста принимает и `_` (managed users GitHub Enterprise); прежний regex Health check-а обрезал бы

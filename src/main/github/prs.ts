@@ -51,11 +51,20 @@ export type GhEnv = Readonly<Record<string, string>>
 
 /**
  * What a gh call resolves: `stdout` (the default) — its stdout, and a non-zero exit rejects with a short reason;
- * `all` — stdout and stderr together whatever the exit code, for a report meant for people that older gh prints
- * to stderr and that exits 1 when an account failed (`gh auth status`, worfy-polish ticket 76). A gh that does not
- * start or runs out of time rejects either way.
+ * `all` — stdout and stderr together, for a report meant for people that gh before 2.40 prints to stderr
+ * (`gh auth status`, worfy-polish ticket 76); a non-zero exit rejects with a GhExitError that carries them. A gh
+ * that does not start or runs out of time rejects either way.
  */
 export type GhOutput = 'stdout' | 'all'
+
+/** A gh call of output `all` that exited with a code other than 0: `output` is its stdout and stderr together. */
+export class GhExitError extends Error {
+  readonly output: string
+  constructor(message: string, output: string) {
+    super(message)
+    this.output = output
+  }
+}
 
 /** Runs `gh <args>` in `cwd`, with `env` added to its environment, and resolves its stdout; rejects with a short reason. */
 export type GhRunner = (args: readonly string[], cwd: string, env?: GhEnv, output?: GhOutput) => Promise<string>
@@ -125,9 +134,10 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
           if (!error) return resolve(output === 'all' ? `${stdout}\n${stderr}` : stdout)
           const code = (error as NodeJS.ErrnoException).code
           if (code === 'ENOENT') return reject(new Error(`gh not found (${command})`))
+          const reason = firstLine(stderr) || error.message
           // An exit code is a number; a timeout, a signal or a too long output leave none.
-          if (output === 'all' && typeof code === 'number') return resolve(`${stdout}\n${stderr}`)
-          reject(new Error(firstLine(stderr) || error.message))
+          if (output === 'all' && typeof code === 'number') return reject(new GhExitError(reason, `${stdout}\n${stderr}`))
+          reject(new Error(reason))
         },
       )
     })
