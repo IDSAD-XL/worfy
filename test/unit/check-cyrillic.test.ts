@@ -372,13 +372,21 @@ describe('the command: which files it reads', () => {
     expect(r.status).toBe(1)
   })
 
-  it('reads a tracked file under an ignored folder and skips a tracked file deleted from the disk', () => {
-    const root = tree({ '.gitignore': ignore, 'harness/evals/results/kept.html': report, 'harness/hooks/gone.sh': '# комментарий\n' })
-    gitInit(root, ['harness/evals/results/kept.html', 'harness/hooks/gone.sh'])
-    removeTestTree(join(root, 'harness', 'hooks'))
+  it('reads a tracked file under an ignored folder', () => {
+    const root = tree({ '.gitignore': ignore, 'harness/evals/results/kept.html': report })
+    gitInit(root, ['harness/evals/results/kept.html'])
     const r = run(root)
     expect(r.lines).toEqual(['harness/evals/results/kept.html:1'])
-    expect(r.status, r.stderr).toBe(1)
+    expect(r.status).toBe(1)
+  })
+
+  it('skips a tracked file deleted from the disk instead of failing on it', () => {
+    const root = tree({ 'harness/hooks/gone.sh': '# комментарий\n', 'harness/hooks/kept.sh': 'echo ok\n' })
+    gitInit(root, ['harness/hooks/gone.sh', 'harness/hooks/kept.sh'])
+    removeTestTree(join(root, 'harness', 'hooks', 'gone.sh'))
+    const r = run(root)
+    expect(r.stderr).toBe('')
+    expect(r.status).toBe(0)
   })
 
   it('outside a git work tree reads every file of the four folders, .gitignore or not', () => {
