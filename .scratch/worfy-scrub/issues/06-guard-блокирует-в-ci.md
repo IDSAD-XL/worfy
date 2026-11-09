@@ -49,3 +49,54 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard личн�
 - `scripts/check-personal.allow.json`
 - `test/unit/check-personal.test.ts`
 - `HANDOFF.md`
+
+## Итог
+
+Ветка `worfy-scrub/06`, commit правки `44921d02c`.
+
+### Находки guard-а
+
+`node scripts/check-personal.mjs --report --list` на свежем `main` (`784fa137b`): 37 находок в 9 файлах — home-path 23,
+host 13, email 1. После правки `node scripts/check-personal.mjs` — exit 0, `no findings in 6275 files`.
+
+- 36 находок — подстановки, которые пишет `scripts/codex-capture.mjs` в записи Codex: хост `capture-host` (с `.local`)
+  и домашняя папка Linux с именем `owner`. Записи, их `README.md` и `test/contract/codex-compat.test.ts` не правились: оба
+  значения стали stand-in-ами guard-а (`STAND_IN_HOSTS`, новый `STAND_IN_HOME_NAMES`). Одна находка — пример имени
+  хоста Mac с заглавной буквы в комментарии скрипта, заменён на `<name>.local`, как в Ticket-е 04.
+- 1 находка — адрес сопровождающего пакета glob в уведомлении `deprecated` в `pnpm-lock.yaml` (данные реестра npm).
+  Lockfile руками не правится: запись в `scripts/check-personal.allow.json` с полем `reason`.
+- Устаревших исключений не было: до Ticket-а список `allow` был пуст.
+- `harness/bin/profile` и fixture flight-recorder guard не находит (путь с `acme` убрал Ticket 04, правило `uuid`
+  guard не применяет): правки не нужны.
+
+### Правила
+
+- `harness/lib/privacy.cjs`: чтение свойства в коде (`side.local,`, `root.local !== true`, `this.options.local)`)
+  больше не хост `*.local`. Условие: все метки — идентификаторы со строчной первой буквы, а после идёт то, что
+  идёт после выражения в коде (`)`, `,`, `;`, `]`, `}`, сравнение, `&&`, `||`, `??`, `?.`, присваивание, двоеточие не
+  перед портом). Хост одним словом в тексте, с портом, в пути или перед словом находится как раньше. Цена: хост одним
+  словом в тексте перед `)` или `,` пропускается — записано на странице `docs/features/evidence.md`. Правка
+  платформенная: `privacy.cjs` общий с `evidence-check`; test-ы в обе стороны — в `harness/bin/tests/evidence-check.test.sh`.
+- Слова guard режет по буквам и цифрам любой письменности (`\p{L}`, `\p{M}`, `\p{N}`; NFC, нижний регистр), запись
+  списка — тем же правилом. Кириллическое слово из списка теперь находится (test с вымышленным словом, хэш передан
+  параметром), запись с `-` или `.` находится как прежде (test с вымышленными `quill-fen` и `brask.oy`). Для 10
+  записей открытого списка хэши не меняются: в них нет не-ASCII. Цена: guard на всём дереве — около 3,3 s вместо 2,5 s,
+  потому что кириллические слова теперь тоже хэшируются.
+- Stand-in-ы хостов и Tailscale по-прежнему только в `scripts/` (spec, Q6): `evidence-check` их не знает. Свести
+  два списка — отдельное решение, Ticket его не принимал.
+
+### Блокировка
+
+`lint` в `package.json` зовёт `node scripts/check-personal.mjs` без `--report`. Проверка: временная ветка с одним
+commit-ом — файл `docs/throwaway-finding.md` с домашним путём macOS и вымышленным именем пользователя. `pnpm lint` —
+exit 1, строка вывода `docs/throwaway-finding.md:1: home-path: qw…(7)`, затем `check-personal: 1 findings in 1 of
+6276 files`. Ветка удалена, в PR её нет.
+
+### Проверки
+
+- `node scripts/check-personal.mjs` — exit 0; `node scripts/check-handoff.mjs` — exit 0; `pnpm lint` — exit 0;
+  `pnpm typecheck` — exit 0.
+- `test/unit/check-personal.test.ts` — 25 passed (5 новых, все пять красные на коде `main`); вместе с
+  `gate-failures-transfer`, `harness-human-review-setup`, `harness-review-draft-lint`, `codex-compat` — 171 passed.
+- `bash harness/bin/tests/evidence-check.test.sh` — passed 240, exit 0; `bash harness/bin/tests/ticket-evidence.test.sh` —
+  passed 79, exit 0.
