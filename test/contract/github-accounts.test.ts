@@ -14,7 +14,7 @@ import { parseAuthStatus, parseRemote, readGithubAccounts, signInCommand, signIn
 import { ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
-import { authStatus, ghWorld, STUB_COMMAND, type GhWorld, type StubAccount, type StubRepos } from './gh-world'
+import { authStatus, authStatusText, ghWorld, STUB_COMMAND, type GhWorld, type OldGh, type StubAccount, type StubRepos } from './gh-world'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
 
@@ -235,6 +235,82 @@ describe('gh missing or failing', () => {
     const failing = ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, GH_STUB_FAIL: 'error connecting to api.github.com' }) })
     const step = await readGithubAccounts([repo('shop', 'https://github.com/acme/shop.git')], { git: runGit, gh: failing })
     expect(step).toEqual({ status: 'failed', reason: 'gh auth status failed: error connecting to api.github.com' })
+  })
+})
+
+// gh before 2.81 has no `auth status --json` and answers "unknown flag: --json" (worfy-polish ticket 76):
+// the step reads the accounts from the text of `gh auth status` instead.
+describe('a gh without auth status --json', () => {
+  const CAROL: StubAccount = { login: 'carol', state: 'error', token: 'gho_carol_SECRET_0004' }
+
+  function oldWorld(accounts: readonly StubAccount[], repos: StubRepos, oldGh: Partial<OldGh> = {}): GhWorld {
+    return ghWorld(join(scratch, 'gh'), { accounts, repos, oldGh: { version: '2.60.1', text: authStatusText(accounts), ...oldGh } })
+  }
+
+  it('one account in the text: its login, host, active and state, and its write access read as with JSON', async () => {
+    const gh = oldWorld([ALICE], { 'acme/shop': { alice: true } })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({
+      status: 'accounts',
+      accounts: [{ login: 'alice', host: 'github.com', active: true, state: 'success', push: true, finish: 'pr-green-ci', reason: null }],
+      selected: 'alice',
+    })
+    const flat = gh.calls().map((call) => call.join(' '))
+    expect(flat.filter((call) => !call.startsWith('api '))).toEqual(['auth status --json hosts', '--version', 'auth status', 'auth token -u alice'])
+  })
+
+  it('two accounts on github.com and a failed one: the active one is chosen, the failed one keeps its state', async () => {
+    const gh = oldWorld([{ ...ALICE, active: false }, { ...BOB, active: true }, CAROL], { 'acme/shop': { alice: true, bob: true } })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({
+      status: 'accounts',
+      accounts: [
+        { login: 'alice', host: 'github.com', active: false, state: 'success', push: true },
+        { login: 'bob', host: 'github.com', active: true, state: 'success', push: true },
+        { login: 'carol', host: 'github.com', active: false, state: 'error', push: false },
+      ],
+      selected: 'bob',
+    })
+  })
+
+  it('the text on stderr with exit code 1, as gh prints it when one account failed', async () => {
+    const gh = oldWorld([ALICE, CAROL], { 'acme/shop': { alice: true } }, { stream: 'stderr', code: 1 })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'alice', state: 'success' }, { login: 'carol', state: 'error' }], selected: 'alice' })
+  })
+
+  it('not signed in: an empty list, as the JSON of a gh without accounts gives', async () => {
+    const gh = oldWorld([], {}, { code: 1, stream: 'stderr' })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toEqual({ status: 'accounts', repos: [{ name: 'shop', host: 'github.com', slug: 'acme/shop' }], skipped: [], accounts: [], selected: null })
+  })
+
+  it('a text with no account it can read: the reason names the version of gh and the command that updates it', async () => {
+    const gh = oldWorld([ALICE], {}, { text: 'Some report this gh prints\n' })
+    const shop = repo('shop', 'https://github.com/acme/shop.git')
+    expect(await readGithubAccounts([shop], { git: runGit, gh: gh.run, platform: 'darwin' })).toEqual({
+      status: 'failed',
+      reason: 'gh 2.60.1 is too old to list accounts: update it with brew upgrade gh (gh 2.40 or later)',
+    })
+    expect(await readGithubAccounts([shop], { git: runGit, gh: gh.run, platform: 'win32' })).toEqual({
+      status: 'failed',
+      reason: 'gh 2.60.1 is too old to list accounts: update it with winget upgrade GitHub.cli (gh 2.40 or later)',
+    })
+  })
+
+  it('gh before 2.40, which has no gh auth token -u: too old, without reading the accounts', async () => {
+    const gh = oldWorld([ALICE], {}, { version: '2.39.1', stream: 'stderr', text: 'github.com\n  ✓ Logged in to github.com as alice (/tmp/gh-config/hosts.yml)\n' })
+    const step = await readGithubAccounts([repo('shop', 'https://github.com/acme/shop.git')], { git: runGit, gh: gh.run, platform: 'darwin' })
+    expect(step).toEqual({ status: 'failed', reason: 'gh 2.39.1 is too old to list accounts: update it with brew upgrade gh (gh 2.40 or later)' })
+    expect(gh.calls().map((call) => call.join(' '))).toEqual(['auth status --json hosts', '--version'])
+  })
+
+  it('a gh with --json: one auth status call, no --version and no text read', async () => {
+    const gh = world([ALICE], { 'acme/shop': { alice: true } })
+    const step = await read([repo('shop', 'https://github.com/acme/shop.git')], gh)
+    expect(step).toMatchObject({ status: 'accounts', accounts: [{ login: 'alice', active: true, state: 'success', push: true }] })
+    const flat = gh.calls().map((call) => call.join(' '))
+    expect(flat.filter((call) => call.startsWith('auth status') || call === '--version')).toEqual(['auth status --json hosts'])
   })
 })
 

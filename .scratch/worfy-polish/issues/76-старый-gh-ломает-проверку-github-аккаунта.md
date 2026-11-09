@@ -1,7 +1,7 @@
 # 76 — Старый gh ломает проверку GitHub-аккаунта в диалоге Project-а
 
 Type: bug
-Status: open
+Status: claimed 2026-11-09T16:48Z
 Blocked by: —
 Source: решение владельца 2026-11-09 (отзыв тестера): в диалоге подключения Project-а шаг «GitHub account» показал
 «gh auth status failed: unknown flag: --json», хотя в gh вошёл нужный аккаунт. Строки перечитаны по main `964061f9a`.
@@ -74,3 +74,21 @@ Health check у тестера зелёный, а диалог Project-а — к
 
 - Обновление gh за пользователя: worfy называет команду, запускает её пользователь.
 - Остальные вызовы gh с `--json` (`gh pr list --json` и др.): этот флаг у них намного старше, отказов не видели.
+
+## Итог
+
+- Разбор текста `gh auth status` вынесен в `src/main/github/auth-text.ts` (модуль без import-ов): `parseAuthText`
+  даёт `login`, `host`, `active`, `state`; `ghAccounts` Health check-а теперь берёт его оттуда, `checks.ts` только
+  импортирует и реэкспортирует функцию (`github/` от `first-run/` не зависит).
+- `readGithubAccounts`: на «unknown flag» от `gh auth status --json hosts` — `gh --version`, затем `gh auth status`
+  без флагов, stdout и stderr вместе при любом exit code (новый режим `'all'` у `GhRunner`, `src/main/github/prs.ts`).
+- gh старше 2.40 — сразу `failed` «gh <версия> is too old to list accounts: update it with brew upgrade gh (gh 2.40 or
+  later)», на Windows — `winget upgrade GitHub.cli`: у такого gh нет `gh auth token -u`, без него доступ к репозиторию
+  не проверить. Та же причина — когда текст не назвал ни одного аккаунта и не сказал «not logged into any GitHub
+  hosts».
+- Решено без владельца: текст «You are not logged into any GitHub hosts» — пустой список аккаунтов (как JSON нового gh
+  без аккаунтов), а не «too old»: у gh 2.40–2.80 без входа причина не в версии, а шаг предлагает «Sign in with gh».
+- Login в разборе текста принимает и `_` (managed users GitHub Enterprise); прежний regex Health check-а обрезал бы
+  такой login.
+- Stub gh (`test/fixtures/gh/gh-stub.mjs`) понимает `old-gh.json` и `--version`; `gh-world.ts` — `oldGh` и
+  `authStatusText`. Страница `docs/features/projects.md` дополнена.

@@ -45,10 +45,34 @@ export function authStatus(accounts: readonly StubAccount[]): { hosts: Record<st
   return { hosts }
 }
 
+/** `gh auth status` without flags as gh 2.40 to 2.80 prints it, the accounts host by host. */
+export function authStatusText(accounts: readonly StubAccount[]): string {
+  const hosts = new Map<string, string[]>()
+  for (const account of accounts) {
+    const host = account.host ?? 'github.com'
+    const first = (account.state ?? 'success') === 'success' ? `  ✓ Logged in to ${host} account ${account.login} (keyring)` : `  X Failed to log in to ${host} account ${account.login} (keyring)`
+    hosts.set(host, [...(hosts.get(host) ?? []), [first, `  - Active account: ${String(account.active ?? false)}`, '  - Git operations protocol: https', "  - Token scopes: 'gist', 'read:org', 'repo'"].join('\n')])
+  }
+  if (hosts.size === 0) return 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n'
+  return `${[...hosts].map(([host, blocks]) => `${host}\n${blocks.join('\n\n')}`).join('\n\n')}\n`
+}
+
+/**
+ * A gh older than 2.81, which has no `auth status --json`: `--version` prints `version`, `auth status
+ * --json …` fails with "unknown flag: --json", and `auth status` prints `text` to `stream` and exits `code`.
+ */
+export interface OldGh {
+  version: string
+  text: string
+  stream?: 'stdout' | 'stderr'
+  code?: number
+}
+
 /** A gh world in `dir`: what `auth status`, `auth token`, `api repos/…` and `auth login` answer. */
-export function ghWorld(dir: string, spec: { accounts: readonly StubAccount[]; repos?: StubRepos; login?: StubAccount }): GhWorld {
+export function ghWorld(dir: string, spec: { accounts: readonly StubAccount[]; repos?: StubRepos; login?: StubAccount; oldGh?: OldGh }): GhWorld {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'auth-status.json'), JSON.stringify(authStatus(spec.accounts)))
+  if (spec.oldGh !== undefined) writeFileSync(join(dir, 'old-gh.json'), JSON.stringify(spec.oldGh))
   writeFileSync(join(dir, 'tokens.json'), JSON.stringify(Object.fromEntries(spec.accounts.map((account) => [account.login, account.token]))))
   writeFileSync(join(dir, 'repos.json'), JSON.stringify(spec.repos ?? {}))
   if (spec.login !== undefined) writeFileSync(join(dir, 'login.json'), JSON.stringify(spec.login))

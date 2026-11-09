@@ -3,7 +3,9 @@
 // may push to every such repository.
 //
 // - The accounts: one `gh auth status --json hosts` (never `--show-token`). A remote counts as on
-//   GitHub when its host is github.com or a host gh has accounts for (GitHub Enterprise).
+//   GitHub when its host is github.com or a host gh has accounts for (GitHub Enterprise). gh before
+//   2.81 answers "unknown flag: --json": then `gh --version` and the text of `gh auth status`
+//   (./auth-text.ts, worfy-polish ticket 76); a gh before 2.40 is "too old", with the update command.
 // - The access: per account, its token from `gh auth token -u <login>` through accountAuth
 //   (src/main/github/prs.ts, worfy-week ticket 01), then per repository
 //   `gh api repos/<owner>/<repo> --jq .permissions.push` with that token as GH_TOKEN. Only `true`
@@ -20,6 +22,7 @@ import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env
 import { programStartInPty, windowsProgramPath, type ProgramStart } from '../program'
 import type { GitRunner } from '../projects/store'
 import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
+import { ghVersion, parseAuthText } from './auth-text'
 import { accountAuth, appGhOverride, type GhRunner } from './prs'
 import { parseRemote, type RemoteRepo } from './remote'
 
@@ -63,12 +66,44 @@ export interface AccountsDeps {
   git: GitRunner
   /** The app's gh: the same executable and environment as its other gh calls. */
   gh: GhRunner
+  /** Which command updates gh in the "too old" reason; process.platform by default. For tests. */
+  platform?: NodeJS.Platform
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** ghRunner's rejection for a gh that cannot be started. */
 const isMissingGh = (error: unknown): boolean => /^gh not found\b/u.test(messageOf(error))
+
+/** gh before 2.81 refuses `auth status --json` with "unknown flag: --json". */
+const isUnknownFlag = (error: unknown): boolean => /\bunknown flag\b/u.test(messageOf(error))
+
+/** The gh the text of `gh auth status` is enough for: several accounts per host and `gh auth token -u` came in 2.40. */
+const TEXT_MIN = [2, 40] as const
+
+const olderThanTextMin = (version: string): boolean => {
+  const [major = 0, minor = 0] = version.split('.').map(Number)
+  return major < TEXT_MIN[0] || (major === TEXT_MIN[0] && minor < TEXT_MIN[1])
+}
+
+/** gh says so when no host has an account. */
+const NOT_SIGNED_IN = /not logged into any GitHub hosts/u
+
+/**
+ * The accounts of a gh without `auth status --json`, from the text of `gh auth status` (stdout and
+ * stderr: gh before 2.40 prints it to stderr). `tooOld`, a reason with the version and the command
+ * that updates gh, for a gh before 2.40 — it has no `gh auth token -u` the access check needs — and
+ * for a text that names no account and does not say that no one is signed in. Rejects as gh does.
+ */
+async function textAccounts(deps: AccountsDeps, cwd: string): Promise<HostAccount[] | { tooOld: string }> {
+  const version = ghVersion(await deps.gh(['--version'], cwd).catch(() => ''))
+  const update = (deps.platform ?? process.platform) === 'win32' ? 'winget upgrade GitHub.cli' : 'brew upgrade gh'
+  const tooOld = { tooOld: `gh ${version ?? '(unknown version)'} is too old to list accounts: update it with ${update} (gh ${TEXT_MIN.join('.')} or later)` }
+  if (version !== null && olderThanTextMin(version)) return tooOld
+  const text = await deps.gh(['auth', 'status'], cwd, undefined, 'all')
+  const accounts = parseAuthText(text).map((account) => ({ ...account, host: account.host.toLowerCase() }))
+  return accounts.length === 0 && !NOT_SIGNED_IN.test(text) ? tooOld : accounts
+}
 
 /** `git remote get-url origin`, or null without an origin. */
 async function originOf(git: GitRunner, path: string): Promise<string | null> {
@@ -107,7 +142,15 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
     known = parseAuthStatus(await deps.gh(['auth', 'status', '--json', 'hosts'], cwd))
   } catch (error) {
     if (isMissingGh(error)) return { status: 'no-gh', reason: `${messageOf(error)}: install it with brew install gh; the first-run screen checks it.` }
-    return { status: 'failed', reason: `gh auth status failed: ${messageOf(error)}` }
+    if (!isUnknownFlag(error)) return { status: 'failed', reason: `gh auth status failed: ${messageOf(error)}` }
+    let fromText: HostAccount[] | { tooOld: string }
+    try {
+      fromText = await textAccounts(deps, cwd)
+    } catch (fallback) {
+      return { status: 'failed', reason: `gh auth status failed: ${messageOf(fallback)}` }
+    }
+    if (!Array.isArray(fromText)) return { status: 'failed', reason: fromText.tooOld }
+    known = fromText
   }
   const githubHosts = new Set(['github.com', ...known.map((account) => account.host)])
   const onGithub: { name: string; path: string; remote: RemoteRepo }[] = []

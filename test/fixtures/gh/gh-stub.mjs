@@ -27,6 +27,10 @@
 //     repository the account cannot see.
 //   - login.json: `{"login", "host"?, "token"}`, the account `gh auth login` adds. Without it the
 //     sign-in fails.
+//   - old-gh.json: `{"version", "text", "stream"?, "code"?}`, a gh older than 2.81 (worfy-polish
+//     ticket 76): `auth status --json …` fails with "unknown flag: --json" as such a gh does, and
+//     `auth status` without flags prints `text` to `stream` (stdout by default) and exits `code` (0).
+//     `--version` prints `version`; without the file it prints 2.97.0.
 //
 // Understood (worfy-week ticket 01, worfy-harness ticket 25): `pr list` with --limit (default 30, as
 // gh), --head <branch> (the exact branch, as gh) and --search "head:<branch>" (by prefix, as
@@ -66,8 +70,17 @@ const fail = (message, code = 1) => {
   process.exit(code)
 }
 const command = `${args[0] ?? ''} ${args[1] ?? ''}`
+const oldGh = read('old-gh.json', undefined)
 
-if (command === 'pr list') {
+if (args.length === 1 && args[0] === '--version') {
+  const version = oldGh?.version ?? '2.97.0'
+  process.stdout.write(`gh version ${version} (2025-01-01)\nhttps://github.com/cli/cli/releases/tag/v${version}\n`)
+} else if (oldGh !== undefined && command === 'auth status' && args.includes('--json')) {
+  fail('unknown flag: --json\n\nUsage:  gh auth status [flags]\n')
+} else if (oldGh !== undefined && command === 'auth status' && args.length === 2) {
+  ;(oldGh.stream === 'stderr' ? process.stderr : process.stdout).write(oldGh.text)
+  process.exit(oldGh.code ?? 0)
+} else if (command === 'pr list') {
   let pulls = read('prs.json', [])
   const head = option('--head')
   if (head !== undefined) pulls = pulls.filter((pull) => pull.headRefName === head)
