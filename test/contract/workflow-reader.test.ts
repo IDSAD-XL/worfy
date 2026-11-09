@@ -100,6 +100,19 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 
 /**
+ * When set, answers `stat` of node:fs/promises for the code under test, with the real one to call;
+ * null passes every call through. Set by one test and put back after each.
+ */
+type StatHook = (path: unknown, options: unknown, real: (path: unknown, options: unknown) => Promise<object>) => Promise<object>
+const statHook = vi.hoisted((): { current: StatHook | null } => ({ current: null }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const real = actual.stat as unknown as (path: unknown, options: unknown) => Promise<object>
+  const stat = (path: unknown, options?: unknown): Promise<object> => (statHook.current ? statHook.current(path, options, real) : real(path, options))
+  return { ...actual, stat, default: { ...actual, stat } }
+})
+
+/**
  * The time from the save to the delta that is worfy's own: without the child processes in between. The
  * processes are started in the app too, but how fast a busy machine runs them is not worfy's code: under the
  * load of the whole suite epic-status took 1.2–2.8 s, against ≈0.2 s quiet. `stages` names each one.
@@ -1692,6 +1705,46 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     putEpic(scratch, 'next', [1])
     // What chokidar reports when it looks too late: the removal of what was in the root, not of the root.
     watches[0]!.emit('all', 'unlink', join(scratch, 'more', 'issues', '01-t.md'))
+    await nextDelta(deltas, hasEpic('next'), 5000)
+    await until('the watch made anew', () => made.length === 2)
+    expect(made).toEqual([scratch, scratch])
+    await watcher.idle()
+  }, ms(20_000))
+
+  it('another folder at the path whose 64-bit id differs from the watched one only past 53 bits, at the same birth time (a stubbed stat that answers as Node does on Windows): the read makes the watch anew (worfy-polish 47)', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const deltas: WorkflowDelta[] = []
+    const made: string[] = []
+    const watches: EventEmitter[] = []
+    // An NTFS file id: sequence number 40 above the 48-bit record number. Ids one apart are one
+    // number without { bigint: true }: a number keeps 53 bits.
+    const first = (40n << 48n) + 1000n
+    expect(Number(first + 1n)).toBe(Number(first))
+    let id = first
+    const isRoot = (path: unknown): boolean => {
+      try {
+        return realpathSync(String(path)) === realpathSync(scratch)
+      } catch {
+        return false
+      }
+    }
+    statHook.current = async (path, options, real) => {
+      const stats = await real(path, options)
+      if (!isRoot(path)) return stats
+      const exact = (options as { bigint?: boolean } | undefined)?.bigint === true
+      return Object.assign(stats, exact ? { dev: 7n, ino: id, birthtimeMs: 1_700_000_000_000n, birthtimeNs: 1_700_000_000_000_000_000n } : { dev: 7, ino: Number(id), birthtimeMs: 1_700_000_000_000 })
+    }
+    cleanups.push(() => {
+      statHook.current = null
+      return Promise.resolve()
+    })
+    const { watcher } = await startSilent(repo, folder, scratch, deltas, { watchTicketsRoot: deafWatch(made, 0, (watch) => watches.push(watch)) })
+    await watcher.idle()
+    expect(made).toEqual([scratch])
+
+    id = first + 1n
+    putEpic(scratch, 'next', [1])
+    watches[0]!.emit('all', 'add', join(scratch, 'next', 'issues', '01-t.md'))
     await nextDelta(deltas, hasEpic('next'), 5000)
     await until('the watch made anew', () => made.length === 2)
     expect(made).toEqual([scratch, scratch])

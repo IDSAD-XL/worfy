@@ -229,10 +229,13 @@ function gitCommonDir(root: string): Promise<string | null> {
  * Which folder is at `path` now: device, inode and birth time, or null when it is not a folder or
  * cannot be looked at. A folder removed and made again at the same path gets another one; the
  * birth time tells them apart where the system gives the inode number of the removed folder again.
+ * Read as bigints: an inode number can have 64 bits (an NTFS file id puts its sequence number above
+ * a 48-bit record number) and a number keeps 53, so two folders made one after the other could read
+ * as one (worfy-polish 47, the same rounding as in src/main/images/protocol.ts).
  */
 function folderIdentity(path: string): Promise<string | null> {
-  return stat(path).then(
-    (stats) => (stats.isDirectory() ? `${stats.dev}:${stats.ino}:${stats.birthtimeMs}` : null),
+  return stat(path, { bigint: true }).then(
+    (stats) => (stats.isDirectory() ? `${stats.dev}:${stats.ino}:${stats.birthtimeNs}` : null),
     () => null,
   )
 }
