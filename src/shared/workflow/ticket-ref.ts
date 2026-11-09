@@ -37,6 +37,17 @@ export function parseTicketBranch(branch: string): BranchTicketRef | null {
 }
 
 /**
+ * Whether `branch` is the Ticket's: the branch its `Branch:` line names, or the `<epic>/<NN>` form of it (either
+ * spelling above). In a Project over several repositories one branch name stands in each of them (ADR-0104, item 2):
+ * the caller asks this only of a repository the Ticket names, so the pair (repo, branch) is the key.
+ */
+export function branchNamesTicket(branch: string, ticket: { epic: string; num: number; branch?: string | null | undefined }): boolean {
+  if (ticket.branch && branch === ticket.branch) return true
+  const ref = parseTicketBranch(branch)
+  return ref !== null && ref.epic === ticket.epic && ref.num === ticket.num
+}
+
+/**
  * `<repo>/.claude/worktrees/07`, `.claude/worktrees/07-session-engine` or
  * `<Harness home>/worktrees/<project>/07` → a Ticket; else null.
  */

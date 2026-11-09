@@ -23,7 +23,7 @@ import { evidenceItems } from '../../shared/workflow/evidence'
 import { manualChecks } from '../../shared/workflow/manual-checks'
 import { repoPageUrl } from '../github/remote'
 import { versionOf } from '../docs/watch'
-import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
+import { branchNamesTicket, parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { cachedLinks, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
@@ -31,6 +31,7 @@ import { layoutFailure, readProjectLayout, type ProjectLayout } from './folder'
 import { harnessScriptCommand, HarnessScriptStartError, NODE_NOT_FOUND, type HarnessScriptCommand } from './profile'
 import {
   epicStatusSchema,
+  repoFactsOf,
   ticketKey,
   type BranchError,
   type EpicStatusSnapshot,
@@ -437,6 +438,48 @@ export async function ticketWorktrees(root: string): Promise<TicketWorktree[]> {
     if (parseTicketBranch(branch)) result.push({ path, branch, head })
   }
   return result
+}
+
+/** A branch of a Ticket in one of the repositories it names (ticketBranches). */
+export interface RepoTicketBranch {
+  /** The repository's name in the Profile (`_resolved.repos`). */
+  repo: string
+  /** Its checkout. */
+  path: string
+  branch: string
+  head: string
+  epic: string
+  num: number
+}
+
+/**
+ * The branches of the Tickets of a Project over several repositories (ADR-0104, item 2). One branch name stands in the
+ * checkout of each repository a Ticket names by its `Repo:` lines (repoFactsOf), so a branch is the Ticket's by the
+ * pair (repo, branch): branchNamesTicket is asked only of the Tickets that name that repository. Every local branch
+ * counts, checked out or not: `parallel: single` works without worktrees. In the order of `checkouts`, then of the
+ * branch names; a checkout no Ticket names is not asked, and one outside git gives nothing. Only reads.
+ */
+export async function ticketBranches(
+  checkouts: readonly { name: string; path: string }[],
+  tickets: readonly Pick<Ticket, 'epic' | 'num' | 'branch' | 'repo' | 'pr' | 'repos' | 'prs' | 'releases'>[],
+): Promise<RepoTicketBranch[]> {
+  const named = tickets.map((ticket) => ({ ticket, repos: repoFactsOf(ticket).repos }))
+  const found = await Promise.all(
+    checkouts.map(async ({ name, path }): Promise<RepoTicketBranch[]> => {
+      const own = named.filter(({ repos }) => repos.includes(name)).map(({ ticket }) => ticket)
+      if (own.length === 0) return []
+      const listed = await git(path, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads']).catch(() => '')
+      const result: RepoTicketBranch[] = []
+      for (const line of listed.split('\n')) {
+        const [branch, head] = line.replace(/\r$/u, '').split('\t')
+        if (!branch || !head) continue
+        const ticket = own.find((each) => branchNamesTicket(branch, each))
+        if (ticket) result.push({ repo: name, path, branch, head, epic: ticket.epic, num: ticket.num })
+      }
+      return result
+    }),
+  )
+  return found.flat()
 }
 
 /** Runs `tasks` with at most `limit` in flight. */

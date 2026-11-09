@@ -1,7 +1,7 @@
 # 03 — Модель Ticket-а в worfy: `repos`, `prs`, `releases`; ветка по паре (repo, branch)
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T18:58Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Шапка Ticket-а» (формат) и «epic-status, wave-brief, Pipeline board»
 («Модель в worfy», `reader.ts:422`); «Ticket-ы», «Волны» (Wave 1); «Решения владельца 2026-11-09», Q1, Q2;
@@ -30,9 +30,14 @@ Source: [spec.md](../spec.md), «Как работает» → «Шапка Tick
 
 - [ ] Contract test: файл Ticket-а с двумя `Repo:`, двумя `PR: <repo>#N` и `Release:` обоих видов читается в `repos`,
       `prs`, `releases` в порядке файла.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-reader.test.ts test/unit/ticket-ref.test.ts` exit 0 · mac - · c94da5cd0ecab31ba3afcff60d898fc46a3e925b
 - [ ] Contract test: ветка с одним именем в двух checkout-ах находится в обоих и относится к одному Ticket-у.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-reader.test.ts test/unit/ticket-ref.test.ts` exit 0 · mac - · c94da5cd0ecab31ba3afcff60d898fc46a3e925b
 - [ ] Test: Ticket с одним репозиторием — те же `repo` и `pr`, что до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-reader.test.ts test/unit/ticket-ref.test.ts` exit 0 · mac - · c94da5cd0ecab31ba3afcff60d898fc46a3e925b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c94da5cd0ecab31ba3afcff60d898fc46a3e925b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c94da5cd0ecab31ba3afcff60d898fc46a3e925b
 
 ## Тесты
 
