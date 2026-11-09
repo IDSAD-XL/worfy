@@ -29,7 +29,8 @@ Ticket-ы после того, как владелец прочтёт сравн
    C) как сейчас + пропуск CI для PR только с документами. Влияние на Gate → merge Wave-а, минуты CI, риск красного
    `main`, вердикт Windows для платформенных PR, правки скриптов Harness.
 4. Рекомендация с числами и Ticket-ы, которые из неё следуют.
-5. `critical-path`: commit status `review` на head — отметка Gate, когда комментария VERIFIED нет.
+5. `critical-path` и commit status `review` как отметка Gate: проверить, что status ставится в момент вердикта; если нет —
+   не читать его и назвать, что для этого нужно сначала.
 
 ## Готово, когда
 
@@ -39,23 +40,18 @@ Ticket-ы после того, как владелец прочтёт сравн
   - evidence: commit pass · ticket 62 Итог section 2: 150 merged PRs 2026-11-07..09, gh api reads exit 0 · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] «Итог» — оценка A/B/C по пяти осям и рекомендация с числами; список Ticket-ов-продолжений (заголовок + строка).
   - evidence: commit pass · ticket 62 Итог sections 3-5: A/B/C table, recommendation B, six follow-ups · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
-- [ ] `node scripts/critical-path.mjs` берёт Gate из commit status `review` (`success`) на head PR, когда
-      комментария VERIFIED нет; unit test это проверяет.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/critical-path.test.ts test/unit/flight-recorder-sources.test.ts` exit 0 · mac - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
+- [ ] `critical-path` не читает status `review`: сейчас он ставится в момент merge, а не в момент вердикта; сначала
+      продолжение 5 (ставить `review` в момент вердикта), потом чтение.
 - [ ] Владелец прочёл рекомендацию (вручную).
 
 ## Тесты
 
-- `test/unit/critical-path.test.ts`: PR без VERIFIED, но с `review` `success` на head — шаг Gate → merge
-  считается от времени этого status-а; без того и другого — прежняя причина пустой ячейки.
+Кода нет: только замер. Правка `scripts/critical-path.mjs` из первого круга отозвана ревью (см. «Итог», часть 6).
 
 ## Где в коде
 
-- `scripts/critical-path.mjs` — отметка Gate.
-- `test/unit/critical-path.test.ts`, `test/fixtures/flight-recorder/critical-path-before.json` (эталонные отчёты:
-  ночной PR #468 получил Gate, причина пустой ячейки называет обе отметки).
-- Только чтение: `.github/workflows/ci.yml`, `.github/workflows/windows-tests.yml`, `harness/bin/land`,
-  `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/profiles/README.md`.
+— (только чтение: `scripts/critical-path.mjs`, `src/shared/flight-recorder/pr-facts.mjs`, `.github/workflows/ci.yml`, `.github/workflows/windows-tests.yml`, `harness/bin/land`,
+  `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/profiles/README.md`)
 
 ## Вне скоупа
 
@@ -103,7 +99,7 @@ run-а; 64 PR с кодом, 86 — только документы. Коман�
 | --- | --- |
 | Head-ов на PR с кодом | медиана 2, p90 3; у 46 из 64 больше одного |
 | Смены head-а | 75: 41 commit сверху (исправления), 34 rebase/force-push |
-| Rebase зелёного head-а (только ради свежей базы) | 21 head, 1 823 min CI; новый `ci-ok` — медиана 26,3, p90 71,8 min wall |
+| Rebase зелёного head-а (по-видимому, ради свежей базы: замер видит только «head разошёлся после зелёного run-а», такой rebase мог нести и правку кода) | 21 head, 1 823 min CI; новый `ci-ok` — медиана 26,3, p90 71,8 min wall |
 | Чем кончился CI после такого rebase | 18 зелёных, 2 отменены, 1 красный (#1632, Windows test, исправлен commit-ом сверху; skew это или ошибка PR — не различить) |
 | Минуты CI на PR (все) | 13 809 min; 6 905 (50 %) — на head-ах, которые потом заменили |
 | CI на PR с кодом | медиана 192,8 min на PR (p90 410,8), из них на заменённых head-ах 90,3 |
@@ -130,7 +126,7 @@ Wave из 5 PR с кодом, готовых почти одновременно
 | Можно ли сейчас | нет: нужна передача репозитория в организацию | да | уже сделано (`ci-scope.mjs`) |
 | Gate → merge на Wave | один run группы ≈ 25–37 min (p90 до ~240 из-за очереди macOS) | 5 merge подряд ≈ 5 × 3 = 15 min | 4 rebase × 26 min ≈ 105 min (p90 ≈ 290) |
 | Минуты CI | без rebase-ов (−1 823 min за 48 h); push-run-ы на `main` можно убрать (−11 869), зато +1 run на группу (≈16 × 158 ≈ 2 500) | −1 823 min за 48 h; push-run-ы остаются | 0 (остаток выигрыша — меньше 285 min) |
-| Риск красного `main` | ниже всех: группа проверена на commit-е merge-а; flaky macOS e2e выбивает PR из очереди | skew доходит до `main`; за 48 h rebase поймал не больше 1 случая из 21; правило красного `main` уже есть: fix за 1 h, потом revert | как сейчас: 18,2 % красных run-ов с кодом, в основном flaky macOS |
+| Риск красного `main` | ниже всех: группа проверена на commit-е merge-а; flaky macOS e2e выбивает PR из очереди | skew доходит до `main`; за 48 h rebase поймал не больше 1 случая из 21. Виден он поздно: push-run с кодом — медиана 36,5 min, p90 241,6 min (очередь macOS), и к его концу сверху влиты другие PR. Правило красного `main` (fix за 1 h, потом revert) тогда требует шага поиска виноватого по push-run-ам каждого commit-а | как сейчас: 18,2 % красных run-ов с кодом, в основном flaky macOS |
 | Поиск виноватого | очередь сама убирает PR | push-run есть на каждом commit-е (`concurrency` по SHA): первый красный run называет PR, деления пополам не нужно | — |
 | Вердикт Windows | job Windows на head PR и в группе | job Windows на head PR, как сейчас (rebase его не трогал) | как сейчас |
 | Правки | передача репозитория, ruleset, `merge_group` в `ci.yml` и база diff для `ci-scope.mjs`, `bin/land` ставит PR в очередь и ждёт её, `github.account` профиля | правило в `rules-merge.md` и ADR-0083, текст `epic-wave` о rebase, `bin/land` — проверить, что `BEHIND` при `strict: false` не приходит | нет |
@@ -163,14 +159,20 @@ Wave из 5 PR с кодом, готовых почти одновременно
    серии merge-ей называет PR; затем fix за 1 h или revert (правило уже есть, нужен шаг поиска).
 4. **Замер через неделю после 1–3** — Σ Gate → merge на Wave, красные push-run-ы с кодом, число skew-ов; порог
    «больше одного skew в неделю» → вопрос владельцу о варианте A.
-5. **Время решения ревью** — записывать момент вердикта (а не только status `review` перед merge), чтобы
-   `critical-path` мерил ожидание ревью; сейчас status ставится за 10–15 s до merge.
+5. **Status `review` в момент вердикта** — ставить его, когда ревью вынесло вердикт, а не перед merge (сейчас за
+   10–15 s до merge); после этого `critical-path` читает его как Gate, с test-ом.
 6. **(вопрос владельцу) Передача репозитория в организацию ради merge queue** — только если п. 4 покажет skew-ы.
 
-### 6. `critical-path` читает `review` как Gate
+### 6. `critical-path` и status `review`
 
-Сделано в этом Ticket-е: `scripts/critical-path.mjs` берёт Gate из последнего commit status `review` `success` на
-head PR, когда комментария VERIFIED нет; VERIFIED по-прежнему главнее; пустая ячейка теперь называет обе отметки.
-Эталонные отчёты (`test/fixtures/flight-recorder/critical-path-before.json`) изменились в одном месте: ночной PR
-#468 получил Gate. Ограничение: status `review` ставится прямо перед merge, поэтому Gate → merge у таких PR ≈ 0, а
-ожидание видно в шаге CI → Gate (продолжение 5).
+Не сделано, и это решение: `critical-path` status `review` пока не читает. Сейчас status `review` ставится в момент
+merge (67 PR выборки: от `review` до merge медиана 0,2 min), а не в момент вердикта ревью. Прочитанный как Gate, он
+дал бы Gate → merge ≈ 0, а через отметку «зелёно» (позднее из Gate и зелёного CI) — и Green → merge с бюджетом ≈ 0
+(«в бюджете»), то есть ноль там, где данных нет; это нарушает правило отчёта «шаг без данных — пустая ячейка с
+причиной». Правка первого круга (PR #1725) это и показала: ночной PR #468 в эталонном отчёте получил Green → merge
+18 s «in budget»; ревью отклонило её, правка отозвана. Ожидание ревью при таком чтении ушло бы в шаг CI → Gate, но
+только когда `gh run list` отдаёт run-ы ветки; без них отметка CI берётся из `statusCheckRollup` head-а, где лежат и
+сами `review` и `check/windows`, и шаг тоже схлопнулся бы.
+
+Порядок: сначала продолжение 5 — ставить `review` в момент вердикта; потом `critical-path` читает его как Gate (тогда
+пара строк в `measure()` и test).

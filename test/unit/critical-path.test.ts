@@ -170,7 +170,7 @@ describe('critical-path: durations of each step', () => {
     const open = rowOf(rows, 'demo-epic', '02')
     expect(open).toMatchObject({ claim_to_pr_s: '3600', pr_to_ci_s: '', pr_to_ci_why: 'no CI checks on the PR' })
     expect(open).toMatchObject({ ci_to_gate_s: '', ci_to_gate_why: 'no CI checks on the PR' })
-    expect(open).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: 'no VERIFIED comment or review status on the PR', total_s: '', total_why: 'PR not merged (OPEN)' })
+    expect(open).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: 'no VERIFIED comment on the PR', total_s: '', total_why: 'PR not merged (OPEN)' })
     const noPr = rowOf(rows, 'demo-epic', '03')
     expect(noPr).toMatchObject({ pr: '', claim_to_pr_s: '', claim_to_pr_why: 'no PR for demo-epic/03 in the PR file', total_s: '' })
     expect(noPr).toMatchObject({ rework_rounds: '', rework_why: 'no PR for demo-epic/03 in the PR file' })
@@ -280,8 +280,6 @@ describe('critical-path: the report after the reading moved to src/shared/flight
   // The reports the script gave before its reading of journals and PRs moved into journal-walk.mjs and
   // pr-facts.mjs (worfy-flight-recorder ticket 10), kept as JSON strings so that a checkout with CRLF line
   // ends does not change them. The night Run's PR data carries file lists, so the budget lines are in it too.
-  // Changed once on purpose (worfy-throughput 62): a `review` status success on the head is the Gate of a PR
-  // without VERIFIED, so night PR #468 got its Gate and the empty cells name both marks.
   const before = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'critical-path-before.json'), 'utf8')) as Record<string, string>
   const NIGHT = join(import.meta.dirname, '..', 'fixtures', 'flight-recorder', 'night-run')
   const reports: [string, string[]][] = [
@@ -685,19 +683,6 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
     expect(await rowFor({ checks: [], statuses: [5], merge: 10 })).toMatchObject({ green_to_merge_s: '600', green_by: 'Gate' })
   })
 
-  it('takes the Gate from a review success status on the head when the PR has no VERIFIED comment; a VERIFIED comment still wins', async () => {
-    // review at 4 min, check/windows at 6 min, merged at 14 min: the Gate is the review, not the later Check mark.
-    expect(await rowFor({ verified: null, statuses: [4, 6], merge: 14 })).toMatchObject({ gate_to_merge_s: '600', gate_to_merge_why: '', green_to_merge_s: '600', green_by: 'Gate' })
-    // ci-ok green after the review (a rebase after the mark): green at that ci-ok, the Gate stays the review.
-    expect(await rowFor({ verified: null, ciOk: 8, statuses: [4], merge: 14 })).toMatchObject({ gate_to_merge_s: '600', green_to_merge_s: '360', green_by: 'CI' })
-    // Both: the VERIFIED comment is the Gate, as before the review status existed.
-    expect(await rowFor({ verified: 2, statuses: [4], merge: 14 })).toMatchObject({ gate_to_merge_s: '720' })
-    // A review that is not success is no Gate.
-    const ciOk = { __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: at(-6), completedAt: at(-5) }
-    const failed = { __typename: 'StatusContext', context: 'review', state: 'FAILURE', startedAt: at(4) }
-    expect(await rowFor({ verified: null, checks: [ciOk, failed], merge: 14 })).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: 'no VERIFIED comment or review status on the PR' })
-  })
-
   it('takes the latest of two ci-ok checks on the head: an early red one and a later green one, in either order', async () => {
     const ciOk = (conclusion: string, end: number): object => ({ __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion, startedAt: at(end - 1), completedAt: at(end) })
     expect(await rowFor({ checks: [ciOk('FAILURE', -10), ciOk('SUCCESS', 3)], merge: 17 })).toMatchObject({ green_to_merge_s: '840', green_by: 'CI' })
@@ -705,7 +690,7 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
   })
 
   it('leaves Green → merge and the budget empty with the reason, never zero', async () => {
-    expect(await rowFor({ verified: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'no VERIFIED comment or review status on the PR', over_budget: '', budget_why: 'no VERIFIED comment or review status on the PR' })
+    expect(await rowFor({ verified: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'no VERIFIED comment on the PR', over_budget: '', budget_why: 'no VERIFIED comment on the PR' })
     expect(await rowFor({ ciOkConclusion: 'FAILURE' })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not green on the PR head (FAILURE)', over_budget: '' })
     expect(await rowFor({ ciOkConclusion: null })).toMatchObject({ green_to_merge_s: '', green_to_merge_why: 'ci-ok not finished on the PR head' })
     const failed = { __typename: 'CheckRun', name: 'tests', status: 'COMPLETED', conclusion: 'FAILURE', completedAt: at(1) }
