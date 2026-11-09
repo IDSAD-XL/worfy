@@ -50,6 +50,23 @@ With `F workflow.ci` `batch` the merge does not wait for CI: the PR merges on it
 batch CI run on the main branch of skill `/worfy:epic-wave`, section 4, "Batch CI on the main
 branch" — dispatch, wait, and the same rule for a red run.
 
+**A ticket of several repositories** — more than one `Repo:` line; such a project merges by people
+(`F workflow.merge` `null`). Its PRs never go into a set or a state file of `land`: there is no
+`land` across repositories, and nothing here merges them. People merge them in the order of the
+`Repo:` lines, the library first. Each PR has its own CI; the ticket's CI is red when any of them is,
+except the consumer's CI while its `Release:` line waits: before the release its new version does
+not exist yet. The release is the team's step; the orchestrator only notices it — a `tag` is on the
+library's remote (`git -C <library checkout> ls-remote --tags origin <tag>`), a `package` version is
+published (`npm view <name>@<version> version` in the consumer's checkout, with its registry
+settings) — and then takes the consumer's PR out of draft, `gh pr ready <N>` in that checkout. When
+the project's `rules.md` says the team does that itself, the orchestrator only reports the release.
+A lockfile update after the release is a new head: the review mark is gone from it, and the new
+review looks at that delta only. A ticket merged in some of its repositories stays `claimed`, with no
+status of its own; a red consumer, or a review that rejects it, is fixed forward in the same ticket.
+A revert of a merged PR is never proposed: it is the owner's or the team's decision. When every PR is
+merged: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <repo>#<N> --pr <repo>#<N>; echo "EXIT=$?"`
+— one `--pr` per `Repo:` line; it refuses with exit 2 while one is missing.
+
 **The Evidence lines of the verdict and the CI.** The review verdict and the green final CI check are
 written under the items of the ticket's section `F tickets.done_section` at the close, not on the
 branch: a line on the branch after CI would make a new head and one more CI run.
@@ -65,3 +82,5 @@ Full mode: these lines go into the state file of `land` as `prs[].evidence` (ski
 `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> review pass --ref "PR #<N>" --sha <head>` and
 `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" evidence <epic> <NN> <item> ci-check pass --ref "<run URL>" --platform ci --sha <head>`,
 each with `; echo "EXIT=$?"`; `ticket` puts them into the ticket file in the Workflow folder.
+For a ticket of several repositories each line names its PR and its repository: `--ref "PR <repo>#<N>"
+--repo <repo> --sha <head of that repository>`.

@@ -13,5 +13,7 @@ description and comments, and code comments describe the change
 itself: no epic name, ticket or ADR number, Workflow folder path, `.scratch` or `HANDOFF`. The guard
 refuses commits, branch names and PR texts that carry them; `"${CLAUDE_PLUGIN_ROOT}/bin/silent-check"
 -C <repo> <text>` shows them before that. In a project of several repositories the ticket's repository
-is its `Repo:` line (a name from `F _resolved.repos`), and `<repo>` below is that repository. Full mode
+is its `Repo:` line (a name from `F _resolved.repos`), and `<repo>` below is that repository; a ticket
+with several `Repo:` lines works in each of them — `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/implementer-silent-mode.md`,
+"A ticket of several repositories", and `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md`. Full mode
 (`full`) — everything as written below, without these rules.

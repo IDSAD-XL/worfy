@@ -1,7 +1,8 @@
 # 07 — Тексты skill-ов для `parallel: single` через несколько checkout-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T20:29Z
+Branch: worfy-multi-repo-ticket/07
 Blocked by: 01
 Source: [spec.md](../spec.md), «Для какого Project-а»; «Что видит пользователь», п. 2–6; «Как работает» → «Работа
 implementer-а и ревью (Ticket 07; Q5)», «Release и подъём версии», «Половина влита (Q4, Q7)»; «Решено без владельца»;
@@ -52,8 +53,10 @@ ADR-0074):
 
 - [ ] `epic-wave/SKILL.md`, `ship-ticket/SKILL.md` (раздел 2), `implementer-silent-mode.md`, `step-2-silent-branch.md`,
       `step-9-merge.md` описывают п. 1–7 для Ticket-а с несколькими `Repo:` и не меняют путь Ticket-а с одним.
+  - evidence: commit pass · Skill texts: a ticket of several repositories in a parallel: single project (worfy-multi-repo-ticket 07) · - - · e171ad5ae6ec4d67dfc87bebf7d7aca11b020b79
 - [ ] Ни один текст не обещает `land` через несколько репозиториев, `parallel: worktrees` через несколько репозиториев
       или ссылки между PR (spec, «Не в этом Epic-е»).
+  - evidence: commit pass · Skill texts: a ticket of several repositories in a parallel: single project (worfy-multi-repo-ticket 07) · - - · e171ad5ae6ec4d67dfc87bebf7d7aca11b020b79
 - [ ] Test-ы Harness-а, которые читают эти skill-ы, — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты

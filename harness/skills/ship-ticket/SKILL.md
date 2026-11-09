@@ -139,7 +139,7 @@ agents; do not switch the global account without the owner's permission: other s
 If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
 `F github.account` and say so in the report.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket (several `Repo:` lines: one name in each).
 
 **`parallel: worktrees`.** Work from your own worktree from the first minute (`F worktree.implementer`,
 where `<branch>` = `F tickets.branch` (Silent mode: the branch above), `<ticket-name>` = `<NN>-<slug>`, and `<epic>`, `<NN>`, `<slug>`
@@ -150,8 +150,7 @@ only into the session's worktree, and the agent was started from the orchestrato
 an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository
 — `F worktree.root` must lie there. A root outside the repository (`<HARNESS_HOME>/worktrees/<project>/`)
 is not supported yet: the plugin registers no `WorktreeCreate` hook, and
-`hooks/worktree-create.sh` is an unregistered draft that was never probed through the plugin. Edits
-that go around it through python or sed in Bash are not a way out.
+`hooks/worktree-create.sh` is an unprobed draft. Edits that go around it through python or sed in Bash are not a way out.
 **`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
 `F tickets.branch` created from `F worktree.base` (with `local-green` — from the main branch after the
 previous ticket's local merge, step 11; see `/worfy:epic-wave`).
