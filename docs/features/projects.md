@@ -277,7 +277,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Profile for; a Profile in the old Harness folder `~/.claude/profiles/`, which `project-connect --remove` does not look in
   (moving the old Harness to the plugin comes first); a Profile with "no registry entry of this Profile", which has no path to free; and a repository
   listed on its own whose Profile also covers other repositories: removing that Profile would take them too. A refusal or
-  a failure of `project-connect` keeps the Project in the list, and the dialog shows the script's words; its "no profile"
+  a failure of `project-connect` keeps the Project in the list, and the dialog shows the script's words. When Windows
+  refused to rename the Profile folder (EPERM or EBUSY), the dialog adds that a folder inside it is held open and that
+  Terminals or programs working in it should be closed before trying again. Its "no profile"
   counts as done only when no registry entry of that Profile is left. Another listed Project inside the removed one's
   folder shares its Profile: its Orchestrator is held closed during the removal, and it stays in the list without a
   Profile, which the dialog and the notice after the removal say. qmd collections that stay (qmd not installed, or another

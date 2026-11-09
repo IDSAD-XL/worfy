@@ -283,7 +283,14 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     }
     if (run.code !== 0 && !gone) {
       const heldFiles = folder !== null && folder.inside && existsSync(folder.path)
-      return { status: 'refused', reason: `The Harness did not remove the Profile ${preview.profile}, so the Project stays in the list: ${messages.join('; ')}`, workflowFolder: heldFiles ? folder.path : null }
+      const reason = `The Harness did not remove the Profile ${preview.profile}, so the Project stays in the list: ${messages.join('; ')}`
+      // Windows refuses to rename a folder while a program holds a file or folder inside it open.
+      const heldOpen = messages.some((message) => /\b(EPERM|EBUSY)\b/.test(message) && /\brename\b/.test(message))
+      return {
+        status: 'refused',
+        reason: heldOpen ? `${reason}. Windows keeps a folder inside ${preview.profileDir} open: close Terminals or programs working in it and try again.` : reason,
+        workflowFolder: heldFiles ? folder.path : null,
+      }
     }
     deps.projects.remove(project.id)
     const notes = notesOf(run)
@@ -295,7 +302,8 @@ export async function removeProject(deps: ProjectRemovalDeps, id: string): Promi
     return { status: 'refused', reason: messageOf(error), workflowFolder: null }
   } finally {
     release()
-    await watchAgain().catch((error: unknown) => console.warn('[projects] watching a Project again after its removal failed', error))
+    // The answer does not wait for the first full read of the watches made again.
+    void watchAgain().catch((error: unknown) => console.warn('[projects] watching a Project again after its removal failed', error))
   }
 }
 

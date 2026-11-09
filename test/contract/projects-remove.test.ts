@@ -564,6 +564,48 @@ describe('Remove project of a Silent Project that worfy watches (the Windows ren
     expect(registry().map((entry) => entry.profile)).toStrictEqual(['shop'])
   })
 
+  it.each(['EPERM', 'EBUSY'])('a rename refused with %s names the folder Windows keeps open and what to close', async (code) => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'silent', null, [shop])
+    const project = await listed(shop)
+    const profileDir = join(harnessHome, 'projects', 'shop')
+    const message = `${code}: operation not permitted, rename '${profileDir}' -> '${join(harnessHome, '.remove-x', 'profile')}'; the removal was rolled back`
+    const refusing: ConnectScript = () => Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message }] }), stderr: '' })
+    const result = await removeProject(deps([], refusing), project.id)
+    expect(result.status === 'refused' && result.reason).toBe(
+      `The Harness did not remove the Profile shop, so the Project stays in the list: ${message}. Windows keeps a folder inside ${profileDir} open: close Terminals or programs working in it and try again.`,
+    )
+    expect(store.list().map((each) => each.id)).toStrictEqual([project.id])
+  })
+
+  it('another refusal than a rename gets no sentence about Windows', async () => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'full', null, [shop])
+    const project = await listed(shop)
+    const refusing: ConnectScript = () => Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message: "EPERM: operation not permitted, open 'config.json'" }] }), stderr: '' })
+    const result = await removeProject(deps([], refusing), project.id)
+    expect(result.status === 'refused' && result.reason).toBe("The Harness did not remove the Profile shop, so the Project stays in the list: EPERM: operation not permitted, open 'config.json'")
+  })
+
+  it('the answer does not wait for the watches made again', async () => {
+    const shop = makeRepo(join(scratch, 'shop'))
+    await connect('shop', 'full', null, [shop])
+    const project = await listed(shop)
+    let asked = false
+    const removal: ProjectRemovalDeps = {
+      ...deps(),
+      holdWatches: () =>
+        Promise.resolve(() => {
+          asked = true
+          // The first full read of a large Project: it does not end during this test.
+          return new Promise<void>(() => undefined)
+        }),
+    }
+    const result = await Promise.race([removeProject(removal, project.id), new Promise<'waited'>((done) => setTimeout(() => done('waited'), 5000))])
+    expect(result).toStrictEqual({ status: 'removed', notes: [] })
+    expect(asked).toBe(true)
+  })
+
   it('after a refusal of the Harness the watches of the Workflow folder are made again', async () => {
     const refusing: ConnectScript = () => Promise.resolve({ code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message: 'the commit failed; the removal was rolled back' }] }), stderr: '' })
     const { project, profileDir, workflowHub, docsHub, removal } = await watched(() => refusing)

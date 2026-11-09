@@ -2046,6 +2046,157 @@ describe('workflow hub', () => {
   })
 })
 
+// "Remove project…" (worfy-polish ticket 79, src/main/projects/remove.ts) closes the watch of a Project while the Harness
+// renames its Profile folder (Windows refuses that while a watch holds a folder inside it), then watches again.
+describe('workflow hub: a hold closes the watch and keeps the subscribers', () => {
+  /** A hub over the real epic-status; `gate.block()` makes the next read wait in the script until `gate.open()`. */
+  function gatedHub(home: string): { hub: WorkflowHub; gate: { block: () => void; entered: () => boolean; open: () => void } } {
+    const real = epicStatusRunner(home, ownEnv)
+    let blocked: { entered: boolean; release: () => void; done: Promise<void> } | null = null
+    const run: EpicStatusRunner = async (cwd, ref) => {
+      const waiting = blocked
+      if (waiting) {
+        waiting.entered = true
+        await waiting.done
+      }
+      return real(cwd, ref)
+    }
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv, run })
+    cleanups.push(() => hub.closeAll())
+    return {
+      hub,
+      gate: {
+        block: () => {
+          let release = () => undefined as void
+          const done = new Promise<void>((resolveDone) => (release = resolveDone))
+          blocked = { entered: false, release, done }
+        },
+        entered: () => blocked?.entered === true,
+        open: () => {
+          blocked?.release()
+          blocked = null
+        },
+      },
+    }
+  }
+
+  /** Counts the watchers started from here on; the count ends with the test. */
+  function startsCounted() {
+    const starts = vi.spyOn(WorkflowWatcher, 'start')
+    starts.mockClear()
+    cleanups.push(() => Promise.resolve(starts.mockRestore()))
+    return starts
+  }
+
+  const ticketFile = (repo: string) => join(repo, '.scratch/demo/issues/02-second.md')
+  const setStatus = (repo: string, status: string) => writeFileSync(ticketFile(repo), readFileSync(ticketFile(repo), 'utf8').replace(/^Status: .*$/m, `Status: ${status}`))
+  const stateOf2 = (delta: WorkflowDelta) => delta.tickets.find((ticket) => ticket.num === 2)?.state
+
+  async function until(what: string, ready: () => boolean): Promise<void> {
+    const deadline = Date.now() + ms(5000)
+    while (!ready()) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+      await pause(10)
+    }
+  }
+
+  it('a read that was running when the hold began is sent after the release, though the closed watch sent nothing', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const { hub, gate } = gatedHub(home)
+    const deltas: WorkflowDelta[] = []
+    await hub.open(repo, { id: 1, send: (delta) => void deltas.push(delta) })
+
+    gate.block()
+    setStatus(repo, 'blocked')
+    await until('the read of the change to start', gate.entered)
+    const holding = hub.hold(repo)
+    gate.open()
+    const watchAgain = await holding
+    // The read ended after the close: the model has the change, the window does not.
+    expect(deltas.map(stateOf2)).toStrictEqual([])
+    // A second hold now does not take that model as what was sent.
+    const inner = await hub.hold(repo)
+    await inner()
+
+    await watchAgain()
+    expect(deltas.map(stateOf2)).toStrictEqual(['blocked'])
+  })
+
+  it('after the release a change of a Ticket\'s text alone goes to a window, not to a subscriber of the fields only; a field change goes to both', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv })
+    cleanups.push(() => hub.closeAll())
+    const all: WorkflowDelta[] = []
+    const fields: WorkflowDelta[] = []
+    await hub.open(repo, { id: 1, send: (delta) => void all.push(delta) })
+    await hub.open(repo, { id: 2, fieldsOnly: true, send: (delta) => void fields.push(delta) })
+
+    let watchAgain = await hub.hold(repo)
+    writeFileSync(ticketFile(repo), `${readFileSync(ticketFile(repo), 'utf8')}\n## Итог\n\nOnly the body changed.\n`)
+    await watchAgain()
+    expect(all.map(stateOf2)).toStrictEqual(['open'])
+    expect(fields).toStrictEqual([])
+
+    watchAgain = await hub.hold(repo)
+    setStatus(repo, 'blocked')
+    await watchAgain()
+    expect(all.map(stateOf2)).toStrictEqual(['open', 'blocked'])
+    expect(fields.map(stateOf2)).toStrictEqual(['blocked'])
+    // Watched again: a change after the release arrives as before.
+    setStatus(repo, 'done')
+    await nextDelta(all, (delta) => stateOf2(delta) === 'done')
+  })
+
+  it('two holds: the watch stays closed until both let go, then starts once; an open meanwhile starts nothing and gets the change too', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv })
+    cleanups.push(() => hub.closeAll())
+    const first: WorkflowDelta[] = []
+    const later: WorkflowDelta[] = []
+    await hub.open(repo, { id: 1, send: (delta) => void first.push(delta) })
+    const starts = startsCounted()
+
+    const one = await hub.hold(repo)
+    const two = await hub.hold(repo)
+    const model = await hub.open(repo, { id: 2, send: (delta) => void later.push(delta) })
+    expect(model.tickets.find((ticket) => ticket.num === 2)?.state).toBe('open')
+    expect(hub.roots).toStrictEqual([repo])
+    setStatus(repo, 'blocked')
+    await one()
+    await one()
+    await pause(ms(1500))
+    expect(first).toStrictEqual([])
+    expect(starts).not.toHaveBeenCalled()
+
+    await two()
+    expect(starts).toHaveBeenCalledTimes(1)
+    expect(first.map(stateOf2)).toStrictEqual(['blocked'])
+    expect(later.map(stateOf2)).toStrictEqual(['blocked'])
+  })
+
+  it('the last subscriber leaving during a hold: nothing is watched again after the release', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv })
+    cleanups.push(() => hub.closeAll())
+    const deltas: WorkflowDelta[] = []
+    await hub.open(repo, { id: 1, send: (delta) => void deltas.push(delta) })
+    const starts = startsCounted()
+
+    const watchAgain = await hub.hold(repo)
+    expect(await hub.close(repo, 1)).toBe(true)
+    expect(hub.roots).toStrictEqual([])
+    setStatus(repo, 'blocked')
+    await watchAgain()
+    expect(starts).not.toHaveBeenCalled()
+    expect(hub.roots).toStrictEqual([])
+    expect(deltas).toStrictEqual([])
+  })
+})
+
 // ── size of an Auberge-like Project ──────────────────────────────────────────
 
 describe('workflow reader on an Auberge-sized Project', () => {
