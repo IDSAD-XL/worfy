@@ -453,6 +453,31 @@ describe('the agents strip of a Product Session', () => {
     await vi.waitFor(() => expect(screen.getAllByTestId('product-agent-state').map((line) => line.textContent)).toEqual(['working · 1 min · 3 objections', 'done · 4 min ago']))
   })
 
+  // worfy-product-session ticket 24, row 19 of the comparison: the prototype puts the working Critic above the
+  // Idea generator that is done. The working agents come first, the later started higher in each group; a
+  // nested agent stays under its parent. The Subagent tree itself keeps its start order (other screens use it).
+  it('lists the working agents first, the later started higher, each nested agent under its parent', async () => {
+    const now = Date.now()
+    subagents.tree = [
+      agent('ideas-1', 'worfy:product-ideas', { status: 'done', startedAt: now - 10 * 60_000, durationMs: 60_000 }),
+      agent('critic-1', 'worfy:critic', { startedAt: now - 5 * 60_000, children: [agent('scout-1', 'worfy:scout', { depth: 2, status: 'done', startedAt: now - 4 * 60_000, durationMs: 1000 }), agent('scout-2', 'worfy:scout', { depth: 2, startedAt: now - 3 * 60_000 })] }),
+      agent('old-1', 'worfy:implementer', { status: 'error', startedAt: now - 2 * 60_000, durationMs: 1000 }),
+      agent('critic-2', 'worfy:critic', { startedAt: now - 60_000 }),
+    ]
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    expect(screen.getAllByTestId('product-agent').map((row) => `${within(row).getByTestId('product-agent-line').textContent}:${row.dataset.status}`)).toEqual([
+      'Critic:running',
+      'Critic:running',
+      'worfy:scout:running',
+      'worfy:scout:done',
+      'worfy:implementer:error',
+      'Idea generator:done',
+    ])
+    // The tree the mock gave is left as it was.
+    expect((subagents.tree as SubagentInfo[]).map((info) => info.id)).toEqual(['ideas-1', 'critic-1', 'old-1', 'critic-2'])
+  })
+
   it('words the time of an agent in whole minutes, and leaves it out when the tree has none', () => {
     const now = 1_000_000_000
     const at = (status: SubagentInfo['status'], startedAt: number | null, durationMs: number | null = null) => productAgentTime({ status, startedAt, durationMs }, now)

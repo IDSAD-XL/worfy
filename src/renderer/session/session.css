@@ -354,6 +354,8 @@
 }
 
 .w-product__map {
+  /* The map's toolbar gets more compact in a narrow map (mind-map.css, ticket 24). */
+  container: w-product-map / inline-size;
   position: relative;
   flex: 0 0 60%;
   min-width: 0;
@@ -619,6 +621,15 @@ body.w-split-dragging * {
   color: var(--text);
 }
 
+/* The title and «with the advisor» on one line that a narrow column cuts with «…» (ticket 24). */
+.w-product__chat-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .w-product__chat-who {
   font-size: var(--text-12);
   font-weight: 400;
@@ -637,6 +648,7 @@ body.w-split-dragging * {
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   font-weight: 400;
+  white-space: nowrap;
 }
 
 .w-product .w-tr {
@@ -780,7 +792,8 @@ body.w-split-dragging * {
 /* A Product Session's field as the owner's prototype has it (MessageInput.tsx, worfy-product-session ticket
    22): one line — attaching, a 38 px field in the UI font on the background, Interrupt during a turn and a
    text Send button — with no lime focus ring. The buttons sit at the field's last line as it grows. */
-.w-composer--product {
+/* Two classes: the plain field's padding (.w-composer) comes later in this file and would win (ticket 24). */
+.w-composer.w-composer--product {
   padding: 10px 12px 12px;
 }
 
@@ -817,6 +830,38 @@ body.w-split-dragging * {
 
 .w-composer--product .w-composer__attach {
   margin-bottom: 7px;
+}
+
+/* The placeholder on one line, cut with «…», however narrow the field (ticket 24). */
+.w-composer--product .w-composer__field::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps and a compact
+   Send, so the field keeps the width the prototype's has in the same column — the attach button stays. */
+.w-product .w-session__main {
+  container: w-product-chat / inline-size;
+}
+
+/* An item with nothing to show takes no gap of the line. */
+.w-composer__line[data-line='product'] > .w-composer__item:empty {
+  display: none;
+}
+
+@container w-product-chat (width < 300px) {
+  .w-composer.w-composer--product {
+    padding: 8px 8px 10px;
+  }
+
+  .w-composer__line[data-line='product'] {
+    gap: 4px;
+  }
+
+  .w-composer--product .w-composer__send.w-composer__send--text {
+    padding: 0 8px;
+  }
 }
 
 /* Two classes: the round icon button's rules (.w-composer__send) come later in this file. */

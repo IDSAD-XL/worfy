@@ -45,7 +45,7 @@ import {
   type ScreenBox,
   type TextMeasure,
 } from './mind-map-layout'
-import { showMessage, useMindMapFocus } from './node-chips'
+import { quoteLabel, showMessage, useMindMapFocus } from './node-chips'
 import './mind-map.css'
 
 // The Mind map of a Product Session topic (Epic worfy-product-session, ticket 08), on React Flow as the
@@ -657,12 +657,23 @@ function Legend() {
   )
 }
 
-function MessageLink({ message, onShowMessage, label = 'Show the message in the chat' }: { message: string; onShowMessage: MindMapProps['onShowMessage']; label?: string }) {
+/**
+ * A node's message on its card: quoted as the prototype does — «#5 Advisor: “…”», the number a link to the
+ * message — when the Project's chat has it loaded (ticket 24); else the link «Show in the chat».
+ */
+function MessageLink({ projectId, message, onShowMessage, label = 'Show the message in the chat' }: { projectId: string; message: string; onShowMessage: MindMapProps['onShowMessage']; label?: string }) {
+  const quote = useMindMapFocus((state) => state.quotes[projectId]?.get(message))
   if (onShowMessage === undefined) return <span className="w-mono w-mind__muted">{message}</span>
-  return (
+  const link = (
     <button type="button" className="w-mind__link" aria-label={label} title={message} onClick={() => onShowMessage(message)}>
-      Show in the chat
+      {quote === undefined ? 'Show in the chat' : quoteLabel(quote)}
     </button>
+  )
+  if (quote === undefined) return link
+  return (
+    <>
+      {link}: <span className="w-mind__quote">{`“${quote.text}”`}</span>
+    </>
   )
 }
 
@@ -693,7 +704,9 @@ function NodeCard({
   onPick,
   onClose,
   onShowMessage,
+  projectId,
 }: {
+  projectId: string
   node: MapNode
   graph: MapGraph
   /** The node's place on the map; the card stands beside it on the screen. */
@@ -793,7 +806,7 @@ function NodeCard({
           <>
             <dt>Message</dt>
             <dd>
-              <MessageLink message={appeared} onShowMessage={onShowMessage} />
+              <MessageLink projectId={projectId} message={appeared} onShowMessage={onShowMessage} />
             </dd>
           </>
         ) : null}
@@ -802,7 +815,7 @@ function NodeCard({
             <Fragment key={index}>
               <dt>Changed by</dt>
               <dd>
-                <MessageLink message={step.message} onShowMessage={onShowMessage} label="Show the message that changed it in the chat" />
+                <MessageLink projectId={projectId} message={step.message} onShowMessage={onShowMessage} label="Show the message that changed it in the chat" />
               </dd>
             </Fragment>
           ),
@@ -1081,6 +1094,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             onPick={setPicked}
             onClose={() => setPicked(null)}
             onShowMessage={showInChat}
+            projectId={projectId}
           />
         ) : null}
       </div>

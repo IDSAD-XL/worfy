@@ -63,6 +63,19 @@ export function productAgentState(status: SubagentStatus, objections?: number, t
   return [STATES[status], time, count].filter((part) => part !== undefined).join(' · ')
 }
 
+/** Later started first; an agent the tree has no start for goes after those it has. */
+const byLaterStart = (a: SubagentInfo, b: SubagentInfo): number => (b.startedAt ?? Number.NEGATIVE_INFINITY) - (a.startedAt ?? Number.NEGATIVE_INFINITY)
+
+/**
+ * The order of the agents list (ticket 24, as the prototype: the working Critic above the Idea generator that
+ * is done): the working agents first, the later started higher in each group, at every level of the tree, so a
+ * nested agent stays under its parent. A new tree; the Subagent tree keeps its start order for other screens.
+ */
+export function productAgentOrder(tree: readonly SubagentInfo[]): SubagentInfo[] {
+  const working = (info: SubagentInfo): number => (info.status === 'running' ? 0 : 1)
+  return [...tree].sort((a, b) => working(a) - working(b) || byLaterStart(a, b)).map((info) => (info.children.length === 0 ? info : { ...info, children: productAgentOrder(info.children) }))
+}
+
 /** A file of the critic folder, with `/` or `\`. */
 const CRITIC_FILE = /(?:^|[\\/])critic[\\/][^\\/]+\.md$/u
 

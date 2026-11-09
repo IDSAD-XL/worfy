@@ -9,6 +9,7 @@ import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { ProductAgentsList } from './ProductAgentsList'
+import { productAgentOrder } from './product-agents'
 import { ProductSessionContext } from './product-session'
 import type { RailBlockProps } from './rail/index'
 import { SplitDivider } from './SplitDivider'
@@ -54,7 +55,8 @@ function useSessionAgents(projectId: string, session: string | null): { agents: 
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const tree = useSubagentTree(root, session)
   const hidden = useHiddenSubagents(projectId)
-  const agents = useMemo(() => flattenSubagents(withoutHidden(tree, hiddenIdsOf(hidden, session))), [tree, hidden, session])
+  // The working agents first, the later started higher (product-agents.ts, productAgentOrder).
+  const agents = useMemo(() => flattenSubagents(productAgentOrder(withoutHidden(tree, hiddenIdsOf(hidden, session)))), [tree, hidden, session])
   return { agents, root }
 }
 

@@ -12,9 +12,11 @@
 //
 // The same results tell which row a node's `message` came in: a card's «Show in the chat» asks for that
 // message (showMessage) and the Product Session's chat that has it scrolls to the row with the call's chip.
-// A chip's click asks the Mind map to select the node and bring it into view (pickNode), its hover to
-// light it (lightNode); the pointer on a message lights the nodes of all its chips (lightNodes). The
-// requests carry the Project and the topic: a Mind map acts only on its own.
+// A chip's click asks the Mind map to select the node and bring it into view (pickNode) and rings the
+// message the chip stands under, as the prototype's selection does (ticket 24); its hover lights the node
+// (lightNode); the pointer on a message lights the nodes of all its chips (lightNodes). The requests carry
+// the Project and the topic: a Mind map acts only on its own. The chat also tells the Mind map's cards how
+// to quote the messages it has loaded (publishQuotes): «#5 Advisor: “…”», as the prototype's card does.
 import { create } from 'zustand'
 import { mindMapNodeSchema, type MindMapNode } from '../../shared/product/mind-map'
 import { mindMapToolUseName, type MindMapToolName } from '../../shared/product/tools'
@@ -152,13 +154,18 @@ interface FocusState {
   lit: NodeRef | null
   /** The nodes of the chips of the chat message under the pointer (ticket 19); none: empty. */
   litMessage: readonly NodeRef[]
-  /** The chat message a card asked to see; `seq` as for `picked`. */
-  shown: { projectId: string; message: string; seq: number } | null
+  /**
+   * The chat message a card or a chip asked to see; `seq` as for `picked`. `scroll: false` (a chip's click:
+   * its message is on screen) rings the message without moving the chat.
+   */
+  shown: { projectId: string; message: string; seq: number; scroll?: boolean } | null
   /** How many Product Session chats of each Project are on screen: a card offers «Show in the chat» only with one. */
   chats: Readonly<Record<string, number>>
+  /** How the Product Session chat of each Project quotes the messages it has loaded, by the message's uuid. */
+  quotes: Readonly<Record<string, ReadonlyMap<string, MessageQuote>>>
 }
 
-export const useMindMapFocus = create<FocusState>(() => ({ picked: null, lit: null, litMessage: [], shown: null, chats: {} }))
+export const useMindMapFocus = create<FocusState>(() => ({ picked: null, lit: null, litMessage: [], shown: null, chats: {}, quotes: {} }))
 
 let seq = 0
 
@@ -177,9 +184,45 @@ export function lightNodes(refs: readonly NodeRef[]): void {
   useMindMapFocus.setState({ litMessage: refs })
 }
 
-/** Asks the Project's Product Session chat to scroll to a message. */
-export function showMessage(projectId: string, message: string): void {
-  useMindMapFocus.setState({ shown: { projectId, message, seq: ++seq } })
+/** Asks the Project's Product Session chat to ring a message and, unless `scroll` is false, scroll to it. */
+export function showMessage(projectId: string, message: string, { scroll = true }: { scroll?: boolean } = {}): void {
+  useMindMapFocus.setState({ shown: { projectId, message, seq: ++seq, ...(scroll ? {} : { scroll }) } })
+}
+
+/** A chat message as a node card quotes it: its number in the chat, who wrote it and the start of its text. */
+export interface MessageQuote {
+  number: number
+  who: 'you' | 'advisor'
+  text: string
+}
+
+/** The longest quote, as the prototype's card cuts it: a longer text keeps QUOTE_CUT characters and «…». */
+const QUOTE_MAX = 60
+const QUOTE_CUT = 58
+
+/** A message's quote: its text on one line, without the marks of bold and code, cut to QUOTE_MAX characters. */
+export function messageQuote(number: number, who: MessageQuote['who'], text: string): MessageQuote {
+  const line = text
+    .replace(/^#+\s*/gmu, '')
+    .replace(/[*`]+/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return { number, who, text: line.length > QUOTE_MAX ? `${line.slice(0, QUOTE_CUT)}…` : line }
+}
+
+/** The link of a quote: «#5 Advisor», «#1 You». */
+export const quoteLabel = ({ number, who }: MessageQuote): string => `#${number} ${who === 'you' ? 'You' : 'Advisor'}`
+
+/** The Project's chat quotes its messages so until the returned function is called. */
+export function publishQuotes(projectId: string, quotes: ReadonlyMap<string, MessageQuote>): () => void {
+  useMindMapFocus.setState(({ quotes: all }) => ({ quotes: { ...all, [projectId]: quotes } }))
+  return () =>
+    useMindMapFocus.setState(({ quotes: all }) => {
+      if (all[projectId] !== quotes) return {}
+      const next = { ...all }
+      delete next[projectId]
+      return { quotes: next }
+    })
 }
 
 /** A Product Session chat of the Project is on screen until the returned function is called. */

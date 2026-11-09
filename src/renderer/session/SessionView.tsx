@@ -261,8 +261,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       {/* The chat's own heading in a Product Session, as in the owner's prototype (worfy-product-session ticket 19, Q5). */}
       {product && nodeSession !== undefined ? (
         <div className="w-product__chat-head" data-testid="product-chat-head">
-          <span className="w-product__chat-title">Conversation</span>{' '}
-          <span className="w-product__chat-who">with the advisor</span>
+          {/* One line in any column: a narrow one cuts the words with «…», the Vendor tag stays whole (ticket 24). */}
+          <span className="w-product__chat-name" data-testid="product-chat-name">
+            <span className="w-product__chat-title">Conversation</span> <span className="w-product__chat-who">with the advisor</span>
+          </span>
           {/* A small bordered tag, as the prototype has it (ticket 22). */}
           <span className="w-product__chat-vendor">
             <VendorBadge vendor={nodeSession.vendor} muted testId="product-chat-vendor" />

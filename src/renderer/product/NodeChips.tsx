@@ -1,4 +1,4 @@
-import { chipLabel, lightNode, pickNode, type NodeChip, type NodeRef } from './node-chips'
+import { chipLabel, lightNode, pickNode, showMessage, type NodeChip, type NodeRef } from './node-chips'
 import './mind-map.css'
 
 // The chips under a message of a Product Session's chat (Epic worfy-product-session, tickets 09 and 22):
@@ -6,7 +6,8 @@ import './mind-map.css'
 // As the owner's prototype draws them: a pill with a small square of the node's kind colour and a muted
 // line that names the kind — «+ Idea: …» for a node the calls added, «Idea: …» for one they changed — and
 // a red «↺ “…” → rejected» for a Decision they overturned. A click selects the node on the Mind map and
-// brings it into view; the pointer or the focus on a chip lights the node there.
+// brings it into view, and rings the message the chip stands under, as the prototype's selection does
+// (ticket 24); the chat stays where it is. The pointer or the focus on a chip lights the node there.
 
 /** The class of the chip's colour: the kind, a rejected Decision's grey, an overturn's red. */
 function look({ node, change }: NodeChip): string {
@@ -32,7 +33,11 @@ export function NodeChips({ projectId, chips }: { projectId: string; chips: read
               data-change={chip.change}
               title={label}
               aria-label={`Show on the Mind map: ${label}`}
-              onClick={() => pickNode(ref)}
+              onClick={() => {
+                pickNode(ref)
+                // The call's message is the one the chip stands under (node-chips.ts, rowOfMessage).
+                if (chip.node.message !== undefined) showMessage(projectId, chip.node.message, { scroll: false })
+              }}
               onMouseEnter={() => lightNode(ref)}
               onMouseLeave={() => lightNode(null)}
               onFocus={() => lightNode(ref)}
