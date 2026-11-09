@@ -357,7 +357,7 @@ export function ProductSessionPanel({ children, events, ...rail }: ProductSessio
   const { share, move, commit } = useSplit()
   const session = rail.claudeSessionId ?? rail.sessionId
   const { agents, root } = useSessionAgents(rail.projectId, session)
-  const drafts = useMemo(() => draftsOf(events ?? []), [events])
+  const drafts = useMemo(() => draftsOf(events ?? [], root), [events, root])
   const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
   return (
     <div className="w-product" data-testid="product-session-panel">

@@ -51,6 +51,8 @@ let topicFails: string | undefined
 let share: () => AdviceShare | { error: string }
 /** The events of each Subagent's transcript (`claudeHome.subagentTranscript`), by agent id; none — the read fails. */
 let transcripts: Record<string, unknown[]>
+/** When set, a read of a transcript answers once this resolves, with the events it held when it was asked. */
+let transcriptGate: ((agentId: string) => Promise<void>) | undefined
 /** The handlers the panel subscribed through the bridge, by channel. */
 const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
 const emit = (channel: string, payload: unknown) => {
@@ -75,6 +77,7 @@ beforeEach(() => {
   subagents.tree = []
   subagents.hidden = {}
   transcripts = {}
+  transcriptGate = undefined
   settings = defaultAppSettings()
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -89,9 +92,10 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, value: { projects: [{ id: 'alpha', name: 'demo', path: '/demo', branch: 'main' }], activeId: 'alpha', revision: 1 } })
       }
       if (channel === 'claudeHome.subagentTranscript') {
-        const events = transcripts[(input as { agentId: string }).agentId]
-        if (events === undefined) return Promise.resolve({ ok: false, error: 'no such transcript' })
-        return Promise.resolve({ ok: true, value: { found: true, events, cursor: { offset: 1, fileId: null }, reset: false, more: false, earlier: 0 } })
+        const { agentId } = input as { agentId: string }
+        const events = transcripts[agentId]
+        const answer = events === undefined ? { ok: false, error: 'no such transcript' } : { ok: true, value: { found: true, events, cursor: { offset: 1, fileId: null }, reset: false, more: false, earlier: 0 } }
+        return transcriptGate === undefined ? Promise.resolve(answer) : transcriptGate(agentId).then(() => answer)
       }
       if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
       if (channel === 'product.share') {
@@ -293,11 +297,18 @@ const review = (count: number): string =>
     '',
   ].join('\n')
 
+/** The result of a tool call: it ended well, or `isError` — refused or failed. */
+const result = (toolUseId: string, isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content: isError ? 'refused' : 'ok', isError, parentToolUseId: null })
+/** Each tool call of `events` followed by its result, ended well: the calls changed their files. */
+const settled = (events: readonly unknown[]): unknown[] =>
+  events.flatMap((event) => ((event as { type: string }).type === 'tool_use' ? [event, result((event as { id: string }).id)] : [event]))
+
 /** The critic's transcript: it read the plan, wrote its review into the critic folder and answered. */
-const criticWrote = (text: string): unknown[] => [
-  { type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/demo-roadmap/map.md' }, parentToolUseId: null },
-  { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: '/demo/docs/product/critic/demo-roadmap-2026-11-09.md', content: text }, parentToolUseId: null },
-]
+const criticWrote = (text: string): unknown[] =>
+  settled([
+    { type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/demo-roadmap/map.md' }, parentToolUseId: null },
+    { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: '/demo/docs/product/critic/demo-roadmap-2026-11-09.md', content: text }, parentToolUseId: null },
+  ])
 
 const agent = (id: string, type: string | null, more: Partial<SubagentInfo> = {}): SubagentInfo => ({ ...subagent(id), name: null, subagentType: type, transcript: true, ...more })
 
@@ -378,14 +389,14 @@ describe('the agents strip of a Product Session', () => {
     ]
     transcripts = {
       // It wrote the review with three objections, then wrote it again with one.
-      'critic-rewrote': [write('w1', reviewFile, review(3)), write('w2', reviewFile, review(1))],
+      'critic-rewrote': settled([write('w1', reviewFile, review(3)), write('w2', reviewFile, review(1))]),
       // Its review, then a note of its own outside critic/: the note is no review.
-      'critic-elsewhere': [write('w1', reviewFile, review(2)), write('w2', '/demo/docs/product/demo-roadmap/notes.md', review(3))],
+      'critic-elsewhere': settled([write('w1', reviewFile, review(2)), write('w2', '/demo/docs/product/demo-roadmap/notes.md', review(3))]),
       // A drift of the format: the section's heading, the objections' numbering.
-      'critic-heading': [write('w1', reviewFile, review(2).replace('## Objections', '## Objections (2)'))],
-      'critic-numbering': [write('w1', reviewFile, review(2).replaceAll(/^### (\d+)\./gmu, '### Objection $1:'))],
+      'critic-heading': settled([write('w1', reviewFile, review(2).replace('## Objections', '## Objections (2)'))]),
+      'critic-numbering': settled([write('w1', reviewFile, review(2).replaceAll(/^### (\d+)\./gmu, '### Objection $1:'))]),
       // The whole review in a code block, as the template of harness/agents/critic.md stands.
-      'critic-fenced': [write('w1', reviewFile, ['```markdown', review(2), '```'].join('\n'))],
+      'critic-fenced': settled([write('w1', reviewFile, ['```markdown', review(2), '```'].join('\n'))]),
     }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
@@ -396,7 +407,7 @@ describe('the agents strip of a Product Session', () => {
 
   it('a critic that only wrote outside the critic folder has no number', async () => {
     subagents.tree = [agent('critic-1', 'worfy:critic', { status: 'done' })]
-    transcripts = { 'critic-1': [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/demo/docs/product/demo-roadmap/notes.md', content: review(3) }, parentToolUseId: null }] }
+    transcripts = { 'critic-1': settled([{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/demo/docs/product/demo-roadmap/notes.md', content: review(3) }, parentToolUseId: null }]) }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
     await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(1))
@@ -573,7 +584,7 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
     expect(screen.getByTestId('product-ideas-empty').textContent).toBe('No idea generator in this Session yet')
     cleanup()
     subagents.tree = [agent('ideas-1', 'worfy:product-ideas', { status: 'done', description: 'Ideas for small teams' }), agent('critic-1', 'worfy:critic')]
-    transcripts = { 'ideas-1': [text('m1', 'Thinking…'), write('w', '/demo/x.md', 'x'), text('m2', '1. **Team plan** for small teams'), text('m2', '2. A free tier')] }
+    transcripts = { 'ideas-1': settled([text('m1', 'Thinking…'), write('w', '/demo/x.md', 'x'), text('m2', '1. **Team plan** for small teams'), text('m2', '2. A free tier')]) }
     await mount()
     fireEvent.click(screen.getByTestId('product-rail-ideas'))
     const panel = screen.getByTestId('product-rail-ideas-panel')
@@ -593,11 +604,11 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
   })
 
   it('Drafts lists the advisor’s drafts the chat wrote, the last written first, and shows one on a click; none — a plain line', async () => {
-    await mount([write('w0', '/demo/docs/product/demo-roadmap/map.md', '# map')])
+    await mount(settled([write('w0', '/demo/docs/product/demo-roadmap/map.md', '# map')]) as AgentEvent[])
     fireEvent.click(screen.getByTestId('product-rail-drafts'))
     expect(screen.getByTestId('product-drafts-empty').textContent).toBe('No drafts in this chat yet')
     cleanup()
-    await mount([write('w1', DRAFT, '# Pricing\n\nfirst'), write('w2', OTHER_DRAFT, '# Onboarding'), write('w3', DRAFT, '# Pricing\n\nsecond')])
+    await mount(settled([write('w1', DRAFT, '# Pricing\n\nfirst'), write('w2', OTHER_DRAFT, '# Onboarding'), write('w3', DRAFT, '# Pricing\n\nsecond')]) as AgentEvent[])
     expect(screen.getByTestId('product-rail-drafts-count').textContent).toBe('2')
     fireEvent.click(screen.getByTestId('product-rail-drafts'))
     const panel = screen.getByTestId('product-rail-drafts-panel')
@@ -634,17 +645,110 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
   })
 
   it('draftsOf keeps one entry per draft, its last whole text and whether an Edit came after it; other files are no drafts', () => {
-    const drafts = draftsOf([
-      write('w1', DRAFT, 'one'),
-      write('e1', DRAFT, '', 'Edit'),
-      write('w2', '/demo/docs/product/critic/x.md', 'review'),
-      write('w3', '/demo/docs/product/demo-roadmap/drafts/notes.txt', 'not markdown'),
-      write('e2', 'C:\\demo\\docs\\product\\win-topic\\drafts\\edited.md', '', 'Edit'),
-    ])
+    const drafts = draftsOf(
+      settled([
+        write('w1', DRAFT, 'one'),
+        write('e1', DRAFT, '', 'Edit'),
+        write('w2', '/demo/docs/product/critic/x.md', 'review'),
+        write('w3', '/demo/docs/product/demo-roadmap/drafts/notes.txt', 'not markdown'),
+        write('w4', '/demo/docs/product/demo-roadmap/issues/01-x.md', 'an issue of the map'),
+        write('w5', '/demo/docs/product/demo-roadmap/map.md', 'the map'),
+        write('w6', '/demo/docs/product/../drafts/x.md', 'outside every topic'),
+        write('w7', '/demo/docs/product/critic/drafts/x.md', 'critic is no topic'),
+        write('w8', '/demo/docs/product/.hidden/drafts/x.md', 'no topic name'),
+        write('e2', 'C:\\demo\\docs\\product\\win-topic\\drafts\\edited.md', '', 'Edit'),
+      ]) as AgentEvent[],
+    )
     expect(drafts.map(({ topic, file, text, editedSince, writes }) => ({ topic, file, text, editedSince, writes }))).toEqual([
       { topic: 'win-topic', file: 'edited.md', text: null, editedSince: false, writes: 1 },
       { topic: 'demo-roadmap', file: 'pricing.md', text: 'one', editedSince: true, writes: 2 },
     ])
+  })
+
+  // Review round 1 of PR #1726: only a call that ended well changed its file.
+  it('draftsOf leaves out a refused Write, a failed Edit and a call with no result yet', () => {
+    const drafts = draftsOf([
+      write('w1', DRAFT, 'on the disk'),
+      result('w1'),
+      // The owner refused it in the permission card: the text never reached the disk.
+      write('w2', DRAFT, 'refused'),
+      result('w2', true),
+      // Its old text is not in the file: nothing changed.
+      write('e1', DRAFT, '', 'Edit'),
+      result('e1', true),
+      // A Write of another draft still waits for the permission card.
+      write('w3', OTHER_DRAFT, 'waiting'),
+      // Claude Code refused it: the file was not read first.
+      write('w4', '/demo/docs/product/demo-roadmap/drafts/never.md', 'refused too'),
+      result('w4', true),
+    ])
+    expect(drafts.map(({ file, text, editedSince, writes }) => ({ file, text, editedSince, writes }))).toEqual([{ file: 'pricing.md', text: 'on the disk', editedSince: false, writes: 1 }])
+  })
+
+  it('draftsOf takes one file written by its absolute path, relative to the Project and with \\ for one draft, by the path in the Project', () => {
+    const drafts = draftsOf(
+      settled([
+        write('w1', '/demo/docs/product/demo-roadmap/drafts/pricing.md', 'first'),
+        write('w2', 'docs/product/demo-roadmap/drafts/pricing.md', 'second'),
+        write('w3', '/demo/docs/./product/demo-roadmap/issues/../drafts//pricing.md', 'third'),
+        write('w4', 'C:\\Work\\demo\\docs\\product\\demo-roadmap\\drafts\\pricing.md', 'on Windows'),
+        write('w5', 'c:/work/demo/docs/product/demo-roadmap/drafts/PRICING.md', 'its case'),
+      ]) as AgentEvent[],
+      '/demo',
+    )
+    expect(drafts.map(({ path, text, writes }) => ({ path, text, writes }))).toEqual([
+      { path: 'c:/work/demo/docs/product/demo-roadmap/drafts/PRICING.md', text: 'its case', writes: 2 },
+      { path: 'docs/product/demo-roadmap/drafts/pricing.md', text: 'third', writes: 3 },
+    ])
+    expect(draftsOf(settled([write('w1', 'C:\\Work\\demo\\docs\\product\\t\\drafts\\a.md', 'x')]) as AgentEvent[], 'c:\\work\\demo').map((draft) => draft.path)).toEqual(['docs/product/t/drafts/a.md'])
+  })
+
+  it('the Critic panel shows no review the critic’s Write was refused for', async () => {
+    const reviewFile = '/demo/docs/product/critic/demo-roadmap-2026-11-09.md'
+    const call = (id: string, content: string) => ({ type: 'tool_use', id, name: 'Write', input: { file_path: reviewFile, content }, parentToolUseId: null })
+    subagents.tree = [agent('critic-1', 'worfy:critic', { status: 'done' })]
+    transcripts = { 'critic-1': [call('w1', review(3)), result('w1'), call('w2', review(1)), result('w2', true)] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-rail-state').textContent).toContain('3 objections'))
+    expect(screen.getByTestId('product-critic-review').textContent).toContain('Objection 3')
+    cleanup()
+    transcripts = { 'critic-1': [call('w1', review(2)), result('w1', true), call('w2', review(1))] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-critic-no-review').textContent).toBe('No review written yet'))
+  })
+
+  it('a read of a running agent’s transcript that answers late does not put older events back', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      subagents.tree = [agent('ideas-1', 'worfy:product-ideas')]
+      transcripts = { 'ideas-1': [text('m1', 'The first ideas')] }
+      let release: (() => void) | undefined
+      transcriptGate = () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        })
+      await mount()
+      fireEvent.click(screen.getByTestId('product-rail-ideas'))
+      await vi.waitFor(() => expect(release).toBeDefined())
+      // The second read, five seconds later, answers at once with the newer answer.
+      transcriptGate = undefined
+      transcripts = { 'ideas-1': [text('m1', 'The first ideas'), text('m2', 'The newer ideas')] }
+      await act(async () => {
+        vi.advanceTimersByTime(5000)
+      })
+      await vi.waitFor(() => expect(screen.getByTestId('product-ideas-answer').textContent).toContain('The newer ideas'))
+      // Then the first read answers, with what the transcript held when it was asked.
+      await act(async () => {
+        release!()
+        await Promise.resolve()
+      })
+      await settle()
+      expect(screen.getByTestId('product-ideas-answer').textContent).toContain('The newer ideas')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('lastAnswerOf joins the parts of the last message; latestAgent takes the one started last', () => {

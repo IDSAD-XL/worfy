@@ -29,6 +29,8 @@ import {
 // - Idea generator — the last answer of the Session's last `product-ideas` agent, from its own transcript, and
 //   its state.
 // - Drafts — the advisor's drafts this Session's chat wrote (product-agents.ts, draftsOf).
+//
+// A Write or an Edit counts only once its tool_result says it ended well: a refused or failed call changed no file.
 
 /** The end of an agent's transcript read for its review or answer: both come at its end. */
 const TAIL_BYTES = 2 * 1024 * 1024
@@ -47,9 +49,12 @@ function useAgentEvents(root: string | undefined, session: string | null, agent:
     if (root === undefined || session === null || agentId === null) return
     let live = true
     let failed = false
-    const read = () =>
+    // Only the answer to the last read is kept: an earlier read that answers late must not put older events back.
+    let asked = 0
+    const read = () => {
+      const question = ++asked
       void invoke('claudeHome.subagentTranscript', { projectRoot: root, sessionId: session, agentId, back: { bytes: TAIL_BYTES } }).then((result) => {
-        if (!live) return
+        if (!live || question !== asked) return
         if (result.ok) {
           setState({ agentId, events: result.value.events })
           return
@@ -59,6 +64,7 @@ function useAgentEvents(root: string | undefined, session: string | null, agent:
         failed = true
         setState((was) => (was?.agentId === agentId && was.events !== undefined ? was : { agentId, error: result.error }))
       })
+    }
     read()
     const timer = status === 'running' ? setInterval(read, TREE_POLL_MS) : undefined
     return () => {
