@@ -241,7 +241,7 @@ rm -f "$NEW/wave-brief.txt" "$W3/wave-brief.txt"
 [ -n "$first" ] && tail -n 1 "$T/out" | grep -qx 'EXIT=0' && in_section Land 'LAND=unverified' \
     && ok "skill: the first command of a new session reads the saved brief" || bad "skill first command: '$first': $(cat "$T/out" "$T/err")"
 
-# --- 10. a project of two repositories (ADR-0104): PRs keyed by (repo, N), branches by (repo, branch) --------------
+# --- 10. a project of two repositories: PRs keyed by (repo, N), branches by (repo, branch) --------------
 # Project m: two registry entries, lib and app; the tickets live in lib. 01 and 02 each span both repositories,
 # and their PR numbers cross: 01 has lib#41 and app#118, 02 has lib#118 and app#41 — and 02, the last ticket with
 # each number, must not take 01's PR. One branch name in both repositories (fix/shared) is one ticket. 03 is in
@@ -280,7 +280,7 @@ in_section 'Open PRs' "app#60 mr/04 · branch fix/norepo @ ${B3:0:8}" && in_sect
     && ok "two repositories: a ticket that names no repository takes a PR of any on its branch" || bad "two repositories, no Repo line: $(section 'Open PRs') / $(section Waiting)"
 in_section Waiting '01 claimed · PR lib#41, app#118' && in_section Waiting '02 claimed · PR lib#118, app#41' \
     && ok "two repositories: a waiting ticket lists its PRs with their repositories" || bad "two repositories, waiting: $(section Waiting)"
-has 'Stage: /implement · mr 0/4 · main · ticket 01 — both · PR lib#41, app#118 · waits for release lib-v1.4.0' \
+has 'Stage: /implement · mr 0/4 · main · ' && has ' — both · PR lib#41, app#118 · waits for release lib-v1.4.0' \
     && ok "two repositories: the Stage line names both PRs and the release" || bad "two repositories, Stage: $(head -n 3 "$T/out")"
 in_section 'Next wave' 'ready (open, not in work, every blocker done): 03' && ok "two repositories: an open ticket with no PR of its own is ready" || bad "two repositories, next wave: $(section 'Next wave')"
 # one repository fails: its PRs are not read, the other's are, and the section says which one

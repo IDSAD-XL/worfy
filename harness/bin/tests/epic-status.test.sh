@@ -352,7 +352,7 @@ else
     echo "skip the specs of this repository: no .scratch next to $HARNESS"
 fi
 
-# --- 6. A ticket over several repositories (ADR-0104) ------------------------------------------
+# --- 6. A ticket over several repositories -------------------------------------------------------
 # Repo:, PR: and Release: are lists in file order, Branch: stays one line. --json gives such a ticket the keys
 # repos, prs and releases; a ticket with one repository and a bare `PR: #N` gets none of them, so its object
 # keeps its bytes (the slice of section 1 checks the old tickets the same way). A separate repository, so the

@@ -8,7 +8,7 @@
 //   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
 //   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
 //   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
-//   A ticket over several repositories (ADR-0104) also carries repos, prs and releases, between repo and ref:
+//   A ticket over several repositories (TICKETS.md, "Header") also carries repos, prs and releases, between repo and ref:
 //   its `Repo:`, `PR:` and `Release:` lines as lists in file order (multiRepo below). A ticket with one `Repo:`
 //   line or none, a bare `PR: #N` and no `Release:` line has none of these keys: its object keeps its bytes.
 //   An epic with a spec.md also carries specStatus and acceptedAt — the spec's Status line and the date the owner
@@ -29,7 +29,7 @@
 //   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
 //   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
 //                                                   heading after Status), outside code
-//   PR: <repo>#N / Release: <repo> tag <tag> /       every one of them in the header, in file order (ADR-0104)
+//   PR: <repo>#N / Release: <repo> tag <tag> /       every one of them in the header, in file order
 //   Release: <repo> package <name>@<version>
 // --json gives them as statusAt, blockedReason, waits, pr (and prs, releases). Any other Status line — "**Status:**", a tail after
 // the word, a second Status line in the footer — is the old header: state none and statusError "old header",
@@ -250,7 +250,7 @@ const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
 const H1 = /^#[ \t]+([^ \t].*?)[ \t]*$/
 const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
 const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
-// The lines of a ticket over several repositories (ADR-0104; TICKETS.md, "Header"): `PR: #N` or `PR: <repo>#N`,
+// The lines of a ticket over several repositories (TICKETS.md, "Header"): `PR: #N` or `PR: <repo>#N`,
 // `Release: <repo> tag <tag>` or `Release: <repo> package <name>@<version>`. Values are split on spaces and
 // tabs only: \s of a byte string also takes the byte 0xA0 inside a UTF-8 letter. A line of any other form is
 // not one of them, as `PR: <url>` is not a PR for the old `pr` field.

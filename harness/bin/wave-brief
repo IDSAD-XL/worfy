@@ -20,7 +20,7 @@
 //              <epic>/<NN> (`?` for a branch of the epic no ticket matches), branch, head, labels, the commit
 //              statuses (`review`, `check/<name>`) and a count of the CI check runs. Not read with
 //              workflow.finish `local-green`; a gh that fails — one line saying so. A project of several
-//              repositories (ADR-0104; the profile's _resolved.repos) reads the open PRs of each repository and
+//              repositories (the profile's _resolved.repos) reads the open PRs of each repository and
 //              names each PR `<repo>#N`: PR numbers repeat across repositories, so a PR is matched to a ticket by
 //              the pair (repo, N) and a branch by the pair (repo, branch)
 //   Next wave  the open tickets that are not in work and whose every blocker of `Blocked by:` is done
