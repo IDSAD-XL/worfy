@@ -10,6 +10,9 @@ ticket-а. Строки перечитаны по main `964061f9a`.
 > renderer, skill-ы) и **новый ADR, который заменяет ADR-0045 в пункте 1**: этот вариант ADR-0045 прямо отверг.
 > Решение — за владельцем.
 
+Spec — новый Epic [worfy-multi-repo-ticket](../../worfy-multi-repo-ticket/spec.md) (черновик для владельца, 2026-11-09) и
+[ADR-0104](../../../docs/adr/0104-one-ticket-several-repositories.md) (статус «предложен»).
+
 ## Что происходит
 
 Правило записано в ADR-0045 (`docs/adr/0045-one-ticket-one-repository.md:28–30`): «Один Ticket — один репозиторий…
