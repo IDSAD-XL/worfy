@@ -1,0 +1,308 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "nae2165d2",
+      "kind": "decision",
+      "text": "Рекомендация: ближайший месяц — worfy на других проектах владельца, а не на самом worfy. Другой проект — самая дешёвая замена внешнему пользователю. Первый внешний пользователь (E4) — после исследования правил Anthropic (Ticket 02).",
+      "from": "ticket:01",
+      "status": "accepted",
+      "reason": "пока А",
+      "advice": true,
+      "message": "197d8fa5-f821-46d6-81e2-8f1740b48f72"
+    },
+    {
+      "id": "naf404b6f",
+      "kind": "decision",
+      "text": "Против E4 прямо сейчас: страница legal Claude Code требует от продуктов на Agent SDK ключей API и запрещает пропускать запросы через подписку Pro/Max от имени пользователей. worfy работает через Agent SDK на подписке и ключей не берёт. До раздачи worfy это серая зона.",
+      "from": "ticket:01",
+      "status": "rejected",
+      "reason": "продолжаем держаться в серой зоне, не обращаем внимания на возможные ограничения",
+      "source": "https://code.claude.com/docs/en/legal-and-compliance (раздел «Authentication and credential use», прочитано 2026-11-08); docs/adr/0009-claude-code-login-check-account-info.md; package.json (@anthropic-ai/claude-agent-sdk 0.3.289)",
+      "advice": true,
+      "message": "d138ff70-a455-4392-8cda-669ed65e3b80"
+    },
+    {
+      "id": "n47e5eaab",
+      "kind": "objection",
+      "text": "Против «как сейчас»: агентная работа почти вся идёт на сам worfy — за 7 дней ≈1400 файлов transcript-ов Claude Code в репозитории worfy против ≈190 на двух других проектах владельца. Риск: инструмент подстраивается под собственный репозиторий.",
+      "from": "ticket:01",
+      "source": "Подсчёт файлов *.jsonl с mtime меньше 7 дней в ~/.claude/projects по путям проектов, 2026-11-08. Шли ли они через worfy или через обычный терминал — по файлам не различить.",
+      "advice": true,
+      "message": "6af1f249-95d7-4ef9-a181-34d62e3df5bf"
+    },
+    {
+      "id": "nf618ad54",
+      "kind": "decision",
+      "text": "Что мешает worfy на других проектах владельца: 1–3 вещи, из-за которых он уходит в обычный терминал или делает руками?",
+      "from": "ticket:01",
+      "status": "accepted",
+      "reason": "пока ничего не мешает на самом деле",
+      "message": "601fbbcd-40ca-43f9-be61-023ac6aaea24"
+    },
+    {
+      "id": "na911d477",
+      "kind": "decision",
+      "text": "Destination карты: новая версия roadmap на месяц (для кого worfy, направления, порядок Epic-ов) и черновик первого Epic-а в drafts/, который разобрал критик — так?",
+      "from": null,
+      "status": "accepted",
+      "reason": "да",
+      "message": "02d10918-2f73-4e75-8a60-c2d6efe27c2e",
+      "x": 367,
+      "y": 1506
+    },
+    {
+      "id": "n8d24c44b",
+      "kind": "decision",
+      "text": "Совет: в этом месяце worfy — в режиме «доделать и чинить». Закрыть 9 почти законченных Epic-ов, чинить то, что найдётся на других проектах. Новый Epic — не больше одного за раз, выбранный после раунда идей.",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "да",
+      "advice": true,
+      "message": "f2cce4f7-0af2-40e4-89a8-e8fdfacc29e9"
+    },
+    {
+      "id": "n0d3888e1",
+      "kind": "objection",
+      "text": "Против прежней скорости: узкое место — внимание владельца, а не агенты. 9 почти законченных Epic-ов ждут в основном его приёмок и ручных проверок. Новые Epic-и без сигнала от других пользователей выбираются по догадкам, а владелец сам пишет, что его идеи — ресурс ограниченный и часто ошибочный.",
+      "from": "ticket:04",
+      "source": "bin/epic-status на main db89e600d, 2026-11-08 (9 Epic-ов с 1–3 открытыми Ticket-ами); docs/roadmap.md, раздел «worfy для соло-разработки продукта», строки 388–390",
+      "advice": true,
+      "message": "84cd2b7b-e906-474e-be07-9838dcf19a6f"
+    },
+    {
+      "id": "n0cfae3db",
+      "kind": "decision",
+      "text": "Друг владельца уже проверяет Eco на своих задачах (решение 2026-10-30, Ticket worfy-throughput 43). Он работает в приложении worfy или только с Harness? Если в worfy — он кандидат в первые внешние пользователи.",
+      "from": "ticket:01",
+      "status": "accepted",
+      "reason": "пока замечаний и идей от юзеров не было, все юзают приложение полностью вместе с харнессом",
+      "message": "9ce7f3be-e63a-4735-b0cf-474ebc34d30f"
+    },
+    {
+      "id": "n5537b5a1",
+      "kind": "decision",
+      "text": "Совет: собрать отзыв друга — три вопроса: чем в worfy пользуется, что мешает, чего не хватает. Это единственный сигнал извне, который есть уже сейчас; подпись и нотаризация для него не нужны.",
+      "from": "n0cfae3db",
+      "status": "accepted",
+      "reason": "4-6 пока собираю фидбек",
+      "advice": true,
+      "message": "ccd51b18-8451-474c-a79d-117c3de6433e"
+    },
+    {
+      "id": "n84accf18",
+      "kind": "decision",
+      "text": "worfy-terminal-ssh (SSH в Terminal worfy, 0/10, на паузе с 2026-10-21): выводим за рамки roadmap, пока не появится работа по SSH?",
+      "from": null,
+      "status": "accepted",
+      "reason": "да",
+      "message": "a7684e63-d155-4254-aeb8-7a41d7668904",
+      "x": 46,
+      "y": 1375
+    },
+    {
+      "id": "n4a983581",
+      "kind": "decision",
+      "text": "Совет: вывести worfy-terminal-ssh за рамки roadmap. Epic на паузе с 2026-10-21, на других проектах владельцу ничего не мешает. Ticket-ы остаются в репозитории, вернуть Epic можно в любой момент.",
+      "from": "n84accf18",
+      "status": "accepted",
+      "reason": "да",
+      "advice": true,
+      "message": "ac2464b5-31b8-4561-83ed-0a9e029c4663",
+      "x": 557,
+      "y": 1378
+    },
+    {
+      "id": "n11b557a7",
+      "kind": "decision",
+      "text": "Риск не только для E4, но и для работы самого владельца: справка Anthropic (обновлена 2026-11-07) оставляет за Anthropic право списывать работу сторонних инструментов, «including open-source projects», с usage credits вместо лимитов подписки. worfy ведёт все Session через Agent SDK. Сейчас Agent SDK на подписке прямо разрешён (справка 15036540, обновление 2026-10-07).",
+      "from": "ticket:02",
+      "status": "rejected",
+      "reason": "продолжаем держаться в серой зоне, не обращаем внимания на возможные ограничения",
+      "source": "https://support.claude.com/en/articles/13189465 (прочитано 2026-11-08, «Updated: yesterday»); https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan; package.json (@anthropic-ai/claude-agent-sdk 0.3.289)",
+      "advice": true,
+      "message": "d03e44ee-9514-40cb-8848-200301285390"
+    },
+    {
+      "id": "n7ba9cc19",
+      "kind": "decision",
+      "text": "Идея 1: лицензия, честная подпись трафика worfy и запасной режим API key — до любых внешних пользователей и как страховка для работы самого владельца.",
+      "from": "ticket:02",
+      "status": "rejected",
+      "reason": "«с лицензцией стоит повременить. продолжаем держаться в серой зоне, не обращаем внимания на возможные ограничения»; «ничего не пишем антропикам»",
+      "advice": true,
+      "message": "947a418b-7263-4c82-9ddc-87e8e6129583"
+    },
+    {
+      "id": "nf9d4d666",
+      "kind": "decision",
+      "text": "Идея 2: первым продуктом для чужих людей сделать plugin Harness для обычного Claude Code, а не подписанное приложение worfy (против E4 в roadmap).",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "харнесс и так способен работать без приложения, определим что нужно что бы это было полноценно (например добавление проекта без приложения)",
+      "advice": true,
+      "message": "1b547446-cdb3-481c-b5a7-8cccc58f9aa7"
+    },
+    {
+      "id": "n262b767f",
+      "kind": "decision",
+      "text": "Идея 3: не делать отдельный Epic «обзор рынка» — worfy:research уже это умеет, что показала эта тема (против roadmap, направление «соло-разработка продукта», п. 3).",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "3 ок",
+      "advice": true,
+      "message": "6bf45c0c-c41d-42d9-a0c5-a4cfdef919b8"
+    },
+    {
+      "id": "n2180d859",
+      "kind": "decision",
+      "text": "Идея 4: доказать числом, что worfy лучше обычного Claude Code, — закончить сравнительный eval worfy-harness 52 (ловушки «ложное готово», «разрушительное действие», скрытые test-ы, подложенные дефекты).",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "4 да",
+      "advice": true,
+      "message": "0ff77b98-96b0-4f9a-ae62-ef9723d0c9cb"
+    },
+    {
+      "id": "n9a6abd16",
+      "kind": "decision",
+      "text": "Сколько людей пользуются worfy и как они получают сборку: готовое приложение от владельца или сборка из исходников?",
+      "from": "ticket:01",
+      "status": "accepted",
+      "reason": "2 человека, билдят исходники",
+      "message": "9fb380c1-9360-4ccc-947c-98f8f082f20b"
+    },
+    {
+      "id": "n36c40101",
+      "kind": "decision",
+      "text": "Дополнить решение 01: «для кого» — владелец и нынешние пользователи. Идея 1 (лицензия, подпись трафика, режим API key) — первым Epic-ом месяца: worfy уже есть у других людей, а два условия правил Anthropic не выполнены.",
+      "from": "ticket:01",
+      "status": "accepted",
+      "reason": "я и 2 юзера, но с лицензцией стоит повременить",
+      "advice": true,
+      "message": "fe9ebdae-7e60-4946-9547-46141eba5711"
+    },
+    {
+      "id": "n1780bdfa",
+      "kind": "idea",
+      "text": "Владелец: Agent SDK — официальный немодифицированный способ; изменения правил касались запуска через claude -p, про SDK Anthropic не писала — проблем быть не должно.",
+      "from": "ticket:02",
+      "advice": false,
+      "message": "59e2f21b-62a2-43c4-a548-7fccdda86ea1"
+    },
+    {
+      "id": "n5e62c827",
+      "kind": "decision",
+      "text": "Сейчас проблем нет: Agent SDK на своей подписке прямо разрешён. Но Anthropic пишет об Agent SDK и claude -p вместе: объявленное изменение касалось «Claude Agent SDK usage», 2026-06-15 его поставили на паузу — «For now, nothing has changed». Это пауза, а не отмена.",
+      "from": "n1780bdfa",
+      "status": "accepted",
+      "reason": "Понял, тогда просто откладываем этот вопрос, надеемся что sdk так и продолжит быть доступен для использования подписки, либо же они предложат альтернативу",
+      "source": "https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan (прочитано 2026-11-09): «We've paused the previously-announced changes to Claude Agent SDK usage. For now, nothing has changed: Claude Agent SDK, `claude -p`, and third-party app usage still draw from your subscription limits.»",
+      "advice": true,
+      "message": "ffe3b948-0b20-431a-b042-8f809ce9fa4d"
+    },
+    {
+      "id": "n49a3b457",
+      "kind": "decision",
+      "text": "Совет: режим «без приложения» — и для незнакомых людей, в этом смысл идеи 2. Публикация для них снова поднимет вопрос лицензии (условие пересмотра в Comments Ticket-а 01): Epic можно делать без лицензии, объявлять — после решения.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "8020b21c-b57d-40e4-80bd-6975a313bb37"
+    },
+    {
+      "id": "n62a07eed",
+      "kind": "decision",
+      "text": "Совет: в первый Epic — только ядро, 11–12 Ticket-ов: установка из GitHub, инструкция, qmd, проверки первого запуска, подключение Project-а, status line, CI-проверка, приёмка. Autopilot, notifications и Mind map остаются в приложении.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "a376e27c-c92a-454c-90fd-6e88aff28106"
+    },
+    {
+      "id": "n4afefe15",
+      "kind": "decision",
+      "text": "Совет: Codex без приложения в этот Epic не брать — режим «без приложения» делается для Claude Code.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "662d4146-ea8e-4630-adf8-8f8712a63df3"
+    },
+    {
+      "id": "n439aa5e5",
+      "kind": "decision",
+      "text": "Совет: приёмка Epic-а — владелец ставит Harness по README в новой учётной записи macOS без приложения и проводит одну Wave; CI job проверяет режим без приложения на Linux, macOS и Windows.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "4379dfd7-d68d-4d19-908a-65d14fef0eb7"
+    },
+    {
+      "id": "n2b8170ea",
+      "kind": "decision",
+      "text": "Совет: ошибку «/worfy:to-tickets не пишет секцию Done when» чинить отдельным Ticket-ом worfy-polish сейчас, не дожидаясь Epic-а: ticket evidence падает на первой Wave нового Project-а и в приложении.",
+      "from": "ticket:05",
+      "status": "accepted",
+      "reason": "со всем согласен",
+      "advice": true,
+      "message": "b692fd75-4808-4dfd-89d6-838063bdf5e7"
+    },
+    {
+      "id": "nd0723aef",
+      "kind": "decision",
+      "text": "Черновик Epic-а worfy-harness-standalone (drafts/worfy-harness-standalone.md): Harness полноценно без приложения, 10 Ticket-ов в 4 Wave-ах после разбора критика; до Epic-а — Ticket worfy-polish на /worfy:to-tickets и /worfy:to-spec.",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "18 да",
+      "advice": true,
+      "message": "08c269a4-33f6-4ab0-84b6-cfe3dc4f78d2"
+    },
+    {
+      "id": "n4a459999",
+      "kind": "decision",
+      "text": "Критик, возражение 1: не писать версию в источник plugin-а. Plugin из Git-marketplace без версии получает SHA коммита и следует за каждым коммитом; закреплённая версия держит всех на одной копии, а шага release, который её поднимает, нет.",
+      "from": "nd0723aef",
+      "status": "accepted",
+      "reason": "по всему да",
+      "source": "docs/product/critic/worfy-harness-standalone-2026-11-09.md, возражение 1",
+      "advice": false,
+      "message": "f9f63c7f-f32a-4140-9f39-91c1b1127d22"
+    },
+    {
+      "id": "nd3c04be4",
+      "kind": "decision",
+      "text": "Критик, возражение 2: у исправления /worfy:to-tickets нет ни Ticket-а, ни связи Blocked by — приёмка упадёт на ticket evidence. Завести Ticket worfy-polish сейчас, вместе с таблицей Wave-ов в /worfy:to-spec; приёмка — Blocked by него; в Epic-е остаётся 10 Ticket-ов.",
+      "from": "nd0723aef",
+      "status": "accepted",
+      "reason": "по всему да",
+      "source": "docs/product/critic/worfy-harness-standalone-2026-11-09.md, возражение 2",
+      "advice": false,
+      "message": "11aa12ed-1deb-4b1e-8d57-314c80473574"
+    },
+    {
+      "id": "na210d411",
+      "kind": "decision",
+      "text": "Критик, возражение 3: CI job — главный seam, а стоит в Wave 3, после всего, что он охраняет. Первую версию — в Wave 1 против сегодняшнего Harness; следующие Ticket-ы добавляют в него свои шаги, и вопрос «нужен ли runner-у вход в Claude» решается первым.",
+      "from": "nd0723aef",
+      "status": "accepted",
+      "reason": "по всему да",
+      "source": "docs/product/critic/worfy-harness-standalone-2026-11-09.md, возражение 3",
+      "advice": false,
+      "message": "995b82db-5bec-4145-bf0f-2eb831c1a7e1"
+    },
+    {
+      "id": "n35eb2ec6",
+      "kind": "decision",
+      "text": "Черновик раздела roadmap на месяц (drafts/roadmap-section.md): для владельца и двух пользователей; «доделать и чинить»; порядок — почти законченные Epic-и, worfy-polish, eval worfy-harness 52, worfy-harness-standalone; правки остального roadmap.",
+      "from": "na911d477",
+      "status": "accepted",
+      "reason": "19 да",
+      "advice": true,
+      "message": "d965ccf1-fdf2-4a43-9e4d-17f39420bc7f"
+    }
+  ]
+}
