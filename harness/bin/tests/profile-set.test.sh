@@ -703,7 +703,7 @@ check "--field --reset: both fields are gone" [ "$(agents_of "$PJ")" = '{"w":"ab
 check "--field --reset: the Pipeline stays" [ "$(field "$PJ")" = "$OTHER" ]
 check "--field: no lock folder left" [ ! -e "$LOCKDIR" ]
 
-# --- --field: any field of the profile, by the draft schema's rules (worfy-polish ticket 78) -----------------
+# --- --field: any field of the profile, by the draft schema's rules ------------------------------------------
 EDIT=(--field commands.verify --field tickets.path --field workflow.finish --field docs.adr_dir)
 json_path() { node -e 'const v=JSON.parse(require("fs").readFileSync(0,"utf8")); const at=process.argv[1].split("/").reduce((o,k)=>o==null?undefined:o[k],v); process.stdout.write(at===undefined?"absent":JSON.stringify(at))' "$1"; }
 at_of() { json_path "$2" <"$1"; }

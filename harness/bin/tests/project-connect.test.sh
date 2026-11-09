@@ -198,7 +198,7 @@ for f in tickets.done_section tickets.manual_mark docs.adr_status_label docs.fea
     jq --arg f "$f" '.profile |= setpath($f | split("."); "")' "$T/shop.json" >"$T/blank.json"
     check "a blank $f is refused by the schema" 1 "\"path\": \"profile.$f\"" "$CONNECT" --schema-only <"$T/blank.json"
 done
-# An empty verify and a ticket path without the place of the number (worfy-polish ticket 78, the shared lib/draft-schema.cjs).
+# An empty verify and a ticket path without the place of the number (the rules of the shared lib/draft-schema.cjs).
 jq '.profile.commands.verify = ""' "$T/shop.json" >"$T/verify-blank.json"
 check "an empty commands.verify is refused by the schema" 1 '"message": "must not be empty"' "$CONNECT" --schema-only <"$T/verify-blank.json"
 jq '.profile.tickets.path = ".scratch/<epic>/issues/*.md"' "$T/shop.json" >"$T/path-no-nn.json"

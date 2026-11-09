@@ -89,3 +89,47 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   вопрос.
 - Записи registry Gate (`gate[i].root`, `match`): их меняет `project-connect`, не `profile-set`.
 - Правка `rules.md` после подключения.
+
+## Итог
+
+- В «Project settings…» — раздел «Profile» с кнопкой «Edit profile…» (`src/renderer/shell/ProjectSettings.tsx`). Она
+  открывает форму поверх диалога (`src/renderer/projects/EditProfile.tsx`): поля шага Review (title, команды, ветка
+  тикета, finish, линзы ревью, MCP servers, три языка, attribution, GitHub account) и поля, которых там нет:
+  `tickets.path`, `tickets.spec`, `tickets.trail_section`, `tickets.done_section`, `skills.allowed`,
+  `review.ticket_lenses`, `docs.adr_dir`, `docs.adr_status_label`, `docs.feature_pages`, `docs.context.path`,
+  `docs.handoff.path`, `parallel`, `worktree.*`. Список — `PROFILE_EDIT_FIELDS` в `src/shared/ipc/profile-edit.ts`.
+  `mode` и Workflow folder — текстом с пометкой «Changed by moving the workflow files»; `name` — текстом.
+- Поля вынесены из `ConnectProject.tsx`, а не скопированы: компоненты — `src/renderer/projects/ProfileFields.tsx`,
+  стили и чтение/запись пути — `src/renderer/projects/profile-fields.ts`. Шаг Review работает на них же.
+- Каналы `profileEdit.read`, `profileEdit.check`, `profileEdit.write` (`src/main/ipc/profile-edit.ts`) — `project`, как
+  `ecoMode`: чтение и проверка — `read`, запись — `write`. Все три — только запуск `bin/profile-set --field <поле>…`;
+  main передаёт ровно поля `PROFILE_EDIT_FIELDS`, лишние ключи окна (`mode`, `name`) отбрасываются.
+- `harness/bin/profile-set --field` принимает любое поле Profile-а через точку, кроме `name`, `mode`, `schema`,
+  `workflow.folder`, `workflow.pipeline` и объекта, который их содержит (`workflow`); их можно только `--read`.
+  Значение проверяется правилами `draft.schema.json` для этого поля общим кодом `harness/lib/draft-schema.cjs` (им же
+  теперь проверяет черновик `bin/project-connect`). Новый режим `--check` — та же проверка без записи. Отказ — exit 1,
+  `{ ok: false, errors: [{ path, message }] }` в stdout и по строке на ошибку в stderr; форма показывает его у поля.
+  `--expect <fingerprint>` и commit в git Harness home — как раньше.
+- Смысл `null` для новых полей: отсутствующее поле остаётся отсутствующим; присутствующее удаляется, если схема не
+  требует его в своём объекте, иначе пишется `null` и проверяется схемой. Объект на пути (`docs: null`) создаётся;
+  объект другого типа (старая строковая форма `language: "ru"`) — отказ «change it by hand first».
+- В `draft.schema.json` добавлены правила, которых требовали примеры тикета: `commands.verify` — `minLength: 1`
+  (пустая строка — «must not be empty»), `tickets.path` — `pattern: "NN"`. Неизвестный `workflow.finish` отказывал и
+  раньше (enum). Валидатор теперь понимает `pattern` и не принимает ключи прототипа (`toString`) за поля схемы.
+- Чужой fingerprint: отказ «The profile changed since you opened it. …», форма перечитывает Profile и показывает его
+  текущим (правки поверх старого снимка сброшены).
+- «Change account…» открывает тот же шаг `GithubAccount.tsx` с новым prop `initial` — аккаунт Profile-а остаётся
+  выбранным, пока gh его знает; выбор задаёт `github.account` и `workflow.finish` по праву push.
+- Документы: `docs/features/projects.md` и перевод `docs/features/ru/projects.md`; строка `profile-set` в
+  `docs/features/harness.md` и `docs/features/ru/harness.md`; `harness/profiles/README.md`, `harness/lib/README.md`.
+- Тесты: `harness/bin/tests/profile-set.test.sh` (новые поля: запись, отказ схемой и в `--set`, и в `--check`, чужой
+  fingerprint, отказ на `mode`/`name`/`schema`/`workflow.folder`/`workflow.pipeline`/`workflow`, смысл `null`,
+  вложенные имена, закрытое схемой поле, `__proto__`, строковый `language`); `harness/bin/tests/project-connect.test.sh`
+  (пустой `verify`, путь без `NN`); `test/unit/edit-profile.test.tsx` (jsdom: значения, отказ у поля, fingerprint,
+  аккаунт, Esc, старый Harness); `test/contract/profile-edit.test.ts` (настоящий `bin/profile-set` во временном
+  Harness home и stub скрипта: worfy сам `profile.json` не пишет); `test/e2e/edit-profile.spec.ts`.
+- Решено без владельца: `workflow.pipeline` через `--field` не пишется (у него свой вызов); `schema` тоже закрыт;
+  `language.*` и `attribution` можно вернуть к умолчанию пунктом «default»; поле-список, однажды записанное, отсюда не
+  удаляется (пустой ввод пишет `[]`).
+- ADR-0073 (пункт 1: «узкий: только `workflow.pipeline`») этим тикетом расширен на любое поле, кроме перечисленных;
+  поправку ADR делает Orchestrator.

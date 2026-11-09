@@ -243,6 +243,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'product.share',
     // The PR inbox of a Project as main last read it (worfy-pr-inbox ticket 02): read-only gh, as checks.get.
     'prInbox.get',
+    // "Edit profile" (worfy-polish ticket 78): the Profile's fields through bin/profile-set --read and --check, which write nothing.
+    'profileEdit.check',
+    'profileEdit.read',
     'projects.list',
     // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
     'projects.reviewer.get',
@@ -326,6 +329,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'claudeHome.hideSubagents',
     'claudeHome.showSubagents',
     'ecoMode.set',
+    // "Edit profile" writes the Profile through bin/profile-set --set (worfy-polish ticket 78).
+    'profileEdit.write',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',
