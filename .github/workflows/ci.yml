@@ -11,7 +11,10 @@ name: CI
 #   carries), macos-tests (the macOS-only test files) only when it touches a macOS path (one of those
 #   files, a path named for macOS, MACOS_PATHS of scripts/ci-scope.mjs), macos-package when it changes
 #   a build input.
-# - lint-typecheck: pnpm lint and pnpm typecheck on Linux. pnpm lint ends with the privacy check of
+# - lint-typecheck: pnpm lint and pnpm typecheck on Linux. pnpm lint runs the guard of personal strings
+#   over every tracked file, scripts/check-personal.mjs: one finding (a home folder with a user name, a
+#   machine name, a Tailscale address, an email, a token, a word of the owner's list by its hash)
+#   fails the job; the log shows each finding masked. pnpm lint ends with the privacy check of
 #   what the change adds to the tickets root, harness/bin/evidence-check --changed --root .scratch
 #   (the root is given: the runner has no Harness registry for `ticket root` to read). Its base here
 #   is HEAD^1, the first parent of a pull request's merge commit or the previous commit on a push to

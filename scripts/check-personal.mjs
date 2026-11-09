@@ -21,12 +21,19 @@
 //     fixtures are not personal. STAND_IN_HOSTS and STAND_IN_TAILSCALE below are the stand-ins of
 //     fixtures, never a finding (privacy.cjs knows the stand-in home folders and the example hosts).
 //   - deny-word: a word of the personal list, matched by its SHA-256 in scripts/check-personal.hashes.json
-//     (the list itself stays outside the repository). A path and a file's text are cut into words — runs
-//     of a-z and 0-9, lower-cased (the same as lower-casing and cutting at [^a-z0-9]+, but for the
-//     few non-ASCII letters whose lower case is ASCII) — and each word and each run of two and three
-//     neighbouring words joined with `-` is matched; neighbours may stand on two lines (wrapped prose),
-//     the finding is on the line of the first word. A personal word glued to another one or in another
-//     form (a plural) is not caught: an empty report is not proof that nothing personal is left.
+//     (the list itself stays outside the repository). A path and a file's text are cut into words, and
+//     each word and each run of two and three neighbouring words joined with `-` is matched; neighbours
+//     may stand on two lines (wrapped prose), the finding is on the line of the first word. Two cuts:
+//     runs of a-z and 0-9, and runs of letters, combining marks and digits of any script (\p{L},
+//     \p{M}, \p{N}); a word is lower-cased, and a non-ASCII word is taken in NFC. A text of ASCII
+//     only is cut the first way; any other text both ways, and a place both cuts find is one finding.
+//     An entry of the list is cut the second way, so `foo-bar`, `foo.bar` and `foo bar` are the two
+//     words foo and bar, and a Cyrillic entry is a word. What is not caught: a Latin entry glued to a
+//     Latin letter or digit (foobar for foo, a plural foos); a non-Latin entry glued to any letter,
+//     mark or digit (a Cyrillic case ending); an entry with a letter of another case form than its
+//     lower case (dotted I, Kelvin sign) where it stands inside the entry; an entry in another spelling
+//     or split by other characters than those between words. An empty report is not proof that nothing
+//     personal is left.
 //     The hash list: {"sha256": [the entries], "first": [...]}. "first" holds the first four hex
 //     digits of the hash of the first word of each entry of two or three words: only a word whose
 //     hash starts so is joined with its neighbours and hashed again. Without it the guard would hash
@@ -36,9 +43,10 @@
 // A binary file (a NUL byte in its first 8 KB, or an image, font, archive or media extension) is
 // checked by its name only.
 //
-// Exceptions, scripts/check-personal.allow.json: {"allow": [{"path", "rule", "sha256"}]}, sha256 of
+// Exceptions, scripts/check-personal.allow.json: {"allow": [{"path", "rule", "sha256", "reason"}]}, sha256 of
 // the value as found (for deny-word, of the lower-case words joined with `-`). An exception that drops
-// no finding is a finding itself, stale-allow.
+// no finding is a finding itself, stale-allow. "reason" says why the value is not personal; the guard
+// does not read it.
 //
 // Nothing prints a value whole: the CI log is public. A value is printed through privacy.mask (the
 // first two characters and the length), in a path too.
@@ -61,11 +69,12 @@ const RULES = new Set(['home-path', 'host', 'tailscale-ip', 'email', 'token'])
 const MAX_WORDS = 3
 
 // Stand-in hosts of fixtures (owner decision Q6), in lower case: an invented machine in every form
-// the host rules catch (someones-MacBook-Pro, someones-PC, and with .local). Only the whole value is
+// the host rules catch (someones-MacBook-Pro, someones-PC, and with .local), and capture-host, the
+// host scripts/codex-capture.mjs writes into the Codex recordings. Only the whole value is
 // a stand-in (standInHost): the same name under a tailnet (<name>.<tailnet>.ts.net) names a real
 // tailnet and stays a finding. Hosts with an `example` label (<host>.example.ts.net) are stand-ins in
 // privacy.cjs already.
-const STAND_IN_HOSTS = new Set(['someones-mac', 'someones-macbook', 'someones-macbook-pro', 'someones-macbook-air', 'someones-pc', 'desktop-0000000'])
+const STAND_IN_HOSTS = new Set(['someones-mac', 'someones-macbook', 'someones-macbook-pro', 'someones-macbook-air', 'someones-pc', 'desktop-0000000', 'capture-host'])
 
 /** A host value that is a stand-in as a whole: a name of STAND_IN_HOSTS, alone or with .local. */
 function standInHost(value) {
@@ -73,6 +82,9 @@ function standInHost(value) {
   const name = host.endsWith('.local') ? host.slice(0, -'.local'.length) : host
   return STAND_IN_HOSTS.has(name)
 }
+// Stand-in user names of a home folder, beyond those of privacy.cjs: owner, of the home folder
+// scripts/codex-capture.mjs writes into the Codex recordings.
+const STAND_IN_HOME_NAMES = new Set(['owner'])
 // Stand-in Tailscale addresses: 100.100.100.100, the DNS server of Tailscale itself (quad-100), and
 // 100.64.0.1–100.64.0.20, the first addresses of the range, for tests that need more than one peer.
 const STAND_IN_TAILSCALE = new Set(['100.100.100.100', ...Array.from({ length: 20 }, (_, i) => `100.64.0.${i + 1}`)])
@@ -82,9 +94,22 @@ const BINARY_EXT = /\.(?:png|jpe?g|gif|webp|ico|icns|bmp|tiff?|pdf|zip|gz|tgz|bz
 const sha256 = (value) => hash('sha256', value, 'hex')
 const PREFIX = 4
 
+// The two cuts of a text into words. ASCII_WORD: runs of a-z and 0-9, so a Latin word glued to a
+// non-ASCII character (an accent, a Cyrillic case ending, a superscript digit) is still a word.
+// WORD: runs of letters, combining marks and digits of any script, so a Cyrillic word is a word. A
+// text of ASCII only (most files) is cut by ASCII_WORD alone: there the two cuts are the same.
+const WORD = /[\p{L}\p{M}\p{N}]+/gu
+const ASCII_WORD = /[A-Za-z0-9]+/g
+const ASCII = /^[\p{ASCII}]*$/u
+
+/** A word as it is hashed: NFC (a decomposed letter as its composed one), lower case. */
+function normalWord(word) {
+  return (ASCII.test(word) ? word : word.normalize('NFC')).toLowerCase()
+}
+
 /** The parts of a personal-list entry, cut by the rule of the text. */
 function entryWords(entry) {
-  return entry.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  return [...entry.matchAll(WORD)].map((m) => normalWord(m[0]))
 }
 
 // Hashes of the words seen so far: most words repeat across the tree.
@@ -100,6 +125,34 @@ function wordHash(word) {
 }
 
 /**
+ * The deny-word findings of `text` cut into words by `re`, each word made a key by `normal`: each
+ * word and each run of two and three neighbouring words joined with `-`, pushed to `found`.
+ */
+function denyWords(text, re, normal, deny, found) {
+  const add = (start, end, key) => found.push({ rule: 'deny-word', index: start, length: end - start, key })
+  // The two words before the current one; `lead` when a word may start an entry of more words.
+  let before2
+  let before1
+  for (const m of text.matchAll(re)) {
+    const word = normal(m[0])
+    const h = wordHash(word)
+    const current = { word, start: m.index, lead: deny.first.has(h.slice(0, PREFIX)) }
+    const end = m.index + m[0].length
+    if (deny.full.has(h)) add(current.start, end, word)
+    if (before1?.lead) {
+      const pair = `${before1.word}-${word}`
+      if (deny.full.has(sha256(pair))) add(before1.start, end, pair)
+    }
+    if (before2?.lead) {
+      const triple = `${before2.word}-${before1.word}-${word}`
+      if (deny.full.has(sha256(triple))) add(before2.start, end, triple)
+    }
+    before2 = before1
+    before1 = current
+  }
+}
+
+/**
  * The findings of a text (a file's text or a path): [{ rule, index, length, key }], key is what an
  * exception hashes. `deny` is { full, first }: the hashes of the entries and the hash prefixes of
  * the first words of entries of more than one word.
@@ -111,29 +164,23 @@ function scan(text, deny) {
     const value = text.slice(f.index, f.index + f.length)
     if (f.rule === 'host' && standInHost(value)) continue
     if (f.rule === 'tailscale-ip' && STAND_IN_TAILSCALE.has(value)) continue
+    if (f.rule === 'home-path' && STAND_IN_HOME_NAMES.has(value.toLowerCase())) continue
     found.push({ rule: f.rule, index: f.index, length: f.length, key: value })
   }
   if (deny.full.size > 0) {
-    const add = (start, end, key) => found.push({ rule: 'deny-word', index: start, length: end - start, key })
-    // The two words before the current one; `lead` when a word may start an entry of more words.
-    let before2
-    let before1
-    for (const m of text.matchAll(/[A-Za-z0-9]+/g)) {
-      const word = m[0].toLowerCase()
-      const h = wordHash(word)
-      const current = { word, start: m.index, lead: deny.first.has(h.slice(0, PREFIX)) }
-      const end = m.index + m[0].length
-      if (deny.full.has(h)) add(current.start, end, word)
-      if (before1?.lead) {
-        const pair = `${before1.word}-${word}`
-        if (deny.full.has(sha256(pair))) add(before1.start, end, pair)
+    if (ASCII.test(text)) denyWords(text, ASCII_WORD, (w) => w.toLowerCase(), deny, found)
+    else {
+      // Both cuts; a place both find (a plain Latin word) is one finding.
+      const both = []
+      denyWords(text, ASCII_WORD, (w) => w.toLowerCase(), deny, both)
+      denyWords(text, WORD, normalWord, deny, both)
+      const places = new Set()
+      for (const f of both) {
+        const place = `${f.index}:${f.length}`
+        if (places.has(place)) continue
+        places.add(place)
+        found.push(f)
       }
-      if (before2?.lead) {
-        const triple = `${before2.word}-${before1.word}-${word}`
-        if (deny.full.has(sha256(triple))) add(before2.start, end, triple)
-      }
-      before2 = before1
-      before1 = current
     }
   }
   return found.sort((a, b) => a.index - b.index || b.length - a.length)
@@ -209,7 +256,7 @@ function hashFrom(file) {
   data.deny.forEach((entry, i) => {
     if (typeof entry !== 'string') return refused.push(`deny[${i}]: not a string`)
     const parts = entryWords(entry)
-    if (parts.length === 0) return refused.push(`deny[${i}]: no words — nothing of a-z or 0-9 to match`)
+    if (parts.length === 0) return refused.push(`deny[${i}]: no words — no letter or digit to match`)
     if (parts.length > MAX_WORDS) return refused.push(`deny[${i}]: ${parts.length} words — the guard matches at most ${MAX_WORDS} neighbouring words`)
     hashes.add(sha256(parts.join('-')))
     if (parts.length > 1) first.add(sha256(parts[0]).slice(0, PREFIX))

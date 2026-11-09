@@ -181,7 +181,7 @@ export function leftovers(text, replacements) {
 const HOST = 'capture-host'
 
 /**
- * The host name `host` (os.hostname(): `Name.local` on a Mac) as replacements of whole names: the host
+ * The host name `host` (os.hostname(): `<name>.local` on a Mac) as replacements of whole names: the host
  * name and its first label with `.local` become `capture-host.local`, the first label alone
  * `capture-host`. The app-server names the host in `serverName` of remoteControl/status/changed.
  */
