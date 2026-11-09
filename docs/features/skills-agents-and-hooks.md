@@ -287,7 +287,7 @@ while the set of Sessions has not changed.
 |---|---|
 | Destroying uncommitted work | `git checkout` or `git restore` over `.`, `./` or `*`; `git reset --hard`; `git clean` with force; `git stash pop`, `git stash drop`, and `git stash` alone or followed by `-u`, `-k`, `-a` or `save` |
 | A pipe that hides the exit code | A pipe after `pnpm`, `yarn` or `npm` with `lint`, `test`, `typecheck`, `check` or `build`, or after `vitest`, `eslint`, `tsc`, `jest`, `pytest` or `gh pr checks`, unless `pipefail` comes before the pipe |
-| Traces of the workflow | In Silent mode or with `attribution: off`: the text and the staged changes of `git commit`, a new branch name, and the text of `gh pr create`, `edit`, `comment`, `review` or `merge`, when `silent-check` rejects them |
+| Traces of the workflow | In Silent mode or with `attribution: off`: the text and the staged changes of `git commit`, a new branch name, the text of `gh pr create`, `edit`, `comment`, `review` or `merge`, and the text a `gh api` write sends into a PR or an issue (a new PR or issue, its title and description, a comment, a reply, a review, a dismissal, a merge) or a GraphQL mutation, when `silent-check` rejects them. A file such a `gh api` command sends that the guard cannot read is refused too: write the file in one command and send it in the next |
 
 The reason gives the right way, such as a temporary commit or `set -o pipefail`. For the first two cases, quoted text in
 a command such as `grep` or `echo` is data, and a heredoc body is not read as a command. A trace check that gives no
