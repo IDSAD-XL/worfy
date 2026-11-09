@@ -666,7 +666,7 @@ function ghApi(args, dir, checks, bodies) {
 function payloadText(text) {
     let data
     try {
-        data = JSON.parse(text.replace(/^﻿/, ""))
+        data = JSON.parse(text.replace(/^\uFEFF/, ""))
     } catch {
         return text
     }
