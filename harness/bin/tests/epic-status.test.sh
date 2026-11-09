@@ -367,12 +367,14 @@ mt() { # <epic> <file> <printf format> — one ticket file
 # package, lines after the first "## " and inside a fence that are not the header's. 03: one repository, PR: #N.
 # 04: an old Status line with two Repo lines: the lists of the header are read only with a new Status line,
 # like `pr`. 05: one repository, its PR named by the repository. 06: lines that are not a PR or a release.
+# 07: one repository, a bare PR and a release it waits for.
 mt mr 01-both.md '# 01 — Both\n\nStatus: claimed 2026-11-10T09:00Z\nBranch: fix/lot-withdraw-flag\nRepo: lib\nRepo: app\nPR: lib#41\nPR: app#118\nRelease: lib tag lib-v1.4.0\nBlocked by: —\n'
 mt mr 02-pkg.md '# 02 — Package\n\nStatus: open\nRepo: lib\n**Repo:** `app`\nPR: #7\nRelease: lib package @acme/lib@1.4.0\nRelease: lib tag lib-v1.5.0\n\n```\nPR: app#5\n```\n\n## Result\n\nPR: app#999\nRelease: app tag nope\n'
 mt mr 03-one.md '# 03 — One\n\nStatus: done 2026-11-09\nRepo: app\nPR: #5\n'
 mt mr 04-old.md '# 04 — Old\n\nStatus: claimed — 2026-11-01\nRepo: lib\nRepo: app\nPR: lib#3\nRelease: lib tag v1\n'
 mt mr 05-named.md '# 05 — Named\n\nStatus: open\nRepo: app\nPR: app#0009\n'
 mt mr 06-odd.md '# 06 — Odd\n\nStatus: open\nRepo: lib\nRepo: lib\nRepo: app\nPR: lib #4\nPR: lib#\nRelease: lib zip v1\nRelease: lib tag\nRelease: lib package nover\nRelease: lib package @acme/lib@\n'
+mt mr 07-rel.md '# 07 — Release\n\nStatus: open\nRepo: app\nPR: #8\nRelease: lib tag v2\n'
 # The Stage line of a ticket whose PRs are bare and whose release is a package, waiting for a blocker.
 mt mr2 01-a.md '# 01 — A\n\nStatus: open\nBlocked by: 02\nRepo: lib\nRepo: app\nPR: #7\nRelease: lib package @acme/lib@1.4.0\nRelease: lib tag lib-v1.5.0\n'
 mt mr2 02-b.md '# 02 — B\n\nStatus: open\n'
@@ -386,7 +388,7 @@ multi_of() {
 run cd "$M" --json --root "$MS"
 json_mr="$out"
 out="$(multi_of mr)"
-is "multi-repo --json: repos, prs and releases in file order; a single-repo ticket with PR: #N has none of the keys" 0 '[[1,["lib","app"],[{"repo":"lib","number":41},{"repo":"app","number":118}],[{"repo":"lib","kind":"tag","ref":"lib-v1.4.0"}],null,"app"],[2,["lib","app"],[{"repo":null,"number":7}],[{"repo":"lib","kind":"package","ref":"@acme/lib@1.4.0"},{"repo":"lib","kind":"tag","ref":"lib-v1.5.0"}],7,"app"],[3,"missing","missing","missing",5,"app"],[4,["lib","app"],[],[],null,"app"],[5,["app"],[{"repo":"app","number":9}],[],null,"app"],[6,["lib","app"],[],[],null,"app"]]'
+is "multi-repo --json: repos, prs and releases in file order; a single-repo ticket with PR: #N has none of the keys" 0 '[[1,["lib","app"],[{"repo":"lib","number":41},{"repo":"app","number":118}],[{"repo":"lib","kind":"tag","ref":"lib-v1.4.0"}],null,"app"],[2,["lib","app"],[{"repo":null,"number":7}],[{"repo":"lib","kind":"package","ref":"@acme/lib@1.4.0"},{"repo":"lib","kind":"tag","ref":"lib-v1.5.0"}],7,"app"],[3,"missing","missing","missing",5,"app"],[4,["lib","app"],[],[],null,"app"],[5,["app"],[{"repo":"app","number":9}],[],null,"app"],[6,["lib","app"],[],[],null,"app"],[7,["app"],[{"repo":null,"number":8}],[{"repo":"lib","kind":"tag","ref":"v2"}],8,"app"]]'
 out="$(printf '%s' "$json_mr" | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => process.stdout.write(JSON.stringify(JSON.parse(s).tickets.find((t) => t.epic === "mr" && t.num === 3))))')"
 is "multi-repo --json: a ticket with one repository keeps the old object, key for key" 0 '{"epic":"mr","num":3,"slug":"one","title":"03 — One","statusRaw":"done 2026-11-09","state":"done","statusAt":"2026-11-09","statusError":null,"blockedReason":null,"waits":null,"pr":5,"blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":"app","ref":"main"}'
 printf '%s' "$json_mr" | grep -qF '"repo":"app","ref":"main"}' && printf '%s' "$json_mr" | grep -qF '"repo":"app","repos":["lib","app"],"prs":[{"repo":"lib","number":41},{"repo":"app","number":118}],"releases":[{"repo":"lib","kind":"tag","ref":"lib-v1.4.0"}],"ref":"main"}' \
@@ -394,7 +396,7 @@ printf '%s' "$json_mr" | grep -qF '"repo":"app","ref":"main"}' && printf '%s' "$
 run cd "$M" --json --ref main --root "$MS"
 [ "$rc" = 0 ] && [ "$out" = "$json_mr" ] && ok "multi-repo --json --ref: the branch's tree gives the same lists" || bad "multi-repo --ref: exit $rc: ${out:0:300}"
 run cd "$M" --root "$MS" mr
-is "multi-repo line: both PRs in file order and the release; the ticket counts once" 0 '/implement · mr 1/6 · main · ticket 01 — Both · PR lib#41, app#118 · waits for release lib-v1.4.0 · 1 with an old header — run ticket migrate'
+is "multi-repo line: both PRs in file order and the release; the ticket counts once" 0 '/implement · mr 1/7 · main · ticket 01 — Both · PR lib#41, app#118 · waits for release lib-v1.4.0 · 1 with an old header — run ticket migrate'
 run cd "$M" --root "$MS" mr2
 is "multi-repo line: a bare PR, a package release and a tag, then the blocker" 0 '/to-tickets · mr2 0/2 · main · ticket 01 — A · PR #7 · waits for release @acme/lib@1.4.0, lib-v1.5.0 · waits for 02'
 
