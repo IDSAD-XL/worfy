@@ -6,13 +6,10 @@
 // Each Node's Session runs on its Vendor's driver (worfy-multi-vendor ticket 23); New session takes the
 // Project's `defaultVendor` from its settings when it names no Vendor. Closing or archiving a Product Session's
 // Node gives the save signal of its Project (src/main/product/save-signal.ts, worfy-product-session ticket 04).
-// Each Product Session has a narrator (narrator.ts, ticket 32): Haiku's requests through the Claude driver
-// (src/main/vendors/claude/narrator.ts), the switch of Settings → Sessions read before each request.
+// Each Product Session has a narrator (app-narrator.ts, ticket 32).
 import { stat } from 'node:fs/promises'
-import { app } from 'electron'
 import { agentEvent } from '../../shared/ipc/agent'
 import { sessionsChanged } from '../../shared/ipc/sessions'
-import { liveSummaryOf } from '../../shared/settings/app-settings'
 import type { VendorId } from '../../shared/vendors/vendor'
 import { toEveryWindow } from '../broadcast'
 import { ClaudeHomeRegistry, rootPath, type RegistryRoot } from '../claude-home/registry'
@@ -21,13 +18,11 @@ import { layoutStore } from '../layout/store'
 import { readProjectSettings } from '../projects/settings'
 import { appSaveSignal } from '../product/save-signal'
 import { projectStore } from '../projects/store'
-import { appSettingsStore } from '../settings/store'
-import { claudeHome, dataRoot } from '../storage/paths'
-import { narratorFromEnv } from '../vendors/claude/narrator'
+import { claudeHome } from '../storage/paths'
 import { appCodexSessions } from '../vendors/codex/sessions-on-canvas'
 import { vendorDriver } from '../vendors/registry'
 import { sharedRegistry } from './app-registry'
-import { Narrator } from './narrator'
+import { appNarrator } from './app-narrator'
 import { NodeSessions, signInRefusal, type KnownSessions } from './node-sessions'
 import { SessionSettingsStore } from './session-settings'
 
@@ -76,10 +71,7 @@ export function sharedNodeSessions(): NodeSessions {
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
       publish: (view) => toEveryWindow((target) => emit(target, sessionsChanged, view)),
       productEnded: (projectId) => void appSaveSignal().signal(projectId),
-      narrator: (emit) => {
-        const { ask, cadence } = narratorFromEnv(dataRoot(), app.getAppPath())
-        return new Narrator({ ask, cadence, emit, enabled: () => liveSummaryOf(appSettingsStore().get()), log: (message) => console.warn(`[narrator] ${message}`) })
-      },
+      narrator: (emit) => appNarrator(emit),
     })
   }
   return shared

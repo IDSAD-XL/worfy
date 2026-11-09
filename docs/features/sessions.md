@@ -181,8 +181,9 @@ autocompact off, or with no threshold known, it shows Claude Code's own percenta
 at 60% and 85%. Before the first report it says "no data". The tooltip reads
 `84.2K / 200K tokens · autocompact at 167K`, or ends in `autocompact off`.
 
-**Autocompact window.** Settings → Sessions has two rows: Orchestrator, whose window its Subagents use too, and Other
-Sessions. Each is "Claude Code default" or Custom, from 100K to 1M in steps of 10K. worfy's defaults are 400K and 500K. A
+**Autocompact window.** Settings → Sessions has three rows. The first two are the autocompact windows: Orchestrator,
+whose window its Subagents use too, and Other Sessions. The third, "Live summary while the advisor works", is the switch of
+a Product Session's live summary ([Product Session](product-session.md)). Each is "Claude Code default" or Custom, from 100K to 1M in steps of 10K. worfy's defaults are 400K and 500K. A
 window the user has not chosen gives way to `autoCompactWindow` in `settings.json`. `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the
 login shell overrides both rows, and the section says so. A running Session keeps its window until it starts again.
 

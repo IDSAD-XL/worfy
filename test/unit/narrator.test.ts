@@ -92,6 +92,7 @@ afterEach(async () => {
 function harness(scripts: string[], options: { enabled?: () => boolean; deaf?: boolean } = {}) {
   const calls: FakeCall[] = []
   const emitted: string[][] = []
+  const firsts: number[] = []
   const logged: string[] = []
   const releases = new FakeReleases()
   let next = 0
@@ -107,7 +108,10 @@ function harness(scripts: string[], options: { enabled?: () => boolean; deaf?: b
     // `deaf`: a request that does not hear the stop, as Claude Code may answer just before it goes.
     ask: options.deaf === true ? (digest) => ask(digest, new AbortController().signal) : ask,
     enabled: options.enabled ?? (() => true),
-    emit: (lines) => emitted.push([...lines]),
+    emit: (lines, first) => {
+      emitted.push([...lines])
+      firsts.push(first)
+    },
     log: (message) => logged.push(message),
     clock,
   })
@@ -116,7 +120,7 @@ function harness(scripts: string[], options: { enabled?: () => boolean; deaf?: b
   const send = (...events: AgentEvent[]) => {
     for (const event of events) narrator.event(event)
   }
-  return { narrator, clock, calls, starts, digests, emitted, logged, releases, send }
+  return { narrator, clock, calls, starts, digests, emitted, firsts, logged, releases, send }
 }
 
 const prompt = (text = 'How big is the niche of small teams?'): AgentEvent => ({ type: 'prompt', text })
@@ -186,6 +190,8 @@ describe('the narrator’s cadence', () => {
     await vi.waitFor(() => expect(h.emitted).toHaveLength(4))
     expect(h.emitted[3]).toHaveLength(NARRATOR_KEEP)
     expect(h.emitted[3]).toEqual(['Compares three sources on competitor prices to size the niche', 'Writes the summary of the niche for the owner', 'Checks the open questions on the Mind map'])
+    // Each line keeps its number in the turn as the oldest goes: the window keeps its element (Narration.tsx).
+    expect(h.firsts).toEqual([0, 0, 0, 1])
   })
 
   it('never has two requests out at once', async () => {
@@ -244,6 +250,36 @@ describe('the narrator’s cadence', () => {
     h.send(prompt('And the price?'), busy, read('t2'))
     h.clock.advance(NARRATOR_FIRST_MS)
     await vi.waitFor(() => expect(h.emitted).toEqual([['Compares three sources on competitor prices to size the niche']]))
+  })
+
+  it('a new turn that waited for the last turn’s request asks as soon as that request is done', async () => {
+    const h = harness(['held', 'line-b'], { deaf: true })
+    h.send(prompt(), busy, read('t1'))
+    h.clock.advance(NARRATOR_FIRST_MS)
+    await vi.waitFor(() => expect(h.digests()).toHaveLength(1))
+    h.send(turnResult(), prompt('And the price?'), busy, read('t2'))
+    // The new turn's first request is due, but the old one is still out.
+    h.clock.advance(NARRATOR_FIRST_MS)
+    await Promise.resolve()
+    expect(h.starts()).toHaveLength(1)
+    // It ends, and nothing new happens in the turn: the new turn asks all the same.
+    h.releases.release('answer')
+    await vi.waitFor(() => expect(h.emitted).toEqual([['Compares three sources on competitor prices to size the niche']]))
+    expect(h.digests()[1]).toContain('And the price?')
+  })
+
+  it('does not show an answer that comes after the live summary was turned off', async () => {
+    let on = true
+    const h = harness(['held'], { enabled: () => on })
+    h.send(prompt(), busy, read('t1'))
+    h.clock.advance(NARRATOR_FIRST_MS)
+    await vi.waitFor(() => expect(h.digests()).toHaveLength(1))
+    on = false
+    h.releases.release('answer')
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(h.emitted).toEqual([])
+    expect(h.logged).toEqual([])
   })
 
   it('asks nothing while the live summary is off, and asks again once it is on', async () => {

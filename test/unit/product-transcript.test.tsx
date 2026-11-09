@@ -90,10 +90,10 @@ const EVERY_ROW: AgentEvent[] = [
 
 const HIDDEN = ['transcript-thinking', 'transcript-tools', 'tool-call', 'tool-error', 'transcript-subagent', 'transcript-hook', 'transcript-notice', 'transcript-command', 'transcript-turn-done']
 
-function Product({ events, working, queued, narration }: { events: readonly AgentEvent[]; working?: boolean; queued?: ChatQueue | null; narration?: readonly string[] | null }) {
+function Product({ events, working, queued, narration, first = 0 }: { events: readonly AgentEvent[]; working?: boolean; queued?: ChatQueue | null; narration?: readonly string[] | null; first?: number }) {
   return (
     <ProductSessionContext value={true}>
-      <Transcript events={events} sessionId="s1" projectId="p1" working={working} queued={queued} narration={narration} />
+      <Transcript events={events} sessionId="s1" projectId="p1" working={working} queued={queued} narration={narration === undefined || narration === null ? null : { lines: narration, first }} />
     </ProductSessionContext>
   )
 }
@@ -207,21 +207,34 @@ describe('the chat of a Product Session', () => {
     expect(screen.queryByTestId('product-narration')).toBeNull()
   })
 
+  it('each line of the live summary keeps its element as the oldest goes, so a screen reader hears only the new one', () => {
+    const events = [prompt('What could we sell?')]
+    const { rerender } = render(<Product events={events} working narration={['Reads the roadmap', 'Compares prices', 'Reads the roadmap']} first={0} />)
+    const group = screen.getByRole('group', { name: 'Live summary' })
+    const before = within(group).getAllByTestId('product-narration-line')
+    rerender(<Product events={events} working narration={['Compares prices', 'Reads the roadmap', 'Writes the answer']} first={1} />)
+    const after = within(screen.getByRole('group', { name: 'Live summary' })).getAllByTestId('product-narration-line')
+    expect(after.map((line) => line.textContent)).toEqual(['Compares prices', 'Reads the roadmap', 'Writes the answer'])
+    expect(after[0]).toBe(before[1])
+    expect(after[1]).toBe(before[2])
+    expect(before).not.toContain(after[2])
+  })
+
   it('the store keeps the live summary beside the transcript, not in it, and drops it at a new message and at the result', () => {
     const id = 'narrated'
     acceptAgentEvent({ sessionId: id, event: { type: 'prompt', text: 'What could we sell?' } })
-    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap'] } })
-    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap', 'Compares prices'] } })
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap'], first: 0 } })
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap', 'Compares prices'], first: 0 } })
     const log = () => useSessionLogs.getState().logs[id]!
-    expect(log().narration).toEqual(['Reads the roadmap', 'Compares prices'])
+    expect(log().narration).toEqual({ lines: ['Reads the roadmap', 'Compares prices'], first: 0 })
     expect(log().events.map((event) => event.type)).toEqual(['notice'])
     // Even a narration event that found its way into the events folds to no row.
-    expect(foldTranscript([{ type: 'narration', lines: ['Reads the roadmap'] }], extensionTypes, 0)).toEqual([])
+    expect(foldTranscript([{ type: 'narration', lines: ['Reads the roadmap'], first: 0 }], extensionTypes, 0)).toEqual([])
     acceptAgentEvent({ sessionId: id, event: result(false) })
-    expect(log().narration).toEqual([])
-    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Writes the answer'] } })
+    expect(log().narration?.lines).toEqual([])
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Writes the answer'], first: 0 } })
     acceptAgentEvent({ sessionId: id, event: { type: 'prompt', text: 'And then?' } })
-    expect(log().narration).toEqual([])
+    expect(log().narration?.lines).toEqual([])
   })
 
   it('a plain Session shows no status line', () => {

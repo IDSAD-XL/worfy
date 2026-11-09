@@ -14,6 +14,7 @@ import { MessageAttachments } from './MessageAttachments'
 import { ProductSessionContext, shownInProductChat, type ChatQueue } from './product-session'
 import { QueuedRows } from './QueuedMessages'
 import { rowTypes } from './rows/index'
+import type { NarrationLines } from './store'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
 
 // The transcript of one Session: the user's messages, the assistant's text as markdown, thinking
@@ -70,7 +71,7 @@ export interface TranscriptProps {
    * The live summary of the running turn (store.ts, `narration`; ticket 32): a Product Session's chat shows these
    * lines under the status line while the turn runs. They are no rows of the transcript.
    */
-  narration?: readonly string[] | null | undefined
+  narration?: NarrationLines | null | undefined
 }
 
 export interface EarlierControl {
@@ -1059,7 +1060,7 @@ export function Transcript(props: TranscriptProps) {
         onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
       >
         {status !== null ? <AdvisorStatus status={status} /> : null}
-        {status !== null && narration !== null && narration.length > 0 ? <Narration lines={narration} /> : null}
+        {status !== null && narration !== null && narration.lines.length > 0 ? <Narration lines={narration.lines} first={narration.first} /> : null}
         {product !== null && endChips !== undefined ? <NodeChips projectId={product} chips={endChips} /> : null}
       </div>,
     )

@@ -171,7 +171,7 @@ digest of the turn: the owner's message, the latest tool calls with short inputs
 narrator's previous lines, 5000 characters at most. Each request is a single Agent SDK `query()` under the owner's own
 Claude Code login, never an API key: model `haiku`, no thinking, no settings, no MCP servers, no tools, one turn, no
 transcript, in worfy's empty `narrator` folder outside every Project. Sessions never run on haiku; the narrator does,
-as it is not one. Never two requests run at once. The end of the turn aborts a request still out, and its answer is
+as it is not one. Each Product Session has its own narrator, and never two of its requests run at once. The end of the turn aborts a request still out, and its answer is
 dropped. The lines reach the windows as `narration` events, which the window keeps beside the transcript, not in it.
 
 **Saving without git.** main runs one read, `git status --porcelain=v2` of `docs/product` in the Project root, and
@@ -198,7 +198,7 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out; `chatQueue`: the queue as the chat draws it |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles |
 | `src/renderer/session/advisor-status.ts`, `src/renderer/session/AdvisorStatus.tsx` | The status line: the step from the latest events, and its time |
-| `src/main/agent/narrator.ts`, `src/main/vendors/claude/narrator.ts` | The live summary: when to ask, the digest, and Haiku's request |
+| `src/main/agent/narrator.ts`, `src/main/agent/app-narrator.ts`, `src/main/vendors/claude/narrator.ts` | The live summary: when to ask, the digest, the switch read before each request, and Haiku's request |
 | `src/renderer/session/Narration.tsx`, `src/renderer/settings/SessionsSection.tsx` | The live summary under the status line, and its switch |
 | `src/renderer/session/QueuedMessages.tsx` | The queued messages at the end of the chat, "Send queued" and "×" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |

@@ -104,7 +104,7 @@ export interface NodeSessionsDeps {
    * The live summary of a Product Session's turns (worfy-product-session ticket 32, narrator.ts): made when a
    * Product Session starts, given each of its events, closed with it. `emit` sends the lines to show. Absent: none.
    */
-  narrator?(emit: (lines: readonly string[]) => void): NarratorFeed
+  narrator?(emit: (lines: readonly string[], first: number) => void): NarratorFeed
 }
 
 /** What a Session's narrator is given: its events, and the end of the Session. */
@@ -512,8 +512,8 @@ export class NodeSessions {
   private narrator(run: Run): NarratorFeed | null {
     if (this.deps.narrator === undefined) return null
     try {
-      return this.deps.narrator((lines) => {
-        if (run.sessionId !== null) this.send(run.sessionId, { type: 'narration', lines: [...lines] })
+      return this.deps.narrator((lines, first) => {
+        if (run.sessionId !== null) this.send(run.sessionId, { type: 'narration', lines: [...lines], first })
       })
     } catch (error) {
       console.warn('[sessions] could not make the live summary of a Product Session', error)

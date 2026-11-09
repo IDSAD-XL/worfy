@@ -48,7 +48,8 @@ Status: claimed 2026-11-09T17:55Z
 
 1. Narrator живёт в main (`src/main/agent/narrator.ts`) и подключён к Product Session-ам Node-ов
    (`node-sessions.ts`): только они бывают `kind: product`. Session-у он не трогает, а читает её события.
-2. Строки идут в окна событием `narration` (весь набор строк, пустой — убрать) по тому же `agent.event`. Store
+2. Строки идут в окна событием `narration` (весь набор строк, пустой — убрать, и `first` — номер первой строки среди
+   строк turn-а, чтобы каждая строка сохраняла свой элемент и screen reader не перечитывал старые) по тому же `agent.event`. Store
    renderer-а держит их отдельно от списка событий, как `queue` и `context`: в транскрипт они не попадают и в файл
    транскрипта Claude Code не пишутся.
 3. Запрос — холодный `query()` Agent SDK с опциями как у Terminal AI (ADR-0058): без настроек пользователя и Project-а
@@ -100,13 +101,15 @@ Status: claimed 2026-11-09T17:55Z
 
 ## Где в коде
 
-- `src/main/agent/narrator.ts` (новый), `src/main/agent/node-sessions.ts`, `src/main/agent/app-node-sessions.ts`
+- `src/main/agent/narrator.ts` (новый), `src/main/agent/app-narrator.ts` (новый), `src/main/agent/node-sessions.ts`,
+  `src/main/agent/app-node-sessions.ts`
 - `src/main/vendors/claude/narrator.ts` (новый)
 - `src/shared/agent/events.ts`, `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`
 - `src/renderer/session/store.ts`, `src/renderer/session/Transcript.tsx`, `src/renderer/session/SessionView.tsx`,
   `src/renderer/session/Narration.tsx` (новый), `src/renderer/session/session.css` (только `.w-pmsg…`)
 - `src/renderer/settings/SessionsSection.tsx`
 - `test/unit/narrator.test.ts`, `test/unit/narrator-options.test.ts`, `test/unit/product-transcript.test.tsx`,
-  `test/contract/node-sessions.test.ts`, `test/contract/app-settings.test.ts`, `test/e2e/product-session.spec.ts`,
+  `test/contract/node-sessions.test.ts`, `test/contract/app-settings.test.ts`, `test/unit/app-narrator.test.ts`,
+  `test/unit/settings-sessions.test.tsx`, `test/e2e/product-session.spec.ts`,
   `test/fixtures/agent-scripts/narrator.jsonl`
-- `docs/features/product-session.md`
+- `docs/features/product-session.md`, `docs/features/sessions.md`

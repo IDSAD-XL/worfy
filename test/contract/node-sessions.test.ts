@@ -510,7 +510,7 @@ describe('the kind of a Session (worfy-product-session ticket 01)', () => {
 
   // worfy-product-session ticket 32: the live summary of a Product Session's turn.
   it('a Product Session’s narrator reads its events and its lines reach the windows as `narration` under the Session’s id; a plain Session has none', async () => {
-    const made: { events: string[]; closed: boolean; emit: (lines: readonly string[]) => void }[] = []
+    const made: { events: string[]; closed: boolean; emit: (lines: readonly string[], first: number) => void }[] = []
     const h = harness({
       narrator: (emit) => {
         const feed = { events: [] as string[], closed: false, emit }
@@ -531,8 +531,8 @@ describe('the kind of a Session (worfy-product-session ticket 01)', () => {
     expect(made[0]!.events).toEqual(expect.arrayContaining(['prompt', 'state', 'result']))
 
     const after = h.view(product.nodeId).sessionId
-    made[0]!.emit(['Reads the roadmap'])
-    expect(h.broadcast.at(-1)).toStrictEqual({ sessionId: after, event: { type: 'narration', lines: ['Reads the roadmap'] } })
+    made[0]!.emit(['Reads the roadmap'], 4)
+    expect(h.broadcast.at(-1)).toStrictEqual({ sessionId: after, event: { type: 'narration', lines: ['Reads the roadmap'], first: 4 } })
     // No event of the Session's own: the narrator's lines go to the windows only.
     expect(h.broadcast.filter((each) => each.event.type === 'narration')).toHaveLength(1)
 

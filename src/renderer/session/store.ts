@@ -57,8 +57,8 @@ export interface SessionLog {
   modelPick: { model: string | null } | null
   /** How full the context window is, by the last `context` event; null: no data. */
   context: ContextUsage | null
-  /** The live summary of the running turn, by the last `narration` event, oldest first; absent: none. */
-  narration?: readonly string[]
+  /** The live summary of the running turn, by the last `narration` event: its lines, oldest first, and the number of the first; absent: none. */
+  narration?: NarrationLines
 }
 
 interface LogsStore {
@@ -66,7 +66,13 @@ interface LogsStore {
 }
 
 const EMPTY: readonly AgentEvent[] = []
-const EMPTY_LINES: readonly string[] = []
+/** The live summary's lines, oldest first, and the number of the first among the turn's lines (Narration.tsx). */
+export interface NarrationLines {
+  lines: readonly string[]
+  first: number
+}
+
+const NO_NARRATION: NarrationLines = { lines: [], first: 0 }
 const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null, modelPick: null, context: null }
 
 export const useSessionLogs = create<LogsStore>(() => ({ logs: {} }))
@@ -117,7 +123,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             settings: after?.settings ?? before.settings,
             modelPick,
             context: after?.context ?? before.context,
-            narration: after?.narration ?? before.narration ?? EMPTY_LINES,
+            narration: after?.narration ?? before.narration ?? NO_NARRATION,
           },
         },
       }
@@ -131,7 +137,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
       case 'context':
         return { ...log, context: event.usage }
       case 'narration':
-        return { ...log, narration: event.lines }
+        return { ...log, narration: { lines: event.lines, first: event.first } }
       case 'settings': {
         const picked = log.settings !== null && event.settings.model !== log.settings.model
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
@@ -139,7 +145,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
       case 'prompt':
         return {
           ...log,
-          narration: EMPTY_LINES,
+          narration: NO_NARRATION,
           ...append(log, { type: 'notice', kind: 'user', text: event.text, ...(event.attachments?.length ? { attachments: event.attachments } : {}), at: event.at }),
           echo: event.text,
         }
@@ -150,7 +156,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
           ...append(log, event),
           echo: event.type === 'result' ? null : log.echo,
           modelPick: event.type === 'init' ? null : log.modelPick,
-          ...(event.type === 'result' ? { narration: EMPTY_LINES } : {}),
+          ...(event.type === 'result' ? { narration: NO_NARRATION } : {}),
         }
     }
   })

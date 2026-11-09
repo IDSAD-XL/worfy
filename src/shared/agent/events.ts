@@ -134,10 +134,11 @@ export const agentEvent = z.discriminatedUnion('type', [
   timed({ type: z.literal('context'), usage: contextUsageSchema.nullable() }),
   /**
    * The live summary of a Product Session's turn (worfy-product-session ticket 32, src/main/agent/narrator.ts):
-   * the lines to show under the status line now, oldest first; empty when the turn ended. Not part of the
-   * transcript: the window keeps only the latest, as it does a `queue` or `context` event.
+   * the lines to show under the status line now, oldest first; empty when the turn ended. `first` numbers the first
+   * of them among the lines of the turn, from 0, so each line keeps its number — and the window its element — as the
+   * oldest go. Not part of the transcript: the window keeps only the latest, as it does a `queue` or `context` event.
    */
-  timed({ type: z.literal('narration'), lines: z.array(z.string()) }),
+  timed({ type: z.literal('narration'), lines: z.array(z.string()), first: z.number().int().nonnegative() }),
   permissionRequestEvent,
   /**
    * A permission request was answered — `decision` is the id of the option picked — or `cancelled`

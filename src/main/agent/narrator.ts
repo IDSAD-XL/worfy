@@ -9,10 +9,11 @@
 //
 // The cadence (NarratorCadence): the first request only once the turn has run `firstMs`; then at most one request
 // per `everyMs`, counted from the start of the previous one, and only when new events of the turn came since it.
-// Never two requests at once. The end of the turn (`result`, an idle, error or closed state) stops the narrator at
-// once: a request in flight is aborted, and its late answer is dropped. A request that fails (an error, a Limit,
-// no Haiku for this login) silences the narrator for the rest of the turn; only the log says why. With the setting
-// off (`enabled`), no request is made at all.
+// Never two requests at once for one Product Session: each has its own narrator. The end of the turn (`result`, an
+// idle, error or closed state) stops the narrator at once: a request in flight is aborted, and its late answer is
+// dropped. A request that fails (an error, a Limit, no Haiku for this login) silences the narrator for the rest of
+// the turn; only the log says why. With the setting off (`enabled`), no request is made at all, and an answer that
+// comes after it was turned off is not shown.
 //
 // What the request reads is a digest of the turn (narratorDigest): the user's message, the latest tool calls with
 // short inputs, the latest text and thinking, and the narrator's own previous lines, NARRATOR_DIGEST_MAX characters
@@ -72,8 +73,8 @@ export interface NarratorDeps {
   ask: NarratorAsk
   /** Whether the person wants the live summary (Settings → Sessions); read before each request. */
   enabled: () => boolean
-  /** The lines to show now, oldest first; empty: show none. */
-  emit: (lines: readonly string[]) => void
+  /** The lines to show now, oldest first, and the number of the first among the turn's lines; empty: show none. */
+  emit: (lines: readonly string[], first: number) => void
   /** Where a failure is told; the chat never shows it. */
   log?: ((message: string) => void) | undefined
   clock?: NarratorClock | undefined
@@ -173,6 +174,8 @@ interface Turn {
   /** The text or thinking streaming now (delta events), its latest part. */
   streaming: DigestSnippet | null
   lines: string[]
+  /** How many lines the turn has shown in all. */
+  shown: number
   /** Counts the events that bring something new; `asked` is its value at the last request. */
   seen: number
   asked: number
@@ -234,7 +237,7 @@ export class Narrator {
   private begin(prompt: string): void {
     this.end()
     const now = this.clock.now()
-    this.turn = { startedAt: now, prompt, calls: [], snippets: [], streaming: null, lines: [], seen: 0, asked: 0, nextAt: now + this.cadence.firstMs, silenced: false, request: null }
+    this.turn = { startedAt: now, prompt, calls: [], snippets: [], streaming: null, lines: [], shown: 0, seen: 0, asked: 0, nextAt: now + this.cadence.firstMs, silenced: false, request: null }
     this.arm(this.cadence.firstMs)
   }
 
@@ -244,7 +247,7 @@ export class Narrator {
     this.turn = null
     this.disarm()
     turn.request?.abort()
-    if (turn.lines.length > 0) this.deps.emit([])
+    if (turn.lines.length > 0) this.deps.emit([], turn.shown)
   }
 
   private note(turn: Turn, event: AgentEvent): void {
@@ -314,25 +317,34 @@ export class Narrator {
     const request = new AbortController()
     turn.request = request
     this.inFlight = true
-    let answer: string
+    let answer: string | null = null
+    let failure: { error: unknown } | null = null
     try {
       answer = await this.deps.ask(digest, request.signal)
     } catch (error) {
-      if (this.turn === turn && !request.signal.aborted) {
-        turn.silenced = true
-        this.deps.log?.(`the live summary stops for this turn: ${error instanceof Error ? error.message : String(error)}`)
-      }
-      return
+      failure = { error }
     } finally {
       this.inFlight = false
       if (turn.request === request) turn.request = null
     }
-    // The turn ended while the request was out: its answer is late.
-    if (this.turn !== turn || request.signal.aborted || this.closed) return
+    // The turn ended while the request was out: its answer or failure is late. A new turn may have
+    // waited for this request to finish before asking (one request at a time), so it is asked now.
+    if (this.turn !== turn || request.signal.aborted || this.closed) {
+      this.maybeAsk()
+      return
+    }
+    if (failure !== null) {
+      turn.silenced = true
+      this.deps.log?.(`the live summary stops for this turn: ${failure.error instanceof Error ? failure.error.message : String(failure.error)}`)
+      return
+    }
+    // Switched off while the request was out: its answer is not shown.
+    if (answer === null || !this.deps.enabled()) return
     const line = narratorLine(answer)
     if (line !== '' && line !== turn.lines.at(-1)) {
       turn.lines = [...turn.lines, line].slice(-NARRATOR_KEEP)
-      this.deps.emit(turn.lines)
+      turn.shown += 1
+      this.deps.emit(turn.lines, turn.shown - turn.lines.length)
     }
     this.maybeAsk()
   }
