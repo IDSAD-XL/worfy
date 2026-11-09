@@ -37,11 +37,17 @@ implementer-а и ревью», «Половина влита (Q4, Q7)»; «Tick
 
 - [ ] Contract test: Ticket из двух репозиториев, ревью отмечено на head одной ветки — стадия не дальше
       `agent-review`; на head-ах обеих — дальше.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-stages.test.ts test/unit/pipeline.test.ts test/contract/workflow-reader.test.ts` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 - [ ] Contract test: новый head одной ветки после ревью — Ticket снова на ревью.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-stages.test.ts test/unit/pipeline.test.ts test/contract/workflow-reader.test.ts` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 - [ ] Contract test: красный CI любого PR — красный Ticket.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-stages.test.ts test/unit/pipeline.test.ts test/contract/workflow-reader.test.ts` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 - [ ] Contract test: один PR влит, второй открыт — стадия по второму, `merged` = 1 из 2, статус `claimed`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-stages.test.ts test/unit/pipeline.test.ts test/contract/workflow-reader.test.ts` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 - [ ] Test: Ticket с одним репозиторием — стадии прежние.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/workflow-stages.test.ts test/unit/pipeline.test.ts test/contract/workflow-reader.test.ts` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1ef7646ad3b2d85968134b76143b6b98fba2a9ce
 
 ## Тесты
 
