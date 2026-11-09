@@ -42,6 +42,7 @@ Ticket-ы после того, как владелец прочтёт сравн
   - evidence: commit pass · ticket 62 Итог sections 3-5: A/B/C table, recommendation B, six follow-ups · - - · d1a2078cbd422e3507cdc3df329e1e9fc4939a7d
 - [ ] `critical-path` не читает status `review`: сейчас он ставится в момент merge, а не в момент вердикта; сначала
       продолжение 5 (ставить `review` в момент вердикта), потом чтение.
+  - evidence: commit pass · measurement: review status to merge median 0.2 min on 67 PRs; review round 1 finding: Green to merge collapsed to 0; Итог section 6, follow-up 5 · - - · 7d6af5e3a8e2ba50d6521a0d0a8bf13947ac8b93
 - [ ] Владелец прочёл рекомендацию (вручную).
 
 ## Тесты
