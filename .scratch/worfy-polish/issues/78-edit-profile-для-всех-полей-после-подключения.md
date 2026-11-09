@@ -56,12 +56,25 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
 ## Готово, когда
 
 - [ ] «Edit profile» открывает форму с текущими значениями всех полей из списка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
 - [ ] Правильная правка записана через `profile-set`; `bin/profile` печатает новое значение; commit в git Harness-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
 - [ ] Значение против схемы (пустая команда `verify`, `tickets.path` без `NN`, неизвестный `workflow.finish`) отклонено
   с причиной у поля; `profile.json` не изменился.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
 - [ ] Чужой fingerprint — отказ, форма перечитана.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
 - [ ] `mode` и `workflow.folder` в форме не правятся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
 - [ ] `docs/features/projects.md` (и перевод в `docs/features/ru/`) описывает «Edit profile».
+  - evidence: commit pass · Edit profile: every Profile field after the connection (worfy-polish 78) · - - · 00780e604
 
 ## Тесты
 
@@ -133,3 +146,10 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   удаляется (пустой ввод пишет `[]`).
 - ADR-0073 (пункт 1: «узкий: только `workflow.pipeline`») этим тикетом расширен на любое поле, кроме перечисленных;
   поправку ADR делает Orchestrator.
+- Mutation testing в отдельной копии под /tmp (`git worktree add --detach` + `pnpm install --frozen-lockfile`):
+  31 mutant, по одному на новый test — все убиты (Escape-test усилен после выжившего mutant-а: без
+  `stopPropagation` клавиша доходила до `document`).
+- `test/e2e/edit-profile.spec.ts` локально не прогнан: экран Mac был заблокирован (`IOConsoleLocked`) всё время работы —
+  e2e: deferred to gate full: screen locked. Его гоняет CI (`ci-ok`). Снимков диалога в тёмной теме поэтому нет.
+- Полный `pnpm test` под нагрузкой один раз упал на timeout-е `beforeAll` `test/unit/affected-tests.test.ts` (30 s);
+  отдельно — зелёный (113 s), в gate fast — зелёный.
