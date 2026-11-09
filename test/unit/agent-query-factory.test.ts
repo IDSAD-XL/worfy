@@ -2,7 +2,7 @@
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductWriteAnswer } from '../../src/main/agent/product-guard'
@@ -318,6 +318,24 @@ describe('a Product Session write outside its folder on the fake agent', () => {
     expect(git.results[2]).toEqual({ content: expect.stringContaining('.git') as unknown, is_error: true })
     expect(existsSync(join(project, '.git', 'hooks', 'pre-commit'))).toBe(false)
     expect(git.listed).toEqual([join(project, 'context', 'strong'), join(project, 'notes')])
+  })
+
+  it("closes worfy's data folder, the Claude home it reads, the user's own ~/.claude and the Harness to every write", async () => {
+    const { productClosedFolders, productHooks, fakePreToolUse } = await import('../../src/main/vendors/claude/query')
+    const env = { WORFY_DATA_DIR: join(top, 'data'), WORFY_CLAUDE_HOME: join(top, 'claude'), WORFY_HARNESS_HOME: join(top, 'harness') }
+    expect(productClosedFolders(env)).toEqual([join(top, 'data'), join(top, 'claude'), join(homedir(), '.claude'), join(top, 'harness')])
+    // The app's guard reads them from its own environment: here the worfy data folder of this test.
+    const asked: string[] = []
+    const run = fakePreToolUse(
+      await productHooks(
+        { ...request(), cwd: project, kind: 'product', askProductWrite: (question) => (asked.push(question.target.path), Promise.resolve('once')) },
+        () => Promise.resolve(join(project, 'docs', 'product')),
+        () => null,
+      ),
+    )
+    const said = await run?.({ toolName: 'Write', toolUseId: 't', input: { file_path: join(dataDir, 'projects.json') }, cwd: project }, new AbortController().signal)
+    expect(said?.decision).toBe('deny')
+    expect(asked).toEqual([])
   })
 
   it('makes no hooks for a plain Session', async () => {
