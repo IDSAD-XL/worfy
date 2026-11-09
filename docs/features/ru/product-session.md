@@ -55,13 +55,21 @@ Product Session предлагает и никогда не ставит Epic в
   советника с вариантами — карточки в чате, как у любой Session.
 - Thinking, вызовы tool-ов и их вывод (и упавший вызов), Subagent-ы, hook-и, notice Claude Code и добавленные им
   сообщения, «Turn finished» и slash-команды не показываются. Полный журнал — во Flight Recorder.
-- Пока идёт ход, в конце чата стоит «Advisor is thinking». Переключателя деталей нет.
+- Пока идёт ход, в конце чата стоит одна строка статуса: что советник делает сейчас и сколько идёт этот шаг, например
+  «Reading map.md · 4 s». Она меняется на каждом шаге и уходит, когда ход кончился. Шаг называет tool call, который ещё
+  не ответил: tool глаголом и его главный аргумент коротко, файл — по имени, без пути («Writing roadmap-section.md»,
+  «Searching the files for “pricing”», «Searching the web for …»). Tool-ы Mind map читаются как «Reading the roadmap
+  Mind map», «Adding an idea to the Mind map», «Recording a decision on the Mind map»; `product_save` — «Asking to save
+  the work»; qmd — «Searching the docs». Subagent показывает свой тип и описание («Critic is reviewing: Review the
+  roadmap draft»); что он делает внутри, строку не меняет. Незнакомый worfy tool — «Using <name>». Thinking и время
+  между ответом tool-а и следующим шагом — «Thinking…»; ответ, пока он идёт, — «Writing the answer». Строка выводится
+  только из событий Session: советника о ней не спрашивают. Переключателя деталей нет.
 - Поиск (⌘F) ищет только в том, что показывает чат, и только в прочитанных сообщениях: часть файла transcript-а за
   «Load earlier» не ищется, и строка поиска тогда пишет «Earlier messages not loaded».
 - В строке ввода — текст, Send, Interrupt во время хода и прикрепление файла или картинки. Pickers, context meter, чипа
   очереди и подсказок нет.
 - Сообщение, отправленное во время хода, ждёт в очереди Session, и чат сразу показывает его: пузырь владельца,
-  приглушённый, с надписью «queued» и без номера, последним в чате — ниже «Advisor is thinking» и ниже всего, что
+  приглушённый, с надписью «queued» и без номера, последним в чате — ниже строки статуса и ниже всего, что
   советник пишет тем временем. Несколько сообщений стоят в порядке отправки. Когда ход кончается, worfy отдаёт
   следующее советнику, и оно становится обычным сообщением со своим номером. «×» убирает сообщение из очереди до отправки.
 - Interrupt или падение процесса агента держат очередь: её сообщения подписаны «queued · held», а «Send queued» под
@@ -141,7 +149,8 @@ Harness читает эту переменную: с ней печатаются
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Шапка, тело, заголовок чата и полоса агентов |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | Список агентов: имена, состояния, возражения критика |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны; `chatQueue`: очередь, как её рисует чат |
-| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями и «Advisor is thinking» |
+| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями |
+| `src/renderer/session/advisor-status.ts`, `src/renderer/session/AdvisorStatus.tsx` | Строка статуса: шаг по последним событиям и его время |
 | `src/renderer/session/QueuedMessages.tsx` | Сообщения очереди в конце чата, «Send queued» и «×» |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | Строка ввода в одну линию, поиск по показанным строкам |
 | `src/renderer/session/SplitDivider.tsx` | Разделитель |
@@ -155,10 +164,14 @@ Harness читает эту переменную: с ней печатаются
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` в Product Session, папка Product Session по режиму.
 - `test/contract/product-save-signal.test.ts`: сигнал сохранения и его ответы, в том числе при Close и архиве.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: какие строки чат показывает и прячет,
-  пузыри, «Advisor is thinking», сообщения очереди, поиск, шапка и строка ввода против обычной Session.
+  пузыри, строка статуса, сообщения очереди, поиск, шапка и строка ввода против обычной Session.
+- `test/unit/advisor-status.test.tsx`: строка статуса для каждого вида шага, короткие аргументы, её время и когда оно
+  начинается заново.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: экран, разделитель, полоса и
   Node.
 - `test/e2e/new-product-session.spec.ts`: вход из Command palette в работающем приложении.
+- `test/e2e/product-session.spec.ts`: в работающем приложении строка статуса называет шаги скриптового хода (чтение
+  файла, потом критик) и уходит, когда ход кончился.
 
 ## Mind map
 

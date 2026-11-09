@@ -64,14 +64,23 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   Permission requests and the advisor's questions with options are cards in the chat, as in any Session.
 - Thinking, tool calls and their output (a failed call too), Subagents, hooks, Claude Code's notices and the messages it
   adds, "Turn finished" and slash commands are not shown. The whole log is in the Flight Recorder.
-- While a turn runs, "Advisor is thinking" stands at the end of the chat. There is no switch to show the details.
+- While a turn runs, one status line stands at the end of the chat: what the advisor is doing right now and how long this
+  step has taken, for example "Reading map.md · 4 s". It changes at each step and goes when the turn ends. A tool call
+  that has not answered names the step: the tool as a verb and its main argument made short, a file by its name
+  without the path ("Writing roadmap-section.md", "Searching the files for “pricing”", "Searching the web for …").
+  The Mind map tools read as "Reading the roadmap Mind map", "Adding an idea to the Mind map", "Recording a decision
+  on the Mind map"; `product_save` as "Asking to save the work"; qmd as "Searching the docs". A Subagent shows its type
+  and description ("Critic is reviewing: Review the roadmap draft"); what it does inside does not change the line. A
+  tool worfy does not know reads "Using <name>". Thinking, and the time between a tool's answer and the next step,
+  read "Thinking…"; the answer as it comes, "Writing the answer". The line is derived from the Session's events only:
+  the advisor is not asked for it. There is no switch to show the details.
 - Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
   file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
 - The input field is one line, as in the prototype: the attach button, a field in the interface font, Interrupt while a
   turn runs, and a text "Send" button. It keeps attaching a file or a picture. It has no pickers, context meter, queue
   chip or hints.
 - A message sent while a turn runs waits in the Session's queue, and the chat shows it at once: the owner's bubble,
-  dimmed, with "queued" and no number, last in the chat, below "Advisor is thinking" and below whatever the advisor
+  dimmed, with "queued" and no number, last in the chat, below the status line and below whatever the advisor
   writes meanwhile. Several wait in the order sent. Once the turn ends, worfy gives the next one to the advisor, and it
   becomes an ordinary message with its number. "×" takes a queued message out before it is sent.
 - Interrupt, or a crash of the agent's process, holds the queue: its messages say "queued · held", and "Send queued"
@@ -153,7 +162,8 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | The agents list: names, states, the critic's objections |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out; `chatQueue`: the queue as the chat draws it |
-| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles and "Advisor is thinking" |
+| `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles |
+| `src/renderer/session/advisor-status.ts`, `src/renderer/session/AdvisorStatus.tsx` | The status line: the step from the latest events, and its time |
 | `src/renderer/session/QueuedMessages.tsx` | The queued messages at the end of the chat, "Send queued" and "×" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
 | `src/renderer/session/SplitDivider.tsx` | The divider |
@@ -169,10 +179,14 @@ changes make one message. One signal runs at a time per Project.
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` in a Product Session, the Product Session folder by mode.
 - `test/contract/product-save-signal.test.ts`: the save signal and its answers, also on Close and archive.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: the rows the chat shows and hides, the
-  bubbles, "Advisor is thinking", the queued messages, find, the header and the input field against a plain Session.
+  bubbles, the status line, the queued messages, find, the header and the input field against a plain Session.
+- `test/unit/advisor-status.test.tsx`: the status line of each kind of step, short arguments, its time and when it
+  starts again.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
+- `test/e2e/product-session.spec.ts`: in the running app, the status line names the steps of a scripted turn (a file
+  read, then the critic) and goes when the turn ends.
 
 ## Mind map
 

@@ -789,10 +789,27 @@ body.w-split-dragging * {
 
 .w-pmsg--thinking .w-pmsg__meta {
   margin-bottom: 0;
+  min-width: 0;
+}
+
+/* The status line of a running turn (AdvisorStatus.tsx, ticket 29): one line, cut with an ellipsis in the narrow
+   column; the time of the step keeps its width as it ticks. */
+.w-pmsg__status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.w-pmsg__elapsed {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .w-pmsg__dots {
   display: inline-flex;
+  flex: none;
   gap: 3px;
 }
 
