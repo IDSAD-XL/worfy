@@ -826,14 +826,41 @@ export interface WorkflowSubscriber {
   send(delta: WorkflowDelta): void
 }
 
+interface HubProject {
+  watcher: Promise<WorkflowWatcher>
+  subscribers: Map<number | string, WorkflowSubscriber>
+  /** How many holds (`WorkflowHub.hold`) keep the watch closed now. */
+  held: number
+  /** While held: the model the subscribers were last sent, which the change after the hold is measured from. */
+  sent: WorkflowModel | null
+}
+
+/** Sends a change to the subscribers; one that reads only the Tickets' fields does not get a change of their text alone. */
+function deliver(project: Pick<HubProject, 'subscribers'>, delta: WorkflowDelta, textOnly: boolean): void {
+  for (const target of project.subscribers.values()) if (!(textOnly && target.fieldsOnly === true)) target.send(delta)
+}
+
 /**
  * One watcher per Project root, shared by every subscriber of that root. The watcher stops when
  * its last subscriber leaves.
  */
 export class WorkflowHub {
-  private readonly projects = new Map<string, { watcher: Promise<WorkflowWatcher>; subscribers: Map<number | string, WorkflowSubscriber> }>()
+  private readonly projects = new Map<string, HubProject>()
 
   constructor(private readonly options: Omit<WatchOptions, 'root' | 'onChange'>) {}
+
+  /** Starts the watcher of `key` for the subscribers of `project`. */
+  private start(key: string, project: Pick<HubProject, 'subscribers'>): Promise<WorkflowWatcher> {
+    return WorkflowWatcher.start({ ...this.options, root: key, onChange: (delta, textOnly) => deliver(project, delta, textOnly) })
+  }
+
+  /** A watcher that fails to start takes its Project out of the hub, unless another has taken its place. */
+  private forgetOnFailure(key: string, project: HubProject): void {
+    const watcher = project.watcher
+    watcher.catch(() => {
+      if (this.projects.get(key) === project && project.watcher === watcher) this.projects.delete(key)
+    })
+  }
 
   /** Starts watching `root` for `subscriber` (once per subscriber) and returns the current model. */
   async open(root: string, subscriber: WorkflowSubscriber): Promise<WorkflowModel> {
@@ -841,19 +868,51 @@ export class WorkflowHub {
     let project = this.projects.get(key)
     if (!project) {
       const subscribers = new Map<number | string, WorkflowSubscriber>()
-      const watcher = WorkflowWatcher.start({
-        ...this.options,
-        root: key,
-        onChange: (delta, textOnly) => {
-          for (const target of subscribers.values()) if (!(textOnly && target.fieldsOnly === true)) target.send(delta)
-        },
-      })
-      project = { watcher, subscribers }
-      this.projects.set(key, project)
-      watcher.catch(() => this.projects.delete(key))
+      const fresh: HubProject = { subscribers, held: 0, sent: null, watcher: this.start(key, { subscribers }) }
+      this.projects.set(key, fresh)
+      this.forgetOnFailure(key, fresh)
+      project = fresh
     }
     project.subscribers.set(subscriber.id, subscriber)
     return (await project.watcher).current
+  }
+
+  /**
+   * Closes the watch of `root` and keeps its subscribers while something else renames or removes
+   * the folders it watches: Windows refuses to rename a folder while a watch holds a handle inside
+   * it (EPERM), and the Harness's `project-connect --remove` renames the Profile folder, which holds
+   * a Silent Project's Workflow folder (src/main/projects/remove.ts). An `open` meanwhile gets the
+   * last model and starts nothing. The returned function watches `root` again for the subscribers
+   * left, once every hold of it has let go, and sends them what changed since the model they were
+   * last sent, with the same rule for a change of Tickets' text alone. When the last subscriber
+   * leaves during a hold, nothing is watched again. Nothing is held when `root` is not watched.
+   */
+  async hold(root: string): Promise<() => Promise<void>> {
+    const key = resolve(root)
+    const project = this.projects.get(key)
+    if (!project) return () => Promise.resolve()
+    project.held += 1
+    const first = project.held === 1
+    const before = await project.watcher.catch(() => null)
+    // What the subscribers were last sent: taken before the close, since a read running now still
+    // sets the watcher's model after it, and sends nothing then (the watch is closed).
+    if (first) project.sent = before ? before.current : null
+    await before?.close()
+    let released = false
+    return async () => {
+      if (released) return
+      released = true
+      project.held -= 1
+      if (project.held > 0 || this.projects.get(key) !== project) return
+      const sent = project.sent
+      project.sent = null
+      project.watcher = this.start(key, project)
+      this.forgetOnFailure(key, project)
+      const fresh = await project.watcher.catch(() => null)
+      if (fresh === null || this.projects.get(key) !== project) return
+      const delta = diffModels(sent, fresh.current)
+      if (delta) deliver(project, delta, sent !== null && onlyTextChanged(sent, fresh.current))
+    }
   }
 
   /**

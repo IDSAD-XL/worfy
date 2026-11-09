@@ -100,6 +100,61 @@ export const projectsSelect = invokeChannel('projects.select', projectId, projec
 /** Removes the Project from the list; its data folder stays. */
 export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema, 'project', 'write')
 
+// "Remove project…" (worfy-polish ticket 79, src/main/projects/remove.ts): the Project leaves this
+// Machine's Harness too — its Profile, its gate registry entries, the agents' marks and its qmd
+// collections, through `project-connect --remove` — so its folders can be connected again. The
+// repositories, their files and the user's tickets are never touched. `local`: only the screen of
+// the Machine whose Harness it is removes a Project from it; a Linked machine has "Remove from list".
+
+/** What "Remove project…" would remove and what stays; `refused` when the Project cannot be removed so. */
+export const removalPreviewSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('ready'),
+    /** The Profile's name, and the folder `project-connect --remove` deletes. */
+    profile: z.string().min(1),
+    profileDir: z.string().min(1),
+    /** The paths of its gate registry entries: freed for a new connection. */
+    paths: z.array(z.string()),
+    /** The agents' marks of the Profile, `<Harness home>/runs/<profile>/`. */
+    runs: z.string().min(1),
+    /** The qmd collections the Profile names; one another Profile names too stays. */
+    qmd: z.array(z.string()),
+    mode: z.enum(['full', 'silent']),
+    /**
+     * The Workflow folder of a Silent mode Profile; null in Full mode. `inside`: the default one, in
+     * the Profile folder (removed with it while it is empty); otherwise the user's own folder, which stays.
+     */
+    workflowFolder: z.object({ path: z.string().min(1), inside: z.boolean(), holdsFiles: z.boolean() }).nullable(),
+    /** Other listed Projects inside its folder, as `<name> (<path>)`: they share the Profile and stay in the list without it. */
+    alsoListed: z.array(z.string()),
+  }),
+  z.object({ status: z.literal('refused'), reason: z.string().min(1) }),
+])
+export type RemovalPreview = z.output<typeof removalPreviewSchema>
+
+export const projectsRemovalPreview = invokeChannel('projects.removal.preview', projectId, removalPreviewSchema, 'local')
+
+/**
+ * Removes the Project from the Harness of this Machine, then from the list. A refusal of the Harness
+ * leaves the Project in the list, with the script's words; `workflowFolder` names the default Workflow
+ * folder when it holds the project's own files, so the dialog can show it in Finder.
+ */
+export const projectsRemoveProject = invokeChannel(
+  'projects.removeProject',
+  projectId,
+  z.discriminatedUnion('status', [
+    z.object({ status: z.literal('removed'), state: projectsStateSchema, notes: z.array(z.string()) }),
+    z.object({ status: z.literal('refused'), reason: z.string().min(1), workflowFolder: z.string().nullable() }),
+  ]),
+  'local',
+)
+
+/**
+ * Shows the default Workflow folder of the Project's Profile in the file manager of this Machine (the
+ * path is main's own, never the window's). `local`, like the removal it belongs to.
+ */
+export const projectsRemovalReveal = invokeChannel('projects.removal.reveal', projectId, z.object({ path: z.string() }), 'local')
+
 export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsAnswerSchema, 'project', 'read')
 
 /** Saves the settings; a template with an unknown placeholder fails the input schema. */
@@ -461,6 +516,9 @@ declare module './channels' {
     'projects.add': typeof projectsAdd
     'projects.select': typeof projectsSelect
     'projects.remove': typeof projectsRemove
+    'projects.removal.preview': typeof projectsRemovalPreview
+    'projects.removeProject': typeof projectsRemoveProject
+    'projects.removal.reveal': typeof projectsRemovalReveal
     'projects.settings.get': typeof projectsSettingsGet
     'projects.settings.set': typeof projectsSettingsSet
     'projects.settings.defaults': typeof projectsSettingsDefaults

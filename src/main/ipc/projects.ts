@@ -1,7 +1,7 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import {
   projectsAdd,
   projectsBrowse,
@@ -22,7 +22,10 @@ import {
   projectsHold,
   projectsList,
   projectsPickFolder,
+  projectsRemovalPreview,
+  projectsRemovalReveal,
   projectsRemove,
+  projectsRemoveProject,
   projectsReviewerBuild,
   projectsReviewerDelete,
   projectsReviewerGet,
@@ -43,6 +46,7 @@ import { fakeQueryFactory } from '../agent/fake-query'
 import { toEveryWindow } from '../broadcast'
 import { clientOf, type Client } from '../clients'
 import { signInRegistry, type GhProgram } from '../github/accounts'
+import { gateRegistryRepos } from '../getting-started/demo'
 import { accountAuth, ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
@@ -52,6 +56,7 @@ import { isRemoteCall, localProjectRefusal, setLocalProjects } from '../link/cal
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
+import { ProjectRemover, removalPreview, type ProjectRemovalDeps } from '../projects/remove'
 import { deleteTeamReviewer, offerTeamReviewer, privateFolder, probeRunner, readProfileDir, readTeamReviewer, remindTeamReviewer } from '../projects/review-offer'
 import { readProjectSettings, writeHumanReviewOffer, writeHumanReviewReminder, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
@@ -209,6 +214,86 @@ export async function settleReviewOffers(): Promise<void> {
 }
 
 const listedIds = (): Set<string> => new Set(store.list().map((project) => project.id))
+
+// ── "Remove project…" (worfy-polish ticket 79, src/main/projects/remove.ts) ─────────────────────
+
+/** The removal's Project list, gate registry and bin/profile; the Orchestrators, watches and Sessions are added per removal. */
+const removalBase = (): Omit<ProjectRemovalDeps, 'stopOrchestrators' | 'holdWatches' | 'sessions'> => ({
+  projects: {
+    get: (id) => store.get(id),
+    list: () => store.list(),
+    // As projects.remove does: the Layout written while the Project is listed, forgotten once it is out.
+    remove: (id) => {
+      layoutStore().flush(id)
+      store.remove(id)
+      layoutStore().forget(id)
+    },
+  },
+  harnessHome: () => locateHarness(harnessHomes(claudeHome())).harnessHome,
+  profileDir: appProfileDir,
+  registeredRepos: gateRegistryRepos(() => locateHarness(harnessHomes(claudeHome())).gateDir),
+  connect: appConnectScript(),
+})
+
+let remover: ProjectRemover | undefined
+
+/**
+ * The app's remover, made on the first call. The Orchestrators, the Session registry and the
+ * Tickets and documents hubs are imported on a removal, not with this module: loading the list's
+ * handlers starts none of them.
+ */
+function projectRemover(): ProjectRemover {
+  remover ??= new ProjectRemover(async () => {
+    const [{ keepClosed, sharedOrchestrators }, { sharedRegistry }, { workflowHub }, { docsHub }] = await Promise.all([
+      import('../agent/app-orchestrators'),
+      import('../agent/app-registry'),
+      import('./workflow'),
+      import('./docs'),
+    ])
+    const registry = sharedRegistry()
+    return {
+      ...removalBase(),
+      // The Tickets watch is keyed by the Project's folder, the documents' by its id.
+      holdWatches: async (projects) => {
+        const holds = await Promise.all(projects.flatMap((project) => [workflowHub.hold(project.path), docsHub.hold(project.id)]))
+        return async () => {
+          await Promise.all(holds.map((watchAgain) => watchAgain()))
+        }
+      },
+      stopOrchestrators: (projectIds) => {
+        sharedOrchestrators().retain(new Set(store.list().map((project) => project.id).filter((id) => !projectIds.includes(id))))
+        const releases = projectIds.map((id) => keepClosed(id))
+        return () => {
+          for (const release of releases) release()
+        }
+      },
+      sessions: {
+        list: () => registry.list().map(({ sessionId, cwd }) => ({ sessionId, cwd })),
+        close: async (sessionId) => {
+          let session: ReturnType<typeof registry.get>
+          try {
+            session = registry.get(sessionId)
+          } catch {
+            // Closed meanwhile.
+            return
+          }
+          registry.noteInput(sessionId, 'closed the Session (Remove project)')
+          session.close()
+          await session.exited()
+        },
+      },
+    }
+  })
+  return remover
+}
+
+/** The default Workflow folder of the Project's Profile, or why there is none to show. */
+async function defaultWorkflowFolder(id: string): Promise<string> {
+  const preview = await removalPreview(removalBase(), id)
+  if (preview.status === 'refused') throw new Error(preview.reason)
+  if (preview.workflowFolder === null || !preview.workflowFolder.inside) throw new Error(`the Profile ${preview.profile} has no Workflow folder inside its folder`)
+  return preview.workflowFolder.path
+}
 
 // "Sign in with gh" of the account step: `gh auth login` in a pseudo-terminal of its own, through
 // the Terminal Nodes' registry (replay, size, SIGHUP then SIGKILL on close), but with gh itself as
@@ -394,6 +479,21 @@ export default [
     store.remove(id, { keepActive: isRemoteCall(event) })
     layoutStore().forget(id)
     return visibleTo(event, await store.states())
+  }),
+
+  defineHandler(projectsRemovalPreview, ({ id }) => removalPreview(removalBase(), id)),
+
+  // `local`: a Linked machine never reaches these three, so the state is this Machine's own list.
+  defineHandler(projectsRemoveProject, async ({ id }) => {
+    const result = await projectRemover().remove(id)
+    if (result.status === 'refused') return result
+    return { status: 'removed' as const, state: await store.state(), notes: result.notes }
+  }),
+
+  defineHandler(projectsRemovalReveal, async ({ id }) => {
+    const path = await defaultWorkflowFolder(id)
+    shell.showItemInFolder(path)
+    return { path }
   }),
 
   // A screen of a Linked machine shows a Project of this Machine (worfy-link ticket 09): its

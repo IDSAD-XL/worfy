@@ -165,6 +165,11 @@ function machinesBridge(options: {
       case 'gateQueue.get':
       case 'actions.gateQueue':
         return gate(channel)
+      // "Remove project…" (worfy-polish ticket 79): this Machine's own channels.
+      case 'projects.removal.preview':
+        return { ok: true, value: { status: 'refused', reason: 'The Profile x also covers /elsewhere.' } }
+      case 'projects.remove':
+        return { ok: true, value: listOf('studio', 'studio-one-00000001') }
       case 'linked.invoke': {
         const call = input as { machine: string; channel: string }
         const held = options.held
@@ -304,6 +309,8 @@ describe('the Projects of Linked machines', () => {
     // A row of Zeta, with Full access: as before.
     fireEvent.contextMenu(within(zeta!).getAllByTestId('project-row')[0]!)
     expect(screen.getByRole('menuitem', { name: 'Remove from list' }).getAttribute('aria-disabled')).toBeNull()
+    // "Remove project…" removes from the Harness of this Machine only (worfy-polish ticket 79): never on a Linked machine's row.
+    expect(screen.queryByRole('menuitem', { name: 'Remove project…' })).toBeNull()
     fireEvent.keyDown(screen.getByRole('menu', { name: 'Project' }), { key: 'Escape' })
 
     // Add project: Mini cannot be chosen and says why; Zeta can.
@@ -480,7 +487,7 @@ describe('the Projects of Linked machines', () => {
       await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(2))
       fireEvent.contextMenu(screen.getAllByTestId('project-row')[1]!)
       // Read on the row's Machine when the menu opens.
-      await waitFor(() => expect(items()).toEqual(['Project settings…', 'Process gate queue', 'Remove from list']))
+      await waitFor(() => expect(items()).toEqual(['Project settings…', 'Process gate queue', 'Remove from list', 'Remove project…']))
       expect(calls).toContainEqual(['gateQueue.get', { projectId: 'studio-two-00000002' }])
       fireEvent.click(screen.getByRole('menuitem', { name: 'Process gate queue' }))
       await waitFor(() => expect(screen.getByTestId('projects-notice').textContent).toBe('Sent to the Orchestrator of studio two: /worfy:gate-queue'))
@@ -516,7 +523,21 @@ describe('the Projects of Linked machines', () => {
       fireEvent.contextMenu(screen.getAllByTestId('project-row')[0]!)
       await waitFor(() => expect(calls).toContainEqual(['gateQueue.get', { projectId: 'studio-one-00000001' }]))
       await act(async () => undefined)
-      expect(items()).toEqual(['Project settings…', 'Remove from list'])
+      expect(items()).toEqual(['Project settings…', 'Remove from list', 'Remove project…'])
     })
+  })
+
+  it('"Remove from list" inside the "Remove project…" dialog removes from the list only, on this Machine, and closes the dialog', async () => {
+    const { calls } = await loadModules({ link: linkState([]), linked: linkedState([]) })
+    const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+    render(<ProjectsSection />)
+    await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(2))
+    fireEvent.contextMenu(screen.getAllByTestId('project-row')[1]!)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove project…' }))
+    await screen.findByTestId('remove-project-refused')
+    fireEvent.click(screen.getByTestId('remove-project-list-only'))
+    await waitFor(() => expect(calls.filter(([channel]) => channel === 'projects.remove')).toEqual([['projects.remove', { id: 'studio-two-00000002' }]]))
+    expect(screen.queryByTestId('remove-project')).toBeNull()
+    expect(calls.map(([channel]) => channel)).not.toContain('projects.removeProject')
   })
 })

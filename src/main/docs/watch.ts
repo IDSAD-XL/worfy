@@ -621,6 +621,12 @@ export interface DocsHubOptions {
 interface OpenProject {
   watcher: Promise<DocsWatcher>
   subscribers: Map<number | string, DocsSubscriber>
+  /** Makes the watcher anew with the options it was started with and this label (`DocsHub.hold`). */
+  start: (adrStatusLabel: string | undefined) => Promise<DocsWatcher>
+  /** The label of the last open, taken by a watcher made anew. */
+  adrStatusLabel: string | undefined
+  /** How many holds keep the watch closed now. */
+  held: number
 }
 
 /** One watcher per Project, shared by its subscribers; it stops when the last one leaves. */
@@ -648,9 +654,9 @@ export class DocsHub {
     const fresh = !project
     if (!project) {
       const subscribers = new Map<number | string, DocsSubscriber>()
-      const watcher = DocsWatcher.start({
+      const start = (label: string | undefined): Promise<DocsWatcher> => DocsWatcher.start({
         root,
-        ...(adrStatusLabel === undefined ? {} : { adrStatusLabel }),
+        ...(label === undefined ? {} : { adrStatusLabel: label }),
         ...(this.options.debounceMs === undefined ? {} : { debounceMs: this.options.debounceMs }),
         onChange: (docs) => {
           const state = { projectId, ...docs }
@@ -666,19 +672,54 @@ export class DocsHub {
               },
             }),
       })
-      project = { watcher, subscribers }
+      project = { watcher: start(adrStatusLabel), subscribers, start, adrStatusLabel, held: 0 }
       this.open_.set(projectId, project)
-      watcher.then(
-        (started) => this.notify({ projectId, ...started.current }),
-        () => {
-          if (this.open_.get(projectId)?.watcher === watcher) this.open_.delete(projectId)
-        },
-      )
+      this.follow(projectId, project.watcher)
     }
     project.subscribers.set(subscriber.id, subscriber)
+    if (!fresh) project.adrStatusLabel = adrStatusLabel
     const watcher = await project.watcher
     if (!fresh) await watcher.relabel(adrStatusLabel)
     return { projectId, ...watcher.current }
+  }
+
+  /** Reports the first state of a watcher that started; one that did not takes its Project out. */
+  private follow(projectId: string, watcher: Promise<DocsWatcher>): void {
+    watcher.then(
+      (started) => this.notify({ projectId, ...started.current }),
+      () => {
+        if (this.open_.get(projectId)?.watcher === watcher) this.open_.delete(projectId)
+      },
+    )
+  }
+
+  /**
+   * Closes the watch of the Project and keeps its subscribers while something else renames or
+   * removes the folder it watches: Windows refuses to rename a folder while a watch holds a handle
+   * inside it (EPERM), and the Harness's `project-connect --remove` renames the Profile folder, which
+   * holds a Silent Project's Workflow folder, the root watched here (src/main/projects/remove.ts).
+   * The returned function watches it again for the subscribers left, once every hold has let go,
+   * and sends them its state. Nothing is held when the Project is not watched.
+   */
+  async hold(projectId: string): Promise<() => Promise<void>> {
+    const project = this.open_.get(projectId)
+    if (!project) return () => Promise.resolve()
+    project.held += 1
+    await (await project.watcher.catch(() => null))?.close()
+    let released = false
+    return async () => {
+      if (released) return
+      released = true
+      project.held -= 1
+      if (project.held > 0 || this.open_.get(projectId) !== project) return
+      const watcher = project.start(project.adrStatusLabel)
+      project.watcher = watcher
+      this.follow(projectId, watcher)
+      const fresh = await watcher.catch(() => null)
+      if (fresh === null || project.watcher !== watcher) return
+      const state = { projectId, ...fresh.current }
+      for (const target of project.subscribers.values()) target.send(state)
+    }
   }
 
   /**
