@@ -100,5 +100,6 @@ Status: claimed 2026-11-09T17:55Z
   `src/renderer/session/Narration.tsx` (новый), `src/renderer/session/session.css` (только `.w-pmsg…`)
 - `src/renderer/settings/SessionsSection.tsx`
 - `test/unit/narrator.test.ts`, `test/unit/narrator-options.test.ts`, `test/unit/product-transcript.test.tsx`,
-  `test/contract/node-sessions.test.ts`, `test/e2e/product-session.spec.ts`, `test/fixtures/agent-scripts/narrator.jsonl`
+  `test/contract/node-sessions.test.ts`, `test/contract/app-settings.test.ts`, `test/e2e/product-session.spec.ts`,
+  `test/fixtures/agent-scripts/narrator.jsonl`
 - `docs/features/product-session.md`

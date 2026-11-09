@@ -717,6 +717,16 @@ describe('appSettings channels', () => {
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { productSession: { split: 0.1 } } })
   })
 
+  it('appSettings.set turns the live summary of a Product Session off and on, keeping the divider (worfy-product-session ticket 32)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.get')).not.toMatchObject({ value: { productSession: { liveSummary: expect.anything() as unknown } } })
+    expect(await call('appSettings.set', { productSession: { split: 0.7 } })).toMatchObject({ ok: true })
+    expect(await call('appSettings.set', { productSession: { liveSummary: false } })).toMatchObject({ ok: true, value: { productSession: { split: 0.7, liveSummary: false } } })
+    expect(await call('appSettings.set', { productSession: { split: 0.5 } })).toMatchObject({ ok: true, value: { productSession: { split: 0.5, liveSummary: false } } })
+    expect((await call('appSettings.set', { productSession: { liveSummary: 'no' } })).ok).toBe(false)
+    expect(await call('appSettings.set', { productSession: { liveSummary: true } })).toMatchObject({ ok: true, value: { productSession: { split: 0.5, liveSummary: true } } })
+  })
+
   it('a change made in main (a menu item) reaches every window too', async () => {
     await windowCaller()
     const { appSettingsStore } = await import('../../src/main/settings/store')

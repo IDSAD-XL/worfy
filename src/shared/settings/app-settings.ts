@@ -354,9 +354,12 @@ export const appSettingsPatchSchema = z.object({
   guideLanguage: guideLanguageSchema.optional(),
   /**
    * The divider of a Product Session — a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is
-   * refused — and its live summary; a field left out stays as it is.
+   * refused — and its live summary; a field left out stays as it is, and a change that names neither is refused.
    */
-  productSession: z.object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() }).optional(),
+  productSession: z
+    .object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() })
+    .refine((change) => change.split !== undefined || change.liveSummary !== undefined, 'a Product Session change names the split or the live summary')
+    .optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
