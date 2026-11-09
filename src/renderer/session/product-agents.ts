@@ -81,15 +81,94 @@ const CRITIC_FILE = /(?:^|[\\/])critic[\\/][^\\/]+\.md$/u
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-/** The text of the last review the critic wrote with Write in these events; undefined when it wrote none. */
-export function criticReviewOf(events: readonly AgentEvent[]): string | undefined {
+/** The file and the text of the last review the critic wrote with Write in these events; undefined when it wrote none. */
+export function criticWriteOf(events: readonly AgentEvent[]): { path: string; text: string } | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]!
     if (event.type !== 'tool_use' || event.name !== 'Write' || !isObject(event.input)) continue
     const { file_path: path, content } = event.input
-    if (typeof path === 'string' && typeof content === 'string' && CRITIC_FILE.test(path)) return content
+    if (typeof path === 'string' && typeof content === 'string' && CRITIC_FILE.test(path)) return { path, text: content }
   }
   return undefined
+}
+
+/** The text of the last review the critic wrote with Write in these events; undefined when it wrote none. */
+export function criticReviewOf(events: readonly AgentEvent[]): string | undefined {
+  return criticWriteOf(events)?.text
+}
+
+/** The last name of a path, with `/` or `\`. */
+export function fileNameOf(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+}
+
+/** `worfy:product-ideas` (or the bare `product-ideas`): the Idea generator. */
+export const isIdeaGenerator = (info: Pick<SubagentInfo, 'subagentType'>): boolean => harnessType(info) === 'product-ideas'
+
+/**
+ * The agent of `agents` (the whole flattened tree) the Critic or Idea generator button opens (ticket 27): the one
+ * that `is` and started last; one with no start time only when none has one. Undefined when the Session has none.
+ */
+export function latestAgent(agents: readonly SubagentInfo[], is: (info: SubagentInfo) => boolean): SubagentInfo | undefined {
+  return agents.filter(is).sort(byLaterStart)[0]
+}
+
+/**
+ * The last answer of an agent in its own transcript: the text of its last assistant message, its parts joined.
+ * Undefined while it has written no text.
+ */
+export function lastAnswerOf(events: readonly AgentEvent[]): string | undefined {
+  let messageId: string | undefined
+  const parts: string[] = []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!
+    if (event.type !== 'text' || event.synthetic) continue
+    if (messageId === undefined) messageId = event.messageId
+    else if (event.messageId !== messageId) break
+    parts.unshift(event.text)
+  }
+  const text = parts.join('\n\n').trim()
+  return text === '' ? undefined : text
+}
+
+/**
+ * A draft of the advisor (`docs/product/<topic>/drafts/<epic>.md`, or `<Workflow folder>/product/…` in Silent
+ * mode; src/shared/product/paths.ts): the topic, the file name, the whole path as written, the text of its last
+ * Write — null when the chat holds only Edits of it — whether an Edit came after that Write, and how many times
+ * the chat wrote or edited it.
+ */
+export interface ProductDraft {
+  path: string
+  topic: string
+  file: string
+  text: string | null
+  editedSince: boolean
+  writes: number
+}
+
+const DRAFT_FILE = /(?:^|[\\/])product[\\/]([^\\/]+)[\\/]drafts[\\/]([^\\/]+\.md)$/u
+const WRITING_TOOLS = new Set(['Write', 'Edit', 'MultiEdit'])
+
+/**
+ * The drafts these events of a Session wrote (ticket 27): one per file, the last written first. The renderer
+ * lists no folder of the Project (no IPC serves `drafts/`), so the list is what the loaded part of the chat
+ * wrote; a draft written before it, or by hand, is not in it.
+ */
+export function draftsOf(events: readonly AgentEvent[]): ProductDraft[] {
+  const drafts = new Map<string, ProductDraft>()
+  for (const event of events) {
+    if (event.type !== 'tool_use' || !WRITING_TOOLS.has(event.name) || !isObject(event.input)) continue
+    const { file_path: path, content } = event.input
+    if (typeof path !== 'string') continue
+    const match = DRAFT_FILE.exec(path)
+    if (match === null) continue
+    const was = drafts.get(path)
+    const whole = event.name === 'Write' && typeof content === 'string'
+    const text = whole ? content : (was?.text ?? null)
+    drafts.delete(path)
+    drafts.set(path, { path, topic: match[1]!, file: match[2]!, text, editedSince: !whole && text !== null, writes: (was?.writes ?? 0) + 1 })
+  }
+  return [...drafts.values()].reverse()
 }
 
 /**

@@ -49,6 +49,21 @@
   font-size: 14px;
 }
 
+/* The prototype's violet «Product Session» label in place of the icon (worfy-product-session ticket 27): the
+   theme's violet (--span-verifier, the prototype's --product) on a tint of it. */
+.w-session__product-label {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--span-verifier) 35%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--span-verifier) 12%, transparent);
+  color: var(--span-verifier);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .w-session__icon {
   width: 24px;
   height: 24px;
@@ -429,6 +444,7 @@ body.w-split-dragging * {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 6px;
   padding-top: var(--space-2);
 }
 
@@ -459,7 +475,8 @@ body.w-split-dragging * {
   padding: 0 3px;
   box-sizing: border-box;
   border-radius: 7px;
-  background: var(--accent);
+  /* The prototype's Product violet (ticket 27). */
+  background: var(--span-verifier);
   color: var(--bg);
   font-size: 9.5px;
   font-weight: 700;
@@ -572,6 +589,68 @@ body.w-split-dragging * {
   margin: 0;
   font-size: var(--text-12);
   color: var(--text-muted);
+}
+
+/* The Critic, Idea generator and Drafts panels (ProductRailPanels.tsx, ticket 27). */
+.w-product__rail-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.w-product__rail-agent .w-product__agent-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.w-product__rail-file {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-product__rail-text {
+  min-width: 0;
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+/* A review or a draft in a 260 px column: its headings no larger than the panel's own. */
+.w-product__rail-text .w-md h1,
+.w-product__rail-text .w-md h2 {
+  font-size: var(--text-13);
+}
+
+.w-product__rail-text .w-md h3,
+.w-product__rail-text .w-md h4,
+.w-product__rail-text .w-md h5,
+.w-product__rail-text .w-md h6 {
+  font-size: var(--text-12);
+}
+
+.w-product__draft-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.w-product__draft-button .w-product__agent-name {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.w-product__agent > .w-product__rail-text {
+  margin-top: var(--space-2);
 }
 
 @keyframes w-product-agent-blink {
