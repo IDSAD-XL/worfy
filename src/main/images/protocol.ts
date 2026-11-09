@@ -117,8 +117,8 @@ export interface ImageFileOptions {
   read?: (path: string) => Promise<Uint8Array>
   /** Opens a file of a `media` store for reading (fs.open); rejects when it cannot. */
   open?: (path: string) => Promise<MediaFile>
-  /** lstat of a path: the file the name leads to now, by device and inode. */
-  lstat?: (path: string) => Promise<FileIdentity>
+  /** lstat of a path (fs.lstat with `bigint`): the file the name leads to now, by device and inode. */
+  lstat?: (path: string, options: { bigint: true }) => Promise<FileIdentity>
 }
 
 const fileSizeOf = async (path: string): Promise<number | null> => {
@@ -247,15 +247,19 @@ export function byteRange(header: string | null | undefined, size: number): Byte
   return { start, end: last === '' ? size - 1 : Math.min(Number(last), size - 1) }
 }
 
-/** What tells one file from another: its device and inode (fs.Stats). */
+/**
+ * What tells one file from another: its device and inode (fs.BigIntStats). Read as bigints: on Windows
+ * the NTFS file id has 64 bits and a number keeps 53, so two files made one after the other could get
+ * one inode as numbers, and another file put at the path would pass for the one opened (worfy-polish 47).
+ */
 export interface FileIdentity {
-  dev: number
-  ino: number
+  dev: bigint
+  ino: bigint
 }
 
 /** An open file of a `media` store: the part of fs/promises' FileHandle the handler uses. */
 export interface MediaFile {
-  stat(): Promise<FileIdentity & { size: number }>
+  stat(options: { bigint: true }): Promise<FileIdentity & { size: bigint }>
   read(buffer: Uint8Array, offset: number, length: number, position: number): Promise<{ bytesRead: number }>
   close(): Promise<void>
 }
@@ -277,9 +281,9 @@ async function mediaResponse(method: string, extension: string, file: string, li
     return notFound()
   }
   try {
-    const [opened, named] = await Promise.all([handle.stat(), (options.lstat ?? lstat)(file)])
+    const [opened, named] = await Promise.all([handle.stat({ bigint: true }), (options.lstat ?? lstat)(file, { bigint: true })])
     if (opened.dev !== named.dev || opened.ino !== named.ino) return notFound()
-    const size = opened.size
+    const size = Number(opened.size)
     if (size > limit) return tooLargeMedia(limit)
     const headers = { ...IMAGE_HEADERS, 'Content-Type': EVIDENCE_CONTENT_TYPES[extension] ?? 'application/octet-stream', 'Accept-Ranges': 'bytes' }
     const range = byteRange(header, size)
