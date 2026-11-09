@@ -49,16 +49,26 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
 
 - [ ] Contract test: Project из двух репозиториев — поиск называет оба `repo:`, детали спрашивают только PR со
       сдвинутым `updatedAt`; чужой репозиторий того же аккаунта не спрашивается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: поиск — раз в 5 минут; `GET /notifications` не вызывается ни разу.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: `refresh(repo, number)` читает детали этого PR сразу, вне очереди поиска.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: 504 на деталях — повтор с половиной страницы; ошибка подряд — удвоение интервала до 30 минут.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: два Project-а одного аккаунта — один запрос деталей на PR.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: `prInbox: false` — ни одного вызова gh для Project-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: за N циклов чтения журнал stub-а не содержит ни одной записи — ни `--method` кроме `GET`, ни
       `mutation`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Contract test: `pr-inbox.json` после чтения — только id, sha и время; ни одного `body`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Unit test: группы по fixture-снимку (каждая из пяти, «via team», повторный запрос ревью после моего ревью).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-groups.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] Test: ничего не пишется в репозитории Project-а и в Claude home (ADR-0005).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts` exit 0 · mac - · 0d50c12435f3429be182643a44fc7129c6ef48bd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
 ## Тесты
@@ -111,3 +121,6 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
   `docs/features/storage-and-diagnostics.md` — строка `pr-inbox.json` и поле `prInbox` в таблице папки Project-а.
 - Запуск — `startPrInbox()` в `src/main/index.ts` рядом с gate queue: таймер раз в 30 с смотрит, чей поиск подошёл;
   первый `prInbox.get` читает Project сразу.
+- Mutation testing — в отдельной копии (`git worktree add --detach`), по одному mutant-у на каждый новый test: 29 из 29
+  убиты (13 contract, 15 unit, 1 в `projects.test.ts`); каждый mutant роняет ровно свой test при запуске `-t`.
+- Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (718 файлов test-ов), gate fast — exit 0, `[gate] green`.
