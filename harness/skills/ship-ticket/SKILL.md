@@ -139,7 +139,7 @@ agents; do not switch the global account without the owner's permission: other s
 If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
 `F github.account` and say so in the report.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change, one name in each `Repo:` repository.
 
 **`parallel: worktrees`.** Work from your own worktree from the first minute (`F worktree.implementer`,
 where `<branch>` = `F tickets.branch` (Silent mode: the branch above), `<ticket-name>` = `<NN>-<slug>`, and `<epic>`, `<NN>`, `<slug>`

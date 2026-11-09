@@ -1,7 +1,8 @@
 # 07 — Тексты skill-ов для `parallel: single` через несколько checkout-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T20:29Z
+Branch: worfy-multi-repo-ticket/07
 Blocked by: 01
 Source: [spec.md](../spec.md), «Для какого Project-а»; «Что видит пользователь», п. 2–6; «Как работает» → «Работа
 implementer-а и ревью (Ticket 07; Q5)», «Release и подъём версии», «Половина влита (Q4, Q7)»; «Решено без владельца»;

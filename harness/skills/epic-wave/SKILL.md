@@ -103,10 +103,35 @@ section 0: the workflow files live in the Workflow folder `F _resolved.workflow_
 commits, PRs and code comments carry no trace of the workflow. For the wave that means: the statuses go
 straight into the Workflow folder (`ticket` from any directory), a ticket's branch is the `Branch:` line
 of its file, there is no documents PR or documents commit in the repository (section 4, item 4), and in
-a project of several repositories each ticket works in the repository of its `Repo:` line (one ticket —
-one repository; paths — `F _resolved.repos`). Every brief, verdict and PR comment that reaches the
-repository or GitHub follows the same rule; the briefs to agents are not published and may name the
-ticket.
+a project of several repositories each ticket works in the repository of its `Repo:` line (paths —
+`F _resolved.repos`; a ticket with several `Repo:` lines — the next paragraph). Every brief, verdict
+and PR comment that reaches the repository or GitHub follows the same rule; the briefs to agents are
+not published and may name the ticket.
+
+**A ticket of several repositories** — more than one `Repo:` line; the order of the lines is the
+order of merge, the library first and its consumers after it. Such a project runs `parallel: single`
+and its people merge (`F workflow.merge` `null`): there is no `parallel: worktrees` and no `land`
+across several repositories.
+- The brief: `Repository:` is the common directory above the repositories; the worktree line says
+  "main checkouts <path>, <path>, no worktree, branch <branch> in each". The ticket holds every one
+  of those checkouts: the next ticket starts after it, as with `single` always. The implementer's
+  rules are in skill `/worfy:ship-ticket`, file `implementer-silent-mode.md`, "A ticket of several
+  repositories".
+- The gate fast runs in each checkout: each repository has its own gate entry.
+- One review verdict for the ticket (section 3), on the set of heads of all its branches. The
+  verifier gets the diff of every repository (`git -C <checkout> diff <base>...<branch>`) and checks
+  each and the seam between them: the calls match the library's API, and the library change is
+  backward compatible, so each PR is safe on its own after its merge and release. The `review` mark
+  goes on the head of each branch (`ticket mark … --sha <head>` once per repository). A new head of
+  any branch takes the verdict off the whole ticket; the new review looks at the delta and the seam.
+- After `review success` the orchestrator asks the implementer for the PRs: opened together, in the
+  order of the `Repo:` lines, each recorded with `ticket pr <epic> <NN> <repo>#<N>`. The consumer's PR
+  is a draft while its `Release:` line waits. No PR names or links another one: the PRs are tied
+  together only by the ticket file in the Workflow folder.
+- CI, the release, the merge by people and a ticket merged in some of its repositories — skill
+  `/worfy:ship-ticket`, step 9, "A ticket of several repositories". Its report row names its PRs with
+  their repositories, how many are merged (`1/2 merged`) and, while a `Release:` line waits,
+  `waits for release <version>`.
 
 Project pitfalls and what each `BLOCKED` reason of the preflight means are in the profile's
 `rules.md` (`"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --rules`); read it once, before the plan.
@@ -404,6 +429,7 @@ Worktree: <F worktree.implementer>, <branch> = <F tickets.branch>, <ticket-name>
         #   from the base" (with local-green — from the main branch after the previous ticket's local merge)
         # Silent mode: <branch> is a branch named by the change (ship-ticket, step 2), recorded with
         #   ticket claim <epic> <NN> --branch <branch>; Repository: the repository of the ticket's Repo: line
+        #   (several Repo: lines: "main checkouts <path>, <path>, no worktree, branch <branch> in each", section 0)
 Base: <base line from the preflight>
 Files: <exact list>
 Numbers: ADR-<NNNN> — create <F numbering.adr.dir>/<NNNN>-<slug>.md, as a placeholder first;
@@ -485,7 +511,8 @@ asked for through `SendMessage` after `review success`.
 Only with `agent-review` in the Pipeline (section 0); without it this section is skipped and the
 report says so. With `agent-review` before `ci` there is no PR yet: the verifier works on the
 ticket's branch, the checks of the PR below wait for step 8, and the review mark goes on the
-branch's head.
+branch's head. A ticket of several repositories gets one verdict on the heads of all its branches
+(section 0, "A ticket of several repositories").
 
 **First the CI of the head.** With `pr-green-ci` and `agent-review` after `ci` the orchestrator waits for CI on the PR head with the CI wait block of section 4 before `review pending` and the verifier: the
 implementer does not wait for CI. Red CI goes to a rework round (below) or to the project's quarantine rule, without a verifier. With `F workflow.ci` `batch` this step does not exist. A
@@ -955,7 +982,7 @@ by skill `/worfy:gate-queue` (section 1), before the wave, not here.
 
 **People in the Pipeline.** With `awaiting-merge` the wave merges no PR, and with `human-review` no PR
 whose review decision is not `APPROVED` (section 0): the ticket waits for people, and the wave goes on
-without it.
+without it. A ticket of several repositories is merged by people only (section 0).
 
 **Checks before merge** (a `check` Stage in the Pipeline, section 0). Before a PR merges — in a set,
 the old way or one after another — every Check of the Pipeline has its mark on the PR's head:

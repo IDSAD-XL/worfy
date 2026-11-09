@@ -16,4 +16,27 @@ one the brief names — named by the change, not by the ticket; `ticket claim <e
 code comments describe the change itself: no epic name, ticket or ADR number, Workflow folder path,
 `.scratch` or `HANDOFF`. The guard refuses commits, branch names and PR texts that carry them;
 `${CLAUDE_PLUGIN_ROOT}/bin/silent-check -C <tree> <text>` shows them first. In a project of
-several repositories you work in the repository of the ticket's `Repo:` line only.
+several repositories you work in the repository of the ticket's `Repo:` line only; a ticket with
+several `Repo:` lines works in each of them, by the paragraph below.
+
+**A ticket of several repositories** — its header has more than one `Repo:` line; their order is
+the order of merge, the library first and its consumers after it. There is no worktree for it
+(`parallel: single`): the ticket holds the main checkout of every repository it names (paths —
+`profile --field _resolved.repos`), and no other ticket works in them until it is closed.
+- The branch has one name in every one of those checkouts (skill `/worfy:ship-ticket`, step 2):
+  create it from the base in each and make the change of each repository there.
+- Each repository has its own gate entry: run the checks and the gate fast in each checkout
+  (`cd <checkout> && …`), each with its exit code, and report them per repository. Paths in the
+  report start with the name of the repository: `app/src/lots.ts`.
+- Each change is safe on its own: the library change is backward compatible, so a consumer that
+  still uses its old version keeps working after the library is merged and released. The reviewer
+  checks this.
+- The consumer's branch carries the bump of the library's version (its dependency range). Record
+  what it waits for: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" release <epic> <NN> <repo> tag <tag>` or
+  `… <repo> package <name>@<version>`, `<repo>` being the library's `Repo:` line.
+- No PR until `review success` on the heads of all the branches: the orchestrator asks for the PRs
+  then. Open them together, one per repository, in the order of the `Repo:` lines, and record each:
+  `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" pr <epic> <NN> <repo>#<N>`. The consumer's PR opens as a draft
+  (`gh pr create --draft`) while its `Release:` line waits. Each PR's title and description tell only
+  its own change: no link to the other PRs and no word about them. Run `silent-check -C <checkout>
+  <text>` on each in its own checkout.
