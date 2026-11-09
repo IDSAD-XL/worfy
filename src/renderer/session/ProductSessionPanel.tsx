@@ -22,9 +22,10 @@ import { SplitDivider } from './SplitDivider'
 // start of worfy show the same split. A double click puts it back to 60 / 40.
 //
 // The agents strip stands for the rail of a plain Session: a column of icons with the number of the
-// Session's Subagents; a click opens over the chat the list of those agents by name and state (ticket 20,
-// ProductAgentsList.tsx) — «Critic — working · 3 objections» — not the rail blocks of a plain Session. A
-// Product Session is bound to no Ticket and no Epic.
+// Session's Subagents; a click widens the column to 300 px, the chat narrowing, with the list of those
+// agents by name and state (tickets 20 and 22, ProductAgentsList.tsx) — «Critic», what it was asked, «working
+// · 1 min · 3 objections» — not the rail blocks of a plain Session. A Product Session is bound to no Ticket
+// and no Epic.
 //
 // The left pane draws the Mind map (../product/MindMap.tsx, ticket 08) of the topic the advisor works on.
 // A Product Session is bound to no topic in its data, so the pane follows the topic of the Project whose
@@ -216,7 +217,7 @@ function AgentsIcon() {
   )
 }
 
-/** The strip at the right edge; its list opens over the chat. */
+/** The strip at the right edge; its list widens the column to its right and the chat narrows (ticket 22). */
 function AgentsStrip({ agents, root, session }: { agents: readonly SubagentInfo[]; root: string | undefined; session: string | null }) {
   const count = agents.length
   const [open, setOpen] = useState(false)
@@ -232,22 +233,24 @@ function AgentsStrip({ agents, root, session }: { agents: readonly SubagentInfo[
     close()
   }
   return (
-    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents">
-      <button
-        ref={toggle}
-        type="button"
-        className="w-product__agents-button"
-        aria-expanded={open}
-        aria-controls={listId}
-        title={`Agents (${count})`}
-        data-testid="product-agents-toggle"
-        onClick={() => setOpen((was) => !was)}
-      >
-        <AgentsIcon />
-        <span className="w-product__agents-count w-mono" data-testid="product-agents-count">
-          {count}
-        </span>
-      </button>
+    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents" data-open={open || undefined}>
+      <div className="w-product__agents-strip">
+        <button
+          ref={toggle}
+          type="button"
+          className="w-product__agents-button"
+          aria-expanded={open}
+          aria-controls={listId}
+          title={`Agents (${count})`}
+          data-testid="product-agents-toggle"
+          onClick={() => setOpen((was) => !was)}
+        >
+          <AgentsIcon />
+          <span className="w-product__agents-count w-mono" data-testid="product-agents-count">
+            {count}
+          </span>
+        </button>
+      </div>
       {open ? (
         <div id={listId} className="w-product__agents-panel" role="region" aria-label="Agents" data-testid="product-agents-panel" onKeyDown={onKeyDown}>
           <div className="w-product__agents-head">

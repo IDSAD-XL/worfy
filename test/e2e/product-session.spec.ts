@@ -7,8 +7,8 @@ import { canvasReady, launchApp } from './helpers'
 
 // A Product Session's Mind map and chat together (worfy-product-session ticket 09), against the built
 // app on the fake agent (WORFY_AGENT=fake, set by launchApp). The script
-// test/fixtures/agent-scripts/product-mind-map.jsonl plays one turn: a `mind_map_add` call of topic
-// `roadmap`, its answer (the node as written) and the advisor's message. The fake agent plays SDK
+// test/fixtures/agent-scripts/product-mind-map.jsonl plays one turn: the advisor's message, then a
+// `mind_map_add` call of topic `roadmap` and its answer (the node as written). The fake agent plays SDK
 // messages and calls no MCP server, so the test writes mind-map.json as the tool would have; the
 // screen draws the node from the file without a reload, and the message carries the node's chip.
 // A drag of the node writes its place through `product.layout` into the file, and after a restart the
@@ -117,6 +117,22 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(card).toContainText('To change this node, ask the advisor in the chat.')
     await expect(card.locator('input, textarea, select, [contenteditable]')).toHaveCount(0)
     await card.getByRole('button', { name: 'Close the card' }).click()
+
+    // The agents list widens its column to 300 px and the chat narrows: nothing lies over the chat (ticket 22).
+    const chat = view.locator('section.w-session__main')
+    const column = view.getByTestId('product-agents')
+    const closed = { chat: (await chat.boundingBox())!.width, column: (await column.boundingBox())!.width }
+    expect(Math.round(closed.column)).toBe(40)
+    await view.getByTestId('product-agents-toggle').click()
+    const panel = view.getByTestId('product-agents-panel')
+    await expect(panel).toBeVisible()
+    await expect.poll(async () => Math.round((await column.boundingBox())!.width)).toBe(300)
+    const [chatBox, panelBox] = [(await chat.boundingBox())!, (await panel.boundingBox())!]
+    expect(chatBox.width).toBeLessThan(closed.chat)
+    expect(chatBox.x + chatBox.width).toBeLessThanOrEqual(panelBox.x + 1)
+    await view.getByTestId('product-agents-close').click()
+    await expect(panel).toHaveCount(0)
+    await expect.poll(async () => Math.round((await column.boundingBox())!.width)).toBe(40)
 
     // A drag with the mouse; let go, main writes the place into the file.
     const before = await drawnPlace(node)

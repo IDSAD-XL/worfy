@@ -390,7 +390,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, prod
   const sendButton = (
     <button
       type="button"
-      className="w-composer__send"
+      className={`w-composer__send${product ? ' w-composer__send--text' : ''}`}
       aria-label={busy ? 'Queue message' : 'Send message'}
       data-testid="input-send"
       data-getting-started-target={nodeId === undefined ? undefined : 'send'}
@@ -398,9 +398,63 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, prod
       disabled={!canSend}
       onClick={() => void send()}
     >
-      <SendIcon />
+      {product ? 'Send' : <SendIcon />}
     </button>
   )
+
+  const errorLine =
+    error !== null ? (
+      <div className="w-composer__error" role="alert" data-testid="input-error">
+        {error}
+      </div>
+    ) : null
+  const attachments = chips.length > 0 ? <AttachmentChips chips={chips} onRemove={(key) => changeChips((current) => current.filter((chip) => chip.key !== key))} /> : null
+  const fieldElement = (
+    <textarea
+      ref={field}
+      className="w-composer__field"
+      aria-label={`Message ${recipient}`}
+      placeholder={readOnly ?? (disabled ? 'The Session is not running' : `Message ${recipient}`)}
+      title={readOnly ?? undefined}
+      rows={1}
+      value={text}
+      disabled={disabled}
+      onChange={(event) => {
+        edit(event.target.value)
+        readCaret(event.target)
+      }}
+      onSelect={() => readCaret()}
+      onKeyUp={() => readCaret()}
+      onClick={() => readCaret()}
+      onKeyDown={onKeyDown}
+      onPaste={onPaste}
+    />
+  )
+
+  // A Product Session's field, as the owner's prototype has it (worfy-product-session ticket 22): one line —
+  // attaching, a one-line field in the UI font, Interrupt during a turn and a text Send button.
+  if (product) {
+    return (
+      <div className="w-composer w-composer--product" data-testid="message-input" data-toast-keep-out="">
+        <div className="w-composer__anchor">
+          {slash.element}
+          {attachments}
+          <div className="w-composer__line" data-line="product">
+            {attach}
+            {items(productItems)}
+            <div className="w-composer__box" data-disabled={disabled || undefined} data-testid="message-input-box">
+              {fieldElement}
+            </div>
+            {interruptButton}
+            <span className="w-composer__send-group" data-testid="input-send-group">
+              {sendButton}
+            </span>
+          </div>
+        </div>
+        {errorLine}
+      </div>
+    )
+  }
 
   return (
     <div className="w-composer" data-testid="message-input" data-toast-keep-out="">
@@ -411,67 +465,31 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, prod
           data-disabled={disabled || undefined}
           data-testid="message-input-box"
         >
-          {chips.length > 0 ? <AttachmentChips chips={chips} onRemove={(key) => changeChips((current) => current.filter((chip) => chip.key !== key))} /> : null}
-          <textarea
-            ref={field}
-            className="w-composer__field"
-            aria-label={`Message ${recipient}`}
-            placeholder={readOnly ?? (disabled ? 'The Session is not running' : `Message ${recipient}`)}
-            title={readOnly ?? undefined}
-            rows={1}
-            value={text}
-            disabled={disabled}
-            onChange={(event) => {
-              edit(event.target.value)
-              readCaret(event.target)
-            }}
-            onSelect={() => readCaret()}
-            onKeyUp={() => readCaret()}
-            onClick={() => readCaret()}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-          />
-          {product ? (
-            <div className="w-composer__bar">
-              <div className="w-composer__line" data-line="product">
-                {attach}
-                {items(productItems)}
-                <span className="w-composer__spacer" />
-                {interruptButton}
-                <span className="w-composer__send-group" data-testid="input-send-group">
-                  {sendButton}
-                </span>
-              </div>
+          {attachments}
+          {fieldElement}
+          <div className="w-composer__bar">
+            {/* The hint line: attach, the hints, the items that stand there (the context meter, the queue) and Interrupt. */}
+            <div className="w-composer__line" data-line="hint">
+              {attach}
+              <span className="w-composer__hint w-mono">{composerHint()}</span>
+              <span className="w-composer__spacer" />
+              {items(hintItems)}
+              {interruptButton}
             </div>
-          ) : (
-            <div className="w-composer__bar">
-              {/* The hint line: attach, the hints, the items that stand there (the context meter, the queue) and Interrupt. */}
-              <div className="w-composer__line" data-line="hint">
-                {attach}
-                <span className="w-composer__hint w-mono">{composerHint()}</span>
-                <span className="w-composer__spacer" />
-                {items(hintItems)}
-                {interruptButton}
-              </div>
-              {/* The controls line: the pickers and the other items from the left, the send group at the right. */}
-              <div className="w-composer__line" data-line="controls">
-                {items(controlItems)}
-                <span className="w-composer__send-group" data-testid="input-send-group">
-                  <span className="w-composer__hint w-composer__send-hint" data-reserve={busy ? 'Return to send' : 'Return to queue'}>
-                    <span>{busy ? 'Return to queue' : 'Return to send'}</span>
-                  </span>
-                  {sendButton}
+            {/* The controls line: the pickers and the other items from the left, the send group at the right. */}
+            <div className="w-composer__line" data-line="controls">
+              {items(controlItems)}
+              <span className="w-composer__send-group" data-testid="input-send-group">
+                <span className="w-composer__hint w-composer__send-hint" data-reserve={busy ? 'Return to send' : 'Return to queue'}>
+                  <span>{busy ? 'Return to queue' : 'Return to send'}</span>
                 </span>
-              </div>
+                {sendButton}
+              </span>
             </div>
-          )}
+          </div>
         </div>
       </div>
-      {error !== null ? (
-        <div className="w-composer__error" role="alert" data-testid="input-error">
-          {error}
-        </div>
-      ) : null}
+      {errorLine}
     </div>
   )
 }

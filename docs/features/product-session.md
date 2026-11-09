@@ -26,8 +26,8 @@ entry is inactive.
 field has no model picker, and a change of the model is refused. Eco mode does not reach it, and its input field has no
 Modes menu: that menu belongs to the Orchestrator.
 
-**The screen.** The Session view of a Product Session is built as the owner's prototype draws it. Its header holds
-"Product Session", the topic of the Mind map (the Project's name until a topic is known), the Vendor, the state, the
+**The screen.** The Session view of a Product Session is built as the owner's prototype draws it. Its header, 48 px on
+the toolbar's background, holds "Product Session", the topic of the Mind map (the Project's name until a topic is known), the Vendor, the state, the
 Session switcher, the share of accepted advice (see the last section) and Interrupt. It has no Model, Effort,
 Permissions, Cost or "Hide tools". Its body is three parts side by side:
 
@@ -41,17 +41,23 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
   5 %, and with Home and End to its edges. A double click puts it back to 60 / 40. Each side keeps at least 10 %.
 - The split is one per Machine. It is saved in the app settings when a drag or a key press ends, so every window and the
   next start of worfy show it.
-- A click on the agents strip opens over the chat the list of the Session's agents, the hidden ones left out: a status
-  dot, a name and a state, such as "Critic — working · 3 objections" or "Idea generator — done", and the task under
-  it. `worfy:critic` reads "Critic", `worfy:product-ideas` "Idea generator", any other Subagent its type. The states
-  are "working", "done", "error" and "interrupted". The critic's number of objections comes from the review it wrote,
-  read from its transcript; until it has written one, no number shows. Escape or "›" closes the list. The rail
-  blocks of a plain Session are not shown: a Product Session is bound to no Ticket and no Epic.
+- A click on the agents strip widens its column to 300 px and the chat narrows; nothing covers the chat. The column
+  lists the Session's agents, the hidden ones left out: a status dot and a name, the task under them, and the state on
+  a muted line of its own with its time, such as "working · 1 min · 3 objections" or "done · 4 min ago". A running
+  agent shows how long it has worked ("under 1 min" in its first minute), a finished one how long ago it ended ("just
+  now" in the first minute); an agent with no time known shows none. `worfy:critic` reads "Critic",
+  `worfy:product-ideas` "Idea generator", any other Subagent its type. The states are "working", "done", "error" and
+  "interrupted". The critic's number of objections comes from the review it wrote, read from its transcript; until it
+  has written one, no number shows. Escape or "›" closes the list. The rail blocks of a plain Session are not shown: a
+  Product Session is bound to no Ticket and no Epic.
 
-**The chat.** It is headed "Conversation with the advisor", with the Vendor, and shows the conversation only:
+**The chat.** It is headed "Conversation with the advisor", with the Vendor as a small bordered tag, and shows the
+conversation only:
 
-- The owner's messages are bubbles at the right edge, under "You" and the time. The advisor's answers are bubbles at the
-  left edge, under "Advisor" and the time. The chips of Mind map nodes stand under the message that carries them.
+- The owner's messages are bubbles at the right edge, under "You", the time and the message's number in the chat
+  ("#1"). The advisor's answers are bubbles at the left edge, under a violet "A", "Advisor", the time and the number.
+  The numbers count the messages the view has read: with "Load earlier" not pressed, they start at the first message
+  loaded. The chips of Mind map nodes stand under the message that made them.
 - A turn that failed shows its error, an interrupted turn shows "Interrupted", and an error of the Session shows too.
   Permission requests and the advisor's questions with options are cards in the chat, as in any Session.
 - Thinking, tool calls and their output (a failed call too), Subagents, hooks, Claude Code's notices and the messages it
@@ -59,8 +65,9 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
 - While a turn runs, "Advisor is thinking" stands at the end of the chat. There is no switch to show the details.
 - Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
   file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
-- The input field keeps the text, Send, Interrupt while a turn runs, and attaching a file or a picture. It has no
-  pickers, context meter, queue chip or hints. A message sent while a turn runs still waits in the queue.
+- The input field is one line, as in the prototype: the attach button, a field in the interface font, Interrupt while a
+  turn runs, and a text "Send" button. It keeps attaching a file or a picture. It has no pickers, context meter, queue
+  chip or hints. A message sent while a turn runs still waits in the queue.
 
 **What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never changes the repository with git.
 Three layers hold this, all for Claude Code:
@@ -217,10 +224,14 @@ to type in.
   many nodes it hides. The fold is saved in the file.
 - When the change cannot be saved, the map says "Could not save the change:" and the reason.
 
-**Chips in the chat.** Under the advisor's last answer of a turn, each node that the turn's `mind_map_add`,
-`mind_map_update` or `mind_map_decide` calls wrote gets a chip, once per node. A turn without an answer shows its chips
-under the owner's message that started it; a turn none of whose rows is shown (the loaded part starts in its tool calls)
-shows them under the next message, or at the end of the chat. A click on a chip selects the node on the Mind map and brings it into view. A
+**Chips in the chat.** A node that a `mind_map_add`, `mind_map_update` or `mind_map_decide` call wrote gets a chip
+under the message that made it: the last message of the turn shown before the call. A call after an answer puts its
+chip under that answer; a call before any answer of the turn puts it under the owner's message that started the turn.
+One message shows a node once, as its last call there left it. A turn none of whose rows is shown (the loaded part
+starts in its tool calls) shows its chips under the next message, or at the end of the chat. A chip is a pill with a
+small square of the node's kind colour and a muted line that names the kind: "+ Idea: …", "+ Question: …",
+"+ Decision ✓: …", "+ Decision ✕: …", "+ Objection: …" for a node the call added, the same without "+" for a node it
+changed. A `mind_map_decide` that turned a Decision's status the other way shows a red chip, "↺ “…” → rejected". A click on a chip selects the node on the Mind map and brings it into view. A
 hidden node is shown first: "Hide rejected" is turned off and the folded branches above it unfold. Pointing at a chip or
 focusing it lights its node; pointing at a message lights the nodes of all its chips. "Show in the chat" on a card
 scrolls the chat to the message that carries the node's chip.
@@ -296,7 +307,8 @@ out again.
 - `test/unit/mind-map-hand.test.tsx`, `test/unit/node-chips.test.tsx`, `test/contract/product-layout.test.ts`: drag,
   fold, their write to the file, and chips.
 - `test/e2e/product-session.spec.ts`: in the running app, a node the advisor adds shows without a reload with its
-  chip, and a dragged node keeps its place after a restart. Folding is covered by the unit tests only.
+  chip, the open agents list widens its column without covering the chat, and a dragged node keeps its place after a
+  restart. Folding is covered by the unit tests only.
 
 ## Critic, ideas and the share of accepted advice
 
