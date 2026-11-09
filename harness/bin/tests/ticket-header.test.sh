@@ -336,7 +336,7 @@ mk 08 'Repo: lib' 'Repo: app'
 mt claim mr 08 --repo app >/dev/null 2>&1
 [ "$(hdr 08)" = "Status: claimed T|Repo: app|Blocked by: —|" ] && ok "claim with one --repo on a header of two Repo: lines leaves one line" || bad "claim one of two: $(hdr 08)"
 out="$(mt release mr 05 api tag v1 2>&1)"; rc=$?
-[ "$rc" -eq 2 ] && ok "release on a ticket without Repo: lines -> exit 2" || bad "release no repo: exit $rc, $out"
+[ "$rc" -eq 2 ] && [[ "$out" == *"names no repository"* ]] && ok "release on a ticket without Repo: lines -> exit 2, naming the missing Repo:" || bad "release no repo: exit $rc, $out"
 out="$(mt open mr 05 --repo api 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"--repo goes only with claim"* ]] && ok "--repo with open is refused" || bad "open --repo: exit $rc, $out"
 out="$(mt pr mr 05 '#3' --pr 4 2>&1)"; rc=$?
