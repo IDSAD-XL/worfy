@@ -390,8 +390,10 @@ export type ToolUseGuard = (tool: string, input: unknown, cwd: string | null, ca
 
 /**
  * How long Claude Code waits for the PreToolUse hook, in seconds: a guard may wait for a person's answer
- * (worfy-polish ticket 82), and a hook that runs out lets the call go on as if it had said nothing — in
- * bypassPermissions, a write nobody allowed. A day, as long as a question in the window may stand.
+ * (worfy-polish ticket 82). In SDK 0.3.289 a hook that runs out stops the call («The tool call was not
+ * executed»), so the default 60 s would refuse a write the person was still reading about. A day, as long
+ * as a question in the window may stand. Only a hook callback that throws lets the call go on, and the
+ * hook below catches every error of the guard and refuses instead.
  */
 export const TOOL_USE_HOOK_TIMEOUT_S = 24 * 60 * 60
 
@@ -406,9 +408,10 @@ export const ASKED_ALLOW_REASON = 'The user allowed this tool call in worfy.'
  * no decision and no output, so the tool call goes on as without it, and no `hook` event is made of it
  * (hookSaidSomething, src/shared/vendors/claude/events.ts). A refusal answers `permissionDecision: deny`
  * with the reason, which Claude Code gives the agent in every permission mode, bypassPermissions too. A
- * guard that throws refuses: the guard fails closed. A call the person allowed when the guard asked
- * (`asked`, worfy-polish ticket 82) answers `permissionDecision: allow`, so Claude Code does not ask
- * canUseTool about it a second time; the hook waits for that answer (TOOL_USE_HOOK_TIMEOUT_S).
+ * guard that throws refuses: the hook catches it, because Claude Code lets the call go on after a
+ * callback that throws. A call the person allowed when the guard asked (`asked`, worfy-polish ticket 82)
+ * answers `permissionDecision: allow`, so Claude Code does not ask canUseTool about it a second time;
+ * the hook waits for that answer up to TOOL_USE_HOOK_TIMEOUT_S, after which Claude Code stops the call.
  */
 export function toolUseHooks(observe?: ((use: ToolUseFacts) => void) | undefined, guard?: ToolUseGuard | undefined): NonNullable<Options['hooks']> {
   const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)

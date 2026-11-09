@@ -96,7 +96,7 @@ Session, доля принятых советов (см. последний ра
 
 | Слой | Что отклоняет |
 |---|---|
-| Hook PreToolUse | `Edit`, `MultiEdit`, `Write` и `NotebookEdit` вне папки Product Session, если владелец не разрешил (ниже), и всегда — в `.git`, в папке данных worfy и в `~/.claude`; в `Bash` и `PowerShell` — Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` и `reset`, `gh pr create` и `gh pr merge`, `pnpm` и `npm` |
+| Hook PreToolUse | `Edit`, `MultiEdit`, `Write` и `NotebookEdit` вне папки Product Session, если владелец не разрешил (ниже), а вне неё в `.git`, в папке данных worfy и в `~/.claude` — всегда; в `Bash` и `PowerShell` — Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` и `reset`, `gh pr create` и `gh pr merge`, `pnpm` и `npm` |
 | Canvas server | `autopilot_start`, с текстом «A Product Session does not start Autopilot: it advises and drafts Epics. Ask the Orchestrator of the Project to run the Epic.» |
 | Правила Session | Те же границы словами и те, которых hook не видит |
 
@@ -111,8 +111,11 @@ Session, доля принятых советов (см. последний ра
   для Project-а (`<папка данных Project-а>/settings.json`), не в Profile; Project settings показывает его — строка на
   папку с кнопкой Remove, удаление действует после Save. Путь судится по тому, куда он ведёт на самом деле: `..` или
   ссылка из папки списка наружу спрашивается там, куда приводит.
-- Без вопроса, всегда отказом с причиной: запись в `.git` любого репозитория, в папку данных worfy и в `~/.claude`
-  (вместе с Harness в ней); Always allow их в список не добавляет. У unattended Session спросить некого: запись вне
+- Без вопроса, всегда отказом с причиной: запись вне папки Product Session в `.git` любого репозитория, в папку данных
+  worfy (обеих сборок, `worfy` и `worfy-dev`) и в `~/.claude` (вместе с Harness в ней); Always allow их в список не
+  добавляет. Путь, записанный на macOS как `/System/Volumes/Data/…`, — то же место, и он тоже отклоняется. В саму папку
+  Product Session запись идёт как всегда, даже если она лежит в одной из них (`<Workflow folder>/product/` Silent mode
+  лежит в `~/.claude/worfy-harness/`). У unattended Session спросить некого: запись вне
   папки и вне списка отклоняется, как раньше.
 - Команда shell читается так, как её читает shell: слова в кавычках — одно слово (`grep "pnpm"` ищет,
   `git -C "a b" commit` коммитит), а `$(…)`, backticks, `bash -c` и `eval` тоже читаются как команды. Читающие команды,

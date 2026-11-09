@@ -38,6 +38,17 @@ describe("the Project's list of folders a Product Session may also write in", ()
     expect(writeProjectSettings(dir, { actionTemplates: templates, productWriteFolders: [] }, 'none').productWriteFolders).toEqual([])
   })
 
+  it('loses only the folders a Save says were removed: one «Always allow» added while Project settings stood open stays', () => {
+    addProductWriteFolder(dir, '/repo/a', 'none')
+    addProductWriteFolder(dir, '/repo/b', 'none')
+    // Project settings opened with /repo/a and /repo/b; meanwhile «Always allow» adds /repo/c.
+    addProductWriteFolder(dir, '/repo/c', 'none')
+    expect(writeProjectSettings(dir, { actionTemplates: templates, productWriteFoldersRemoved: ['/repo/a'] }, 'none').productWriteFolders).toEqual(['/repo/b', '/repo/c'])
+    expect(JSON.parse(readFileSync(settingsPath(dir), 'utf8'))).not.toHaveProperty('productWriteFoldersRemoved')
+    // A folder no longer listed changes nothing.
+    expect(writeProjectSettings(dir, { actionTemplates: templates, productWriteFoldersRemoved: ['/repo/a'] }, 'none').productWriteFolders).toEqual(['/repo/b', '/repo/c'])
+  })
+
   it('reads a list it cannot read as none, and keeps the rest of the file', () => {
     writeFileSync(settingsPath(dir), JSON.stringify({ actionTemplates: templates, defaultVendor: 'claude', productWriteFolders: 'everywhere' }))
     const read = readProjectSettings(dir, 'none')

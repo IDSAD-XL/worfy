@@ -40,7 +40,7 @@ import { canvasForSession, projectForCwd, type CanvasResolver, type CanvasSessio
 import { mindMapForSession, type MindMapResolver, type MindMapSession } from '../../mcp/mind-map-server'
 import { privateFolder, reviewerSkill } from '../../projects/review-offer'
 import { addProductWriteFolder, readProjectSettings } from '../../projects/settings'
-import { projectStore } from '../../projects/store'
+import { projectStore, type ProjectStore } from '../../projects/store'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome, dataRoot, harnessHome } from '../../storage/paths'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
@@ -182,27 +182,34 @@ export const layoutProductFolder = async (cwd: string, layouts: () => ProjectLay
 export type ProductWriteListResolver = (cwd: string) => ProductWriteList | null
 
 /**
- * The list in the settings of the Project whose root holds `cwd` (src/main/projects/settings.ts), read
- * at each write and added to by «Always allow in <folder>».
+ * The list in the settings of the Project of `projects` whose root holds `cwd`
+ * (src/main/projects/settings.ts, in the Project's data folder), read from settings.json at each write
+ * and added to by «Always allow in <folder>».
  */
-export const projectProductWriteList: ProductWriteListResolver = (cwd) => {
-  const project = projectForCwd(projectStore().list(), cwd)
-  if (project === undefined) return null
-  const dir = projectStore().dataDir(project.id)
-  return {
-    read: () => readProjectSettings(dir).productWriteFolders ?? [],
-    add: (folder) => void addProductWriteFolder(dir, folder),
+export function productWriteListIn(projects: Pick<ProjectStore, 'list' | 'dataDir'>): ProductWriteListResolver {
+  return (cwd) => {
+    const project = projectForCwd(projects.list(), cwd)
+    if (project === undefined) return null
+    const dir = projects.dataDir(project.id)
+    return {
+      read: () => readProjectSettings(dir).productWriteFolders ?? [],
+      add: (folder) => void addProductWriteFolder(dir, folder),
+    }
   }
 }
 
+/** productWriteListIn over the app's Project list. */
+export const projectProductWriteList: ProductWriteListResolver = (cwd) => productWriteListIn(projectStore())(cwd)
+
 /**
  * The folders a Product Session never writes, asked or listed (worfy-polish ticket 82): worfy's data
- * folder, the Claude home with the Harness in it — the one worfy reads and, when a test or an e2e run
- * points WORFY_CLAUDE_HOME elsewhere, the user's own ~/.claude too — and the Harness wherever
+ * folder — the one this run uses and those of both builds, `worfy` and `worfy-dev` (ADR-0023) — the
+ * Claude home with the Harness in it — the one worfy reads and, when a test or an e2e run points
+ * WORFY_CLAUDE_HOME elsewhere, the user's own ~/.claude too — and the Harness wherever
  * WORFY_HARNESS_HOME puts it.
  */
 export function productClosedFolders(env: Readonly<Record<string, string | undefined>> = process.env): string[] {
-  return [...new Set([dataRoot(env), claudeHome(env), join(homedir(), '.claude'), harnessHome(env)])]
+  return [...new Set([dataRoot(env), dataRoot({}, 'packaged'), dataRoot({}, 'dev'), claudeHome(env), join(homedir(), '.claude'), harnessHome(env)])]
 }
 
 /** What a Product Session's guard needs for a write outside its folder (options.ts, ProductWrites). */

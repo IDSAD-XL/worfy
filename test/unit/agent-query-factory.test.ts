@@ -6,6 +6,8 @@ import { homedir, tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductWriteAnswer } from '../../src/main/agent/product-guard'
+import type { StoredProject } from '../../src/main/projects/store'
+import type { ProductWriteListResolver } from '../../src/main/vendors/claude/query'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { removeTestTree } from '../remove'
@@ -262,7 +264,7 @@ describe('a Product Session write outside its folder on the fake agent', () => {
   afterEach(() => removeTestTree(top))
 
   /** Plays one turn of product-write-outside.jsonl per message; what the tools answered, and the questions asked. */
-  async function play(turns: number, answer: ProductWriteAnswer | undefined, listed: string[] = []) {
+  async function play(turns: number, answer: ProductWriteAnswer | undefined, listed: string[] = [], resolver?: ProductWriteListResolver) {
     const { fakeQueryFactory } = await import('../../src/main/agent/fake-query')
     const { productHooks, fakePreToolUse } = await import('../../src/main/vendors/claude/query')
     const asked: string[] = []
@@ -282,7 +284,7 @@ describe('a Product Session write outside its folder on the fake agent', () => {
     const factory = fakeQueryFactory({
       scriptsDir,
       script: 'product-write-outside',
-      preToolUse: (req) => productHooks(req, () => Promise.resolve(join(project, 'docs', 'product')), () => list).then(fakePreToolUse),
+      preToolUse: (req) => productHooks(req, () => Promise.resolve(join(project, 'docs', 'product')), resolver ?? (() => list)).then(fakePreToolUse),
     })
     const query = await factory(productRequest)
     const results: { content: unknown; is_error: boolean }[] = []
@@ -320,10 +322,35 @@ describe('a Product Session write outside its folder on the fake agent', () => {
     expect(git.listed).toEqual([join(project, 'context', 'strong'), join(project, 'notes')])
   })
 
-  it("closes worfy's data folder, the Claude home it reads, the user's own ~/.claude and the Harness to every write", async () => {
+  it("keeps «Always allow» in the Project's settings.json, read at each write: a folder Project settings removed is asked about again", async () => {
+    const { productWriteListIn } = await import('../../src/main/vendors/claude/query')
+    const { readProjectSettings, settingsPath, writeProjectSettings } = await import('../../src/main/projects/settings')
+    const { defaultProjectSettings } = await import('../../src/shared/projects/action-templates')
+    const data = join(top, 'project-data')
+    const stored: StoredProject = { id: 'alpha', name: 'Alpha', path: project }
+    const resolver = productWriteListIn({ list: () => [stored], dataDir: (id) => join(data, id) })
+    const strong = join(project, 'context', 'strong')
+    expect(resolver(join(top, 'elsewhere'))).toBeNull()
+
+    const first = await play(1, 'always', [], resolver)
+    expect(first.asked).toEqual([join(strong, 'brief.md')])
+    expect(JSON.parse(readFileSync(settingsPath(join(data, 'alpha')), 'utf8'))).toMatchObject({ productWriteFolders: [strong] })
+    // The folder saved there is read back: the next write in it goes without a question.
+    expect((await play(1, 'once', [], resolver)).asked).toEqual([])
+
+    // Project settings removes it; the next write reads settings.json again and asks.
+    writeProjectSettings(join(data, 'alpha'), { actionTemplates: defaultProjectSettings('none').actionTemplates, productWriteFoldersRemoved: [strong] }, 'none')
+    expect(readProjectSettings(join(data, 'alpha'), 'none').productWriteFolders).toEqual([])
+    expect((await play(1, 'once', [], resolver)).asked).toEqual([join(strong, 'brief.md')])
+  })
+
+  it("closes worfy's data folder of this run and of both builds, the Claude home it reads, the user's own ~/.claude and the Harness to every write", async () => {
     const { productClosedFolders, productHooks, fakePreToolUse } = await import('../../src/main/vendors/claude/query')
+    const { dataRoot } = await import('../../src/main/storage/paths')
     const env = { WORFY_DATA_DIR: join(top, 'data'), WORFY_CLAUDE_HOME: join(top, 'claude'), WORFY_HARNESS_HOME: join(top, 'harness') }
-    expect(productClosedFolders(env)).toEqual([join(top, 'data'), join(top, 'claude'), join(homedir(), '.claude'), join(top, 'harness')])
+    const builds = [dataRoot({}, 'packaged'), dataRoot({}, 'dev')]
+    expect(builds.map((folder) => folder.split(/[\\/]/).at(-1))).toEqual(['worfy', 'worfy-dev'])
+    expect(productClosedFolders(env)).toEqual([join(top, 'data'), ...builds, join(top, 'claude'), join(homedir(), '.claude'), join(top, 'harness')])
     // The app's guard reads them from its own environment: here the worfy data folder of this test.
     const asked: string[] = []
     const run = fakePreToolUse(

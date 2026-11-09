@@ -118,7 +118,7 @@ Three layers hold this, all for Claude Code:
 
 | Layer | What it refuses |
 |---|---|
-| The PreToolUse hook | `Edit`, `MultiEdit`, `Write` and `NotebookEdit` outside the Product Session folder unless the owner allows it (below), and in `.git`, worfy's data folder and `~/.claude` always; in `Bash` and `PowerShell`, the Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` and `reset`, `gh pr create` and `gh pr merge`, `pnpm` and `npm` |
+| The PreToolUse hook | `Edit`, `MultiEdit`, `Write` and `NotebookEdit` outside the Product Session folder unless the owner allows it (below), and outside it in `.git`, worfy's data folder and `~/.claude` always; in `Bash` and `PowerShell`, the Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` and `reset`, `gh pr create` and `gh pr merge`, `pnpm` and `npm` |
 | The canvas server | `autopilot_start`, with "A Product Session does not start Autopilot: it advises and drafts Epics. Ask the Orchestrator of the Project to run the Epic." |
 | The rules of the Session | The same limits in words, and the ones the hook cannot see |
 
@@ -134,8 +134,11 @@ Three layers hold this, all for Claude Code:
   (`<Project data folder>/settings.json`), not in the Profile; Project settings shows it, one row per folder with
   Remove, and a removal takes effect on Save. A path is judged by where it really leads: `..` or a link out of a listed
   folder is asked about where it lands.
-- Never asked, always refused with the reason: a write into `.git` of any repository, into worfy's data folder and into
-  `~/.claude` (the Harness in it included); Always allow never lists them. An unattended Session has no one to ask:
+- Never asked, always refused with the reason: a write outside the Product Session folder into `.git` of any repository,
+  into worfy's data folder (of both builds, `worfy` and `worfy-dev`) and into `~/.claude` (the Harness in it included);
+  Always allow never lists them. Written as `/System/Volumes/Data/…` on macOS, such a path is the same place and is
+  refused too. The Product Session folder itself is written as always, also when it lies in one of them (Silent mode's
+  `<Workflow folder>/product/` is in `~/.claude/worfy-harness/`). An unattended Session has no one to ask:
   a write outside the folder and outside the list is refused, as before.
 - A shell command is read as the shell reads it: a word in quotes is one word (`grep "pnpm"` searches,
   `git -C "a b" commit` commits), and `$(…)`, backticks, `bash -c` and `eval` are read as commands too. Reading

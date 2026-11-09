@@ -4,12 +4,12 @@
 // allowed, and whatever the guard cannot judge is refused. The paths of this machine run against the
 // real file system (links included); the Windows paths run on every machine against a file system of
 // the test that ignores case, as an NTFS disk does.
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FileSystem } from '../../src/main/agent/auto-approve/roots'
-import { productToolDecision, refusedCommand, type ProductGuardPlace } from '../../src/main/agent/product-guard'
+import { oneMacSpelling, productToolDecision, refusedCommand, type ProductGuardPlace } from '../../src/main/agent/product-guard'
 import { removeTestTree } from '../remove'
 
 const allowed = { allow: true }
@@ -472,6 +472,39 @@ describe('a Product Session write outside its folder on the file system of this 
     expect(plainRefusal(write(join(workflow, 'notes.md'), place({ productDir: join(workflow, 'product') })))).toBe(true)
   })
 
+  it('refuses .git reached through a link, by where the link leads', () => {
+    symlinkSync(join(root, '.git'), join(root, 'context', 'to-git'), host === 'win32' ? 'junction' : 'dir')
+    const decision = write(join(root, 'context', 'to-git', 'config'), place({ alsoWritable: [root] }))
+    expect(plainRefusal(decision)).toBe(true)
+    expect(decision.allow ? '' : decision.reason).toContain('.git')
+  })
+
+  it('refuses .GIT in another case where no .git exists yet: the name is compared without case', () => {
+    for (const path of [join(top, 'fresh', '.GIT', 'config'), join(top, 'fresh', '.Git')]) {
+      const decision = write(path, place({ alsoWritable: [top] }))
+      expect(plainRefusal(decision)).toBe(true)
+      expect(decision.allow ? '' : decision.reason).toContain('.git')
+    }
+  })
+
+  it('refuses a closed folder given as a link, by where the link leads', () => {
+    const link = join(top, 'data-link')
+    symlinkSync(data, link, host === 'win32' ? 'junction' : 'dir')
+    const decision = write(join(data, 'settings.json'), place({ closed: [link], alsoWritable: [top] }))
+    expect(plainRefusal(decision)).toBe(true)
+    expect(decision.allow ? '' : decision.reason).toContain(link)
+  })
+
+  it.runIf(host === 'darwin')("refuses worfy's data folder written the second macOS way, /System/Volumes/Data/…, and asks in the first spelling", () => {
+    const second = (path: string): string => `/System/Volumes/Data${path}`
+    expect(existsSync(second(data))).toBe(true)
+    for (const path of [second(join(data, 'p', 'settings.json')), second(data)]) expect(plainRefusal(write(path, place({ alsoWritable: [top] })))).toBe(true)
+    // The closed folder given in the second spelling closes the first one too.
+    expect(plainRefusal(write(join(claude, 'x.md'), place({ closed: [second(claude)] })))).toBe(true)
+    expect(write(second(join(strong, 'brief.md')))).toEqual(asked(join(strong, 'brief.md'), strong))
+    expect(write(second(join(product, 'a.md')))).toEqual(allowed)
+  })
+
   it('asks about nothing it cannot place: no folder, a relative path with no cwd, a link that leads nowhere', () => {
     expect(plainRefusal(write(join(strong, 'a.md'), place({ productDir: null })))).toBe(true)
     expect(plainRefusal(productToolDecision('Write', { file_path: 'context/strong/a.md' }, place({ cwd: null }), host))).toBe(true)
@@ -479,5 +512,40 @@ describe('a Product Session write outside its folder on the file system of this 
       symlinkSync(join(top, 'elsewhere', 'missing', 'x.md'), join(strong, 'dangling.md'))
       expect(plainRefusal(write(join(strong, 'dangling.md')))).toBe(true)
     }
+  })
+})
+
+describe('a Product Session write on macOS, where /System/Volumes/Data/… is a second spelling of the same file', () => {
+  // A macOS disk of the test: every path exists and the system's realpath keeps the spelling it was given.
+  const mac: FileSystem = { lstat: () => 'dir', realpath: (path) => path, readdir: () => null, readFile: () => null }
+  const data = '/Users/owner/Library/Application Support/worfy'
+  const place: ProductGuardPlace = { productDir: '/Users/owner/proj/docs/product', cwd: '/Users/owner/proj', closed: [data, '/System/Volumes/Data/Users/owner/.claude'], alsoWritable: ['/System/Volumes/Data/Users/owner/proj/context/strong', '/Users/owner'] }
+  const write = (file_path: string, platform: NodeJS.Platform = 'darwin') => productToolDecision('Write', { file_path, content: 'x' }, place, platform, mac)
+  const plainRefusal = (decision: ReturnType<typeof write>): boolean => !decision.allow && decision.ask === undefined
+
+  it('takes a path without a leading /System/Volumes/Data, in any case, and nothing else', () => {
+    expect(oneMacSpelling('/System/Volumes/Data/Users/owner/a.md')).toBe('/Users/owner/a.md')
+    expect(oneMacSpelling('/system/VOLUMES/data/Users/owner')).toBe('/Users/owner')
+    expect(oneMacSpelling('/System/Volumes/Data')).toBe('/')
+    expect(oneMacSpelling('/System/Volumes/DataX/a')).toBe('/System/Volumes/DataX/a')
+    expect(oneMacSpelling('/Users/owner/System/Volumes/Data/a')).toBe('/Users/owner/System/Volumes/Data/a')
+  })
+
+  it('refuses a closed folder written either way, and closes both spellings of a closed folder given either way', () => {
+    for (const path of [`/System/Volumes/Data${data}/p/settings.json`, `/SYSTEM/Volumes/data${data}/settings.json`, '/Users/owner/.claude/settings.json', '/System/Volumes/Data/Users/owner/.claude/CLAUDE.md']) {
+      expect(plainRefusal(write(path))).toBe(true)
+    }
+  })
+
+  it('allows the Product Session folder and a listed folder written either way, and asks in the first spelling', () => {
+    expect(write('/System/Volumes/Data/Users/owner/proj/docs/product/a.md')).toEqual(allowed)
+    expect(write('/Users/owner/proj/context/strong/b.md', 'darwin')).toEqual(allowed)
+    expect(write('/System/Volumes/Data/Users/owner/proj/context/strong/b.md')).toEqual(allowed)
+    const narrow: ProductGuardPlace = { ...place, alsoWritable: [] }
+    expect(productToolDecision('Write', { file_path: '/System/Volumes/Data/Users/owner/proj/notes/c.md' }, narrow, 'darwin', mac)).toEqual({ allow: false, reason: expect.any(String) as unknown, ask: { path: '/Users/owner/proj/notes/c.md', folder: '/Users/owner/proj/notes' } })
+  })
+
+  it('keeps the second spelling as it is on Linux, where it is just another folder', () => {
+    expect(plainRefusal(write(`/System/Volumes/Data${data}/settings.json`, 'linux'))).toBe(false)
   })
 })

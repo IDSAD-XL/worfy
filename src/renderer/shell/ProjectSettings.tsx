@@ -72,7 +72,8 @@ const styles = {
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   folders: { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' },
   folder: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
-  folderPath: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-12)' },
+  // A long path wraps anywhere, so its end — the folder's own name — stays in view.
+  folderPath: { flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: 'var(--text-12)' },
   secondary: {
     height: 'var(--row-height)',
     padding: '0 var(--space-3)',
@@ -180,13 +181,13 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
     // "Default vendor": a Vendor, or null to clear a saved one; nothing when none was saved or chosen,
     // so a Linked machine on a build from before the field takes the save too.
     const defaultVendor = vendor !== 'none' ? vendor : savedVendor !== undefined ? null : undefined
-    // The folders only after a removal: a folder «Always allow» added while the dialog stood open stays then.
-    const productWriteFolders = folders.length !== loadedFolders.length ? [...folders] : undefined
+    // The folders removed here, not the list left: a folder «Always allow» added while the dialog stood open stays.
+    const productWriteFoldersRemoved = loadedFolders.filter((folder) => !folders.includes(folder))
     const settings = {
       actionTemplates: templates,
       ...(terminalShell === undefined ? {} : { terminalShell }),
       ...(defaultVendor === undefined ? {} : { defaultVendor }),
-      ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
+      ...(productWriteFoldersRemoved.length === 0 ? {} : { productWriteFoldersRemoved }),
     }
     const result = await call('projects.settings.set', { id: project.id, settings })
     setSaving(false)
@@ -320,7 +321,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
               </ul>
             )}
             <span style={styles.hint}>
-              A Product Session writes outside its own folder only after it asks; «Always allow in» a folder adds it here, and it then writes there without asking. A removal applies on Save.
+              A Product Session writes outside its own folder only after it asks; "Always allow in" a folder adds it here, and it then writes there without asking. A removal applies on Save.
             </span>
           </section>
         ) : null}

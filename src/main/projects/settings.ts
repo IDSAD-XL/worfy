@@ -41,8 +41,9 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
  * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24). Settings without
  * `humanReview` keep the saved one: "Save" of Project settings does not send it. Settings without
- * `productWriteFolders` keep the saved list (worfy-polish ticket 82): "Save" sends it only after a
- * removal.
+ * `productWriteFolders` keep the saved list (worfy-polish ticket 82), and the folders of
+ * `productWriteFoldersRemoved` leave it: "Save" sends the folders removed in the dialog, so one «Always
+ * allow» added meanwhile stays.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
@@ -51,8 +52,8 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
   const { defaultVendor: asked, humanReview: review, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   const humanReview = review ?? read().humanReview
-  const { productWriteFolders: listed, ...others } = rest
-  const productWriteFolders = listed ?? read().productWriteFolders
+  const { productWriteFolders: listed, productWriteFoldersRemoved: removed = [], ...others } = rest
+  const productWriteFolders = (listed ?? read().productWriteFolders)?.filter((folder) => !removed.includes(folder))
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
     ...others,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),

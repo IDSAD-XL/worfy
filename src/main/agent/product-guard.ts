@@ -142,7 +142,7 @@ export function productToolDecision(
 ): ProductToolDecision {
   try {
     const field = Object.hasOwn(FILE_TOOLS, tool) ? FILE_TOOLS[tool] : undefined
-    if (field !== undefined) return fileDecision(fieldOf(input, field), place, platform === 'win32', fsys)
+    if (field !== undefined) return fileDecision(fieldOf(input, field), place, platform, fsys)
     if (SHELL_TOOLS.has(tool)) return shellDecision(fieldOf(input, 'command'), tool === 'PowerShell' ? 'powershell' : 'bash')
     return ALLOW
   } catch (error) {
@@ -156,49 +156,83 @@ function fieldOf(input: unknown, field: string): unknown {
 
 // --- Files ----------------------------------------------------------------------------------
 
-function fileDecision(path: unknown, place: ProductGuardPlace, win: boolean, fsys: FileSystem): ProductToolDecision {
+/** How a path is spelled for a comparison: normalized, and on macOS without the Data volume's second spelling. */
+interface Spelling {
+  win: boolean
+  /** The normalized form of an absolute path (normalizePath), in one spelling; null when it is not one. */
+  normal(path: string): string | null
+  /** The real form (realForm), in the same spelling; null when it cannot be told. */
+  real(path: string): string | null
+}
+
+/** macOS reaches every folder of the Data volume a second way: `/System/Volumes/Data/Users/owner` is `/Users/owner`. */
+const DATA_VOLUME = '/system/volumes/data'
+
+/**
+ * `path` (normalized, absolute) without a leading `/System/Volumes/Data` in any case: macOS firmlinks the
+ * Data volume to the root, and its disk ignores case, so the two spellings name one file (the system's
+ * realpath keeps whichever it was given).
+ */
+export function oneMacSpelling(path: string): string {
+  const head = path.slice(0, DATA_VOLUME.length).toLowerCase()
+  if (head !== DATA_VOLUME) return path
+  const rest = path.slice(DATA_VOLUME.length)
+  return rest === '' ? '/' : rest.startsWith('/') ? rest : path
+}
+
+function spelling(platform: NodeJS.Platform, fsys: FileSystem): Spelling {
+  const win = platform === 'win32'
+  const one = (path: string | null): string | null => (path === null || platform !== 'darwin' ? path : oneMacSpelling(path))
+  return { win, normal: (path) => one(normalizePath(path, win)), real: (path) => one(realForm(path, win, fsys)) }
+}
+
+function fileDecision(path: unknown, place: ProductGuardPlace, platform: NodeJS.Platform, fsys: FileSystem): ProductToolDecision {
   if (place.productDir === null) return refuse(`${FOLDER_REASON}, and the folder of this Project could not be found, so no file may be written.`)
   const below = `${FOLDER_REASON} ${place.productDir}`
   if (typeof path !== 'string' || path === '') return refuse(`${below}; this call names no file.`)
+  const spell = spelling(platform, fsys)
+  const { win } = spell
   const raw = absolute(path, place.cwd, win)
-  const written = raw === null ? null : normalizePath(raw, win)
-  const folder = normalizePath(place.productDir, win)
+  const written = raw === null ? null : spell.normal(raw)
+  const folder = spell.normal(place.productDir)
   if (raw === null || written === null || folder === null) return refuse(`${below}; ${path} is not a path it can place.`)
-  if (win && rewrittenName(raw, [folder, place.cwd === null ? null : systemForm(place.cwd, win)])) return refuse(`${below}; ${path} has a name Windows rewrites before it opens it.`)
+  if (win && rewrittenName(raw, [normalizePath(place.productDir, win), place.cwd === null ? null : systemForm(place.cwd, win)])) return refuse(`${below}; ${path} has a name Windows rewrites before it opens it.`)
   // Written in another case, the path may be another folder on a disk that does not ignore case.
   const writtenBelow = strictlyBelow(written, folder, win)
-  const real = realForm(raw, win, fsys)
+  const real = spell.real(raw)
   if (real === null) return refuse(writtenBelow ? `${below}; where ${path} really leads cannot be told.` : `${below}; ${path} is not below it.`)
   if (writtenBelow) {
-    const realFolder = realForm(folder, win, fsys)
+    const realFolder = spell.real(folder)
     if (realFolder === null) return refuse(`${below}; where ${path} really leads cannot be told.`)
     if (strictlyBelow(real, realFolder, win)) return ALLOW
   }
   const outside = writtenBelow ? `${below}; ${path} leads to ${real}, which is not below it` : `${below}; ${path} is not below it`
   // Outside the folder: closed places stay refused without a question, whatever the list says.
-  const closed = closedPlace([written, real], place.closed ?? [], win, fsys)
+  const closed = closedPlace([written, real], place.closed ?? [], spell)
   if (closed !== null) return refuse(`${outside}, and ${closed} is never written by a Product Session, not even with a person's leave.`)
   for (const each of place.alsoWritable ?? []) {
-    const listed = normalizePath(each, win)
-    const realListed = listed === null ? null : realForm(listed, win, fsys)
+    const listed = spell.normal(each)
+    const realListed = listed === null ? null : spell.real(listed)
     if (realListed !== null && strictlyBelow(real, realListed, win)) return ALLOW
   }
   return { allow: false, reason: `${outside}.`, ask: { path: real, folder: parentOf(real, win) } }
 }
 
 /**
- * The closed place `paths` (normalized, absolute) reach, in words; null when none does: a `.git` folder
- * or file of any repository, or a folder of `closed` and anything below it. Compared without regard to
- * case: refusing a path in another case is safe, and macOS and Windows disks ignore it.
+ * The closed place `paths` (normalized, absolute, in one spelling) reach, in words; null when none does: a
+ * `.git` folder or file of any repository, or a folder of `closed` and anything below it, by its written
+ * and its real form. Compared without regard to case: refusing a path in another case is safe, and macOS
+ * and Windows disks ignore it.
  */
-function closedPlace(paths: readonly string[], closed: readonly string[], win: boolean, fsys: FileSystem): string | null {
+function closedPlace(paths: readonly string[], closed: readonly string[], spell: Spelling): string | null {
+  const { win } = spell
   const sep = win ? '\\' : '/'
   const key = (path: string): string => path.toLowerCase()
   if (paths.some((path) => path.split(sep).some((name) => key(name) === '.git'))) return 'a .git folder'
   for (const each of closed) {
-    const normal = normalizePath(each, win)
+    const normal = spell.normal(each)
     if (normal === null) continue
-    const forms = [normal, realForm(normal, win, fsys)].filter((form): form is string => form !== null).map(key)
+    const forms = [normal, spell.real(normal)].filter((form): form is string => form !== null).map(key)
     for (const path of paths.map(key)) {
       if (forms.some((form) => path === form || strictlyBelow(path, form, win))) return normal
     }

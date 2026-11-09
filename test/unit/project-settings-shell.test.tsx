@@ -391,15 +391,25 @@ describe('the folders a Product Session may also write in, in Project settings',
     expect(rows()).toEqual([])
   })
 
-  it('lists each folder with Remove; Save after a removal sends the list without it and closes', async () => {
+  it('lists each folder with Remove; Save after a removal sends the folder removed, not the list left, and closes', async () => {
     main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
     const { onClose } = await open()
     expect(rows()).toEqual(FOLDERS)
     fireEvent.click(within(list()).getByRole('button', { name: `Remove ${FOLDERS[0]}` }))
     expect(rows()).toEqual([FOLDERS[1]])
     await save()
-    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, productWriteFolders: [FOLDERS[1]] } })
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, productWriteFoldersRemoved: [FOLDERS[0]] } })
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('the hint names "Always allow in" in plain quotes, and a long path wraps rather than losing its end', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    await open()
+    expect(list().textContent).toContain('"Always allow in"')
+    expect(list().textContent).not.toMatch(/[«»]/)
+    const path = within(list()).getAllByTestId('product-write-folder')[0]?.querySelector('code')
+    expect(path?.style.overflowWrap).toBe('anywhere')
+    expect(path?.style.textOverflow).toBe('')
   })
 
   it('a Save without a removal does not send the list', async () => {

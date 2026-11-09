@@ -232,12 +232,15 @@ export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
  * a Vendor sets it, `null` clears it ("Default vendor" set back to none, worfy-multi-vendor ticket 24),
  * and its absence keeps the saved one, as a build from before the field sends it. `humanReview` absent
  * keeps the saved one too: the dialog's Save does not send it (worfy-human-review ticket 09).
- * `productWriteFolders` absent keeps the saved list (worfy-polish ticket 82): the dialog sends it only
- * when a folder was removed there, and a build from before the list never does.
+ * `productWriteFolders` absent keeps the saved list (worfy-polish ticket 82), and a build from before the
+ * list never sends it. `productWriteFoldersRemoved` takes those folders out of the list: the dialog's
+ * Save sends the folders removed there, not the list left, so a folder «Always allow» added while the
+ * dialog stood open stays.
  */
 export const projectSettingsInputSchema = projectSettingsSchema.extend({
   actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
   defaultVendor: vendorIdSchema.nullable().optional(),
+  productWriteFoldersRemoved: z.array(z.string().min(1)).optional(),
 })
 export type ProjectSettingsInput = z.output<typeof projectSettingsInputSchema>
 

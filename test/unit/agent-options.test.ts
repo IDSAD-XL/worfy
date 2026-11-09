@@ -622,6 +622,20 @@ describe('sessionOptions of a Product Session', () => {
       expect(listed).toEqual([strong, join(root, 'context', 'weak')])
     })
 
+    it('reads the list afresh at each write: a folder Project settings removed is asked about again, one added elsewhere is not', async () => {
+      // The saved list as settings.json holds it: each read is a new copy, as readProjectSettings gives.
+      let saved: string[] = [strong]
+      const fresh: ProductWriteList = { read: () => [...saved], add: (folder) => void (saved = [...saved, folder]) }
+      const hook = hookWith(answering('once'), { list: fresh })
+      expect(await writeIn(hook, join(strong, 'a.md'))).toEqual({})
+      saved = []
+      expect(await writeIn(hook, join(strong, 'b.md'))).toEqual(allow)
+      expect(questions).toHaveLength(1)
+      saved = [join(root, 'context', 'weak')]
+      expect(await writeIn(hook, join(root, 'context', 'weak', 'c.md'))).toEqual({})
+      expect(questions).toHaveLength(1)
+    })
+
     it('allows the write a person allowed even when the list cannot be saved', async () => {
       const broken: ProductWriteList = { read: () => [], add: () => { throw new Error('disk full') } }
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)

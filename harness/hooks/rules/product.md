@@ -75,8 +75,8 @@ instead of guessing. A claim about usage is a question for the owner.
   repository's `context/`) is written only with the `Write` or `Edit` tool: worfy then asks the
   owner, who may allow it once, allow its folder for good, or deny it. A denial is final for that
   file: name the change instead. Never write outside the folder through the shell (`cp`, `mv`, `>`,
-  `>>`, `tee`, a script): the owner is not asked there. `.git`, worfy's data folder and `~/.claude`
-  are never written, asked or not.
+  `>>`, `tee`, a script): the owner is not asked there. Outside the Product Session folder, `.git`,
+  worfy's data folder and `~/.claude` are never written, asked or not.
 - No tickets of the tickets root: no `bin/ticket`. A ticket of the topic's map gets its Status line
   by hand (`${CLAUDE_PLUGIN_ROOT}/bin/TICKETS.md`, "Wayfinding operations"). Read tickets and
   `epic-status` freely.
