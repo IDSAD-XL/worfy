@@ -96,17 +96,32 @@ Session, доля принятых советов (см. последний ра
 
 | Слой | Что отклоняет |
 |---|---|
-| Hook PreToolUse | `Edit`, `MultiEdit`, `Write` и `NotebookEdit` вне папки Product Session; в `Bash` и `PowerShell` — Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` и `reset`, `gh pr create` и `gh pr merge`, `pnpm` и `npm` |
+| Hook PreToolUse | `Edit`, `MultiEdit`, `Write` и `NotebookEdit` вне папки Product Session, если владелец не разрешил (ниже), а вне неё в `.git`, в папке данных worfy и в `~/.claude` — всегда; в `Bash` и `PowerShell` — Ticket CLI `bin/ticket`, `git add`, `commit`, `push`, `merge`, `rebase` и `reset`, `gh pr create` и `gh pr merge`, `pnpm` и `npm` |
 | Canvas server | `autopilot_start`, с текстом «A Product Session does not start Autopilot: it advises and drafts Epics. Ask the Orchestrator of the Project to run the Epic.» |
 | Правила Session | Те же границы словами и те, которых hook не видит |
 
 - Каждый отказ несёт причину, которую читает агент. Hook отказывает в любом режиме разрешений, и в `bypassPermissions`.
 - Папка Product Session — `docs/product/` Project-а в Full mode и `<Workflow folder>/product/` в Silent mode. Если её
   не удалось найти, отклоняется любая запись файла.
+- Запись файла вне этой папки — вопрос, а не отказ: в чате карточка разрешения «Product Session wants to write <путь>» с
+  **Allow once**, **Always allow in <папка>** и **Deny**, в любом режиме разрешений, и в `bypassPermissions`. Allow once
+  пропускает эту запись; Deny отклоняет, и агент читает, что владелец отказал. Always allow in <папка> пропускает её и
+  добавляет папку файла (не весь репозиторий) в список Project-а «Product Session may also write here»; следующая
+  запись ниже этой папки идёт без вопроса, в соседнюю — снова с вопросом. Список лежит в собственных настройках worfy
+  для Project-а (`<папка данных Project-а>/settings.json`), не в Profile; Project settings показывает его — строка на
+  папку с кнопкой Remove, удаление действует после Save. Путь судится по тому, куда он ведёт на самом деле: `..` или
+  ссылка из папки списка наружу спрашивается там, куда приводит.
+- Без вопроса, всегда отказом с причиной: запись вне папки Product Session в `.git` любого репозитория, в папку данных
+  worfy (обеих сборок, `worfy` и `worfy-dev`) и в `~/.claude` (вместе с Harness в ней); Always allow их в список не
+  добавляет. Путь, записанный на macOS как `/System/Volumes/Data/…`, — то же место, и он тоже отклоняется. В саму папку
+  Product Session запись идёт как всегда, даже если она лежит в одной из них (`<Workflow folder>/product/` Silent mode
+  лежит в `~/.claude/worfy-harness/`). У unattended Session спросить некого: запись вне
+  папки и вне списка отклоняется, как раньше.
 - Команда shell читается так, как её читает shell: слова в кавычках — одно слово (`grep "pnpm"` ищет,
   `git -C "a b" commit` коммитит), а `$(…)`, backticks, `bash -c` и `eval` тоже читаются как команды. Читающие команды,
   например `git log`, `gh pr view` и `epic-status`, проходят. Это не sandbox: команда, которая пишет способом, неизвестным
-  hook-у, проходит, и эту границу называют только правила.
+  hook-у, проходит, и эту границу называют только правила: файлы вне папки они разрешают только через `Write` или
+  `Edit`, где владельца спрашивают, и никогда через shell (`cp`, `mv`, `>`, `tee`).
 
 **Её правила.** На старте Product Session получает правила Harness `product` и общие правила, но не правила
 Orchestrator-а. Они задают процесс: карта темы — `worfy:wayfinder`, вопросы — `worfy:grilling`, факты — `worfy:research`

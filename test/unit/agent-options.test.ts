@@ -6,9 +6,25 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeF
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { draftSessionOptions, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, type BrowserAttachment, type CanvasAttachment, type RuntimeInfo, type SessionOptionsInput } from '../../src/main/vendors/claude/options'
+import {
+  ASKED_ALLOW_REASON,
+  draftSessionOptions,
+  productWriteDeniedMessage,
+  sessionHarnessPlugin,
+  sessionOptions,
+  TOOL_USE_HOOK_TIMEOUT_S,
+  toolUseHooks,
+  userExtensions,
+  withBrowserServer,
+  type BrowserAttachment,
+  type CanvasAttachment,
+  type ProductWrites,
+  type RuntimeInfo,
+  type SessionOptionsInput,
+} from '../../src/main/vendors/claude/options'
 import * as bundled from '../../src/main/harness/bundled'
 import type { CanUseToolHandler } from '../../src/main/agent/permissions'
+import type { ProductWriteAnswer, ProductWriteAsker, ProductWriteList, ProductWriteQuestion } from '../../src/main/agent/product-guard'
 import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflow/profile'
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../src/shared/browser/tools'
@@ -555,6 +571,117 @@ describe('sessionOptions of a Product Session', () => {
     const hook = hookOf(sessionOptions(productInput({ toolUse: (use) => seen.push(use) })))
     expect(await call(hook, 'Write', { file_path: join(root, 'src', 'a.ts') }, root)).toEqual(deny)
     expect(seen).toEqual([{ toolUseId: 'toolu_1', cwd: root, scratchpad: null }])
+  })
+
+  // A write outside the folder (worfy-polish ticket 82): the hook asks the person through `productWrites.ask`,
+  // and answers Claude Code by the answer — `allow` (so canUseTool is not asked again) or `deny` with the reason.
+  describe('a write outside the folder', () => {
+    const allow = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: ASKED_ALLOW_REASON } }
+    const reasonOf = (answer: unknown): string => (answer as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason
+    let strong: string
+    let listed: string[]
+    let questions: ProductWriteQuestion[]
+    const list: ProductWriteList = { read: () => listed, add: (folder) => void listed.push(folder) }
+    const answering = (answer: ProductWriteAnswer): ProductWriteAsker => (question) => (questions.push(question), Promise.resolve(answer))
+    const hookWith = (ask: ProductWriteAsker | undefined, more: Partial<ProductWrites> = {}) =>
+      hookOf(sessionOptions(productInput({ settings: settings('bypassPermissions'), productWrites: { list, closed: [join(root, 'closed')], ask, ...more } })))
+    const writeIn = (hook: Hook, file: string) => call(hook, 'Write', { file_path: file, content: 'x' }, root)
+
+    beforeEach(() => {
+      strong = join(root, 'context', 'strong')
+      mkdirSync(strong, { recursive: true })
+      mkdirSync(join(root, '.git'), { recursive: true })
+      listed = []
+      questions = []
+    })
+
+    it('«Allow once»: asks with the file and its folder, lets this write through with allow, and asks again next time', async () => {
+      const hook = hookWith(answering('once'))
+      expect(await writeIn(hook, join(strong, 'brief.md'))).toEqual(allow)
+      expect(questions).toEqual([expect.objectContaining({ toolName: 'Write', toolUseId: 'toolu_1', target: { path: join(strong, 'brief.md'), folder: strong }, alwaysOffered: true })])
+      expect(listed).toEqual([])
+      expect(await writeIn(hook, join(strong, 'second.md'))).toEqual(allow)
+      expect(questions).toHaveLength(2)
+    })
+
+    it('«Deny»: refuses with a reason that says the user denied it', async () => {
+      const answer = await writeIn(hookWith(answering('deny')), join(strong, 'brief.md'))
+      expect(answer).toEqual(deny)
+      expect(reasonOf(answer)).toBe(productWriteDeniedMessage(join(strong, 'brief.md')))
+    })
+
+    it('«Always allow in <folder>»: adds the folder; the next write there goes without a question, the folder next to it is asked about', async () => {
+      const hook = hookWith(answering('always'))
+      expect(await writeIn(hook, join(strong, 'brief.md'))).toEqual(allow)
+      expect(listed).toEqual([strong])
+      expect(questions).toHaveLength(1)
+      expect(await writeIn(hook, join(strong, 'deeper', 'next.md'))).toEqual({})
+      expect(questions).toHaveLength(1)
+      expect(await writeIn(hook, join(root, 'context', 'weak', 'x.md'))).toEqual(allow)
+      expect(questions).toHaveLength(2)
+      expect(listed).toEqual([strong, join(root, 'context', 'weak')])
+    })
+
+    it('reads the list afresh at each write: a folder Project settings removed is asked about again, one added elsewhere is not', async () => {
+      // The saved list as settings.json holds it: each read is a new copy, as readProjectSettings gives.
+      let saved: string[] = [strong]
+      const fresh: ProductWriteList = { read: () => [...saved], add: (folder) => void (saved = [...saved, folder]) }
+      const hook = hookWith(answering('once'), { list: fresh })
+      expect(await writeIn(hook, join(strong, 'a.md'))).toEqual({})
+      saved = []
+      expect(await writeIn(hook, join(strong, 'b.md'))).toEqual(allow)
+      expect(questions).toHaveLength(1)
+      saved = [join(root, 'context', 'weak')]
+      expect(await writeIn(hook, join(root, 'context', 'weak', 'c.md'))).toEqual({})
+      expect(questions).toHaveLength(1)
+    })
+
+    it('allows the write a person allowed even when the list cannot be saved', async () => {
+      const broken: ProductWriteList = { read: () => [], add: () => { throw new Error('disk full') } }
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      expect(await writeIn(hookWith(answering('always'), { list: broken }), join(strong, 'brief.md'))).toEqual(allow)
+      warn.mockRestore()
+    })
+
+    it('outside a Project offers no «Always allow»', async () => {
+      await writeIn(hookWith(answering('once'), { list: null }), join(strong, 'brief.md'))
+      expect(questions.map((question) => question.alwaysOffered)).toEqual([false])
+    })
+
+    it('.git and the closed folders are refused without a question, and «Always allow» never lists them', async () => {
+      const hook = hookWith(answering('always'))
+      for (const file of [join(root, '.git', 'config'), join(root, 'closed', 'settings.json')]) {
+        expect(await writeIn(hook, file)).toEqual(deny)
+      }
+      expect(questions).toEqual([])
+      expect(listed).toEqual([])
+    })
+
+    it('an unattended Session (no one to ask) refuses without a question and says why', async () => {
+      const asker = answering('unattended')
+      for (const hook of [hookWith(undefined), hookWith(asker)]) {
+        const answer = await writeIn(hook, join(strong, 'brief.md'))
+        expect(answer).toEqual(deny)
+        expect(reasonOf(answer)).toContain('No one is at this Session')
+      }
+      expect(listed).toEqual([])
+    })
+
+    it('a question cancelled by Interrupt refuses the write; the hook passes Claude Code’s signal to the question', async () => {
+      const controller = new AbortController()
+      let seen: AbortSignal | null = null
+      const hook = hookWith((question) => ((seen = question.signal), Promise.resolve('cancelled')))
+      const answer = await hook({ hook_event_name: 'PreToolUse', session_id: 's', transcript_path: '', cwd: root, tool_name: 'Write', tool_input: { file_path: join(strong, 'a.md') }, tool_use_id: 'toolu_1' }, 'toolu_1', { signal: controller.signal })
+      expect(answer).toEqual(deny)
+      expect(reasonOf(answer)).toContain('cancelled')
+      expect(seen).toBe(controller.signal)
+    })
+
+    it('waits for the person: the guard’s matcher carries a long timeout, the observing hook of a plain Session none', () => {
+      expect(sessionOptions(productInput()).hooks?.PreToolUse?.[0]?.timeout).toBe(TOOL_USE_HOOK_TIMEOUT_S)
+      expect(TOOL_USE_HOOK_TIMEOUT_S).toBeGreaterThanOrEqual(60 * 60)
+      expect(sessionOptions(input({ toolUse: () => undefined })).hooks?.PreToolUse?.[0]).not.toHaveProperty('timeout')
+    })
   })
 
   it('carries WORFY_SESSION_KIND=product in its environment, over the Run variables', () => {

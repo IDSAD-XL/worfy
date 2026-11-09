@@ -2182,6 +2182,17 @@ body.w-split-dragging * {
   color: var(--blocked-text);
 }
 
+/* «Always allow in <folder>» of a Product Session's write outside its folder (worfy-polish 82): a long
+   path wraps inside the card instead of running out of it. */
+.w-permission__button--folder {
+  height: auto;
+  min-height: var(--row-height);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-3);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .w-permission__button:disabled {
   opacity: 0.5;
 }

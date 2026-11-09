@@ -93,7 +93,7 @@ import { MIND_MAP_SERVER_NAME } from '../../../shared/product/tools'
 import type { HarnessKind } from '../../../shared/projects/action-templates'
 import type { Env } from '../../agent/env'
 import type { CanUseToolHandler } from '../../agent/permissions'
-import { productToolDecision, type ProductToolDecision } from '../../agent/product-guard'
+import { productToolDecision, type ProductToolDecision, type ProductWriteAsker, type ProductWriteList } from '../../agent/product-guard'
 import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
@@ -360,6 +360,12 @@ export interface SessionOptionsInput {
    */
   productFolder?: string | null | undefined
   /**
+   * What a Product Session's write outside its folder needs (worfy-polish ticket 82): the Project's list,
+   * the closed folders and the person to ask. Absent: nothing listed, nothing closed beyond `.git`, and
+   * no one to ask — every write outside the folder is refused. Read only with `kind: 'product'`.
+   */
+  productWrites?: ProductWrites | undefined
+  /**
    * Text appended to the system prompt after the servers' instructions: the place of the Product Session
    * rules when the SessionStart hook does not see the Session's environment (the Epic spec, risk 1; the
    * rules themselves come with ticket 10). Absent: nothing.
@@ -370,8 +376,29 @@ export interface SessionOptionsInput {
 /** The variable a Product Session's Claude Code, its hooks and its shell commands see (read by the rules hook, ticket 10). */
 export const SESSION_KIND_VARIABLE = 'WORFY_SESSION_KIND'
 
-/** Decides on one tool call before Claude Code runs it: `tool_name`, `tool_input` and the shell's folder (`cwd`). */
-export type ToolUseGuard = (tool: string, input: unknown, cwd: string | null) => ProductToolDecision
+/** The tool call a guard decides on, besides its tool, input and folder: its id, and the signal Claude Code aborts when it gives up on the call. */
+export interface ToolUseCall {
+  toolUseId: string | null
+  signal: AbortSignal
+}
+
+/**
+ * Decides on one tool call before Claude Code runs it: `tool_name`, `tool_input` and the shell's folder
+ * (`cwd`); it may wait for a person (a Product Session's write outside its folder, worfy-polish ticket 82).
+ */
+export type ToolUseGuard = (tool: string, input: unknown, cwd: string | null, call: ToolUseCall) => ProductToolDecision | Promise<ProductToolDecision>
+
+/**
+ * How long Claude Code waits for the PreToolUse hook, in seconds: a guard may wait for a person's answer
+ * (worfy-polish ticket 82). In SDK 0.3.289 a hook that runs out stops the call («The tool call was not
+ * executed»), so the default 60 s would refuse a write the person was still reading about. A day, as long
+ * as a question in the window may stand. Only a hook callback that throws lets the call go on, and the
+ * hook below catches every error of the guard and refuses instead.
+ */
+export const TOOL_USE_HOOK_TIMEOUT_S = 24 * 60 * 60
+
+/** What Claude Code reads when the person at the Session allowed a call the guard asked about. */
+export const ASKED_ALLOW_REASON = 'The user allowed this tool call in worfy.'
 
 /**
  * The PreToolUse hook that tells `observe` the shell folder (`cwd`) and the scratchpad
@@ -381,29 +408,35 @@ export type ToolUseGuard = (tool: string, input: unknown, cwd: string | null) =>
  * no decision and no output, so the tool call goes on as without it, and no `hook` event is made of it
  * (hookSaidSomething, src/shared/vendors/claude/events.ts). A refusal answers `permissionDecision: deny`
  * with the reason, which Claude Code gives the agent in every permission mode, bypassPermissions too. A
- * guard that throws refuses: the guard fails closed.
+ * guard that throws refuses: the hook catches it, because Claude Code lets the call go on after a
+ * callback that throws. A call the person allowed when the guard asked (`asked`, worfy-polish ticket 82)
+ * answers `permissionDecision: allow`, so Claude Code does not ask canUseTool about it a second time;
+ * the hook waits for that answer up to TOOL_USE_HOOK_TIMEOUT_S, after which Claude Code stops the call.
  */
 export function toolUseHooks(observe?: ((use: ToolUseFacts) => void) | undefined, guard?: ToolUseGuard | undefined): NonNullable<Options['hooks']> {
   const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
   return {
     PreToolUse: [
       {
+        ...(guard === undefined ? {} : { timeout: TOOL_USE_HOOK_TIMEOUT_S }),
         hooks: [
-          (input) => {
+          async (input, _toolUseId, { signal }) => {
             const fields = input as unknown as Record<string, unknown>
             const toolUseId = text(fields['tool_use_id'])
             if (observe !== undefined && toolUseId !== null) observe({ toolUseId, cwd: text(fields['cwd']), scratchpad: text(fields['scratchpad_dir']) })
-            if (guard === undefined) return Promise.resolve({})
+            if (guard === undefined) return {}
             let decision: ProductToolDecision
             try {
-              decision = guard(String(fields['tool_name']), fields['tool_input'], text(fields['cwd']))
+              decision = await guard(String(fields['tool_name']), fields['tool_input'], text(fields['cwd']), { toolUseId, signal })
             } catch (error) {
               decision = { allow: false, reason: `The tool call is refused: its check failed (${error instanceof Error ? error.message : String(error)}).` }
             }
-            if (decision.allow) return Promise.resolve({})
-            return Promise.resolve({
-              hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: decision.reason },
-            })
+            if (decision.allow && decision.asked !== true) return {}
+            return {
+              hookSpecificOutput: decision.allow
+                ? { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: ASKED_ALLOW_REASON }
+                : { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: decision.reason },
+            }
           },
         ],
       },
@@ -411,9 +444,55 @@ export function toolUseHooks(observe?: ((use: ToolUseFacts) => void) | undefined
   }
 }
 
-/** The guard of a Product Session in `cwd` whose folder is `productFolder` (null: unknown, every write refused). */
-export function productGuard(productFolder: string | null, cwd: string, platform: NodeJS.Platform): ToolUseGuard {
-  return (tool, input, at) => productToolDecision(tool, input, { productDir: productFolder, cwd: at ?? cwd }, platform)
+/**
+ * What a Product Session's write outside its folder needs (worfy-polish ticket 82): the Project's list
+ * (null outside a Project: nothing is listed and «Always allow» is not offered), the folders no write
+ * reaches, and the person to ask (absent: no one, the write is refused).
+ */
+export interface ProductWrites {
+  list: ProductWriteList | null
+  closed: readonly string[]
+  ask?: ProductWriteAsker | undefined
+}
+
+/** What the agent reads when the person answered «Deny» to a write outside the Product Session folder. */
+export const productWriteDeniedMessage = (path: string): string =>
+  `The user denied writing ${path} in worfy. A Product Session writes outside its Product Session folder only with the user's leave; name the change instead, or ask the user to make it.`
+
+/**
+ * The guard of a Product Session in `cwd` whose folder is `productFolder` (null: unknown, every write
+ * refused). A write outside the folder and outside the Project's list (`writes`, worfy-polish ticket 82)
+ * is put to the person: «Allow once» lets it through, «Always allow in <folder>» adds the folder to the
+ * list first, «Deny» refuses it with productWriteDeniedMessage. With no one to ask, the refusal stands
+ * and says so.
+ */
+export function productGuard(productFolder: string | null, cwd: string, platform: NodeJS.Platform, writes?: ProductWrites): ToolUseGuard {
+  return async (tool, input, at, call) => {
+    const list = writes?.list ?? null
+    const place = { productDir: productFolder, cwd: at ?? cwd, alsoWritable: list?.read() ?? [], closed: writes?.closed ?? [] }
+    const decision = productToolDecision(tool, input, place, platform)
+    if (decision.allow || decision.ask === undefined) return decision
+    const target = decision.ask
+    const answer = writes?.ask === undefined ? 'unattended' : await writes.ask({ toolName: tool, toolUseId: call.toolUseId, input, target, alwaysOffered: list !== null, signal: call.signal })
+    switch (answer) {
+      case 'always':
+        // The person allowed this write whether or not the list could be saved: a list that failed asks next time.
+        try {
+          list?.add(target.folder)
+        } catch (error) {
+          console.warn(`[product] could not add ${target.folder} to the Project's list; the next write there is asked about again`, error)
+        }
+        return { allow: true, asked: true }
+      case 'once':
+        return { allow: true, asked: true }
+      case 'deny':
+        return { allow: false, reason: productWriteDeniedMessage(target.path) }
+      case 'cancelled':
+        return { allow: false, reason: `The question about writing ${target.path} was cancelled: the user interrupted the turn or closed the Session.` }
+      case 'unattended':
+        return { allow: false, reason: `${decision.reason} No one is at this Session to allow a write outside it, so it is refused.` }
+    }
+  }
 }
 
 /** The user's plugins and own skills a Session would get without a list (ADR-0084). */
@@ -637,7 +716,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.spawned !== undefined) options.spawnClaudeCodeProcess = watchedSpawn(input.spawned, input.stderr)
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
-  const guard = input.kind === 'product' ? productGuard(input.productFolder ?? null, input.cwd, input.runtime.platform) : undefined
+  const guard = input.kind === 'product' ? productGuard(input.productFolder ?? null, input.cwd, input.runtime.platform, input.productWrites) : undefined
   if (input.toolUse !== undefined || guard !== undefined) options.hooks = toolUseHooks(input.toolUse, guard)
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]

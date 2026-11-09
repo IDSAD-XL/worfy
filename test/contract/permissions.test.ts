@@ -15,7 +15,7 @@ import { UNATTENDED_MODE_MESSAGE } from '../../src/main/agent/session-settings'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { CANCELLED_MESSAGE, claudeCanUseTool, DENIED_MESSAGE, QUESTION_DECLINED_MESSAGE, UNATTENDED_DENIED_MESSAGE } from '../../src/main/vendors/claude/session'
+import { CANCELLED_MESSAGE, claudeCanUseTool, claudeProductWriteAsker, DENIED_MESSAGE, productWriteOptions, QUESTION_DECLINED_MESSAGE, UNATTENDED_DENIED_MESSAGE } from '../../src/main/vendors/claude/session'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../src/shared/agent/settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -895,5 +895,105 @@ describe('PermissionGate and questions', () => {
     const requestId = questionRequest?.type === 'question_request' ? questionRequest.requestId : ''
     expect(gate.answerQuestion(requestId, [{ selected: ['A'], other: null }])).toBe(true)
     expect(await question).toEqual({ behavior: 'allow', updatedInput: { questions: QUESTIONS, answers: { 'Pick?': 'A' } } })
+  })
+})
+
+// A Product Session's write outside its folder (worfy-polish ticket 82): the question goes on the Session's
+// gate like any permission request — Allow once / Always allow in <folder> / Deny, with `productWrite` —
+// and its «Always allow» is the Project's list, not the gate's: the gate neither answers it from its own
+// list nor learns a subject from it. While the Session is unattended no one is asked.
+describe("the question about a Product Session's write outside its folder", () => {
+  const target = { path: '/repo/context/strong/brief.md', folder: '/repo/context/strong' }
+  const question = (signal = new AbortController().signal, alwaysOffered = true) => ({ toolName: 'Write', toolUseId: 'toolu_w', input: { file_path: target.path, content: 'x' }, target, alwaysOffered, signal })
+  const opened = (events: AgentEvent[]) => events.filter((event): event is Extract<AgentEvent, { type: 'permission_request' }> => event.type === 'permission_request')
+
+  it('opens a permission request with the three answers, the file and productWrite; each answer maps to its own', async () => {
+    for (const [optionId, expected] of [['allow', 'once'], ['always_allow_folder', 'always'], ['deny', 'deny']] as const) {
+      const events: AgentEvent[] = []
+      const gate = new PermissionGate((event) => events.push(event), () => undefined)
+      const answer = claudeProductWriteAsker({ permissions: gate, unattended: false })(question())
+      const [request] = opened(events)
+      expect(request).toMatchObject({
+        subject: 'Write',
+        toolName: 'Write',
+        toolUseId: 'toolu_w',
+        title: `Product Session wants to write ${target.path}`,
+        blockedPath: target.path,
+        productWrite: target,
+        options: productWriteOptions(target.folder, true),
+      })
+      expect(request?.options.map((option) => option.label)).toEqual(['Allow once', `Always allow in ${target.folder}`, 'Deny'])
+      expect(gate.answer(request?.requestId ?? '', optionId)).toBe(true)
+      expect(await answer).toBe(expected)
+    }
+  })
+
+  it('offers no «Always allow» outside a Project, and an Interrupt cancels the question', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const controller = new AbortController()
+    const answer = claudeProductWriteAsker({ permissions: gate, unattended: false })(question(controller.signal, false))
+    expect(opened(events)[0]?.options.map((option) => option.id)).toEqual(['allow', 'deny'])
+    controller.abort()
+    expect(await answer).toBe('cancelled')
+  })
+
+  it('an unattended Session is never asked, and one given back to a person is', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const opts = { permissions: gate, unattended: true }
+    const asker = claudeProductWriteAsker(opts)
+    expect(await asker(question())).toBe('unattended')
+    expect(events).toEqual([])
+    opts.unattended = false
+    void asker(question())
+    expect(opened(events)).toHaveLength(1)
+  })
+
+  it("keeps the gate's own «Always allow» apart: a remembered Write never answers the question, and its «Always allow in» teaches the gate nothing", async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const asker = claudeProductWriteAsker({ permissions: gate, unattended: false })
+    // "Always allow" Write in this Session, by the ordinary request…
+    const ordinary = claudeCanUseTool(gate)('Write', { file_path: '/repo/docs/product/a.md' }, { signal: new AbortController().signal })
+    expect(gate.answer(opened(events)[0]?.requestId ?? '', 'always_allow')).toBe(true)
+    await ordinary
+    // …does not answer the question about a write outside the folder: it is asked.
+    const outside = asker(question())
+    expect(gate.pending).toBe(1)
+    // An ordinary Write request opened next to it is not settled by «Always allow in <folder>», nor is the
+    // question settled by the gate's list.
+    expect(gate.answer(opened(events)[1]?.requestId ?? '', 'always_allow_folder')).toBe(true)
+    expect(await outside).toBe('always')
+    expect(gate.alwaysAllowed()).toEqual(['Write'])
+    const next = asker(question())
+    expect(gate.pending).toBe(1)
+    expect(gate.answer(opened(events)[2]?.requestId ?? '', 'deny')).toBe(true)
+    expect(await next).toBe('deny')
+  })
+
+  it('«Always allow in <folder>» does not let an ordinary Write of this Session through: that one is still asked', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const outside = claudeProductWriteAsker({ permissions: gate, unattended: false })(question())
+    expect(gate.answer(opened(events)[0]?.requestId ?? '', 'always_allow_folder')).toBe(true)
+    expect(await outside).toBe('always')
+    expect(gate.alwaysAllowed()).toEqual([])
+    const ordinary = claudeCanUseTool(gate)('Write', { file_path: '/repo/docs/product/a.md' }, { signal: new AbortController().signal })
+    expect(gate.pending).toBe(1)
+    expect(gate.answer(opened(events)[1]?.requestId ?? '', 'deny')).toBe(true)
+    expect(await ordinary).toEqual({ behavior: 'deny', message: DENIED_MESSAGE })
+  })
+
+  it('an open question is not settled by an ordinary «Always allow» of the same tool', async () => {
+    const events: AgentEvent[] = []
+    const gate = new PermissionGate((event) => events.push(event), () => undefined)
+    const outside = claudeProductWriteAsker({ permissions: gate, unattended: false })(question())
+    const ordinary = claudeCanUseTool(gate)('Write', { file_path: '/repo/docs/product/a.md' }, { signal: new AbortController().signal })
+    expect(gate.answer(opened(events)[1]?.requestId ?? '', 'always_allow')).toBe(true)
+    await ordinary
+    expect(gate.pending).toBe(1)
+    expect(gate.answer(opened(events)[0]?.requestId ?? '', 'allow')).toBe(true)
+    expect(await outside).toBe('once')
   })
 })

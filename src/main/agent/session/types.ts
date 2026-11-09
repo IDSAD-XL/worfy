@@ -8,6 +8,7 @@ import type { SessionKind } from '../../../shared/ipc/sessions'
 import type { AgentProcess } from '../../vendors/session'
 import type { UserContent } from '../attachments'
 import type { CommandInfoLike } from '../commands'
+import type { ProductWriteAsker } from '../product-guard'
 import type { Session } from '../session'
 
 /** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
@@ -143,6 +144,12 @@ export interface QueryRequest {
    * judges each request of the process in it (worfy-auto-approve ticket 04). Absent: not told.
    */
   processEnv?: ((env: Readonly<Record<string, string | undefined>>) => void) | undefined
+  /**
+   * Asks the person at a Product Session whether it may write a file outside its folder (worfy-polish
+   * ticket 82, src/main/agent/product-guard.ts): the Claude driver puts the question on the Session's
+   * gate, and answers `unattended` while no one is at the Session. Absent: no one to ask, refused.
+   */
+  askProductWrite?: ProductWriteAsker | undefined
 }
 
 /** What a PreToolUse hook of Claude Code tells of one tool call. */

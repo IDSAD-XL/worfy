@@ -1,10 +1,13 @@
 // How a Session's Claude Code is started (src/main/vendors/claude/query.ts): the real SDK unless
 // WORFY_AGENT=fake, with the login shell environment from env.ts rather than worfy's own, and the
 // unpacked native binary in the packaged app. The SDK's query() and agentEnv() are mocked.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ProductWriteAnswer } from '../../src/main/agent/product-guard'
+import type { StoredProject } from '../../src/main/projects/store'
+import type { ProductWriteListResolver } from '../../src/main/vendors/claude/query'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { removeTestTree } from '../remove'
@@ -240,5 +243,130 @@ describe('the Harness a Session of sdkQueryFactory carries', () => {
     mkdirSync(join(home, 'bin'))
     writeFileSync(join(home, 'bin', 'epic-status'), '#!/bin/sh\n')
     expect(await plugins()).toBeUndefined()
+  })
+})
+
+// worfy-polish ticket 82: the fake agent runs a Product Session's PreToolUse guard before canUseTool, as Claude
+// Code does, so an e2e run meets the question about a write outside the folder. The guard is the one
+// sdkQueryFactory gives the SDK (productHooks); the person's answer comes from the request's askProductWrite.
+describe('a Product Session write outside its folder on the fake agent', () => {
+  const scriptsDir = join(import.meta.dirname, '..', 'fixtures', 'agent-scripts')
+  let top: string
+  let project: string
+
+  beforeEach(() => {
+    // Not in the worfy data folder of these tests: that folder is closed to every write.
+    top = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-product-fake-')))
+    project = join(top, 'alpha')
+    mkdirSync(join(project, 'docs', 'product'), { recursive: true })
+    mkdirSync(join(project, '.git'), { recursive: true })
+  })
+  afterEach(() => removeTestTree(top))
+
+  /** Plays one turn of product-write-outside.jsonl per message; what the tools answered, and the questions asked. */
+  async function play(turns: number, answer: ProductWriteAnswer | undefined, listed: string[] = [], resolver?: ProductWriteListResolver) {
+    const { fakeQueryFactory } = await import('../../src/main/agent/fake-query')
+    const { productHooks, fakePreToolUse } = await import('../../src/main/vendors/claude/query')
+    const asked: string[] = []
+    const prompt = (async function* () {
+      for (let turn = 0; turn < turns; turn++) yield { type: 'user', message: { role: 'user', content: `turn ${turn}` }, parent_tool_use_id: null }
+    })()
+    const productRequest: QueryRequest = {
+      ...request(),
+      prompt,
+      cwd: project,
+      resume: undefined,
+      kind: 'product',
+      settings: { ...DEFAULT_SETTINGS, permissionMode: 'bypassPermissions' },
+      ...(answer === undefined ? {} : { askProductWrite: (question) => (asked.push(question.target.path), Promise.resolve(answer)) }),
+    }
+    const list = { read: () => listed, add: (folder: string) => void listed.push(folder) }
+    const factory = fakeQueryFactory({
+      scriptsDir,
+      script: 'product-write-outside',
+      preToolUse: (req) => productHooks(req, () => Promise.resolve(join(project, 'docs', 'product')), resolver ?? (() => list)).then(fakePreToolUse),
+    })
+    const query = await factory(productRequest)
+    const results: { content: unknown; is_error: boolean }[] = []
+    let ended = 0
+    for await (const message of query as AsyncIterable<{ type: string; message?: { content?: { type: string; content: unknown; is_error: boolean }[] } }>) {
+      for (const block of message.message?.content ?? []) if (block.type === 'tool_result') results.push({ content: block.content, is_error: block.is_error })
+      if (message.type === 'result' && ++ended === turns) break
+    }
+    query.close()
+    return { asked, results, listed }
+  }
+
+  it('«Allow once» writes the file, in bypassPermissions too; «Deny» writes nothing and tells the agent', async () => {
+    const allowed = await play(1, 'once')
+    expect(allowed.asked).toEqual([join(project, 'context', 'strong', 'brief.md')])
+    expect(allowed.results).toEqual([{ content: expect.stringContaining('Write ran') as unknown, is_error: false }])
+    expect(readFileSync(join(project, 'context', 'strong', 'brief.md'), 'utf8')).toBe('# Brief, version 2\n')
+
+    const denied = await play(2, 'deny', [join(project, 'context', 'strong')])
+    // The listed folder goes without a question; the next folder is asked about and refused.
+    expect(denied.asked).toEqual([join(project, 'notes', 'plan.md')])
+    expect(denied.results[1]).toEqual({ content: expect.stringContaining('The user denied writing') as unknown, is_error: true })
+    expect(existsSync(join(project, 'notes', 'plan.md'))).toBe(false)
+  })
+
+  it('an unattended request (no one to ask) and .git are refused without a question', async () => {
+    const unattended = await play(1, undefined)
+    expect(unattended.results).toEqual([{ content: expect.stringContaining('No one is at this Session') as unknown, is_error: true }])
+    expect(existsSync(join(project, 'context', 'strong', 'brief.md'))).toBe(false)
+
+    const git = await play(3, 'always', [join(project, 'context', 'strong'), join(project, 'notes')])
+    expect(git.asked).toEqual([])
+    expect(git.results[2]).toEqual({ content: expect.stringContaining('.git') as unknown, is_error: true })
+    expect(existsSync(join(project, '.git', 'hooks', 'pre-commit'))).toBe(false)
+    expect(git.listed).toEqual([join(project, 'context', 'strong'), join(project, 'notes')])
+  })
+
+  it("keeps «Always allow» in the Project's settings.json, read at each write: a folder Project settings removed is asked about again", async () => {
+    const { productWriteListIn } = await import('../../src/main/vendors/claude/query')
+    const { readProjectSettings, settingsPath, writeProjectSettings } = await import('../../src/main/projects/settings')
+    const { defaultProjectSettings } = await import('../../src/shared/projects/action-templates')
+    const data = join(top, 'project-data')
+    const stored: StoredProject = { id: 'alpha', name: 'Alpha', path: project }
+    const resolver = productWriteListIn({ list: () => [stored], dataDir: (id) => join(data, id) })
+    const strong = join(project, 'context', 'strong')
+    expect(resolver(join(top, 'elsewhere'))).toBeNull()
+
+    const first = await play(1, 'always', [], resolver)
+    expect(first.asked).toEqual([join(strong, 'brief.md')])
+    expect(JSON.parse(readFileSync(settingsPath(join(data, 'alpha')), 'utf8'))).toMatchObject({ productWriteFolders: [strong] })
+    // The folder saved there is read back: the next write in it goes without a question.
+    expect((await play(1, 'once', [], resolver)).asked).toEqual([])
+
+    // Project settings removes it; the next write reads settings.json again and asks.
+    writeProjectSettings(join(data, 'alpha'), { actionTemplates: defaultProjectSettings('none').actionTemplates, productWriteFoldersRemoved: [strong] }, 'none')
+    expect(readProjectSettings(join(data, 'alpha'), 'none').productWriteFolders).toEqual([])
+    expect((await play(1, 'once', [], resolver)).asked).toEqual([join(strong, 'brief.md')])
+  })
+
+  it("closes worfy's data folder of this run and of both builds, the Claude home it reads, the user's own ~/.claude and the Harness to every write", async () => {
+    const { productClosedFolders, productHooks, fakePreToolUse } = await import('../../src/main/vendors/claude/query')
+    const { dataRoot } = await import('../../src/main/storage/paths')
+    const env = { WORFY_DATA_DIR: join(top, 'data'), WORFY_CLAUDE_HOME: join(top, 'claude'), WORFY_HARNESS_HOME: join(top, 'harness') }
+    const builds = [dataRoot({}, 'packaged'), dataRoot({}, 'dev')]
+    expect(builds.map((folder) => folder.split(/[\\/]/).at(-1))).toEqual(['worfy', 'worfy-dev'])
+    expect(productClosedFolders(env)).toEqual([join(top, 'data'), ...builds, join(top, 'claude'), join(homedir(), '.claude'), join(top, 'harness')])
+    // The app's guard reads them from its own environment: here the worfy data folder of this test.
+    const asked: string[] = []
+    const run = fakePreToolUse(
+      await productHooks(
+        { ...request(), cwd: project, kind: 'product', askProductWrite: (question) => (asked.push(question.target.path), Promise.resolve('once')) },
+        () => Promise.resolve(join(project, 'docs', 'product')),
+        () => null,
+      ),
+    )
+    const said = await run?.({ toolName: 'Write', toolUseId: 't', input: { file_path: join(dataDir, 'projects.json') }, cwd: project }, new AbortController().signal)
+    expect(said?.decision).toBe('deny')
+    expect(asked).toEqual([])
+  })
+
+  it('makes no hooks for a plain Session', async () => {
+    const { productHooks } = await import('../../src/main/vendors/claude/query')
+    expect(await productHooks(request(), () => Promise.resolve('/x'), () => null)).toBeUndefined()
   })
 })

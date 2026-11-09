@@ -1,6 +1,7 @@
 // A Project's settings (`<Project data folder>/settings.json`): the action templates, for
 // Windows the shell of the Terminals, the Default vendor, the answer to the team reviewer's
-// offer (worfy-human-review ticket 09) and the date of the last reminder to update it (ticket 10).
+// offer (worfy-human-review ticket 09), the date of the last reminder to update it (ticket 10) and
+// the folders a Product Session may also write in (worfy-polish ticket 82).
 // The schema and the defaults live in src/shared/projects/action-templates.ts. The defaults are
 // those of the Harness found on the machine (src/main/harness/locate.ts, worfy-harness ticket 12),
 // looked up again on every call unless the caller names it.
@@ -39,7 +40,10 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * one, or the default when none is saved. Settings without `defaultVendor` keep the saved one (a
  * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
  * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24). Settings without
- * `humanReview` keep the saved one: "Save" of Project settings does not send it.
+ * `humanReview` keep the saved one: "Save" of Project settings does not send it. Settings without
+ * `productWriteFolders` keep the saved list (worfy-polish ticket 82), and the folders of
+ * `productWriteFoldersRemoved` leave it: "Save" sends the folders removed in the dialog, so one «Always
+ * allow» added meanwhile stays.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
@@ -48,10 +52,13 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
   const { defaultVendor: asked, humanReview: review, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   const humanReview = review ?? read().humanReview
+  const { productWriteFolders: listed, productWriteFoldersRemoved: removed = [], ...others } = rest
+  const productWriteFolders = (listed ?? read().productWriteFolders)?.filter((folder) => !removed.includes(folder))
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
-    ...rest,
+    ...others,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
     ...(humanReview === undefined ? {} : { humanReview }),
+    ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
     actionTemplates: { ...settings.actionTemplates, gateQueue },
   })
   return readProjectSettings(projectDataDir, harness)
@@ -74,6 +81,18 @@ export function writeHumanReviewOffer(projectDataDir: string, offer: NonNullable
 export function writeHumanReviewReminder(projectDataDir: string, at: Date, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   const current = readProjectSettings(projectDataDir, harness)
   return writeProjectSettings(projectDataDir, { ...current, humanReview: { ...current.humanReview, remindedAt: at.toISOString() } }, harness)
+}
+
+/**
+ * Adds `folder` to «Product Session may also write here» (worfy-polish ticket 82: «Always allow in
+ * <folder>» of a Product Session's write outside its folder) and keeps every other setting as it is
+ * saved; a folder already listed is not added twice. Returns the settings as saved.
+ */
+export function addProductWriteFolder(projectDataDir: string, folder: string, harness: HarnessKind = currentHarness().kind): ProjectSettings {
+  const current = readProjectSettings(projectDataDir, harness)
+  const listed = current.productWriteFolders ?? []
+  if (listed.includes(folder)) return current
+  return writeProjectSettings(projectDataDir, { ...current, productWriteFolders: [...listed, folder] }, harness)
 }
 
 /**

@@ -14,6 +14,11 @@
 //   keeps the list, as the card's "until this Session ends" says;
 // - an option of kind `deny` refuses it; the driver tells its agent the user refused.
 //
+// A Product Session's write outside its folder (worfy-polish ticket 82, `productWrite` of the request)
+// is asked the same way, but its `allow_always` option ("Always allow in <folder>") goes to the
+// Project's list in its settings, which the driver keeps: the gate neither answers it from this list
+// nor adds its subject here, and an `allow_always` answer to another request never answers it.
+//
 // A request nobody answered is cancelled when the turn is interrupted, when the Session closes or
 // its agent dies (cancelAll), and when the Vendor withdraws it itself (the request's signal).
 //
@@ -45,6 +50,8 @@ interface Pending {
   subject: string
   /** A request the approval policy parked for the owner. */
   parked: boolean
+  /** A Product Session's write outside its folder: the list of this gate neither answers it nor learns from it. */
+  productWrite: boolean
   options: readonly PermissionOption[]
   /** The questions of a question request; null for a permission request. */
   questions: Question[] | null
@@ -98,7 +105,8 @@ export class PermissionGate implements PermissionAsker {
 
   readonly ask = (request: PermissionAsk): Promise<string | null> => {
     const parked = request.parked !== undefined
-    const remembered = parked ? undefined : this.remembered.get(request.subject)
+    const productWrite = request.productWrite !== undefined
+    const remembered = parked || productWrite ? undefined : this.remembered.get(request.subject)
     if (remembered !== undefined) return Promise.resolve(remembered)
     const { signal } = request
     if (signal.aborted) return Promise.resolve(null)
@@ -116,12 +124,14 @@ export class PermissionGate implements PermissionAsker {
       suggestions: request.suggestions,
       options: request.options.map((option) => ({ ...option })),
       ...(request.parked === undefined ? {} : { parked: { rule: request.parked.rule, targets: [...request.parked.targets] } }),
+      ...(request.productWrite === undefined ? {} : { productWrite: { ...request.productWrite } }),
     }
     return new Promise<string | null>((resolve) => {
       const onAbort = () => this.settle(requestId, CANCELLED)
       this.open.set(requestId, {
         subject: request.subject,
         parked,
+        productWrite,
         options: request.options,
         questions: null,
         request: opened,
@@ -148,6 +158,7 @@ export class PermissionGate implements PermissionAsker {
       this.open.set(requestId, {
         subject: '',
         parked: false,
+        productWrite: false,
         options: [],
         questions,
         request: opened,
@@ -177,12 +188,12 @@ export class PermissionGate implements PermissionAsker {
     const option = pending.options.find((each) => each.id === optionId)
     if (option === undefined) throw new Error(`This request does not offer "${optionId}"`)
     this.settle(requestId, { kind: 'option', id: optionId })
-    if (option.kind === 'allow_always') {
+    if (option.kind === 'allow_always' && !pending.productWrite) {
       this.remembered.set(pending.subject, optionId)
       // Other requests of the same subject already open (parallel Subagents) are covered too: a new
       // request of it would go through without asking, so these do not wait for an answer either.
       for (const [otherId, other] of [...this.open]) {
-        if (other.questions === null && !other.parked && other.subject === pending.subject) this.settle(otherId, { kind: 'option', id: optionId })
+        if (other.questions === null && !other.parked && !other.productWrite && other.subject === pending.subject) this.settle(otherId, { kind: 'option', id: optionId })
       }
     }
     return true

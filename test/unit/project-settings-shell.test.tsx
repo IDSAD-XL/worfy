@@ -376,3 +376,65 @@ describe('Team reviewer in Project settings', () => {
     expect(within(section()).queryAllByRole('button')).toEqual([])
   })
 })
+
+// «Product Session may also write here» of Project settings (worfy-polish ticket 82): one row per folder
+// «Always allow in <folder>» added, each with «Remove»; a removal goes out with Save, and a Save without
+// one does not send the list, so a folder added meanwhile stays.
+describe('the folders a Product Session may also write in, in Project settings', () => {
+  const FOLDERS = ['/repo/context/strong', '/repo/notes']
+  const list = (): HTMLElement => screen.getByTestId('product-write-folders')
+  const rows = (): (string | null)[] => within(list()).queryAllByTestId('product-write-folder').map((row) => row.querySelector('code')?.textContent ?? null)
+
+  it('says there are none when the list is empty or absent', async () => {
+    await open()
+    expect(within(list()).getByTestId('product-write-folders-empty').textContent).toBe('No folders yet.')
+    expect(rows()).toEqual([])
+  })
+
+  it('lists each folder with Remove; Save after a removal sends the folder removed, not the list left, and closes', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    const { onClose } = await open()
+    expect(rows()).toEqual(FOLDERS)
+    fireEvent.click(within(list()).getByRole('button', { name: `Remove ${FOLDERS[0]}` }))
+    expect(rows()).toEqual([FOLDERS[1]])
+    await save()
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES, productWriteFoldersRemoved: [FOLDERS[0]] } })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('the hint names "Always allow in" in plain quotes, and a long path wraps rather than losing its end', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    await open()
+    expect(list().textContent).toContain('"Always allow in"')
+    expect(list().textContent).not.toMatch(/[«»]/)
+    const path = within(list()).getAllByTestId('product-write-folder')[0]?.querySelector('code')
+    expect(path?.style.overflowWrap).toBe('anywhere')
+    expect(path?.style.textOverflow).toBe('')
+  })
+
+  it('a Save without a removal does not send the list', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    await open()
+    await save()
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES } })
+  })
+
+  it('a removal not saved counts as an edit: "Build" of the team reviewer then keeps the window open', async () => {
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    main.answers['projects.reviewer.build'] = { ok: true, value: null }
+    const { onClose } = await open()
+    fireEvent.click(within(list()).getByRole('button', { name: `Remove ${FOLDERS[1]}` }))
+    await act(async () => {
+      fireEvent.click(within(screen.getByTestId('team-reviewer')).getByRole('button', { name: 'Build' }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('shared read-only, the rows show and Remove is off', async () => {
+    main.readOnly = { 'mini-machine': 'Read-only' }
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: TEMPLATES, productWriteFolders: FOLDERS } }
+    await open({ machine: 'mini-machine' })
+    expect(rows()).toEqual(FOLDERS)
+    expect((within(list()).getByRole('button', { name: `Remove ${FOLDERS[0]}` }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})

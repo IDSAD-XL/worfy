@@ -70,6 +70,10 @@ const styles = {
   hint: { color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   placeholders: { margin: '0 0 var(--space-4)', padding: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px var(--space-3)' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
+  folders: { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' },
+  folder: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
+  // A long path wraps anywhere, so its end — the folder's own name — stays in view.
+  folderPath: { flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: 'var(--text-12)' },
   secondary: {
     height: 'var(--row-height)',
     padding: '0 var(--space-3)',
@@ -107,6 +111,11 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  *
  * "Team reviewer" (worfy-human-review ticket 09, spec Q6 (a)): the state of the Project's reviewer in
  * its team's voice, with "Build" ("Update" once built, ticket 10) and "Delete"; see TeamReviewerSection.
+ *
+ * "Product Session may also write here" (worfy-polish ticket 82): the folders outside the Product Session
+ * folder where its writes go without a question, one row each with "Remove". «Always allow in <folder>»
+ * on a Product Session's question adds them; a removal is sent with Save, and only then, so a Save of
+ * the other fields never touches the list.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -116,6 +125,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   // The Vendor as saved (undefined: none), and as chosen in the dialog.
   const [savedVendor, setSavedVendor] = useState<VendorId>()
   const [vendor, setVendor] = useState<VendorChoice>('none')
+  // «Product Session may also write here» as loaded, and as left after the removals in the dialog.
+  const [loadedFolders, setLoadedFolders] = useState<readonly string[]>([])
+  const [folders, setFolders] = useState<readonly string[]>([])
   // The fields as loaded: "Build" of the team reviewer closes the window only when none was edited since.
   const [loadedFields, setLoadedFields] = useState<string>()
   const [shells, setShells] = useState<ShellOptions>([])
@@ -139,7 +151,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         setTerminalShell(result.value.terminalShell)
         setSavedVendor(result.value.defaultVendor)
         setVendor(result.value.defaultVendor ?? 'none')
-        setLoadedFields(fieldsKey(result.value.actionTemplates, result.value.terminalShell, result.value.defaultVendor ?? 'none'))
+        setLoadedFolders(result.value.productWriteFolders ?? [])
+        setFolders(result.value.productWriteFolders ?? [])
+        setLoadedFields(fieldsKey(result.value.actionTemplates, result.value.terminalShell, result.value.defaultVendor ?? 'none', result.value.productWriteFolders ?? []))
       } else setFailure(result.error)
     })
     // No answer, or a failure, leaves the list empty: the field is not shown.
@@ -152,7 +166,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   }, [project.id, machine])
 
   const loaded = templates !== undefined
-  const edited = templates !== undefined && loadedFields !== undefined && fieldsKey(templates, terminalShell, vendor) !== loadedFields
+  const edited = templates !== undefined && loadedFields !== undefined && fieldsKey(templates, terminalShell, vendor, folders) !== loadedFields
   useEffect(() => {
     if (loaded) firstField.current?.focus()
   }, [loaded])
@@ -167,7 +181,14 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
     // "Default vendor": a Vendor, or null to clear a saved one; nothing when none was saved or chosen,
     // so a Linked machine on a build from before the field takes the save too.
     const defaultVendor = vendor !== 'none' ? vendor : savedVendor !== undefined ? null : undefined
-    const settings = { actionTemplates: templates, ...(terminalShell === undefined ? {} : { terminalShell }), ...(defaultVendor === undefined ? {} : { defaultVendor }) }
+    // The folders removed here, not the list left: a folder «Always allow» added while the dialog stood open stays.
+    const productWriteFoldersRemoved = loadedFolders.filter((folder) => !folders.includes(folder))
+    const settings = {
+      actionTemplates: templates,
+      ...(terminalShell === undefined ? {} : { terminalShell }),
+      ...(defaultVendor === undefined ? {} : { defaultVendor }),
+      ...(productWriteFoldersRemoved.length === 0 ? {} : { productWriteFoldersRemoved }),
+    }
     const result = await call('projects.settings.set', { id: project.id, settings })
     setSaving(false)
     if (result.ok) onClose()
@@ -278,6 +299,33 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </div>
         ) : null}
 
+        {templates ? (
+          <section style={styles.field} aria-label="Product Session may also write here" data-testid="product-write-folders">
+            <span style={styles.label}>Product Session may also write here</span>
+            {folders.length === 0 ? (
+              <span style={styles.hint} data-testid="product-write-folders-empty">
+                No folders yet.
+              </span>
+            ) : (
+              <ul style={styles.folders}>
+                {folders.map((folder) => (
+                  <li key={folder} style={styles.folder} data-testid="product-write-folder">
+                    <code className="w-mono" style={styles.folderPath} title={folder}>
+                      {folder}
+                    </code>
+                    <button type="button" style={styles.secondary} aria-label={`Remove ${folder}`} disabled={readOnly !== null} onClick={() => setFolders(folders.filter((each) => each !== folder))}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <span style={styles.hint}>
+              A Product Session writes outside its own folder only after it asks; "Always allow in" a folder adds it here, and it then writes there without asking. A removal applies on Save.
+            </span>
+          </section>
+        ) : null}
+
         <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={() => {
             if (edited) return false
             onClose()
@@ -326,8 +374,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
 }
 
 /** The editable fields of the dialog as one string, to tell whether any was edited since the load. */
-function fieldsKey(templates: ActionTemplates, terminalShell: TerminalShellSetting | undefined, vendor: VendorChoice): string {
-  return JSON.stringify([templates, terminalShell ?? null, vendor])
+function fieldsKey(templates: ActionTemplates, terminalShell: TerminalShellSetting | undefined, vendor: VendorChoice, folders: readonly string[]): string {
+  return JSON.stringify([templates, terminalShell ?? null, vendor, folders])
 }
 
 /** A date as `YYYY-MM-DD` in the local time of the window. */
