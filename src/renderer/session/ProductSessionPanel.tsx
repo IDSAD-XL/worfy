@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import type { AgentEvent } from '../../shared/agent/events'
 import { PRODUCT_SESSION_SPLIT_DEFAULT, PRODUCT_SESSION_SPLIT_MIN, productSessionSplitOf } from '../../shared/settings/app-settings'
 import { adviceTotals, type AdviceShare } from '../../shared/product/share'
 import { flattenSubagents, type SubagentInfo } from '../../shared/transcript/subagents'
@@ -9,7 +10,8 @@ import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { ProductAgentsList } from './ProductAgentsList'
-import { productAgentOrder } from './product-agents'
+import { draftsOf, productAgentOrder, type ProductDraft } from './product-agents'
+import { CriticPanel, DraftsPanel, IdeasPanel } from './ProductRailPanels'
 import { ProductSessionContext } from './product-session'
 import type { RailBlockProps } from './rail/index'
 import { SplitDivider } from './SplitDivider'
@@ -25,8 +27,9 @@ import { SplitDivider } from './SplitDivider'
 // The agents strip stands for the rail of a plain Session: a column of icons with the number of the
 // Session's Subagents; a click widens the column to 300 px, the chat narrowing, with the list of those
 // agents by name and state (tickets 20 and 22, ProductAgentsList.tsx) — «Critic», what it was asked, «working
-// · 1 min · 3 objections» — not the rail blocks of a plain Session. A Product Session is bound to no Ticket
-// and no Epic.
+// · 1 min · 3 objections» — not the rail blocks of a plain Session. Beside it, as the prototype has them (ticket
+// 27): Critic, Idea generator and Drafts, each opening its own panel in the same column (ProductRailPanels.tsx).
+// A Product Session is bound to no Ticket and no Epic.
 //
 // The left pane draws the Mind map (../product/MindMap.tsx, ticket 08) of the topic the advisor works on.
 // A Product Session is bound to no topic in its data, so the pane follows the topic of the Project whose
@@ -41,10 +44,13 @@ import { SplitDivider } from './SplitDivider'
 // main counts it from the Project's Product Session folder on `product.share` (src/shared/product/share.ts)
 // and the header asks again on every `product.changed` of the Project, so a `mind_map_decide` shows at
 // once. It counts the owner's decisions and does not grade the advice (owner, 2026-11-08); its tooltip says so.
+// It shows only once there is advice, decided or not (owner, 2026-11-09, Q3), or when the count fails.
 
 export interface ProductSessionPanelProps extends RailBlockProps {
   /** The chat: the transcript and the input field, as the plain body has them. */
   children: ReactNode
+  /** The chat's events, the loaded transcript and the live ones: the Drafts panel lists the drafts they wrote. */
+  events?: readonly AgentEvent[] | undefined
 }
 
 /**
@@ -171,24 +177,37 @@ function adviceTitle(share: AdviceShare): string {
   return lines.join('\n')
 }
 
-/** The share of accepted advice of the Project, for the header of a Product Session. */
+/**
+ * The share of accepted advice of the Project, for the header of a Product Session, after the divider that sets
+ * it apart. Nothing until main has answered, and nothing while the Project has no advice (owner, 2026-11-09, Q3);
+ * a failed count shows, with why in its tooltip.
+ */
 export function AcceptedAdvice({ projectId }: { projectId: string }) {
   const { share, error } = useAdviceShare(projectId)
   const totals = share === undefined ? undefined : adviceTotals(share)
-  if (totals !== undefined && share !== undefined && totals.decided === 0) {
-    return (
+  if (error === undefined && (totals === undefined || totals.decided + totals.pending === 0)) return null
+  const fact =
+    totals !== undefined && share !== undefined && totals.decided === 0 ? (
       <span className="w-session__fact w-session__accepted" data-testid="product-session-accepted" title={adviceTitle(share)}>
         <span className="w-session__fact-value">No advice decided yet</span>
       </span>
+    ) : (
+      <span
+        className="w-session__fact w-session__accepted"
+        data-testid="product-session-accepted"
+        title={error !== undefined ? `Could not count the advice: ${error}` : share === undefined ? undefined : adviceTitle(share)}
+      >
+        <span className="w-session__fact-label">Advice accepted</span>{' '}
+        <span className="w-mono w-session__fact-value">
+          {totals === undefined ? '—' : `${totals.accepted} of ${totals.decided} · ${Math.round((totals.accepted / totals.decided) * 100)}%`}
+        </span>
+      </span>
     )
-  }
-  const value = totals === undefined ? '—' : `${totals.accepted} of ${totals.decided} · ${Math.round((totals.accepted / totals.decided) * 100)}%`
-  const title = error !== undefined ? `Could not count the advice: ${error}` : share === undefined ? undefined : adviceTitle(share)
   return (
-    <span className="w-session__fact w-session__accepted" data-testid="product-session-accepted" title={title}>
-      <span className="w-session__fact-label">Advice accepted</span>{' '}
-      <span className="w-mono w-session__fact-value">{value}</span>
-    </span>
+    <>
+      <span className="w-session__divider" aria-hidden="true" />
+      {fact}
+    </>
   )
 }
 
@@ -209,69 +228,136 @@ function useSplit(): { share: number; move: (share: number) => void; commit: (sh
   return { share: moving ?? saved, move: setMoving, commit }
 }
 
-function AgentsIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+const ICON_PROPS = { width: 17, height: 17, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true } as const
+
+// The icons of the prototype's strip (card-2dffdc46): people, a shield with «!», a lamp, a page with lines.
+const ICONS: Readonly<Record<RailPanel, ReactNode>> = {
+  agents: (
+    <svg {...ICON_PROPS}>
       <circle cx="7" cy="7" r="3" />
       <circle cx="14" cy="8.5" r="2.4" />
       <path d="M1.8 17c.6-3 2.6-4.6 5.2-4.6s4.6 1.6 5.2 4.6M12.5 12.6c2.6-.4 4.8.9 5.5 3.9" />
     </svg>
-  )
+  ),
+  critic: (
+    <svg {...ICON_PROPS}>
+      <path d="M10 2.5l6 2.3v4.6c0 3.9-2.5 6.6-6 8.1-3.5-1.5-6-4.2-6-8.1V4.8z" />
+      <path d="M10 6.5v4.2M10 13.4v.2" />
+    </svg>
+  ),
+  ideas: (
+    <svg {...ICON_PROPS}>
+      <path d="M10 2.5a5 5 0 0 0-3 9c.6.5 1 1.2 1 2V15h4v-1.5c0-.8.4-1.5 1-2a5 5 0 0 0-3-9z" />
+      <path d="M8 17.5h4" />
+    </svg>
+  ),
+  drafts: (
+    <svg {...ICON_PROPS}>
+      <path d="M5 2.5h6.5L15 6v11.5H5z" />
+      <path d="M11.5 2.5V6H15M7.5 10h5M7.5 13h5" />
+    </svg>
+  ),
 }
 
-/** The strip at the right edge; its list widens the column to its right and the chat narrows (ticket 22). */
-function AgentsStrip({ agents, root, session }: { agents: readonly SubagentInfo[]; root: string | undefined; session: string | null }) {
-  const count = agents.length
-  const [open, setOpen] = useState(false)
-  const listId = useId()
-  const toggle = useRef<HTMLButtonElement>(null)
+/** The panels of the strip, in its order (ticket 27, Q2 of 2026-11-09): one is open at a time. */
+type RailPanel = 'agents' | 'critic' | 'ideas' | 'drafts'
+const PANELS: readonly RailPanel[] = ['agents', 'critic', 'ideas', 'drafts']
+const TITLES: Readonly<Record<RailPanel, string>> = { agents: 'Agents', critic: 'Critic', ideas: 'Idea generator', drafts: 'Drafts' }
+
+interface AgentsStripProps {
+  projectId: string
+  agents: readonly SubagentInfo[]
+  root: string | undefined
+  session: string | null
+  drafts: readonly ProductDraft[]
+}
+
+/**
+ * The strip at the right edge: Agents, Critic, Idea generator and Drafts (ticket 27). A button opens its panel
+ * in the column to its right, the column widening and the chat narrowing (ticket 22); another button switches to
+ * its panel, the same one, «›» and Escape close it. The numbers are the agents and the drafts.
+ */
+function AgentsStrip({ projectId, agents, root, session, drafts }: AgentsStripProps) {
+  const [open, setOpen] = useState<RailPanel | null>(null)
+  const panelId = useId()
+  const buttons = useRef(new Map<RailPanel, HTMLButtonElement>())
+  const counts: Readonly<Record<RailPanel, number | undefined>> = { agents: agents.length, critic: undefined, ideas: undefined, drafts: drafts.length > 0 ? drafts.length : undefined }
   const close = () => {
-    setOpen(false)
-    toggle.current?.focus()
+    if (open !== null) buttons.current.get(open)?.focus()
+    setOpen(null)
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Escape') return
     event.stopPropagation()
     close()
   }
+  const panel = (shown: RailPanel): ReactNode => {
+    if (shown === 'agents') return <ProductAgentsList agents={agents} root={root} session={session} />
+    if (shown === 'critic') return <CriticPanel projectId={projectId} agents={agents} root={root} session={session} />
+    if (shown === 'ideas') return <IdeasPanel projectId={projectId} agents={agents} root={root} session={session} />
+    return <DraftsPanel projectId={projectId} drafts={drafts} />
+  }
   return (
-    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents" data-open={open || undefined}>
+    <aside className="w-product__agents" aria-label="Agents" data-testid="product-agents" data-open={open !== null || undefined}>
       <div className="w-product__agents-strip">
-        <button
-          ref={toggle}
-          type="button"
-          className="w-product__agents-button"
-          aria-expanded={open}
-          aria-controls={listId}
-          title={`Agents (${count})`}
-          data-testid="product-agents-toggle"
-          onClick={() => setOpen((was) => !was)}
-        >
-          <AgentsIcon />
-          <span className="w-product__agents-count w-mono" data-testid="product-agents-count">
-            {count}
-          </span>
-        </button>
+        {PANELS.map((each) => {
+          const count = counts[each]
+          return (
+            <button
+              key={each}
+              ref={(button) => {
+                if (button === null) buttons.current.delete(each)
+                else buttons.current.set(each, button)
+              }}
+              type="button"
+              className="w-product__agents-button"
+              aria-expanded={open === each}
+              aria-controls={open === each ? panelId : undefined}
+              aria-label={TITLES[each]}
+              title={count === undefined ? TITLES[each] : `${TITLES[each]} (${count})`}
+              data-testid={each === 'agents' ? 'product-agents-toggle' : `product-rail-${each}`}
+              onClick={() => setOpen((was) => (was === each ? null : each))}
+            >
+              {ICONS[each]}
+              {count !== undefined ? (
+                <span className="w-product__agents-count w-mono" data-testid={each === 'agents' ? 'product-agents-count' : `product-rail-${each}-count`}>
+                  {count}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
       </div>
-      {open ? (
-        <div id={listId} className="w-product__agents-panel" role="region" aria-label="Agents" data-testid="product-agents-panel" onKeyDown={onKeyDown}>
+      {open !== null ? (
+        <div
+          key={open}
+          id={panelId}
+          className="w-product__agents-panel"
+          role="region"
+          aria-label={TITLES[open]}
+          data-testid={open === 'agents' ? 'product-agents-panel' : `product-rail-${open}-panel`}
+          data-panel={open}
+          onKeyDown={onKeyDown}
+        >
           <div className="w-product__agents-head">
-            Agents <span className="w-product__agents-head-count w-mono">{count}</span>
-            <button type="button" className="w-product__agents-close" title="Collapse" aria-label="Collapse the agents list" data-testid="product-agents-close" onClick={close}>
+            {TITLES[open]}
+            {counts[open] !== undefined ? <span className="w-product__agents-head-count w-mono">{counts[open]}</span> : null}
+            <button type="button" className="w-product__agents-close" title="Collapse" aria-label={`Collapse the ${TITLES[open]} panel`} data-testid="product-agents-close" onClick={close}>
               ›
             </button>
           </div>
-          <ProductAgentsList agents={agents} root={root} session={session} />
+          {panel(open)}
         </div>
       ) : null}
     </aside>
   )
 }
 
-export function ProductSessionPanel({ children, ...rail }: ProductSessionPanelProps) {
+export function ProductSessionPanel({ children, events, ...rail }: ProductSessionPanelProps) {
   const { share, move, commit } = useSplit()
   const session = rail.claudeSessionId ?? rail.sessionId
   const { agents, root } = useSessionAgents(rail.projectId, session)
+  const drafts = useMemo(() => draftsOf(events ?? [], root), [events, root])
   const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
   return (
     <div className="w-product" data-testid="product-session-panel">
@@ -301,7 +387,7 @@ export function ProductSessionPanel({ children, ...rail }: ProductSessionPanelPr
         />
         <ProductSessionContext value={true}>{children}</ProductSessionContext>
       </div>
-      <AgentsStrip agents={agents} root={root} session={session} />
+      <AgentsStrip projectId={rail.projectId} agents={agents} root={root} session={session} drafts={drafts} />
     </div>
   )
 }

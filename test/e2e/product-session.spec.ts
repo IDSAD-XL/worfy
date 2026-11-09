@@ -536,6 +536,48 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     await expect.poll(async () => (await panel.getByTestId('product-agent-line').allTextContents()).map((line) => line.trim())).toEqual(['Critic', 'Idea generator'])
     await view.screenshot({ path: test.info().outputPath('24-agents-list-1160.png') })
 
+    // Ticket 27: Critic, Idea generator and Drafts open their own panel in the same 300 px column, one at a time,
+    // and none covers the chat.
+    const column = view.getByTestId('product-agents')
+    for (const [kind, shows] of [
+      ['critic', 'Check the first Epic against the facts'],
+      ['ideas', 'Suggest product ideas for the owner'],
+      ['drafts', 'first-epic.md'],
+    ] as const) {
+      await view.getByTestId(`product-rail-${kind}`).click()
+      const opened = view.getByTestId(`product-rail-${kind}-panel`)
+      await expect(opened).toBeVisible()
+      await expect(opened).toContainText(shows)
+      await expect(view.locator('.w-product__agents-panel')).toHaveCount(1)
+      await expect(view.getByTestId(`product-rail-${kind}`)).toHaveAttribute('aria-expanded', 'true')
+      await expect.poll(async () => Math.round((await column.boundingBox())!.width)).toBe(300)
+      const [openedBox, nowChat] = [(await opened.boundingBox())!, (await chat.boundingBox())!]
+      expect(openedBox.x).toBeGreaterThanOrEqual(nowChat.x + nowChat.width - 0.5)
+      expect(Math.abs(nowChat.width - chatBox.width)).toBeLessThanOrEqual(1)
+      await expect(field).toBeInViewport()
+      if (kind === 'drafts') {
+        await opened.getByRole('button', { name: /first-epic\.md/u }).click()
+        await expect(opened.getByTestId('product-draft-text')).toContainText('The critic reviews the plan')
+      }
+      await view.screenshot({ path: test.info().outputPath(`27-${kind}-panel-1160-dark.png`) })
+    }
+    await view.getByTestId('product-agents-close').click()
+    await expect(view.locator('.w-product__agents-panel')).toHaveCount(0)
+    // The header: the violet label, the picker, the share (there is advice now) and Interrupt; no layout switch.
+    const banner = view.locator('header.w-session__header')
+    await expect(banner.getByTestId('product-session-label')).toHaveText('Product Session')
+    await expect(banner.getByTestId('session-picker')).toBeVisible()
+    await expect(banner.getByTestId('product-session-accepted')).toBeVisible()
+    await expect(banner.getByTestId('session-interrupt')).toBeVisible()
+    await expect(banner.getByText(/50 \/ 50|60 \/ 40/u)).toHaveCount(0)
+    await banner.screenshot({ path: test.info().outputPath('27-header-1160-dark.png') })
+    // The agents list again, as the steps below had it: the column widens over 0.2 s, and the chat must have
+    // narrowed before its scroll position is read.
+    await view.getByTestId('product-agents-toggle').click()
+    await expect(panel).toBeVisible()
+    await expect.poll(async () => Math.round((await column.boundingBox())!.width)).toBe(300)
+    await expect.poll(async () => Math.round((await chat.boundingBox())!.width)).toBe(Math.round(chatBox.width))
+
     // A chip's click selects its node, rings the message the chip stands under and leaves the chat where it is.
     // A low window first, so the chat scrolls: a scroll to the message would move it.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 520))

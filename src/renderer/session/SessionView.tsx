@@ -293,14 +293,21 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   return (
     <div className={`w-session${product ? ' w-session--product' : ''}`} data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId} data-transcript-events={past.events.length}>
       <header className="w-session__header" data-toast-keep-out="">
-        <span className="w-session__icon" aria-hidden="true">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="3.5" r="1.75" />
-            <circle cx="3.5" cy="12.5" r="1.75" />
-            <circle cx="12.5" cy="12.5" r="1.75" />
-            <path d="M8 5.25v3M8 8.25L4.5 11M8 8.25l3.5 2.75" />
-          </svg>
-        </span>
+        {/* A Product Session carries the prototype's violet label in place of the icon (worfy-product-session ticket 27). */}
+        {product ? (
+          <span className="w-session__product-label" title="A Session of the product advisor, not a developer" data-testid="product-session-label">
+            Product Session
+          </span>
+        ) : (
+          <span className="w-session__icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="8" cy="3.5" r="1.75" />
+              <circle cx="3.5" cy="12.5" r="1.75" />
+              <circle cx="12.5" cy="12.5" r="1.75" />
+              <path d="M8 5.25v3M8 8.25L4.5 11M8 8.25l3.5 2.75" />
+            </svg>
+          </span>
+        )}
         <h1 className="w-session__title" title={projectName ? `${heading} · ${projectName}` : heading}>
           {heading}
           {/* A Product Session names the topic its Mind map shows, once there is one (ticket 19, Q3). */}
@@ -319,10 +326,11 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <SessionPicker projectId={projectId} shown={{ nodeId, projectId }} shownTitle={heading} />
-        <span className="w-session__divider" aria-hidden="true" />
-        {/* A Product Session's header has no Model, Effort, Permissions, Cost or Hide tools (ticket 19, Q3). */}
+        {/* A Product Session's header has no Model, Effort, Permissions, Cost or Hide tools (ticket 19, Q3), and no
+            layout switch (owner, 2026-11-09, Q3); its advice share brings its own divider, once there is advice. */}
         {product ? null : (
           <>
+            <span className="w-session__divider" aria-hidden="true" />
             {/* The model gives way first when the header is short of room: its value ends in «…», the whole name in the tooltip. */}
             <span className="w-session__fact w-session__fact--model">
               <span className="w-session__fact-label">Model</span>
@@ -375,7 +383,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <Interrupt testId="session-interrupt" disabled={!busy} onClick={interrupt} />
       </header>
       {product ? (
-        <ProductSessionPanel projectId={projectId} nodeId={nodeId} sessionId={sessionId}>
+        <ProductSessionPanel projectId={projectId} nodeId={nodeId} sessionId={sessionId} events={events}>
           {chat}
         </ProductSessionPanel>
       ) : (

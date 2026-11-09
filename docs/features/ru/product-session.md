@@ -26,15 +26,16 @@ Product Session предлагает и никогда не ставит Epic в
 ввода нет выбора модели, а смена модели отклоняется. Eco mode до неё не доходит, и в её строке ввода нет меню Modes: оно
 есть только у Orchestrator-а.
 
-**Экран.** Session view у Product Session построен так, как его рисует прототип владельца. В шапке — «Product Session»,
-тема Mind map (пока темы нет — имя Project-а), Vendor, состояние, переключатель Session, доля принятых советов (см.
-последний раздел) и Interrupt. Model, Effort, Permissions, Cost и «Hide tools» в ней нет. Тело — три части рядом:
+**Экран.** Session view у Product Session построен так, как его рисует прототип владельца. В шапке — фиолетовая метка
+«Product Session», «Product Session» и тема Mind map (пока темы нет — имя Project-а), Vendor, состояние, переключатель
+Session, доля принятых советов (см. последний раздел) и Interrupt. Доля видна, только когда у Project-а есть советы,
+решённые или нет. Model, Effort, Permissions, Cost, «Hide tools» и переключателя раскладки в ней нет. Тело — три части рядом:
 
 | Часть | Что в ней |
 |---|---|
 | Mind map, слева | Mind map темы, над которой работает советник (следующий раздел) |
 | Чат, справа | Разговор с советником и строка ввода |
-| Полоса агентов, у правого края | Значок с числом Subagent-ов Session, скрытые не считаются |
+| Полоса агентов, у правого края | Четыре кнопки: Agents с числом Subagent-ов Session (скрытые не считаются) на фиолетовом значке; Critic; Idea generator; Drafts с числом черновиков, когда они есть |
 
 - Разделитель между Mind map и чатом стоит на 60 / 40. Он двигается мышью, клавишами ← и → шагом 5 %, Home и End — до
   краёв. Двойной click возвращает 60 / 40. Каждой стороне остаётся не меньше 10 %.
@@ -46,6 +47,19 @@ Product Session предлагает и никогда не ставит Epic в
   «error» и «interrupted». Число возражений критика берётся из записанного им разбора, прочитанного из его
   transcript; пока разбор не записан, числа нет. Escape или «›» закрывают список. Блоков rail обычной Session нет:
   Product Session не привязана ни к Ticket-у, ни к Epic-у.
+- Остальные три кнопки открывают свою панель в той же колонке 300 px. Открыта одна панель: другая кнопка переключает
+  на свою, та же кнопка, «›» или Escape закрывают.
+  - Critic — разбор, который записал последний критик этой Session: строка состояния с числом возражений, имя файла и
+    сам разбор — из его последнего успешного Write. Он читается из transcript критика, поэтому разбор, записанный вне
+    этой Session (критиком Orchestrator-а или руками), не виден. Без критика — «No critic in this Session yet», до разбора — «No review written yet».
+  - Idea generator — последний агент `worfy:product-ideas` этой Session: задача, строка состояния и последний ответ.
+    Без него — «No idea generator in this Session yet», до ответа — «No ideas written yet».
+  - Drafts — черновики советника (`<topic>/drafts/*.md`), которые записала или правила загруженная часть чата,
+    последний записанный первым, у каждого тема и сколько раз он записан. Click показывает текст его последнего Write
+    и пометку, если после него был Edit. Считаются только Write и Edit, чей результат успешен: вызов, отклонённый в
+    карточке разрешения или самим Claude Code, неудачный Edit и вызов, который ещё ждёт результата, не считаются. Один
+    файл, записанный по абсолютному пути или по пути относительно Project-а, — один черновик. Черновик, записанный до загруженной части чата или руками, в списке не виден.
+    Без черновиков — «No drafts in this chat yet».
 
 **Чат.** Заголовок — «Conversation with the advisor», рядом Vendor; в чате только разговор:
 
@@ -133,6 +147,7 @@ Harness читает эту переменную: с ней печатаются
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | Два входа «New Product Session» |
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Шапка, тело, заголовок чата и полоса агентов |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | Список агентов: имена, состояния, возражения критика |
+| `src/renderer/session/ProductRailPanels.tsx` | Панели Critic, Idea generator и Drafts полосы |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями и «Advisor is thinking» |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | Строка ввода в одну линию, поиск по показанным строкам |
@@ -148,8 +163,8 @@ Harness читает эту переменную: с ней печатаются
 - `test/contract/product-save-signal.test.ts`: сигнал сохранения и его ответы, в том числе при Close и архиве.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: какие строки чат показывает и прячет,
   пузыри, «Advisor is thinking», поиск, шапка и строка ввода против обычной Session.
-- `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: экран, разделитель, полоса и
-  Node.
+- `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: экран, разделитель, полоса,
+  её четыре панели и Node.
 - `test/e2e/new-product-session.spec.ts`: вход из Command palette в работающем приложении.
 
 ## Mind map
@@ -330,6 +345,8 @@ Product Session зовёт критика, когда владелец об эт
 
 **Доля принятых советов.** Шапка Product Session показывает, какую часть советов владелец принял в этом Project-е,
 например «Advice accepted 3 of 5 · 60%», или «No advice decided yet». Советы, которые ждут решения, в долю не входят.
+Пока советов в Project-е нет совсем, на её месте в шапке ничего нет; если долю не удалось посчитать — «Advice accepted
+—», причина в tooltip.
 Tooltip сообщает:
 
 - сколько советов ждёт, в Mind map и в разборах критика;

@@ -1011,7 +1011,7 @@ describe('SessionPanel', () => {
       expect(screen.getByRole('separator')).toBeTruthy()
       expect(screen.getByRole('textbox', { name: 'Message Product Session' })).toBeTruthy()
       expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Product Session · alpha')
-      expect(screen.getByTestId('product-session-accepted')).toBeTruthy()
+      await vi.waitFor(() => expect(screen.getByTestId('product-session-accepted')).toBeTruthy())
       fireEvent.click(screen.getByTestId('product-agents-toggle'))
       // The strip opens the list of the agents by name (ticket 20), not the rail blocks of a plain Session.
       expect(within(screen.getByTestId('product-agents-panel')).getByTestId('product-agents-empty')).toBeTruthy()
@@ -1040,8 +1040,35 @@ describe('SessionPanel', () => {
       for (const label of ['Model', 'Effort', 'Permissions', 'Cost']) expect(within(header).queryByText(label), label).toBeNull()
       expect(within(header).getByTestId('session-vendor').textContent).toBe('Claude Code')
       expect(within(header).getByTestId('session-state').textContent).toBe('idle')
-      expect(within(header).getByTestId('product-session-accepted')).toBeTruthy()
+      await vi.waitFor(() => expect(within(header).getByTestId('product-session-accepted')).toBeTruthy())
       expect(within(header).getByTestId('session-interrupt')).toBeTruthy()
+    })
+
+    // worfy-product-session ticket 27 (Q3 of the owner's decisions of 2026-11-09): the prototype's violet label in
+    // place of the icon, the Session picker and Interrupt kept, no layout switch; no advice — no share and no divider.
+    it('the header of a Product Session carries the violet label, keeps the picker and Interrupt, and shows no share while there is no advice', async () => {
+      answers['product.share'] = () => ({ mindMap: { accepted: 0, rejected: 0, pending: 0 }, critic: { accepted: 0, rejected: 0, pending: 0 }, skipped: [] })
+      await mountKind('product')
+      const header = screen.getByRole('banner')
+      expect(within(header).getByTestId('product-session-label').textContent).toBe('Product Session')
+      expect(header.querySelector('.w-session__icon')).toBeNull()
+      expect(within(header).getByTestId('session-interrupt')).toBeTruthy()
+      expect(within(header).getByTestId('session-picker')).toBeTruthy()
+      await vi.waitFor(() => expect(asked.some((each) => each.channel === 'product.share')).toBe(true))
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(within(header).queryByTestId('product-session-accepted')).toBeNull()
+      expect(header.querySelector('.w-session__divider')).toBeNull()
+      expect(within(header).queryByText(/50 \/ 50|60 \/ 40/u)).toBeNull()
+    })
+
+    it('a plain Session keeps its icon and has no Product Session label', async () => {
+      await mountKind(undefined)
+      const header = screen.getByRole('banner')
+      expect(header.querySelector('.w-session__icon')).not.toBeNull()
+      expect(within(header).queryByTestId('product-session-label')).toBeNull()
+      expect(header.querySelector('.w-session__divider')).not.toBeNull()
     })
 
     // Review of PR #1695: the topic in the header (Q3) — its title from map.md, the folder name while it has

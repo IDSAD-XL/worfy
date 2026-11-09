@@ -27,15 +27,16 @@ field has no model picker, and a change of the model is refused. Eco mode does n
 Modes menu: that menu belongs to the Orchestrator.
 
 **The screen.** The Session view of a Product Session is built as the owner's prototype draws it. Its header, 48 px on
-the toolbar's background, holds "Product Session", the topic of the Mind map (the Project's name until a topic is known), the Vendor, the state, the
-Session switcher, the share of accepted advice (see the last section) and Interrupt. It has no Model, Effort,
-Permissions, Cost or "Hide tools". Its body is three parts side by side:
+the toolbar's background, holds a violet "Product Session" label, "Product Session" and the topic of the Mind map (the
+Project's name until a topic is known), the Vendor, the state, the Session switcher, the share of accepted advice (see
+the last section) and Interrupt. The share shows only once the Project has advice, decided or not. It has no Model,
+Effort, Permissions, Cost, "Hide tools" or layout switch. Its body is three parts side by side:
 
 | Part | What it holds |
 |---|---|
 | Mind map, on the left | The Mind map of the topic the advisor works on (next section) |
 | Chat, on the right | The conversation with the advisor and the input field |
-| Agents strip, at the right edge | An icon with the number of the Session's Subagents, hidden ones left out |
+| Agents strip, at the right edge | Four buttons: Agents, with the number of the Session's Subagents (hidden ones left out) on a violet badge; Critic; Idea generator; Drafts, with the number of drafts when there are some |
 
 - The divider between the Mind map and the chat starts at 60 / 40. It moves with the mouse, with ← and → in steps of
   5 %, and with Home and End to its edges. A double click puts it back to 60 / 40. Each side keeps at least 10 %.
@@ -51,6 +52,20 @@ Permissions, Cost or "Hide tools". Its body is three parts side by side:
   has written one, no number shows. The working agents come first, the later started higher, each nested agent under
   its parent. Escape or "›" closes the list. The rail blocks of a plain Session are not shown: a
   Product Session is bound to no Ticket and no Epic.
+- The other three buttons open their own panel in the same 300 px column. One panel is open at a time: another button
+  switches to its panel, the same button, "›" or Escape closes it.
+  - Critic shows the review the Session's last critic wrote: its state line with the number of objections, the file
+    name and the review, from its last Write that ended well. It is read from the critic's own transcript, so a
+    review written outside this Session (by the Orchestrator's critic, or edited by hand) is not shown. With no critic it reads "No critic in this Session yet";
+    before the review, "No review written yet".
+  - Idea generator shows the Session's last `worfy:product-ideas` agent: its task, its state line and its last answer.
+    With none it reads "No idea generator in this Session yet"; before an answer, "No ideas written yet".
+  - Drafts lists the advisor's drafts (`<topic>/drafts/*.md`) that the loaded part of the chat wrote or edited, the
+    last written first, each with its topic and how many times it was written. A click shows the text of its last
+    Write, with a note when an Edit came after it. Only a Write or Edit whose result says it ended well counts: a call
+    refused in the permission card or by Claude Code, a failed Edit and a call still waiting for its result do not.
+    The same file written by an absolute path or one relative to the Project is one draft. A draft written before the loaded part of the chat, or by hand, is
+    not listed. With none it reads "No drafts in this chat yet".
 
 **The chat.** It is headed "Conversation with the advisor", with the Vendor as a small bordered tag, and shows the
 conversation only. The heading stays on one line: a narrow chat cuts its words with "…", and the Vendor tag stays whole.
@@ -144,6 +159,7 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/shell/sidebar/SessionsSection.tsx`, `src/renderer/palette/commands.ts` | The two entries "New Product Session" |
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | The agents list: names, states, the critic's objections |
+| `src/renderer/session/ProductRailPanels.tsx` | The Critic, Idea generator and Drafts panels of the strip |
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles and "Advisor is thinking" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
@@ -162,7 +178,7 @@ changes make one message. One signal runs at a time per Project.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: the rows the chat shows and hides, the
   bubbles, "Advisor is thinking", find, the header and the input field against a plain Session.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
-  strip and the Node.
+  strip, its four panels and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.
 
 ## Mind map
@@ -364,7 +380,8 @@ the Mind map with `advice: true`; elsewhere, without the Mind map tools, the ide
 
 **The share of accepted advice.** The header of a Product Session shows how much of the advice the owner accepted in this
 Project, for example "Advice accepted 3 of 5 · 60%", or "No advice decided yet". Advice still waiting for a decision is
-not in the share. The tooltip gives:
+not in the share. While the Project has no advice at all, the header shows nothing in its place; a share that cannot
+be counted shows "Advice accepted —" with the reason in its tooltip. The tooltip gives:
 
 - how many pieces of advice wait, in the Mind map and in the critic's reviews;
 - the files that could not be read;

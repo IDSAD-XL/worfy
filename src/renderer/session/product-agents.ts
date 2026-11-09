@@ -1,4 +1,5 @@
 import type { AgentEvent } from '../../shared/agent/events'
+import { DRAFTS_DIR, isProductTopicName, PRODUCT_SILENT_DIR } from '../../shared/product/paths'
 import { linesOutsideCodeBlocks } from '../../shared/product/share'
 import { harnessName } from '../../shared/agent/subagent-type'
 import type { SubagentInfo, SubagentStatus } from '../../shared/transcript/subagents'
@@ -81,15 +82,157 @@ const CRITIC_FILE = /(?:^|[\\/])critic[\\/][^\\/]+\.md$/u
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
 
-/** The text of the last review the critic wrote with Write in these events; undefined when it wrote none. */
-export function criticReviewOf(events: readonly AgentEvent[]): string | undefined {
+/**
+ * The ids of the tool calls of `events` that ended well: their tool_result is there and is no error. A call the
+ * owner refused in the permission card, one Claude Code refused (a Write of a file not read first) or one that
+ * failed (an Edit whose old text is not in the file) changed no file; a call with no result yet may still be
+ * refused, so it counts only once its result is in (ticket 27, review round 1).
+ */
+function doneCalls(events: readonly AgentEvent[]): ReadonlySet<string> {
+  const done = new Set<string>()
+  for (const event of events) if (event.type === 'tool_result' && !event.isError) done.add(event.toolUseId)
+  return done
+}
+
+/**
+ * The file and the text of the last review the critic wrote with Write in these events, a Write that ended well
+ * (doneCalls); undefined when it wrote none.
+ */
+export function criticWriteOf(events: readonly AgentEvent[]): { path: string; text: string } | undefined {
+  const done = doneCalls(events)
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]!
-    if (event.type !== 'tool_use' || event.name !== 'Write' || !isObject(event.input)) continue
+    if (event.type !== 'tool_use' || event.name !== 'Write' || !isObject(event.input) || !done.has(event.id)) continue
     const { file_path: path, content } = event.input
-    if (typeof path === 'string' && typeof content === 'string' && CRITIC_FILE.test(path)) return content
+    if (typeof path === 'string' && typeof content === 'string' && CRITIC_FILE.test(path)) return { path, text: content }
   }
   return undefined
+}
+
+/** The text of the last review the critic wrote with Write in these events; undefined when it wrote none. */
+export function criticReviewOf(events: readonly AgentEvent[]): string | undefined {
+  return criticWriteOf(events)?.text
+}
+
+/** The last name of a path, with `/` or `\`. */
+export function fileNameOf(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+}
+
+/** `worfy:product-ideas` (or the bare `product-ideas`): the Idea generator. */
+export const isIdeaGenerator = (info: Pick<SubagentInfo, 'subagentType'>): boolean => harnessType(info) === 'product-ideas'
+
+/**
+ * The agent of `agents` (the whole flattened tree) the Critic or Idea generator button opens (ticket 27): the one
+ * that `is` and started last; one with no start time only when none has one. Undefined when the Session has none.
+ */
+export function latestAgent(agents: readonly SubagentInfo[], is: (info: SubagentInfo) => boolean): SubagentInfo | undefined {
+  return agents.filter(is).sort(byLaterStart)[0]
+}
+
+/**
+ * The last answer of an agent in its own transcript: the text of its last assistant message, its parts joined.
+ * Undefined while it has written no text.
+ */
+export function lastAnswerOf(events: readonly AgentEvent[]): string | undefined {
+  let messageId: string | undefined
+  const parts: string[] = []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!
+    if (event.type !== 'text' || event.synthetic) continue
+    if (messageId === undefined) messageId = event.messageId
+    else if (event.messageId !== messageId) break
+    parts.unshift(event.text)
+  }
+  const text = parts.join('\n\n').trim()
+  return text === '' ? undefined : text
+}
+
+/**
+ * A draft of the advisor (`docs/product/<topic>/drafts/<epic>.md`, or `<Workflow folder>/product/…` in Silent
+ * mode; src/shared/product/paths.ts): the topic, the file name, its path — relative to the Project's root when it
+ * is inside it, with `/` — the text of its last Write — null when the chat holds only Edits of it — whether an
+ * Edit came after that Write, and how many times the chat wrote or edited it.
+ */
+export interface ProductDraft {
+  path: string
+  topic: string
+  file: string
+  text: string | null
+  editedSince: boolean
+  writes: number
+}
+
+const WRITING_TOOLS = new Set(['Write', 'Edit', 'MultiEdit'])
+
+const DRIVE = /^[A-Za-z]:$/u
+
+/**
+ * A path with `/`, without `.` and `..` steps or doubled separators: `C:\p\.\docs\..\x.md` is `C:/p/x.md`. A `..`
+ * above the start of a relative path stays; one above the root of an absolute path is dropped, as the file system
+ * does.
+ */
+export function normalPath(path: string): string {
+  const slashed = path.replaceAll('\\', '/')
+  const absolute = slashed.startsWith('/')
+  const parts: string[] = []
+  for (const part of slashed.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part !== '..') parts.push(part)
+    else if (parts.length > 0 && parts.at(-1) !== '..' && !(parts.length === 1 && DRIVE.test(parts[0]!))) parts.pop()
+    else if (!absolute && !(parts.length === 1 && DRIVE.test(parts[0]!))) parts.push('..')
+  }
+  return (absolute ? '/' : '') + parts.join('/')
+}
+
+/**
+ * `path` relative to the Project's `root` when it is inside it, both made normal (normalPath); else the normal path
+ * itself. macOS and Windows ignore case by default, so the root is matched without it.
+ */
+function projectPath(path: string, root: string | undefined): string {
+  const normal = normalPath(path)
+  if (root === undefined) return normal
+  const base = normalPath(root)
+  return normal.toLowerCase().startsWith(`${base.toLowerCase()}/`) ? normal.slice(base.length + 1) : normal
+}
+
+/**
+ * The topic and the file of a draft at `path` (normal, with `/`): `…/product/<topic>/drafts/<file>.md`, the topic a
+ * topic name of the Product Session folder (isProductTopicName: not `critic`, no `..`). Null for any other file.
+ */
+function draftAt(path: string): { topic: string; file: string } | null {
+  const parts = path.split('/')
+  const [folder, topic, drafts, file] = parts.slice(-4)
+  if (parts.length < 4 || folder !== PRODUCT_SILENT_DIR || drafts !== DRAFTS_DIR || file === undefined || !file.endsWith('.md') || file === '.md') return null
+  if (topic === undefined || !isProductTopicName(topic)) return null
+  return { topic, file }
+}
+
+/**
+ * The drafts these events of a Session wrote (ticket 27): one per file, the last written first. Only calls that
+ * ended well count (doneCalls): a refused Write lists nothing, a failed Edit neither counts nor marks the text as
+ * edited. One file is one draft however its path was written (absolute or relative to the Project's `root`, `\`
+ * or `/`). The renderer lists no folder of the Project (no IPC serves `drafts/`), so the list is what the loaded
+ * part of the chat wrote; a draft written before it, or by hand, is not in it.
+ */
+export function draftsOf(events: readonly AgentEvent[], root?: string): ProductDraft[] {
+  const done = doneCalls(events)
+  const drafts = new Map<string, ProductDraft>()
+  for (const event of events) {
+    if (event.type !== 'tool_use' || !WRITING_TOOLS.has(event.name) || !isObject(event.input) || !done.has(event.id)) continue
+    const { file_path: written, content } = event.input
+    if (typeof written !== 'string') continue
+    const path = projectPath(written, root)
+    const at = draftAt(path)
+    if (at === null) continue
+    const key = path.toLowerCase()
+    const was = drafts.get(key)
+    const whole = event.name === 'Write' && typeof content === 'string'
+    const text = whole ? content : (was?.text ?? null)
+    drafts.delete(key)
+    drafts.set(key, { path, ...at, text, editedSince: !whole && text !== null, writes: (was?.writes ?? 0) + 1 })
+  }
+  return [...drafts.values()].reverse()
 }
 
 /**

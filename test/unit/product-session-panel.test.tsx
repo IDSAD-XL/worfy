@@ -6,6 +6,7 @@
 // Against a fake bridge that keeps the app settings as main would; the Subagent tree is given by the test.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import type { MindMapNode } from '../../src/shared/product/mind-map'
@@ -13,7 +14,7 @@ import { adviceShare, type AdviceShare } from '../../src/shared/product/share'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
-import { productAgentState, productAgentTime } from '../../src/renderer/session/product-agents'
+import { draftsOf, lastAnswerOf, latestAgent, isCritic, productAgentState, productAgentTime } from '../../src/renderer/session/product-agents'
 
 const subagents = vi.hoisted(() => ({ tree: [] as unknown[], hidden: {} as Record<string, string[]> }))
 
@@ -50,6 +51,8 @@ let topicFails: string | undefined
 let share: () => AdviceShare | { error: string }
 /** The events of each Subagent's transcript (`claudeHome.subagentTranscript`), by agent id; none — the read fails. */
 let transcripts: Record<string, unknown[]>
+/** When set, a read of a transcript answers once this resolves, with the events it held when it was asked. */
+let transcriptGate: ((agentId: string) => Promise<void>) | undefined
 /** The handlers the panel subscribed through the bridge, by channel. */
 const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
 const emit = (channel: string, payload: unknown) => {
@@ -74,6 +77,7 @@ beforeEach(() => {
   subagents.tree = []
   subagents.hidden = {}
   transcripts = {}
+  transcriptGate = undefined
   settings = defaultAppSettings()
   const bridge = {
     invoke: (channel: string, input: unknown) => {
@@ -88,9 +92,10 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, value: { projects: [{ id: 'alpha', name: 'demo', path: '/demo', branch: 'main' }], activeId: 'alpha', revision: 1 } })
       }
       if (channel === 'claudeHome.subagentTranscript') {
-        const events = transcripts[(input as { agentId: string }).agentId]
-        if (events === undefined) return Promise.resolve({ ok: false, error: 'no such transcript' })
-        return Promise.resolve({ ok: true, value: { found: true, events, cursor: { offset: 1, fileId: null }, reset: false, more: false, earlier: 0 } })
+        const { agentId } = input as { agentId: string }
+        const events = transcripts[agentId]
+        const answer = events === undefined ? { ok: false, error: 'no such transcript' } : { ok: true, value: { found: true, events, cursor: { offset: 1, fileId: null }, reset: false, more: false, earlier: 0 } }
+        return transcriptGate === undefined ? Promise.resolve(answer) : transcriptGate(agentId).then(() => answer)
       }
       if (channel === 'docs.open') return Promise.resolve({ ok: true, value: { projectId: 'alpha', handoff: null, adrs: [] } })
       if (channel === 'product.share') {
@@ -126,10 +131,10 @@ afterEach(() => {
   localStorage.clear()
 })
 
-async function mount() {
+async function mount(events?: readonly AgentEvent[]) {
   const { ProductSessionPanel } = await import('../../src/renderer/session/ProductSessionPanel')
   render(
-    <ProductSessionPanel projectId="alpha" nodeId="node-1" sessionId="live-1">
+    <ProductSessionPanel projectId="alpha" nodeId="node-1" sessionId="live-1" events={events}>
       <section aria-label="Session">chat</section>
     </ProductSessionPanel>,
   )
@@ -292,11 +297,18 @@ const review = (count: number): string =>
     '',
   ].join('\n')
 
+/** The result of a tool call: it ended well, or `isError` — refused or failed. */
+const result = (toolUseId: string, isError = false): AgentEvent => ({ type: 'tool_result', toolUseId, content: isError ? 'refused' : 'ok', isError, parentToolUseId: null })
+/** Each tool call of `events` followed by its result, ended well: the calls changed their files. */
+const settled = (events: readonly unknown[]): unknown[] =>
+  events.flatMap((event) => ((event as { type: string }).type === 'tool_use' ? [event, result((event as { id: string }).id)] : [event]))
+
 /** The critic's transcript: it read the plan, wrote its review into the critic folder and answered. */
-const criticWrote = (text: string): unknown[] => [
-  { type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/demo-roadmap/map.md' }, parentToolUseId: null },
-  { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: '/demo/docs/product/critic/demo-roadmap-2026-11-09.md', content: text }, parentToolUseId: null },
-]
+const criticWrote = (text: string): unknown[] =>
+  settled([
+    { type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/demo-roadmap/map.md' }, parentToolUseId: null },
+    { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: '/demo/docs/product/critic/demo-roadmap-2026-11-09.md', content: text }, parentToolUseId: null },
+  ])
 
 const agent = (id: string, type: string | null, more: Partial<SubagentInfo> = {}): SubagentInfo => ({ ...subagent(id), name: null, subagentType: type, transcript: true, ...more })
 
@@ -377,14 +389,14 @@ describe('the agents strip of a Product Session', () => {
     ]
     transcripts = {
       // It wrote the review with three objections, then wrote it again with one.
-      'critic-rewrote': [write('w1', reviewFile, review(3)), write('w2', reviewFile, review(1))],
+      'critic-rewrote': settled([write('w1', reviewFile, review(3)), write('w2', reviewFile, review(1))]),
       // Its review, then a note of its own outside critic/: the note is no review.
-      'critic-elsewhere': [write('w1', reviewFile, review(2)), write('w2', '/demo/docs/product/demo-roadmap/notes.md', review(3))],
+      'critic-elsewhere': settled([write('w1', reviewFile, review(2)), write('w2', '/demo/docs/product/demo-roadmap/notes.md', review(3))]),
       // A drift of the format: the section's heading, the objections' numbering.
-      'critic-heading': [write('w1', reviewFile, review(2).replace('## Objections', '## Objections (2)'))],
-      'critic-numbering': [write('w1', reviewFile, review(2).replaceAll(/^### (\d+)\./gmu, '### Objection $1:'))],
+      'critic-heading': settled([write('w1', reviewFile, review(2).replace('## Objections', '## Objections (2)'))]),
+      'critic-numbering': settled([write('w1', reviewFile, review(2).replaceAll(/^### (\d+)\./gmu, '### Objection $1:'))]),
       // The whole review in a code block, as the template of harness/agents/critic.md stands.
-      'critic-fenced': [write('w1', reviewFile, ['```markdown', review(2), '```'].join('\n'))],
+      'critic-fenced': settled([write('w1', reviewFile, ['```markdown', review(2), '```'].join('\n'))]),
     }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
@@ -395,7 +407,7 @@ describe('the agents strip of a Product Session', () => {
 
   it('a critic that only wrote outside the critic folder has no number', async () => {
     subagents.tree = [agent('critic-1', 'worfy:critic', { status: 'done' })]
-    transcripts = { 'critic-1': [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/demo/docs/product/demo-roadmap/notes.md', content: review(3) }, parentToolUseId: null }] }
+    transcripts = { 'critic-1': settled([{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: '/demo/docs/product/demo-roadmap/notes.md', content: review(3) }, parentToolUseId: null }]) }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
     await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(1))
@@ -510,6 +522,244 @@ describe('the agents strip of a Product Session', () => {
   })
 })
 
+// worfy-product-session ticket 27 (Q2 of the owner's decisions of 2026-11-09): beside Agents, the prototype's
+// Critic, Idea generator and Drafts buttons, each opening its own panel in the same column, one at a time.
+describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
+  const write = (id: string, path: string, content: string, name = 'Write'): AgentEvent =>
+    ({ type: 'tool_use', id, name, input: name === 'Write' ? { file_path: path, content } : { file_path: path, old_string: 'a', new_string: 'b' }, parentToolUseId: null }) as AgentEvent
+  const text = (messageId: string, body: string): AgentEvent => ({ type: 'text', text: body, messageId, parentToolUseId: null, synthetic: false })
+  const DRAFT = '/demo/docs/product/demo-roadmap/drafts/pricing.md'
+  const OTHER_DRAFT = '/demo/docs/product/demo-roadmap/drafts/onboarding.md'
+  const strip = () => screen.getByTestId('product-agents')
+  const buttons = () => within(strip()).getAllByRole('button').filter((button) => button.classList.contains('w-product__agents-button'))
+  const openPanels = () => Array.from(strip().querySelectorAll('[role="region"]')).map((panel) => (panel as HTMLElement).dataset.panel)
+
+  it('has four buttons in the prototype’s order, the Agents number on a violet badge', async () => {
+    await mount()
+    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['Agents', 'Critic', 'Idea generator', 'Drafts'])
+    expect(buttons().every((button) => button.querySelector('svg') !== null)).toBe(true)
+    expect(screen.getByTestId('product-agents-count').classList.contains('w-product__agents-count')).toBe(true)
+    // No drafts: the Drafts button has no number.
+    expect(screen.queryByTestId('product-rail-drafts-count')).toBeNull()
+  })
+
+  it('Critic opens the review the Session’s last critic wrote, its file and objections; no critic — a plain line', async () => {
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    expect(within(screen.getByTestId('product-rail-critic-panel')).getByTestId('product-critic-empty').textContent).toBe('No critic in this Session yet')
+    cleanup()
+    subagents.tree = [
+      agent('critic-old', 'worfy:critic', { status: 'done', startedAt: 1_000, durationMs: 10 }),
+      agent('critic-new', 'worfy:critic', { status: 'done', startedAt: 5_000, durationMs: 10, description: 'Objections to the pricing plan' }),
+    ]
+    transcripts = { 'critic-old': criticWrote(review(3)), 'critic-new': criticWrote(review(2)) }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    const panel = screen.getByTestId('product-rail-critic-panel')
+    await vi.waitFor(() => expect(within(panel).getByTestId('product-critic-file').textContent).toBe('demo-roadmap-2026-11-09.md'))
+    expect(within(panel).getByTestId('product-rail-state').textContent).toContain('done')
+    expect(within(panel).getByTestId('product-rail-state').textContent).toContain('2 objections')
+    expect(within(panel).getByText('Objections to the pricing plan')).toBeTruthy()
+    expect(within(panel).getByTestId('product-critic-review').textContent).toContain('Objection 2')
+    // Only the last critic's transcript is read.
+    expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript').map((each) => (each.input as { agentId: string }).agentId)).toEqual(['critic-new'])
+  })
+
+  it('Critic says so while its critic has written no review, and when its transcript cannot be read', async () => {
+    subagents.tree = [agent('critic-1', 'worfy:critic')]
+    transcripts = { 'critic-1': criticWrote(review(1)).slice(0, 1) }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-critic-no-review').textContent).toBe('No review written yet'))
+    cleanup()
+    transcripts = {}
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-critic-error').textContent).toBe('Could not read the critic’s transcript: no such transcript'))
+  })
+
+  it('Idea generator opens the last answer of the Session’s idea generator and its state; none — a plain line', async () => {
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    expect(screen.getByTestId('product-ideas-empty').textContent).toBe('No idea generator in this Session yet')
+    cleanup()
+    subagents.tree = [agent('ideas-1', 'worfy:product-ideas', { status: 'done', description: 'Ideas for small teams' }), agent('critic-1', 'worfy:critic')]
+    transcripts = { 'ideas-1': settled([text('m1', 'Thinking…'), write('w', '/demo/x.md', 'x'), text('m2', '1. **Team plan** for small teams'), text('m2', '2. A free tier')]) }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    const panel = screen.getByTestId('product-rail-ideas-panel')
+    await vi.waitFor(() => expect(within(panel).getByTestId('product-ideas-answer').textContent).toContain('Team plan'))
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).toContain('A free tier')
+    expect(within(panel).getByTestId('product-ideas-answer').textContent).not.toContain('Thinking')
+    expect(within(panel).getByTestId('product-rail-state').textContent).toContain('done')
+    expect(within(panel).getByText('Ideas for small teams')).toBeTruthy()
+  })
+
+  it('Idea generator says so while its agent has written no answer', async () => {
+    subagents.tree = [agent('ideas-1', 'worfy:product-ideas')]
+    transcripts = { 'ideas-1': [] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-ideas-no-answer').textContent).toBe('No ideas written yet'))
+  })
+
+  it('Drafts lists the advisor’s drafts the chat wrote, the last written first, and shows one on a click; none — a plain line', async () => {
+    await mount(settled([write('w0', '/demo/docs/product/demo-roadmap/map.md', '# map')]) as AgentEvent[])
+    fireEvent.click(screen.getByTestId('product-rail-drafts'))
+    expect(screen.getByTestId('product-drafts-empty').textContent).toBe('No drafts in this chat yet')
+    cleanup()
+    await mount(settled([write('w1', DRAFT, '# Pricing\n\nfirst'), write('w2', OTHER_DRAFT, '# Onboarding'), write('w3', DRAFT, '# Pricing\n\nsecond')]) as AgentEvent[])
+    expect(screen.getByTestId('product-rail-drafts-count').textContent).toBe('2')
+    fireEvent.click(screen.getByTestId('product-rail-drafts'))
+    const panel = screen.getByTestId('product-rail-drafts-panel')
+    const rows = within(panel).getAllByTestId('product-draft')
+    expect(rows.map((row) => row.querySelector('.w-product__agent-name')?.textContent)).toEqual(['pricing.md', 'onboarding.md'])
+    expect(rows[0]!.textContent).toContain('demo-roadmap · written 2 times')
+    expect(within(panel).queryByTestId('product-draft-text')).toBeNull()
+    fireEvent.click(within(rows[0]!).getByRole('button'))
+    expect(within(panel).getByTestId('product-draft-text').textContent).toContain('second')
+    fireEvent.click(within(rows[0]!).getByRole('button'))
+    expect(within(panel).queryByTestId('product-draft-text')).toBeNull()
+  })
+
+  it('opens one panel at a time: another button switches, the same one, «›» and Escape close', async () => {
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    expect(openPanels()).toEqual(['agents'])
+    for (const kind of ['critic', 'ideas', 'drafts']) {
+      fireEvent.click(screen.getByTestId(`product-rail-${kind}`))
+      expect(openPanels()).toEqual([kind])
+      expect(buttons().filter((button) => button.getAttribute('aria-expanded') === 'true').map((button) => button.getAttribute('aria-label'))).toHaveLength(1)
+      expect(strip().dataset.open).toBe('true')
+    }
+    fireEvent.click(screen.getByTestId('product-rail-drafts'))
+    expect(openPanels()).toEqual([])
+    expect(strip().dataset.open).toBeUndefined()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    fireEvent.click(screen.getByTestId('product-agents-close'))
+    expect(openPanels()).toEqual([])
+    expect(document.activeElement).toBe(screen.getByTestId('product-rail-critic'))
+    fireEvent.click(screen.getByTestId('product-rail-ideas'))
+    fireEvent.keyDown(screen.getByTestId('product-rail-ideas-panel'), { key: 'Escape' })
+    expect(openPanels()).toEqual([])
+  })
+
+  it('draftsOf keeps one entry per draft, its last whole text and whether an Edit came after it; other files are no drafts', () => {
+    const drafts = draftsOf(
+      settled([
+        write('w1', DRAFT, 'one'),
+        write('e1', DRAFT, '', 'Edit'),
+        write('w2', '/demo/docs/product/critic/x.md', 'review'),
+        write('w3', '/demo/docs/product/demo-roadmap/drafts/notes.txt', 'not markdown'),
+        write('w4', '/demo/docs/product/demo-roadmap/issues/01-x.md', 'an issue of the map'),
+        write('w5', '/demo/docs/product/demo-roadmap/map.md', 'the map'),
+        write('w6', '/demo/docs/product/../drafts/x.md', 'outside every topic'),
+        write('w7', '/demo/docs/product/critic/drafts/x.md', 'critic is no topic'),
+        write('w8', '/demo/docs/product/.hidden/drafts/x.md', 'no topic name'),
+        write('e2', 'C:\\demo\\docs\\product\\win-topic\\drafts\\edited.md', '', 'Edit'),
+      ]) as AgentEvent[],
+    )
+    expect(drafts.map(({ topic, file, text, editedSince, writes }) => ({ topic, file, text, editedSince, writes }))).toEqual([
+      { topic: 'win-topic', file: 'edited.md', text: null, editedSince: false, writes: 1 },
+      { topic: 'demo-roadmap', file: 'pricing.md', text: 'one', editedSince: true, writes: 2 },
+    ])
+  })
+
+  // Review round 1 of PR #1726: only a call that ended well changed its file.
+  it('draftsOf leaves out a refused Write, a failed Edit and a call with no result yet', () => {
+    const drafts = draftsOf([
+      write('w1', DRAFT, 'on the disk'),
+      result('w1'),
+      // The owner refused it in the permission card: the text never reached the disk.
+      write('w2', DRAFT, 'refused'),
+      result('w2', true),
+      // Its old text is not in the file: nothing changed.
+      write('e1', DRAFT, '', 'Edit'),
+      result('e1', true),
+      // A Write of another draft still waits for the permission card.
+      write('w3', OTHER_DRAFT, 'waiting'),
+      // Claude Code refused it: the file was not read first.
+      write('w4', '/demo/docs/product/demo-roadmap/drafts/never.md', 'refused too'),
+      result('w4', true),
+    ])
+    expect(drafts.map(({ file, text, editedSince, writes }) => ({ file, text, editedSince, writes }))).toEqual([{ file: 'pricing.md', text: 'on the disk', editedSince: false, writes: 1 }])
+  })
+
+  it('draftsOf takes one file written by its absolute path, relative to the Project and with \\ for one draft, by the path in the Project', () => {
+    const drafts = draftsOf(
+      settled([
+        write('w1', '/demo/docs/product/demo-roadmap/drafts/pricing.md', 'first'),
+        write('w2', 'docs/product/demo-roadmap/drafts/pricing.md', 'second'),
+        write('w3', '/demo/docs/./product/demo-roadmap/issues/../drafts//pricing.md', 'third'),
+        write('w4', 'C:\\Work\\demo\\docs\\product\\demo-roadmap\\drafts\\pricing.md', 'on Windows'),
+        write('w5', 'c:/work/demo/docs/product/demo-roadmap/drafts/PRICING.md', 'its case'),
+      ]) as AgentEvent[],
+      '/demo',
+    )
+    expect(drafts.map(({ path, text, writes }) => ({ path, text, writes }))).toEqual([
+      { path: 'c:/work/demo/docs/product/demo-roadmap/drafts/PRICING.md', text: 'its case', writes: 2 },
+      { path: 'docs/product/demo-roadmap/drafts/pricing.md', text: 'third', writes: 3 },
+    ])
+    expect(draftsOf(settled([write('w1', 'C:\\Work\\demo\\docs\\product\\t\\drafts\\a.md', 'x')]) as AgentEvent[], 'c:\\work\\demo').map((draft) => draft.path)).toEqual(['docs/product/t/drafts/a.md'])
+  })
+
+  it('the Critic panel shows no review the critic’s Write was refused for', async () => {
+    const reviewFile = '/demo/docs/product/critic/demo-roadmap-2026-11-09.md'
+    const call = (id: string, content: string) => ({ type: 'tool_use', id, name: 'Write', input: { file_path: reviewFile, content }, parentToolUseId: null })
+    subagents.tree = [agent('critic-1', 'worfy:critic', { status: 'done' })]
+    transcripts = { 'critic-1': [call('w1', review(3)), result('w1'), call('w2', review(1)), result('w2', true)] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-rail-state').textContent).toContain('3 objections'))
+    expect(screen.getByTestId('product-critic-review').textContent).toContain('Objection 3')
+    cleanup()
+    transcripts = { 'critic-1': [call('w1', review(2)), result('w1', true), call('w2', review(1))] }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-rail-critic'))
+    await vi.waitFor(() => expect(screen.getByTestId('product-critic-no-review').textContent).toBe('No review written yet'))
+  })
+
+  it('a read of a running agent’s transcript that answers late does not put older events back', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      subagents.tree = [agent('ideas-1', 'worfy:product-ideas')]
+      transcripts = { 'ideas-1': [text('m1', 'The first ideas')] }
+      let release: (() => void) | undefined
+      transcriptGate = () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        })
+      await mount()
+      fireEvent.click(screen.getByTestId('product-rail-ideas'))
+      await vi.waitFor(() => expect(release).toBeDefined())
+      // The second read, five seconds later, answers at once with the newer answer.
+      transcriptGate = undefined
+      transcripts = { 'ideas-1': [text('m1', 'The first ideas'), text('m2', 'The newer ideas')] }
+      await act(async () => {
+        vi.advanceTimersByTime(5000)
+      })
+      await vi.waitFor(() => expect(screen.getByTestId('product-ideas-answer').textContent).toContain('The newer ideas'))
+      // Then the first read answers, with what the transcript held when it was asked.
+      await act(async () => {
+        release!()
+        await Promise.resolve()
+      })
+      await settle()
+      expect(screen.getByTestId('product-ideas-answer').textContent).toContain('The newer ideas')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lastAnswerOf joins the parts of the last message; latestAgent takes the one started last', () => {
+    expect(lastAnswerOf([])).toBeUndefined()
+    expect(lastAnswerOf([text('a', 'old'), text('b', 'new 1'), text('b', 'new 2')])).toBe('new 1\n\nnew 2')
+    const tree = [agent('c1', 'worfy:critic', { startedAt: 2 }), agent('c2', 'critic', { startedAt: 9 }), agent('s', 'worfy:scout', { startedAt: 20 })]
+    expect(latestAgent(tree, isCritic)?.id).toBe('c2')
+    expect(latestAgent(tree, (info) => info.subagentType === 'none')).toBeUndefined()
+  })
+})
+
 describe('the Mind map pane of a Product Session', () => {
   let hadObserver = false
   beforeEach(() => {
@@ -598,7 +848,14 @@ describe('the share of accepted advice in the header of a Product Session', () =
   })
 
   it('names the files it could not count, and says why when the share cannot be read', async () => {
-    share = () => adviceShare({ topics: [{ name: 'broken', nodes: [], errors: [{ file: 'mind-map.json', message: 'not valid JSON' }] }], reviews: [] })
+    share = () =>
+      adviceShare({
+        topics: [
+          { name: 'demo-roadmap', nodes: [advice('a')], errors: [] },
+          { name: 'broken', nodes: [], errors: [{ file: 'mind-map.json', message: 'not valid JSON' }] },
+        ],
+        reviews: [],
+      })
     await mountHeader()
     expect(header().getAttribute('title')).toContain('Not counted: broken/mind-map.json (not valid JSON)')
     cleanup()
@@ -606,6 +863,36 @@ describe('the share of accepted advice in the header of a Product Session', () =
     await mountHeader()
     expect(header().textContent).toBe('Advice accepted —')
     expect(header().getAttribute('title')).toBe('Could not count the advice: EACCES: permission denied')
+  })
+
+  // Owner, 2026-11-09, Q3 (ticket 27): the share shows only once there is advice, decided or not.
+  it('is not shown while main has not answered, nor while the Project has no advice; one piece of advice, waiting, shows it', async () => {
+    let nodes: MindMapNode[] = []
+    share = () => adviceShare({ topics: [{ name: 'demo-roadmap', nodes, errors: [] }], reviews: [] })
+    const { AcceptedAdvice } = await import('../../src/renderer/session/ProductSessionPanel')
+    const view = render(
+      <header>
+        <AcceptedAdvice projectId="alpha" />
+      </header>,
+    )
+    expect(screen.queryByTestId('product-session-accepted')).toBeNull()
+    await settle()
+    // No advice in any topic, no review: nothing in the header, not even its divider.
+    expect(screen.queryByTestId('product-session-accepted')).toBeNull()
+    expect(view.container.querySelector('.w-session__divider')).toBeNull()
+    // The advisor adds its first piece of advice: the next product.changed asks again and the share appears.
+    nodes = [advice('first')]
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: { ...TOPIC, nodes } })
+    })
+    await vi.waitFor(() => expect(screen.getByTestId('product-session-accepted').textContent).toBe('No advice decided yet'))
+    expect(view.container.querySelector('.w-session__divider')).not.toBeNull()
+  })
+
+  it('a critic’s review waiting for a decision is advice too', async () => {
+    share = () => adviceShare({ topics: [], reviews: [{ file: 'demo-2026-11-09.md', text: 'Owner decision:\n' }] })
+    await mountHeader()
+    expect(header().textContent).toBe('No advice decided yet')
   })
 
   it('mind_map_decide on a piece of advice changes the header without a reload: the next product.changed asks main again', async () => {
