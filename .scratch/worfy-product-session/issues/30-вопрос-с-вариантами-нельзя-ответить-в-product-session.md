@@ -37,20 +37,13 @@ Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session
 
 - [ ] e2e test (`test/e2e/product-session.spec.ts`): вопрос открыт, окно перезагружено — карточка вопроса в чате
   Product Session, Badge «Waits for answer», ответ доходит до Claude Code (красный до правки).
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (reload test red before the fix: exit 1, 0 question cards at needs permission) · mac dev · 7b9f77702447972ebbc599c17b7604c3b77c7732
 - [ ] e2e test: в окне 1160 со списком агентов вопрос Session и вопрос Subagent-а отвечаются (вариант, «Other»),
   запрос разрешения Subagent-а — Allow (tool выполнился), Session — Deny (отказ); кнопки внутри колонки чата.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 7b9f77702447972ebbc599c17b7604c3b77c7732
 - [ ] Contract test `agent.requests` (`test/contract/permissions.test.ts`) и unit test `useWaitingRequests`
-  (`test/unit/waiting-requests.test.tsx`).
-  - evidence: test-run pass · `pnpm test` exit 0 (117 test files importing the changed modules, test/contract/permissions.test.ts and test/unit/waiting-requests.test.tsx among them) · mac - · 7b9f77702447972ebbc599c17b7604c3b77c7732
+  (`test/unit/waiting-requests.test.tsx`); строка «cannot show» в виде Session (`test/unit/session-view.test.tsx`).
 - [ ] Снимок (тёмная тема) `../evidence/30-permission-card-dark.png`, только текст fixture.
-  - evidence: screenshot pass · `../evidence/30-permission-card-dark.png` · mac dev · 7b9f77702447972ebbc599c17b7604c3b77c7732 · scrub: 2026-11-09
-  - evidence: screenshot pass · `../evidence/30-question-card-dark.png` · mac dev · 7b9f77702447972ebbc599c17b7604c3b77c7732 · scrub: 2026-11-09
 - [ ] `pnpm lint`, `pnpm typecheck`, unit test-ы, что импортируют `src/renderer/session`, e2e
   `test/e2e/product-session.spec.ts`, gate fast — exit 0; `ci-ok` на PR зелёный.
-  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (gate fast, all unit tests) · mac - · 7b9f77702447972ebbc599c17b7604c3b77c7732
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 7b9f77702447972ebbc599c17b7604c3b77c7732
 
 ## Тесты
 
@@ -59,11 +52,12 @@ Source: владелец 2026-11-09, worfy на ПК с Windows: Product Session
 
 ## Где в коде
 
-- `src/main/agent/permissions.ts`, `src/main/agent/session.ts`, `src/main/ipc/agent.ts`, `src/shared/ipc/agent.ts`
+- `src/main/agent/permissions.ts`, `src/main/agent/session.ts`, `src/main/ipc/agent.ts`, `src/shared/ipc/agent.ts`, `src/shared/agent/events.ts`
 - `src/renderer/session/store.ts`, `src/renderer/session/open-requests.ts`, `src/renderer/session/SessionView.tsx`,
   `src/renderer/session/session.css` (только `.w-session__unseen`), `src/renderer/canvas/badges/NeedsPermission.tsx`
 - `src/main/agent/fake-query.ts` (строка `question` берёт `agentID`), `test/fixtures/agent-scripts/product-question.jsonl`
 - `test/e2e/product-session.spec.ts`, `test/contract/permissions.test.ts`, `test/unit/waiting-requests.test.tsx`,
+  `test/unit/session-view.test.tsx`,
   `test/unit/link-access.test.ts`
 - `docs/features/sessions.md`, `docs/features/product-session.md`, `docs/features/ru/sessions.md`,
   `docs/features/ru/product-session.md`

@@ -29,7 +29,7 @@
 // A parked request answers one tool call only: the `allow_always` list neither answers it nor is
 // answered by it, and releaseParked (a stop of the run) cancels the parked requests alone.
 import { randomUUID } from 'node:crypto'
-import type { AgentEvent, PermissionOption } from '../../shared/agent/events'
+import type { AgentEvent, OpenRequestEvent, PermissionOption } from '../../shared/agent/events'
 import { formatAnswers, type Question, type QuestionPick } from '../../shared/agent/questions'
 import type { PermissionAsk, PermissionAsker, QuestionAsk, QuestionReply } from '../vendors/session'
 
@@ -53,8 +53,6 @@ interface Pending {
   settle(outcome: Outcome): void
 }
 
-/** The event that opens a request: a permission request or a question request. */
-export type OpenRequestEvent = Extract<AgentEvent, { type: 'permission_request' | 'question_request' }>
 
 const CANCELLED: Outcome = { kind: 'cancelled' }
 

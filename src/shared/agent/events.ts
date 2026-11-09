@@ -77,6 +77,44 @@ const at = z.number().optional()
 /** A member of `agentEvent`: its own fields, and when it happened. */
 const timed = <Shape extends z.ZodRawShape>(shape: Shape) => z.object({ ...shape, at })
 
+/**
+ * The Vendor's agent asks before it acts (src/main/agent/permissions.ts; Claude Code's canUseTool,
+ * src/main/vendors/claude/session.ts); the Session is `needs_permission` until every open request
+ * is resolved. `subject`: what is asked about, as the card names it (Claude: the tool's name).
+ * `options`: the answers the Vendor offers, in the order the card shows them. `suggestions`: what
+ * Claude Code proposed and where it would write; worfy applies none of them. `parked`: the approval
+ * policy of an unattended Session left the request to the owner (worfy-auto-approve ticket 07,
+ * src/main/agent/auto-approve/park.ts) — the id of its rule and the paths it judged; absent otherwise.
+ */
+const permissionRequestEvent = timed({
+  type: z.literal('permission_request'),
+  requestId: z.string().min(1),
+  subject: z.string(),
+  toolName: z.string(),
+  toolUseId: nullableString,
+  input: z.unknown(),
+  title: nullableString,
+  description: nullableString,
+  blockedPath: nullableString,
+  suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
+  options: z.array(permissionOptionSchema).min(1),
+  parked: z.object({ rule: z.string().min(1), targets: z.array(z.string()) }).optional(),
+})
+
+/**
+ * Claude Code asks the user questions with answer options (its AskUserQuestion tool, through
+ * canUseTool; worfy-ui ticket 17, src/shared/agent/questions.ts). Counts as an open request: the
+ * Session is `needs_permission` until it is resolved. Never offers "Always allow".
+ */
+const questionRequestEvent = timed({ type: z.literal('question_request'), requestId: z.string().min(1), toolUseId: nullableString, questions: z.array(questionSchema).min(1) })
+
+/**
+ * The events that open a request the user answers: what `agent.requests` answers for a window that did not see
+ * them go out (worfy-product-session ticket 30).
+ */
+export const openRequestEvent = z.discriminatedUnion('type', [permissionRequestEvent, questionRequestEvent])
+export type OpenRequestEvent = z.infer<typeof openRequestEvent>
+
 export const agentEvent = z.discriminatedUnion('type', [
   // Events of worfy itself, not of an SDK message (ticket 19).
   /**
@@ -94,40 +132,13 @@ export const agentEvent = z.discriminatedUnion('type', [
    * no data (the ask failed). Sent only when it differs from the Session's last one.
    */
   timed({ type: z.literal('context'), usage: contextUsageSchema.nullable() }),
-  /**
-   * The Vendor's agent asks before it acts (src/main/agent/permissions.ts; Claude Code's canUseTool,
-   * src/main/vendors/claude/session.ts); the Session is `needs_permission` until every open request
-   * is resolved. `subject`: what is asked about, as the card names it (Claude: the tool's name).
-   * `options`: the answers the Vendor offers, in the order the card shows them. `suggestions`: what
-   * Claude Code proposed and where it would write; worfy applies none of them. `parked`: the approval
-   * policy of an unattended Session left the request to the owner (worfy-auto-approve ticket 07,
-   * src/main/agent/auto-approve/park.ts) — the id of its rule and the paths it judged; absent otherwise.
-   */
-  timed({
-    type: z.literal('permission_request'),
-    requestId: z.string().min(1),
-    subject: z.string(),
-    toolName: z.string(),
-    toolUseId: nullableString,
-    input: z.unknown(),
-    title: nullableString,
-    description: nullableString,
-    blockedPath: nullableString,
-    suggestions: z.array(z.object({ type: z.string(), destination: nullableString })),
-    options: z.array(permissionOptionSchema).min(1),
-    parked: z.object({ rule: z.string().min(1), targets: z.array(z.string()) }).optional(),
-  }),
+  permissionRequestEvent,
   /**
    * A permission request was answered — `decision` is the id of the option picked — or `cancelled`
    * by Interrupt, by closing the Session or by the Vendor.
    */
   timed({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: permissionOptionIdSchema }),
-  /**
-   * Claude Code asks the user questions with answer options (its AskUserQuestion tool, through
-   * canUseTool; worfy-ui ticket 17, src/shared/agent/questions.ts). Counts as an open request: the
-   * Session is `needs_permission` until it is resolved. Never offers "Always allow".
-   */
-  timed({ type: z.literal('question_request'), requestId: z.string().min(1), toolUseId: nullableString, questions: z.array(questionSchema).min(1) }),
+  questionRequestEvent,
   /**
    * A question request was `answered` (`answers`: question text → the answer Claude Code got),
    * `declined` by the user, or `cancelled` by Interrupt, by closing the Session or by Claude Code;

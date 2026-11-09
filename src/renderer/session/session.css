@@ -918,8 +918,6 @@ body.w-split-dragging * {
   text-overflow: ellipsis;
 }
 
-/* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps and a compact
-   Send, so the field keeps the width the prototype's has in the same column — the attach button stays. */
 /* The permission and question cards of a Product Session's chat take the chat's whole width: no «ask» / «permission»
    column beside them, so their options and buttons keep room in the narrowest chat (worfy-product-session ticket 30). */
 .w-product .w-tr__row:has(> .w-tr__body > .w-permission) > .w-tr__who {
@@ -936,6 +934,8 @@ body.w-split-dragging * {
   color: var(--text-secondary);
 }
 
+/* A narrow chat (the agents list open in a small window, ticket 24): tighter padding and gaps and a compact
+   Send, so the field keeps the width the prototype's has in the same column — the attach button stays. */
 .w-product .w-session__main {
   container: w-product-chat / inline-size;
 }

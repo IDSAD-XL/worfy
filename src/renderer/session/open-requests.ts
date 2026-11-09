@@ -42,23 +42,37 @@ export interface WaitingRequests extends OpenRequests {
 }
 
 /**
+ * How long a Session stays at `needs_permission` with none of its requests in this window before main is
+ * asked for them. A request answered here is resolved a moment before main's `state` event leaves
+ * `needs_permission`: in between the window holds no open request, and that is no request it missed.
+ */
+export const ASK_OPEN_REQUESTS_AFTER_MS = 250
+
+/**
  * The open requests of a live Session in state `state`; while it stands at `needs_permission` and this
  * window holds none of its requests — it opened or reloaded after they went out — asks main for them
- * once (worfy-product-session ticket 30): the Session would wait for an answer with no card to give it.
+ * (worfy-product-session ticket 30): the Session would wait for an answer with no card to give it. It
+ * asks once per such stretch, after ASK_OPEN_REQUESTS_AFTER_MS; `unseen` holds from main's answer to the
+ * end of the stretch, and a new stretch starts without it.
  */
 export function useWaitingRequests(sessionId: string | null, state: string | null): WaitingRequests {
   const requests = useOpenRequests(sessionId)
   const missing = sessionId !== null && state === 'needs_permission' && requests.permissions === 0 && requests.questions.length === 0
-  // The Session whose requests main was asked for, once its answer is in.
+  // The Session whose requests main was asked for in this stretch, once its answer is in.
   const [asked, setAsked] = useState<string | null>(null)
   useEffect(() => {
     if (!missing) return
     let live = true
-    void loadOpenRequests(sessionId).then(() => {
-      if (live) setAsked(sessionId)
-    })
+    const timer = setTimeout(() => {
+      void loadOpenRequests(sessionId).then(() => {
+        if (live) setAsked(sessionId)
+      })
+    }, ASK_OPEN_REQUESTS_AFTER_MS)
     return () => {
       live = false
+      clearTimeout(timer)
+      // The stretch is over: the next one is not unseen until main has answered again.
+      setAsked(null)
     }
   }, [sessionId, missing])
   return { ...requests, unseen: missing && asked === sessionId }

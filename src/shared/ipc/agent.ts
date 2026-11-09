@@ -27,7 +27,7 @@
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
-import { agentEvent as agentEventSchema, agentEventEnvelope, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
+import { agentEventEnvelope, openRequestEvent, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
 import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { capabilitiesSchema } from '../vendors/capabilities'
@@ -98,7 +98,7 @@ export const agentControls = invokeChannel('agent.controls', z.object({ sessionI
  * `question_request` events went out (worfy-product-session ticket 30): a window that opened or reloaded
  * after a request went out never got its event, so its view asks for them to draw the cards.
  */
-export const agentRequests = invokeChannel('agent.requests', z.object({ sessionId }), z.object({ requests: z.array(agentEventSchema) }), 'project', 'read')
+export const agentRequests = invokeChannel('agent.requests', z.object({ sessionId }), z.object({ requests: z.array(openRequestEvent) }), 'project', 'read')
 
 /** Changes some of the model, effort and permission mode; answers the settings now in force. */
 export const agentConfigure = invokeChannel('agent.configure', z.object({ sessionId, change: settingsChangeSchema }), sessionSettingsSchema, 'project', 'write')

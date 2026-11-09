@@ -444,7 +444,10 @@ describe('agent.requests: the open requests for a window that did not see them g
     expect(await h.ok('agent.requests', { sessionId: id })).toEqual({ requests: [] })
   })
 
-  it('answers an open question of a Product Session’s Subagent; Interrupt leaves none', async () => {
+  // The second question of the script carries a Subagent's agentID, as Claude Code gives it; an attended
+  // Session's canUseTool reads no agentID (src/main/vendors/claude/session.ts, claudeCanUseTool), so this is the
+  // same gate as the Session's own question.
+  it('answers an open question with answer options; Interrupt leaves none', async () => {
     const h = await harness('product-question')
     const id = await h.start()
     await h.ok('agent.send', { sessionId: id, text: 'who comes first?' })

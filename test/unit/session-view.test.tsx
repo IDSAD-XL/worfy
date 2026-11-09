@@ -753,6 +753,34 @@ describe('SessionPanel', () => {
     expect(screen.queryByTestId('chat-drop-zone')).toBeNull()
   })
 
+  // worfy-product-session ticket 30: a window that reloaded while a request was open never got its event.
+  it('a Session at needs_permission whose request this window never saw: main has none — the chat says so, no card', async () => {
+    answers['orchestrator.view'] = () => ({ view: view({ state: 'needs_permission' }) })
+    answers['agent.requests'] = () => ({ requests: [] })
+    await mountPanel()
+    await vi.waitFor(() => expect(screen.getByTestId('session-request-unseen').textContent).toBe('The Session waits for an answer this window cannot show. Interrupt refuses the request.'))
+    expect(asked.filter((each) => each.channel === 'agent.requests')).toEqual([{ channel: 'agent.requests', input: { sessionId: 'pending-1' } }])
+    expect(screen.queryByTestId('question-card')).toBeNull()
+  })
+
+  it('a Session at needs_permission whose request this window never saw: main has it — the card, and no such line', async () => {
+    answers['orchestrator.view'] = () => ({ view: view({ state: 'needs_permission' }) })
+    const question = { question: 'Which group first?', header: 'Users', multiSelect: false, options: [{ label: 'Teams', description: '', preview: null }, { label: 'Solo', description: '', preview: null }] }
+    answers['agent.requests'] = () => ({ requests: [{ type: 'question_request', requestId: 'q-1', toolUseId: 'toolu_q', questions: [question] }] })
+    await mountPanel()
+    const card = await screen.findByTestId('question-card')
+    expect(card.getAttribute('data-resolution')).toBe('open')
+    expect(within(card).getByTestId('question-text').textContent).toBe('Which group first?')
+    expect(screen.queryByTestId('session-request-unseen')).toBeNull()
+  })
+
+  it('a Session that waits for no answer asks main for no request and shows no such line', async () => {
+    await mountPanel()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 400)))
+    expect(asked.some((each) => each.channel === 'agent.requests')).toBe(false)
+    expect(screen.queryByTestId('session-request-unseen')).toBeNull()
+  })
+
   it('takes the permission mode from a later system/status', async () => {
     await mountPanel()
     emit('pending-1', { type: 'init', sdkSessionId: 'sdk-1', model: 'claude-opus-5-5', permissionMode: 'bypassPermissions', apiKeySource: 'none', cwd: '/p', claudeCodeVersion: null, slashCommands: [] })

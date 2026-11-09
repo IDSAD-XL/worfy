@@ -88,6 +88,33 @@ describe('useWaitingRequests', () => {
     expect(useSessionLogs.getState().logs.s?.events.map((each) => each.type)).toEqual(['question_resolved', 'permission_request'])
   })
 
+  it('a card answered here: the moment between its resolution and the state leaving needs_permission asks main nothing and shows no line', async () => {
+    open = [QUESTION]
+    const { useWaitingRequests, acceptAgentEvent, ASK_OPEN_REQUESTS_AFTER_MS } = await modules()
+    const { result, rerender } = renderHook(({ state }) => useWaitingRequests('s', state), { initialProps: { state: 'needs_permission' } })
+    await waitFor(() => expect(result.current.questions).toHaveLength(1))
+    open = []
+    act(() => acceptAgentEvent({ sessionId: 's', event: { type: 'question_resolved', requestId: 'q-1', outcome: 'answered', answers: { 'Which group first?': 'Teams' } } }))
+    expect(result.current.unseen).toBe(false)
+    // main's `state` event comes right after the resolution.
+    rerender({ state: 'busy' })
+    await act(() => new Promise((resolve) => setTimeout(resolve, ASK_OPEN_REQUESTS_AFTER_MS + 150)))
+    expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(1)
+    expect(result.current.unseen).toBe(false)
+  })
+
+  it('a new stretch at needs_permission is not `unseen` before main has answered again', async () => {
+    const { useWaitingRequests } = await modules()
+    const { result, rerender } = renderHook(({ state }) => useWaitingRequests('s', state), { initialProps: { state: 'needs_permission' } })
+    await waitFor(() => expect(result.current.unseen).toBe(true))
+    rerender({ state: 'busy' })
+    expect(result.current.unseen).toBe(false)
+    rerender({ state: 'needs_permission' })
+    expect(result.current.unseen).toBe(false)
+    await waitFor(() => expect(result.current.unseen).toBe(true))
+    expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(2)
+  })
+
   it('main has no open request either: `unseen`, so the view says what the Session waits for', async () => {
     const { useWaitingRequests } = await modules()
     const { result } = renderHook(() => useWaitingRequests('s', 'needs_permission'))

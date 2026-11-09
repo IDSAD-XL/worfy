@@ -167,7 +167,7 @@ export async function loadOpenRequests(sessionId: string): Promise<void> {
   }
   const known = new Set<string>()
   for (const event of useSessionLogs.getState().logs[sessionId]?.events ?? EMPTY) if ('requestId' in event) known.add(event.requestId)
-  for (const event of result.value.requests) if ('requestId' in event && !known.has(event.requestId)) acceptAgentEvent({ sessionId, event })
+  for (const event of result.value.requests) if (!known.has(event.requestId)) acceptAgentEvent({ sessionId, event })
 }
 
 let subscribed = false

@@ -60,7 +60,7 @@ import { randomUUID } from 'node:crypto'
 import type { Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { sameContextUsage, type AgentEvent, type ContextUsage, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import { sameContextUsage, type AgentEvent, type ContextUsage, type OpenRequestEvent, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
 import type { QuestionPick } from '../../shared/agent/questions'
 import {
   DEFAULT_SETTINGS,
@@ -75,7 +75,7 @@ import { CLAUDE_CAPABILITIES, type Capabilities } from '../../shared/vendors/cap
 import type { VendorDriver } from '../vendors/driver'
 import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
 import { shownAttachments } from './attachments'
-import { PermissionGate, type OpenRequestEvent } from './permissions'
+import { PermissionGate } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { mergeSettings } from './session/models'
 import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, stopWaiting, waitForExit, within } from './session/process'
