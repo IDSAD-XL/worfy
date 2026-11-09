@@ -1,7 +1,9 @@
 # 23 — Mind map: размер, текст и карточка узла как в прототипе
 
 Type: task
-Status: claimed 2026-11-09T03:23Z
+Status: blocked 2026-11-09T04:52Z
+Blocked reason: code merged (#1714); waits for the owner's look at the Mind map size, node text and node card in Mac Stable after the next update, next to the prototype
+Waits: owner
 Branch: worfy-product-session/23
 Blocked by: 21
 Source: сравнение собранного экрана с прототипом 2026-11-09 (строки 2, 3, 12, 13, 14 таблицы отличий); [spec.md](../spec.md),
