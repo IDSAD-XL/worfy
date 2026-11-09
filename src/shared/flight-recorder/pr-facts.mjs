@@ -150,6 +150,65 @@ export function verdicts(pr, account) {
   return { gate, rejected, narrow: narrow === 0 && narrowVerdict ? 1 : narrow }
 }
 
+/**
+ * The PR's head commit: gh's `headRefOid`, else the oid of its last commit (gh's `commits` run oldest to newest and
+ * stop at 100, so the last of them is the head only for a PR of up to 100 commits), or null.
+ */
+export function headSha(pr) {
+  if (typeof pr.headRefOid === 'string' && pr.headRefOid !== '') return pr.headRefOid
+  const commits = Array.isArray(pr.commits) ? pr.commits : []
+  const oid = commits[commits.length - 1]?.oid
+  return typeof oid === 'string' && oid !== '' ? oid : null
+}
+
+/**
+ * The description harness/bin/land gives a `review` it copies onto a rebased head (`reviewed`): the copy is made
+ * when land runs, so its time is not a verdict's.
+ */
+const CARRIED = /^carried from /
+
+/**
+ * The verdict time of the head's `review` mark (worfy-throughput 65): the earliest `review` `success` after the
+ * head's last `review` `failure` or `error`, so that a later re-post does not move it and a success the head lost
+ * to a later rejection does not count. `pr.statuses` is gh api's `repos/<owner>/<repo>/commits/<head>/statuses` —
+ * every status of the head; statusCheckRollup keeps only the latest per context and no description. A mark land
+ * carried onto a rebased head is skipped, and a mark later than the merge gives nothing. { at } or { why }.
+ */
+export function reviewMark(pr) {
+  if (!Array.isArray(pr.statuses)) return { why: 'no commit statuses of the PR head' }
+  const reviews = pr.statuses.filter((status) => status && status.context === 'review')
+  const rejected = reviews
+    .filter((status) => status.state === 'failure' || status.state === 'error')
+    .map((status) => time(status.created_at))
+    .filter((at) => at !== null)
+  const lastRejected = rejected.length > 0 ? Math.max(...rejected) : null
+  const successes = reviews.filter((status) => status.state === 'success')
+  const verdicts = successes
+    .filter((status) => !CARRIED.test(typeof status.description === 'string' ? status.description : ''))
+    .map((status) => time(status.created_at))
+    .filter((at) => at !== null)
+  if (verdicts.length === 0) return { why: successes.length > 0 ? 'review on the PR head only carried by land' : 'no review success on the PR head' }
+  const own = verdicts.filter((at) => lastRejected === null || at > lastRejected)
+  if (own.length === 0) return { why: 'review failure on the PR head after its last review success' }
+  const at = Math.min(...own)
+  const merged = time(pr.mergedAt)
+  if (merged !== null && at > merged) return { why: 'review success after the merge' }
+  return { at }
+}
+
+/**
+ * The Gate: the last VERIFIED comment, else the verdict time of the head's `review` mark (reviewMark).
+ * { at, by: 'VERIFIED' | 'review' } or { why }; without the head's statuses the reason is the missing VERIFIED
+ * alone, as before the review mark counted. `account` as for verdictComments.
+ */
+export function gateMark(pr, account) {
+  const { gate } = verdicts(pr, account)
+  if (gate !== null) return { at: gate, by: 'VERIFIED' }
+  if (!Array.isArray(pr.statuses)) return { why: 'no VERIFIED comment on the PR' }
+  const review = reviewMark(pr)
+  return review.why !== undefined ? { why: `no VERIFIED comment on the PR, ${review.why}` } : { at: review.at, by: 'review' }
+}
+
 /** The first commit of the PR: the earliest authored time. */
 export function firstCommit(pr) {
   const times = (Array.isArray(pr.commits) ? pr.commits : []).map((c) => time(c?.authoredDate) ?? time(c?.committedDate)).filter((t) => t !== null)

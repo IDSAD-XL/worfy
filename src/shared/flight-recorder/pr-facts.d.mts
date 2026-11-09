@@ -22,8 +22,17 @@ export interface GhComment {
 }
 
 export interface GhCommit {
+  oid?: string
   authoredDate?: string
   committedDate?: string
+}
+
+/** A commit status of `gh api repos/<owner>/<repo>/commits/<sha>/statuses`: every status, not only the latest per context. */
+export interface GhStatus {
+  context?: string
+  state?: string
+  description?: string | null
+  created_at?: string
 }
 
 export interface GhLabel {
@@ -46,6 +55,8 @@ export interface GhRun {
 export interface GhPr {
   number: number
   headRefName?: string
+  /** The head commit; critical-path asks for it on top of GH_FIELDS. */
+  headRefOid?: string | null
   state?: string
   createdAt?: string
   mergedAt?: string | null
@@ -56,6 +67,8 @@ export interface GhPr {
   labels?: GhLabel[]
   mergeCommit?: { oid?: string } | null
   ciRuns?: GhRun[]
+  /** The commit statuses of the head (GhStatus); critical-path asks for them when the PR has no VERIFIED. */
+  statuses?: GhStatus[]
 }
 
 /** A mark: { at } (at null — a head without CI, headCi only) or { why } when there is no time. */
@@ -117,6 +130,9 @@ export declare function headMarks(pr: GhPr): HeadMark[]
  */
 export declare function verdictComments(pr: GhPr, account?: string | null): VerdictComment[]
 export declare function verdicts(pr: GhPr, account?: string | null): { gate: number | null; rejected: number; narrow: number }
+export declare function headSha(pr: GhPr): string | null
+export declare function reviewMark(pr: GhPr): Mark
+export declare function gateMark(pr: GhPr, account?: string | null): { at: number; by: 'VERIFIED' | 'review'; why?: undefined } | { why: string; at?: undefined; by?: undefined }
 export declare function firstCommit(pr: GhPr): number | null
 export declare function labelNames(pr: Partial<GhPr>): string[]
 export declare function prFacts(pr: GhPr, account?: string | null): PrFacts

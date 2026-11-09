@@ -1,0 +1,186 @@
+[
+  {
+    "number": 11,
+    "headRefName": "demo-epic/01",
+    "state": "MERGED",
+    "createdAt": "2026-10-06T01:40:00Z",
+    "mergedAt": "2026-10-06T03:00:00Z",
+    "commits": [
+      {
+        "oid": "1111111111111111111111111111111111111111",
+        "authoredDate": "2026-10-06T01:20:00Z",
+        "committedDate": "2026-10-06T01:20:00Z"
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "ci-ok",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "startedAt": "2026-10-06T02:15:00Z",
+        "completedAt": "2026-10-06T02:35:00Z"
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "review",
+        "state": "SUCCESS",
+        "startedAt": "2026-10-06T02:57:00Z"
+      }
+    ],
+    "comments": [
+      {
+        "createdAt": "2026-10-06T02:10:00Z",
+        "body": "REJECTED: [med] src/a.ts:10 — the wait never ends"
+      }
+    ],
+    "statuses": [
+      {
+        "context": "review",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-06T02:57:00Z"
+      },
+      {
+        "context": "review",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-06T02:50:00Z"
+      },
+      {
+        "context": "check/windows",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-06T02:48:00Z"
+      },
+      {
+        "context": "review",
+        "state": "pending",
+        "description": "pending",
+        "created_at": "2026-10-06T02:46:00Z"
+      },
+      {
+        "context": "review",
+        "state": "failure",
+        "description": "failure",
+        "created_at": "2026-10-06T02:45:00Z"
+      },
+      {
+        "context": "review",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-06T02:30:00Z"
+      }
+    ],
+    "ciRuns": [
+      {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request",
+        "createdAt": "2026-10-06T02:15:00Z",
+        "updatedAt": "2026-10-06T02:35:00Z"
+      }
+    ]
+  },
+  {
+    "number": 12,
+    "headRefName": "demo-epic/02",
+    "state": "MERGED",
+    "createdAt": "2026-10-06T02:00:00Z",
+    "mergedAt": "2026-10-06T03:00:00Z",
+    "commits": [
+      {
+        "oid": "2222222222222222222222222222222222222222",
+        "authoredDate": "2026-10-06T01:50:00Z",
+        "committedDate": "2026-10-06T01:50:00Z"
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "ci-ok",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "startedAt": "2026-10-06T02:10:00Z",
+        "completedAt": "2026-10-06T02:30:00Z"
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "review",
+        "state": "SUCCESS",
+        "startedAt": "2026-10-06T02:40:00Z"
+      }
+    ],
+    "comments": [
+      {
+        "createdAt": "2026-10-06T02:39:00Z",
+        "body": "PR #12 (demo-epic 02) round 1: the verdict is in this sentence, not at its start"
+      }
+    ],
+    "statuses": [
+      {
+        "context": "review",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-06T02:40:00Z"
+      }
+    ],
+    "ciRuns": [
+      {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request",
+        "createdAt": "2026-10-06T02:10:00Z",
+        "updatedAt": "2026-10-06T02:30:00Z"
+      }
+    ]
+  },
+  {
+    "number": 14,
+    "headRefName": "demo-epic/04-manual",
+    "state": "MERGED",
+    "createdAt": "2026-10-07T10:00:00Z",
+    "mergedAt": "2026-10-07T12:40:00Z",
+    "commits": [
+      {
+        "oid": "4444444444444444444444444444444444444444",
+        "authoredDate": "2026-10-07T09:00:00Z",
+        "committedDate": "2026-10-07T09:00:00Z"
+      }
+    ],
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "name": "ci-ok",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "startedAt": "2026-10-07T11:00:00Z",
+        "completedAt": "2026-10-07T11:10:00Z"
+      },
+      {
+        "__typename": "StatusContext",
+        "context": "review",
+        "state": "SUCCESS",
+        "startedAt": "2026-10-07T13:00:00Z"
+      }
+    ],
+    "comments": [],
+    "statuses": [
+      {
+        "context": "review",
+        "state": "success",
+        "description": "success",
+        "created_at": "2026-10-07T13:00:00Z"
+      }
+    ],
+    "ciRuns": [
+      {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request",
+        "createdAt": "2026-10-07T11:00:00Z",
+        "updatedAt": "2026-10-07T11:10:00Z"
+      }
+    ]
+  }
+]

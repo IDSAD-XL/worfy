@@ -232,6 +232,91 @@ describe('critical-path: durations of each step', () => {
   })
 })
 
+describe('critical-path: the Gate from the review mark of the head when there is no VERIFIED comment', () => {
+  // test/fixtures/critical-path/prs-review.json: three merged PRs without a VERIFIED comment, with every
+  // commit status of the head ("statuses", as gh api commits/<sha>/statuses gives them, newest first).
+  const REVIEW = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--prs', join(FIXTURE, 'prs-review.json')]
+
+  it('takes the Gate from the review success status of the head; a verdict inside a sentence is not a VERIFIED comment', () => {
+    // #12: CI green 02:30, review success 02:40, merge 03:00.
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '02')).toMatchObject({ pr: '12', ci_to_gate_s: '600', gate_to_merge_s: '1200', green_to_merge_s: '1200', green_by: 'Gate' })
+  })
+
+  it('takes the earliest review success after the last review failure: a re-post does not move the Gate, a pending or check/windows mark is no verdict', () => {
+    // #11: review success 02:30, failure 02:45, pending 02:46, check/windows success 02:48, review success 02:50 and
+    // again 02:57 (the one statusCheckRollup shows), merge 03:00: the Gate is 02:50.
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '01')).toMatchObject({ pr: '11', ci_to_gate_s: '900', gate_to_merge_s: '600', green_to_merge_s: '600' })
+  })
+
+  it('gives no Gate from a review later than the merge: an empty cell with the reason', () => {
+    // #14: merged 12:40, review success 13:00.
+    const why = 'no VERIFIED comment on the PR, review success after the merge'
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '04')).toMatchObject({ pr: '14', ci_to_gate_s: '', ci_to_gate_why: why, gate_to_merge_s: '', gate_to_merge_why: why, green_to_merge_s: '', green_to_merge_why: why })
+  })
+
+  /** A merged PR of demo-epic/01 through gh: head `sha`, merged 03:00, VERIFIED at 02:30 when `verified`. */
+  const ghPr = (verified: boolean): object => ({
+    number: 11,
+    headRefName: 'demo-epic/01',
+    state: 'MERGED',
+    createdAt: '2026-10-06T01:40:00Z',
+    mergedAt: '2026-10-06T03:00:00Z',
+    commits: [{ oid: 'a'.repeat(40), authoredDate: '2026-10-06T01:20:00Z' }, { oid: 'b'.repeat(40), authoredDate: '2026-10-06T01:30:00Z' }],
+    statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt: '2026-10-06T02:00:00Z' }],
+    comments: verified ? [{ createdAt: '2026-10-06T02:30:00Z', body: 'VERIFIED' }] : [],
+  })
+  const status = (createdAt: string, description = 'success'): object => ({ context: 'review', state: 'success', description, created_at: createdAt })
+
+  async function viaGh(pr: object, statuses: object[] | object[][]): Promise<{ row: Record<string, string>; calls: string[][] }> {
+    const calls: string[][] = []
+    let text = ''
+    const gh = async (args: string[]): Promise<GhResult> => {
+      calls.push(args)
+      if (args[0] === 'api') return { code: 0, stdout: JSON.stringify(statuses), stderr: '' }
+      if (args[0] === 'run') return { code: 0, stdout: '[]', stderr: '' }
+      return { code: 0, stdout: JSON.stringify(pr), stderr: '' }
+    }
+    const args = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01', '--csv']
+    expect(await criticalPath(args, { env: {}, home: '/Users/someone', cwd: tempDir(), gh, out: (t) => (text += t), err: () => undefined })).toBe(0)
+    return { row: rowOf(parseCsv(text), 'demo-epic', '01'), calls }
+  }
+
+  it('asks gh for every commit status of the head commit, in the repository of the run, only when there is no VERIFIED', async () => {
+    const without = await viaGh(ghPr(false), [status('2026-10-06T02:40:00Z')])
+    expect(without.calls).toContainEqual(['api', '--paginate', '--slurp', `repos/owner/demo/commits/${'b'.repeat(40)}/statuses?per_page=100`])
+    expect(without.row).toMatchObject({ ci_to_gate_s: '2400', gate_to_merge_s: '1200' })
+    const withVerified = await viaGh(ghPr(true), [status('2026-10-06T02:40:00Z')])
+    expect(withVerified.calls.filter((call) => call[0] === 'api')).toEqual([])
+    expect(withVerified.row).toMatchObject({ ci_to_gate_s: '1800', gate_to_merge_s: '1800' })
+  })
+
+  it('skips a review land carried onto a rebased head: its time is the land run, not a verdict', async () => {
+    const carried = 'carried from 1234567: the PR diff outside .scratch is unchanged'
+    const only = await viaGh(ghPr(false), [status('2026-10-06T02:59:00Z', carried)])
+    const why = 'no VERIFIED comment on the PR, review on the PR head only carried by land'
+    expect(only.row).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: why })
+    // A carried mark earlier than the head's own review does not move the Gate either.
+    const both = await viaGh(ghPr(false), [status('2026-10-06T02:50:00Z'), status('2026-10-06T02:20:00Z', carried)])
+    expect(both.row).toMatchObject({ gate_to_merge_s: '600' })
+  })
+
+  it('reads every page gh --paginate --slurp gives, and asks for the head named by headRefOid', async () => {
+    // Newest first: the earliest success is on the second page.
+    const paged = await viaGh({ ...ghPr(false), headRefOid: 'c'.repeat(40) }, [[status('2026-10-06T02:55:00Z')], [status('2026-10-06T02:45:00Z')]])
+    expect(paged.calls).toContainEqual(['api', '--paginate', '--slurp', `repos/owner/demo/commits/${'c'.repeat(40)}/statuses?per_page=100`])
+    expect(paged.row).toMatchObject({ gate_to_merge_s: '900' })
+  })
+
+  it('gives no Gate when a review failure on the head came after its last review success', async () => {
+    const failure = { context: 'review', state: 'failure', description: 'failure', created_at: '2026-10-06T02:50:00Z' }
+    const { row } = await viaGh(ghPr(false), [failure, status('2026-10-06T02:40:00Z')])
+    expect(row).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: 'no VERIFIED comment on the PR, review failure on the PR head after its last review success' })
+    // A head with a failure and no success has no review success at all: a failure is not a verdict time.
+    const failed = await viaGh(ghPr(false), [failure])
+    expect(failed.row).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: 'no VERIFIED comment on the PR, no review success on the PR head' })
+  })
+})
+
 describe('critical-path: the summary of an Epic', () => {
   it('sums and takes the median of each step and names the critical step by both', () => {
     const rows = csvRows(DEMO)
@@ -303,7 +388,7 @@ describe('critical-path: the report after the reading moved to src/shared/flight
       out: () => undefined,
       err: () => undefined,
     })
-    expect(calls[0]).toContain(prFacts.GH_FIELDS)
+    expect(calls[0]).toContain(`${prFacts.GH_FIELDS},headRefOid`)
   })
 
   it.each(reports)('gives the %s report byte for byte as before, in Markdown and CSV', (name, args) => {
@@ -501,7 +586,7 @@ describe('critical-path: PR data through gh', () => {
       return { code: 0, stdout: JSON.stringify(number === undefined ? found : found[0]), stderr: '' }
     })
     expect(code).toBe(0)
-    const fields = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files'
+    const fields = 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files,headRefOid'
     expect(calls).toContainEqual(['pr', 'view', '11', '--repo', 'github.com/owner/demo', '--json', fields])
     expect(calls).toContainEqual(['pr', 'list', '--head', 'demo-epic/03', '--state', 'all', '--limit', '20', '--json', fields, '--repo', 'github.com/owner/demo'])
     expect(calls).toContainEqual(['run', 'list', '--branch', 'demo-epic/04-manual', '--limit', '100', '--json', 'status,conclusion,event,createdAt,updatedAt', '--repo', 'github.com/owner/demo'])
@@ -522,7 +607,7 @@ describe('critical-path: PR data through gh', () => {
       calls.push(args)
       return { code: 0, stdout: '[]', stderr: '' }
     }, ['--journals', journals, '--epic', 'old-epic'])
-    expect(calls).toEqual([['pr', 'list', '--head', 'old-epic/01', '--state', 'all', '--limit', '20', '--json', 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files', '--repo', 'github.com/owner/demo']])
+    expect(calls).toEqual([['pr', 'list', '--head', 'old-epic/01', '--state', 'all', '--limit', '20', '--json', 'number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files,headRefOid', '--repo', 'github.com/owner/demo']])
   })
 
   it('leaves the PR steps empty with gh’s reason, home folder hidden, when gh fails or is missing', async () => {
@@ -651,7 +736,7 @@ describe('critical-path: green checks → merge and its budget (Q1, Q2)', () => 
       out: (t) => (text += t),
       err: () => undefined,
     })
-    expect(calls[0]).toContain('number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files')
+    expect(calls[0]).toContain('number,headRefName,state,createdAt,mergedAt,statusCheckRollup,comments,commits,files,headRefOid')
   })
 
   it('counts Green → merge from the later of the last VERIFIED and a green ci-ok on the PR head', async () => {
