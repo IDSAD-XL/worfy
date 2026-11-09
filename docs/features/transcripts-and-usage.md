@@ -36,7 +36,11 @@ its Vendor. Picking a hit opens the Session. The details are in [App shell](app-
 
 **Read-only view.** A Session started elsewhere opens in the same view, marked "Read-only: started in terminal" or "Read-only:
 started in Claude desktop". A Subagent's opens as "Read-only: Subagent transcript". Without a file it says "No transcript of this
-Session yet". A Codex thread started outside worfy opens there too: its transcript is read from Codex, whole, its answers
+Session yet". A Session worfy started on a Session Node, a Product Session too, opens here while it does not run, for example
+after a restart of worfy. Its source reads "worfy" and its line "Not running — Resume to continue", with Resume beside it.
+Resume continues the Session on its Node with the Node's Vendor and kind, as the Node's own Resume does, and the view
+becomes the live one. A refusal of Resume shows next to the button. While worfy runs that Session, the line reads "Running
+in worfy", and Open shows the live view. A Codex thread started outside worfy opens there too: its transcript is read from Codex, whole, its answers
 are labelled `codex`, and its chip says `unknown`, because Codex does not say whether the thread still runs. While a Subagent's transcript is open, the back arrow or ⌘[ goes to what started it.
 
 #### Windows
@@ -65,7 +69,7 @@ The find bar opens with Ctrl+F, and back is Ctrl+[.
 | Hide tools | `src/renderer/session/transcript-view.ts`, `src/renderer/session/HideToolsButton.tsx` |
 | Project search | `src/main/claude-home/search.ts`, `src/renderer/palette/CommandPalette.tsx` |
 | A Codex thread's transcript | `src/main/vendors/codex/history.ts`, `src/main/vendors/codex/sessions-on-canvas.ts`, `src/main/ipc/claude-home.ts` |
-| Read-only view | `src/renderer/session/ExternalSessionPanel.tsx` |
+| Read-only view | `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/session/read-only-line.ts` |
 | Loading and following a file | `src/renderer/claude-home/useClaudeHome.ts` |
 
 **Data flow.** The renderer asks `claudeHome.transcript` for the last window. Main reads the lines, parses them and answers events
@@ -73,7 +77,7 @@ and a cursor. Later reads continue from the cursor, and "Load earlier" reads bac
 `joinPastAndLive` joins the file's events with the live ones, and `foldTranscript` turns them into rows.
 
 **Main tests.** `test/contract/transcript-parse.test.ts`, `test/contract/transcript-find.test.ts`,
-`test/unit/transcript-find.test.ts`, `test/unit/transcript-hide-tools.test.tsx`, `test/unit/session-find.test.tsx`,
+`test/unit/transcript-find.test.ts`, `test/unit/transcript-hide-tools.test.tsx`, `test/unit/session-find.test.tsx`, `test/unit/session-read-only-resume.test.tsx`,
 `test/contract/session-history-tail.test.tsx`, `test/e2e/session-history-tail.spec.ts`, `test/e2e/external-session.spec.ts`,
 `test/contract/codex-history.test.ts`, `test/e2e/codex-transcript-search.spec.ts`.
 

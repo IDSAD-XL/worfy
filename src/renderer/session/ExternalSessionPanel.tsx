@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { vendorLabel } from '../../shared/vendors/vendor'
@@ -8,12 +8,15 @@ import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSubagentTree } from '../claude-home/subagents'
 import { earlierControl, loadEarlierTranscript, transcriptStateNow, useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
-import { useProjects } from '../projects/useProjects'
+import { invoke } from '../ipc'
+import { writeAction } from '../projects/read-only'
+import { useProjects, useReadOnly } from '../projects/useProjects'
 import { ariaKeys, label, matches } from '../shortcuts/match'
 import { StatusChip, type Status } from '../theme/primitives'
 import { openSession, subagentParent, subagentSession, useNavigation, type OpenedSession } from './navigation'
 import { isRunning, useSessionNodeView } from './node-sessions'
 import type { RailBlock } from './rail/index'
+import { readOnlyLine, worfyNodeOf } from './read-only-line'
 import { SessionPicker } from './SessionPicker'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
@@ -30,6 +33,12 @@ import './session.css'
 // such a Session, so there is no input field: a line says why instead. With `agentId` the panel
 // shows one Subagent of a Session instead — any Session, a worfy one too — from its own transcript
 // file (`<sessionId>/subagents/agent-<agentId>.jsonl`, ticket 15), read-only as well.
+//
+// A Session worfy started on a Session Node opens here too while it does not run — after a Close, or
+// after worfy restarted (worfy-polish ticket 75). It is not read-only: the line says «Not running —
+// Resume to continue» and Resume continues it on its Node through `sessions.resume`, with the Node's
+// Vendor and kind, then shows its live view; main's refusal (resume.ts) shows next to the button.
+// While worfy runs it, the line says so and Open shows the live view (read-only-line.ts).
 //
 // A Subagent's window leads back to its parent (worfy-polish ticket 25): the arrow left of the title
 // (and ⌘[, Ctrl+[ elsewhere) goes to the Subagent that started it, or to its Session; the "of
@@ -83,7 +92,8 @@ const SUBAGENT_CHIPS: Record<SubagentStatus, { status: Status; label: string }> 
 }
 
 const styles = {
-  readOnly: { fontSize: 'var(--text-13)', color: 'var(--text-secondary)' },
+  composer: { fontSize: 'var(--text-13)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' },
+  problem: { color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
   source: { fontSize: 'var(--text-12)', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
   back: { width: 26, padding: 0, justifyContent: 'center' },
   link: { padding: 0, border: 'none', background: 'none', font: 'inherit', color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 2 },
@@ -119,8 +129,15 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const parent = parentAgentId === null ? undefined : flattenSubagents(tree).find((info) => info.agentId === parentAgentId)
   const back = subagentParent({ nodeId, projectId, sessionId }, parentAgentId, runs)
   const toSession = subagentSession({ nodeId, projectId, sessionId }, runs)
-  const saved = useLayout(projectId).state?.layout.nodes.find((node) => node.id === nodeId)
+  const nodes = useLayout(projectId).state?.layout.nodes
+  const saved = nodes?.find((node) => node.id === nodeId)
   const data = saved ? readSessionNodeData(saved.data) : null
+  // A Session worfy started on a Session Node (worfy-polish ticket 75): shown here while it does not run, with Resume.
+  const own = agentId === undefined ? worfyNodeOf(nodes, nodeId, sessionId) : undefined
+  const ownRuns = isRunning(useSessionNodeView(projectId, own?.id ?? nodeId))
+  const readOnly = useReadOnly()
+  const [resuming, setResuming] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
   const session = live?.find((each) => each.sessionId === sessionId)
   const sessionTitle = session?.name ?? history.find((each) => each.sessionId === sessionId)?.title ?? data?.name ?? `Session ${sessionId.slice(0, 8)}`
   // The Vendor of a Session the Claude home does not record (a Codex thread): from its Node, else from the history.
@@ -139,7 +156,31 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   // The live entry says where it runs; once it is gone, the Node's data and the transcript do.
   const desktop = session ? session.entrypoint === 'claude-desktop' : data?.source === 'desktop'
   const cwd = session?.cwd ?? data?.cwd ?? history.find((each) => each.sessionId === sessionId)?.cwd
-  const startedIn = desktop ? 'Claude desktop' : 'terminal'
+  const line = readOnlyLine({ subagent: agentId !== undefined, worfy: own === undefined ? null : { running: ownRuns }, desktop })
+
+  /** Its live view, while this read-only one is still what the Session view shows: a user who went elsewhere stays there. */
+  const openLive = (liveNodeId: string) => {
+    const { view, opened } = useNavigation.getState()
+    const shown = opened[projectId]?.external
+    if (view === 'session' && shown?.sessionId === sessionId && shown.agentId === undefined) openSession({ nodeId: liveNodeId, projectId })
+  }
+
+  // The path of the history's Resume (HistoryPopover.tsx): main finds the Node naming the Session, applies the rule of
+  // Resume (src/main/agent/resume.ts) and starts it with the Node's Vendor and kind, so a Product Session stays one.
+  const resume = async (): Promise<void> => {
+    if (resuming) return
+    setProblem(null)
+    setResuming(true)
+    try {
+      const result = await invoke('sessions.resume', { projectId, sessionId })
+      if (!result.ok) setProblem(result.error)
+      else openLive(result.value.nodeId)
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setResuming(false)
+    }
+  }
 
   let empty: string | null = null
   if (transcript.error !== undefined) empty = `The transcript could not be read: ${transcript.error}`
@@ -148,9 +189,11 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const source =
     agentId !== undefined
       ? [subagentTypeLabel(type), subagent?.model].filter((part) => part !== undefined && part !== null).join(' · ')
-      : desktop
-        ? 'Claude desktop'
-        : `terminal${cwd ? ` · ${cwd}` : ''}`
+      : own !== undefined
+        ? `worfy${cwd ? ` · ${cwd}` : ''}`
+        : desktop
+          ? 'Claude desktop'
+          : `terminal${cwd ? ` · ${cwd}` : ''}`
 
   return (
     <div className="w-session" data-testid="session-view" data-session-id={sessionId} data-node-id={nodeId} data-agent-id={agentId} data-read-only="true">
@@ -207,8 +250,29 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
               logRef={logRef}
             />
           )}
-          <div className="w-composer" data-testid="session-read-only" style={styles.readOnly}>
-            {agentId === undefined ? `Read-only: started in ${startedIn}` : 'Read-only: Subagent transcript'}
+          <div className="w-composer" style={styles.composer}>
+            <span data-testid="session-read-only">{line.text}</span>
+            {line.action === 'resume' ? (
+              <button
+                type="button"
+                className="w-session__button"
+                data-testid="session-resume"
+                disabled={resuming}
+                {...writeAction(readOnly, () => void resume(), 'Continue this Session in worfy')}
+              >
+                {resuming ? 'Resuming…' : 'Resume'}
+              </button>
+            ) : null}
+            {line.action === 'open' && own !== undefined ? (
+              <button type="button" className="w-session__button" data-testid="session-open-live" title="Show the Session as worfy runs it" onClick={() => openSession({ nodeId: own.id, projectId })}>
+                Open
+              </button>
+            ) : null}
+            {problem !== null ? (
+              <span role="alert" style={styles.problem} data-testid="session-resume-problem">
+                {problem}
+              </span>
+            ) : null}
           </div>
         </section>
         {agentId === undefined ? <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={null} claudeSessionId={sessionId} /> : null}
