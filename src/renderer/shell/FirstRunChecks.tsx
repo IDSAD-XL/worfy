@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as 
 import { create } from 'zustand'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
-import type { Check, CheckGroup, CheckStatus, FirstRunAction } from '../../shared/ipc/first-run'
+import type { Check, CheckGroup, CheckId, CheckStatus, FirstRunAction } from '../../shared/ipc/first-run'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { focusCanvasNode } from '../find/canvas-requests'
 import MigrationForm from '../harness/MigrationForm'
@@ -23,15 +23,67 @@ import { invoke } from '../ipc'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { setView } from '../session/navigation'
 import { showToast } from '../toast/toasts'
+import { elapsedText, useTicking } from '../update/store'
 import { checkAgain, useFirstRun } from './first-run-store'
+import './shell.css'
 
 /** The size of the Terminal Node the GitHub sign-in opens: the default of the Terminal Node type. */
 const TERMINAL_SIZE = { w: 560, h: 340 }
 // Windows has rows only on Windows (worfy-windows ticket 13); a group without rows is not shown.
 const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd']
 
-type ChipState = CheckStatus | 'running'
-const CHIP_LABEL: Record<ChipState, string> = { ok: 'OK', warn: 'Warning', fail: 'Failed', running: 'Running…' }
+type ChipState = CheckStatus | 'running' | 'checking'
+const CHIP_LABEL: Record<ChipState, string> = { ok: 'OK', warn: 'Warning', fail: 'Failed', running: 'Running…', checking: 'Checking…' }
+
+/**
+ * What a pressed button says while its action runs (worfy-polish ticket 77), in place of its label.
+ * The Harness button is labelled by its state (Install, Update, Replace, Retry): only Update reads
+ * as "Updating…".
+ */
+const BUSY_LABEL: Record<FirstRunAction, string> = {
+  'harness-install': 'Installing…',
+  'migration-form': 'Moving…',
+  'qmd-install': 'Installing…',
+  'qmd-models-download': 'Downloading…',
+  'qmd-models-skip': 'Skipping…',
+  'qmd-collections': 'Setting up…',
+  'gh-login': 'Signing in…',
+  'limits-bridge': 'Setting up…',
+  'update-log': 'Opening…',
+}
+const busyLabel = (action: Check['actions'][number]): string => (action.id === 'harness-install' && action.label === 'Update' ? 'Updating…' : BUSY_LABEL[action.id])
+
+/**
+ * The step a long action names under its row, with the time it has taken: the actions that can run
+ * for minutes (npm, `qmd pull`, `qmd-collections`, the Harness with its dependencies). main sends no
+ * output of them while they run, so the line has the step and the time only.
+ */
+const PROGRESS: Partial<Record<FirstRunAction, string>> = {
+  'harness-install': 'Installing the Harness…',
+  'qmd-install': 'Installing qmd with npm…',
+  'qmd-models-download': 'Downloading models…',
+  'qmd-collections': 'Setting up collections…',
+}
+const progressText = (action: Check['actions'][number]): string | undefined =>
+  action.id === 'harness-install' && action.label === 'Update' ? 'Updating the Harness…' : PROGRESS[action.id]
+
+/**
+ * Why a button is off while another one works. A button that is off is `aria-disabled` (muted, no
+ * fill: F-SPEC "First run") and ignores the click, but is not `disabled`: a `disabled` button drops
+ * the focus to the page, and the focus must stay on the button that was pressed with the keyboard
+ * and come back to "Move…" when the move form closes while the checks run again.
+ */
+const BUSY_REASON = 'Another check is running'
+
+/** The ring that turns before the words of a busy button; it stands still with reduced motion (shell.css). */
+function BusyLabel({ text }: { text: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span className="w-update-spinner" aria-hidden="true" />
+      {text}
+    </span>
+  )
+}
 
 const styles = {
   group: { margin: 'var(--space-3) 0 0' },
@@ -52,8 +104,10 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   buttons: { flex: 'none', display: 'flex', gap: 'var(--space-1)' },
-  hint: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)', margin: '0 0 2px', paddingLeft: 72, color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },
+  hint: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)', margin: '0 0 2px', paddingLeft: 80, color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },
   command: { fontFamily: 'var(--font-mono)', fontSize: 'var(--text-12)', color: 'var(--text)', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 'var(--radius-chip)', padding: '0 6px' },
+  progress: { margin: '0 0 2px', paddingLeft: 80, color: 'var(--working-text)', fontSize: 'var(--text-12)' },
+  time: { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' },
   message: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' },
   error: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--blocked-text)', whiteSpace: 'pre-wrap' },
 } satisfies Record<string, CSSProperties>
@@ -64,71 +118,106 @@ const CHIP_STYLE: Record<ChipState, CSSProperties> = {
   warn: { background: 'var(--surface-raised)', color: 'var(--blocked-text)', borderColor: 'var(--border)' },
   fail: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', borderColor: 'var(--blocked-ring)' },
   running: { background: 'var(--working-bg)', color: 'var(--working-text)', borderColor: 'transparent' },
+  checking: { background: 'var(--working-bg)', color: 'var(--working-text)', borderColor: 'transparent' },
 }
 
 function StatusChip({ state }: { state: ChipState }) {
   return (
-    <span className="w-chip w-chip--bordered" data-chip={state} style={{ ...CHIP_STYLE[state], flex: 'none', width: 64, justifyContent: 'center' }}>
+    <span className="w-chip w-chip--bordered" data-chip={state} style={{ ...CHIP_STYLE[state], flex: 'none', width: 72, justifyContent: 'center' }}>
       {CHIP_LABEL[state]}
     </span>
   )
 }
 
-/** Copies a command; a `success` toast of the window says what was copied, the label stays "Copy". */
+/**
+ * Copies a command; a `success` toast of the window says what was copied, the label is "Copy" again
+ * once the clipboard took it. It does not wait for a check: copying changes nothing main checks.
+ */
 function CopyButton({ text }: { text: string }) {
+  const [copying, setCopying] = useState(false)
   return (
     <button
       type="button"
       className="w-action"
       aria-label={`Copy ${text}`}
+      aria-disabled={copying ? 'true' : undefined}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => showToast({ kind: 'success', key: 'copied', text: `Copied ${text}` }))
+        const clipboard = navigator.clipboard
+        if (copying || clipboard === undefined) return
+        setCopying(true)
+        void clipboard
+          .writeText(text)
+          .then(() => showToast({ kind: 'success', key: 'copied', text: `Copied ${text}` }))
+          .finally(() => setCopying(false))
       }}
     >
-      Copy
+      {copying ? <BusyLabel text="Copying…" /> : 'Copy'}
     </button>
+  )
+}
+
+/** The step of a long action and the time since it was pressed, m:ss; it counts each second. */
+function Progress({ text, since }: { text: string; since: number }) {
+  const now = useTicking(true, Date.now)
+  return (
+    <p style={styles.progress} data-testid="first-run-progress">
+      {text} <span style={styles.time}>{elapsedText(new Date(since).toISOString(), now)}</span>
+    </p>
   )
 }
 
 interface RowProps {
   check: Check
-  running: boolean
+  /** The action of this row that is running now, if any. */
+  busy: FirstRunAction | null
+  /** When `busy` was pressed, in ms since the epoch. */
+  since: number | null
+  /** "Check again" is running: the row waits for its new check. */
+  checking: boolean
   locked: boolean
   /** The active Project's name: where a GitHub sign-in opens its Terminal; undefined with none. */
   projectName: string | undefined
   onAction: (action: FirstRunAction) => void
 }
 
-function CheckRow({ check, running, locked, projectName, onAction }: RowProps) {
+function CheckRow({ check, busy, since, checking, locked, projectName, onAction }: RowProps) {
   // Without a Project the sign-in has no Canvas to open a Terminal on: the command is copied instead.
   const actions = check.actions.filter((action) => action.id !== 'gh-login' || projectName !== undefined)
   const noCanvas = check.actions.some((action) => action.id === 'gh-login') && projectName === undefined
   const hint = noCanvas ? `${check.hint}. No Project is connected yet, so run it in a terminal` : check.hint
+  const pressed = actions.find((action) => action.id === busy)
+  const progress = pressed === undefined ? undefined : progressText(pressed)
   return (
-    <li style={styles.row} data-check={check.id} data-status={check.status} aria-label={check.title}>
+    <li style={styles.row} data-check={check.id} data-status={check.status} aria-label={check.title} aria-busy={busy !== null || checking ? 'true' : undefined}>
       <div style={styles.line}>
-        <StatusChip state={running ? 'running' : check.status} />
+        <StatusChip state={busy !== null ? 'running' : checking ? 'checking' : check.status} />
         <span style={styles.name}>{check.title}</span>
         <span style={styles.detail} title={check.detail}>
           {check.detail}
         </span>
         <span style={styles.buttons}>
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className="w-action"
-              aria-disabled={locked ? 'true' : undefined}
-              title={action.id === 'gh-login' && projectName !== undefined ? `Opens a Terminal on the Canvas of ${projectName}` : undefined}
-              onClick={() => {
-                if (!locked) onAction(action.id)
-              }}
-            >
-              {action.label}
-            </button>
-          ))}
+          {actions.map((action) => {
+            const working = action.id === busy
+            const off = locked || working
+            const title = locked && !working ? BUSY_REASON : action.id === 'gh-login' && projectName !== undefined ? `Opens a Terminal on the Canvas of ${projectName}` : undefined
+            return (
+              <button
+                key={action.id}
+                type="button"
+                className="w-action"
+                aria-disabled={off ? 'true' : undefined}
+                title={title}
+                onClick={() => {
+                  if (!off) onAction(action.id)
+                }}
+              >
+                {working ? <BusyLabel text={busyLabel(action)} /> : action.label}
+              </button>
+            )
+          })}
         </span>
       </div>
+      {progress !== undefined && since !== null ? <Progress text={progress} since={since} /> : null}
       {hint !== '' || check.command !== null ? (
         <p style={styles.hint}>
           {hint !== '' ? <span>{hint}</span> : null}
@@ -174,7 +263,17 @@ async function openSignInTerminal(projectId: string): Promise<string | undefined
  * The action main is running now, wherever it was pressed: one at a time. The First run dialog
  * cannot close while it runs, but Settings can, and the Health section leaves the screen with it.
  */
-const useAction = create<{ running: FirstRunAction | null }>(() => ({ running: null }))
+const useAction = create<{
+  running: FirstRunAction | null
+  /** The row whose button started it: two rows may offer the same action (the Harness and its dependencies). */
+  row: CheckId | null
+  /** When it was pressed, in ms since the epoch. */
+  since: number | null
+}>(() => ({ running: null, row: null, since: null }))
+const idle = { running: null, row: null, since: null }
+
+/** Starts `action` pressed on `row`: the lock of every button and the clock of its progress line. */
+const startAction = (action: FirstRunAction, row: CheckId): void => useAction.setState({ running: action, row, since: Date.now() })
 
 /** How many places show the checks now: the dialog, the Health section, or both. */
 let views = 0
@@ -362,6 +461,8 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
   const checking = useFirstRun((state) => state.checking)
   const failure = useFirstRun((state) => state.failure)
   const running = useAction((state) => state.running)
+  const pressedRow = useAction((state) => state.row)
+  const since = useAction((state) => state.since)
   const project = activeProject(useProjects())
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const [migrating, setMigrating] = useState(false)
@@ -387,24 +488,26 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
     if (checkOnShow && report === null && !checking && failure === null && running === null) void checkAgain()
   }, [checkOnShow, report, checking, failure, running])
 
-  const act = async (action: FirstRunAction): Promise<void> => {
+  const act = async (action: FirstRunAction, row: CheckId): Promise<void> => {
     if (action === 'migration-form') {
       setMigrating(true)
       return
     }
+    if (useAction.getState().running !== null) return
+    startAction(action, row)
     // "Show log" of a failed Update build (worfy-update ticket 08): main opens build.log, no dialog.
     if (action === 'update-log') {
       const opened = await invoke('update.showLog')
+      useAction.setState(idle)
+      forgetWhenUnwatched()
       setMessage(opened.ok ? null : { error: true, text: failureReason('update.showLog', opened.error) })
       return
     }
-    if (useAction.getState().running !== null) return
-    useAction.setState({ running: action })
     setMessage(null)
     const result = await invoke('firstRun.run', { action, projectName: project?.name })
     // The checks before the lock opens, so nothing asks for them in between.
     if (result.ok) useFirstRun.setState({ report: result.value.report })
-    useAction.setState({ running: null })
+    useAction.setState(idle)
     // Pressed in a section that has left the screen since: nothing shows these checks.
     forgetWhenUnwatched()
     if (!result.ok) {
@@ -420,7 +523,9 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
     }
   }
 
-  const rowAction = (check: Check): FirstRunAction | null => check.actions.find((each) => each.id === running)?.id ?? null
+  // The move form is the action of "Move…" while it is open; it runs nothing in main by itself.
+  const rowAction = (check: Check): FirstRunAction | null =>
+    check.actions.find((each) => (each.id === running && check.id === pressedRow) || (migrating && each.id === 'migration-form'))?.id ?? null
   const checks = report?.checks ?? []
   const failed = checks.filter((each) => each.status === 'fail').length
   const warned = checks.filter((each) => each.status === 'warn').length
@@ -456,7 +561,16 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
               <h3 style={styles.groupTitle}>{group}</h3>
               <ul style={styles.list}>
                 {rows.map((each) => (
-                  <CheckRow key={each.id} check={each} running={rowAction(each) !== null} locked={locked} projectName={project?.name} onAction={(action) => void act(action)} />
+                  <CheckRow
+                    key={each.id}
+                    check={each}
+                    busy={rowAction(each)}
+                    since={since}
+                    checking={checking}
+                    locked={locked}
+                    projectName={project?.name}
+                    onAction={(action) => void act(action, each.id)}
+                  />
                 ))}
               </ul>
             </section>
@@ -469,8 +583,15 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
         ),
         checkAgain: (
           // A target of the Getting started ring in First run (worfy-onboarding ticket 14, getting-started/highlight.ts).
-          <button type="button" className="w-action" aria-disabled={locked ? 'true' : undefined} data-getting-started-target="check-again" onClick={() => !locked && void checkAgain()}>
-            Check again
+          <button
+            type="button"
+            className="w-action"
+            aria-disabled={locked ? 'true' : undefined}
+            title={locked && !checking ? BUSY_REASON : undefined}
+            data-getting-started-target="check-again"
+            onClick={() => !locked && void checkAgain()}
+          >
+            {checking ? <BusyLabel text="Checking…" /> : 'Check again'}
           </button>
         ),
         running: running !== null,

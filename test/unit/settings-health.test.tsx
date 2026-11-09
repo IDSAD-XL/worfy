@@ -238,7 +238,7 @@ describe('Settings → Health: actions', () => {
     expect(rowOf(health, 'jq').querySelector('.w-chip')?.textContent).toBe('Failed')
     // Everything waits for the action: no second action, no check, and the buttons show it.
     const skip = within(rowOf(health, 'qmd-models')).getByRole('button', { name: 'Skip…' })
-    expect([skip, within(rowOf(health, 'harness')).getByRole('button', { name: 'Install' }), within(health).getByRole('button', { name: 'Check again' })].map(isInactive)).toEqual([true, true, true])
+    expect([skip, within(rowOf(health, 'harness')).getByRole('button', { name: 'Installing…' }), within(health).getByRole('button', { name: 'Check again' })].map(isInactive)).toEqual([true, true, true])
     fireEvent.click(skip)
     fireEvent.click(within(health).getByRole('button', { name: 'Check again' }))
     expect(callsOf('firstRun.run')).toHaveLength(1)
@@ -296,7 +296,7 @@ describe('Settings → Health: actions', () => {
     const health = settings()
     expect(rowOf(health, 'harness').querySelector('.w-chip')?.textContent).toBe('Running…')
     expect(isInactive(within(health).getByRole('button', { name: 'Check again' }))).toBe(true)
-    fireEvent.click(within(rowOf(health, 'harness')).getByRole('button', { name: 'Install' }))
+    fireEvent.click(within(rowOf(health, 'harness')).getByRole('button', { name: 'Installing…' }))
     fireEvent.click(within(health).getByRole('button', { name: 'Check again' }))
     expect(callsOf('firstRun.run')).toHaveLength(1)
     expect(callsOf('firstRun.checks')).toHaveLength(1)
@@ -764,5 +764,182 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(form().parentElement?.hasAttribute('tabindex')).toBe(false)
     fireEvent.click(within(form()).getByTestId('migration-close'))
     fireEvent.click(within(firstRun()).getByRole('button', { name: 'Close' }))
+  })
+})
+
+// worfy-polish ticket 77: a pressed button shows that its check or action is running, the row says
+// so, the other buttons say why they are off, and a long action names its step and its time.
+describe('Settings → Health: a pressed button shows the work under way', () => {
+  const spinnerOf = (button: HTMLElement): Element | null => button.querySelector('.w-update-spinner[aria-hidden="true"]')
+  const chipOf = (row: HTMLElement): string | null | undefined => row.querySelector('.w-chip')?.textContent
+  /** Every button of the section except Copy and the window's own, with its words and whether it is off. */
+  const buttonsOf = (health: HTMLElement): { name: string | null; off: boolean; title: string | null }[] =>
+    [...rowsOf(health).flatMap((each) => within(each).queryAllByRole('button')), within(health).getByRole('button', { name: /^(Check again|Checking…)$/ })]
+      .filter((button) => !button.getAttribute('aria-label')?.startsWith('Copy '))
+      .map((button) => ({ name: button.textContent, off: isInactive(button), title: button.getAttribute('title') }))
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('"Check again": the button says "Checking…" with a spinner and is off, every row chip says "Checking…"; the answer brings the labels back', async () => {
+    renderApp()
+    const health = await openHealth()
+    const pending = later()
+    handlers['firstRun.checks'] = () => pending.answer
+    fireEvent.click(within(health).getByRole('button', { name: 'Check again' }))
+
+    const busy = within(health).getByRole('button', { name: 'Checking…' })
+    expect(isInactive(busy)).toBe(true)
+    expect(spinnerOf(busy)).not.toBeNull()
+    expect(busy.getAttribute('title')).toBeNull()
+    expect(within(health).queryByRole('button', { name: 'Check again' })).toBeNull()
+    expect(rowsOf(health).map(chipOf)).toEqual(report().checks.map(() => 'Checking…'))
+    expect(rowsOf(health).map((each) => each.getAttribute('aria-busy'))).toEqual(report().checks.map(() => 'true'))
+    // The actions keep their words and say why they are off.
+    const actions = buttonsOf(health).slice(0, -1)
+    expect(actions.map((each) => each.name)).toEqual(expect.arrayContaining(['Install', 'Move…', 'Download…', 'Skip…']))
+    for (const each of actions) expect(each).toMatchObject({ off: true, title: 'Another check is running' })
+    expect(health.querySelector('[data-testid="first-run-progress"]')).toBeNull()
+
+    await pending.give({ ok: true, value: report() })
+    const again = within(health).getByRole('button', { name: 'Check again' })
+    expect(isInactive(again)).toBe(false)
+    expect(spinnerOf(again)).toBeNull()
+    expect(rowsOf(health).map(readRow)).toEqual(expected(report()))
+    expect(rowsOf(health).map((each) => each.getAttribute('aria-busy'))).toEqual(report().checks.map(() => null))
+    expect(buttonsOf(health).map((each) => each.name)).toEqual(expect.arrayContaining(['Install', 'Move…', 'Download…', 'Skip…', 'Check again']))
+    for (const each of buttonsOf(health)) expect(each.off).toBe(false)
+    expect(buttonsOf(health).some((each) => each.title === 'Another check is running')).toBe(false)
+  })
+
+  // Every action main runs, with the words of its button while it runs. The rows come from one report.
+  const actionRows = (): FirstRunReport => ({
+    checkedAt: '2026-11-09T00:00:00.000Z',
+    checks: [
+      check('limits', 'Windows', 'Limits', { status: 'warn', detail: 'no bridge', actions: [{ id: 'limits-bridge', label: 'Set up…' }] }),
+      check('gh-auth', 'GitHub', 'GitHub accounts', { status: 'fail', detail: 'signed in nowhere', actions: [{ id: 'gh-login', label: 'Sign in…' }] }),
+      check('harness', 'Harness', 'Harness plugin', { status: 'warn', detail: '1.0.0 → 1.2.3', actions: [{ id: 'harness-install', label: 'Update' }] }),
+      check('harness-dependencies', 'Harness', 'Harness dependencies', { status: 'fail', detail: 'missing', actions: [{ id: 'harness-install', label: 'Install…' }] }),
+      check('qmd', 'qmd', 'qmd', { status: 'warn', detail: 'not installed', actions: [{ id: 'qmd-install', label: 'Install…' }] }),
+      check('qmd-models', 'qmd', 'qmd models', { status: 'warn', detail: 'not downloaded', actions: [{ id: 'qmd-models-download', label: 'Download…' }, { id: 'qmd-models-skip', label: 'Skip…' }] }),
+      check('qmd-collections', 'qmd', 'qmd collections', { status: 'warn', detail: 'none', actions: [{ id: 'qmd-collections', label: 'Set up…' }] }),
+    ],
+  })
+
+  it.each([
+    { row: 'limits', label: 'Set up…', busy: 'Setting up…', step: null },
+    { row: 'gh-auth', label: 'Sign in…', busy: 'Signing in…', step: null },
+    { row: 'harness', label: 'Update', busy: 'Updating…', step: 'Updating the Harness…' },
+    { row: 'harness-dependencies', label: 'Install…', busy: 'Installing…', step: 'Installing the Harness…' },
+    { row: 'qmd', label: 'Install…', busy: 'Installing…', step: 'Installing qmd with npm…' },
+    { row: 'qmd-models', label: 'Download…', busy: 'Downloading…', step: 'Downloading models…' },
+    { row: 'qmd-models', label: 'Skip…', busy: 'Skipping…', step: null },
+    { row: 'qmd-collections', label: 'Set up…', busy: 'Setting up…', step: 'Setting up collections…' },
+  ] as const)('$label of $row says "$busy" with a spinner while main runs it; the others are off with the reason', async ({ row, label, busy, step }) => {
+    const projects: ProjectsState = { projects: [{ id: 'alpha-1', name: 'alpha', path: '/repo/alpha', branch: 'main' }], activeId: 'alpha-1', revision: 3 }
+    handlers['projects.list'] = () => ({ ok: true, value: projects })
+    act(() => acceptProjectsState(projects))
+    handlers['firstRun.checks'] = () => ({ ok: true, value: actionRows() })
+    renderApp()
+    const health = await openHealth()
+    const pending = later()
+    handlers['firstRun.run'] = () => pending.answer
+    fireEvent.click(within(rowOf(health, row)).getByRole('button', { name: label }))
+
+    const pressed = within(rowOf(health, row)).getByRole('button', { name: busy })
+    expect(isInactive(pressed)).toBe(true)
+    expect(spinnerOf(pressed)).not.toBeNull()
+    expect(pressed.getAttribute('title')).not.toBe('Another check is running')
+    expect(chipOf(rowOf(health, row))).toBe('Running…')
+    expect(rowOf(health, row).getAttribute('aria-busy')).toBe('true')
+    // Every other button keeps its words, is off and says why; "Check again" too.
+    const others = buttonsOf(health).filter((each) => each.name !== busy)
+    expect(others.length).toBe(actionRows().checks.flatMap((each) => each.actions).length)
+    for (const other of others) expect(other).toMatchObject({ off: true, title: 'Another check is running' })
+    expect(within(health).getByRole('button', { name: 'Check again' })).toBeTruthy()
+    // Only a long action names its step, under its own row.
+    const progress = health.querySelector('[data-testid="first-run-progress"]')
+    if (step === null) expect(progress).toBeNull()
+    else {
+      expect(rowOf(health, row).contains(progress)).toBe(true)
+      expect(progress?.textContent).toBe(`${step} 0:00`)
+    }
+
+    await pending.give({ ok: true, value: { outcome: 'declined', message: null, report: actionRows() } })
+    expect(within(rowOf(health, row)).getByRole('button', { name: label })).toBeTruthy()
+    expect(buttonsOf(health).every((each) => !each.off && each.title !== 'Another check is running')).toBe(true)
+    expect(health.querySelector('[data-testid="first-run-progress"]')).toBeNull()
+    expect(chipOf(rowOf(health, row))).not.toBe('Running…')
+  })
+
+  it('a long action counts its time each second as m:ss: "Downloading models… 1:20"; a refusal brings the label back and says why', async () => {
+    renderApp()
+    const health = await openHealth()
+    const pending = later()
+    handlers['firstRun.run'] = () => pending.answer
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    fireEvent.click(within(rowOf(health, 'qmd-models')).getByRole('button', { name: 'Download…' }))
+    const progress = (): string | null | undefined => rowOf(health, 'qmd-models').querySelector('[data-testid="first-run-progress"]')?.textContent
+    expect(progress()).toBe('Downloading models… 0:00')
+    act(() => vi.advanceTimersByTime(80_000))
+    expect(progress()).toBe('Downloading models… 1:20')
+    await pending.give({ ok: true, value: { outcome: 'failed', message: 'qmd pull timed out', report: report() } })
+    vi.useRealTimers()
+    expect(progress()).toBeUndefined()
+    expect(within(rowOf(health, 'qmd-models')).getByRole('button', { name: 'Download…' })).toBeTruthy()
+    expect(within(health).getByRole('alert').textContent).toBe('qmd pull timed out')
+  })
+
+  it('"Show log" says "Opening…" until main has opened the log', async () => {
+    const failed = report()
+    failed.checks.push(check('worfy-update', 'worfy', 'worfy version', { status: 'fail', detail: 'update failed', actions: [{ id: 'update-log', label: 'Show log' }], opensFirstRun: false }))
+    handlers['firstRun.checks'] = () => ({ ok: true, value: failed })
+    const opening = later()
+    handlers['update.showLog'] = () => opening.answer
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'worfy-update')).getByRole('button', { name: 'Show log' }))
+    const busy = within(rowOf(health, 'worfy-update')).getByRole('button', { name: 'Opening…' })
+    expect([isInactive(busy), spinnerOf(busy) !== null]).toEqual([true, true])
+    expect(isInactive(within(health).getByRole('button', { name: 'Check again' }))).toBe(true)
+    await opening.give({ ok: true, value: undefined })
+    expect(within(rowOf(health, 'worfy-update')).getByRole('button', { name: 'Show log' })).toBeTruthy()
+    expect(isInactive(within(health).getByRole('button', { name: 'Check again' }))).toBe(false)
+    expect(callsOf('firstRun.run')).toEqual([])
+  })
+
+  it('"Move…" says "Moving…" while its form is open, and "Move…" again once the form closed', async () => {
+    handlers['harnessMigration.plan'] = () => ({ ok: true, value: { offered: true, available: false, missing: ['not now'], claudeHome: '/h/.claude', harnessHome: '/h/.claude/worfy-harness', claudeJson: '/h/.claude.json', warnings: [], rows: [], claudeMd: null, profiles: [] } satisfies MigrationPlan })
+    renderApp()
+    const health = await openHealth()
+    fireEvent.click(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))
+    await waitFor(() => expect(screen.getByTestId('migration-form')).toBeTruthy())
+    const busy = within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Moving…' })
+    expect([isInactive(busy), spinnerOf(busy) !== null]).toEqual([true, true])
+    fireEvent.click(within(screen.getByTestId('migration-form')).getByTestId('migration-close'))
+    await waitFor(() => expect(summaryOf(health)).not.toBe('Checking…'))
+    expect(isInactive(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))).toBe(false)
+  })
+
+  it('Copy says "Copying…" until the clipboard took the command', async () => {
+    let took: () => void = () => undefined
+    const clipboard = { writeText: () => new Promise<void>((resolve) => (took = resolve)) }
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    resetToasts()
+    try {
+      renderApp()
+      const health = await openHealth()
+      const copy = within(rowOf(health, 'jq')).getByRole('button', { name: 'Copy brew install jq' })
+      fireEvent.click(copy)
+      expect(copy.textContent).toBe('Copying…')
+      expect([isInactive(copy), spinnerOf(copy) !== null]).toEqual([true, true])
+      await act(async () => took())
+      expect(copy.textContent).toBe('Copy')
+      expect(isInactive(copy)).toBe(false)
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard
+      resetToasts()
+    }
   })
 })
