@@ -396,7 +396,7 @@ APP_HEAD="$(git -C "$T/duo/app" rev-parse HEAD)"; LIB_HEAD="$(git -C "$T/duo/lib
 tk "$T/duo/lib" evidence demo 01 1 test-run pass --ref '`pnpm test` exit 0' --repo app --platform mac
 [ "$rc" -eq 0 ] && grep -qxF -- "  - evidence: test-run pass · [app] \`pnpm test\` exit 0 · mac - · $APP_HEAD" "$DUO" \
     && ok "--repo app without --sha, run from lib: the ref starts with [app], the sha is the HEAD of app" || bad "--repo app: exit $rc $(cat "$T/err") $(grep evidence "$DUO")"
-tk "$T/duo/lib" evidence demo 01 2 owner-check pass --ref 'the owner said yes' --repo lib --copy stable --sha abc1234
+tk "$T/duo/lib" evidence demo 01 2 owner-check pass --ref 'the owner said yes' --repo lib --platform mac --copy stable --sha abc1234
 [ "$rc" -eq 0 ] && grep -qxF -- "  - evidence: owner-check pass · [lib] the owner said yes · mac stable · abc1234" "$DUO" \
     && ok "--repo lib --sha S: the line names lib and binds S" || bad "--repo lib --sha: exit $rc $(cat "$T/err")"
 tk "$T/duo/lib" evidence demo 01 > /dev/null
