@@ -43,22 +43,25 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
  * `humanReview` keep the saved one: "Save" of Project settings does not send it. Settings without
  * `productWriteFolders` keep the saved list (worfy-polish ticket 82), and the folders of
  * `productWriteFoldersRemoved` leave it: "Save" sends the folders removed in the dialog, so one «Always
- * allow» added meanwhile stays.
+ * allow» added meanwhile stays. Settings without `prInbox` keep the saved one too (worfy-pr-inbox ticket 02):
+ * a save that does not know the switch does not turn the PR inbox back on.
  */
 export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
   let saved: ProjectSettings | undefined
   const read = (): ProjectSettings => (saved ??= readProjectSettings(projectDataDir, harness))
   const gateQueue = settings.actionTemplates.gateQueue ?? read().actionTemplates.gateQueue
-  const { defaultVendor: asked, humanReview: review, ...rest } = settings
+  const { defaultVendor: asked, humanReview: review, prInbox: askedInbox, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   const humanReview = review ?? read().humanReview
   const { productWriteFolders: listed, productWriteFoldersRemoved: removed = [], ...others } = rest
   const productWriteFolders = (listed ?? read().productWriteFolders)?.filter((folder) => !removed.includes(folder))
+  const prInbox = askedInbox ?? read().prInbox
   writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, {
     ...others,
     ...(defaultVendor === undefined ? {} : { defaultVendor }),
     ...(humanReview === undefined ? {} : { humanReview }),
     ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
+    ...(prInbox === undefined ? {} : { prInbox }),
     actionTemplates: { ...settings.actionTemplates, gateQueue },
   })
   return readProjectSettings(projectDataDir, harness)

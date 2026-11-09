@@ -1,7 +1,7 @@
 # 02 — Чтение PR inbox в main: поиск раз в 5 минут, детали, темп, кэш по аккаунту, группы, seen-state
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T22:05Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Чтение в main (Ticket 02; Q3, Q4, Q10)»; «Решено без владельца»;
 «Риски» («Rate limit», «Следы в Silent mode»); «Ticket-ы», «Волны» (Wave 1); решения Q3, Q10;

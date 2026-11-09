@@ -24,6 +24,7 @@ import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
+import { startPrInbox } from './ipc/pr-inbox'
 import { startGettingStarted } from './ipc/getting-started'
 import { appInstaller, onHarnessInstalled } from './ipc/harness'
 import { appUrlMatcher, emit, registerIpc } from './ipc/index'
@@ -182,6 +183,9 @@ function start(): void {
         app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
+        // The PR inbox of each Project of this Machine (worfy-pr-inbox ticket 02): a GitHub search every 5 minutes,
+        // focused or not; a Project with `"prInbox": false` or without a repository on GitHub runs no gh.
+        app.on('will-quit', startPrInbox())
         // "Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28), for
         // the app's link once it has started.
         app.on('will-quit', followAppLinkPauses(onAppLinkStart, appLinkService))
