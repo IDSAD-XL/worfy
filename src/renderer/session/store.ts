@@ -17,7 +17,10 @@
 //   transcript either: the store keeps the latest, for the meter under the input field;
 // - a `settings` event that changes the model is a pick in the picker: the store keeps it as
 //   `modelPick` until the next `init` says which model the Session runs, so the Session view's
-//   header does not show the model before the pick as the current one (worfy-week ticket 12).
+//   header does not show the model before the pick as the current one (worfy-week ticket 12);
+// - a `narration` event (the live summary of a Product Session's turn, worfy-product-session ticket 32) is
+//   not part of the transcript: the store keeps the latest lines, and a new message (`prompt`) or the end
+//   of the turn (`result`) drops them.
 //
 // Nothing here is saved: the transcript file is the record of the Session (ADR 0002, ADR 0005).
 // A view of a Session that has a transcript — a resumed one, the Orchestrator after a restart —
@@ -54,6 +57,8 @@ export interface SessionLog {
   modelPick: { model: string | null } | null
   /** How full the context window is, by the last `context` event; null: no data. */
   context: ContextUsage | null
+  /** The live summary of the running turn, by the last `narration` event, oldest first; absent: none. */
+  narration?: readonly string[]
 }
 
 interface LogsStore {
@@ -61,6 +66,7 @@ interface LogsStore {
 }
 
 const EMPTY: readonly AgentEvent[] = []
+const EMPTY_LINES: readonly string[] = []
 const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null, modelPick: null, context: null }
 
 export const useSessionLogs = create<LogsStore>(() => ({ logs: {} }))
@@ -111,6 +117,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             settings: after?.settings ?? before.settings,
             modelPick,
             context: after?.context ?? before.context,
+            narration: after?.narration ?? before.narration ?? EMPTY_LINES,
           },
         },
       }
@@ -123,6 +130,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
         return { ...log, queue: { items: event.items, paused: event.paused } }
       case 'context':
         return { ...log, context: event.usage }
+      case 'narration':
+        return { ...log, narration: event.lines }
       case 'settings': {
         const picked = log.settings !== null && event.settings.model !== log.settings.model
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
@@ -130,12 +139,19 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
       case 'prompt':
         return {
           ...log,
+          narration: EMPTY_LINES,
           ...append(log, { type: 'notice', kind: 'user', text: event.text, ...(event.attachments?.length ? { attachments: event.attachments } : {}), at: event.at }),
           echo: event.text,
         }
       default:
         if (event.type === 'notice' && event.kind === 'user' && log.echo !== null && event.text === log.echo) return { ...log, echo: null }
-        return { ...log, ...append(log, event), echo: event.type === 'result' ? null : log.echo, modelPick: event.type === 'init' ? null : log.modelPick }
+        return {
+          ...log,
+          ...append(log, event),
+          echo: event.type === 'result' ? null : log.echo,
+          modelPick: event.type === 'init' ? null : log.modelPick,
+          ...(event.type === 'result' ? { narration: EMPTY_LINES } : {}),
+        }
     }
   })
 }

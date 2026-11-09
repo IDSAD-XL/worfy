@@ -15,6 +15,10 @@
 // the row then shows "Claude Code default", as worfy passes nothing. A line under each role names
 // the source — the person's own value, "Claude Code default", settings.json, or worfy's default —
 // by autoCompactWindowSource, the same order main starts a Session by.
+//
+// Below the windows, the switch of a Product Session's live summary (worfy-product-session ticket 32): Haiku's short
+// lines of what the advisor is doing while a turn runs (src/main/agent/narrator.ts). On by default; off, main makes
+// no request to Haiku at all. Main reads it before each request, so a change reaches the running turn.
 import { useEffect, useId, useState, type CSSProperties } from 'react'
 import {
   AUTO_COMPACT_WINDOW_DEFAULTS,
@@ -23,12 +27,13 @@ import {
   AUTO_COMPACT_WINDOW_STEP,
   autoCompactWindowSource,
   clampAutoCompactWindow,
+  liveSummaryOf,
   type AutoCompactRole,
   type AutoCompactWindowSource,
 } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
 import { Select, type SelectOption } from '../theme/Select'
-import { SettingRow } from './controls'
+import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
 export const order = 60
@@ -41,6 +46,9 @@ export type WindowRole = AutoCompactRole
 export const BELOW_WINDOW_HINT = 'Autocompact runs a little below this: Claude Code keeps room for the summary.'
 /** Under each field: a running Session keeps its window. */
 export const RESTART_HINT = 'Applies after restarting the Session.'
+/** The switch of a Product Session's live summary (ticket 32). */
+export const LIVE_SUMMARY_LABEL = 'Live summary while the advisor works'
+export const LIVE_SUMMARY_DESCRIPTION = 'While a Product Session works, Haiku writes a short line now and then of what the advisor is doing. The lines go when the answer comes.'
 /** The line shown when the login shell sets the window for every Session. */
 export const SHELL_OVERRIDE_TEXT = 'Overridden by CLAUDE_CODE_AUTO_COMPACT_WINDOW in your shell'
 
@@ -244,6 +252,34 @@ export default function SessionsSection() {
       <p style={styles.notes} data-testid="settings-autocompact-hint">
         {BELOW_WINDOW_HINT}
       </p>
+      <LiveSummaryRow />
     </>
+  )
+}
+
+function LiveSummaryRow() {
+  const on = useAppSettings(liveSummaryOf)
+  const [problem, setProblem] = useState<string | undefined>(undefined)
+  return (
+    <SettingRow
+      label={LIVE_SUMMARY_LABEL}
+      description={
+        problem === undefined ? (
+          LIVE_SUMMARY_DESCRIPTION
+        ) : (
+          <span role="alert" data-testid="settings-live-summary-problem">
+            Not saved: {problem}
+          </span>
+        )
+      }
+      testId="settings-live-summary-row"
+    >
+      <SettingSwitch
+        label={LIVE_SUMMARY_LABEL}
+        checked={on}
+        onChange={(next) => void setAppSettings({ productSession: { liveSummary: next } }).then(setProblem)}
+        testId="settings-live-summary"
+      />
+    </SettingRow>
   )
 }

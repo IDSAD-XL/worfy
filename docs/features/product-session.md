@@ -90,6 +90,15 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   tool worfy does not know reads "Using <name>". Thinking, and the time between a tool's answer and the next step,
   read "Thinking…"; the answer as it comes, "Writing the answer". The line is derived from the Session's events only:
   the advisor is not asked for it. There is no switch to show the details.
+- Under the status line, a live summary: the last one to three short lines, oldest first, of what the advisor is doing
+  and why, for example "Compares three sources on competitor prices to size the niche". They are dimmed, small and
+  tagged "summary", with the tooltip "Short summary by Haiku while the advisor works". worfy asks Haiku for a line
+  once the turn has run 20 s, then at most once every 30 s and only when the advisor did something since the last
+  line. A line is at most 120 characters, in the language the owner writes in (English when Haiku cannot tell). The
+  lines are not chat messages: they are not in the transcript or the Session's history, and they all go when the
+  answer comes, the turn is interrupted or it fails. If a request fails, hits a limit or the login has no Haiku, the
+  summary stays silent for the rest of the turn and the chat shows no error. Settings → Sessions → "Live summary while
+  the advisor works" turns it off; it is on by default, and off means no request to Haiku at all.
 - Find (⌘F) looks only in what the chat shows, and only in the messages the view has read: the part of the transcript
   file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
 - The input field is one line, as in the prototype: the attach button, a field in the interface font, Interrupt while a
@@ -157,6 +166,14 @@ and in the same case, and as it really leads, with every link and junction follo
 rewrites before it opens a file (`x.`, `x:stream`, a short `PRODUC~1` name) is refused too. The folder and its layout are
 in [ADR-0101](../adr/0101-product-session-folder-and-mind-map.md).
 
+**The live summary is not a Session.** main follows the turn's events in a narrator of its own and sends Haiku a
+digest of the turn: the owner's message, the latest tool calls with short inputs, the latest text and thinking, and the
+narrator's previous lines, 5000 characters at most. Each request is a single Agent SDK `query()` under the owner's own
+Claude Code login, never an API key: model `haiku`, no thinking, no settings, no MCP servers, no tools, one turn, no
+transcript, in worfy's empty `narrator` folder outside every Project. Sessions never run on haiku; the narrator does,
+as it is not one. Never two requests run at once. The end of the turn aborts a request still out, and its answer is
+dropped. The lines reach the windows as `narration` events, which the window keeps beside the transcript, not in it.
+
 **Saving without git.** main runs one read, `git status --porcelain=v2` of `docs/product` in the Project root, and
 commits nothing. It remembers a fingerprint of the files it last asked about, path and contents, per Project, so the same
 changes make one message. One signal runs at a time per Project.
@@ -181,10 +198,12 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out; `chatQueue`: the queue as the chat draws it |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles |
 | `src/renderer/session/advisor-status.ts`, `src/renderer/session/AdvisorStatus.tsx` | The status line: the step from the latest events, and its time |
+| `src/main/agent/narrator.ts`, `src/main/vendors/claude/narrator.ts` | The live summary: when to ask, the digest, and Haiku's request |
+| `src/renderer/session/Narration.tsx`, `src/renderer/settings/SessionsSection.tsx` | The live summary under the status line, and its switch |
 | `src/renderer/session/QueuedMessages.tsx` | The queued messages at the end of the chat, "Send queued" and "×" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
 | `src/renderer/session/SplitDivider.tsx` | The divider |
-| `src/shared/settings/app-settings.ts` | The saved split, `productSession.split` |
+| `src/shared/settings/app-settings.ts` | The saved split, `productSession.split`, and the live summary switch, `productSession.liveSummary` |
 | `harness/hooks/rules/product.md`, `harness/hooks/inject-rules.mjs` | The rules of a Product Session and their choice by the variable |
 
 **Main tests:**
@@ -207,6 +226,10 @@ changes make one message. One signal runs at a time per Project.
   and the open requests a reloaded window asks main for.
 - `test/e2e/product-session.spec.ts`: in the running app, the status line names the steps of a scripted turn (a file
   read, then the critic) and goes when the turn ends.
+- `test/unit/narrator.test.ts`, `test/unit/narrator-options.test.ts`: the live summary's cadence, its stop at the end
+  of a turn, the switch, the digest and its cap, a failure that silences the turn, and the options of Haiku's request,
+  all against the fake agent; `test/e2e/product-session.spec.ts`: the lines under the status line and their end with
+  the answer in the running app.
 
 ## Mind map
 

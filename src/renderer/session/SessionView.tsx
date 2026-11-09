@@ -291,6 +291,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         logRef={logRef}
         working={state === 'busy'}
         queued={product ? chatQueue(queue, state) : null}
+        narration={product ? (log.narration ?? null) : null}
       />
       {/* Main has no open request either: no card to draw, so the chat says what the Session waits for. */}
       {unseen ? (

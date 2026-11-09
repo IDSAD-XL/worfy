@@ -886,6 +886,53 @@ body.w-split-dragging * {
   font-variant-numeric: tabular-nums;
 }
 
+/* The live summary under the status line (Narration.tsx, ticket 32): Haiku's last lines, dimmed and small, lined up
+   with the status text past the avatar; a small bordered «summary» tag marks them as not the advisor's own words. */
+.w-pmsg__narration {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 4px 0 26px;
+  min-width: 0;
+  font-size: var(--text-11);
+  line-height: 15px;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.w-pmsg__narration-tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: default;
+}
+
+.w-pmsg__narration-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A line of up to 120 characters wraps in the narrow column, two lines at most. */
+.w-pmsg__narration-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-style: italic;
+}
+
 .w-pmsg__dots {
   display: inline-flex;
   flex: none;

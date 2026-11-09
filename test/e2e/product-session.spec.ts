@@ -896,3 +896,50 @@ test('the status line says what the advisor does at each step and goes when the 
     await launched.close()
   }
 })
+
+// Ticket 32 (owner, 2026-11-09): while a turn runs, Haiku writes a short line now and then of what the advisor is
+// doing and why; the window shows the last lines under the status line, tagged «summary», and drops them when the
+// answer comes. Under the fake agent the narrator plays narrator.jsonl, and WORFY_NARRATOR_* shorten its cadence so
+// the run does not wait 20 s. product-status.jsonl holds the turn on its Read («read») and its critic («critic»).
+// The screenshot goes to the test's output folder.
+test('the live summary shows under the status line while the advisor works and goes with the answer', async () => {
+  const launched = await launchApp({
+    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-status', WORFY_NARRATOR_FIRST_MS: '300', WORFY_NARRATOR_EVERY_MS: '400' },
+  })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('Check the roadmap draft')
+    await field.press('Enter')
+    const release = (name: string) => app.evaluate((_, step) => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease(step), name)
+
+    await expect(view.getByTestId('product-status')).toHaveText('Reading map.md')
+    const line = view.getByTestId('product-narration-line')
+    await expect(line).toHaveText(['Reads the roadmap draft to check it against the critic before answering'])
+    await expect(view.getByTestId('product-narration-tag')).toHaveAttribute('title', 'Short summary by Haiku while the advisor works')
+    // Under the status line, in the chat's last row; no chat message of its own.
+    const end = view.getByTestId('product-chat-end')
+    await expect(end.getByTestId('product-narration')).toBeVisible()
+    await expect(view.getByTestId('product-message-bubble')).toHaveCount(1)
+    await view.screenshot({ path: test.info().outputPath('32-live-summary-dark.png') })
+
+    await release('read')
+    await expect(view.getByTestId('product-status')).toHaveText('Critic is reviewing: Review the roadmap draft')
+    await release('critic')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('The critic keeps the roadmap draft.')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.getByTestId('product-narration')).toHaveCount(0)
+    await expect(view.getByText('Reads the roadmap draft to check it against the critic before answering')).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})

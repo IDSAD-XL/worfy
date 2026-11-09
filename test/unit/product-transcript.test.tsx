@@ -1,7 +1,7 @@
 // The chat of a Product Session as in the prototype (worfy-product-session ticket 19, Q1, Q2 and Q5 of the
 // owner's decisions of 2026-11-08): only the conversation — the owner's messages, the advisor's answers,
 // a failed turn, the Session's error, permission and question cards — drawn as bubbles with the role and
-// the time; the status line of the running turn at the end (ticket 29). Thinking, tool calls (a failed one
+// the time; the status line of the running turn at the end (ticket 29), and the live summary under it (ticket 32). Thinking, tool calls (a failed one
 // too), Subagents, hooks, notices, «Turn finished» and slash commands are not drawn, and find does not
 // look in them. A plain Session draws every row as before.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { chatQueue, ProductSessionContext, type ChatQueue } from '../../src/renderer/session/product-session'
+import { NARRATION_TITLE } from '../../src/renderer/session/Narration'
+import { acceptAgentEvent, useSessionLogs } from '../../src/renderer/session/store'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { extensionTypes, rowMatches, findItems } from '../../src/renderer/session/transcript-find'
 
@@ -88,10 +90,10 @@ const EVERY_ROW: AgentEvent[] = [
 
 const HIDDEN = ['transcript-thinking', 'transcript-tools', 'tool-call', 'tool-error', 'transcript-subagent', 'transcript-hook', 'transcript-notice', 'transcript-command', 'transcript-turn-done']
 
-function Product({ events, working, queued }: { events: readonly AgentEvent[]; working?: boolean; queued?: ChatQueue | null }) {
+function Product({ events, working, queued, narration }: { events: readonly AgentEvent[]; working?: boolean; queued?: ChatQueue | null; narration?: readonly string[] | null }) {
   return (
     <ProductSessionContext value={true}>
-      <Transcript events={events} sessionId="s1" projectId="p1" working={working} queued={queued} />
+      <Transcript events={events} sessionId="s1" projectId="p1" working={working} queued={queued} narration={narration} />
     </ProductSessionContext>
   )
 }
@@ -175,6 +177,51 @@ describe('the chat of a Product Session', () => {
     rerender(<Product events={[...reading, text('Sell to small teams first.'), result(false)]} working={false} />)
     expect(screen.queryByTestId('product-thinking')).toBeNull()
     expect(screen.queryByTestId('product-status')).toBeNull()
+  })
+
+  // Ticket 32: the live summary — Haiku's last lines of what the advisor is doing — stands under the status line,
+  // dimmed, tagged «summary», and is no row of the chat.
+  it('the live summary stands under the status line, tagged and dimmed, is no chat row, and goes when the turn ends', () => {
+    const events = [prompt('What could we sell?'), call('t1', 'Read', { file_path: 'map.md' })]
+    const lines = ['Reads the roadmap draft to weigh it against the critic', 'Compares three sources on competitor prices to size the niche']
+    const { rerender } = render(<Product events={events} working narration={lines} />)
+    const end = screen.getByTestId('product-chat-end')
+    const summary = within(end).getByTestId('product-narration')
+    // Under the status line, in the same end row of the chat.
+    expect(screen.getByTestId('product-thinking').compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(summary).getAllByTestId('product-narration-line').map((line) => line.textContent)).toEqual(lines)
+    const tag = within(summary).getByTestId('product-narration-tag')
+    expect(tag.textContent).toBe('summary')
+    expect(tag.getAttribute('title')).toBe(NARRATION_TITLE)
+    expect(summary.classList.contains('w-pmsg__narration')).toBe(true)
+    // No message: the chat's rows and numbers are those without it.
+    expect(screen.queryAllByTestId('product-message-bubble')).toHaveLength(1)
+    expect(screen.getByTestId('transcript').querySelectorAll('[data-row]')).toHaveLength(1)
+
+    // The answer came: the turn is over, and the lines go with the status line.
+    rerender(<Product events={[...events, answer('t1'), text('Sell to small teams first.'), result(false)]} working={false} narration={lines} />)
+    expect(screen.queryByTestId('product-narration')).toBeNull()
+    // No lines yet: nothing under the status line.
+    rerender(<Product events={events} working narration={[]} />)
+    expect(screen.queryByTestId('product-status')).not.toBeNull()
+    expect(screen.queryByTestId('product-narration')).toBeNull()
+  })
+
+  it('the store keeps the live summary beside the transcript, not in it, and drops it at a new message and at the result', () => {
+    const id = 'narrated'
+    acceptAgentEvent({ sessionId: id, event: { type: 'prompt', text: 'What could we sell?' } })
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap'] } })
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Reads the roadmap', 'Compares prices'] } })
+    const log = () => useSessionLogs.getState().logs[id]!
+    expect(log().narration).toEqual(['Reads the roadmap', 'Compares prices'])
+    expect(log().events.map((event) => event.type)).toEqual(['notice'])
+    // Even a narration event that found its way into the events folds to no row.
+    expect(foldTranscript([{ type: 'narration', lines: ['Reads the roadmap'] }], extensionTypes, 0)).toEqual([])
+    acceptAgentEvent({ sessionId: id, event: result(false) })
+    expect(log().narration).toEqual([])
+    acceptAgentEvent({ sessionId: id, event: { type: 'narration', lines: ['Writes the answer'] } })
+    acceptAgentEvent({ sessionId: id, event: { type: 'prompt', text: 'And then?' } })
+    expect(log().narration).toEqual([])
   })
 
   it('a plain Session shows no status line', () => {

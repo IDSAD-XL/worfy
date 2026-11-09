@@ -267,8 +267,11 @@ export const PRODUCT_SESSION_SPLIT_DEFAULT = 0.6
 /** The smallest share either side of the divider keeps: MIN_SHARE of Focus mode (src/renderer/focus/split-tree.ts). */
 export const PRODUCT_SESSION_SPLIT_MIN = 0.1
 export const productSessionSplitSchema = z.number().min(PRODUCT_SESSION_SPLIT_MIN).max(1 - PRODUCT_SESSION_SPLIT_MIN)
-/** What the person chose for a Product Session's screen; a field not chosen is absent. */
-export const productSessionChoiceSchema = z.object({ split: productSessionSplitSchema.optional() })
+/**
+ * What the person chose for a Product Session; a field not chosen is absent. `liveSummary`: the narrator's
+ * short lines while the advisor works (worfy-product-session ticket 32), on unless set off (liveSummaryOf).
+ */
+export const productSessionChoiceSchema = z.object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() })
 
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
@@ -349,8 +352,11 @@ export const appSettingsPatchSchema = z.object({
   autopilotRun: autopilotRunChoiceSchema.optional(),
   /** The language of the Guide; once chosen it stays chosen. */
   guideLanguage: guideLanguageSchema.optional(),
-  /** The divider of a Product Session; a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is refused. */
-  productSession: z.object({ split: productSessionSplitSchema }).optional(),
+  /**
+   * The divider of a Product Session — a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is
+   * refused — and its live summary; a field left out stays as it is.
+   */
+  productSession: z.object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() }).optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -384,6 +390,11 @@ export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean
 /** The Mind map's share of a Product Session's screen: the one the person chose, else 60 / 40. */
 export function productSessionSplitOf(settings: Pick<AppSettings, 'productSession'>): number {
   return settings.productSession?.split ?? PRODUCT_SESSION_SPLIT_DEFAULT
+}
+
+/** Whether a Product Session shows the live summary while the advisor works: on unless set off (Settings → Sessions). */
+export function liveSummaryOf(settings: Pick<AppSettings, 'productSession'>): boolean {
+  return settings.productSession?.liveSummary ?? true
 }
 
 /** The Auto-approval mode of Project `projectId`: its entry, else Off. */

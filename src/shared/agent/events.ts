@@ -132,6 +132,12 @@ export const agentEvent = z.discriminatedUnion('type', [
    * no data (the ask failed). Sent only when it differs from the Session's last one.
    */
   timed({ type: z.literal('context'), usage: contextUsageSchema.nullable() }),
+  /**
+   * The live summary of a Product Session's turn (worfy-product-session ticket 32, src/main/agent/narrator.ts):
+   * the lines to show under the status line now, oldest first; empty when the turn ended. Not part of the
+   * transcript: the window keeps only the latest, as it does a `queue` or `context` event.
+   */
+  timed({ type: z.literal('narration'), lines: z.array(z.string()) }),
   permissionRequestEvent,
   /**
    * A permission request was answered — `decision` is the id of the option picked — or `cancelled`
