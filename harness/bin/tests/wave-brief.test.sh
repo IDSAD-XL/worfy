@@ -26,8 +26,9 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
-# --- gh: a node stub. `pr list` answers $GHD/prs.json; with $GHD/fail it exits 1; anything else is refused.
-# Every call goes to $GHD/log.
+# --- gh: a node stub. `pr list` answers $GHD/prs-<name of the current directory>.json when there is one (a
+# project of several repositories asks each), else $GHD/prs.json; with $GHD/fail it exits 1; anything else is
+# refused. Every call goes to $GHD/log.
 STUBS="$T/stubs"; GHD="$T/gh"; mkdir -p "$STUBS" "$GHD"
 cat >"$STUBS/gh.mjs" <<'EOF'
 import fs from "node:fs"
@@ -35,7 +36,11 @@ import path from "node:path"
 const D = process.env.GHD, a = process.argv.slice(2)
 fs.appendFileSync(path.join(D, "log"), a.join(" ") + "\n")
 if (fs.existsSync(path.join(D, "fail"))) { process.stderr.write("could not resolve to a Repository\n"); process.exit(1) }
-if (a[0] === "pr" && a[1] === "list") { process.stdout.write(fs.readFileSync(path.join(D, "prs.json"), "utf8")); process.exit(0) }
+if (a[0] === "pr" && a[1] === "list") {
+    const own = path.join(D, `prs-${path.basename(process.cwd())}.json`)
+    process.stdout.write(fs.readFileSync(fs.existsSync(own) ? own : path.join(D, "prs.json"), "utf8"))
+    process.exit(0)
+}
 process.stderr.write(`stub gh: unexpected ${a.join(" ")}\n`)
 process.exit(1)
 EOF
@@ -235,6 +240,46 @@ rm -f "$NEW/wave-brief.txt" "$W3/wave-brief.txt"
 (cd "$T" && CLAUDE_PLUGIN_ROOT="$(tn "$HERE/../..")" bash -c "$(fill "$first")") >"$T/out" 2>"$T/err"
 [ -n "$first" ] && tail -n 1 "$T/out" | grep -qx 'EXIT=0' && in_section Land 'LAND=unverified' \
     && ok "skill: the first command of a new session reads the saved brief" || bad "skill first command: '$first': $(cat "$T/out" "$T/err")"
+
+# --- 10. a project of two repositories (ADR-0104): PRs keyed by (repo, N), branches by (repo, branch) --------------
+# Project m: two registry entries, lib and app; the tickets live in lib. 01 and 02 each span both repositories,
+# and their PR numbers cross: 01 has lib#41 and app#118, 02 has lib#118 and app#41. One branch name in both
+# repositories (fix/shared) is one ticket. 03 is in app only: a PR of lib on its branch is not its PR.
+ML="$T/m/lib"; MA="$T/m/app"
+printf '{"repos":[{"key":"t","match":"%s","profile":"t","pm":"npm"},{"key":"lg","match":"%s","profile":"lg","pm":"npm"},{"key":"ml","match":"%s","profile":"m","pm":"npm"},{"key":"ma","match":"%s","profile":"m","pm":"npm"}]}\n' \
+    "$(tn "$R")" "$(tn "$LG")" "$(tn "$ML")" "$(tn "$MA")" >"$CLAUDE_GATE_CONFIG"
+mkdir -p "$T/profiles/m"; printf '{"schema":1,"name":"m","workflow":{"finish":"pr-green-ci"}}\n' >"$T/profiles/m/profile.json"; : >"$T/profiles/m/rules.md"
+git init -q -b main "$ML"; git init -q -b main "$MA"
+tk "$ML" mr 01-both.md '# 01 — both\n\nStatus: claimed 2026-11-10T09:00Z\nBranch: fix/shared\nRepo: lib\nRepo: app\nPR: lib#41\nPR: app#118\nRelease: lib tag lib-v1.4.0\nBlocked by: —\n'
+tk "$ML" mr 02-cross.md '# 02 — cross\n\nStatus: claimed 2026-11-10T09:05Z\nBranch: fix/other\nRepo: lib\nRepo: app\nPR: lib#118\nPR: app#41\nBlocked by: —\n'
+tk "$ML" mr 03-app.md '# 03 — app only\n\nStatus: open\nBranch: fix/app-only\nRepo: app\nBlocked by: —\n'
+git -C "$ML" add -A && git -C "$ML" commit -q -m tickets
+git -C "$MA" commit -q --allow-empty -m init
+pr() { printf '{"number":%s,"title":"t","headRefName":"%s","headRefOid":"%s","labels":[],"statusCheckRollup":[]}' "$1" "$2" "$3"; }
+A1=a111111111111111111111111111111111111111 A2=a222222222222222222222222222222222222222 A3=a333333333333333333333333333333333333333
+B1=b111111111111111111111111111111111111111 B2=b222222222222222222222222222222222222222
+printf '[%s,%s,%s]' "$(pr 41 fix/shared $A1)" "$(pr 118 lib-hotfix $A2)" "$(pr 7 fix/app-only $A3)" >"$GHD/prs-lib.json"
+printf '[%s,%s]' "$(pr 118 fix/shared $B1)" "$(pr 41 app-hotfix $B2)" >"$GHD/prs-app.json"
+: >"$GHD/log"
+(cd "$ML" && "$WB" mr) >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "two repositories: exit 0" || bad "two repositories: exit $rc: $(cat "$T/err")"
+[ "$(grep -c '^pr list --state open ' "$GHD/log")" = 2 ] && [ "$(grep -cv '^pr list --state open ' "$GHD/log")" = 0 ] \
+    && ok "two repositories: gh pr list once in each repository, nothing else" || bad "two repositories, gh calls: $(cat "$GHD/log")"
+in_section 'Open PRs' "lib#41 mr/01 · branch fix/shared @ ${A1:0:8}" && in_section 'Open PRs' "app#118 mr/01 · branch fix/shared @ ${B1:0:8}" \
+    && ok "two repositories: one branch name in both repositories is one ticket" || bad "two repositories, shared branch: $(section 'Open PRs')"
+in_section 'Open PRs' "lib#118 mr/02 · branch lib-hotfix @ ${A2:0:8}" && in_section 'Open PRs' "app#41 mr/02 · branch app-hotfix @ ${B2:0:8}" \
+    && ok "two repositories: the same PR number in two repositories goes to the ticket that names that repository" || bad "two repositories, PR numbers: $(section 'Open PRs')"
+! in_section 'Open PRs' '#7' && ok "two repositories: a PR of lib on the branch of an app-only ticket is not that ticket's" || bad "two repositories, branch key: $(section 'Open PRs')"
+in_section Waiting '01 claimed · PR lib#41, app#118' && in_section Waiting '02 claimed · PR lib#118, app#41' \
+    && ok "two repositories: a waiting ticket lists its PRs with their repositories" || bad "two repositories, waiting: $(section Waiting)"
+has 'Stage: /implement · mr 0/3 · main · ticket 01 — both · PR lib#41, app#118 · waits for release lib-v1.4.0' \
+    && ok "two repositories: the Stage line names both PRs and the release" || bad "two repositories, Stage: $(head -n 3 "$T/out")"
+in_section 'Next wave' 'ready (open, not in work, every blocker done): 03' && ok "two repositories: an open ticket with no PR of its own is ready" || bad "two repositories, next wave: $(section 'Next wave')"
+# one repository fails: its PRs are not read, the other's are, and the section says which one
+printf 'not json' >"$GHD/prs-app.json"
+(cd "$ML" && "$WB" mr) >"$T/out" 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && in_section 'Open PRs' "lib#41 mr/01" && in_section 'Open PRs' 'not read in app — gh exit 0: ' && ! in_section 'Open PRs' 'app#' \
+    && ok "two repositories: gh failing in one says so and keeps the other's PRs" || bad "two repositories, one gh fails: exit $rc: $(section 'Open PRs')"
 
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
