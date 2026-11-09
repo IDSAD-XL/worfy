@@ -78,14 +78,17 @@ Live summary (термин в `CONTEXT.md`).
   в 30 s, нет запроса без новых событий, никогда двух сразу; остановка на result, Interrupt и ошибке; поздний ответ
   выброшен; настройка выключена — запросов нет; digest обрезан и не длиннее предела; сбой запроса заглушает turn.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/narrator.test.ts on the fake agent; 11 mutants of narrator.ts killed) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
+  - evidence: test-run pass · `pnpm test` exit 0 (round 2: switch re-checked before showing, a new turn asks after a stale request; 13 more mutants killed) · mac - · 91e2e02a692c884fc312471eb42d852c45aac087
 - [ ] Unit test опций запроса Haiku: модель `haiku`, без tool-ов, один turn, без транскрипта, без API-ключей.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/narrator-options.test.ts) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] Unit test renderer-а: строки стоят под строкой статуса, приглушённые, с меткой summary, не в транскрипте, и
   уходят с result.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-transcript.test.tsx) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
+  - evidence: test-run pass · `pnpm test` exit 0 (round 2: settings-sessions switch, app-narrator wiring, stable line elements) · mac - · 91e2e02a692c884fc312471eb42d852c45aac087
 - [ ] e2e test (`test/e2e/product-session.spec.ts`): scripted agent проходит turn, под строкой статуса видна строка
   narrator-а, после ответа её нет.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (9 passed) · mac dev · c63335194
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (9 passed, round 2) · mac dev · e046d216b
 - [ ] Снимок (тёмная тема) в папке вывода test-а, в репозиторий не кладётся.
 - [ ] Страница `docs/features/product-session.md` говорит о живой сводке и настройке; `node
   scripts/check-feature-docs.mjs` — exit 0.
@@ -94,6 +97,7 @@ Live summary (термин в `CONTEXT.md`).
   `test/e2e/product-session.spec.ts`, gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (711 files passed) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
   - evidence: gate pass · `gate fast` exit 0 · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · 91e2e02a692c884fc312471eb42d852c45aac087
 - [ ] вручную: владелец смотрит живую сводку в чате Product Session в Mac Stable (настоящий Haiku).
 
 ## Тесты
