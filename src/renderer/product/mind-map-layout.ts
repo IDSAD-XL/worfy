@@ -1,15 +1,17 @@
 // What the Mind map of a Product Session topic draws, and where (Epic worfy-product-session, ticket 08):
 // the graph built from the topic as main reads it (src/shared/ipc/product.ts) and its two layouts, the
-// "Tree" (a tidy tree, larger text) and the "Graph" (layered). Both grow left to right, as the prototype's
-// tree does (ticket 21): the root at the left, each child to the right of its parent. MindMap.tsx draws the answer.
+// "Tree" (a tidy tree, larger text) and the "Graph" (radial). The Tree grows left to right, as the prototype's
+// tree does (ticket 21): the root at the left, each child to the right of its parent. The Graph puts the root
+// in the middle and its branches around it, as the prototype's graph does (ticket 26). MindMap.tsx draws the answer.
 //
 // The root is the topic, the Tickets of its map hang from the root, and every node of mind-map.json hangs
 // from its `from`: another node, a Ticket (`ticket:NN`) or the topic. That is a tree, and only its links
 // go to the layout. `replaces` — the Decision a later Decision overturned — is a second, dashed arrow drawn
 // over the tree: it never joins the layout, so it cannot make a cycle in it.
 //
-// The layout is ELK's (`mrtree` for the Tree, `layered` for the Graph), in the window's ELK Web Worker
-// (../canvas/elk/client.ts); `layoutSync` answers until it has, and wherever there is no worker. Over
+// The Tree's layout is ELK's `mrtree`, in the window's ELK Web Worker (../canvas/elk/client.ts); `layoutSync`
+// answers until it has, and wherever there is no worker. The Graph's is `layoutRadial`, the prototype's own
+// algorithm, synchronous: ELK has nothing that keeps the root in the middle and the boxes apart at once. Over
 // either, `withFilePlaces` puts a node that carries `x` and `y` in the file where the file says (ticket 09
 // writes them by hand).
 import type { ElkNode } from 'elkjs/lib/elk-api'
@@ -313,8 +315,8 @@ export function linesIn(node: MapNode, view: MindMapView, height: number): numbe
   return Math.max(1, Math.min(MAX_LINES, Math.floor((height - NODE_PAD_Y) / (size * LINE) + 0.001)))
 }
 
-/** The room between two depths (columns) and between two nodes of one depth, px; the Tree's is the prototype's. */
-const GAP: Readonly<Record<MindMapView, { depth: number; across: number }>> = { tree: { depth: 48, across: 12 }, graph: { depth: 72, across: 14 } }
+/** The Tree's room between two depths (columns) and between two nodes of one depth, px: the prototype's. */
+const GAP = { depth: 48, across: 12 } as const
 
 /**
  * The layout's places, with each node the file places (`x`, `y`) where the file says. A place written for
@@ -330,11 +332,17 @@ export function withFilePlaces(graph: MapGraph, placement: Placement): Placement
   return placed
 }
 
+/** The view's layout without ELK: the tidy tree for the Tree, the radial layout for the Graph. */
+export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
+  return view === 'graph' ? layoutRadial(graph) : layoutTidy(graph)
+}
+
 /**
  * A tidy tree without ELK: each branch takes the room its leaves need across (down the screen), a parent
  * sits in the middle of its children, and each depth is one column as wide as its widest node.
  */
-export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
+function layoutTidy(graph: MapGraph): Placement {
+  const view = 'tree'
   const sizes = new Map(graph.nodes.map((node) => [node.id, nodeSize(node, view)]))
   const along = (id: string) => sizes.get(id)!.height
   const deep = (id: string) => sizes.get(id)!.width
@@ -347,7 +355,7 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
     if (kids === undefined) children.set(node.parent, [node.id])
     else kids.push(node.id)
   }
-  const { depth: depthGap, across } = GAP[view]
+  const { depth: depthGap, across } = GAP
   const span = new Map<string, number>()
   for (const node of [...graph.nodes].reverse()) {
     const kids = children.get(node.id) ?? []
@@ -380,45 +388,242 @@ export function layoutSync(graph: MapGraph, view: MindMapView): Placement {
   return placement
 }
 
-/** The ELK graph of a view: the nodes with their sizes and the `from` edges only — never `replaces`. */
 /**
  * What ELK's Tree gets added to each node's width: `mrtree` spaces the columns as it spaces two nodes of a
  * column, and the prototype keeps its columns much further apart than its nodes. layoutElk takes it off again.
  */
-const reach = (view: MindMapView): number => (view === 'tree' ? GAP.tree.depth - GAP.tree.across : 0)
+const REACH = GAP.depth - GAP.across
 
-export function elkGraph(graph: MapGraph, view: MindMapView): ElkNode {
-  const { depth, across } = GAP[view]
-  const layoutOptions: Record<string, string> =
-    view === 'tree'
-      ? { 'elk.algorithm': 'mrtree', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': String(across) }
-      : {
-          'elk.algorithm': 'layered',
-          'elk.direction': 'RIGHT',
-          'elk.spacing.nodeNode': String(across),
-          'elk.layered.spacing.nodeNodeBetweenLayers': String(depth),
-          'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-          'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
-        }
+/** The ELK graph of the Tree: the nodes with their sizes and the `from` edges only — never `replaces`. */
+export function elkGraph(graph: MapGraph): ElkNode {
   return {
     id: 'mind-map',
-    layoutOptions: { ...layoutOptions, 'elk.padding': '[top=0,left=0,bottom=0,right=0]' },
+    layoutOptions: { 'elk.algorithm': 'mrtree', 'elk.direction': 'RIGHT', 'elk.spacing.nodeNode': String(GAP.across), 'elk.padding': '[top=0,left=0,bottom=0,right=0]' },
     children: graph.nodes.map((node) => {
-      const size = nodeSize(node, view)
-      return { id: node.id, ...size, width: size.width + reach(view) }
+      const size = nodeSize(node, 'tree')
+      return { id: node.id, ...size, width: size.width + REACH }
     }),
     edges: graph.edges.filter((edge) => edge.kind === 'from').map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
   }
 }
 
-/** The view's layout by ELK. */
-export async function layoutElk(graph: MapGraph, view: MindMapView, elk: ElkEngine): Promise<Placement> {
-  const answer = await elk.layout(elkGraph(graph, view))
+/** The Tree's layout by ELK (the Graph's is `layoutRadial`, never ELK's). */
+export async function layoutElk(graph: MapGraph, elk: ElkEngine): Promise<Placement> {
+  const answer = await elk.layout(elkGraph(graph))
   const placement = new Map<string, Placed>()
   for (const child of answer.children ?? []) {
-    placement.set(child.id, { x: child.x ?? 0, y: child.y ?? 0, width: (child.width ?? 0) - reach(view), height: child.height ?? 0 })
+    placement.set(child.id, { x: child.x ?? 0, y: child.y ?? 0, width: (child.width ?? 0) - REACH, height: child.height ?? 0 })
   }
   return placement
+}
+
+/**
+ * The prototype's numbers for its graph (card-2dffdc46, `layoutGraph`): the seed's distance per depth across
+ * and down, px (an ellipse, as the map is wider than tall); the length a "grew from" arrow is pulled to; the
+ * room kept between two boxes; the rounds of pulling and pushing.
+ */
+const RADIAL = { across: 170, down: 105, spring: 120, margin: 12, rounds: 700 } as const
+/**
+ * Node-rounds a layout may take, so a map of thousands of nodes still lays out at once: a map of up to 300
+ * nodes gets the prototype's 700 rounds, a larger one fewer (never under 40), and the last pass keeps the
+ * boxes apart whatever the rounds left.
+ */
+const RADIAL_BUDGET = 210_000
+/** The room the last pass keeps between two boxes, px. */
+const RADIAL_APART = 6
+
+/**
+ * The Graph as the prototype lays it out (ticket 26): the root in the middle; the leaves spread round it in
+ * the order of the tree, each parent at the mean direction of its children, each depth one ring further out;
+ * then rounds of springs on the "grew from" arrows and pushes between boxes that touch, the root never
+ * moving. The prototype's pushes test every pair; here a grid of cells as large as the largest box finds the
+ * pairs near enough to touch, so a large map stays quick. A last pass makes sure no two boxes overlap: in
+ * the tree's order each node keeps its place or moves straight away from the root until it is clear of
+ * those placed before it. No randomness: the same graph always gets the same places.
+ */
+export function layoutRadial(graph: MapGraph): Placement {
+  const nodes = graph.nodes
+  const count = nodes.length
+  const placement = new Map<string, Placed>()
+  if (count === 0) return placement
+  const indexOf = new Map(nodes.map((node, index) => [node.id, index]))
+  const width = new Float64Array(count)
+  const height = new Float64Array(count)
+  const parent = new Int32Array(count).fill(-1)
+  const depth = new Int32Array(count)
+  const children: number[][] = nodes.map(() => [])
+  nodes.forEach((node, index) => {
+    const size = nodeSize(node, 'graph')
+    width[index] = size.width
+    height[index] = size.height
+    const up = node.parent === null ? undefined : indexOf.get(node.parent)
+    if (up === undefined || up >= index) return
+    parent[index] = up
+    depth[index] = depth[up]! + 1
+    children[up]!.push(index)
+  })
+
+  // The seed. The leaves in the tree's order (depth first, a stack: a chain however deep fits), spread round
+  // the circle from just past the left; a parent comes before its children in `nodes`, so going backwards
+  // gives each parent the mean direction of its children.
+  const angle = new Float64Array(count)
+  const leaves: number[] = []
+  const stack = [0]
+  while (stack.length > 0) {
+    const at = stack.pop()!
+    const kids = children[at]!
+    if (kids.length === 0) leaves.push(at)
+    for (let kid = kids.length - 1; kid >= 0; kid -= 1) stack.push(kids[kid]!)
+  }
+  leaves.forEach((leaf, order) => (angle[leaf] = -Math.PI * 0.95 + (2 * Math.PI * (order + 0.5)) / leaves.length))
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const kids = children[index]!
+    if (kids.length === 0) continue
+    let [sumX, sumY] = [0, 0]
+    for (const kid of kids) {
+      sumX += Math.cos(angle[kid]!)
+      sumY += Math.sin(angle[kid]!)
+    }
+    angle[index] = Math.atan2(sumY, sumX)
+  }
+  const x = new Float64Array(count)
+  const y = new Float64Array(count)
+  for (let index = 1; index < count; index += 1) {
+    x[index] = Math.cos(angle[index]!) * depth[index]! * RADIAL.across
+    y[index] = Math.sin(angle[index]!) * depth[index]! * RADIAL.down
+  }
+
+  // The rounds. `cell` is at least the largest box and the margin: two boxes that touch lie in neighbouring cells.
+  const cell = Math.max(width.reduce((most, each) => Math.max(most, each), 0), height.reduce((most, each) => Math.max(most, each), 0)) + RADIAL.margin
+  const cellKey = (column: number, row: number): number => (column + 2 ** 20) * 2 ** 21 + (row + 2 ** 20)
+  const rounds = Math.min(RADIAL.rounds, Math.max(40, Math.floor(RADIAL_BUDGET / count)))
+  for (let round = 0; round < rounds; round += 1) {
+    const cool = 1 - round / rounds
+    for (let index = 1; index < count; index += 1) {
+      const up = parent[index]!
+      if (up < 0) continue
+      const [dx, dy] = [x[index]! - x[up]!, y[index]! - y[up]!]
+      const distance = Math.hypot(dx, dy) || 1
+      const pull = (distance - RADIAL.spring) * 0.04 * cool
+      const [pullX, pullY] = [(dx / distance) * pull, (dy / distance) * pull]
+      if (up !== 0) {
+        x[up] = x[up]! + pullX
+        y[up] = y[up]! + pullY
+      }
+      x[index] = x[index]! - pullX
+      y[index] = y[index]! - pullY
+    }
+    const columns = new Int32Array(count)
+    const rows = new Int32Array(count)
+    const grid = new Map<number, number[]>()
+    for (let index = 0; index < count; index += 1) {
+      columns[index] = Math.floor(x[index]! / cell)
+      rows[index] = Math.floor(y[index]! / cell)
+      const key = cellKey(columns[index]!, rows[index]!)
+      const list = grid.get(key)
+      if (list === undefined) grid.set(key, [index])
+      else list.push(index)
+    }
+    const repel = round < rounds * 0.7
+    for (let a = 0; a < count; a += 1) {
+      for (let column = columns[a]! - 1; column <= columns[a]! + 1; column += 1) {
+        for (let row = rows[a]! - 1; row <= rows[a]! + 1; row += 1) {
+          for (const b of grid.get(cellKey(column, row)) ?? []) {
+            if (b <= a) continue
+            const [dx, dy] = [x[b]! - x[a]!, y[b]! - y[a]!]
+            const overX = (width[a]! + width[b]!) / 2 + RADIAL.margin - Math.abs(dx)
+            const overY = (height[a]! + height[b]!) / 2 + RADIAL.margin - Math.abs(dy)
+            // The root (index 0, always `a`) never moves: the other box takes the whole push.
+            const share = a === 0 ? 0 : 0.5
+            if (overX > 0 && overY > 0) {
+              if (overX < overY * 1.6) {
+                const push = (dx < 0 ? -1 : 1) * overX
+                x[a] = x[a]! - push * share
+                x[b] = x[b]! + push * (1 - share)
+              } else {
+                const push = (dy < 0 ? -1 : 1) * overY
+                y[a] = y[a]! - push * share
+                y[b] = y[b]! + push * (1 - share)
+              }
+            } else if (repel) {
+              // A weak push between near boxes keeps the branches apart.
+              const distance = Math.hypot(dx, dy) || 1
+              const push = (900 / (distance * distance)) * cool
+              if (a !== 0) {
+                x[a] = x[a]! - (dx / distance) * push
+                y[a] = y[a]! - (dy / distance) * push
+              }
+              x[b] = x[b]! + (dx / distance) * push
+              y[b] = y[b]! + (dy / distance) * push
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // The last pass: no two boxes overlap.
+  const placed = new Map<number, number[]>()
+  const blocker = (index: number): number | undefined => {
+    const [column, row] = [Math.floor(x[index]! / cell), Math.floor(y[index]! / cell)]
+    for (let atColumn = column - 1; atColumn <= column + 1; atColumn += 1) {
+      for (let atRow = row - 1; atRow <= row + 1; atRow += 1) {
+        for (const other of placed.get(cellKey(atColumn, atRow)) ?? []) {
+          const apartX = (width[index]! + width[other]!) / 2 + RADIAL_APART - Math.abs(x[index]! - x[other]!)
+          const apartY = (height[index]! + height[other]!) / 2 + RADIAL_APART - Math.abs(y[index]! - y[other]!)
+          if (apartX > 0 && apartY > 0) return other
+        }
+      }
+    }
+    return undefined
+  }
+  for (let index = 0; index < count; index += 1) {
+    const length = Math.hypot(x[index]!, y[index]!)
+    const [awayX, awayY] = length === 0 ? [1, 0] : [x[index]! / length, y[index]! / length]
+    // Along a straight line a box is left once and never met again: each step clears one more box.
+    for (let other = blocker(index); other !== undefined; other = blocker(index)) {
+      const clearX = (width[index]! + width[other]!) / 2 + RADIAL_APART
+      const clearY = (height[index]! + height[other]!) / 2 + RADIAL_APART
+      const stepX = awayX === 0 ? Infinity : (x[other]! + Math.sign(awayX) * clearX - x[index]!) / awayX
+      const stepY = awayY === 0 ? Infinity : (y[other]! + Math.sign(awayY) * clearY - y[index]!) / awayY
+      const step = Math.min(stepX, stepY) + 0.5
+      x[index] = x[index]! + awayX * step
+      y[index] = y[index]! + awayY * step
+    }
+    const key = cellKey(Math.floor(x[index]! / cell), Math.floor(y[index]! / cell))
+    const list = placed.get(key)
+    if (list === undefined) placed.set(key, [index])
+    else list.push(index)
+  }
+
+  nodes.forEach((node, index) => placement.set(node.id, { x: x[index]! - width[index]! / 2, y: y[index]! - height[index]! / 2, width: width[index]!, height: height[index]! }))
+  return placement
+}
+
+/** A point on the border of `box` (grown by `grow` px on each side), on the line from its middle towards `towards`. */
+function borderPoint(box: ScreenBox, grow: number, towards: { x: number; y: number }): { x: number; y: number } {
+  const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const [dx, dy] = [towards.x - middle.x, towards.y - middle.y]
+  if (dx === 0 && dy === 0) return middle
+  const reach = Math.min(dx === 0 ? Infinity : (box.width / 2 + grow) / Math.abs(dx), dy === 0 ? Infinity : (box.height / 2 + grow) / Math.abs(dy), 1)
+  return { x: middle.x + dx * reach, y: middle.y + dy * reach }
+}
+
+const point = ({ x, y }: { x: number; y: number }): string => `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`
+
+/**
+ * An arrow of the Graph, from box `from` to box `to`, as the prototype draws it (`edgePath`): "grew from" a
+ * straight line from the parent's border to 4 px before the child's border, its arrowhead pointing at the
+ * child; `replaces` a red dashed curve bowed to one side, so it does not run along the straight arrows.
+ */
+export function graphEdgePath(kind: MapEdge['kind'], from: ScreenBox, to: ScreenBox): string {
+  const [start, end] = [{ x: from.x + from.width / 2, y: from.y + from.height / 2 }, { x: to.x + to.width / 2, y: to.y + to.height / 2 }]
+  if (kind === 'replaces') {
+    const [dx, dy] = [end.x - start.x, end.y - start.y]
+    const bend = { x: (start.x + end.x) / 2 - dy * 0.35 - 60, y: (start.y + end.y) / 2 + dx * 0.35 }
+    return `M${point(borderPoint(from, 2, bend))} Q${point(bend)} ${point(borderPoint(to, 5, bend))}`
+  }
+  return `M${point(borderPoint(from, 0, end))} L${point(borderPoint(to, 4, start))}`
 }
 
 /** A box on the screen, px from the map's top left corner. */

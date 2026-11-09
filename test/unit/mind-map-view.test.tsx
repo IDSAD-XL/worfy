@@ -260,7 +260,7 @@ describe('MindMap', () => {
     const elk = new ELK()
     const graph = buildMindMapGraph(topic(), { hideRejected: false })
     // The topic is a node the two layouts place apart; the nodes added later grow from `too-wide`.
-    const byElkAll = await layoutElk(graph, 'tree', elk)
+    const byElkAll = await layoutElk(graph, elk)
     const [byElk, sync] = [byElkAll.get('@topic')!, layoutSync(graph, 'tree').get('@topic')!]
     const parentX = byElkAll.get('too-wide')!.x
     expect([byElk.x, byElk.y]).not.toEqual([sync.x, sync.y])

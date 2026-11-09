@@ -331,6 +331,107 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
   }
 })
 
+// The Mind map's «Graph» view laid out as the prototype's graph (worfy-product-session ticket 26), in the dark
+// theme: the topic in the middle, the branches round it, no node over another, the "grew from" arrows straight
+// and the `replaces` arrow a curve; «Hide rejected» and a folded branch lay it out again, still with no overlap.
+// The screenshot goes to the test's output folder.
+const GRAPH_MAP = [
+  ...LONG_MAP,
+  { id: 'price', kind: 'question', text: 'What does a team pay for the second seat?', from: null, message: MESSAGE(5) },
+  { id: 'price-flat', kind: 'idea', text: 'One flat price per team', from: 'price', message: MESSAGE(5) },
+  { id: 'price-seat', kind: 'decision', text: 'A price per seat, the first one free', from: 'price', status: 'accepted', reason: 'small teams start alone', message: MESSAGE(5) },
+  { id: 'onboarding', kind: 'idea', text: 'A guided first topic for a new owner', from: null, message: MESSAGE(6) },
+  { id: 'onboarding-risk', kind: 'objection', text: 'A guide nobody reads is worse than none', from: 'onboarding', source: 'docs/design/BRIEF.md', message: MESSAGE(6) },
+]
+
+test('the Mind map’s Graph puts the topic in the middle and its branches round it, no node over another', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-mind-map' } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const map = view.getByTestId('product-session-map')
+    await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: GRAPH_MAP }, null, 2)}\n`)
+    const nodes = map.getByTestId('mind-node')
+    await expect(nodes).toHaveCount(GRAPH_MAP.length + 1)
+    const graphButton = map.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Graph' })
+    await graphButton.click()
+    await expect(graphButton).toHaveAttribute('aria-pressed', 'true')
+
+    /** The nodes' boxes on the screen, by id. */
+    const boxes = () =>
+      nodes.evaluateAll((elements) =>
+        elements.map((element) => {
+          const { left, top, right, bottom } = element.getBoundingClientRect()
+          return { id: (element as unknown as { dataset: { id: string } }).dataset.id, left, top, right, bottom }
+        }),
+      )
+    /** The ids of the pairs of nodes whose boxes overlap. */
+    const overlaps = async (): Promise<string[]> => {
+      const all = await boxes()
+      const pairs: string[] = []
+      for (let a = 0; a < all.length; a += 1) {
+        for (let b = a + 1; b < all.length; b += 1) {
+          const [p, q] = [all[a]!, all[b]!]
+          if (p.left < q.right - 0.5 && q.left < p.right - 0.5 && p.top < q.bottom - 0.5 && q.top < p.bottom - 0.5) pairs.push(`${p.id} × ${q.id}`)
+        }
+      }
+      return pairs
+    }
+    await expect.poll(overlaps).toEqual([])
+
+    // The topic in the middle third of the map both ways, with nodes on its left and on its right.
+    const all = await boxes()
+    const topicBox = all.find((each) => each.id === '@topic')!
+    const [cx, cy] = [(topicBox.left + topicBox.right) / 2, (topicBox.top + topicBox.bottom) / 2]
+    const [left, right] = [Math.min(...all.map((each) => each.left)), Math.max(...all.map((each) => each.right))]
+    const [top, bottom] = [Math.min(...all.map((each) => each.top)), Math.max(...all.map((each) => each.bottom))]
+    expect(cx).toBeGreaterThan(left + (right - left) / 3)
+    expect(cx).toBeLessThan(right - (right - left) / 3)
+    expect(cy).toBeGreaterThan(top + (bottom - top) / 3)
+    expect(cy).toBeLessThan(bottom - (bottom - top) / 3)
+    expect(all.some((each) => each.right < topicBox.left)).toBe(true)
+    expect(all.some((each) => each.left > topicBox.right)).toBe(true)
+
+    // Straight "grew from" arrows, one per node but the topic; the one `replaces` arrow a curve.
+    const grew = map.locator('.react-flow__edge.w-mind__edge:not(.w-mind__edge--replaces) path.react-flow__edge-path')
+    await expect(grew).toHaveCount(GRAPH_MAP.length)
+    for (const d of await grew.evaluateAll((paths) => paths.map((path) => path.getAttribute('d') ?? ''))) expect(d).toMatch(/^M-?[\d.]+,-?[\d.]+ L-?[\d.]+,-?[\d.]+$/)
+    await expect(map.locator('.react-flow__edge.w-mind__edge--replaces path.react-flow__edge-path')).toHaveAttribute('d', / Q/)
+
+    const pane = map.locator('.w-mind__flow')
+    const allInPane = async (): Promise<boolean> => {
+      const box = (await pane.boundingBox())!
+      return (await boxes()).every((each) => each.left >= box.x - 1 && each.top >= box.y - 1 && each.right <= box.x + box.width + 1 && each.bottom <= box.y + box.height + 1)
+    }
+    await expect.poll(allInPane).toBe(true)
+    await view.screenshot({ path: test.info().outputPath('26-graph-dark.png') })
+
+    // «Hide rejected»: the rejected Decision goes, the rest is laid out again with no overlap.
+    await map.getByRole('button', { name: 'Hide rejected' }).click()
+    await expect(nodes).toHaveCount(GRAPH_MAP.length)
+    await expect.poll(overlaps).toEqual([])
+    // A folded branch: its nodes go, the rest still apart; unfolded, they are back.
+    const split = map.locator('[data-testid="mind-node"][data-id="split"]')
+    await split.getByTestId('mind-node-fold').click()
+    await expect(split).toHaveAttribute('data-folded', 'true')
+    await expect(map.locator('[data-testid="mind-node"][data-id="laptop"]')).toHaveCount(0)
+    await expect.poll(overlaps).toEqual([])
+    await split.getByTestId('mind-node-fold').click()
+    await expect(map.locator('[data-testid="mind-node"][data-id="laptop"]')).toHaveCount(1)
+    await expect.poll(overlaps).toEqual([])
+  } finally {
+    await launched.close()
+  }
+})
+
 // A Product Session in a narrow chat column (worfy-product-session ticket 24): the 1160-wide window with the
 // agents list open leaves the chat about 240 px, as in the prototype. The heading stays on one line with the
 // Vendor tag inside it; every chip stays inside the column, its text cut at the end; the map's toolbar keeps

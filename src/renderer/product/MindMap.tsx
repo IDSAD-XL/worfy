@@ -1,14 +1,18 @@
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   getViewportForBounds,
   Handle,
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useInternalNode,
   useReactFlow,
   useStore,
   type Edge,
+  type EdgeProps,
+  type EdgeTypes,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -25,6 +29,7 @@ import { SegmentedControl } from '../theme/primitives'
 import {
   buildMindMapGraph,
   cardPlace,
+  graphEdgePath,
   layoutElk,
   layoutKey,
   layoutSync,
@@ -36,6 +41,7 @@ import {
   setTextMeasure,
   SHAPE_OF,
   withFilePlaces,
+  type MapEdge,
   type MapGraph,
   type MapNode,
   type MapNodeKind,
@@ -249,7 +255,8 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
   const rejected = node.kind === 'decision' && node.status === 'rejected'
   const size = width !== undefined && height !== undefined ? { width, height } : nodeSize(node, view)
   const pad = NODE_PAD[node.kind]
-  // Both views grow left to right (ticket 21): "grew from" enters on the left and leaves on the right.
+  // The Tree grows left to right (ticket 21): "grew from" enters on the left and leaves on the right. The
+  // Graph's arrows (GraphEdge) run between the borders and use these handles only to exist.
   const [target, source] = [Position.Left, Position.Right]
   const cross = [Position.Top, Position.Bottom]
   return (
@@ -433,8 +440,45 @@ function pendingDrags(dragged: ReadonlyMap<string, { x: number; y: number }>, to
 /** The arrowheads of the two kinds of arrow, drawn by Arrowheads; their colours are mind-map.css's. */
 const arrowheadId = (flowId: string, kind: 'from' | 'replaces'): string => `w-mind-arrow-${kind}-${flowId}`
 
-function flowEdges(graph: MapGraph, placement: Placement, flowId: string): Edge[] {
-  // Curves, as in the prototype: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
+/** An arrow of the Graph (GraphEdge): its kind, which says its shape. */
+type GraphFlowEdge = Edge<{ kind: MapEdge['kind'] }, 'graph'>
+
+/**
+ * An arrow of the Graph, drawn between the two nodes' borders where they are now (a node being dragged
+ * too), not between handles: the radial layout puts a child on any side of its parent (ticket 26).
+ */
+function GraphEdge({ source, target, data, markerEnd }: EdgeProps<GraphFlowEdge>) {
+  const from = useInternalNode(source)
+  const to = useInternalNode(target)
+  if (from === undefined || to === undefined) return null
+  const box = (node: NonNullable<typeof from>) => ({
+    ...node.internals.positionAbsolute,
+    width: node.measured.width ?? node.width ?? 0,
+    height: node.measured.height ?? node.height ?? 0,
+  })
+  return <BaseEdge path={graphEdgePath(data?.kind ?? 'from', box(from), box(to))} markerEnd={markerEnd} />
+}
+
+const edgeTypes: EdgeTypes = { graph: GraphEdge }
+
+function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flowId: string): Edge[] {
+  if (view === 'graph') {
+    // Straight, as in the prototype's graph; `replaces` a red dashed curve to the Decision it overturned.
+    return graph.edges.map(
+      (edge): GraphFlowEdge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: 'graph',
+        data: { kind: edge.kind },
+        className: edge.kind === 'from' ? 'w-mind__edge' : 'w-mind__edge w-mind__edge--replaces',
+        markerEnd: arrowheadId(flowId, edge.kind),
+        focusable: false,
+        ...(edge.kind === 'replaces' ? { zIndex: 1 } : {}),
+      }),
+    )
+  }
+  // Curves, as in the prototype's tree: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
   // dashed and ends at the Decision it overturned.
   return graph.edges.map((edge) =>
     edge.kind === 'from'
@@ -502,9 +546,9 @@ function mergedPlaces(graph: MapGraph, elk: Placement, sync: Placement): Placeme
 }
 
 /**
- * Where the nodes go: ELK's layout from the window's worker (../canvas/elk/client.ts), the worker the
- * Epic frames share, so one request of the map is out at a time: when it answers, the newest inputs are
- * sent, those between are skipped. The last answer of this view stays meanwhile, and a node it does not
+ * Where the nodes go. The Graph: the radial layout, synchronous (ticket 26). The Tree: ELK's layout from the
+ * window's worker (../canvas/elk/client.ts), the worker the Epic frames share, so one request of the map is
+ * out at a time: when it answers, the newest inputs are sent, those between are skipped. The last answer of this view stays meanwhile, and a node it does not
  * place is drawn next to its parent (`mergedPlaces`). The synchronous layout draws before ELK's first
  * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
  */
@@ -527,13 +571,14 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
   useEffect(() => {
     latest.current = { key, graph, view }
     const elk = elkEngine()
-    if (elk === null) return
+    if (elk === null || view === 'graph') return
     const send = (): void => {
       const next = latest.current
-      if (!mounted.current || busy.current || next === null || sent.current === next.key) return
+      // Only the Tree goes to ELK: a switch to the Graph while a request is out sends nothing after it.
+      if (!mounted.current || busy.current || next === null || next.view === 'graph' || sent.current === next.key) return
       busy.current = true
       sent.current = next.key
-      layoutElk(next.graph, next.view, elk)
+      layoutElk(next.graph, elk)
         .then(
           (placement) => (mounted.current ? setAnswer({ key: next.key, view: next.view, placement }) : undefined),
           (error: unknown) => {
@@ -879,7 +924,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
-  const edges = useMemo(() => flowEdges(graph, shown, flowId), [graph, shown, flowId])
+  const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
   // the ring off its message, as the prototype's selectNode(null) does (ticket 25). A node picked in a folded
@@ -1069,6 +1114,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onNodeClick={(_, node) => setPicked(node.id)}
             onPaneClick={() => {
               setPicked(null)
