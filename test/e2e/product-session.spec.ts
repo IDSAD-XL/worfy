@@ -467,6 +467,23 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     await expect(card.getByRole('button', { name: 'Show the message in the chat' })).toHaveText('#2 Advisor')
     await expect(card).toContainText('#2 Advisor: “Three more nodes on the map. The advisor proposes, the cri…”')
     await view.screenshot({ path: test.info().outputPath('24-chip-and-card-1160.png') })
+    // Ticket 25: closing the card takes the ring off the message, as the prototype does — by its button and by Escape.
+    await card.getByRole('button', { name: 'Close the card' }).click()
+    await expect(card).toHaveCount(0)
+    await expect(log.locator('[data-shown]')).toHaveCount(0)
+    await chip.click()
+    await expect(ringed).toHaveCount(1)
+    await card.getByRole('button', { name: 'Close the card' }).focus()
+    await window.keyboard.press('Escape')
+    await expect(card).toHaveCount(0)
+    await expect(log.locator('[data-shown]')).toHaveCount(0)
+    // The pointer off the chat: a message under the pointer frames its bubble, which is not the ring. The frame
+    // fades out in 0.2 s; the picture waits until no bubble carries it.
+    await map.getByTestId('mind-map-legend').hover()
+    const framed = () =>
+      log.locator('.w-pmsg__bubble').evaluateAll((bubbles) => bubbles.filter((bubble) => (globalThis as unknown as { getComputedStyle(of: unknown): { boxShadow: string } }).getComputedStyle(bubble).boxShadow !== 'none').length)
+    await expect.poll(framed).toBe(0)
+    await view.screenshot({ path: test.info().outputPath('25-card-closed-no-ring-1160.png') })
   } finally {
     await launched.close()
   }

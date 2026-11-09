@@ -950,6 +950,12 @@ export function Transcript(props: TranscriptProps) {
   useLayoutEffect(() => {
     const element = log.current
     if (element === null || chips === null || shownMessage === null || shownMessage.projectId !== product || shownSeq.current === shownMessage.seq) return
+    // The node card closed: the ring goes, the chat stays where it is (ticket 25).
+    if (shownMessage.message === null) {
+      shownSeq.current = shownMessage.seq
+      for (const was of Array.from(element.querySelectorAll<HTMLElement>(':scope > [data-shown]'))) was.removeAttribute('data-shown')
+      return
+    }
     const key = chips.rowOfMessage.get(shownMessage.message)
     // The chips of a turn with no row drawn stand at the end of the chat (node-chips.ts, CHIPS_AT_END).
     const end = key === CHIPS_AT_END ? element.querySelector<HTMLElement>(':scope > [data-chips-end]') : null

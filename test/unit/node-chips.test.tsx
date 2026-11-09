@@ -397,6 +397,77 @@ describe('chips of Mind map nodes under a message', () => {
     expect(within(card).getByRole('button', { name: 'Show the message in the chat' }).textContent).toBe('Show in the chat')
   })
 
+  // worfy-product-session ticket 25 (R1 of the final comparison): as the prototype's selectNode(null) clears
+  // highlightMsg, closing the node card takes the ring off the chat's message, whichever way the card closes;
+  // another chip moves the ring.
+  it('closing the node card takes the ring off the message: the close button, Escape, a click on the empty map', () => {
+    render(<ProductBody />)
+    const ringed = () => document.querySelector<HTMLElement>('[data-item][data-shown]')
+    const card = () => screen.queryByRole('region', { name: 'Node' })
+    const [first, second] = screen.getAllByTestId('node-chip')
+
+    act(() => fireEvent.click(first!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(within(card()!).getByRole('button', { name: 'Close the card' })))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    act(() => fireEvent.click(second!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.keyDown(card()!, { key: 'Escape' }))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    act(() => fireEvent.click(first!))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(document.querySelector('.react-flow__pane')!))
+    expect(card()).toBeNull()
+    expect(ringed()).toBeNull()
+
+    // A node's own «Show in the chat» rings while its card is open; picking another chip keeps a ring.
+    act(() => fireEvent.click(nodeOf('who-pays')!))
+    act(() => fireEvent.click(within(card()!).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(ringed()).not.toBeNull()
+    act(() => fireEvent.click(first!))
+    expect(card()).not.toBeNull()
+    expect(ringed()).not.toBeNull()
+  })
+
+  // Ticket 25, row 14 of the comparison: the card's History numbers its steps by the chat's message numbers —
+  // «step 2:», «step 4:» — as the prototype numbers them; without the chat the list keeps its plain order.
+  it('a Decision’s History names each step by its message’s number in the chat, and keeps the plain order without it', () => {
+    const ACCEPTED = { id: 'd-1', kind: 'decision', text: 'Harness first', from: null, status: 'accepted', reason: 'Fast', message: 'uuid-1' }
+    const OVERTURNED = { ...ACCEPTED, status: 'rejected', reason: 'Users first', history: [{ status: 'accepted', reason: 'Fast', message: 'uuid-1' }], message: 'uuid-2' }
+    const turns: AgentEvent[] = [
+      prompt('Start'),
+      text('Harness first.', 'msg-1'),
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'decision', text: ACCEPTED.text, from: null, status: 'accepted', reason: 'Fast' }),
+      answer('t1', ACCEPTED),
+      prompt('No, users first'),
+      text('Overturned.', 'msg-2'),
+      call('t2', DECIDE, { topic: 'demo-roadmap', id: 'd-1', status: 'rejected', reason: 'Users first' }),
+      answer('t2', OVERTURNED),
+    ]
+    const decided: ProductTopicState = { ...topic, nodes: [OVERTURNED as ProductTopicState['nodes'][number]] }
+    const steps = () => within(screen.getByRole('region', { name: 'Node' })).getAllByRole('listitem').map((item) => item.textContent)
+
+    const { unmount } = render(
+      <>
+        <MindMap projectId="p1" topic={decided} />
+        <ProductSessionContext value={true}>
+          <Transcript events={turns} projectId="p1" />
+        </ProductSessionContext>
+      </>,
+    )
+    fireEvent.click(nodeOf('d-1')!)
+    expect(steps()).toEqual(['step 2: accepted — Fast', 'step 4: rejected — Users first'])
+    unmount()
+
+    render(<MindMap projectId="p1" topic={decided} />)
+    fireEvent.click(nodeOf('d-1')!)
+    expect(steps()).toEqual(['accepted — Fast', 'rejected — Users first'])
+  })
+
   it('a quoted message is cut to 60 characters, an owner’s prompt is «You», the whitespace of an answer is one space', () => {
     expect(messageQuote(3, 'you', 'Short')).toEqual({ number: 3, who: 'you', text: 'Short' })
     const long = 'A'.repeat(40) + ' ' + 'B'.repeat(30)
