@@ -1,7 +1,8 @@
 # 65 — Status `review` ставится в момент вердикта ревью, а не перед merge; потом `critical-path` читает его как Gate
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T12:21Z
+Branch: worfy-throughput/65
 Blocked by: 62
 Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md), часть 6 и продолжение 5 из части 5; решение
 владельца 2026-11-09 (Q1–Q6 «да», вариант B).
@@ -29,9 +30,10 @@ Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md),
 
 ## Готово, когда
 
-- [ ] «Итог»: кто и когда ставит `review` сейчас — с примерами PR и временем.
+- [x] «Итог»: кто и когда ставит `review` сейчас — с примерами PR и временем.
 - [ ] `review` ставится в момент вердикта: на PR после правки от `review` до merge — не секунды (пример в «Итог»).
-- [ ] `critical-path` берёт Gate из status `review` — unit test в `test/unit/critical-path.test.ts`.
+  Пример — после следующего PR: правка источника сделана Orchestrator-ом вне репозитория (часть 2 «Итог»).
+- [x] `critical-path` берёт Gate из status `review` — unit test в `test/unit/critical-path.test.ts`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Где в коде
@@ -48,3 +50,83 @@ Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md),
 ## Вне скоупа
 
 - Обязательный status `review` в branch protection GitHub — не меняется (условие Harness-а, не GitHub).
+
+## Итог
+
+### 1. Кто и когда ставит `review` и `VERIFIED`
+
+- Ставил Orchestrator, своим shell-скриптом вне репозитория: обёрткой над `land` (`dolandb.sh` в его scratchpad,
+  строки 12–13 до правки 2026-11-09). Обёртка запускалась после зелёного `ci-ok` и прямо перед `land` публиковала **оба**
+  следа вердикта: комментарий `VERIFIED` (`gh pr comment … --body-file <файл вердикта>`) и
+  `ticket mark … review success`. Следом шёл `check/windows success`, потом `land`.
+- Текст skill-ов был верным: `epic-wave`, «The review mark», и `ship-ticket`, шаг 7 (`step-7-review.md`), велят ставить
+  `review success`/`failure`, когда вердикт записан, а `epic-wave` велит записывать каждый вердикт комментарием сразу по
+  ответу verifier-а. Обёртка Orchestrator-а этот порядок не соблюдала.
+- Поэтому поздний не только `review`, но и `VERIFIED`. Замер по GitHub (`gh`, только чтение), 2026-11-09:
+
+  | PR | `VERIFIED` | `review` | `check/windows` | merge |
+  | --- | --- | --- | --- | --- |
+  | #1724 | 10:02:29 | 10:02:30 | 10:02:32 | 10:02:42 |
+  | #1726 | 10:27:29 | 10:27:30 | 10:27:32 | 10:27:42 |
+  | #1730 | 10:36:17 | 10:36:18 | 10:36:20 | 10:36:31 |
+  | #1731 | 12:06:04 | 12:06:05 | 12:06:06 | 12:06:16 |
+  | #1733 | 11:59:08 | 11:59:09 | 11:59:11 | 11:59:21 |
+
+  - 30 последних merged PR (#1702–#1733), из них 17 с `VERIFIED`: от `VERIFIED` до merge 11–14 s, медиана 12 s; от
+    `review` до merge 10–13 s, медиана 11 s.
+  - 120 merged PR (#1612–#1733): у 58 на head есть status `review`. У 51 из них есть и `VERIFIED`: от последнего
+    `VERIFIED` до merge медиана 12 s, `review` позже `VERIFIED` на 1 s (медиана; от 0 до 23 s). От самого раннего
+    `review success` до merge медиана 11 s, максимум 17 s. На каждом из 58 head-ов ровно один `review success`; ни
+    одного `review pending` (skill велит ставить его перед verifier-ом), ни одного `review failure`, ни одной копии от
+    `land` («carried from …»).
+  - У 7 из 58 (#1684, #1685, #1688, #1689, #1692, #1695, #1696) комментарий вердикта начинается с `PR #N (…) round …:
+    VERIFIED`, а не с `VERIFIED`: `verdictComments` (`src/shared/flight-recorder/pr-facts.mjs`) такой не узнаёт, и Gate
+    у этих PR в отчёте был пустым.
+- Что это значит для шага Gate, который `critical-path` показывал до сих пор. Отметка Gate — это не вердикт, а запуск
+  `land` Orchestrator-ом. Время самого ревью и ожидание, пока Orchestrator дойдёт до `land`, сидят внутри
+  «CI → Gate». «Gate → merge» (около 12 s) — время работы `land`, а не очередь merge. «Green → merge» по тем же
+  причинам почти всегда равно этим секундам. Разбивка «после green: gate / merge queue» для таких PR смысла не имеет.
+  Верные числа Gate начнутся с PR, где вердикт опубликован в момент вердикта (часть 2).
+
+### 2. Источник: правка Orchestrator-а, вне репозитория
+
+- 2026-11-09 Orchestrator поправил свои скрипты (вне репозитория, в своём scratchpad):
+  - новый `mark-verdict.sh` публикует комментарий вердикта и `ticket mark … review success` в момент, когда вердикт
+    записан, и оставляет метку «опубликовано для этого head»;
+  - `dolandb.sh` пропускает оба шага, если для этого head они уже опубликованы (строки 12–15 после правки).
+- Текст skill-ов не меняется: `epic-wave` («The review mark», блок записи вердикта `gh pr comment <N> --body
+  "VERIFIED"`) и `ship-ticket` (`step-7-review.md`, «The review mark») уже велят ставить отметку и писать вердикт в
+  момент вердикта.
+- Пример PR, где от `review` до merge не секунды, — после следующего PR с вердиктом через `mark-verdict.sh`.
+
+### 3–4. `critical-path`: Gate из `review`
+
+- Решение по данным: Gate — последний комментарий `VERIFIED`, как раньше; **без него** — самый ранний `review`
+  `success` на head PR. Не «вместо»: где есть оба (51 PR), они расходятся на 1 s (медиана), так что замена значения не
+  меняет. Зато стоит одного вызова `gh api` на каждый PR и ломает отчёты, сверенные байт в байт
+  (`test/fixtures/flight-recorder/critical-path-before.json`). Запасной путь даёт Gate 7 из 58 PR с `review` (12%), у
+  которых он был пустым. После правки части 2 оба следа публикует один скрипт в один момент, так что расходиться они не
+  должны; если разойдутся — вернуться к выбору.
+- Как читается `review`:
+  - только из `gh api repos/<owner>/<repo>/commits/<head>/statuses` (все status-ы head, новые первыми).
+    `statusCheckRollup` хранит лишь последний status каждого контекста и без описания: по нему нельзя взять самый
+    ранний и нельзя отличить копию `land`. `critical-path` спрашивает status-ы только у PR без `VERIFIED`; в файле
+    `--prs` — необязательное поле `statuses` у PR;
+  - берётся самый ранний `review` `success`: повторная публикация позже Gate не двигает, `pending` вердиктом не считается;
+  - `review`, который `land` перенёс на новый head после rebase (`harness/bin/land`, `reviewed`, описание
+    `carried from <sha>: …`), пропускается: время копии — время запуска `land`, не вердикта. Если на head только копия —
+    пустая ячейка «review on the PR head only carried by land». Искать исходную отметку на старом head не стали: в
+    описании только короткий SHA, а в данных таких копий 0 из 58 (с #1730 `land` вливает PR позади `main` без rebase);
+  - `review` позже merge Gate не даёт: пустая ячейка «no VERIFIED comment on the PR, review success after the merge».
+    Без status-ов head причина прежняя — «no VERIFIED comment on the PR».
+- Проверка на реальных PR (`critical-path --epic worfy-scrub --tickets 01,02,03 --repo IDSAD-XL/worfy`): у #1685,
+  #1689, #1688 (без `VERIFIED` в начале комментария) «Gate → merge» теперь 11 s, 11 s и 13 s вместо пустой ячейки.
+- Код: `reviewMark`, `gateMark`, `headSha` в `src/shared/flight-recorder/pr-facts.mjs` (типы — `pr-facts.d.mts`),
+  вызов и запрос status-ов в `scripts/critical-path.mjs`. Tests: `test/unit/critical-path.test.ts`, describe «the Gate
+  from the review mark of the head when there is no VERIFIED comment»; fixture
+  `test/fixtures/critical-path/prs-review.json` — PR с `review` без `VERIFIED`, PR с двумя `review success` (берётся
+  ранний), PR с `review` позже merge (пустая ячейка); через поддельный `gh` — запрос status-ов только без `VERIFIED` и
+  копия `land`. Mutation testing на копии в `/tmp`: 8 мутантов (максимум вместо минимума, без фильтра копий, без
+  проверки «после merge», без запасного пути, без запроса status-ов, первый коммит вместо head и др.) — все убиты.
+- Приложение (Flight Recorder, `src/shared/flight-recorder/from-github.ts`) по-прежнему берёт Gate только из
+  `VERIFIED`: этот Ticket его не трогает.

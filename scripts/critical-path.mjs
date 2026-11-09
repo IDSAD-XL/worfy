@@ -12,11 +12,14 @@
 //     per line (harness/bin/TICKETS.md): `Status: <word> <time>` and `PR: #N`;
 //   - the PRs, from `gh` or from a JSON file of the same shape (`--prs`): opening, the CI checks
 //     and the workflow runs of the branch, the Gate verdicts in comments (`VERIFIED`, `REJECTED`,
-//     `NARROW: …`), the first commit, the merge.
+//     `NARROW: …`), the commit statuses of the head (`review`) when there is no VERIFIED, the first
+//     commit, the merge.
 //
 // The steps are claim → PR → CI → Gate → merge. The claim is the first wave-started that names the
 // Ticket; without Autopilot, the first commit of its PR (the claim date of the Status has no time).
-// Gate is the last VERIFIED comment. CI is green at the last successful workflow run of the branch
+// Gate is the last VERIFIED comment; without one, the earliest `review` `success` status of the PR's
+// head that land did not carry over from an earlier head and that is not later than the merge
+// (worfy-throughput 65: both are posted at the verdict, a second apart). CI is green at the last successful workflow run of the branch
 // that finished before the Gate (a rebase before the merge reruns CI after it); without the runs,
 // when every check of the PR's latest commit succeeded or was skipped, at the time the last one
 // finished. Green → merge (the owner's Q1, worfy-throughput 14) runs from the later of the last
@@ -38,7 +41,7 @@ import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } 
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { JOURNAL_KINDS, parseJournal, time, walkJournals } from '../src/shared/flight-recorder/journal-walk.mjs'
-import { GH_FIELDS, GH_RUN_FIELDS, ciMark, firstCommit, headCi, headMarks, pick, verdicts } from '../src/shared/flight-recorder/pr-facts.mjs'
+import { GH_FIELDS, GH_RUN_FIELDS, ciMark, firstCommit, gateMark, headCi, headMarks, headSha, pick, verdicts } from '../src/shared/flight-recorder/pr-facts.mjs'
 
 const HELP = `usage: node scripts/critical-path.mjs [options]
 
@@ -57,7 +60,9 @@ Input
   --prs <file>         PR data as a JSON array of gh's fields (number, headRefName, state,
                        createdAt, mergedAt, statusCheckRollup, comments, commits, files) instead of gh;
                        an optional "ciRuns" of a PR is gh run list's (status, conclusion,
-                       event, updatedAt) for its branch.
+                       event, updatedAt) for its branch; an optional "statuses" is gh
+                       api's commits/<head>/statuses (context, state, description,
+                       created_at) for its head.
   --repo <owner/repo>  the repository gh asks. Default: origin of the run (run-started), else
                        the repository of --root or of the current folder.
 
@@ -66,7 +71,9 @@ Output
   an empty cell is "—" with the reason — and the summary: the sum and the median of each step
   and the critical step by both. CSV durations are seconds; the rows "sum" and "median" of
   each Epic carry the summary.
-  Green → merge: from the later of the last VERIFIED and a green CI on the PR head (ci-ok)
+  Gate: the last VERIFIED comment; without one, the earliest review success status of the
+  PR head, unless land carried it from an earlier head or it is later than the merge.
+  Green → merge: from the later of the Gate and a green CI on the PR head (ci-ok)
   to the merge. Budget: 15 min, 30 min when the PR's diff touches src/renderer .tsx, .css
   or UI texts. The summary names each Ticket over budget and where the time after green
   went: the gate (until the last review or check mark) or the merge queue.
@@ -215,6 +222,17 @@ function hideHome(text, home) {
   return home ? text.split(home).join('~') : text
 }
 
+/**
+ * gh's arguments for every commit status of `sha`. `repo` is [HOST/]OWNER/REPO as gh's --repo takes it; without
+ * it gh fills {owner}/{repo} from the git remote of the folder it runs in.
+ */
+function statusesArgs(repo, sha) {
+  const parts = repo ? repo.replace(/^[a-z]+:\/\//i, '').replace(/\.git$/, '').split('/').filter(Boolean) : []
+  const slug = parts.length >= 2 ? parts.slice(-2).join('/') : '{owner}/{repo}'
+  const host = parts.length >= 3 ? parts[parts.length - 3] : null
+  return ['api', `repos/${slug}/commits/${sha}/statuses?per_page=100`, ...(host && host !== 'github.com' ? ['--hostname', host] : [])]
+}
+
 /** The PR of each Ticket: { pr } or { why }. From the --prs file, or from gh. */
 async function loadPrs(groups, options, deps, walked, root) {
   const found = new Map()
@@ -275,6 +293,17 @@ async function loadPrs(groups, options, deps, walked, root) {
           // No history: the checks of the PR stand for CI.
         }
       }
+      // Without a VERIFIED comment the Gate is the head's `review` mark; only the statuses API gives
+      // every status of a context with its description (statusCheckRollup keeps the latest).
+      const head = headSha(pr)
+      if (verdicts(pr).gate === null && head !== null) {
+        const statuses = await deps.gh(statusesArgs(repo, head), root ?? deps.cwd)
+        try {
+          if (statuses.code === 0) pr.statuses = JSON.parse(statuses.stdout)
+        } catch {
+          // No statuses: the Gate stays empty with its reason.
+        }
+      }
       found.set(branch, { pr })
     }
   }
@@ -283,14 +312,14 @@ async function loadPrs(groups, options, deps, walked, root) {
 }
 
 /**
- * "Checks green" of the owner's Q1: the later of the last VERIFIED and a green CI on the PR head.
- * A push after the VERIFIED (a CI fix) moves it to that head's green CI. { at, by } or { why }.
+ * "Checks green" of the owner's Q1: the later of the Gate (gateMark) and a green CI on the PR head.
+ * A push after the verdict (a CI fix) moves it to that head's green CI. { at, by } or { why }.
  */
 function greenMark(pr, gate) {
-  if (gate === null) return { why: 'no VERIFIED comment on the PR' }
+  if (gate.why !== undefined) return { why: gate.why }
   const ci = headCi(pr)
   if (ci.why !== undefined) return ci
-  return ci.at !== null && ci.at > gate ? { at: ci.at, by: 'CI' } : { at: gate, by: 'Gate' }
+  return ci.at !== null && ci.at > gate.at ? { at: ci.at, by: 'CI' } : { at: gate.at, by: 'Gate' }
 }
 
 /** Whether the PR's diff makes the Ticket one with UI; null without the PR's file list. */
@@ -336,9 +365,10 @@ function measure(ticket, prData) {
   const found = pr ? verdicts(pr) : null
   if (pr) {
     marks.pr = time(pr.createdAt) !== null ? { at: time(pr.createdAt) } : { why: 'no opening time on the PR' }
-    marks.gate = found.gate !== null ? { at: found.gate } : { why: 'no VERIFIED comment on the PR' }
-    marks.ci = ciMark(pr, found.gate)
-    marks.green = greenMark(pr, found.gate)
+    const gate = gateMark(pr)
+    marks.gate = gate.why !== undefined ? { why: gate.why } : { at: gate.at }
+    marks.ci = ciMark(pr, gate.at ?? null)
+    marks.green = greenMark(pr, gate)
     marks.merge = time(pr.mergedAt) !== null ? { at: time(pr.mergedAt) } : { why: `PR not merged (${pr.state ?? 'unknown'})` }
   } else for (const mark of ['pr', 'ci', 'gate', 'green', 'merge']) marks[mark] = { why: prWhy }
   const span = (from, to) => {

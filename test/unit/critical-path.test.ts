@@ -232,6 +232,74 @@ describe('critical-path: durations of each step', () => {
   })
 })
 
+describe('critical-path: the Gate from the review mark of the head when there is no VERIFIED comment', () => {
+  // test/fixtures/critical-path/prs-review.json: three merged PRs without a VERIFIED comment, with every
+  // commit status of the head ("statuses", as gh api commits/<sha>/statuses gives them, newest first).
+  const REVIEW = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--prs', join(FIXTURE, 'prs-review.json')]
+
+  it('takes the Gate from the review success status of the head; a verdict inside a sentence is not a VERIFIED comment', () => {
+    // #12: CI green 02:30, review success 02:40, merge 03:00.
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '02')).toMatchObject({ pr: '12', ci_to_gate_s: '600', gate_to_merge_s: '1200', green_to_merge_s: '1200', green_by: 'Gate' })
+  })
+
+  it('takes the earliest of two review success statuses: a later re-post does not move the Gate, a pending mark is no verdict', () => {
+    // #11: review pending 02:40, success 02:50, success again 02:57 (the one statusCheckRollup shows), merge 03:00.
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '01')).toMatchObject({ pr: '11', ci_to_gate_s: '900', gate_to_merge_s: '600', green_to_merge_s: '600' })
+  })
+
+  it('gives no Gate from a review later than the merge: an empty cell with the reason', () => {
+    // #14: merged 12:40, review success 13:00.
+    const why = 'no VERIFIED comment on the PR, review success after the merge'
+    expect(rowOf(csvRows(REVIEW), 'demo-epic', '04')).toMatchObject({ pr: '14', ci_to_gate_s: '', ci_to_gate_why: why, gate_to_merge_s: '', gate_to_merge_why: why, green_to_merge_s: '', green_to_merge_why: why })
+  })
+
+  /** A merged PR of demo-epic/01 through gh: head `sha`, merged 03:00, VERIFIED at 02:30 when `verified`. */
+  const ghPr = (verified: boolean): object => ({
+    number: 11,
+    headRefName: 'demo-epic/01',
+    state: 'MERGED',
+    createdAt: '2026-10-06T01:40:00Z',
+    mergedAt: '2026-10-06T03:00:00Z',
+    commits: [{ oid: 'a'.repeat(40), authoredDate: '2026-10-06T01:20:00Z' }, { oid: 'b'.repeat(40), authoredDate: '2026-10-06T01:30:00Z' }],
+    statusCheckRollup: [{ __typename: 'CheckRun', name: 'ci-ok', status: 'COMPLETED', conclusion: 'SUCCESS', completedAt: '2026-10-06T02:00:00Z' }],
+    comments: verified ? [{ createdAt: '2026-10-06T02:30:00Z', body: 'VERIFIED' }] : [],
+  })
+  const status = (createdAt: string, description = 'success'): object => ({ context: 'review', state: 'success', description, created_at: createdAt })
+
+  async function viaGh(pr: object, statuses: object[]): Promise<{ row: Record<string, string>; calls: string[][] }> {
+    const calls: string[][] = []
+    let text = ''
+    const gh = async (args: string[]): Promise<GhResult> => {
+      calls.push(args)
+      if (args[0] === 'api') return { code: 0, stdout: JSON.stringify(statuses), stderr: '' }
+      if (args[0] === 'run') return { code: 0, stdout: '[]', stderr: '' }
+      return { code: 0, stdout: JSON.stringify(pr), stderr: '' }
+    }
+    const args = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01', '--csv']
+    expect(await criticalPath(args, { env: {}, home: '/Users/someone', cwd: tempDir(), gh, out: (t) => (text += t), err: () => undefined })).toBe(0)
+    return { row: rowOf(parseCsv(text), 'demo-epic', '01'), calls }
+  }
+
+  it('asks gh for every commit status of the head commit, in the repository of the run, only when there is no VERIFIED', async () => {
+    const without = await viaGh(ghPr(false), [status('2026-10-06T02:40:00Z')])
+    expect(without.calls).toContainEqual(['api', `repos/owner/demo/commits/${'b'.repeat(40)}/statuses?per_page=100`])
+    expect(without.row).toMatchObject({ ci_to_gate_s: '2400', gate_to_merge_s: '1200' })
+    const withVerified = await viaGh(ghPr(true), [status('2026-10-06T02:40:00Z')])
+    expect(withVerified.calls.filter((call) => call[0] === 'api')).toEqual([])
+    expect(withVerified.row).toMatchObject({ ci_to_gate_s: '1800', gate_to_merge_s: '1800' })
+  })
+
+  it('skips a review land carried onto a rebased head: its time is the land run, not a verdict', async () => {
+    const carried = 'carried from 1234567: the PR diff outside .scratch is unchanged'
+    const only = await viaGh(ghPr(false), [status('2026-10-06T02:59:00Z', carried)])
+    const why = 'no VERIFIED comment on the PR, review on the PR head only carried by land'
+    expect(only.row).toMatchObject({ gate_to_merge_s: '', gate_to_merge_why: why })
+    // A carried mark earlier than the head's own review does not move the Gate either.
+    const both = await viaGh(ghPr(false), [status('2026-10-06T02:50:00Z'), status('2026-10-06T02:20:00Z', carried)])
+    expect(both.row).toMatchObject({ gate_to_merge_s: '600' })
+  })
+})
+
 describe('critical-path: the summary of an Epic', () => {
   it('sums and takes the median of each step and names the critical step by both', () => {
     const rows = csvRows(DEMO)
