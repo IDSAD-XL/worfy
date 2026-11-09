@@ -18,6 +18,7 @@ import { PR_INBOX_FILE, prInboxSetting } from '../../src/main/projects/pr-inbox-
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { prInboxSnapshotSchema, type PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { removeTestTree } from '../remove'
 import { ghWorld, type GhWorld } from './gh-world'
 
 beforeEach(() => {
@@ -27,7 +28,7 @@ beforeEach(() => {
 const temps: string[] = []
 afterEach(() => {
   vi.unstubAllEnvs()
-  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  for (const dir of temps.splice(0)) removeTestTree(dir)
 })
 
 function tempDir(): string {

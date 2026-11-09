@@ -80,3 +80,34 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
 - `test/fixtures/gh/gh-stub.mjs`
 - `test/contract/pr-inbox.test.ts` (новый)
 - `test/unit/pr-inbox-groups.test.ts` (новый)
+
+## Итог
+
+- Сначала падающий: оба новых файла test-ов красные до реализации — модуля `src/main/github/inbox.ts` нет.
+- Читатель — класс `PrInbox` (`src/main/github/inbox.ts`). Оба `search(type: ISSUE)` идут в одном вызове
+  `gh api graphql` (два поля с alias-ами `review` и `involves`), вместе с `viewer { login }` и
+  `rateLimit { limit remaining resetAt }`. Узел поиска несёт ещё `repository { nameWithOwner }`: без него у Project-а из
+  нескольких репозиториев нельзя понять, чей PR.
+- Вызовов gh за один поиск Project-а с N PR: `gh auth token -u <account>` (1, когда Profile называет аккаунт) + поиск
+  (1) + детали `ceil(M / 10)`, где M — PR со сдвинутым `updatedAt` (при первом поиске M = N). Повтор на 503 — до 2 раз;
+  502/504 делит страницу пополам до одного PR. Кроме gh — `bin/profile` (аккаунт) и `git remote get-url origin` на
+  каждый репозиторий, только когда поиск Project-а подошёл по времени.
+- Детали — alias-ы `pN: repository(owner: $oN, name: $nN) { pullRequest(number: $kN) { … } }` с переменными `-f`/`-F`,
+  без подстановки имён в текст запроса. CI — `commits(last: 1) { … statusCheckRollup { state } }`. Номер комментария
+  для REST (`databaseId` строки) берётся из его `url` (`#discussion_r…`, `#issuecomment-…`): GraphQL `databaseId` типа
+  Int переполняется на новых комментариях GitHub.
+- Кэш — по аккаунту (логин или `''` для своего аккаунта gh); PR, которых не нашёл ни один поиск, из кэша уходят.
+  Пауза ниже 10 % rate limit — тоже на аккаунт: ни поиск, ни `refresh` не идут до `resetAt`, интервал не удваивается.
+- Группы — `groupOf`/`groupPulls`, порядок правил: Needs my review → Needs my answer → Needs a fix → Ready → Waiting
+  on others, первая подходящая. Needs my answer — также нерешённая нить на чужом PR, где я писал, а последний
+  комментарий не мой. Чужой PR без моего хода не показывается. Ready без CI (`ci: null`) считается зелёным. Needs my
+  review — сначала старые по `createdAt`, остальные группы — сначала старые по `updatedAt`.
+- «N new since you looked» — комментарии не мои новее `seenAt`; без записи — все не мои. `pr-inbox.json` пишется только
+  по `prInbox.markSeen`: чтение файл не создаёт.
+- `prInbox: false` читается из `settings.json` без остальной схемы (`prInboxSetting`), файл не переносится и не
+  переписывается. Вне «Где в коде»: `src/main/projects/settings.ts` — сохранение без `prInbox` (Save диалога Project
+  settings его не шлёт) держит сохранённое значение, как `humanReview`; test — в `test/contract/projects.test.ts`.
+  `test/unit/link-access.test.ts` — `prInbox.get` в списке `read`, `prInbox.markSeen` в списке `write`.
+  `docs/features/storage-and-diagnostics.md` — строка `pr-inbox.json` и поле `prInbox` в таблице папки Project-а.
+- Запуск — `startPrInbox()` в `src/main/index.ts` рядом с gate queue: таймер раз в 30 с смотрит, чей поиск подошёл;
+  первый `prInbox.get` читает Project сразу.
