@@ -11,7 +11,7 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 47 (flaky Windows) ждёт 20 зелёных `windows-e2e`. Влиты 73 (#1663: hook `UserPromptSubmit` со строками Stage, cwd на Windows), 74 (#1668: Electron из `actions/cache`, 3 попытки).
+- `worfy-polish`: 47 (flaky Windows): части 10–12 влиты 11-09; закрыть после Windows-job-ов main до 11-12. Влиты 73 (#1663, hook Stage), 74 (#1668, Electron из cache).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 59/61; открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
@@ -24,15 +24,15 @@
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
-- `worfy-product-session`: 14/18; 11-08 влиты 09 (#1659), 11 (#1654), 14 (#1672), 18 (#1680), 13 (#1675). 08 blocked: экран Mind map. Дальше 15, 16; 17 после 15.
+- `worfy-product-session`: 18/24; 19–24 (экран как прототип) влиты 11-09; 08, 21, 23 ждут взгляда владельца. Дальше 15; 17 после 15.
 - `worfy-scrub`: guard `scripts/check-personal.mjs` блокирует `pnpm lint` (06); слова — только `<Harness home>/user/privacy.json` владельца, хэши — `--hash-from`.
-- `worfy-human-review`: 11/12; 11-08 влиты 05, 07–10 (10 — #1662), 11 (#1673), 12 (#1679; blocked: живой прогон и приёмка).
+- `worfy-human-review`: 12/13; 13 влит 11-09 (#1701, eval 3/3, $13.32); 12 blocked: приёмка владельца.
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
-- Владелец в Mac Stable: экран Mind map (`worfy-product-session` 08), приёмка `worfy-human-review` 12.
+- Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), приёмка `worfy-human-review` 12.
 
 ## Риски и долги
 
