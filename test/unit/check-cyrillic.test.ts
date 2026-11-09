@@ -60,9 +60,27 @@ async function eslintErrors(root: string): Promise<string[]> {
   return results.flatMap((r) => r.messages.map((m) => `${r.filePath.slice(root.length + 1).replaceAll('\\', '/')}:${m.line}`)).sort()
 }
 
+/**
+ * Git without the machine's own configuration: a global excludes file of the developer must not
+ * decide which files of the case count as ignored.
+ */
+function gitEnv(root: string): NodeJS.ProcessEnv {
+  const empty = join(root, '.git-empty-config')
+  writeFileSync(empty, '')
+  return { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1' }
+}
+
+/** Makes a root a git work tree and stages `add` (paths relative to the root) in its index. */
+function gitInit(root: string, add: string[] = []): void {
+  for (const args of [['init', '-q'], ...(add.length > 0 ? [['add', '-f', '--', ...add]] : [])]) {
+    const git = spawnSync('git', args, { cwd: root, encoding: 'utf8', env: gitEnv(root) })
+    expect(git.status, git.stderr).toBe(0)
+  }
+}
+
 /** Runs the command on a root, under the real node (test/script-node.ts). */
 function run(root: string): { status: number | null; lines: string[]; stderr: string } {
-  const child = spawnSync(scriptNode(), [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const child = spawnSync(scriptNode(), [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...gitEnv(root), ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr
     .split('\n')
     .filter((l) => /^[^\s:]+:\d+: /.test(l))
@@ -330,5 +348,43 @@ describe('the command (files ESLint does not read)', () => {
     const r = run(tree({ 'harness/lib/input-words.json': '{"statusDone": ["выкачено"]}\n', 'src/notes.md': 'По-русски.\n' }))
     expect(r.lines).toEqual([])
     expect(r.status).toBe(0)
+  })
+})
+
+describe('the command: which files it reads', () => {
+  // Cyrillic text of an eval report: the eval writes the Russian prompts of its cases into report.html.
+  const report = '<p>Отчёт eval-а</p>\n'
+  const ignore = 'harness/evals/results/\n'
+
+  it('leaves out a gitignored file of a git work tree: an eval report under harness/evals/results/', () => {
+    const root = tree({ '.gitignore': ignore, 'harness/evals/results/x/report.html': report })
+    gitInit(root)
+    const r = run(root)
+    expect(r.lines).toEqual([])
+    expect(r.status, r.stderr).toBe(0)
+  })
+
+  it('reads the same file when it is not ignored: a new file git has not been told about yet', () => {
+    const root = tree({ 'harness/evals/results/x/report.html': report })
+    gitInit(root)
+    const r = run(root)
+    expect(r.lines).toEqual(['harness/evals/results/x/report.html:1'])
+    expect(r.status).toBe(1)
+  })
+
+  it('reads a tracked file under an ignored folder and skips a tracked file deleted from the disk', () => {
+    const root = tree({ '.gitignore': ignore, 'harness/evals/results/kept.html': report, 'harness/hooks/gone.sh': '# комментарий\n' })
+    gitInit(root, ['harness/evals/results/kept.html', 'harness/hooks/gone.sh'])
+    removeTestTree(join(root, 'harness', 'hooks'))
+    const r = run(root)
+    expect(r.lines).toEqual(['harness/evals/results/kept.html:1'])
+    expect(r.status, r.stderr).toBe(1)
+  })
+
+  it('outside a git work tree reads every file of the four folders, .gitignore or not', () => {
+    const root = tree({ '.gitignore': ignore, 'harness/evals/results/x/report.html': report, 'scripts/a.sh': '# комментарий\n' })
+    const r = run(root)
+    expect(r.lines).toEqual(['harness/evals/results/x/report.html:1', 'scripts/a.sh:1'])
+    expect(r.status).toBe(1)
   })
 })
