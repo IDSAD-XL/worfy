@@ -67,14 +67,18 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
   Profile-ом нет, папки Profile-а нет, Project-а нет в списке.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/contract/projects.test.ts) · mac - · 5f636c185
+  - evidence: gate pass · `gate fast` exit 0 (round 1: projects-remove, projects contract tests) · mac - · d02b622cb
 - [ ] Повторное подключение того же репозитория после «Remove project…» проходит без отказа «already in the gate
   registry».
   - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 5f636c185
   - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 · mac - · 5f636c185
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/projects-connect.spec.ts` exit 0 (round 1) · mac - · d02b622cb
 - [ ] Silent mode с ticket-ами в Workflow folder по умолчанию: отказ виден, ничего не удалено.
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects-remove.test.ts, test/unit/remove-project.test.tsx) · mac - · 5f636c185
+  - evidence: gate pass · `gate fast` exit 0 (round 1: commits-only Workflow folder refused before any stop) · mac - · d02b622cb
 - [ ] «Remove from list» — прежнее поведение.
   - evidence: gate pass · `gate fast` exit 0 (test/contract/projects.test.ts projects.remove, test/unit/use-projects.test.tsx) · mac - · 5f636c185
+  - evidence: gate pass · `gate fast` exit 0 (round 1: use-projects dialog Remove from list) · mac - · d02b622cb
 - [ ] `docs/features/projects.md:259` (и перевод в `docs/features/ru/`) описывает обе строки меню.
   - evidence: commit pass · Remove project frees the Project's paths in the Harness (worfy-polish 79) · - - · 1949a9caf
 
@@ -128,3 +132,16 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 - `docs/features/projects.md` описывает обе строки меню. Перевод `docs/features/ru/` не правился (ADR-0088: в PR с
   поведением правится только английская страница).
 - Перенос Full ↔ Silent не сделан — следующий ticket (раздел «Вне скоупа»).
+
+Round 1 ревью (PR #1741), commit `d02b622cb`:
+
+- Profile в старой папке Harness-а (`~/.claude/profiles/<name>`, её ещё находит `bin/profile`) — отказ в preview:
+  `project-connect --remove` ищет только в `<Harness home>/projects`. «no profile» от скрипта считается успехом, только
+  если в registry не осталось записей этого Profile-а. Путь `runs` берётся из Harness home.
+- Workflow folder по умолчанию только с commit-ами (без файлов) — отказ до остановки Orchestrator-а и Session-ов, как
+  отказал бы сам Harness; test проверяет, что ни stop, ни close не было.
+- Диалог и `docs/features/projects.md` говорят вынести саму папку, а не файлы.
+- Мелочи: оставшиеся коллекции qmd названы в notice; другой Project списка внутри той же папки (тот же Profile)
+  удерживается закрытым и назван в диалоге и notice; понятная причина без «exit code 3»; сравнение Workflow folder по
+  обоим написаниям и с `~/`; test «Remove from list» внутри диалога.
+- Mutation testing в отдельной копии под /tmp (`pnpm install --frozen-lockfile`): 7 mutant-ов, все убиты.
