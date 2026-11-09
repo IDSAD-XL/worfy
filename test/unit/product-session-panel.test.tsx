@@ -13,6 +13,7 @@ import { adviceShare, type AdviceShare } from '../../src/shared/product/share'
 import { defaultAppSettings, PRODUCT_SESSION_SPLIT_MIN, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { SubagentInfo } from '../../src/shared/transcript/subagents'
 import { MIN_SHARE } from '../../src/renderer/focus/split-tree'
+import { productAgentState, productAgentTime } from '../../src/renderer/session/product-agents'
 
 const subagents = vi.hoisted(() => ({ tree: [] as unknown[], hidden: {} as Record<string, string[]> }))
 
@@ -299,8 +300,14 @@ const criticWrote = (text: string): unknown[] => [
 
 const agent = (id: string, type: string | null, more: Partial<SubagentInfo> = {}): SubagentInfo => ({ ...subagent(id), name: null, subagentType: type, transcript: true, ...more })
 
+/** Each agent of the list as one line, its name and then its state line: «Critic — working · 3 objections». */
+const agentLines = (root: HTMLElement = document.body): string[] =>
+  within(root)
+    .getAllByTestId('product-agent')
+    .map((row) => `${within(row).getByTestId('product-agent-line').textContent} — ${within(row).getByTestId('product-agent-state').textContent}`)
+
 describe('the agents strip of a Product Session', () => {
-  it('shows the number of Subagents, the nested ones too, and opens the list of the agents by name and state over the chat', async () => {
+  it('shows the number of Subagents, the nested ones too, and opens the list of the agents by name and state', async () => {
     subagents.tree = [
       agent('critic-1', 'worfy:critic', { description: 'Find objections to the roadmap', children: [agent('scout-1', 'worfy:scout', { depth: 2, status: 'error' })] }),
       agent('ideas-1', 'worfy:product-ideas', { status: 'done' }),
@@ -316,7 +323,7 @@ describe('the agents strip of a Product Session', () => {
     fireEvent.click(toggle)
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     const panel = screen.getByTestId('product-agents-panel')
-    const lines = () => within(panel).getAllByTestId('product-agent-line').map((line) => line.textContent)
+    const lines = () => agentLines(panel)
     await vi.waitFor(() => expect(lines()).toEqual(['Critic — working · 3 objections', 'worfy:scout — error', 'Idea generator — done']))
     expect(within(panel).getByText('Find objections to the roadmap')).toBeTruthy()
     expect(within(panel).getAllByTestId('product-agent').map((row) => row.dataset.status)).toEqual(['running', 'error', 'done'])
@@ -351,7 +358,7 @@ describe('the agents strip of a Product Session', () => {
     }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
-    const lines = () => screen.getAllByTestId('product-agent-line').map((line) => line.textContent)
+    const lines = () => agentLines()
     await vi.waitFor(() => expect(lines()).toEqual(['Critic — working', 'Critic — done', 'Critic — done · 1 objection', 'Critic — interrupted · no objections']))
     expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(4)
   })
@@ -381,7 +388,7 @@ describe('the agents strip of a Product Session', () => {
     }
     await mount()
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
-    const lines = () => screen.getAllByTestId('product-agent-line').map((line) => line.textContent)
+    const lines = () => agentLines()
     await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(5))
     await vi.waitFor(() => expect(lines()).toEqual(['Critic — done · 1 objection', 'Critic — done · 2 objections', 'Critic — done', 'Critic — done', 'Critic — done']))
   })
@@ -395,7 +402,7 @@ describe('the agents strip of a Product Session', () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    expect(screen.getByTestId('product-agent-line').textContent).toBe('Critic — done')
+    expect(agentLines()[0]).toBe('Critic — done')
   })
 
   it('a running critic gets its number once it writes its review: its transcript is read again while the list is open', async () => {
@@ -406,7 +413,7 @@ describe('the agents strip of a Product Session', () => {
       transcripts = { 'critic-1': criticWrote(review(2)).slice(0, 1) }
       await mount()
       fireEvent.click(screen.getByTestId('product-agents-toggle'))
-      const line = () => screen.getByTestId('product-agent-line').textContent
+      const line = () => agentLines()[0]
       await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'claudeHome.subagentTranscript')).toHaveLength(1))
       expect(line()).toBe('Critic — working')
       transcripts = { 'critic-1': criticWrote(review(2)) }
@@ -426,13 +433,47 @@ describe('the agents strip of a Product Session', () => {
     }
   })
 
+  // worfy-product-session ticket 22: as the prototype, the task comes second and the state on its own line
+  // with the time — how long a running agent has worked, how long ago a finished one ended.
+  it('puts the task second and the state on a line of its own with its time and the critic’s objections', async () => {
+    const now = Date.now()
+    subagents.tree = [
+      agent('critic-1', 'worfy:critic', { description: 'Check the plan against the facts', startedAt: now - 90_000 }),
+      agent('ideas-1', 'worfy:product-ideas', { status: 'done', description: 'Six ideas for the owner', startedAt: now - 10 * 60_000, durationMs: 6 * 60_000 }),
+    ]
+    transcripts = { 'critic-1': criticWrote(review(3)) }
+    await mount()
+    fireEvent.click(screen.getByTestId('product-agents-toggle'))
+    const rows = screen.getAllByTestId('product-agent')
+    expect(rows.map((row) => [...row.children].map((part) => part.className))).toEqual([
+      ['w-product__agent-line', 'w-product__agent-about', 'w-product__agent-state'],
+      ['w-product__agent-line', 'w-product__agent-about', 'w-product__agent-state'],
+    ])
+    expect(rows.map((row) => within(row).getByTestId('product-agent-line').textContent)).toEqual(['Critic', 'Idea generator'])
+    await vi.waitFor(() => expect(screen.getAllByTestId('product-agent-state').map((line) => line.textContent)).toEqual(['working · 1 min · 3 objections', 'done · 4 min ago']))
+  })
+
+  it('words the time of an agent in whole minutes, and leaves it out when the tree has none', () => {
+    const now = 1_000_000_000
+    const at = (status: SubagentInfo['status'], startedAt: number | null, durationMs: number | null = null) => productAgentTime({ status, startedAt, durationMs }, now)
+    expect(at('running', now - 30_000)).toBe('under 1 min')
+    expect(at('running', now - 59 * 60_000)).toBe('59 min')
+    expect(at('running', now - 65 * 60_000)).toBe('1 h 05 min')
+    expect(at('done', now - 60_000, 50_000)).toBe('just now')
+    expect(at('error', now - 3 * 60 * 60_000, 60_000)).toBe('2 h 59 min ago')
+    expect(at('running', null)).toBeUndefined()
+    expect(at('done', now - 60_000, null)).toBeUndefined()
+    expect(productAgentState('done', 2, '4 min ago')).toBe('done · 4 min ago · 2 objections')
+    expect(productAgentState('interrupted')).toBe('interrupted')
+  })
+
   it('leaves the hidden Subagents out of the list, as out of the count', async () => {
     subagents.tree = [agent('critic-1', 'worfy:critic'), agent('old-1', 'worfy:implementer', { status: 'done' })]
     subagents.hidden = { 'live-1': ['old-1'] }
     await mount()
     expect(screen.getByTestId('product-agents-count').textContent).toBe('1')
     fireEvent.click(screen.getByTestId('product-agents-toggle'))
-    expect(screen.getAllByTestId('product-agent-line').map((line) => line.textContent)).toEqual(['Critic — working'])
+    expect(agentLines()).toEqual(['Critic — working'])
   })
 
   it('shows 0 while the Session has no Subagents, and says so in the list', async () => {

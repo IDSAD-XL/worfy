@@ -22,12 +22,12 @@ import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type
 // With `find` (⌘F, worfy-ui ticket 26, transcript-find.ts) the matches are painted, the current one
 // is scrolled to, and the folded line or closed row it is in opens. Every row carries its key in
 // `data-row` and every searched part its id in `data-find`. In a Product Session's chat
-// (ProductSessionContext, worfy-product-session ticket 09) a turn's answer carries the chips of the Mind
-// map nodes its `mind_map_*` calls wrote (../product/node-chips.ts), and a node card's «Show in the chat»
-// scrolls to the row with the chips of the turn its message came in, marked with `data-shown`. That chat
-// draws only the conversation (ticket 19, product-session.ts, shownInProductChat): the messages are bubbles
-// with the role and the time, as in the owner's prototype; the pointer on a message lights the nodes of
-// its chips; while a turn runs, «Advisor is thinking…» stands at the end.
+// (ProductSessionContext, worfy-product-session ticket 09) a message carries the chips of the Mind map
+// nodes the `mind_map_*` calls after it wrote (../product/node-chips.ts, ticket 22), and a node card's «Show
+// in the chat» scrolls to the row with the chip of the call its message came in, marked with `data-shown`.
+// That chat draws only the conversation (ticket 19, product-session.ts, shownInProductChat): the messages
+// are bubbles with the role, the time and their number, as in the owner's prototype; the pointer on a
+// message lights the nodes of its chips; while a turn runs, «Advisor is thinking…» stands at the end.
 
 export interface TranscriptProps {
   events: readonly AgentEvent[]
@@ -224,9 +224,10 @@ function Row({
 
 /**
  * A message of a Product Session's chat (ticket 19, Q5): a bubble, the owner's at the right edge and the
- * advisor's at the left, under a meta line with the role and the time, as the owner's prototype draws them.
+ * advisor's at the left, under a meta line with the role, the time and the message's number in the chat
+ * (ticket 22), as the owner's prototype draws them.
  */
-function Message({ who, at, testId, children }: { who: 'you' | 'advisor'; at: number | null; testId: string; children: ReactNode }) {
+function Message({ who, at, number, testId, children }: { who: 'you' | 'advisor'; at: number | null; number: number | undefined; testId: string; children: ReactNode }) {
   const rowKey = useContext(RowKey)
   const when = useRowTime(at)
   return (
@@ -240,6 +241,14 @@ function Message({ who, at, testId, children }: { who: 'you' | 'advisor'; at: nu
           <>
             <span aria-hidden="true">·</span>
             <RowTime at={at as number} when={when} />
+          </>
+        ) : null}
+        {number !== undefined ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="w-pmsg__number" data-testid="product-message-number">
+              #{number}
+            </span>
           </>
         ) : null}
       </div>
@@ -267,6 +276,19 @@ function Thinking() {
       </div>
     </div>
   )
+}
+
+/**
+ * The number of each message of a Product Session's chat — the owner's prompts and the advisor's answers —
+ * by row key, from 1.
+ * shortcut: counts from the first message the transcript holds, so a chat that shows only the tail of a long
+ * Session numbers from there and renumbers once earlier rows load; redo when the transcript tells how many
+ * messages came before its first event.
+ */
+function messageNumbers(items: readonly TranscriptItem[]): ReadonlyMap<string, number> {
+  const numbers = new Map<string, number>()
+  for (const item of items) if (item.kind === 'prompt' || item.kind === 'text') numbers.set(item.key, numbers.size + 1)
+  return numbers
 }
 
 /** The Mind map nodes of a message's chips, for the light on the pointer; none without chips. */
@@ -440,7 +462,7 @@ function ResultRow({ event }: { event: Extract<AgentEvent, { type: 'result' }> }
   )
 }
 
-function Item({ item, props, product }: { item: TranscriptItem; props: TranscriptProps; product: boolean }) {
+function Item({ item, props, product, number }: { item: TranscriptItem; props: TranscriptProps; product: boolean; number?: number }) {
   const assistant = props.assistantLabel ?? 'claude'
   const current = props.find?.current
   // What find's current match opens in this row: its line «N tools» or the row's closed line.
@@ -450,7 +472,7 @@ function Item({ item, props, product }: { item: TranscriptItem; props: Transcrip
   const find = (part: string): string => partId(item.key, part)
   if (product && item.kind === 'prompt') {
     return (
-      <Message who="you" at={item.at} testId="transcript-prompt">
+      <Message who="you" at={item.at} number={number} testId="transcript-prompt">
         {item.text !== '' || item.attachments.length === 0 ? (
           <div className="w-pmsg__text" data-find={find('prompt')}>
             {item.text}
@@ -462,7 +484,7 @@ function Item({ item, props, product }: { item: TranscriptItem; props: Transcrip
   }
   if (product && item.kind === 'text') {
     return (
-      <Message who="advisor" at={item.at} testId="transcript-text">
+      <Message who="advisor" at={item.at} number={number} testId="transcript-text">
         <div data-streaming={item.streaming || undefined} data-find={find('text')}>
           <Markdown text={item.text} projectId={props.projectId} breaks />
         </div>
@@ -684,6 +706,8 @@ export function Transcript(props: TranscriptProps) {
   // The chips of a Product Session's chat, from all its rows; none in any other.
   const product = inProduct && props.projectId !== undefined ? props.projectId : null
   const chips = useMemo(() => (product === null ? null : transcriptChips(folded, shownInProductChat)), [product, folded])
+  // The number of each message of a Product Session's chat, from 1 in the order drawn (ticket 22): the meta line shows it.
+  const numbers = useMemo(() => (inProduct ? messageNumbers(items) : null), [inProduct, items])
   const shownMessage = useMindMapFocus((state) => state.shown)
   useEffect(() => (product === null ? undefined : attachChat(product)), [product])
   // A chat that goes while the pointer is on one of its messages leaves no node lit.
@@ -988,7 +1012,7 @@ export function Transcript(props: TranscriptProps) {
         onMouseLeave={refs === undefined ? undefined : () => lightNodes([])}
       >
         <RowKey.Provider value={item.key}>
-          <Item item={item} props={props} product={inProduct} />
+          <Item item={item} props={props} product={inProduct} number={numbers?.get(item.key)} />
         </RowKey.Provider>
         {product !== null && rowChips !== undefined ? <NodeChips projectId={product} chips={rowChips} /> : null}
       </div>,

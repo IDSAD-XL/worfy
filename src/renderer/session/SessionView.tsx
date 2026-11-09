@@ -263,7 +263,10 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         <div className="w-product__chat-head" data-testid="product-chat-head">
           <span className="w-product__chat-title">Conversation</span>{' '}
           <span className="w-product__chat-who">with the advisor</span>
-          <VendorBadge vendor={nodeSession.vendor} muted testId="product-chat-vendor" />
+          {/* A small bordered tag, as the prototype has it (ticket 22). */}
+          <span className="w-product__chat-vendor">
+            <VendorBadge vendor={nodeSession.vendor} muted testId="product-chat-vendor" />
+          </span>
         </div>
       ) : null}
       <SessionFind find={find} />
@@ -286,7 +289,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   )
 
   return (
-    <div className="w-session" data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId} data-transcript-events={past.events.length}>
+    <div className={`w-session${product ? ' w-session--product' : ''}`} data-testid="session-view" data-session-id={sessionId ?? undefined} data-node-id={nodeId} data-transcript-events={past.events.length}>
       <header className="w-session__header" data-toast-keep-out="">
         <span className="w-session__icon" aria-hidden="true">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

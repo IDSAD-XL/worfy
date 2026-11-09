@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import type { SubagentInfo } from '../../shared/transcript/subagents'
 import { INTERRUPTED_TOOLTIP, TREE_POLL_MS } from '../claude-home/subagents'
 import { invoke } from '../ipc'
-import { criticReviewOf, isCritic, objectionCount, productAgentName, productAgentState } from './product-agents'
+import { useNow } from '../limits/useLimits'
+import { criticReviewOf, isCritic, objectionCount, productAgentName, productAgentState, productAgentTime } from './product-agents'
 
 // The list the agents strip of a Product Session opens (ProductSessionPanel.tsx; worfy-product-session
 // ticket 20, Q6 of the owner's decisions of 2026-11-08), as the prototype has it: one row per agent of the
-// Session with a status dot, the name and the state — «Critic — working · 3 objections» — and what it was
-// asked to do under it. The words are in product-agents.ts.
+// Session with a status dot and the name, what it was asked to do under them, and its state on a muted line
+// of its own with the time and the critic's objections — «working · 1 min · 3 objections», «done · 4 min ago»
+// (ticket 22). The words are in product-agents.ts.
 
 /** The end of a critic's transcript read for its review: the Write of the review comes just before its answer. */
 const REVIEW_WINDOW_BYTES = 2 * 1024 * 1024
@@ -60,6 +62,8 @@ function useObjectionCounts(root: string | undefined, session: string | null, ag
 
 export function ProductAgentsList({ agents, root, session }: { agents: readonly SubagentInfo[]; root: string | undefined; session: string | null }) {
   const counts = useObjectionCounts(root, session, agents)
+  // The times on the state lines move on with the clock, a minute at a time.
+  const now = useNow()
   if (agents.length === 0) {
     return (
       <p className="w-product__agents-empty" data-testid="product-agents-empty">
@@ -83,9 +87,11 @@ export function ProductAgentsList({ agents, root, session }: { agents: readonly 
             <div className="w-product__agent-line" data-testid="product-agent-line">
               <span className="w-product__agent-dot" data-status={info.status} aria-hidden="true" />
               <span className="w-product__agent-name">{productAgentName(info)}</span>
-              <span className="w-product__agent-state">{` — ${productAgentState(info.status, objections)}`}</span>
             </div>
             {info.description ? <div className="w-product__agent-about">{info.description}</div> : null}
+            <div className="w-product__agent-state" data-testid="product-agent-state">
+              {productAgentState(info.status, objections, productAgentTime(info, now))}
+            </div>
           </li>
         )
       })}

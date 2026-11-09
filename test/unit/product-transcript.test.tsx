@@ -141,6 +141,21 @@ describe('the chat of a Product Session', () => {
     expect(within(theirs).getByTestId('product-message-bubble').textContent).toContain('Sell to small teams first.')
   })
 
+  // worfy-product-session ticket 22: «Advisor · 14:03 · #2», as the prototype numbers the messages.
+  it('each message’s meta line carries its number in the chat; the rows left out take none', () => {
+    render(<Product events={EVERY_ROW} />)
+    const numbers = (testId: string) => screen.getAllByTestId(testId).map((row) => within(row).getByTestId('product-message-number').textContent)
+    // The prompts are messages 1, 3 and 4; the one answer drawn (not the synthetic one) is 2.
+    expect(numbers('transcript-prompt')).toEqual(['#1', '#3', '#4'])
+    expect(numbers('transcript-text')).toEqual(['#2'])
+    expect(screen.getAllByTestId('transcript-text')[0]!.querySelector('.w-pmsg__meta')!.textContent).toMatch(/^AAdvisor·.+·#2$/u)
+  })
+
+  it('a plain Session’s rows carry no message number', () => {
+    render(<Transcript events={EVERY_ROW} sessionId="s1" projectId="p1" />)
+    expect(screen.queryAllByTestId('product-message-number')).toEqual([])
+  })
+
   it('«the advisor is thinking» stands at the end of the chat while a turn runs and goes once it ends', () => {
     const events = [prompt('What could we sell?')]
     const { rerender } = render(<Product events={events} working />)

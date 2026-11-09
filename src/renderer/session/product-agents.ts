@@ -4,8 +4,9 @@ import { harnessName } from '../../shared/agent/subagent-type'
 import type { SubagentInfo, SubagentStatus } from '../../shared/transcript/subagents'
 
 // The words of the agents list of a Product Session (ProductAgentsList.tsx, worfy-product-session
-// ticket 20; Q6 of the owner's decisions of 2026-11-08): each agent by a name a person reads and its
-// state — «Critic — working · 3 objections», «Idea generator — done».
+// tickets 20 and 22; Q6 of the owner's decisions of 2026-11-08): each agent by a name a person reads and
+// its state with its time — «Critic» · «working · 1 min · 3 objections», «Idea generator» · «done · 4 min
+// ago».
 //
 // The critic's number of objections comes from its own transcript: the Write of its review into the
 // critic folder (harness/agents/critic.md: `critic/<epic>-<YYYY-MM-DD>.md`, objections `### 1.` to
@@ -30,11 +31,36 @@ export function productAgentName(info: Pick<SubagentInfo, 'subagentType' | 'name
 
 const STATES: Readonly<Record<SubagentStatus, string>> = { running: 'working', done: 'done', error: 'error', interrupted: 'interrupted' }
 
-/** The state after the name: «working», «done · 3 objections»; `objections` only when the review is known. */
-export function productAgentState(status: SubagentStatus, objections?: number): string {
-  if (objections === undefined) return STATES[status]
-  const count = objections === 0 ? 'no objections' : objections === 1 ? '1 objection' : `${objections} objections`
-  return `${STATES[status]} · ${count}`
+const MINUTE_MS = 60 * 1000
+
+/** A span of time in whole minutes, as the prototype words it: «1 min», «1 h 05 min»; under a minute, null. */
+function minutesOf(ms: number): string | null {
+  const minutes = Math.floor(ms / MINUTE_MS)
+  if (minutes < 1) return null
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`
+}
+
+/**
+ * The time on an agent's state line (ticket 22), at `now`: how long a running agent has worked — «1 min»,
+ * «under 1 min» — and how long ago a finished one ended — «4 min ago», «just now». Undefined when the
+ * Subagent tree has no time for it.
+ */
+export function productAgentTime(info: Pick<SubagentInfo, 'status' | 'startedAt' | 'durationMs'>, now: number): string | undefined {
+  if (info.startedAt === null) return undefined
+  if (info.status === 'running') return minutesOf(now - info.startedAt) ?? 'under 1 min'
+  if (info.durationMs === null) return undefined
+  const ago = minutesOf(now - (info.startedAt + info.durationMs))
+  return ago === null ? 'just now' : `${ago} ago`
+}
+
+/**
+ * The state line under an agent's name and task: «working · 1 min · 3 objections», «done · 4 min ago»;
+ * `time` from productAgentTime when known, `objections` only when the review is known.
+ */
+export function productAgentState(status: SubagentStatus, objections?: number, time?: string): string {
+  const count = objections === undefined ? undefined : objections === 0 ? 'no objections' : objections === 1 ? '1 objection' : `${objections} objections`
+  return [STATES[status], time, count].filter((part) => part !== undefined).join(' · ')
 }
 
 /** A file of the critic folder, with `/` or `\`. */

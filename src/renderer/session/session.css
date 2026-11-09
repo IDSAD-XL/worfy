@@ -37,6 +37,18 @@
   overflow: hidden;
 }
 
+/* A Product Session's header as the owner's prototype has it (worfy-product-session ticket 22): 48 px on
+   the toolbar's background, the title at 14 px. A plain Session's header stays as it is. */
+.w-session--product .w-session__header {
+  height: 48px;
+  background: var(--toolbar);
+  border-bottom-color: var(--toolbar-border);
+}
+
+.w-session--product .w-session__title {
+  font-size: 14px;
+}
+
 .w-session__icon {
   width: 24px;
   height: 24px;
@@ -389,12 +401,33 @@ body.w-split-dragging * {
 
 .w-product__agents {
   flex: 0 0 40px;
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
+  transition: flex-basis 0.2s ease;
+}
+
+/* The open list widens the agents column to 300 px and the chat narrows: nothing is covered (ticket 22). */
+.w-product__agents[data-open] {
+  flex-basis: 300px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w-product__agents {
+    transition: none;
+  }
+}
+
+/* 39 px and the column's 1 px border: the strip is 40 px wide, the list 260 px beside it. */
+.w-product__agents-strip {
+  flex: 0 0 39px;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding-top: var(--space-2);
-  background: var(--surface-raised);
-  border-left: 1px solid var(--border);
 }
 
 .w-product__agents-button {
@@ -432,20 +465,14 @@ body.w-split-dragging * {
   text-align: center;
 }
 
-/* The list opens over the chat, right of it, as wide as the rail of a plain Session. */
+/* The list stands right of the strip, inside the widened column. */
 .w-product__agents-panel {
-  position: absolute;
-  top: 0;
-  right: 40px;
-  bottom: 0;
-  z-index: 2;
-  width: 300px;
+  flex: 0 0 260px;
+  min-width: 0;
   box-sizing: border-box;
   padding: 0 var(--space-4) 14px;
   overflow-y: auto;
-  background: var(--surface-raised);
   border-left: 1px solid var(--border);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
 }
 
 .w-product__agents-head {
@@ -497,7 +524,6 @@ body.w-split-dragging * {
   align-items: baseline;
   gap: 7px;
   font-size: 13px;
-  color: var(--text-muted);
 }
 
 .w-product__agent-name {
@@ -505,8 +531,11 @@ body.w-split-dragging * {
   color: var(--text);
 }
 
+/* The state on its own muted line, with the time and the critic's objections (ticket 22). */
 .w-product__agent-state {
-  min-width: 0;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
 .w-product__agent-dot {
@@ -533,7 +562,6 @@ body.w-split-dragging * {
 
 .w-product__agent-about {
   margin-top: 3px;
-  margin-left: 15px;
   font-size: var(--text-12);
   color: var(--text-secondary);
 }
@@ -601,6 +629,16 @@ body.w-split-dragging * {
   margin-left: auto;
 }
 
+/* The Vendor as a small bordered tag in muted text (ticket 22). */
+.w-product__chat-vendor {
+  display: inline-flex;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-weight: 400;
+}
+
 .w-product .w-tr {
   padding: 14px 14px var(--space-2);
   gap: var(--space-3);
@@ -628,6 +666,10 @@ body.w-split-dragging * {
   color: var(--text-muted);
 }
 
+.w-pmsg__number {
+  font-variant-numeric: tabular-nums;
+}
+
 .w-pmsg__meta .w-tr__time {
   display: inline;
 }
@@ -647,7 +689,8 @@ body.w-split-dragging * {
   font-size: 9.5px;
   font-weight: 700;
   color: var(--bg);
-  background: var(--accent);
+  /* The prototype's Product violet (--product, #be9fff in the dark theme): the theme's violet. */
+  background: var(--span-verifier);
 }
 
 .w-pmsg--you .w-pmsg__avatar {
@@ -662,6 +705,7 @@ body.w-split-dragging * {
   border-radius: 10px;
   border-top-left-radius: 3px;
   background: var(--bg);
+  font-size: 13.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   user-select: text;
@@ -733,9 +777,72 @@ body.w-split-dragging * {
   }
 }
 
-/* A Product Session's field: one line under the text, attaching at the left, Interrupt and Send at the right. */
+/* A Product Session's field as the owner's prototype has it (MessageInput.tsx, worfy-product-session ticket
+   22): one line — attaching, a 38 px field in the UI font on the background, Interrupt during a turn and a
+   text Send button — with no lime focus ring. The buttons sit at the field's last line as it grows. */
+.w-composer--product {
+  padding: 10px 12px 12px;
+}
+
 .w-composer__line[data-line='product'] {
-  min-height: var(--w-session-button-height);
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+
+.w-composer--product .w-composer__box {
+  flex: 1;
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.w-composer--product .w-composer__box:focus-within {
+  border-color: var(--text-muted);
+  box-shadow: none;
+}
+
+.w-composer--product .w-composer__field {
+  min-height: 36px;
+  padding: 8px 10px;
+  font-family: var(--font-ui);
+  font-size: var(--text-13);
+  line-height: 18px;
+}
+
+.w-composer--product .w-composer__attach,
+.w-composer--product .w-session__button,
+.w-composer--product .w-composer__send-group {
+  margin-bottom: 6px;
+}
+
+.w-composer--product .w-composer__attach {
+  margin-bottom: 7px;
+}
+
+/* Two classes: the round icon button's rules (.w-composer__send) come later in this file. */
+.w-composer__send.w-composer__send--text {
+  width: auto;
+  height: var(--w-session-button-height);
+  padding: 0 10px;
+  border-color: var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: none;
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.w-composer__send.w-composer__send--text:hover:not(:disabled) {
+  box-shadow: var(--hover-shadow);
+}
+
+.w-composer__send.w-composer__send--text:disabled {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  opacity: 0.4;
 }
 
 /* Transcript */

@@ -545,7 +545,8 @@
 }
 
 /* The chips of Mind map nodes under a chat message (NodeChips.tsx): in the chat, outside .w-mind, so
-   with the Mind map's colours of their own. */
+   with the Mind map's colours of their own. As the owner's prototype draws them (ticket 22): a pill with
+   a small square of the kind's colour and a muted line; an overturned Decision's chip is red. */
 .w-chips {
   --mind-idea: #2b8bc6;
   --mind-question: var(--blocked-text);
@@ -555,7 +556,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  margin: var(--space-1) 0 0;
+  margin: 5px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -570,21 +571,23 @@
 .w-chips__chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  max-width: 260px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--mind-kind, var(--border-strong));
-  border-radius: var(--radius-node);
+  gap: 5px;
+  max-width: 100%;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
   background: var(--surface-raised);
-  color: var(--text);
-  font-size: var(--text-12);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
   cursor: pointer;
 }
 
 .w-chips__chip:hover,
 .w-chips__chip:focus-visible {
-  background: color-mix(in srgb, var(--mind-kind, var(--accent)) 12%, var(--surface-raised));
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 
 .w-chips__chip:focus-visible {
@@ -603,21 +606,32 @@
 }
 .w-chips__chip--rejected {
   --mind-kind: var(--mind-rejected);
-  color: var(--text-muted);
 }
 .w-chips__chip--objection {
   --mind-kind: var(--mind-objection);
 }
+.w-chips__chip--overturned {
+  --mind-kind: var(--span-problem);
+  border-color: color-mix(in srgb, var(--span-problem) 40%, var(--border));
+  color: var(--span-problem);
+}
+.w-chips__chip--overturned:hover,
+.w-chips__chip--overturned:focus-visible {
+  border-color: var(--span-problem);
+  color: var(--span-problem);
+}
 
-.w-chips .w-mind__icon {
+/* The square of the kind's colour. */
+.w-chips__mark {
+  width: 7px;
+  height: 7px;
   flex: none;
-  min-width: 1.1em;
-  color: var(--mind-kind, var(--text-secondary));
-  font-weight: 700;
-  text-align: center;
+  border-radius: 2px;
+  background: var(--mind-kind, var(--text-muted));
 }
 
 .w-chips__text {
+  max-width: 230px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

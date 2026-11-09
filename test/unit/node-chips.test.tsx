@@ -1,7 +1,7 @@
-// The chips of Mind map nodes under the advisor's messages (src/renderer/product/NodeChips.tsx,
-// node-chips.ts; worfy-product-session ticket 09). The chips come from the turn's `mind_map_*` calls,
-// whose answer is the node as written: under a message of a turn with two `mind_map_add` calls there are
-// two chips. A click on a chip selects the node on the Mind map (its card opens), the pointer on a chip
+// The chips of Mind map nodes under the messages of a Product Session's chat (src/renderer/product/NodeChips.tsx,
+// node-chips.ts; worfy-product-session tickets 09 and 22). The chips come from the `mind_map_*` calls,
+// whose answer is the node as written; a node's chip stands under the message that made it — the last
+// message drawn before its call: under an answer followed by two `mind_map_add` calls there are two chips. A click on a chip selects the node on the Mind map (its card opens), the pointer on a chip
 // lights the node; a node's «Show in the chat» brings the chat to the row its message came in. A plain
 // Session's chat shows no chips.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
@@ -19,6 +19,7 @@ vi.mock('../../src/renderer/projects/useProjects', () => ({ useReadOnly: () => n
 
 const ADD = 'mcp__worfy-mind-map__mind_map_add'
 const DECIDE = 'mcp__worfy-mind-map__mind_map_decide'
+const UPDATE = 'mcp__worfy-mind-map__mind_map_update'
 
 const prompt = (text: string): AgentEvent => ({ type: 'notice', kind: 'user', text })
 const text = (value: string, messageId: string): AgentEvent => ({ type: 'text', text: value, messageId, parentToolUseId: null, synthetic: false })
@@ -34,14 +35,14 @@ const answer = (toolUseId: string, content: unknown, isError = false): AgentEven
 const TEAMS = { id: 'idea-teams', kind: 'idea', text: 'Sell to small teams', from: 'ticket:01', advice: true, message: 'uuid-1' }
 const WHO = { id: 'who-pays', kind: 'question', text: 'Who pays for it?', from: 'idea-teams', message: 'uuid-2' }
 
-/** A turn with two mind_map_add calls and the answer, then a turn with a plain call only. */
+/** A turn with the answer and the two mind_map_add calls after it, then a turn with a plain call only. */
 const events: AgentEvent[] = [
   prompt('What could we sell?'),
+  text('Two nodes: an idea and the question it raises.', 'msg-1'),
   call('t1', ADD, { topic: 'demo-roadmap', kind: 'idea', text: TEAMS.text, from: 'ticket:01', advice: true }),
   answer('t1', TEAMS),
   call('t2', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
   answer('t2', WHO),
-  text('Two nodes: an idea and the question it raises.', 'msg-1'),
   prompt('Thanks'),
   call('t3', 'Bash', { command: 'ls' }),
   answer('t3', 'a.md'),
@@ -113,14 +114,15 @@ function ProductBody({ shown = events }: { shown?: readonly AgentEvent[] }) {
 }
 
 describe('chips of Mind map nodes under a message', () => {
-  it('a message of a turn with two mind_map_add calls has two chips; a turn without them has none', () => {
+  it('an answer followed by two mind_map_add calls has two chips; a turn without them has none', () => {
     render(<ProductBody />)
     const lists = screen.getAllByTestId('node-chips')
     expect(lists).toHaveLength(1)
     const chips = within(lists[0]!).getAllByTestId('node-chip')
     expect(chips.map((chip) => chip.dataset['id'])).toEqual(['idea-teams', 'who-pays'])
-    expect(chips.map((chip) => chip.textContent)).toEqual(['✦Sell to small teams', '?Who pays for it?'])
-    // Under the turn's answer, not under the next turn's.
+    expect(chips.map((chip) => chip.textContent)).toEqual(['+ Idea: Sell to small teams', '+ Question: Who pays for it?'])
+    // Under the turn's answer, not under its prompt nor the next turn's.
+    expect(screen.getByText('What could we sell?').closest('[data-item]')!.querySelector('[data-testid="node-chips"]')).toBeNull()
     const answerRow = screen.getByText('Two nodes: an idea and the question it raises.').closest('[data-item]')!
     expect(answerRow.contains(lists[0]!)).toBe(true)
     expect(screen.getByText('Nothing to add.').closest('[data-item]')!.querySelector('[data-testid="node-chips"]')).toBeNull()
@@ -252,24 +254,93 @@ describe('chips of Mind map nodes under a message', () => {
     expect(document.querySelector('[data-item][data-shown]')).not.toBeNull()
   })
 
-  it('a decision written twice in one turn is one chip, as its last call left it; a refused call makes none', () => {
+  it('a node written twice under one message is one chip, as its last call left it; a refused call makes none', () => {
     const decided = { ...WHO, kind: 'decision', status: 'rejected', reason: 'No one pays', message: 'uuid-3' }
     const items = foldTranscript([
       prompt('Decide'),
+      text('Rejected.', 'msg-1'),
       call('t1', ADD, { topic: 'demo-roadmap', kind: 'question', text: WHO.text, from: 'idea-teams' }),
       answer('t1', WHO),
       call('t2', DECIDE, { topic: 'demo-roadmap', id: 'who-pays', status: 'rejected', reason: 'No one pays' }),
       answer('t2', decided),
       call('t3', ADD, { topic: 'demo-roadmap', kind: 'idea', text: 'x', from: 'nowhere' }),
       answer('t3', 'The change is refused, nothing was written', true),
-      text('Rejected.', 'msg-1'),
     ])
     const { byRow, rowOfMessage } = transcriptChips(items, shownInProductChat)
-    expect([...byRow.values()].map((chips) => chips.map((chip) => [chip.topic, chip.node.id, chip.node.status]))).toEqual([[['demo-roadmap', 'who-pays', 'rejected']]])
+    // Added under this message, then decided: one chip, added, as the decision left it.
+    expect([...byRow.values()].map((chips) => chips.map((chip) => [chip.topic, chip.node.id, chip.node.status, chip.change]))).toEqual([[['demo-roadmap', 'who-pays', 'rejected', 'added']]])
     expect([...rowOfMessage.entries()]).toEqual([
-      ['uuid-2', 'e7'],
-      ['uuid-3', 'e7'],
+      ['uuid-2', 'e1'],
+      ['uuid-3', 'e1'],
     ])
+  })
+
+  // worfy-product-session ticket 22: the prototype puts each node's chip under the message that made it,
+  // not all of a turn's chips under its last answer.
+  it('each node’s chip stands under the message drawn before its call: a call before any answer under the prompt', () => {
+    const IDEA = { id: 'idea-1', kind: 'idea', text: 'One map for a solo author', from: null, message: 'uuid-a' }
+    const QUESTION = { id: 'q-1', kind: 'question', text: 'Who decides?', from: 'idea-1', message: 'uuid-b' }
+    const OBJECTION = { id: 'o-1', kind: 'objection', text: 'Teams differ', from: 'idea-1', source: 'PR #1', message: 'uuid-c' }
+    const DECISION = { id: 'd-1', kind: 'decision', text: 'The human decides', from: 'q-1', status: 'accepted', reason: 'Owner said so', message: 'uuid-c' }
+    const turn: AgentEvent[] = [
+      prompt('A tool for a solo author'),
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'idea', text: IDEA.text, from: null }),
+      answer('t1', IDEA),
+      text('I propose one map.', 'msg-2'),
+      call('t2', ADD, { topic: 'demo-roadmap', kind: 'question', text: QUESTION.text, from: 'idea-1' }),
+      answer('t2', QUESTION),
+      text('Two things to weigh.', 'msg-3'),
+      call('t3', ADD, { topic: 'demo-roadmap', kind: 'objection', text: OBJECTION.text, from: 'idea-1', source: 'PR #1' }),
+      answer('t3', OBJECTION),
+      call('t4', ADD, { topic: 'demo-roadmap', kind: 'decision', text: DECISION.text, from: 'q-1', status: 'accepted', reason: 'Owner said so' }),
+      answer('t4', DECISION),
+    ]
+    const { byRow, rowOfMessage } = transcriptChips(foldTranscript(turn), shownInProductChat)
+    expect([...byRow].map(([row, chips]) => [row, chips.map((chip) => chip.node.id)])).toEqual([
+      ['e0', ['idea-1']],
+      ['e3', ['q-1']],
+      ['e6', ['o-1', 'd-1']],
+    ])
+    expect(rowOfMessage.get('uuid-a')).toBe('e0')
+    expect(rowOfMessage.get('uuid-b')).toBe('e3')
+    render(<ProductBody shown={turn} />)
+    const chipsUnder = (message: string) =>
+      within(screen.getByText(message).closest<HTMLElement>('[data-item]')!)
+        .queryAllByTestId('node-chip')
+        .map((chip) => chip.textContent)
+    expect(chipsUnder('A tool for a solo author')).toEqual(['+ Idea: One map for a solo author'])
+    expect(chipsUnder('I propose one map.')).toEqual(['+ Question: Who decides?'])
+    expect(chipsUnder('Two things to weigh.')).toEqual(['+ Objection: Teams differ', '+ Decision ✓: The human decides'])
+  })
+
+  it('a chip names the kind: «+» for a node added, none for one changed, a red «↺ … → rejected» for an overturned Decision', () => {
+    const ACCEPTED = { id: 'd-1', kind: 'decision', text: 'Harness first', from: null, status: 'accepted', reason: 'Fast', message: 'uuid-1' }
+    const OVERTURNED = { ...ACCEPTED, status: 'rejected', reason: 'Users first', history: [{ status: 'accepted', reason: 'Fast', message: 'uuid-1' }], message: 'uuid-2' }
+    const RENAMED = { ...TEAMS, text: 'Sell to solo authors', message: 'uuid-3' }
+    const turns: AgentEvent[] = [
+      prompt('Start'),
+      text('Harness first.', 'msg-1'),
+      call('t1', ADD, { topic: 'demo-roadmap', kind: 'decision', text: ACCEPTED.text, from: null, status: 'accepted', reason: 'Fast' }),
+      answer('t1', ACCEPTED),
+      prompt('No, users first'),
+      text('Overturned.', 'msg-2'),
+      call('t2', DECIDE, { topic: 'demo-roadmap', id: 'd-1', status: 'rejected', reason: 'Users first' }),
+      answer('t2', OVERTURNED),
+      call('t3', UPDATE, { topic: 'demo-roadmap', id: 'idea-teams', text: RENAMED.text }),
+      answer('t3', RENAMED),
+    ]
+    render(<ProductBody shown={turns} />)
+    const chipsUnder = (message: string) => within(screen.getByText(message).closest<HTMLElement>('[data-item]')!).getAllByTestId('node-chip')
+    const [added] = chipsUnder('Harness first.')
+    expect(added!.textContent).toBe('+ Decision ✓: Harness first')
+    expect(added!.className).toContain('w-chips__chip--decision')
+    const [overturned, changed] = chipsUnder('Overturned.')
+    expect(overturned!.textContent).toBe('↺ “Harness first” → rejected')
+    expect(overturned!.className).toContain('w-chips__chip--overturned')
+    expect(overturned!.dataset['change']).toBe('overturned')
+    expect(overturned!.getAttribute('aria-label')).toBe('Show on the Mind map: ↺ “Harness first” → rejected')
+    expect(changed!.textContent).toBe('Idea: Sell to solo authors')
+    expect(changed!.dataset['change']).toBe('changed')
   })
 
   it('a plain Session’s chat shows no chips', () => {
