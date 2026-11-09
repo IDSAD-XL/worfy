@@ -85,7 +85,15 @@ The input field keeps about 126 px in a chat as narrow as the agents list leaves
   file behind "Load earlier" is not searched, and the find bar then says "Earlier messages not loaded".
 - The input field is one line, as in the prototype: the attach button, a field in the interface font, Interrupt while a
   turn runs, and a text "Send" button. It keeps attaching a file or a picture. It has no pickers, context meter, queue
-  chip or hints. A message sent while a turn runs still waits in the queue.
+  chip or hints.
+- A message sent while a turn runs waits in the Session's queue, and the chat shows it at once: the owner's bubble,
+  dimmed, with "queued" and no number, last in the chat, below "Advisor is thinking" and below whatever the advisor
+  writes meanwhile. Several wait in the order sent. Once the turn ends, worfy gives the next one to the advisor, and it
+  becomes an ordinary message with its number. "×" takes a queued message out before it is sent.
+- Interrupt, or a crash of the agent's process, holds the queue: its messages say "queued · held", and "Send queued"
+  under the last of them lets the queue go again. A message sent after Interrupt goes at once and does not free the
+  held ones. When the Session is closed, its queued messages are never sent: they stay last in the chat, marked
+  "not sent".
 
 **What it may not do.** A Product Session changes no code, takes no Tickets, starts no Autopilot and never changes the repository with git.
 Three layers hold this, all for Claude Code:
@@ -161,8 +169,9 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | The header, the body, the chat's heading and the agents strip |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | The agents list: names, states, the critic's objections |
 | `src/renderer/session/ProductRailPanels.tsx` | The Critic, Idea generator and Drafts panels of the strip |
-| `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out |
+| `src/renderer/session/product-session.ts` | `shownInProductChat`: the rows the chat shows; the input field's items it leaves out; `chatQueue`: the queue as the chat draws it |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | The chat as bubbles and "Advisor is thinking" |
+| `src/renderer/session/QueuedMessages.tsx` | The queued messages at the end of the chat, "Send queued" and "×" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
 | `src/renderer/session/SplitDivider.tsx` | The divider |
 | `src/shared/settings/app-settings.ts` | The saved split, `productSession.split` |
@@ -177,7 +186,7 @@ changes make one message. One signal runs at a time per Project.
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` in a Product Session, the Product Session folder by mode.
 - `test/contract/product-save-signal.test.ts`: the save signal and its answers, also on Close and archive.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: the rows the chat shows and hides, the
-  bubbles, "Advisor is thinking", find, the header and the input field against a plain Session.
+  bubbles, "Advisor is thinking", the queued messages, find, the header and the input field against a plain Session.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: the screen, the divider, the
   strip, its four panels and the Node.
 - `test/e2e/new-product-session.spec.ts`: the Command palette entry in the running app.

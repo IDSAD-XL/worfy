@@ -816,6 +816,46 @@ body.w-split-dragging * {
   white-space: pre-wrap;
 }
 
+/* A message still in the Session's queue (ticket 28): the owner's bubble, dimmed, last in the chat. */
+.w-pmsg--queued {
+  opacity: 0.55;
+}
+
+.w-pmsg--queued .w-pmsg__bubble {
+  border-style: dashed;
+}
+
+.w-pmsg__queued {
+  font-style: italic;
+}
+
+.w-pmsg--queued[data-status='not-sent'] .w-pmsg__queued {
+  color: var(--danger-text);
+  font-style: normal;
+}
+
+.w-pmsg__unqueue {
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.w-pmsg__unqueue:hover {
+  color: var(--text);
+}
+
+.w-pmsg__attached {
+  color: var(--text-muted);
+  font-size: var(--text-11);
+}
+
+.w-pmsg__send-queued {
+  margin-left: auto;
+}
+
 /* The pointer on a message with chips lights its nodes on the Mind map; the bubble shows it is the one. */
 .w-product .w-tr__item:has(.w-chips):hover .w-pmsg__bubble {
   border-color: var(--accent);

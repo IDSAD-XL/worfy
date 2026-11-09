@@ -74,7 +74,14 @@ Session, доля принятых советов (см. последний ра
 - Поиск (⌘F) ищет только в том, что показывает чат, и только в прочитанных сообщениях: часть файла transcript-а за
   «Load earlier» не ищется, и строка поиска тогда пишет «Earlier messages not loaded».
 - В строке ввода — текст, Send, Interrupt во время хода и прикрепление файла или картинки. Pickers, context meter, чипа
-  очереди и подсказок нет. Сообщение, отправленное во время хода, по-прежнему ждёт в очереди.
+  очереди и подсказок нет.
+- Сообщение, отправленное во время хода, ждёт в очереди Session, и чат сразу показывает его: пузырь владельца,
+  приглушённый, с надписью «queued» и без номера, последним в чате — ниже «Advisor is thinking» и ниже всего, что
+  советник пишет тем временем. Несколько сообщений стоят в порядке отправки. Когда ход кончается, worfy отдаёт
+  следующее советнику, и оно становится обычным сообщением со своим номером. «×» убирает сообщение из очереди до отправки.
+- Interrupt или падение процесса агента держат очередь: её сообщения подписаны «queued · held», а «Send queued» под
+  последним из них отпускает очередь. Сообщение, отправленное после Interrupt, уходит сразу и удержанные не отпускает.
+  Когда Session закрыта, сообщения из её очереди не уходят никогда: они остаются последними в чате с надписью «not sent».
 
 **Чего она не делает.** Product Session не меняет код, не берёт Ticket-ы, не запускает Autopilot и не меняет репозиторий через git. Это
 держат три слоя, все — для Claude Code:
@@ -149,8 +156,9 @@ Harness читает эту переменную: с ней печатаются
 | `src/renderer/session/SessionView.tsx`, `src/renderer/session/ProductSessionPanel.tsx` | Шапка, тело, заголовок чата и полоса агентов |
 | `src/renderer/session/ProductAgentsList.tsx`, `src/renderer/session/product-agents.ts` | Список агентов: имена, состояния, возражения критика |
 | `src/renderer/session/ProductRailPanels.tsx` | Панели Critic, Idea generator и Drafts полосы |
-| `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны |
+| `src/renderer/session/product-session.ts` | `shownInProductChat`: какие строки показывает чат; какие пункты строки ввода убраны; `chatQueue`: очередь, как её рисует чат |
 | `src/renderer/session/Transcript.tsx`, `src/renderer/session/session.css` | Чат пузырями и «Advisor is thinking» |
+| `src/renderer/session/QueuedMessages.tsx` | Сообщения очереди в конце чата, «Send queued» и «×» |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | Строка ввода в одну линию, поиск по показанным строкам |
 | `src/renderer/session/SplitDivider.tsx` | Разделитель |
 | `src/shared/settings/app-settings.ts` | Сохранённая доля, `productSession.split` |
@@ -163,7 +171,7 @@ Harness читает эту переменную: с ней печатаются
 - `test/contract/canvas-tools.test.ts`: `autopilot_start` в Product Session, папка Product Session по режиму.
 - `test/contract/product-save-signal.test.ts`: сигнал сохранения и его ответы, в том числе при Close и архиве.
 - `test/unit/product-transcript.test.tsx`, `test/unit/session-view.test.tsx`: какие строки чат показывает и прячет,
-  пузыри, «Advisor is thinking», поиск, шапка и строка ввода против обычной Session.
+  пузыри, «Advisor is thinking», сообщения очереди, поиск, шапка и строка ввода против обычной Session.
 - `test/unit/product-session-panel.test.tsx`, `test/unit/session-node-product.test.tsx`: экран, разделитель, полоса,
   её четыре панели и Node.
 - `test/e2e/new-product-session.spec.ts`: вход из Command palette в работающем приложении.

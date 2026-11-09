@@ -20,6 +20,7 @@ import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './M
 import { useOpenedSession } from './navigation'
 import { useWaitingRequests } from './open-requests'
 import { AcceptedAdvice, ProductSessionPanel, ProductTopicName } from './ProductSessionPanel'
+import { chatQueue } from './product-session'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -186,7 +187,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const { unseen } = useWaitingRequests(sessionId, view === undefined ? null : state)
   // A turn waiting for a permission answer still runs: Interrupt refuses the request (ticket 21).
   const busy = state === 'busy' || state === 'needs_permission'
-  const { settings, modelPick } = useSessionControls(sessionId)
+  const { settings, modelPick, queue } = useSessionControls(sessionId)
   // The SDK session id: the live id once it is Claude Code's own — a resumed Session's is a temporary
   // `pending-…` until system/init (src/main/agent/session.ts) — else the one the Session resumes.
   const claudeSessionId = sessionId !== null && !sessionId.startsWith('pending-') ? sessionId : (transcriptId ?? null)
@@ -289,6 +290,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         find={find.transcript}
         logRef={logRef}
         working={state === 'busy'}
+        queued={product ? chatQueue(queue, state) : null}
       />
       {/* Main has no open request either: no card to draw, so the chat says what the Session waits for. */}
       {unseen ? (

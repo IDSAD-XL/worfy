@@ -748,6 +748,62 @@ test('a Product Session’s question and permission cards stand in the narrow ch
   }
 })
 
+// Ticket 28 (owner, 2026-11-09): a message sent while the advisor works waits in the Session's queue, and the
+// chat shows it at once — last, dimmed, «queued» — below the running turn's output, until main delivers it
+// after the turn's result; then it is an ordinary message of the chat with its number. The fake script
+// product-queued.jsonl answers the first message, then holds the turn (`wait_release` "turn") until the test
+// lets it go; its second turn answers the queued message. The screenshot goes to the test's output folder.
+test('a message sent while the advisor works shows last in the chat as queued, and as an ordinary message once delivered', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-queued' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('What could we sell?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Reading the market notes first.')
+    await expect(view.getByTestId('session-state')).toHaveText('busy')
+
+    // Sent during the turn: it waits in the queue, and the chat shows it at once, last, below «Advisor is thinking».
+    await field.fill('And for solo founders?')
+    await field.press('Enter')
+    const log = view.getByTestId('transcript')
+    const queued = view.getByTestId('product-queued')
+    await expect(queued).toHaveCount(1)
+    await expect(queued.getByTestId('product-queued-label')).toHaveText('queued')
+    await expect(queued.getByTestId('product-message-bubble')).toHaveText('And for solo founders?')
+    await expect(queued.getByTestId('product-message-number')).toHaveCount(0)
+    expect(Number(await queued.evaluate((element) => (globalThis as unknown as { getComputedStyle(of: unknown): { opacity: string } }).getComputedStyle(element).opacity))).toBeLessThan(1)
+    const lastIsQueued = () => log.evaluate((element) => element.lastElementChild?.querySelector('[data-testid="product-queued"]') !== null)
+    expect(await lastIsQueued()).toBe(true)
+    await expect(view.getByTestId('product-thinking')).toBeVisible()
+    await expect(view.getByTestId('transcript-prompt')).toHaveCount(1)
+    await view.screenshot({ path: test.info().outputPath('28-queued-dark.png') })
+
+    // The turn goes on: its answer comes in above the queued message, which stays last until it is delivered.
+    await app.evaluate(() => (globalThis as unknown as { worfyFakeRelease: (name: string) => void }).worfyFakeRelease('turn'))
+    await expect(view.getByTestId('transcript-text').filter({ hasText: 'Sell to small teams first.' })).toHaveCount(1)
+    // After the turn's result main sends it: an ordinary message with its number, answered in its own turn.
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Solo founders come second.')
+    await expect(queued).toHaveCount(0)
+    const prompts = view.getByTestId('transcript-prompt')
+    await expect(prompts).toHaveCount(2)
+    await expect(prompts.last().getByTestId('product-message-bubble')).toHaveText('And for solo founders?')
+    await expect(prompts.last().getByTestId('product-message-number')).toHaveText('#4')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+  } finally {
+    await launched.close()
+  }
+})
+
 // The owner's case (ticket 30): the Session stands at «needs permission» and the chat shows no card. A window
 // that did not see the request go out — reloaded (View ▸ Reload, Ctrl+R) or opened after it — had no event
 // to draw the card from; the Product chat does not even show the AskUserQuestion tool call, so nothing at
