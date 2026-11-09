@@ -21,13 +21,19 @@
 //     fixtures are not personal. STAND_IN_HOSTS and STAND_IN_TAILSCALE below are the stand-ins of
 //     fixtures, never a finding (privacy.cjs knows the stand-in home folders and the example hosts).
 //   - deny-word: a word of the personal list, matched by its SHA-256 in scripts/check-personal.hashes.json
-//     (the list itself stays outside the repository). A path and a file's text are cut into words — runs
-//     of letters and digits of any script (\p{L}, \p{M}, \p{N}: a Cyrillic word is a word, and a
-//     combining accent stays inside its word), each in NFC and lower-cased; an entry of the list is
-//     cut the same way, so `foo-bar` and `foo.bar` are the two words foo and bar — and each word and each run of two and three
-//     neighbouring words joined with `-` is matched; neighbours may stand on two lines (wrapped prose),
-//     the finding is on the line of the first word. A personal word glued to another one or in another
-//     form (a plural) is not caught: an empty report is not proof that nothing personal is left.
+//     (the list itself stays outside the repository). A path and a file's text are cut into words, and
+//     each word and each run of two and three neighbouring words joined with `-` is matched; neighbours
+//     may stand on two lines (wrapped prose), the finding is on the line of the first word. Two cuts:
+//     runs of a-z and 0-9, and runs of letters, combining marks and digits of any script (\p{L},
+//     \p{M}, \p{N}); a word is lower-cased, and a non-ASCII word is taken in NFC. A text of ASCII
+//     only is cut the first way; any other text both ways, and a place both cuts find is one finding.
+//     An entry of the list is cut the second way, so `foo-bar`, `foo.bar` and `foo bar` are the two
+//     words foo and bar, and a Cyrillic entry is a word. What is not caught: a Latin entry glued to a
+//     Latin letter or digit (foobar for foo, a plural foos); a non-Latin entry glued to any letter,
+//     mark or digit (a Cyrillic case ending); an entry with a letter of another case form than its
+//     lower case (dotted I, Kelvin sign) where it stands inside the entry; an entry in another spelling
+//     or split by other characters than those between words. An empty report is not proof that nothing
+//     personal is left.
 //     The hash list: {"sha256": [the entries], "first": [...]}. "first" holds the first four hex
 //     digits of the hash of the first word of each entry of two or three words: only a word whose
 //     hash starts so is joined with its neighbours and hashed again. Without it the guard would hash
@@ -88,8 +94,10 @@ const BINARY_EXT = /\.(?:png|jpe?g|gif|webp|ico|icns|bmp|tiff?|pdf|zip|gz|tgz|bz
 const sha256 = (value) => hash('sha256', value, 'hex')
 const PREFIX = 4
 
-// A word: a run of letters, combining marks and digits of any script. A text of ASCII only (most
-// files) is cut by the ASCII form of the same rule, which is faster.
+// The two cuts of a text into words. ASCII_WORD: runs of a-z and 0-9, so a Latin word glued to a
+// non-ASCII character (an accent, a Cyrillic case ending, a superscript digit) is still a word.
+// WORD: runs of letters, combining marks and digits of any script, so a Cyrillic word is a word. A
+// text of ASCII only (most files) is cut by ASCII_WORD alone: there the two cuts are the same.
 const WORD = /[\p{L}\p{M}\p{N}]+/gu
 const ASCII_WORD = /[A-Za-z0-9]+/g
 const ASCII = /^[\p{ASCII}]*$/u
@@ -117,6 +125,34 @@ function wordHash(word) {
 }
 
 /**
+ * The deny-word findings of `text` cut into words by `re`, each word made a key by `normal`: each
+ * word and each run of two and three neighbouring words joined with `-`, pushed to `found`.
+ */
+function denyWords(text, re, normal, deny, found) {
+  const add = (start, end, key) => found.push({ rule: 'deny-word', index: start, length: end - start, key })
+  // The two words before the current one; `lead` when a word may start an entry of more words.
+  let before2
+  let before1
+  for (const m of text.matchAll(re)) {
+    const word = normal(m[0])
+    const h = wordHash(word)
+    const current = { word, start: m.index, lead: deny.first.has(h.slice(0, PREFIX)) }
+    const end = m.index + m[0].length
+    if (deny.full.has(h)) add(current.start, end, word)
+    if (before1?.lead) {
+      const pair = `${before1.word}-${word}`
+      if (deny.full.has(sha256(pair))) add(before1.start, end, pair)
+    }
+    if (before2?.lead) {
+      const triple = `${before2.word}-${before1.word}-${word}`
+      if (deny.full.has(sha256(triple))) add(before2.start, end, triple)
+    }
+    before2 = before1
+    before1 = current
+  }
+}
+
+/**
  * The findings of a text (a file's text or a path): [{ rule, index, length, key }], key is what an
  * exception hashes. `deny` is { full, first }: the hashes of the entries and the hash prefixes of
  * the first words of entries of more than one word.
@@ -132,27 +168,19 @@ function scan(text, deny) {
     found.push({ rule: f.rule, index: f.index, length: f.length, key: value })
   }
   if (deny.full.size > 0) {
-    const add = (start, end, key) => found.push({ rule: 'deny-word', index: start, length: end - start, key })
-    // The two words before the current one; `lead` when a word may start an entry of more words.
-    let before2
-    let before1
-    const ascii = ASCII.test(text)
-    for (const m of text.matchAll(ascii ? ASCII_WORD : WORD)) {
-      const word = ascii ? m[0].toLowerCase() : normalWord(m[0])
-      const h = wordHash(word)
-      const current = { word, start: m.index, lead: deny.first.has(h.slice(0, PREFIX)) }
-      const end = m.index + m[0].length
-      if (deny.full.has(h)) add(current.start, end, word)
-      if (before1?.lead) {
-        const pair = `${before1.word}-${word}`
-        if (deny.full.has(sha256(pair))) add(before1.start, end, pair)
+    if (ASCII.test(text)) denyWords(text, ASCII_WORD, (w) => w.toLowerCase(), deny, found)
+    else {
+      // Both cuts; a place both find (a plain Latin word) is one finding.
+      const both = []
+      denyWords(text, ASCII_WORD, (w) => w.toLowerCase(), deny, both)
+      denyWords(text, WORD, normalWord, deny, both)
+      const places = new Set()
+      for (const f of both) {
+        const place = `${f.index}:${f.length}`
+        if (places.has(place)) continue
+        places.add(place)
+        found.push(f)
       }
-      if (before2?.lead) {
-        const triple = `${before2.word}-${before1.word}-${word}`
-        if (deny.full.has(sha256(triple))) add(before2.start, end, triple)
-      }
-      before2 = before1
-      before1 = current
     }
   }
   return found.sort((a, b) => a.index - b.index || b.length - a.length)

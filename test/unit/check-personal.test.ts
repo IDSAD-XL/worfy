@@ -182,17 +182,26 @@ describe('check-personal: stand-ins', () => {
   })
 })
 
-describe('check-personal: a property read of code is not a host', () => {
-  it('finds no host in code that reads a .local property, and still finds a one-word host in prose, with a port and in a path', () => {
-    const local = (name: string): string => [name, 'local'].join('.')
-    const root = repo({
-      'src/link.ts': [`if (${local('root')} !== true) send(${local('side')}, x)`, `f(${local('this.options')})`, `const a = ${local('opts')} ?? b`, ''].join('\n'),
-      'docs/hosts.md': [`ssh ${local('studio')} to connect`, `open ${local('studio')}:52000 now`, `see /Volumes/x/${local('studio')}/file`, ''].join('\n'),
-    })
+describe('check-personal: a .local host in prose', () => {
+  it('finds a .local host before any punctuation and in any case, also where code would read a property', () => {
+    // Invented hosts, built at run time so that this file carries none of them whole.
+    const box = ['my', 'box', '.', 'local'].join('')
+    const lines = [
+      `(see ${box})`,
+      `hosts: ${box}, other`,
+      `ssh ${box};`,
+      `${box}: the Mac`,
+      `[${box}](https://example.com/x)`,
+      `{host: ${box}}`,
+      `(${['my', 'box', '.lan.', 'local'].join('')})`,
+      `(${['my', 'Box', '.', 'local'].join('')})`,
+      `${box} && ok`,
+      `a ${box} = b`,
+    ]
+    const root = repo({ 'docs/hosts.md': `${lines.join('\n')}\n` })
     const { status, stdout } = run(['--root', root])
     expect(status).toBe(1)
-    const host = mask(local('studio'))
-    expect(findings(stdout)).toEqual([`docs/hosts.md:1: host: ${host}`, `docs/hosts.md:2: host: ${host}`, `docs/hosts.md:3: host: ${host}`])
+    expect(findings(stdout).map((line) => line.replace(/: host: .*$/, ''))).toEqual(lines.map((_, i) => `docs/hosts.md:${i + 1}`))
   })
 })
 
@@ -345,6 +354,33 @@ describe('check-personal --hash-from', () => {
       `docs/a.md:4: deny-word: ${mask('brask-oy')}`,
       `docs/a.md:5: deny-word: ${mask(CYRILLIC)}`,
     ])
+  })
+
+  it('finds a Latin word of the list glued to a non-ASCII character in a file that holds non-ASCII text, and a Cyrillic word there too', () => {
+    const { status, stdout } = run(['--hash-from', list(['Zorblax', 'vex moor', CYRILLIC])])
+    expect(status).toBe(0)
+    // Each line glues the invented word to a non-ASCII letter, digit or mark: a Latin accent, a
+    // superscript digit, a combining accent, Cyrillic case endings, a dotted capital I.
+    const lines = [
+      'zorblax\u00e9 here',
+      '\u00cfzorblax here',
+      'zorblax\u00b2 here',
+      'zorblax\u0301 here',
+      'Zorblax\u0430 here',
+      'Zorblax\u0443 here',
+      'zorblax\u0130 here',
+      'the vex\u00e9 moor plan',
+      `${CYRILLIC} here`,
+    ]
+    const root = repo({ 'docs/ru.md': `${lines.join('\n')}\n` }, [])
+    writeFileSync(join(root, 'scripts', 'check-personal.hashes.json'), stdout)
+    const found = run(['--root', root])
+    expect(found.status).toBe(1)
+    expect(findings(found.stdout).map((line) => line.replace(/: deny-word: .*$/, ''))).toEqual(lines.map((_, i) => `docs/ru.md:${i + 1}`))
+    // One finding per place: the ASCII cut and the cut of any script find a plain word once.
+    const plain = repo({ 'docs/ru.md': 'zorblax \u0438 vex moor\n' }, [])
+    writeFileSync(join(plain, 'scripts', 'check-personal.hashes.json'), stdout)
+    expect(findings(run(['--root', plain]).stdout)).toEqual([`docs/ru.md:1: deny-word: ${mask('zorblax')}`, `docs/ru.md:1: deny-word: ${mask('vex moor')}`])
   })
 
   it('refuses an entry of four parts and an empty one with exit 1, naming the entry index and not its value', () => {
