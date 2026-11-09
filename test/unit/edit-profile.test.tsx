@@ -222,7 +222,15 @@ describe('Edit profile', () => {
 
   it('Escape closes Edit profile alone, and the focus goes back to its button', async () => {
     const form = await openForm()
-    fireEvent.keyDown(input(form, 'Title'), { key: 'Escape' })
+    // The window's own Escape handlers (focus mode, the Canvas) listen above React's root: the key stops at the dialog.
+    const window = vi.fn()
+    document.addEventListener('keydown', window)
+    try {
+      fireEvent.keyDown(input(form, 'Title'), { key: 'Escape' })
+    } finally {
+      document.removeEventListener('keydown', window)
+    }
+    expect(window).not.toHaveBeenCalled()
     expect(screen.queryByTestId('edit-profile')).toBeNull()
     expect(screen.getByTestId('project-settings')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit profile…' }))
