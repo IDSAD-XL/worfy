@@ -39,10 +39,18 @@ desktop, она называет terminal, и внизу пишет «Read-only:
 ## Готово, когда
 
 - [ ] Session Node worfy, не запущенный, в Session view: строка «Not running — Resume to continue» и кнопка Resume.
+  - evidence: test-run pass · `pnpm test test/unit/session-read-only-resume.test.tsx` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/new-product-session.spec.ts test/e2e/external-session.spec.ts test/e2e/session-picker.spec.ts test/e2e/subagent-tree.spec.ts` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 - [ ] Resume вызывает `sessions.resume` с `projectId` и id Session; при успехе view становится live view Node.
+  - evidence: test-run pass · `pnpm test test/unit/session-read-only-resume.test.tsx` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/new-product-session.spec.ts test/e2e/external-session.spec.ts test/e2e/session-picker.spec.ts test/e2e/subagent-tree.spec.ts` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 - [ ] Отказ main виден в view.
+  - evidence: test-run pass · `pnpm test test/unit/session-read-only-resume.test.tsx` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 - [ ] Session из terminal и из Claude desktop — прежние строки «Read-only: started in terminal» и «… in Claude desktop».
+  - evidence: test-run pass · `pnpm test test/unit/session-read-only-resume.test.tsx` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/new-product-session.spec.ts test/e2e/external-session.spec.ts test/e2e/session-picker.spec.ts test/e2e/subagent-tree.spec.ts` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 - [ ] Страница `docs/features/transcripts-and-usage.md` (и перевод в `docs/features/ru/`) говорит об этом.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · c635b902bc8d9d14b7dd3c2f1e5fa4f41ebc76f8
 
 ## Тесты
 
