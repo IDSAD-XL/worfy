@@ -16,7 +16,8 @@
 //
 // The steps are claim → PR → CI → Gate → merge. The claim is the first wave-started that names the
 // Ticket; without Autopilot, the first commit of its PR (the claim date of the Status has no time).
-// Gate is the last VERIFIED comment. CI is green at the last successful workflow run of the branch
+// Gate is the last VERIFIED comment; without one, a `review` commit status `success` on the PR head
+// (worfy-throughput 62: the review mark replaced the comment). CI is green at the last successful workflow run of the branch
 // that finished before the Gate (a rebase before the merge reruns CI after it); without the runs,
 // when every check of the PR's latest commit succeeded or was skipped, at the time the last one
 // finished. Green → merge (the owner's Q1, worfy-throughput 14) runs from the later of the last
@@ -66,7 +67,8 @@ Output
   an empty cell is "—" with the reason — and the summary: the sum and the median of each step
   and the critical step by both. CSV durations are seconds; the rows "sum" and "median" of
   each Epic carry the summary.
-  Green → merge: from the later of the last VERIFIED and a green CI on the PR head (ci-ok)
+  Gate: the last VERIFIED comment, else a review status success on the PR head.
+  Green → merge: from the later of the Gate and a green CI on the PR head (ci-ok)
   to the merge. Budget: 15 min, 30 min when the PR's diff touches src/renderer .tsx, .css
   or UI texts. The summary names each Ticket over budget and where the time after green
   went: the gate (until the last review or check mark) or the merge queue.
@@ -282,12 +284,21 @@ async function loadPrs(groups, options, deps, walked, root) {
   return found
 }
 
+const NO_GATE = 'no VERIFIED comment or review status on the PR'
+
+/** The Gate of a PR without a VERIFIED comment: the latest `review` status `success` on its head, or null. */
+function reviewMark(pr) {
+  let at = null
+  for (const mark of headMarks(pr)) if (mark.name === 'review' && String(mark.state).toUpperCase() === 'SUCCESS' && mark.at !== null && (at === null || mark.at > at)) at = mark.at
+  return at
+}
+
 /**
  * "Checks green" of the owner's Q1: the later of the last VERIFIED and a green CI on the PR head.
  * A push after the VERIFIED (a CI fix) moves it to that head's green CI. { at, by } or { why }.
  */
 function greenMark(pr, gate) {
-  if (gate === null) return { why: 'no VERIFIED comment on the PR' }
+  if (gate === null) return { why: NO_GATE }
   const ci = headCi(pr)
   if (ci.why !== undefined) return ci
   return ci.at !== null && ci.at > gate ? { at: ci.at, by: 'CI' } : { at: gate, by: 'Gate' }
@@ -334,9 +345,10 @@ function measure(ticket, prData) {
   } else if (file?.date) marks.start = { why: `claim date only (${file.date}), no time` }
   else marks.start = { why: 'no wave-started, no PR commits, no claim date' }
   const found = pr ? verdicts(pr) : null
+  if (found && found.gate === null) found.gate = reviewMark(pr)
   if (pr) {
     marks.pr = time(pr.createdAt) !== null ? { at: time(pr.createdAt) } : { why: 'no opening time on the PR' }
-    marks.gate = found.gate !== null ? { at: found.gate } : { why: 'no VERIFIED comment on the PR' }
+    marks.gate = found.gate !== null ? { at: found.gate } : { why: NO_GATE }
     marks.ci = ciMark(pr, found.gate)
     marks.green = greenMark(pr, found.gate)
     marks.merge = time(pr.mergedAt) !== null ? { at: time(pr.mergedAt) } : { why: `PR not merged (${pr.state ?? 'unknown'})` }
