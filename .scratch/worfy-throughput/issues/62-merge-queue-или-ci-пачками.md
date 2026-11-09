@@ -1,7 +1,8 @@
 # 62 — Merge queue или CI пачками: замер и рекомендация
 
 Type: task
-Status: claimed 2026-11-09T08:43Z
+Status: done 2026-11-09T09:44Z
+PR: #1725
 Branch: worfy-throughput/62
 Blocked by: 05
 Source: решение владельца 2026-11-09, Q6 (по «Итог» Ticket-а 05): «да» GitHub merge queue — или вариант владельца
@@ -43,7 +44,8 @@ Ticket-ы после того, как владелец прочтёт сравн
 - [ ] `critical-path` не читает status `review`: сейчас он ставится в момент merge, а не в момент вердикта; сначала
       продолжение 5 (ставить `review` в момент вердикта), потом чтение.
   - evidence: commit pass · measurement: review status to merge median 0.2 min on 67 PRs; review round 1 finding: Green to merge collapsed to 0; Итог section 6, follow-up 5 · - - · 7d6af5e3a8e2ba50d6521a0d0a8bf13947ac8b93
-- [ ] Владелец прочёл рекомендацию (вручную).
+- [x] Владелец прочёл рекомендацию (вручную).
+  - evidence: owner-check pass · owner 2026-11-09 read the Итог and answered «да» to Q1 (option B), Q2 (no merge queue, threshold 2 red mains a week), Q4 (rebase only on conflict), Q5 (red main rule), Q6 (new ADR-0103) · mac stable · 907b93cd2016504a89ded66b5e7d2e8e8e7e1dd2
 
 ## Тесты
 
@@ -177,3 +179,26 @@ merge (67 PR выборки: от `review` до merge медиана 0,2 min), �
 
 Порядок: сначала продолжение 5 — ставить `review` в момент вердикта; потом `critical-path` читает его как Gate (тогда
 пара строк в `measure()` и test).
+
+## Решение владельца 2026-11-09
+
+Владелец прочёл «Итог» и ответил «да» на все пять вопросов. Решение записано в
+[ADR-0103](../../../docs/adr/0103-merge-without-rebase-for-a-fresh-base.md); Ticket-ы-продолжения — 63–66.
+
+- **Q1 — вариант B.** PR, у которого на его собственном head зелёный `ci-ok` и нет конфликта, вливается без rebase
+  ради свежей базы. Сочетание PR проверяет push-run на `main` после merge.
+- **Q2 — merge queue нет.** Репозиторий не переходит в организацию GitHub ради merge queue (она есть только у
+  организаций, владелец репозитория — `User`). Вопрос возвращается, только если при варианте B за одну неделю будет
+  2 или больше красных `main` от несовместимых PR (замер — Ticket 66).
+- **Q4 — rebase только при конфликте.** Rebase нужен, только когда GitHub сообщает конфликт (`CONFLICTING` или
+  `DIRTY`). Других исключений нет: платформенный PR тоже вливается без rebase, его Windows verdict — job Windows в
+  составе `ci-ok` на его собственном head.
+- **Q5 — красный `main`.** Виноватый PR — тот, чей commit дал первый красный push-run на `main`. Пока `main`
+  красный, PR с кодом не вливаются, PR только с документами — вливаются. Исправление вперёд — не дольше 1 h,
+  потом revert виноватого PR. Сбой, который проходит при одном повторе упавших job-ов (правило «один повтор на
+  head»), — flaky test, а не вина PR.
+- **Q6 — новый ADR.** ADR-0103 частично заменяет ADR-0083: зелёный `ci-ok` на каждом PR остаётся условием merge,
+  уходит только требование rebase ради свежей базы.
+
+Продолжения из «Итог», часть 5, в Ticket-ах: 1 — ADR-0103 (этот PR; `rules-merge.md` Profile-а правит Orchestrator);
+2 — Ticket 63; 3 — Ticket 64; 4 — Ticket 66; 5 — Ticket 65; 6 — не нужен по Q2, пока порог не пройден.
