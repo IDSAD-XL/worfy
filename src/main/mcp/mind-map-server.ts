@@ -184,6 +184,27 @@ export const layoutChange =
     return { map: replaced(map, node), answer: null }
   }
 
+/**
+ * «Prettify» (ticket 31): every node's place by hand dropped — `x`, `y` and `placed` — in one write, so the
+ * screen lays the map out again. Nothing else of the nodes or the map changes.
+ */
+export const placesCleared =
+  (): MindMapChange<null> =>
+  (map) => ({
+    map: {
+      ...map,
+      nodes: map.nodes.map((node) => {
+        if (node.x === undefined && node.y === undefined && node.placed === undefined) return node
+        const rest: MindMapNode = { ...node }
+        delete rest.x
+        delete rest.y
+        delete rest.placed
+        return rest
+      }),
+    },
+    answer: null,
+  })
+
 export interface MindMapContext {
   /** The Product Session folder of the Project (productFolder); null when it could not be found, and every tool but product_save refuses. */
   productFolder: string | null

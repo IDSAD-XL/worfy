@@ -46,24 +46,30 @@ export const productTopic = invokeChannel('product.topic', z.object({ projectId:
 export const productChanged = eventChannel('product.changed', productTopicChangeSchema, 'project', 'read')
 
 /**
- * What the screen changes of one node of mind-map.json by hand: its place (`x` and `y` together) and
- * whether its branch is folded. Strict: any other field — the text, the kind, the status — is refused
- * here; the meaning of a node changes only through the advisor's tools.
+ * What the screen changes of mind-map.json by hand: the place of one node (`x` and `y` together) and
+ * whether its branch is folded, or — `clearPlaces` alone, «Prettify» (ticket 31) — the places of every
+ * node dropped. Strict: any other field — the text, the kind, the status — is refused here; the meaning
+ * of a node changes only through the advisor's tools.
  */
 export const productLayoutInputSchema = z
   .strictObject({
     projectId: z.string().min(1),
     name: topicName,
-    id: mindMapNodeIdSchema,
+    id: mindMapNodeIdSchema.optional(),
     x: z.number().finite().optional(),
     y: z.number().finite().optional(),
     collapsed: z.boolean().optional(),
+    clearPlaces: z.literal(true).optional(),
   })
   .refine((input) => (input.x === undefined) === (input.y === undefined), 'x and y go together')
-  .refine((input) => input.x !== undefined || input.collapsed !== undefined, 'nothing to change: give x and y, or collapsed')
+  .refine(
+    (input) => (input.clearPlaces === true ? input.id === undefined && input.x === undefined && input.collapsed === undefined : input.id !== undefined),
+    'clearPlaces goes alone; any other change names the node by id',
+  )
+  .refine((input) => input.clearPlaces === true || input.x !== undefined || input.collapsed !== undefined, 'nothing to change: give x and y, or collapsed')
 export type ProductLayoutInput = z.output<typeof productLayoutInputSchema>
 
-/** Writes a node's place or fold through main's one writer of mind-map.json; the screen sees it come back with `product.changed`. */
+/** Writes a node's place or fold, or drops every place, through main's one writer of mind-map.json; the screen sees it come back with `product.changed`. */
 export const productLayout = invokeChannel('product.layout', productLayoutInputSchema, z.null(), 'project', 'write')
 
 /**

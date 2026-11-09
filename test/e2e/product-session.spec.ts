@@ -11,8 +11,8 @@ import { canvasReady, launchApp } from './helpers'
 // `mind_map_add` call of topic `roadmap` and its answer (the node as written). The fake agent plays SDK
 // messages and calls no MCP server, so the test writes mind-map.json as the tool would have; the
 // screen draws the node from the file without a reload, and the message carries the node's chip.
-// A drag of the node writes its place through `product.layout` into the file, and after a restart the
-// screen draws the node at that place.
+// A drag of the node writes its place through `product.layout` into the file only while «Move nodes» is on
+// (ticket 31), and after a restart the screen draws the node at that place; «Prettify» drops it again.
 // A temporary WORFY_CLAUDE_HOME stands in for ~/.claude.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -134,8 +134,23 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(panel).toHaveCount(0)
     await expect.poll(async () => Math.round((await column.boundingBox())!.width)).toBe(40)
 
-    // A drag with the mouse; let go, main writes the place into the file.
+    // «Move nodes» is off (ticket 31): a drag on the node pans the map; the node keeps its place and nothing is written.
+    const moveNodes = map.getByRole('button', { name: 'Move nodes' })
+    await expect(moveNodes).toHaveAttribute('aria-pressed', 'false')
+    await expect(map.getByRole('button', { name: 'Prettify' })).toBeDisabled()
     const before = await drawnPlace(node)
+    const offBox = (await node.boundingBox())!
+    await window.mouse.move(offBox.x + offBox.width / 2, offBox.y + offBox.height / 2)
+    await window.mouse.down()
+    await window.mouse.move(offBox.x + offBox.width / 2 + 60, offBox.y + offBox.height / 2 + 40, { steps: 8 })
+    await window.mouse.up()
+    expect(await drawnPlace(node)).toEqual(before)
+    await expect.poll(async () => (await node.boundingBox())!.x).toBeGreaterThan(offBox.x + 30)
+    expect(readMap().nodes[0]?.x).toBeUndefined()
+
+    // A drag with the mouse once «Move nodes» is on; let go, main writes the place into the file.
+    await moveNodes.click()
+    await expect(moveNodes).toHaveAttribute('aria-pressed', 'true')
     const box = (await node.boundingBox())!
     await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await window.mouse.down()
@@ -175,6 +190,22 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     const node = view.getByTestId('product-session-map').locator(`[data-testid="mind-node"][data-id="${NODE.id}"]`)
     await expect(node).toBeVisible()
     await expect.poll(() => drawnPlace(node)).toEqual(seen.written)
+
+    // «Move nodes» is off again in the new start (ticket 31); «Prettify» asks, then drops the place from the
+    // file and draws the layout. The toolbar's screenshots go to the test's output folder.
+    await window.emulateMedia({ colorScheme: 'dark' })
+    const map = view.getByTestId('product-session-map')
+    await expect(map.getByRole('button', { name: 'Move nodes' })).toHaveAttribute('aria-pressed', 'false')
+    const toolbar = map.locator('.w-mind__toolbar')
+    await toolbar.screenshot({ path: test.info().outputPath('31-toolbar-dark.png') })
+    await map.getByRole('button', { name: 'Prettify' }).click()
+    const ask = map.getByRole('group', { name: 'Prettify' })
+    await expect(ask).toContainText('Drop 1 moved place?')
+    await toolbar.screenshot({ path: test.info().outputPath('31-toolbar-prettify-ask-dark.png') })
+    await ask.getByRole('button', { name: 'Prettify' }).click()
+    await expect.poll(() => readMap().nodes).toEqual([NODE])
+    await expect.poll(() => drawnPlace(node)).not.toEqual(seen.written)
+    await expect(map.getByRole('button', { name: 'Prettify' })).toBeDisabled()
     // Both Product Sessions are on the Canvas: the first start's and this one.
     const nodes = await window.evaluate(async (projectId) => {
       const bridge = (globalThis as unknown as { worfy: Bridge }).worfy

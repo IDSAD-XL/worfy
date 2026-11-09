@@ -4,7 +4,7 @@ import { productLayout, productShare, productTopic } from '../../shared/ipc/prod
 import { CRITIC_DIR, isProductTopicName } from '../../shared/product/paths'
 import { adviceShare, type AdviceShare, type ShareReview } from '../../shared/product/share'
 import { readProductTopic } from '../docs/watch'
-import { layoutChange, updateMindMap } from '../mcp/mind-map-server'
+import { layoutChange, placesCleared, updateMindMap } from '../mcp/mind-map-server'
 import { projectStore } from '../projects/store'
 import { leadsToRemote } from '../remote-links'
 import { docsHub, docsSource } from './docs'
@@ -13,7 +13,8 @@ import { defineHandler, type HandlerModule } from './index'
 // The `product` channels (src/shared/ipc/product.ts): the Product Session topics of a Project
 // (ADR-0101). `product.changed` is sent by the documents' watcher to the windows that have the
 // Project's documents open (src/main/ipc/docs.ts); `product.topic` reads one topic on demand.
-// `product.layout` is the screen's one write (ticket 09): a node's place or fold, through the same
+// `product.layout` is the screen's one write (ticket 09): a node's place or fold, or every place dropped
+// («Prettify», ticket 31), through the same
 // writer as the advisor's tools (updateMindMap of src/main/mcp/mind-map-server.ts) — checked, atomic, one
 // write at a time per file, retried on Windows — into the folder `product.topic` reads. The renderer
 // never writes a file itself; the watcher reports the change back as `product.changed`.
@@ -75,10 +76,12 @@ export default [
     if (productDir === undefined) throw new Error(`product.topic: the Product Session folder of ${projectId} is not under its root`)
     return { projectId, name, topic: await readProductTopic(root, productDir, name) }
   }),
-  defineHandler(productLayout, async ({ projectId, name, id, x, y, collapsed }) => {
+  defineHandler(productLayout, async ({ projectId, name, id, x, y, collapsed, clearPlaces }) => {
     const { root, productDir } = await docsSource(projectStore().get(projectId).path)
     if (productDir === undefined) throw new Error(`product.layout: the Product Session folder of ${projectId} is not under its root`)
-    return updateMindMap(nativePath.join(root, ...productDir), name, layoutChange(id, { x, y, collapsed }))
+    // The schema lets an input without `id` through only with `clearPlaces`.
+    const change = clearPlaces === true || id === undefined ? placesCleared() : layoutChange(id, { x, y, collapsed })
+    return updateMindMap(nativePath.join(root, ...productDir), name, change)
   }),
   defineHandler(productShare, async ({ projectId }) => {
     const { root, productDir } = await docsSource(projectStore().get(projectId).path)
