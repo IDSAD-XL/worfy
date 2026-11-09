@@ -1,8 +1,8 @@
 # 0104 — Один Ticket может охватывать несколько репозиториев Project-а: ветка и PR в каждом, один verdict, стадия release, `done` после всех merge-ей; частично заменяет ADR-0045, пункт 1
-Дата: 2026-11-09. Статус: предложен. Epic `worfy-multi-repo-ticket`; spec — `.scratch/worfy-multi-repo-ticket/spec.md`
-(черновик; решения владельца 2026-11-09, Q0–Q8, в нём записаны); основание — Ticket 80 Epic-а `worfy-polish`; критика —
-`docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md` (Split). Вступает в силу, когда владелец примет spec; до
-этого действует пункт 1 ADR-0045 без изменений.
+Дата: 2026-11-09. Статус: принят 2026-11-09. Epic `worfy-multi-repo-ticket`; spec — `.scratch/worfy-multi-repo-ticket/spec.md`
+(принят владельцем 2026-11-09; его ответы Q0–Q8 в нём записаны); основание — Ticket 80 Epic-а `worfy-polish`; критика —
+`docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md` (Split). В силе с 2026-11-09: владелец
+принял spec в тот же день.
 
 **Контекст.** ADR-0045, пункт 1: «Один Ticket — один репозиторий… У Ticket-а одна ветка, одно worktree и не больше
 одного PR». Функция через несколько репозиториев — цепочка Ticket-ов со связью `Blocked by`. Вариант «Один Ticket —

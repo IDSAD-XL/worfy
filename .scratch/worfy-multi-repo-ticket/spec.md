@@ -1,6 +1,6 @@
 # worfy-multi-repo-ticket: один Ticket на несколько репозиториев
 
-Status: draft — решения владельца 2026-11-09 (Q0–Q8) записаны в spec; ждёт принятия владельцем
+Status: принят владельцем 2026-11-09 (ответы Q0–Q8 — в разделе «Решения владельца»)
 Critic: [docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md](../../docs/product/critic/worfy-multi-repo-ticket-2026-11-09.md) — Split; владелец выбрал Split (Q0), ответ — раздел «Ответ на критику»
 Source: [Ticket 80 Epic-а worfy-polish](../worfy-polish/issues/80-один-ticket-на-несколько-репозиториев.md) — список мест, которые
 считают один репозиторий на Ticket (строки сверены с `main` `964061f9a`; до `74d0e7f58` менялись только документы);
@@ -8,9 +8,9 @@ Source: [Ticket 80 Epic-а worfy-polish](../worfy-polish/issues/80-один-tick
 [ADR-0045](../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий; Project над несколькими
 репозиториями — всегда Silent mode); [ADR-0042](../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Silent
 mode: ветки, commit-ы и PR без следов workflow); [ADR-0104](../../docs/adr/0104-one-ticket-several-repositories.md)
-(предложен этим же PR); [TICKETS.md](../../harness/bin/TICKETS.md); [profiles/README.md](../../harness/profiles/README.md).
+(принят 2026-11-09); [TICKETS.md](../../harness/bin/TICKETS.md); [profiles/README.md](../../harness/profiles/README.md).
 Ticket-ы: Epic `worfy-multi-repo-ticket`, 8 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
-`Source:`. Код пишется только после того, как владелец примет этот spec.
+`Source:`. Ticket-ы — `issues/01`–`issues/08`.
 
 ## Цель
 
@@ -277,6 +277,6 @@ verdict Split. Владелец 2026-11-09 выбрал Split (Q0 (б)).
 
 ## Готово, когда
 
-- [ ] Владелец принял spec и ADR-0104; строка `Status:` — `принят владельцем YYYY-MM-DD`.
-- [ ] Заведены Ticket-ы 01–08 с разделами «Где в коде» из таблицы Волн.
-- [ ] Ticket 80 Epic-а `worfy-polish` закрыт со ссылкой на этот spec.
+- [x] Владелец принял spec и ADR-0104; строка `Status:` — `принят владельцем YYYY-MM-DD`.
+- [x] Заведены Ticket-ы 01–08 с разделами «Где в коде» из таблицы Волн.
+- [x] Ticket 80 Epic-а `worfy-polish` закрыт со ссылкой на этот spec.
