@@ -441,6 +441,38 @@ a pid's start time`.
   git в test-ах можно, но эпизод это не снимает: test, который обычно идёт 0.5 s, в эпизоде шёл 43 s. Под
   эпизодом C: правка ещё не наблюдалась.
 
+### Часть 11. 2026-11-09, ветка `worfy-polish/47-part11`: evidence image protocol отдавал чужой файл на Windows; Force stop через `setUnattended(false)` закреплён test-ом
+
+Timeout-ы не тронуты, ожиданий по часам нет.
+
+- **`test/contract/evidence-image-protocol.test.ts:287` — ошибка в коде приложения, исправлено здесь.** Журналы
+  трёх job-ов `windows (1/3) / full-suite` (run-ы 42145908675, 42354007348, 42483722519) одинаковы: `expected 200 to
+  be 404` на строке 291, и retry vitest (`[1/2]`, `beforeEach` создаёт файлы заново) упал так же. В test-е `lstat`
+  подменён и всегда отвечает `dev`/`ino` другого файла (`12-shot.png`), а открывается `12-clip.webm`. Путь, регистр
+  и кэш тут ни при чём: ответ подмены от пути не зависит, а файл никто не удаляет. 200 возможен только тогда,
+  когда у двух разных файлов совпали `dev` и `ino` как числа JavaScript (`src/main/images/protocol.ts:281`).
+  Так и бывает на Windows. File id NTFS — 64 бита: номер записи MFT в младших 48 битах, её sequence number выше.
+  С sequence number 32 и больше id больше 2^53, а `number` хранит 53 бита. Два файла, созданные один за другим
+  (`beforeEach` пишет `12-shot.png` и `12-clip.webm` подряд), получают соседние записи MFT и могут получить один
+  `ino`; потому красный бывает не в каждом run-е, а от того, на какие записи MFT попали файлы. Это тот же механизм, что в #895 (`src/main/claude-home/tail.ts`: `fileFacts` читает id как
+  bigint). На Mac (APFS) inode-ы малы, поэтому красный не воспроизводится. Это ошибка продукта, а не test-а: на
+  Windows проверка «отдаём тот descriptor, который проверили» пропускала другой файл, положенный на тот же путь.
+  Правка: `mediaResponse` сравнивает `handle.stat({ bigint: true })` и `lstat(file, { bigint: true })`
+  (`FileIdentity` — `bigint`). Новый test «tells apart two files whose 64-bit file ids differ past the 53 bits…»
+  подставляет систему, которая отвечает как Node на Windows: точные id при `bigint` и округлённые числа без него.
+  Id — `(40 << 48) + 1000` и на 1 больше. С кодом до правки этот test красный с тем же `expected 200 to be 404`,
+  с правкой зелёный. Вердикт — Windows-job-ы CI.
+- **Force stop через `setUnattended(false)` — пробел в test-ах, закрыт здесь; код не менялся.** Часть 10 утверждает,
+  что Force stop не отвечает раньше выхода старого процесса: `release` → `setUnattended(false)`
+  (`src/main/autopilot/run.ts:3178`) → `await this.relaunch(entry, ATTENDED)` (`src/main/agent/orchestrator.ts:361`).
+  Review #1703 нашёл, что mutant «`void` вместо `await` на строке 361» переживают все шесть файлов, которые
+  пользуются `test/contract/claude-process-stub.ts`. Новый test в `test/contract/orchestrator-relaunch.test.ts`
+  («going attended while idle (the path of Force stop…)»): Orchestrator без человека и без turn-а, stub
+  `ignore-term`, затем `await setUnattended(false)`. Сразу после ответа порядок событий stub-а —
+  `spawn 1, exit 1, spawn 2, exit 2, spawn 3`, живых процессов — один (`alive()`), запрос третьего процесса — attended.
+  С mutant-ом test красный: `expected [ 'spawn 1', 'exit 1 SIGKILL', …(1) ] to deeply equal [ …(3) ]` — ответ
+  пришёл до выхода второго процесса. Без mutant-а зелёный.
+
 ## Наблюдения 2026-11-06 (CI)
 
 Записаны по CI run-ам 2026-11-06 (сообщения test-ов — из annotations job-ов). Строки — по main `fe0ff152`.
@@ -477,7 +509,8 @@ a pid's start time`.
   the check, one grown over 8 MB, one cut short — none is served»), проверка на строке 291: `expected 200 to be 404`.
   Handler с подменённым `lstat` (другие `dev`/`ino`) всё же отдал файл. Job `windows (1/3) / full-suite`, три раза на
   push run-ах main: 42145908675 (2026-11-06, `8ec31f60`), 42354007348 (2026-11-07, `23b770bc`) и 42483722519
-  (2026-11-08, `d4bf31e8`). Причина не установлена; в других Ticket-ах и в quarantine этот test не записан.
+  (2026-11-08, `d4bf31e8`). В других Ticket-ах и в quarantine этот test не записан. **Причина и правка — Часть 11**:
+  64-битный file id NTFS, сравнённый как `number`.
 - Не flaky test-ы, для справки. Красные e2e 2026-11-08 (`session-view.spec.ts`, `launch.spec.ts`, `limits*.spec.ts`,
   `linked-*.spec.ts`) и Windows-job-ы без annotations того же утра — это `Response code 504` GitHub при загрузке
   Electron или «Electron failed to install correctly»: сбой инфраструктуры, его снял #1668 (кэш Electron).

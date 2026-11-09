@@ -149,6 +149,22 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
   })
 
+  it('going attended while idle (the path of Force stop: release, then setUnattended(false)) answers only after the old process exited and the new one started', async () => {
+    const h = harness('ignore-term', 300)
+    await h.opened()
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2'])
+
+    const answer = await h.orchestrators.setUnattended(PROJECT, false)
+    // The answer comes after the unattended process's exit, as worfy hears of it, and the attended one's start (ADR-0064).
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2', KILLED(2), 'spawn 3'])
+    expect(h.stub.alive()).toBe(1)
+    expect(answer?.state).toBe('starting')
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+  })
+
   it('a process that exits at once: the new one starts with no wait added — well under the limit', async () => {
     const LIMIT_MS = 5000
     const h = harness('exit-at-once', LIMIT_MS)

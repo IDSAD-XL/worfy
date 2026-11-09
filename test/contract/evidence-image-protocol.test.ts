@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EVIDENCE_FILE_LIMIT_BYTES, EVIDENCE_FILE_PATTERN, evidenceFileUrl, evidenceImagesStore, IMAGE_SCHEME, parseImageHost } from '../../src/shared/images'
 import { imagesFile } from '../../src/shared/ipc/images'
+import type { ImageFileOptions, MediaFile } from '../../src/main/images/protocol'
 import { removeTestTree } from '../remove'
 
 // The app's own stores (appImageStore, appSharedImageStore, the images.file handler) over the Projects of this test.
@@ -265,7 +266,7 @@ describe('worfy-image://evidence-<project label>/', () => {
       open: async (path) => {
         const handle = await open(path, 'r')
         return {
-          stat: () => handle.stat(),
+          stat: (options) => handle.stat(options),
           read: (buffer, offset, length, position) => {
             reads.push([position, length])
             return handle.read(buffer, offset, length, position)
@@ -286,11 +287,11 @@ describe('worfy-image://evidence-<project label>/', () => {
 
   it('serves the descriptor it checked: another file at the path since the check, one grown over 8 MB, one cut short — none is served', async () => {
     const clip = join(tickets, 'demo', 'evidence', '12-clip.webm')
-    const other = statSync(join(tickets, 'demo', 'evidence', '12-shot.png'))
+    const other = statSync(join(tickets, 'demo', 'evidence', '12-shot.png'), { bigint: true })
     const swapped = createImageHandler((store) => evidenceImageStore(store, projects()), { lstat: async () => ({ dev: other.dev, ino: other.ino }) })
     expect((await swapped({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
     // The same path and file pass the same check.
-    const same = statSync(clip)
+    const same = statSync(clip, { bigint: true })
     const kept = createImageHandler((store) => evidenceImageStore(store, projects()), { lstat: async () => ({ dev: same.dev, ino: same.ino }) })
     expect((await kept({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(200)
 
@@ -298,17 +299,39 @@ describe('worfy-image://evidence-<project label>/', () => {
     const grown = createImageHandler((store) => evidenceImageStore(store, projects()), {
       open: async (path) => {
         const handle = await real(path)
-        return { stat: async () => ({ ...(await handle.stat()), size: EVIDENCE_FILE_LIMIT_BYTES + 1 }), read: (...args) => handle.read(...args), close: () => handle.close() }
+        return { stat: async (options) => ({ ...(await handle.stat(options)), size: BigInt(EVIDENCE_FILE_LIMIT_BYTES + 1) }), read: (...args) => handle.read(...args), close: () => handle.close() }
       },
     })
     expect((await grown({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(413)
     const cut = createImageHandler((store) => evidenceImageStore(store, projects()), {
       open: async (path) => {
         const handle = await real(path)
-        return { stat: () => handle.stat(), read: async () => ({ bytesRead: 0 }), close: () => handle.close() }
+        return { stat: (options) => handle.stat(options), read: async () => ({ bytesRead: 0 }), close: () => handle.close() }
       },
     })
     expect((await cut({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
+  })
+
+  it('tells apart two files whose 64-bit file ids differ past the 53 bits of a number, as on NTFS: another file at the path is a 404 (worfy-polish 47)', async () => {
+    // An NTFS file id holds the MFT record in its low 48 bits and the record's sequence number above them: from
+    // sequence 32 on it is past 2^53, where a number rounds, and two files made one after the other can read as
+    // one inode. The red on the Windows CI job (runs 42145908675, 42354007348, 42483722519) was this: `swapped`
+    // above served the clip with the other file's identity. Here the system answers as Node does on Windows:
+    // the exact ids when asked for bigints, the rounded numbers otherwise.
+    const openedId = (40n << 48n) + 1000n
+    const namedId = openedId + 1n
+    expect(Number(openedId)).toBe(Number(namedId))
+    const system = (ino: bigint, size: number) => async (_path?: unknown, options?: { bigint?: boolean }) =>
+      options?.bigint === true ? { dev: 7n, ino, size: BigInt(size) } : { dev: 7, ino: Number(ino), size }
+    const ntfs = createImageHandler((store) => evidenceImageStore(store, projects()), {
+      open: async (path) => {
+        const handle = await open(path, 'r')
+        const answer = system(openedId, (await handle.stat()).size)
+        return { stat: ((options) => answer(path, options)) as MediaFile['stat'], read: (...args) => handle.read(...args), close: () => handle.close() }
+      },
+      lstat: system(namedId, 0) as NonNullable<ImageFileOptions['lstat']>,
+    })
+    expect((await ntfs({ url: address('demo/evidence/12-clip.webm'), method: 'GET' })).status).toBe(404)
   })
 
   it('serves a .jpeg and a .jpg as image/jpeg', async () => {
