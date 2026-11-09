@@ -58,16 +58,23 @@ Source: решение владельца 2026-11-09: тестер дал Produc
 - [ ] Write вне папки Product Session-а и вне списка показывает вопрос с тремя ответами; «Allow once» пишет файл,
   «Deny» — нет, сессия получает причину отказа. Test на каждый ответ.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/agent-options.test.ts test/contract/permissions.test.ts test/unit/agent-query-factory.test.ts` exit 0 · mac - · 6edfbb4df854177e2fcc5e03549d6e20bcdb33ae
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/product-guard.test.ts test/unit/agent-options.test.ts test/unit/agent-query-factory.test.ts test/unit/product-write-folders.test.ts test/unit/project-settings-shell.test.tsx test/contract/permissions.test.ts` exit 0 · mac - · a6cd0be2a
 - [ ] «Always allow in <folder>» сохраняет папку; следующая запись в неё идёт без вопроса, в соседнюю папку — с
   вопросом; список виден в Settings Project-а и папку оттуда можно убрать. Test.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/agent-options.test.ts test/unit/product-guard.test.ts test/unit/product-write-folders.test.ts test/unit/project-settings-shell.test.tsx` exit 0 · mac - · 6edfbb4df854177e2fcc5e03549d6e20bcdb33ae
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/product-guard.test.ts test/unit/agent-options.test.ts test/unit/agent-query-factory.test.ts test/unit/product-write-folders.test.ts test/unit/project-settings-shell.test.tsx test/contract/permissions.test.ts` exit 0 · mac - · a6cd0be2a
 - [ ] `.git`, папка данных worfy, `~/.claude` — отказ без вопроса, и «Always allow» их в список не добавляет. Test.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/product-guard.test.ts test/unit/agent-options.test.ts test/unit/agent-query-factory.test.ts` exit 0 · mac - · 6edfbb4df854177e2fcc5e03549d6e20bcdb33ae
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/product-guard.test.ts test/unit/agent-options.test.ts test/unit/agent-query-factory.test.ts test/unit/product-write-folders.test.ts test/unit/project-settings-shell.test.tsx test/contract/permissions.test.ts` exit 0 · mac - · a6cd0be2a
 - [ ] Unattended Product Session: вне папки и вне списка — отказ без вопроса. Test.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/agent-options.test.ts test/contract/permissions.test.ts test/unit/agent-query-factory.test.ts` exit 0 · mac - · 6edfbb4df854177e2fcc5e03549d6e20bcdb33ae
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/product-guard.test.ts test/unit/agent-options.test.ts test/unit/agent-query-factory.test.ts test/unit/product-write-folders.test.ts test/unit/project-settings-shell.test.tsx test/contract/permissions.test.ts` exit 0 · mac - · a6cd0be2a
 - [ ] e2e: fake agent пишет файл вне папки, вопрос показан, «Allow once» — файл записан.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac - · 316a829ca55a8d9f08c1fb4340f3640d199dab0e
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-write-outside.spec.ts test/e2e/product-session.spec.ts` exit 0 · mac - · a6cd0be2a
 - [ ] Правила `product.md` и страница `docs/features/product-session.md` описывают вопрос и запрет shell-записи вне
   папки; `eval --changed` по правилам — с ценой в отчёте.
+  - evidence: commit pass · worfy-polish 82: review round 1 — macOS second spelling, list tests, both data folders, Save sends removals · - - · 209adb3e0
 - [ ] gate fast зелёный; все unit и contract test-ы затронутых модулей зелёные.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6edfbb4df854177e2fcc5e03549d6e20bcdb33ae
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a6cd0be2a
