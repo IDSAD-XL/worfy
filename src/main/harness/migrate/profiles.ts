@@ -150,7 +150,7 @@ export function gitTopLevel(dir: string, env: NodeJS.ProcessEnv = process.env): 
 /**
  * `full` when the tickets folder (`tickets.root`, `.scratch` by default; relative to the first
  * repository of the Profile in the Gate registry) is inside a git repository, `silent` otherwise
- * (Q24: Atakama keeps `.scratch/` above its three repositories, outside git).
+ * (Q24: another project of the owner keeps `.scratch/` above its three repositories, outside git).
  */
 export function proposeMode(
   profile: Json,

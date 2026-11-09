@@ -453,6 +453,7 @@ function checkPeer(ws: WebSocket, side: PairingSide, peer: Hello): void {
 
 /** A's side: runs SPAKE2 as A with the code typed by the user. */
 export async function initiatePairing(ws: WebSocket, code: string, side: PairingSide): Promise<PairingResult> {
+  const { local: ownHello } = side
   const timeout = side.stepTimeoutMs ?? PAIRING_STEP_TIMEOUT_MS
   const w = await codeScalar(code)
   const x = randomScalar()
@@ -480,7 +481,7 @@ export async function initiatePairing(ws: WebSocket, code: string, side: Pairing
   // B knows the code and saw the same two certificates: the channel is B's, the token may go. It
   // opens nothing until A stores its hash (commit).
   const incomingToken = newToken()
-  sendFrame(ws, { t: 'pake3', cA: keys.confirmA.toString('base64'), machine: side.local, token: incomingToken })
+  sendFrame(ws, { t: 'pake3', cA: keys.confirmA.toString('base64'), machine: ownHello, token: incomingToken })
   const fourth = await nextFrame(ws, pake4, timeout)
   checkPeer(ws, side, fourth.machine)
   sendFrame(ws, { t: 'pake5' })
@@ -496,6 +497,7 @@ export async function initiatePairing(ws: WebSocket, code: string, side: Pairing
  * returns null when linking was closed meanwhile.
  */
 export async function respondToPairing(ws: WebSocket, takeCode: () => string | null, side: PairingSide): Promise<PairingResult> {
+  const { local: ownHello } = side
   const timeout = side.stepTimeoutMs ?? PAIRING_STEP_TIMEOUT_MS
   const first = await nextFrame(ws, pake1, timeout)
   const code = takeCode()
@@ -525,7 +527,7 @@ export async function respondToPairing(ws: WebSocket, takeCode: () => string | n
   checkPeer(ws, side, third.machine)
   // A knows the code: B introduces itself now. Its token opens nothing until B stores its hash.
   const incomingToken = newToken()
-  sendFrame(ws, { t: 'pake4', machine: side.local, token: incomingToken })
+  sendFrame(ws, { t: 'pake4', machine: ownHello, token: incomingToken })
   await nextFrame(ws, pake5, timeout)
   const result: PairingResult = { peer: third.machine, outgoingToken: third.token, incomingToken }
   try {

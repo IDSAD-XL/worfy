@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "name": "auction",
-  "title": "Auction",
+  "name": "bazaar",
+  "title": "Bazaar",
   "language": {
     "reports": "ru",
     "team": "ru"

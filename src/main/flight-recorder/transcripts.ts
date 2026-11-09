@@ -6,8 +6,8 @@
 //
 // - Where: `<Claude home>/projects/<projectDirName(root)>/<session>.jsonl`, the Subagents in
 //   `<session>/subagents/agent-<id>.jsonl` and `.meta.json`. The folder name is no proof (it loses
-//   the difference between `/`, `-` and any other sign; on Windows `C:\Users\Ann\repo` is
-//   `C--Users-Ann-repo`): a transcript is the Project's when the `cwd` its records name lies in the
+//   the difference between `/`, `-` and any other sign; on Windows `C:\Users\User\repo` is
+//   `C--Users-User-repo`): a transcript is the Project's when the `cwd` its records name lies in the
 //   root, as the registry decides (src/main/claude-home/registry.ts).
 // - Which: `wave-started.session` names it. A Journal without it has the Wave's text: the Session
 //   whose prompt with that text lies nearest the Wave's start, within WAVE_SLACK_MS. With neither,

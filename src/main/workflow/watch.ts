@@ -84,7 +84,7 @@ export interface WatchOptions {
   debounceMs?: number
   /**
    * Longest wait after the first file event of a series before a read, however often events keep
-   * coming (default 1000 ms). Measured on Auction (682 Tickets): one checkout `epic-status --json`
+   * coming (default 1000 ms). Measured on another project of the owner (682 Tickets): one checkout `epic-status --json`
    * takes about 0.8 s, so a stream of saves shows its first change within about 1.8 s. While the
    * stream lasts, a read starts about once a second; reads never overlap.
    */

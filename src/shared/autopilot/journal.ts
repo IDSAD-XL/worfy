@@ -620,19 +620,19 @@ export function clipRetryMessage(message: string): string {
 }
 
 /**
- * Where a path that starts with a separator (`/Users/ann`, the MSYS `/c/Users/Ann`) may start in a
+ * Where a path that starts with a separator (`/Users/runner`, the MSYS `/c/Users/Runner`) may start in a
  * reason: anywhere but right after a character of a path name — a letter, a digit, `.`, `_`, `-` —
  * or a separator. The start of the text counts.
  */
 const PATH_START = String.raw`(?<![\p{L}\p{N}._\\/-])`
 /**
- * Where a drive path (`C:\Users\Ann`) may start: anywhere but right after a character of a path
+ * Where a drive path (`C:\Users\Runner`) may start: anywhere but right after a character of a path
  * name. A separator before it does not stop it: `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:/…`.
  */
 const DRIVE_START = String.raw`(?<![\p{L}\p{N}._-])`
 /** Any run of path separators, of either platform. */
 const SEPARATOR = String.raw`[\\/]+`
-/** What may not follow the home folder: more of a folder name (`/Users/ann2` is not `/Users/ann`). */
+/** What may not follow the home folder: more of a folder name (`/Users/runneradmin` is not `/Users/runner`). */
 const NAME_GOES_ON = String.raw`(?![\p{L}\p{N}_-])`
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -641,12 +641,12 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
  * Claude Code's reason for a permission request as `refused-dialog` keeps it: the home folder
  * (`home`, the user's) written as `~` wherever a path starts with it, then at most REASON_MAX
  * UTF-16 units. The same rule on every platform: case is ignored and `\` and `/` are one
- * separator, so `c:\users\ann`, `C:/Users/Ann` and the MSYS form `/c/Users/Ann` are all the home
- * `C:\Users\Ann`, and `/Users/Ann` is the home `/Users/ann`. Only a path is replaced, one that
- * does not go on from a path name (PATH_START: `/mnt/Users/ann` and `x/Users/ann` stay, while
- * `,/Users/ann` or `[/Users/ann` is replaced; DRIVE_START: `\\?\C:\Users\Ann` is replaced,
- * `xC:\Users\Ann` stays); a folder
- * whose name only goes on from the home's (`/Users/ann2`) stays; a dot after the home (the end of
+ * separator, so `c:\users\runner`, `C:/Users/Runner` and the MSYS form `/c/Users/Runner` are all the home
+ * `C:\Users\Runner`, and `/Users/Runner` is the home `/Users/runner`. Only a path is replaced, one that
+ * does not go on from a path name (PATH_START: `/mnt/Users/runner` and `x/Users/runner` stay, while
+ * `,/Users/runner` or `[/Users/runner` is replaced; DRIVE_START: `\\?\C:\Users\Runner` is replaced,
+ * `xC:\Users\Runner` stays); a folder
+ * whose name only goes on from the home's (`/Users/runneradmin`) stays; a dot after the home (the end of
  * a sentence) does not stop the replacement.
  */
 export function journalReason(reason: string, home: string): string {

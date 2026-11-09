@@ -149,7 +149,7 @@ function findings(text, options = {}) {
         const re = new RegExp(escapeRe(word.trim()), "gi")
         for (const m of s.matchAll(re)) add("deny", m.index, m[0].length)
     }
-    // One finding per place: a finding inside another one (jdoe-MacBook-Pro inside jdoe-MacBook-Pro.local,
+    // One finding per place: a finding inside another one (<name>-MacBook-Pro inside <name>-MacBook-Pro.local,
     // or the same span found by two rules) is dropped; the longer one, or the earlier rule, stays.
     found.sort((a, b) => a.index - b.index || b.length - a.length)
     const kept = []

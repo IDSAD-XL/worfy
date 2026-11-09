@@ -116,7 +116,7 @@ expect_rule "*s-Mac*" "on $HOST_MAC" host
 expect_rule "Tailscale address" "ip $TS_IP:22" tailscale-ip
 expect_none "address outside 100.64/10, and the network itself" "ip 100.""128.1.2 and 100.""63.1.2, net 100.""64.0.0/10"
 expect_none "localhost" "http://localhost:3000 .env.local ~/.local/share"
-expect_none "hosts with an example label" "pc.exam""ple.ts.net other.exam""ple.local"
+expect_none "hosts with an example label" "pc.example.ts.net other.example.local"
 expect_rule "the machine's short host name" "from $OWN_HOST today" host "{\"hostname\":\"$OWN_HOST.lan\"}"
 expect_rule "a word of the deny list" "said ${DENY_WORD}s" deny "{\"deny\":[\"$DENY_WORD\"]}"
 printf '{"deny":["%s"]}\n' "$DENY_WORD" >"$HARNESS_HOME/user/privacy.json"
@@ -132,7 +132,7 @@ got="$(lib_op "$T/none" personal)"
 expect_rule "UUID" "id $UUID" uuid
 expect_none "UUID of one digit" "00000000-0000-0000-0000-000000000000 44444444-4444-4444-8444-444444444444"
 expect_rule "email" "mail $EMAIL" email
-expect_none "noreply and example addresses" "noreply@anthropic.com 1+jdoe@users.noreply.github.com git@github.com jdoe@exam""ple.com a@mail.exam""ple.org react@18.3.1 icon_16x16@2x.png"
+expect_none "noreply and example addresses" "noreply@anthropic.com 1+jdoe@users.noreply.github.com git@github.com jdoe@exam""ple.com a@mail.example.org react@18.3.1 icon_16x16@2x.png"
 for v in TOK_GH TOK_PAT TOK_SK TOK_AKIA TOK_XOX TOK_JWT TOK_PEM TOK_BEARER; do
     expect_rule "token $v" "key: ${!v}" token
 done

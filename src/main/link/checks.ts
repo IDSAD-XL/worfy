@@ -133,7 +133,7 @@ export function isAllowedPeer({ remote, local }: PeerAddresses, { tailscale, int
 export interface HostNames {
   /** os.networkInterfaces(), read on every request: a DHCP address changes while worfy runs. */
   interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>
-  /** os.hostname(): `Name.local` on macOS, the bare computer name on Windows. */
+  /** os.hostname(): `<name>.local` on macOS, the bare computer name on Windows. */
   hostname: string
   /** "Link through Tailscale" (link/settings.json), read on every request: on adds the MagicDNS names. */
   tailscale: boolean
@@ -157,7 +157,7 @@ export function worfyHost(machineId: string): string {
   return `worfy-${machineId.slice(0, 8).toLowerCase()}.local`
 }
 
-/** The first label of os.hostname() in lower case: `pc` of `PC`, `pc.local` or `pc.lan`; '' when empty. */
+/** The first label of os.hostname() in lower case: `someones-pc` of `Someones-PC`, `someones-pc.local` or `someones-pc.lan`; '' when empty. */
 function machineLabel(hostname: string): string {
   return hostname.trim().toLowerCase().split('.')[0] ?? ''
 }

@@ -1,0 +1,3 @@
+#!/bin/sh
+# personal agent-clock (fixture)
+exit 0

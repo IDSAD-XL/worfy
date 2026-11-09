@@ -144,7 +144,8 @@ export class LinkPeer {
   private closed = false
 
   constructor(private readonly options: LinkPeerOptions) {
-    this.link = new LinkSender(options.machineId, 'link', options.push, options.local)
+    const { machineId, push, local } = options
+    this.link = new LinkSender(machineId, 'link', push, local)
   }
 
   get machineId(): string {
@@ -171,7 +172,8 @@ export class LinkPeer {
       if (this.project.readOnly === readOnly) return
       this.dropProject()
     }
-    const client = new LinkSender(this.options.machineId, 'project', this.options.push, this.options.local, readOnly)
+    const { machineId, push, local } = this.options
+    const client = new LinkSender(machineId, 'project', push, local, readOnly)
     this.project = client
     try {
       this.options.addClient?.(client)

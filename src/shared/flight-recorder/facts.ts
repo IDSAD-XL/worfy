@@ -80,7 +80,7 @@ export type LostSource = keyof typeof LOST_SOURCE_LABELS
 // and calls that helper rather than its own copy of the rule. The rule: realpath(3) (`realpath.native`:
 // 8.3 short names expanded on Windows), then on Windows `/` for `\`, lower case and no `\\?\` prefix
 // (`\\?\UNC\host\…` becomes `//host/…`); everywhere no trailing separator, except a root (`/`, `c:/`).
-// So `C:\Users\Ann\Repo` and `c:/users/ann/repo` are one worktree on Windows. The path `.claude/worktrees/<NN>`
+// So `C:\Users\User\Repo` and `c:/users/user/repo` are one worktree on Windows. The path `.claude/worktrees/<NN>`
 // is shared by ticket NN of every Epic over the days the gate keeps its logs, so work that ended
 // before its Ticket's row began is left out.
 //

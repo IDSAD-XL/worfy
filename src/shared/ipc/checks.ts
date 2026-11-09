@@ -226,8 +226,8 @@ export function pullOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike): Pull
 
 /**
  * A path in the form two paths are compared in. An absolute path of Windows is folded: `\` as `/`
- * and lower case, because git names a worktree `C:/Users/x/worfy`, Claude Code names the folder of
- * a Session `C:\Users\x\worfy`, and NTFS does not tell letter case apart. Any other path is taken as
+ * and lower case, because git names a worktree `C:/Users/user/worfy`, Claude Code names the folder of
+ * a Session `C:\Users\user\worfy`, and NTFS does not tell letter case apart. Any other path is taken as
  * it is. The path itself says which it is: this file is shared with the renderer, which has no
  * `process.platform`.
  */

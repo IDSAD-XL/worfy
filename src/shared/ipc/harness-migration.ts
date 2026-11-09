@@ -65,7 +65,7 @@ export const migrationProfileSchema = migrationRowSchema.extend({
   modeReason: z.string(),
   /** profile.json and rules.md before and after (paths rewritten, schema 2). */
   files: z.array(migrationFileDiffSchema),
-  /** Folders moved as they are (atakama: bin/, lessons/, state/). */
+  /** Folders moved as they are (for a multi-repo project of the owner: bin/, lessons/, state/). */
   carried: z.array(z.string()),
 })
 export type MigrationProfile = z.infer<typeof migrationProfileSchema>

@@ -146,7 +146,7 @@ export function ChangeAddressDialog({ machine, onClose }: ChangeAddressDialogPro
           }}
         />
         <span id={`${fieldId}-hint`} style={dialogStyles.hint}>
-          {`The IP address or name of ${machine.name} and its port, like 192.168.1.20:52000 or studio.local:52000. worfy keeps it only if ${machine.name} answers there as the machine you linked.`}
+          {`The IP address or name of ${machine.name} and its port, like 192.168.1.20:52000 or someones-mac.local:52000. worfy keeps it only if ${machine.name} answers there as the machine you linked.`}
         </span>
         {error ? (
           <span id={`${fieldId}-error`} role="alert" data-testid="change-address-error" style={dialogStyles.error}>

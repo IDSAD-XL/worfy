@@ -261,7 +261,7 @@ export function subagentSignals(events: readonly TimedEvent[], calls: Set<string
  * record itself otherwise. A notification that comes while the Session is busy is written as a
  * `queue-operation` (`enqueue`) and, once delivered, as an `attachment` of type `queued_command` —
  * often with no user message at all (ticket worfy-daily/08, its result section: 310 of 311 Subagents stuck in
- * `running` on Auction ended this way). Read as a user message, it gives the same `subagent` event.
+ * `running` in another project of the owner ended this way). Read as a user message, it gives the same `subagent` event.
  */
 function asNotification(record: Json): Json {
   const attachment = isObject(record.attachment) ? record.attachment : undefined

@@ -155,7 +155,7 @@ export function machineContext(io, repo = null) {
     const user = userName()
     return {
         hostname: host,
-        user: user.length >= 3 && findLeaks(`/home/${user}`).length > 0 ? user : "",
+        user: user.length >= 3 && findLeaks("/home/" + user).length > 0 ? user : "",
         folders: [
             { rule: "home folder of this computer", dir: os.homedir() },
             { rule: "worktree root of this computer", dir: repo },

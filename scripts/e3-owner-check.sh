@@ -71,6 +71,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
+const { createHash } = require("node:crypto")
 
 const env = process.env
 const home = env.HOME || os.homedir()
@@ -130,7 +131,8 @@ for (const dir of ["agents", "skills", "bin", "hooks"]) {
   for (const name of listDir(path.join(claudeHome, dir))) {
     const rel = path.join(dir, name)
     const where = shown(path.join(claudeHome, rel))
-    if (dir === "bin" && PERSONAL_BIN.includes(name)) continue
+    // PERSONAL_BIN holds the SHA-256 of each name in lower case (isPersonalBin in plan.ts).
+    if (dir === "bin" && PERSONAL_BIN.includes(createHash("sha256").update(name.toLowerCase(), "utf8").digest("hex"))) continue
     if (dir === "bin" && QMD_BINS.includes(name)) violations.push(`a qmd script of the old Harness is still there: ${where}`)
     else if (exists(path.join(plugin, rel))) violations.push(`a file of the Harness is still there: ${where}`)
   }

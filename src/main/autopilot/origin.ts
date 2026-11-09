@@ -84,7 +84,7 @@ const NO_SUCH_REMOTE = 2
 
 /**
  * Whether a remote URL names a host: `scheme://host/…` (not `file://`) or the scp-like `[user@]host:path`.
- * A local path — `/Users/x/repo.git`, `C:\repos\x.git`, `file:///srv/x.git` — names none: its key
+ * A local path — `/Users/someone/repo.git`, `C:\repos\x.git`, `file:///srv/x.git` — names none: its key
  * would be a path of that Machine's disk.
  */
 export function remoteHasHost(url: string): boolean {
@@ -100,7 +100,7 @@ export function remoteHasHost(url: string): boolean {
 /**
  * The key that tells one Project on two Machines (worfy-pipeline ticket 10, the owner's decision
  * Q14): the same repository, not the same path. With an origin it is the origin's key (originKey)
- * and the Project's path inside the repository, so `/Users/a/worfy` and `C:/src/worfy` of one
+ * and the Project's path inside the repository, so `/Users/someone/worfy` and `C:/src/worfy` of one
  * repository match; without one, the Project's id, which matches only on the Machine it was made
  * on. It carries no local path: a Project id is a folder name and a hash (projects/store.ts).
  */

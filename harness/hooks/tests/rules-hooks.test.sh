@@ -33,7 +33,7 @@ unset WORFY_SESSION_KIND
 # One additionalContext string is cut to a preview above this many characters.
 LIMIT=10000
 # A plugin root as long as a real install path is likely to get; the parts must fit with it.
-LONG_ROOT="/home/someone-with-a-longer-name/.claude/plugins/cache/worfy-local-marketplace/worfy/10.20.30-build.12345"
+LONG_ROOT="/home/someone/.claude/plugins/cache/worfy-local-marketplace-with-a-longer-name/worfy/10.20.30-build.12345"
 
 # Characters (code points, as Claude Code counts a string), of a file or of stdin.
 chars() { node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))' <"${1:-/dev/stdin}"; }

@@ -153,7 +153,7 @@ export async function readTailscalePeers(options: TailscaleReadOptions = {}): Pr
 // This machine's own MagicDNS name for the Host check of the link server (worfy-link ticket 39;
 // ADR-0070, point 5): `Self.DNSName` of the same `tailscale status --json`. The name Tailscale gives
 // a machine is not always the first label of os.hostname(): macOS adds a suffix of its own
-// (`Name-164.local`) when the name is taken on the network, and the admin console may rename it.
+// (`<name>-164.local`) when the name is taken on the network, and the admin console may rename it.
 const selfSchema = z.object({ Self: z.object({ DNSName: z.string().optional() }).nullable().optional() })
 
 /** One DNS label or more, dot-separated, at least two: a full MagicDNS name. */

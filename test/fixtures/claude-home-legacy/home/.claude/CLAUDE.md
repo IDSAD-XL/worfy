@@ -79,6 +79,6 @@ my-secret-line: an H1 after a Harness section is not part of it (fixture).
 
 Personal notes that stay (fixture).
 
-### Telegram
+### Notify
 
-The telegram MCP is mine (fixture).
+The notify MCP is mine (fixture).

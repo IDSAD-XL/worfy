@@ -32,7 +32,7 @@ interface Sandbox {
   harnessHome: string
   pluginDir: string
   claudeJson: string
-  repos: { worfy: string; auction: string; atakamaServer: string; atakama: string }
+  repos: { worfy: string; bazaar: string; acmeServer: string; acme: string }
   stubDir: string
   stubLog: string
   /** HOME, CLAUDE_CONFIG_DIR, HARNESS_HOME of the sandbox; git identity; GIT_CONFIG_NOSYSTEM. */
@@ -101,7 +101,7 @@ function builtSandbox(): { root: string; copy: string } {
   const claudeHome = copyLegacyFixture(REPO, root)
   const s = describeSandbox(root, claudeHome)
   sandbox = s
-  for (const dir of [claudeHome, s.repos.worfy, s.repos.auction, s.repos.atakamaServer]) {
+  for (const dir of [claudeHome, s.repos.worfy, s.repos.bazaar, s.repos.acmeServer]) {
     git(dir, 'init', '-q')
     git(dir, 'add', '-A')
     git(dir, 'commit', '-q', '-m', 'fixture')
@@ -151,9 +151,9 @@ function describeSandbox(root: string, claudeHome: string): Sandbox {
   }
   const repos = {
     worfy: join(root, 'repos', 'worfy'),
-    auction: join(root, 'repos', 'auction'),
-    atakama: join(root, 'repos', 'Atakama'),
-    atakamaServer: join(root, 'repos', 'Atakama', 'Atakama-Browser-Server'),
+    bazaar: join(root, 'repos', 'bazaar'),
+    acme: join(root, 'repos', 'Acme'),
+    acmeServer: join(root, 'repos', 'Acme', 'Acme-Browser-Server'),
   }
   return { root, home, claudeHome, harnessHome, pluginDir, claudeJson: join(claudeHome, '.claude.json'), repos, stubDir, stubLog: join(root, 'claude-calls.log'), env }
 }
@@ -218,6 +218,12 @@ export const fileId = (rel: string): string => `file:${join(...rel.split('/'))}`
 /** A relative path of the system written with `/`, as git and treeOf write it. */
 export const posix = (rel: string): string => rel.split(sep).join('/')
 
+/**
+ * The personal scripts of the fixture's bin/ (invented names), in the form PERSONAL_BIN of plan.ts
+ * holds its list: the SHA-256 of each name in lower case. Every plan of these tests gets this list.
+ */
+export const FIXTURE_PERSONAL_BIN = ['notify-mcp', 'bazaar-staging-db-mcp', 'agent-clock'].map((name) => createHash('sha256').update(name).digest('hex'))
+
 export function planOptions(extra: Partial<PlanOptions> = {}): PlanOptions {
   return {
     claudeHome: sandbox.claudeHome,
@@ -228,6 +234,7 @@ export function planOptions(extra: Partial<PlanOptions> = {}): PlanOptions {
     offered: true,
     env: sandbox.env,
     pluginState: INSTALLED,
+    personalBin: FIXTURE_PERSONAL_BIN,
     ...extra,
   }
 }

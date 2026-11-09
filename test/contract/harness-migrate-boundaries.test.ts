@@ -52,7 +52,7 @@ describe('boundaries, races and what changed after the move', () => {
   it('restore.mjs keeps what changed after the move in <backup>/after/: a lesson, a rules.md edit, settings.json, a new lock', async () => {
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     const projects = join(sandbox.harnessHome, 'projects')
-    writeFileSync(join(projects, 'atakama', 'lessons', 'retro-2026-10-09.md'), 'a lesson /retro wrote after the move\n')
+    writeFileSync(join(projects, 'acme', 'lessons', 'retro-2026-10-09.md'), 'a lesson /retro wrote after the move\n')
     writeFileSync(join(projects, 'worfy', 'rules.md'), `${read(join(projects, 'worfy', 'rules.md'))}- a rule added after the move\n`)
     const settingsPath = join(sandbox.claudeHome, 'settings.json')
     const settings = readJson(settingsPath)
@@ -64,12 +64,12 @@ describe('boundaries, races and what changed after the move', () => {
     expect(restored.stderr).toBe('')
     expect(restored.status).toBe(0)
     const after = join(backupDir(), 'after')
-    expect(read(join(after, 'harness', 'projects', 'atakama', 'lessons', 'retro-2026-10-09.md'))).toBe('a lesson /retro wrote after the move\n')
+    expect(read(join(after, 'harness', 'projects', 'acme', 'lessons', 'retro-2026-10-09.md'))).toBe('a lesson /retro wrote after the move\n')
     expect(read(join(after, 'harness', 'projects', 'worfy', 'rules.md'))).toContain('- a rule added after the move')
     expect(readJson(join(after, 'claude', 'settings.json')).theme).toBe('light')
     expect(read(join(after, 'claude', 'gate', 'state', 'red-new'))).toBe('a marker an old gate wrote after the move\n')
     // What the move left untouched is not in after/: an unchanged Profile file was simply taken away.
-    expect(existsSync(join(after, 'harness', 'projects', 'auction'))).toBe(false)
+    expect(existsSync(join(after, 'harness', 'projects', 'bazaar'))).toBe(false)
     expect(existsSync(join(after, 'claude', 'CLAUDE.md'))).toBe(false)
     // The old places hold the backup's versions again.
     expect(readJson(settingsPath).theme).toBe('dark')

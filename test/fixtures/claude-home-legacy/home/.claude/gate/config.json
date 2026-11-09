@@ -10,17 +10,17 @@
       "workspace": {}
     },
     {
-      "key": "auction",
-      "match": "__SANDBOX__/repos/auction",
-      "profile": "auction",
+      "key": "bazaar",
+      "match": "__SANDBOX__/repos/bazaar",
+      "profile": "bazaar",
       "pm": "pnpm",
       "root": {},
       "workspace": {}
     },
     {
-      "key": "Atakama-Browser-Server",
-      "match": "__SANDBOX__/repos/Atakama/Atakama-Browser-Server",
-      "profile": "atakama",
+      "key": "Acme-Browser-Server",
+      "match": "__SANDBOX__/repos/Acme/Acme-Browser-Server",
+      "profile": "acme",
       "pm": "pnpm",
       "root": {},
       "workspace": {}

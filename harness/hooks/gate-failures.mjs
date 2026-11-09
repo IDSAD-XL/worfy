@@ -258,7 +258,7 @@ function wordPattern(word) {
 
 // True when privacy.cjs holds `name` for a person's: not one of its stand-ins (test, runner, user…).
 function personalName(name) {
-    return name.length >= 3 && privacy.findings(`/home/${name}`).length > 0
+    return name.length >= 3 && privacy.findings("/home/" + name).length > 0
 }
 
 // `text` without the personal data of the computer it came from. ctx: { repo, home, user, host, deny }

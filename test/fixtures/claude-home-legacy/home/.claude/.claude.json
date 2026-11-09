@@ -13,9 +13,9 @@
       "command": "__SANDBOX__/home/.claude/bin/qmd-mcp",
       "args": []
     },
-    "telegram": {
+    "notify": {
       "type": "stdio",
-      "command": "__SANDBOX__/home/.claude/bin/telegram-mcp",
+      "command": "__SANDBOX__/home/.claude/bin/notify-mcp",
       "args": []
     }
   },

@@ -742,7 +742,11 @@ export type RegistryRoot = string | { readonly path: string; readonly gitAt?: st
 export const rootPath = (root: RegistryRoot): string => (typeof root === 'string' ? root : root.path)
 
 /** Whether the call is judged strictly: any but a `local` one (RegistryRoot). */
-const strictOf = (root: RegistryRoot): boolean => typeof root === 'string' || root.local !== true
+const strictOf = (root: RegistryRoot): boolean => {
+  if (typeof root === 'string') return true
+  const { local } = root
+  return local !== true
+}
 
 export interface ClaudeHomeWatch {
   /** Resolves once the initial scan is done and changes are being reported. */

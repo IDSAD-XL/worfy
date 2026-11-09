@@ -61,8 +61,8 @@ export function fingerprintOf(certificate: string): string {
 }
 
 /**
- * The Machine's name: the computer's name without its domain (`Alexeys-MacBook-Pro.local` →
- * `Alexeys-MacBook-Pro`); a dev run adds ` (dev)`, or the dev build and the stable copy on one Mac
+ * The Machine's name: the computer's name without its domain (`Someones-MacBook-Pro.local` →
+ * `Someones-MacBook-Pro`); a dev run adds ` (dev)`, or the dev build and the stable copy on one Mac
  * would show up under one name.
  */
 export function machineName(hostname: string, buildKind: BuildKind): string {
