@@ -72,16 +72,23 @@ Status: claimed 2026-11-09T17:55Z
 - [ ] Unit test на fake agent (`test/unit/narrator.test.ts`, красный до правки): нет запроса раньше 20 s, не чаще раза
   в 30 s, нет запроса без новых событий, никогда двух сразу; остановка на result, Interrupt и ошибке; поздний ответ
   выброшен; настройка выключена — запросов нет; digest обрезан и не длиннее предела; сбой запроса заглушает turn.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/narrator.test.ts on the fake agent; 11 mutants of narrator.ts killed) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] Unit test опций запроса Haiku: модель `haiku`, без tool-ов, один turn, без транскрипта, без API-ключей.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/narrator-options.test.ts) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] Unit test renderer-а: строки стоят под строкой статуса, приглушённые, с меткой summary, не в транскрипте, и
   уходят с result.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-transcript.test.tsx) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] e2e test (`test/e2e/product-session.spec.ts`): scripted agent проходит turn, под строкой статуса видна строка
   narrator-а, после ответа её нет.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (9 passed) · mac dev · c63335194
 - [ ] Снимок (тёмная тема) в папке вывода test-а, в репозиторий не кладётся.
 - [ ] Страница `docs/features/product-session.md` говорит о живой сводке и настройке; `node
   scripts/check-feature-docs.mjs` — exit 0.
+  - evidence: test-run pass · `node scripts/check-feature-docs.mjs` exit 0 · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы `src/main/agent` и renderer-а Product Session, e2e
   `test/e2e/product-session.spec.ts`, gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (711 files passed) · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 201790dd92bfe3a72265b6f562ec26313b93360b
 - [ ] вручную: владелец смотрит живую сводку в чате Product Session в Mac Stable (настоящий Haiku).
 
 ## Тесты
