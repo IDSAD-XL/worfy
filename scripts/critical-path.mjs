@@ -58,7 +58,8 @@ Input
   --epic <name>        one Epic. Default: every Epic the journals name.
   --tickets <list>     only these Tickets, "01,02" (the summary then covers a Wave).
   --prs <file>         PR data as a JSON array of gh's fields (number, headRefName, state,
-                       createdAt, mergedAt, statusCheckRollup, comments, commits, files) instead of gh;
+                       createdAt, mergedAt, statusCheckRollup, comments, commits, files,
+                       headRefOid) instead of gh;
                        an optional "ciRuns" of a PR is gh run list's (status, conclusion,
                        event, updatedAt) for its branch; an optional "statuses" is gh
                        api's commits/<head>/statuses (context, state, description,
@@ -94,6 +95,8 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const TICKET = /^[0-9]+$/
 const GH_PARALLEL = 4
 const NOT_RUN = 'not run by Autopilot (no wave-started)'
+/** pr-facts.mjs's fields and the head commit, whose commit statuses give the Gate of a PR without VERIFIED. */
+const PR_FIELDS = `${GH_FIELDS},headRefOid`
 
 /** The steps of the critical path, in order: [key, title, from mark, to mark]. */
 const STEPS = [
@@ -230,7 +233,7 @@ function statusesArgs(repo, sha) {
   const parts = repo ? repo.replace(/^[a-z]+:\/\//i, '').replace(/\.git$/, '').split('/').filter(Boolean) : []
   const slug = parts.length >= 2 ? parts.slice(-2).join('/') : '{owner}/{repo}'
   const host = parts.length >= 3 ? parts[parts.length - 3] : null
-  return ['api', `repos/${slug}/commits/${sha}/statuses?per_page=100`, ...(host && host !== 'github.com' ? ['--hostname', host] : [])]
+  return ['api', '--paginate', '--slurp', `repos/${slug}/commits/${sha}/statuses?per_page=100`, ...(host && host !== 'github.com' ? ['--hostname', host] : [])]
 }
 
 /** The PR of each Ticket: { pr } or { why }. From the --prs file, or from gh. */
@@ -259,7 +262,7 @@ async function loadPrs(groups, options, deps, walked, root) {
       const repo = options.repo ?? walked.epics.get(ticket.epic)?.origin ?? null
       const where = repo ? ['--repo', repo] : []
       const number = ticket.file?.pr ?? null
-      const args = number ? ['pr', 'view', String(number), ...where, '--json', GH_FIELDS] : ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '20', '--json', GH_FIELDS, ...where]
+      const args = number ? ['pr', 'view', String(number), ...where, '--json', PR_FIELDS] : ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '20', '--json', PR_FIELDS, ...where]
       const result = await deps.gh(args, root ?? deps.cwd)
       if (result.missing) {
         missing = true
@@ -299,7 +302,8 @@ async function loadPrs(groups, options, deps, walked, root) {
       if (verdicts(pr).gate === null && head !== null) {
         const statuses = await deps.gh(statusesArgs(repo, head), root ?? deps.cwd)
         try {
-          if (statuses.code === 0) pr.statuses = JSON.parse(statuses.stdout)
+          // --slurp gives the pages as an array of arrays.
+          if (statuses.code === 0) pr.statuses = [JSON.parse(statuses.stdout)].flat(2)
         } catch {
           // No statuses: the Gate stays empty with its reason.
         }

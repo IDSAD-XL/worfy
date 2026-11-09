@@ -105,18 +105,23 @@ Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md),
 
 ### 3–4. `critical-path`: Gate из `review`
 
-- Решение по данным: Gate — последний комментарий `VERIFIED`, как раньше; **без него** — самый ранний `review`
-  `success` на head PR. Не «вместо»: где есть оба (51 PR), они расходятся на 1 s (медиана), так что замена значения не
+- Решение по данным: Gate — последний комментарий `VERIFIED`, как раньше; **без него** — `review` `success` на head
+  PR (какой именно — ниже). Не «вместо»: где есть оба (51 PR), они расходятся на 1 s (медиана), так что замена значения не
   меняет. Зато стоит одного вызова `gh api` на каждый PR и ломает отчёты, сверенные байт в байт
   (`test/fixtures/flight-recorder/critical-path-before.json`). Запасной путь даёт Gate 7 из 58 PR с `review` (12%), у
   которых он был пустым. После правки части 2 оба следа публикует один скрипт в один момент, так что расходиться они не
   должны; если разойдутся — вернуться к выбору.
 - Как читается `review`:
-  - только из `gh api repos/<owner>/<repo>/commits/<head>/statuses` (все status-ы head, новые первыми).
-    `statusCheckRollup` хранит лишь последний status каждого контекста и без описания: по нему нельзя взять самый
-    ранний и нельзя отличить копию `land`. `critical-path` спрашивает status-ы только у PR без `VERIFIED`; в файле
-    `--prs` — необязательное поле `statuses` у PR;
-  - берётся самый ранний `review` `success`: повторная публикация позже Gate не двигает, `pending` вердиктом не считается;
+  - только из `gh api --paginate --slurp repos/<owner>/<repo>/commits/<head>/statuses` (все status-ы head, новые
+    первыми, все страницы, не только первые 100). Head — `headRefOid` PR (`critical-path` добавляет это поле к
+    `GH_FIELDS`); без него — последний из `commits`, а gh отдаёт не больше 100 коммитов. `statusCheckRollup` хранит лишь
+    последний status каждого контекста и без описания: по нему нельзя взять самый ранний и нельзя отличить копию
+    `land`. `critical-path` спрашивает status-ы только у PR без `VERIFIED`; в файле `--prs` — необязательное поле
+    `statuses` у PR;
+  - берётся самый ранний `review` `success` **после последнего** `review` `failure` или `error` на этом head.
+    Повторная публикация того же вердикта позже Gate не двигает. Успех, который отменил более поздний `failure`, не
+    считается. `pending` и status-ы других контекстов (`check/windows`) вердиктом не считаются. Если после последнего
+    `success` был `failure` — пустая ячейка «review failure on the PR head after its last review success»;
   - `review`, который `land` перенёс на новый head после rebase (`harness/bin/land`, `reviewed`, описание
     `carried from <sha>: …`), пропускается: время копии — время запуска `land`, не вердикта. Если на head только копия —
     пустая ячейка «review on the PR head only carried by land». Искать исходную отметку на старом head не стали: в
@@ -128,9 +133,13 @@ Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md),
 - Код: `reviewMark`, `gateMark`, `headSha` в `src/shared/flight-recorder/pr-facts.mjs` (типы — `pr-facts.d.mts`),
   вызов и запрос status-ов в `scripts/critical-path.mjs`. Tests: `test/unit/critical-path.test.ts`, describe «the Gate
   from the review mark of the head when there is no VERIFIED comment»; fixture
-  `test/fixtures/critical-path/prs-review.json` — PR с `review` без `VERIFIED`, PR с двумя `review success` (берётся
-  ранний), PR с `review` позже merge (пустая ячейка); через поддельный `gh` — запрос status-ов только без `VERIFIED` и
-  копия `land`. Mutation testing на копии в `/tmp`: 8 мутантов (максимум вместо минимума, без фильтра копий, без
-  проверки «после merge», без запасного пути, без запроса status-ов, первый коммит вместо head и др.) — все убиты.
+  `test/fixtures/critical-path/prs-review.json` — PR с `review` без `VERIFIED`; PR с `success` 02:30, `failure` 02:45,
+  `pending` 02:46, `check/windows` `success` 02:48 и `review` `success` 02:50 и 02:57 (Gate — 02:50); PR с `review`
+  позже merge (пустая ячейка). Через поддельный `gh`: status-ы запрашиваются только без `VERIFIED`; копия `land`
+  пропускается; читаются все страницы `--slurp`; head берётся из `headRefOid`; `failure` после последнего `success` и
+  `failure` без `success` дают пустую ячейку. Mutation testing на копии в `/tmp`: 12 мутантов — без фильтра контекста
+  `review`, любой state вместо `success`, `state !== 'pending'`, без правила «после последнего failure», `failure` не
+  считается отказом, максимум вместо минимума, без проверки «после merge», без фильтра копий, без `headRefOid`, без
+  разбора страниц, без `--paginate --slurp`, без запасного пути — все убиты.
 - Приложение (Flight Recorder, `src/shared/flight-recorder/from-github.ts`) по-прежнему берёт Gate только из
   `VERIFIED`: этот Ticket его не трогает.
