@@ -1,8 +1,8 @@
-// The groups of the PR inbox (worfy-pr-inbox ticket 02, src/main/github/inbox.ts): a pure function over a snapshot of
+// The groups of the PR inbox (worfy-pr-inbox ticket 02, src/main/github/inbox-groups.ts): a pure function over a snapshot of
 // PRs, by the rules of the spec — Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others. Logins and
 // repositories are made up.
 import { describe, expect, it } from 'vitest'
-import { groupOf, groupPulls, type InboxComment, type InboxPull } from '../../src/main/github/inbox'
+import { groupOf, groupPulls, lastActivityOf, type InboxComment, type InboxPull } from '../../src/main/github/inbox-groups'
 
 const ME = 'dev-me'
 const ANA = 'dev-ana'
@@ -101,6 +101,14 @@ describe('Needs a fix', () => {
     expect(groupOf(pull({ reviewDecision: 'CHANGES_REQUESTED' }), ME, false)?.group).toBe('needs-fix')
     expect(groupOf(pull({ mergeStateStatus: 'DIRTY' }), ME, false)?.group).toBe('needs-fix')
   })
+
+  it('changes requested in a review when no branch protection rule gives a review decision', () => {
+    const reviews = [
+      { author: ANA, state: 'APPROVED', submittedAt: '2026-11-10T09:00:00Z' },
+      { author: BO, state: 'CHANGES_REQUESTED', submittedAt: '2026-11-10T10:00:00Z' },
+    ]
+    expect(groupOf(pull({ reviewDecision: null, mergeStateStatus: 'CLEAN', reviews }), ME, false)?.group).toBe('needs-fix')
+  })
 })
 
 describe('Ready', () => {
@@ -108,6 +116,12 @@ describe('Ready', () => {
     expect(groupOf(pull({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN' }), ME, false)?.group).toBe('ready')
     // A repository without CI counts as green.
     expect(groupOf(pull({ reviewDecision: 'APPROVED', mergeStateStatus: 'CLEAN', ci: null }), ME, false)?.group).toBe('ready')
+  })
+
+  it('an approving review when no branch protection rule gives a review decision', () => {
+    const reviews = [{ author: ANA, state: 'APPROVED', submittedAt: '2026-11-10T09:00:00Z' }]
+    expect(groupOf(pull({ reviewDecision: null, mergeStateStatus: 'CLEAN', reviews }), ME, false)?.group).toBe('ready')
+    expect(groupOf(pull({ reviewDecision: null, mergeStateStatus: 'CLEAN' }), ME, false)?.group).toBe('waiting')
   })
 
   it('not while CI runs or the PR is a draft', () => {
@@ -129,4 +143,14 @@ describe('Waiting on others', () => {
 it('a closed PR is in no group', () => {
   expect(groupOf(pull({ state: 'MERGED', ci: 'failing' }), ME, false)).toBeNull()
   expect(groupOf(pull({ author: ANA, state: 'CLOSED' }), ME, true)).toBeNull()
+})
+
+describe('last activity', () => {
+  it('the newest comment or review, else updatedAt', () => {
+    expect(lastActivityOf(pull())).toBe('2026-11-10T08:00:00Z')
+    const reviews = [{ author: ANA, state: 'APPROVED', submittedAt: '2026-11-09T12:00:00Z' }]
+    expect(lastActivityOf(pull({ reviews }))).toBe('2026-11-09T12:00:00Z')
+    const threads = [thread([comment(ANA, '2026-11-09T10:00:00Z'), comment(BO, '2026-11-09T14:00:00Z')])]
+    expect(lastActivityOf(pull({ reviews, threads, comments: [comment(ANA, '2026-11-09T11:00:00Z')] }))).toBe('2026-11-09T14:00:00Z')
+  })
 })

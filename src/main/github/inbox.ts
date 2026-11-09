@@ -11,13 +11,17 @@
 //   `involves:@me`, over `repo:` of every repository; one page, only number, updatedAt, headRefOid and the
 //   repository of each PR; with them the viewer's login and the rate limit.
 // - Details: a second query only for the PRs whose `updatedAt` moved past what the cache holds, 10 PRs a call, without
-//   `diffHunk` or `files` (large pages timed out with 504 on a big repository). HTTP 502 or 504 — the same PRs again
-//   in two halves; HTTP 503 — the same call again, at most twice; as harness/bin/review-history does.
+//   `diffHunk` or `files` (large pages timed out with 504 on a big repository). CI finishing or a new conflict does
+//   not move `updatedAt`, so a cached PR whose CI runs or whose mergeability GitHub had not computed yet is read again
+//   too, at most one page of them per search. HTTP 502 or 504 — the same PRs again in two halves; HTTP 503 — the
+//   same call again, at most twice; as harness/bin/review-history does. A PR GitHub cannot resolve (deleted, or
+//   moved) fails the whole page in gh: the page's PRs are then read one by one, and that PR leaves the cache.
 // - Pace: a search per Project every 5 minutes, focused or not. A failed read doubles the interval up to 30 minutes;
 //   the first success brings back 5. An answer whose rate limit has less than 10 % left stops every call of that
 //   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn (the notifications
 //   trigger of ticket 08 calls it).
-// - Cache: per account. Two Projects of one account never read the details of one PR twice.
+// - Cache: per account. Two Projects of one account never read the details of one PR twice. A PR no Project's last
+//   search found, and every PR of a Project that left the list, leave it.
 // - Off: `"prInbox": false` in the Project's settings.json, or no repository on GitHub — not one gh call.
 //
 // Read-only: a read runs only `gh auth token -u <account>` and `gh api graphql` with a `query`, never `--method`,
@@ -26,9 +30,10 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { z } from 'zod'
 import type { CiState } from '../../shared/ipc/checks'
-import { PR_INBOX_GROUPS, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
+import { PR_INBOX_GROUPS, type PrInboxRow, type PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
 import { readPrInboxState, writeSeenPull } from '../projects/pr-inbox-state'
 import { gitRunner, type GitRunner } from '../workflow/stages'
+import { commentsOf, decisionOf, groupPulls, lastActivityOf, same, timeOf, type InboxComment, type InboxMember, type InboxPull } from './inbox-groups'
 import { accountAuth, type GhEnv, type GhRunner } from './prs'
 import { parseRemote } from './remote'
 
@@ -44,129 +49,13 @@ export const RATE_LIMIT_FLOOR = 0.1
 const RETRIES = 2
 const RETRY_WAIT_MS = 5_000
 
-// ── the PRs as main keeps them ───────────────────────────────────────────────
-
-export interface InboxComment {
-  id: string
-  /** The number GitHub's REST API knows the comment by, read from its URL; null when the URL has none. */
-  databaseId: number | null
-  author: string | null
-  body: string
-  createdAt: string
-  url: string
-}
-
-export interface InboxThread {
-  id: string
-  isResolved: boolean
-  isOutdated: boolean
-  path: string | null
-  line: number | null
-  viewerCanReply: boolean
-  comments: InboxComment[]
-}
-
-export interface InboxPull {
-  /** `owner/name` as GitHub spells it. */
-  repo: string
-  number: number
-  title: string
-  url: string
-  state: 'OPEN' | 'CLOSED' | 'MERGED'
-  isDraft: boolean
-  author: string | null
-  headRefName: string
-  headRefOid: string | null
-  createdAt: string
-  updatedAt: string
-  reviewDecision: string | null
-  mergeable: string | null
-  mergeStateStatus: string | null
-  ci: CiState | null
-  /** Who is asked to review: a user's login, or a team's slug. */
-  reviewRequests: { login: string | null; team: string | null }[]
-  /** The latest review of each reviewer that approved or asked for changes. */
-  reviews: { author: string | null; state: string; submittedAt: string | null }[]
-  threads: InboxThread[]
-  comments: InboxComment[]
-}
-
-// ── the groups ───────────────────────────────────────────────────────────────
-
-const same = (login: string | null, viewer: string): boolean => login !== null && login.toLowerCase() === viewer.toLowerCase()
-const timeOf = (iso: string | null | undefined): number => (iso == null ? Number.NaN : Date.parse(iso))
-
-/** `@viewer` as a whole login, not the start of a longer one. */
-function mentions(body: string, viewer: string): boolean {
-  const login = viewer.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-  return new RegExp(`(?:^|[^\\w-])@${login}(?![\\w-])`, 'iu').test(body)
-}
-
-/**
- * Whether the user owes an answer: on the user's own PR, an unresolved thread whose last comment is someone else's;
- * on any PR, an unresolved thread the user wrote in whose last comment is someone else's, or a mention of the user
- * newer than the user's last comment there.
- */
-function owesAnswer(pull: InboxPull, viewer: string, mine: boolean): boolean {
-  for (const thread of pull.threads) {
-    const last = thread.comments.at(-1)
-    if (thread.isResolved || last === undefined || same(last.author, viewer)) continue
-    if (mine || thread.comments.some((comment) => same(comment.author, viewer))) return true
-  }
-  const all = [...pull.comments, ...pull.threads.flatMap((thread) => thread.comments)]
-  const lastOwn = Math.max(-Infinity, ...all.filter((comment) => same(comment.author, viewer)).map((comment) => timeOf(comment.createdAt)))
-  return all.some((comment) => !same(comment.author, viewer) && timeOf(comment.createdAt) > lastOwn && mentions(comment.body, viewer))
-}
-
-export interface GroupPlace {
-  group: PrInboxGroup
-  /** In Needs my review only: the review is asked of the user through a team, not in person. */
-  viaTeam: boolean
-}
-
-/**
- * The group of an open PR for the user `viewer`, by the spec's rules, the first that fits; null when the PR is closed,
- * or someone else's without a move of the user's. `reviewRequested`: the `review-requested:@me` search found it, which
- * takes requests to the user in person and through a team, and a request made again after the user's review.
- */
-export function groupOf(pull: InboxPull, viewer: string, reviewRequested: boolean): GroupPlace | null {
-  if (pull.state !== 'OPEN') return null
-  const mine = same(pull.author, viewer)
-  if (!mine && reviewRequested) return { group: 'needs-review', viaTeam: !pull.reviewRequests.some((request) => same(request.login, viewer)) }
-  if (owesAnswer(pull, viewer, mine)) return { group: 'needs-answer', viaTeam: false }
-  if (!mine) return null
-  if (pull.ci === 'failing' || pull.reviewDecision === 'CHANGES_REQUESTED' || pull.mergeStateStatus === 'DIRTY') return { group: 'needs-fix', viaTeam: false }
-  // A repository without CI counts as green.
-  if (pull.reviewDecision === 'APPROVED' && pull.ci !== 'running' && !pull.isDraft) return { group: 'ready', viaTeam: false }
-  return { group: 'waiting', viaTeam: false }
-}
-
-export interface InboxMember {
-  pull: InboxPull
-  reviewRequested: boolean
-}
-
-/** Every group, in the view's order, each PR with its place: review requests the oldest PR first, the rest the oldest activity first. */
-export function groupPulls(members: readonly InboxMember[], viewer: string): Map<PrInboxGroup, { pull: InboxPull; viaTeam: boolean }[]> {
-  const groups = new Map<PrInboxGroup, { pull: InboxPull; viaTeam: boolean }[]>(PR_INBOX_GROUPS.map((group) => [group, []]))
-  for (const { pull, reviewRequested } of members) {
-    const place = groupOf(pull, viewer, reviewRequested)
-    if (place !== null) groups.get(place.group)!.push({ pull, viaTeam: place.viaTeam })
-  }
-  for (const [group, rows] of groups) {
-    const at = (pull: InboxPull): number => timeOf(group === 'needs-review' ? pull.createdAt : pull.updatedAt)
-    rows.sort((a, b) => at(a.pull) - at(b.pull) || a.pull.number - b.pull.number)
-  }
-  return groups
-}
-
 // ── the queries ──────────────────────────────────────────────────────────────
 
 const RATE = 'rateLimit { limit remaining resetAt }'
 const FOUND = '... on PullRequest { number updatedAt headRefOid repository { nameWithOwner } }'
 export const SEARCH_QUERY = `query($review: String!, $involves: String!) { viewer { login } ${RATE} review: search(query: $review, type: ISSUE, first: ${INBOX_SEARCH_LIMIT}) { nodes { ${FOUND} } } involves: search(query: $involves, type: ISSUE, first: ${INBOX_SEARCH_LIMIT}) { nodes { ${FOUND} } } }`
 
-const COMMENT = 'id author { login } body createdAt url'
+const COMMENT = 'id databaseId author { login } body createdAt url'
 export const PULL_FIELDS = [
   'number title url state isDraft createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus',
   'author { login }',
@@ -220,13 +109,9 @@ const nodes = <T extends z.ZodType>(item: T) =>
     .nullish()
     .transform((connection) => (connection?.nodes ?? []).filter((node): node is NonNullable<z.output<T>> => node != null))
 
-/** `…#discussion_r123` or `…#issuecomment-123`: the REST id; GitHub's GraphQL `databaseId` overflows a 32-bit Int on newer comments. */
-function restIdOf(url: string): number | null {
-  const match = /#(?:discussion_r|issuecomment-)(\d+)$/u.exec(url)
-  return match ? Number(match[1]) : null
-}
-
-const commentSchema = z.object({ id: z.string(), author: loginSchema, body: z.string().catch(''), createdAt: z.string(), url: z.string().catch('') }).transform((comment): InboxComment => ({ ...comment, databaseId: restIdOf(comment.url) }))
+const commentSchema = z
+  .object({ id: z.string(), databaseId: z.number().int().nullish().catch(null), author: loginSchema, body: z.string().catch(''), createdAt: z.string(), url: z.string().catch('') })
+  .transform((comment): InboxComment => ({ ...comment, databaseId: comment.databaseId ?? null }))
 
 const ROLLUP: Record<string, CiState> = { SUCCESS: 'passing', FAILURE: 'failing', ERROR: 'failing', PENDING: 'running', EXPECTED: 'running' }
 
@@ -307,6 +192,12 @@ function failureOf(reason: string): 'timeout' | 'unavailable' | null {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/** gh's reason for a GraphQL NOT_FOUND: a PR or repository of the page GitHub cannot resolve, which fails the whole call. */
+const UNRESOLVED = /\bCould not resolve to a (?:PullRequest|Repository)\b/u
+
+/** Whether GitHub may give a cached PR another answer without moving its `updatedAt`: CI runs, or mergeability is not computed yet. */
+const unsettled = (pull: InboxPull): boolean => pull.ci === 'running' || pull.mergeStateStatus === null || pull.mergeStateStatus === 'UNKNOWN'
+
 // ── the reader ───────────────────────────────────────────────────────────────
 
 /** A Project of this Machine as the reader sees it. */
@@ -381,7 +272,9 @@ export class PrInbox {
     if (this.ticking) return
     this.ticking = true
     try {
-      for (const project of this.options.projects()) await this.pollIfDue(project)
+      const projects = this.options.projects()
+      this.forget(new Set(projects.map((project) => project.id)))
+      for (const project of projects) await this.pollIfDue(project)
     } finally {
       this.ticking = false
     }
@@ -549,10 +442,14 @@ export class PrInbox {
         const env = await this.envOf(project.root, state.account)
         await this.search(project.root, state, env, cache)
         state.readAt = now
-        const stale = [...state.members].filter(([key, member]) => {
+        const moved = [...state.members].filter(([key, member]) => {
           const cached = cache!.pulls.get(key)
           return cached === undefined || timeOf(member.updatedAt) > timeOf(cached.pull.updatedAt)
         })
+        // CI finishing or a new conflict does not move updatedAt: such PRs are read again too, one page at most.
+        const movedKeys = new Set(moved.map(([key]) => key))
+        const settling = [...state.members].filter(([key]) => !movedKeys.has(key) && unsettled(cache!.pulls.get(key)!.pull)).slice(0, INBOX_DETAILS_PAGE)
+        const stale = [...moved, ...settling]
         const repos = new Map(stale.map(([key]) => [key, this.repoOfKey(key, state)]))
         const refs = stale.map(([key]) => refOf(key, repos.get(key)!))
         for (let at = 0; at < refs.length && cache.pausedUntil <= now; at += INBOX_DETAILS_PAGE) {
@@ -613,14 +510,21 @@ export class PrInbox {
 
   /**
    * The details of `page` into the cache. A timeout (HTTP 502 or 504) asks the same PRs again in two halves, down to
-   * one PR, which is then asked again like a 503: at most RETRIES times.
+   * one PR, which is then asked again like a 503: at most RETRIES times. A PR GitHub cannot resolve fails the whole
+   * call in gh: the page's PRs are asked one by one, and the one that cannot be resolved leaves the cache.
    */
   private async readPage(page: readonly PullRef[], root: string, env: GhEnv, cache: AccountCache, repos: ReadonlyMap<string, string>): Promise<void> {
     let stdout: string
     try {
       stdout = await this.withRetries(() => this.options.run(detailsArgs(page), root, env), (kind) => kind === 'unavailable' || page.length === 1)
     } catch (error) {
-      if (failureOf(messageOf(error)) !== 'timeout' || page.length === 1) throw error
+      const reason = messageOf(error)
+      if (UNRESOLVED.test(reason)) {
+        if (page.length === 1) cache.pulls.delete(keyOf(`${page[0]!.owner}/${page[0]!.name}`, page[0]!.number))
+        else for (const ref of page) await this.readPage([ref], root, env, cache, repos)
+        return
+      }
+      if (failureOf(reason) !== 'timeout' || page.length === 1) throw error
       const half = Math.ceil(page.length / 2)
       await this.readPage(page.slice(0, half), root, env, cache, repos)
       await this.readPage(page.slice(half), root, env, cache, repos)
@@ -645,6 +549,13 @@ export class PrInbox {
     cache.pauseReason = `GitHub rate limit: ${rate.remaining} of ${rate.limit} left; the PR inbox waits until ${rate.resetAt}`
   }
 
+  /** Drops the state of every Project not in `listed` (removed from the list), and with it the details only it kept. */
+  private forget(listed: ReadonlySet<string>): void {
+    const before = this.states.size
+    for (const id of this.states.keys()) if (!listed.has(id)) this.states.delete(id)
+    if (this.states.size !== before) this.prune()
+  }
+
   /** Drops the details no Project's last search found, account by account. */
   private prune(): void {
     for (const [account, cache] of this.accounts) {
@@ -658,8 +569,6 @@ function refOf(key: string, repo: string): PullRef {
   const [owner = '', name = ''] = repo.split('/')
   return { owner, name, number: Number(key.slice(key.lastIndexOf('#') + 1)) }
 }
-
-const commentsOf = (pull: InboxPull): InboxComment[] => [...pull.comments, ...pull.threads.flatMap((thread) => thread.comments)]
 
 function rowOf(pull: InboxPull, viaTeam: boolean, viewer: string | null, seenAt: string | null): PrInboxRow {
   const since = timeOf(seenAt)
@@ -676,12 +585,12 @@ function rowOf(pull: InboxPull, viaTeam: boolean, viewer: string | null, seenAt:
     createdAt: pull.createdAt,
     updatedAt: pull.updatedAt,
     ci: pull.ci,
-    reviewDecision: pull.reviewDecision,
+    reviewDecision: decisionOf(pull),
     mergeStateStatus: pull.mergeStateStatus,
     viaTeam,
     unresolvedThreads: pull.threads.filter((thread) => !thread.isResolved).length,
     newSinceSeen: fresh.length,
-    lastActivityAt: pull.updatedAt,
+    lastActivityAt: lastActivityOf(pull),
     threads: pull.threads,
     comments: pull.comments,
   }

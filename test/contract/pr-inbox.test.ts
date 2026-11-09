@@ -54,6 +54,8 @@ interface StubPull {
   headRefOid: string
   reviewRequested?: boolean
   involves?: boolean
+  /** Found by the search, but GitHub cannot resolve its details. */
+  missing?: boolean
   pull?: Record<string, unknown>
 }
 
@@ -174,6 +176,10 @@ function detailsAsked(gh: GhWorld): string[][] {
     })
 }
 
+/** A PR of mine without a thread: its group follows CI, the review decision and mergeability only. */
+const quietPull = (repo: string, number: number, pull: Record<string, unknown> = {}): StubPull => stubPull(repo, number, { pull: { reviewThreads: { nodes: [] }, ...pull } })
+const rollup = (state: string) => ({ commits: { nodes: [{ commit: { statusCheckRollup: { state } } }] } })
+
 const rowsOf = (snapshot: PrInboxSnapshot): string[] => snapshot.groups.flatMap((group) => group.rows.map((row) => `${row.repo}#${row.number}`)).sort()
 
 describe('the search of a Project', () => {
@@ -243,6 +249,132 @@ describe('the search of a Project', () => {
     // A PR of a repository no Project reads is not read.
     await inbox.refresh(OTHER, 3)
     expect(detailsAsked(gh)).toHaveLength(2)
+  })
+  it('11 PRs: their details in pages of 10 and 1', async () => {
+    const gh = world(Array.from({ length: 11 }, (_, index) => stubPull(API, index + 1)))
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    expect(detailsAsked(gh).map((page) => page.length)).toEqual([10, 1])
+    expect(rowsOf(inbox.snapshot('p1'))).toHaveLength(11)
+  })
+
+  it('re-reads a cached PR whose CI runs or whose mergeability is unknown, though its updatedAt stays', async () => {
+    const settled = quietPull(API, 3, { reviewDecision: 'APPROVED' })
+    const gh = world([quietPull(API, 1, { reviewDecision: 'APPROVED', ...rollup('PENDING') }), quietPull(API, 2, { reviewDecision: 'APPROVED', mergeStateStatus: 'UNKNOWN' }), settled])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const rowOf = (number: number) => inbox.snapshot('p1').groups.flatMap((group) => group.rows.map((row) => ({ ...row, group: group.group }))).find((row) => row.number === number)
+    expect(rowOf(1)?.group).toBe('waiting')
+
+    // CI finished and GitHub worked out the mergeability: updatedAt did not move.
+    gh.set([quietPull(API, 1, { reviewDecision: 'APPROVED' }), quietPull(API, 2, { reviewDecision: 'APPROVED' }), settled])
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh).at(-1)).toEqual([`${API}#1`, `${API}#2`])
+    expect(rowOf(1)?.group).toBe('ready')
+    expect(rowOf(2)?.mergeStateStatus).toBe('CLEAN')
+
+    // Settled now: the next search reads no details.
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh)).toHaveLength(2)
+  })
+
+  it('re-reads at most one page of unsettled PRs per search', async () => {
+    const gh = world(Array.from({ length: 12 }, (_, index) => quietPull(API, index + 1, rollup('PENDING'))))
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh).map((page) => page.length)).toEqual([10, 2, 10])
+  })
+
+  it('a PR no search finds any more leaves the cache: found again, its details are read again', async () => {
+    const gh = world([stubPull(API, 1), stubPull(API, 2)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    gh.set([stubPull(API, 1)])
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(rowsOf(inbox.snapshot('p1'))).toEqual([`${API}#1`])
+    gh.set([stubPull(API, 1), stubPull(API, 2)])
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(detailsAsked(gh)).toEqual([[`${API}#1`, `${API}#2`], [`${API}#2`]])
+  })
+
+  it('a PR GitHub cannot resolve: the page is read one PR at a time, the others are in the inbox', async () => {
+    const gh = world([stubPull(API, 1), stubPull(API, 2, { missing: true }), stubPull(API, 3)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    expect(detailsAsked(gh)).toEqual([[`${API}#1`, `${API}#2`, `${API}#3`], [`${API}#1`], [`${API}#2`], [`${API}#3`]])
+    expect(rowsOf(inbox.snapshot('p1'))).toEqual([`${API}#1`, `${API}#3`])
+    expect(inbox.snapshot('p1').error).toBeNull()
+
+    // Asked alone, it is not an error either, and it stays out.
+    await expect(inbox.refresh(API, 2)).resolves.toBeUndefined()
+    expect(detailsAsked(gh).at(-1)).toEqual([`${API}#2`])
+    expect(rowsOf(inbox.snapshot('p1'))).toEqual([`${API}#1`, `${API}#3`])
+    expect(inbox.snapshot('p1').error).toBeNull()
+  })
+
+  it('refresh on a Project never read makes no call', async () => {
+    const gh = world([stubPull(API, 1)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await expect(inbox.refresh(API, 1)).resolves.toBeUndefined()
+    expect(gh.calls()).toEqual([])
+  })
+
+  it('a row: the decision of the latest reviews when GitHub gives none, and the time of the last comment or review', async () => {
+    const reviews = { latestOpinionatedReviews: { nodes: [{ author: { login: ANA }, state: 'APPROVED', submittedAt: '2026-11-10T07:45:00Z' }] } }
+    const gh = world([stubPull(API, 1, { pull: reviews }), stubPull(API, 2)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const rows = inbox.snapshot('p1').groups.flatMap((group) => group.rows)
+    expect(rows.find((row) => row.number === 1)).toMatchObject({ reviewDecision: 'APPROVED', lastActivityAt: '2026-11-10T07:45:00Z' })
+    // Ana's last thread comment, not the PR's updatedAt (08:00).
+    expect(rows.find((row) => row.number === 2)).toMatchObject({ reviewDecision: null, lastActivityAt: '2026-11-10T07:30:00Z' })
+  })
+})
+
+describe('the list of Projects', () => {
+  it('a Project dropped from the list between two ticks: no search for it, and its PRs leave the cache', async () => {
+    const gh = world([stubPull(API, 1), stubPull(WEB, 2)])
+    const listed = [project('api', [API]), project('web', [WEB])]
+    const projects = [...listed]
+    const inbox = reader(gh, projects)
+    await inbox.tick()
+    expect(searches(gh)).toHaveLength(2)
+
+    projects.splice(1, 1)
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(searches(gh)).toHaveLength(3)
+    expect(searches(gh).at(-1)!.join(' ')).not.toContain(WEB)
+
+    // Back in the list it is a new Project: its PR is not in the cache any more, so its details are read again.
+    projects.push(listed[1]!)
+    await inbox.tick()
+    expect(detailsAsked(gh)).toEqual([[`${API}#1`], [`${WEB}#2`], [`${WEB}#2`]])
+  })
+})
+
+describe('the timer', () => {
+  it('start(ms) ticks every ms; its stop halts it', async () => {
+    vi.useFakeTimers()
+    try {
+      const inbox = reader(world([]), [])
+      const tick = vi.spyOn(inbox, 'tick').mockResolvedValue()
+      const stop = inbox.start(1000)
+      expect(tick).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(tick).toHaveBeenCalledTimes(3)
+      stop()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(tick).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -338,6 +470,25 @@ describe('the switch in settings.json', () => {
     const on = project('on', [API], { actionTemplates: {} })
     await reader(gh, [on]).tick()
     expect(searches(gh)).toHaveLength(1)
+  })
+
+  it('prInbox: false written after a read: no new gh call on tick or refresh', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API], { actionTemplates: {} })
+    const inbox = reader(gh, [p])
+    await inbox.tick()
+    const calls = gh.calls().length
+    expect(calls).toBeGreaterThan(0)
+
+    writeFileSync(join(p.dataDir, 'settings.json'), JSON.stringify({ actionTemplates: {}, prInbox: false }))
+    for (let minute = 5; minute <= 30; minute += 5) {
+      clock = START + minute * MINUTE
+      await inbox.tick()
+      await inbox.refresh(API, 1)
+    }
+    expect(gh.calls()).toHaveLength(calls)
+    expect(inbox.snapshot('p1')).toMatchObject({ enabled: false, nextSearchAt: null })
+    expect(rowsOf(inbox.snapshot('p1'))).toEqual([])
   })
 
   it('a Project without a repository on GitHub is off', async () => {

@@ -99,19 +99,26 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
   `rateLimit { limit remaining resetAt }`. Узел поиска несёт ещё `repository { nameWithOwner }`: без него у Project-а из
   нескольких репозиториев нельзя понять, чей PR.
 - Вызовов gh за один поиск Project-а с N PR: `gh auth token -u <account>` (1, когда Profile называет аккаунт) + поиск
-  (1) + детали `ceil(M / 10)`, где M — PR со сдвинутым `updatedAt` (при первом поиске M = N). Повтор на 503 — до 2 раз;
-  502/504 делит страницу пополам до одного PR. Кроме gh — `bin/profile` (аккаунт) и `git remote get-url origin` на
+  (1) + детали `ceil(M / 10)`, где M — PR со сдвинутым `updatedAt` (при первом поиске M = N) плюс не больше 10 PR из
+  кэша, у которых CI ещё идёт или `mergeStateStatus` пуст или `UNKNOWN`: конец CI и новый конфликт `updatedAt` не
+  сдвигают. Повтор на 503 — до 2 раз; 502/504 делит страницу пополам до одного PR. PR, который GitHub не находит
+  («Could not resolve to a PullRequest», gh выходит с кодом 1 на всю страницу), — страница читается по одному PR,
+  этот PR уходит из кэша, ошибки у Project-а нет. Кроме gh — `bin/profile` (аккаунт) и `git remote get-url origin` на
   каждый репозиторий, только когда поиск Project-а подошёл по времени.
 - Детали — alias-ы `pN: repository(owner: $oN, name: $nN) { pullRequest(number: $kN) { … } }` с переменными `-f`/`-F`,
   без подстановки имён в текст запроса. CI — `commits(last: 1) { … statusCheckRollup { state } }`. Номер комментария
-  для REST (`databaseId` строки) берётся из его `url` (`#discussion_r…`, `#issuecomment-…`): GraphQL `databaseId` типа
-  Int переполняется на новых комментариях GitHub.
+  для REST — GraphQL `databaseId` как есть (null, если GitHub его не дал); догадка первого раунда, что он переполняется,
+  была неверной, и разбор `url` убран.
 - Кэш — по аккаунту (логин или `''` для своего аккаунта gh); PR, которых не нашёл ни один поиск, из кэша уходят.
+  Project, которого больше нет в списке, теряет своё состояние на следующем тике, и его PR уходят из кэша.
   Пауза ниже 10 % rate limit — тоже на аккаунт: ни поиск, ни `refresh` не идут до `resetAt`, интервал не удваивается.
-- Группы — `groupOf`/`groupPulls`, порядок правил: Needs my review → Needs my answer → Needs a fix → Ready → Waiting
+- Группы — `groupOf`/`groupPulls` в отдельном модуле `src/main/github/inbox-groups.ts`, порядок правил: Needs my review → Needs my answer → Needs a fix → Ready → Waiting
   on others, первая подходящая. Needs my answer — также нерешённая нить на чужом PR, где я писал, а последний
   комментарий не мой. Чужой PR без моего хода не показывается. Ready без CI (`ci: null`) считается зелёным. Needs my
-  review — сначала старые по `createdAt`, остальные группы — сначала старые по `updatedAt`.
+  review — сначала старые по `createdAt`, остальные группы — сначала старые по `updatedAt`. Когда `reviewDecision`
+  пуст (правило защиты ветки не требует review), решение берётся из `latestOpinionatedReviews`: чьё-то
+  CHANGES_REQUESTED, иначе APPROVED. `lastActivityAt` строки — время последнего комментария или review, иначе
+  `updatedAt`.
 - «N new since you looked» — комментарии не мои новее `seenAt`; без записи — все не мои. `pr-inbox.json` пишется только
   по `prInbox.markSeen`: чтение файл не создаёт.
 - `prInbox: false` читается из `settings.json` без остальной схемы (`prInboxSetting`), файл не переносится и не

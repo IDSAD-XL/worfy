@@ -348,11 +348,11 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.connect.stop',
     'projects.connect.write',
     'projects.hold',
+    // Writes pr-inbox.json into the Project's data folder: what the user has seen (worfy-pr-inbox ticket 02).
+    'prInbox.markSeen',
     'projects.remove',
     // The team reviewer (worfy-human-review ticket 09): Build starts a Session, Delete erases the private
     // folder, Later writes the Project's settings, and so does a due reminder to update it (ticket 10).
-    // Writes pr-inbox.json into the Project's data folder: what the user has seen (worfy-pr-inbox ticket 02).
-    'prInbox.markSeen',
     'projects.reviewer.build',
     'projects.reviewer.delete',
     'projects.reviewer.later',

@@ -33,11 +33,15 @@
 //     `--version` prints `version`; without the file it prints 2.97.0.
 //   - graphql.json: the PRs the PR inbox reads (worfy-pr-inbox ticket 02), `{"viewer", "rateLimit"?, "detailsMax"?,
 //     "pulls": [{"repo": "<owner>/<name>", "number", "updatedAt", "headRefOid", "reviewRequested"?, "involves"?,
-//     "pull"?: {<the GraphQL fields of the PR>}}]}`. `api graphql -f query=…` answers a query with `search(` by the
-//     search strings of its variables: the `repo:` qualifiers keep the PRs of those repositories, and
-//     `review-requested:@me` / `involves:@me` keep those whose flag is true. A query with `pullRequest(number:` answers
-//     each alias `pN` from the variables `oN`, `nN`, `kN` (owner, name, number). A details query of more PRs than
-//     `detailsMax` fails with HTTP 504, as GitHub times out on a heavy page. `rateLimit` goes into every answer.
+//     "missing"?, "pull"?: {<the GraphQL fields of the PR>}}]}`. Only the inbox's two queries are understood; any
+//     other `api graphql` exits 2 as an unsupported command. The search (`review: search(` and `involves: search(`)
+//     is answered by the search strings of its variables: the `repo:` qualifiers keep the PRs of those
+//     repositories, and `review-requested:@me` / `involves:@me` keep those whose flag is true. The details query
+//     (`pullRequest(number: $k0)`) answers each alias `pN` from the variables `oN`, `nN`, `kN` (owner, name,
+//     number); a PR it does not know, or one with `"missing": true`, is null, and, as gh does on a GraphQL error,
+//     the call prints the data and exits 1 with "GraphQL: Could not resolve to a PullRequest …". A details query
+//     of more PRs than `detailsMax` fails with HTTP 504, as GitHub times out on a heavy page. `rateLimit` goes
+//     into every answer.
 //   - graphql-503: a number; that many `api graphql` calls fail with HTTP 503 first, one less each time.
 //
 // Never a write: a `--method`/`-X` other than GET, or a GraphQL `mutation`, exits 2 (after its line in the log).
@@ -117,7 +121,7 @@ if (args.length === 1 && args[0] === '--version') {
   process.stdout.write(`${token}\n`)
 } else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some((arg) => /\bmutation\b/.test(arg)))) {
   fail(`gh stub: a write is never expected: ${args.join(' ')}`, 2)
-} else if (args[0] === 'api' && args[1] === 'graphql') {
+} else if (args[0] === 'api' && args[1] === 'graphql' && inboxQuery()) {
   graphql()
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
@@ -177,18 +181,30 @@ function graphql() {
     process.stdout.write(JSON.stringify({ data }))
     return
   }
-  if (query.includes('pullRequest(number:')) {
+  if (query.includes('pullRequest(number: $k0)')) {
     const aliases = Object.keys(vars).filter((name) => /^k\d+$/.test(name))
     if (world.detailsMax !== undefined && aliases.length > world.detailsMax) fail("gh: We couldn't respond to your request in time. (HTTP 504)")
     const data = { rateLimit }
+    const errors = []
     for (const key of aliases) {
       const n = key.slice(1)
       const slug = `${vars[`o${n}`]}/${vars[`n${n}`]}`
       const pull = world.pulls.find((each) => each.repo === slug && each.number === Number(vars[key]))
-      data[`p${n}`] = { pullRequest: pull === undefined ? null : { number: pull.number, updatedAt: pull.updatedAt, headRefOid: pull.headRefOid, ...pull.pull } }
+      if (pull === undefined || pull.missing === true) {
+        data[`p${n}`] = { pullRequest: null }
+        errors.push({ type: 'NOT_FOUND', path: [`p${n}`, 'pullRequest'], message: `Could not resolve to a PullRequest with the number of ${vars[key]}.` })
+      } else data[`p${n}`] = { pullRequest: { number: pull.number, updatedAt: pull.updatedAt, headRefOid: pull.headRefOid, ...pull.pull } }
     }
-    process.stdout.write(JSON.stringify({ data }))
+    process.stdout.write(JSON.stringify(errors.length > 0 ? { data, errors } : { data }))
+    // As gh: an answer with GraphQL errors exits 1 and names the first one on stderr, the data on stdout all the same.
+    if (errors.length > 0) fail(`GraphQL: ${errors[0].message} (${errors[0].path.join('.')})`)
     return
   }
   fail(`gh stub: unsupported GraphQL query: ${query.slice(0, 80)}`, 2)
+}
+
+/** Whether an `api graphql` call is one of the PR inbox's two queries; any other GraphQL is not understood. */
+function inboxQuery() {
+  const query = args.find((arg, i) => args[i - 1] === '-f' && arg.startsWith('query=')) ?? ''
+  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('pullRequest(number: $k0)')
 }
