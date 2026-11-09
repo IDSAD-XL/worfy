@@ -166,13 +166,15 @@ and in the same case, and as it really leads, with every link and junction follo
 rewrites before it opens a file (`x.`, `x:stream`, a short `PRODUC~1` name) is refused too. The folder and its layout are
 in [ADR-0101](../adr/0101-product-session-folder-and-mind-map.md).
 
-**The live summary is not a Session.** main follows the turn's events in a narrator of its own and sends Haiku a
-digest of the turn: the owner's message, the latest tool calls with short inputs, the latest text and thinking, and the
-narrator's previous lines, 5000 characters at most. Each request is a single Agent SDK `query()` under the owner's own
+**The live summary is not a Session.** main follows the turn's events and sends Haiku a digest of the turn: the owner's
+message, the latest tool calls with short inputs, the latest text and thinking, and the summary's previous lines, 5000
+characters at most. Each request is a single Agent SDK `query()` under the owner's own
 Claude Code login, never an API key: model `haiku`, no thinking, no settings, no MCP servers, no tools, one turn, no
-transcript, in worfy's empty `narrator` folder outside every Project. Sessions never run on haiku; the narrator does,
-as it is not one. Each Product Session has its own narrator, and never two of its requests run at once. The end of the turn aborts a request still out, and its answer is
-dropped. The lines reach the windows as `narration` events, which the window keeps beside the transcript, not in it.
+transcript, in an empty folder of worfy's own outside every Project. Sessions never run on haiku; the live summary
+does, as it is not one. The limit is per Product Session: each runs its own live summary, never two of its requests at
+once, and there is no limit across the app. The end of the turn aborts a request still out, and its answer is dropped.
+The lines reach the windows as events of their own, which the window keeps beside the transcript, not in it; each line
+keeps its number in the turn, so a screen reader hears only the new one.
 
 **Saving without git.** main runs one read, `git status --porcelain=v2` of `docs/product` in the Project root, and
 commits nothing. It remembers a fingerprint of the files it last asked about, path and contents, per Project, so the same

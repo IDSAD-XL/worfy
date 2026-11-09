@@ -68,6 +68,10 @@ Status: claimed 2026-11-09T17:55Z
    narrator>.jsonl` через fake agent, а ритм можно ужать переменными `WORFY_NARRATOR_FIRST_MS` и
    `WORFY_NARRATOR_EVERY_MS` (читаются только под fake), чтобы e2e не ждал 20 s.
 
+Владелец 2026-11-09 подтвердил решения 4 и 7 (язык строки, место и умолчание переключателя); предел — на одну
+Product Session, общего предела на всё приложение нет. Слово narrator остаётся внутренним: в UI и docs/features —
+Live summary (термин в `CONTEXT.md`).
+
 ## Готово, когда
 
 - [ ] Unit test на fake agent (`test/unit/narrator.test.ts`, красный до правки): нет запроса раньше 20 s, не чаще раза
@@ -112,4 +116,4 @@ Status: claimed 2026-11-09T17:55Z
   `test/contract/node-sessions.test.ts`, `test/contract/app-settings.test.ts`, `test/unit/app-narrator.test.ts`,
   `test/unit/settings-sessions.test.tsx`, `test/e2e/product-session.spec.ts`,
   `test/fixtures/agent-scripts/narrator.jsonl`
-- `docs/features/product-session.md`, `docs/features/sessions.md`
+- `docs/features/product-session.md`, `docs/features/sessions.md`, `CONTEXT.md` (термин Live summary)
