@@ -97,7 +97,7 @@ _Avoid_: этап (как имя), статус, фаза, step
 _Avoid_: бриф, handoff (HANDOFF.md — другой документ: состояние всего проекта)
 
 **Pipeline**:
-Упорядоченный список Stage, через которые проходит каждый Ticket одного Project-а; свой у каждого Project-а (у одного есть review людьми и ручной merge, у другого — выкатка). Без настройки — Queued, Implementing, CI, Agent review, Gate & merge, Closing, Done.
+Упорядоченный список Stage, через которые проходит каждый Ticket одного Project-а; свой у каждого Project-а (у одного есть review людьми и ручной merge, у другого — выкатка). Без настройки — Queued, Implementing, CI, Agent review, Gate & merge, Closing, Done. У Project-а над несколькими репозиториями может быть Stage `release`: Ticket стоит на нём, пока не выпущено то, чего ждёт его строка `Release:` — tag в remote репозитория библиотеки или опубликованная версия пакета ([ADR-0104](docs/adr/0104-one-ticket-several-repositories.md)). worfy release не делает, только замечает его.
 _Avoid_: воркфлоу (как имя списка), процесс, board
 
 **Autopilot**:

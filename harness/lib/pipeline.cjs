@@ -5,7 +5,8 @@
 // Each kind has its predicate in code, not in the profile; the profile only
 // picks kinds, orders them, renames them (label) and sets when a ticket counts as stuck
 // (stuck_after). check is an agent's mark with a name (check/<name>), deploy may name the GitHub
-// Deployment environment. Rules: queued first, done last, each kind once (check — once per name),
+// Deployment environment, release waits for the Release: lines of a ticket over several repositories
+// (a tag in the library's remote, or a published version). Rules: queued first, done last, each kind once (check — once per name),
 // gate-merge and awaiting-merge not together. No field (or null) — the default Pipeline.
 //
 // pipelineProblem returns the reason instead of ending the process: the caller decides what a
@@ -18,7 +19,7 @@
 
 const { createHash } = require("node:crypto")
 
-const STAGE_KINDS = ["queued", "implementing", "ci", "agent-review", "human-review", "check", "gate-merge", "awaiting-merge", "deploy", "closing", "done"]
+const STAGE_KINDS = ["queued", "implementing", "ci", "agent-review", "human-review", "check", "release", "gate-merge", "awaiting-merge", "deploy", "closing", "done"]
 const DEFAULT_PIPELINE = ["queued", "implementing", "ci", "agent-review", "gate-merge", "closing", "done"].map((kind) => ({ kind }))
 const STAGE_FIELDS = ["kind", "name", "label", "stuck_after", "environment"]
 

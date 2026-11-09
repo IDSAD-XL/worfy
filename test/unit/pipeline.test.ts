@@ -13,6 +13,7 @@ import {
   stuckOf,
   type PipelineStage,
   type PullFacts,
+  type ReleaseFact,
   type RepoStageFacts,
   type StageFacts,
   type TicketStage,
@@ -427,5 +428,123 @@ describe('stageOf: a Ticket over several repositories', () => {
     const ticket = { epic: 'demo', num: 5, stage: 'ci', index: 2, kind: 'ci', passed: ['queued', 'implementing'], skipped: [], blocked: null, rework: false, sub: null, waits: 'agent', enteredAt: null }
     expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, merged: { count: 1, of: 2 } }], error: null }).tickets[0]?.merged).toEqual({ count: 1, of: 2 })
     expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [ticket], error: null }).tickets[0]?.merged).toBeUndefined()
+  })
+})
+
+// ── the Stage release (worfy-multi-repo-ticket 05, ADR-0104 items 5, 6) ──────────────────────────────
+
+describe('stageOf: the Stage release', () => {
+  const LIB = 'e'.repeat(40)
+  const APP = 'f'.repeat(40)
+  /** A Pipeline of a Project over several repositories with release between CI and the review of people. */
+  const WITH_RELEASE: PipelineStage[] = [
+    { kind: 'queued' },
+    { kind: 'implementing' },
+    { kind: 'agent-review' },
+    { kind: 'ci' },
+    { kind: 'release' },
+    { kind: 'human-review' },
+    { kind: 'awaiting-merge' },
+    { kind: 'done' },
+  ]
+  /** The same with release before CI. */
+  const RELEASE_FIRST: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'agent-review' }, { kind: 'release' }, { kind: 'ci' }, { kind: 'human-review' }, { kind: 'awaiting-merge' }, { kind: 'done' }]
+  const tag = (state: ReleaseFact['state']): ReleaseFact => ({ repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0', state })
+  const pkg = (state: ReleaseFact['state']): ReleaseFact => ({ repo: 'lib', kind: 'package', ref: '@acme/lots@1.4.0', state })
+  const repo = (name: string, headSha: string | null, extra: Partial<RepoStageFacts> = {}): RepoStageFacts => ({ repo: name, headSha, pr: null, marks: [], deploys: [], ...extra })
+  const reviewed = [mark('review', 'success', LIB), mark('review', 'success', APP)]
+  /** lib merged; app's PR open on its head with `checks`; both reviewed. */
+  const libMergedAppOpen = (checks: PullFacts['checks'], releases: ReleaseFact[]): StageFacts =>
+    facts({
+      mode: 'silent',
+      headSha: null,
+      repos: [repo('lib', LIB, { marks: reviewed, pr: merged({ number: 41, headSha: LIB }) }), repo('app', APP, { marks: reviewed, pr: pr({ number: 118, headSha: APP, checks }) })],
+      releases,
+    })
+
+  it('is in the catalogue, with its label, and a Pipeline with it is valid', () => {
+    expect(stageLabel({ kind: 'release' })).toBe('Release')
+    expect(pipelineSchema.safeParse(WITH_RELEASE).success).toBe(true)
+    expect(pipelineSchema.safeParse([{ kind: 'queued' }, { kind: 'release', name: 'x' }, { kind: 'done' }]).success).toBe(false)
+  })
+
+  it('a Release: line not met holds the Ticket on release, and the Stage carries what it waits for; met — passed', () => {
+    const waiting = stageOf(libMergedAppOpen([green], [tag('waiting')]), WITH_RELEASE)
+    expect(waiting).toMatchObject({ stage: 'release', kind: 'release', waits: 'team', merged: { count: 1, of: 2 } })
+    expect(waiting.release).toEqual([tag('waiting')])
+    const released = stageOf(libMergedAppOpen([green], [tag('released')]), WITH_RELEASE)
+    expect(released).toMatchObject({ stage: 'human-review', passed: ['queued', 'implementing', 'agent-review', 'ci', 'release'] })
+    expect(released.release).toEqual([tag('released')])
+  })
+
+  it('every line must be met: one of two released keeps the Ticket on release; a line not checked holds it too', () => {
+    expect(stageOf(libMergedAppOpen([green], [tag('released'), pkg('waiting')]), WITH_RELEASE).stage).toBe('release')
+    const unchecked = stageOf(libMergedAppOpen([green], [pkg('not checked')]), WITH_RELEASE)
+    expect(unchecked.stage).toBe('release')
+    expect(unchecked.release).toEqual([pkg('not checked')])
+    expect(stageOf(libMergedAppOpen([green], [tag('released'), pkg('released')]), WITH_RELEASE).stage).toBe('human-review')
+  })
+
+  it("the library's repository does not wait for its own release: before its merge it goes through review, CI and the merge", () => {
+    // Both PRs open, both green: lib is past release (its own line), app waits on it.
+    const input = facts({
+      mode: 'silent',
+      headSha: null,
+      repos: [repo('lib', LIB, { marks: reviewed, pr: pr({ number: 41, headSha: LIB, checks: [red] }) }), repo('app', APP, { marks: reviewed, pr: pr({ number: 118, headSha: APP, checks: [green] }) })],
+      releases: [tag('waiting')],
+    })
+    // Red CI of the library is the library's own red: the Ticket is on CI, failing.
+    expect(stageOf(input, WITH_RELEASE)).toMatchObject({ stage: 'ci', sub: 'failing' })
+  })
+
+  it("red CI of the consumer before the release does not paint the Ticket; after the release it is the usual red", () => {
+    const before = stageOf(libMergedAppOpen([red], [tag('waiting')]), WITH_RELEASE)
+    expect(before).toMatchObject({ stage: 'release', sub: null })
+    const after = stageOf(libMergedAppOpen([red], [tag('released')]), WITH_RELEASE)
+    expect(after).toMatchObject({ stage: 'ci', sub: 'failing' })
+    // With release before CI the Ticket waits on release, and CI is judged only after it.
+    expect(stageOf(libMergedAppOpen([red], [tag('waiting')]), RELEASE_FIRST)).toMatchObject({ stage: 'release', sub: null })
+    expect(stageOf(libMergedAppOpen([red], [tag('released')]), RELEASE_FIRST)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    // A line not checked is not a release either: the red CI still does not paint the Ticket.
+    expect(stageOf(libMergedAppOpen([red], [tag('not checked')]), WITH_RELEASE)).toMatchObject({ stage: 'release', sub: null })
+  })
+
+  it('a Ticket without Release: lines passes release at once, and its Stage carries no release', () => {
+    const stage = stageOf(libMergedAppOpen([green], []), WITH_RELEASE)
+    expect(stage).toMatchObject({ stage: 'human-review' })
+    expect(stage.passed).toContain('release')
+    expect('release' in stage).toBe(false)
+  })
+
+  it('a Pipeline without release: no such Stage, and the release facts change nothing', () => {
+    const without = WITH_RELEASE.filter((stage) => stage.kind !== 'release')
+    const stage = stageOf(libMergedAppOpen([red], [tag('waiting')]), without)
+    expect(stage).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(stage.passed).not.toContain('release')
+    expect('release' in stage).toBe(false)
+    expect(stageOf(libMergedAppOpen([green], [tag('waiting')]), without).stage).toBe('human-review')
+  })
+
+  it("a Ticket of one repository waits for every line; the consumer's merged PR passes release", () => {
+    const one = (pull: PullFacts, releases: ReleaseFact[]) => facts({ mode: 'silent', headSha: APP, marks: [mark('review', 'success', APP)], pr: pull, releases })
+    expect(stageOf(one(pr({ headSha: APP, checks: [red] }), [tag('waiting')]), WITH_RELEASE)).toMatchObject({ stage: 'release', sub: null })
+    expect(stageOf(one(merged({ headSha: APP }), [tag('waiting')]), WITH_RELEASE)).toMatchObject({ stage: 'done' })
+  })
+
+  it('stuck: 24 h by default as a Stage of the team, the Profile\'s stuck_after when set', () => {
+    expect(stuckAfterMs({ kind: 'release' }, 'team')).toBe(24 * 3_600_000)
+    expect(stuckAfterMs({ kind: 'release' }, 'agent')).toBe(24 * 3_600_000)
+    expect(stuckAfterMs({ kind: 'release', stuck_after: '3h' }, 'team')).toBe(3 * 3_600_000)
+    const waiting = stageOf(libMergedAppOpen([green], [tag('waiting')]), WITH_RELEASE)
+    const entered = Date.parse(waiting.enteredAt!)
+    expect(stuckOf({ kind: 'release', stuck_after: '3h' }, waiting, entered + 3 * 3_600_000)?.stuck).toBe(true)
+    expect(stuckOf({ kind: 'release', stuck_after: '3h' }, waiting, entered + 3_600_000)?.stuck).toBe(false)
+  })
+
+  it('a snapshot with release reads; one without it (an older worfy) still reads', async () => {
+    const { pipelineSnapshotSchema } = await import('../../src/shared/ipc/pipeline')
+    const ticket = { epic: 'demo', num: 5, stage: 'release', index: 4, kind: 'release', passed: ['queued', 'implementing', 'agent-review', 'ci'], skipped: [], blocked: null, rework: false, sub: null, waits: 'team', enteredAt: null }
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, release: [tag('waiting')] }], error: null }).tickets[0]?.release).toEqual([tag('waiting')])
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [ticket], error: null }).tickets[0]?.release).toBeUndefined()
   })
 })

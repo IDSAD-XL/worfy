@@ -1,7 +1,7 @@
 # 05 — Стадия `release`: каталог стадий, проверка tag-а и опубликованной версии
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T22:55Z
 Blocked by: 04
 Source: [spec.md](../spec.md), «Как работает» → «Release и подъём версии — стадия Ticket-а (Ticket-ы 04, 05; Q3)»;
 «Решено без владельца»; «Риски» (release не приходит, `npm view` и частная registry); «Ticket-ы», «Волны» (Wave 3);

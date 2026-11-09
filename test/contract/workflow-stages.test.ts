@@ -504,9 +504,10 @@ describe('the repository of each Ticket and the ancestry of a deployed commit (w
         deployMarks: () => Promise.resolve([{ sha: DEPLOYED, at: '2026-10-17T14:00:00Z' }]),
       } as unknown as StageSources['deployments'],
       harnessHome: join(dir, 'harness-home'),
-      git: async (_cwd, args) => {
+      git: async (cwd, args) => {
         gitCalls.push([...args])
-        if (args[0] === 'rev-parse') return { code: 0, stdout: 'true\n' }
+        // Every folder is the top level of its own work tree, as git says it.
+        if (args[0] === 'rev-parse') return { code: 0, stdout: args[1] === '--show-toplevel' ? `${cwd}\n` : 'true\n' }
         if (args[0] === 'merge-base') return { code: ancestor(), stdout: '' }
         return { code: 0, stdout: '' }
       },
@@ -519,6 +520,8 @@ describe('the repository of each Ticket and the ancestry of a deployed commit (w
     const root = join(dir, 'workspace')
     const api = join(root, 'api')
     const web = join(root, 'web')
+    mkdirSync(api, { recursive: true })
+    mkdirSync(web, { recursive: true })
     const asked: [string, string[]][] = []
     const pulls = (folder: string, branches: readonly string[]): TrackedPull[] =>
       folder === api && branches.includes('demo/03') ? [tracked(31, 'demo/03')] : folder === web && branches.includes('demo/04') ? [tracked(41, 'demo/04')] : []

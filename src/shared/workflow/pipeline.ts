@@ -11,16 +11,19 @@
 import { z } from 'zod'
 import type { TicketState } from './types'
 
-/** The catalogue of Stage kinds, in the order ADR-0067 lists them. */
-export const STAGE_KINDS = ['queued', 'implementing', 'ci', 'agent-review', 'human-review', 'check', 'gate-merge', 'awaiting-merge', 'deploy', 'closing', 'done'] as const
+/** The catalogue of Stage kinds, in the order ADR-0067 lists them, and `release` of ADR-0104 before the merge. */
+export const STAGE_KINDS = ['queued', 'implementing', 'ci', 'agent-review', 'human-review', 'check', 'release', 'gate-merge', 'awaiting-merge', 'deploy', 'closing', 'done'] as const
 export const stageKindSchema = z.enum(STAGE_KINDS)
 export type StageKind = z.infer<typeof stageKindSchema>
 
-/** The kinds whose predicate holds once the PR is merged: everything up to and including the merge. */
-const BEFORE_MERGE: ReadonlySet<StageKind> = new Set(['queued', 'implementing', 'ci', 'agent-review', 'human-review', 'check', 'gate-merge', 'awaiting-merge'])
+/**
+ * The kinds whose predicate holds once the PR is merged: everything up to and including the merge. `release` too:
+ * the consumer's PR is merged only after the release it waits for (ADR-0104, item 6).
+ */
+const BEFORE_MERGE: ReadonlySet<StageKind> = new Set(['queued', 'implementing', 'ci', 'agent-review', 'human-review', 'check', 'release', 'gate-merge', 'awaiting-merge'])
 
-/** The kinds whose work belongs to people other than the agents (`Waits:` absent): the team. */
-const TEAM_KINDS: ReadonlySet<StageKind> = new Set(['human-review', 'awaiting-merge'])
+/** The kinds whose work belongs to people other than the agents (`Waits:` absent): the team. The team makes the release. */
+const TEAM_KINDS: ReadonlySet<StageKind> = new Set(['human-review', 'release', 'awaiting-merge'])
 
 const CHECK_NAME = /^[a-z0-9][a-z0-9-]*$/u
 
@@ -84,6 +87,7 @@ const KIND_LABELS: Record<StageKind, string> = {
   'agent-review': 'Agent review',
   'human-review': 'Human review',
   check: 'Check',
+  release: 'Release',
   'gate-merge': 'Gate & merge',
   'awaiting-merge': 'Awaiting merge',
   deploy: 'Deploy',
@@ -153,6 +157,22 @@ export interface RepoStageFacts {
   deploys: readonly DeployFact[]
 }
 
+/**
+ * One `Release:` line of a Ticket (ADR-0104, item 5) and what worfy saw of it (src/main/workflow/release.ts):
+ * `released` — the tag is in the library's remote, or the version is published; `waiting` — not yet; `not checked` —
+ * the remote or the registry did not answer, or the line could not be asked about. Only `released` meets the line.
+ */
+export const releaseFactSchema = z.object({
+  /** The library's repository, as the line names it. */
+  repo: z.string(),
+  /** `tag` or `package`; another kind is never `released`. */
+  kind: z.string(),
+  /** The tag, or `<name>@<version>`. */
+  ref: z.string(),
+  state: z.enum(['released', 'waiting', 'not checked']),
+})
+export type ReleaseFact = z.infer<typeof releaseFactSchema>
+
 export interface StageFacts {
   mode: 'full' | 'silent'
   status: TicketState
@@ -175,6 +195,11 @@ export interface StageFacts {
    * repository.
    */
   repos?: readonly RepoStageFacts[]
+  /**
+   * The Ticket's `Release:` lines with what worfy saw of each, in file order; collected only when the Pipeline has a
+   * `release` Stage. Absent or empty: nothing to wait for.
+   */
+  releases?: readonly ReleaseFact[]
 }
 
 // ── the Stage ────────────────────────────────────────────────────────────────
@@ -212,6 +237,11 @@ export const ticketStageSchema = z.object({
    * how many («1/2 merged»). Absent for a Ticket of one repository, and from a Linked machine's older worfy.
    */
   merged: z.object({ count: z.number().int().nonnegative(), of: z.number().int().positive() }).optional(),
+  /**
+   * The Ticket's `Release:` lines and what worfy saw of each («waits for release lib-v1.4.0», «release not checked»),
+   * when its Pipeline has `release` and it has such lines. Absent otherwise, and from a Linked machine's older worfy.
+   */
+  release: z.array(releaseFactSchema).optional(),
 })
 export type TicketStage = z.infer<typeof ticketStageSchema>
 
@@ -238,12 +268,19 @@ function marksOn(marks: readonly MarkFact[], sha: string | null): Map<string, Ma
  * items 4, 5, 8) is judged in each repository by the facts of that repository, and stands on the earliest of their
  * Stages: a `review` mark counts only on the head of every branch, so a new head of any branch takes the verdict off
  * the whole Ticket; red CI of any PR is red CI of the Ticket; one PR merged leaves the Ticket on the Stage of the
- * other.
+ * other. The Stage `release` (ADR-0104, items 5, 6) holds a Ticket while any of its `Release:` lines is not met: each
+ * repository waits for the lines of the other repositories, never for its own, so the library goes on to its merge
+ * while the consumer waits; a merged PR passes it, as every Stage before the merge.
  */
 export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): TicketStage {
+  // A Project that has no `release` in its Pipeline does not see the Stage, nor do its Release: lines change anything.
+  const releases = pipeline.some((stage) => stage.kind === 'release') ? (facts.releases ?? []) : []
+  const own = releases.length > 0 ? { release: releases.map(({ repo, kind, ref, state }) => ({ repo, kind, ref, state })) } : {}
+  /** The lines a repository waits for: those not met, of the other repositories (the library does not wait for its own release). */
+  const awaited = (repo: string | null) => releases.filter((release) => release.state !== 'released' && release.repo !== repo)
   const repos = facts.repos ?? []
-  if (repos.length === 0) return stageOfOne(facts, pipeline)
-  const each = repos.map((repo) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline))
+  if (repos.length === 0) return { ...stageOfOne(facts, pipeline, awaited(null)), ...own }
+  const each = repos.map((repo) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline, awaited(repo.repo)))
   const index = Math.min(...each.map((stage) => stage.index))
   const behind = each.filter((stage) => stage.index === index)
   // Every repository on the Ticket's Stage has passed the same Stages before it.
@@ -257,11 +294,16 @@ export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): 
     sub: stageSubSchema.options.find((sub) => behind.some((stage) => stage.sub === sub)) ?? null,
     enteredAt: entered === null ? null : new Date(entered).toISOString(),
     merged: { count: repos.filter((repo) => repo.pr?.state === 'MERGED').length, of: repos.length },
+    ...own,
   }
 }
 
-/** The Stage of a Ticket from the facts of one repository. */
-function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[]): TicketStage {
+/**
+ * The Stage of a Ticket from the facts of one repository. `awaited`: the Release: lines this repository still waits
+ * for; while there are any, its CI is not judged — red CI of a consumer before the release of the version it needs is
+ * expected (ADR-0104, item 6) — and the Stage `release` is not passed.
+ */
+function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], awaited: readonly ReleaseFact[]): TicketStage {
   const pull = facts.pr !== null && facts.pr.state !== 'CLOSED' ? facts.pr : null
   const open = pull?.state === 'OPEN' ? pull : null
   const merged = pull?.state === 'MERGED'
@@ -286,7 +328,9 @@ function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[]): Tick
           at: earliest([...[...onHead.values()].map((mark) => timeOf(mark.at)), ...checks.map((check) => timeOf(check.startedAt))]),
         }
       case 'ci':
-        return { passed: open !== null && checks.every((check) => check.state === 'success'), at: latest(checks.map((check) => timeOf(check.completedAt))) }
+        return { passed: open !== null && (awaited.length > 0 || checks.every((check) => check.state === 'success')), at: latest(checks.map((check) => timeOf(check.completedAt))) }
+      case 'release':
+        return { passed: awaited.length === 0, at: null }
       case 'agent-review': {
         const review = onHead.get('review')
         return { passed: review?.verdict === 'success', at: timeOf(review?.at) }

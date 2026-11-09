@@ -10,7 +10,9 @@
 //   pair (repo, branch)) and, for a Ticket on Deploy, whether its merge commit is in a deployed commit
 //   (`merge-base --is-ancestor`);
 // - the Deployments and deploy marks (src/main/github/deployments.ts), only for Tickets on Deploy;
-// - the e2e lock of the Profile (`workflow.e2e_lock`): whether its folder is there, and its holder.json.
+// - the e2e lock of the Profile (`workflow.e2e_lock`): whether its folder is there, and its holder.json;
+// - the releases a Ticket's `Release:` lines wait for (src/main/workflow/release.ts), only when the Pipeline has the
+//   Stage `release` (ADR-0104, items 5, 6).
 // The Stages are computed again on every change of the workflow model and on every tick of the PR
 // interval (the tracker runs gh only when its interval has passed); subscribers get the whole snapshot
 // when anything in it changed. Only Tickets in work (`claimed`, `blocked`) get PR, git and marks facts:
@@ -24,14 +26,15 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { PipelineColumn, PipelineSnapshot, PipelineTicket } from '../../shared/ipc/pipeline'
 import { pullOfTicket } from '../../shared/ipc/checks'
-import { DEFAULT_PIPELINE, stageId, stageLabel, stageOf, type DeployFact, type MarkFact, type PipelineStage, type RepoStageFacts, type StageFacts } from '../../shared/workflow/pipeline'
-import { repoFactsOf, type Ticket, type WorkflowModel } from '../../shared/workflow/types'
+import { DEFAULT_PIPELINE, stageId, stageLabel, stageOf, type DeployFact, type MarkFact, type PipelineStage, type ReleaseFact, type RepoStageFacts, type StageFacts } from '../../shared/workflow/pipeline'
+import { repoFactsOf, type Ticket, type TicketRelease, type WorkflowModel } from '../../shared/workflow/types'
 import { repoOfPullUrl, type DeploymentReader, type Deployed } from '../github/deployments'
 import type { PrRead, TrackedPull } from '../github/prs'
 import type { PathRules } from '../remote-links'
 import { marksFromStatuses, SilentMarks } from './marks'
 import type { PipelineProfile } from './profile'
-import { ticketBranches } from './reader'
+import { isTopLevel, ticketBranches } from './reader'
+import type { ReleaseReader } from './release'
 import type { WorkflowSubscriber } from './watch'
 
 const run = promisify(execFile)
@@ -65,6 +68,8 @@ export interface StageSources {
   /** The Profile's Pipeline, mode, name and lock (readPipelineProfile), or why there is none. */
   profile: (root: string) => Promise<{ ok: true; profile: PipelineProfile } | { ok: false; reason: string }>
   deployments: Pick<DeploymentReader, 'environment' | 'deployMarks'>
+  /** The tags and published versions of the `Release:` lines (ReleaseReader); without it every line is not checked. */
+  release?: Pick<ReleaseReader, 'check'>
   /** The Harness home: its `runs/<project>/marks/` keeps the marks files (marksInFile). */
   harnessHome: string
   git?: GitRunner
@@ -182,6 +187,11 @@ export class StageReader {
       if (inFile) fileMarks.add(repo)
       // A Full mode repository with its marks in the file has no GitHub: its PR facts stay empty and gh is not run for it.
       if (inFile && profile.mode === 'full') pulls.set(repo, [])
+      // A folder of a Project over several repositories inside another repository: gh would give that one's PRs as its own.
+      else if (several && !(await this.isTopLevel(repo))) {
+        problems.push(`${repo} is not the top level of its repository, its PRs are not read`)
+        pulls.set(repo, [])
+      }
       else {
         const read = await this.sources.prs.read(repo, [...new Set(own.map(branchOfTicket))])
         if (!read.gh.available) problems.push(`gh is unavailable in ${repo}: ${read.gh.error ?? 'no reason given'}`)
@@ -190,6 +200,7 @@ export class StageReader {
         pulls.set(repo, read.pulls)
       }
     }
+    const releaseStage = pipeline.some((stage) => stage.kind === 'release')
     const heads = several ? await this.ticketHeads(profile.repos.filter((repo) => byRepo.has(repo.path)), tickets.filter(inWork)) : new Map<string, Map<string, string>>()
     if (!several) for (const repo of byRepo.keys()) heads.set(repo, await this.branchHeads(repo))
 
@@ -229,6 +240,8 @@ export class StageReader {
       // A Ticket over several repositories gets the facts of each; one of a single repository keeps them as before.
       if (read.length > 1) facts.repos = read.map((each) => each.facts)
       else if (read[0] !== undefined && read[0].path !== null) Object.assign(facts, { headSha: read[0].facts.headSha, pr: read[0].facts.pr, marks: read[0].facts.marks })
+      const lines = releaseStage && inWork(ticket) ? repoFactsOf(ticket).releases : []
+      if (lines.length > 0) facts.releases = await this.releasesOf(lines, where, pathOf, problems)
       let stage = stageOf(facts, pipeline)
       const deploy = pipeline[stage.index]
       if (deploy?.kind === 'deploy') {
@@ -249,6 +262,22 @@ export class StageReader {
     return { root, pipeline: columnsOf(pipeline), tickets: entries, error: problems.length > 0 ? problems.join('; ') : null }
   }
 
+  /**
+   * What is known of each `Release:` line: a tag is asked about in the checkout of the library's repository, a package
+   * in the checkout of the first repository of the Ticket that is not the library's (a consumer). A line not checked
+   * puts its reason among the problems of the snapshot.
+   */
+  private async releasesOf(lines: readonly TicketRelease[], where: readonly { name: string; path: string | null }[], pathOf: (name: string) => string | null, problems: string[]): Promise<ReleaseFact[]> {
+    const facts: ReleaseFact[] = []
+    for (const line of lines) {
+      const places = { library: pathOf(line.repo), consumer: where.find((each) => each.name !== line.repo && each.path !== null)?.path ?? null }
+      const seen = this.sources.release === undefined ? { state: 'not checked' as const, reason: 'worfy has no release reader here' } : await this.sources.release.check(line, places)
+      if (seen.state === 'not checked') problems.push(`the release ${line.ref} of ${line.repo} was not checked: ${seen.reason ?? 'no reason given'}`)
+      facts.push({ repo: line.repo, kind: line.kind, ref: line.ref, state: seen.state })
+    }
+    return facts
+  }
+
   /** The PR of a Ticket's branch: an open one first, then a merged one, newest first (pullOfTicket). */
   private pullOf(pulls: readonly TrackedPull[], ticket: Ticket): TrackedPull | null {
     const found = pullOfTicket({ root: '', worktrees: [], pulls: [...pulls], gh: { available: true, error: null, intervalMs: 1 } }, ticket)
@@ -264,6 +293,15 @@ export class StageReader {
   private async isInWorkTree(folder: string): Promise<boolean> {
     const inside = await this.git(folder, ['rev-parse', '--is-inside-work-tree'])
     return inside.code === 0 && inside.stdout.trim() === 'true'
+  }
+
+  /** Whether `folder` is the top level of its own repository (isTopLevel of the reader). */
+  private async isTopLevel(folder: string): Promise<boolean> {
+    return isTopLevel(folder, async (cwd, args) => {
+      const result = await this.git(cwd, args)
+      if (result.code !== 0) throw new Error(`git ${args[0] ?? ''} exited with ${String(result.code)}`)
+      return result.stdout
+    })
   }
 
   /** Whether the repository has a remote `origin`, as `bin/ticket mark` asks (`git remote get-url origin`). */
