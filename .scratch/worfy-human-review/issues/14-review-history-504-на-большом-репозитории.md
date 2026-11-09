@@ -43,10 +43,14 @@ Source: отчёт владельца 2026-11-09 (обезличен): `review-h
       успех; обрезанный JSON, потом успех; несколько 504 подряд уменьшают страницу, потом успех — cursor тот же, ни один
       PR не потерян и не повторён; 504 на нижней границе — exit 1 с понятным сообщением (размер страницы и cursor);
       rate limit обрабатывается как раньше.
+  - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0 (passed 72, failed 0) · mac - · d3c00d3e32510ee6be783884a33ce18a92f54576
 - [ ] `raw/prs.jsonl` прогона с уменьшением страницы совпадает с прогоном без сбоев на том же stub-репозитории.
+  - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0: raw/prs.jsonl of the 504, cut-short, shrink, 502 and rate-limit runs equals the run without failures (230 PRs) · mac - · d3c00d3e32510ee6be783884a33ce18a92f54576
 - [ ] Страница Feature `docs/features/human-review.md` говорит о повторах и уменьшении страницы.
+  - evidence: commit pass · review-history: retry GitHub 502/503/504 and cut-short answers, halve the page on a timeout · - - · d3c00d3e32510ee6be783884a33ce18a92f54576
 - [ ] `node scripts/check-personal.mjs` — exit 0; `plugin-neutral.test.sh` — exit 0; gate fast — exit 0; `ci-ok` на PR
       зелёный (Linux, macOS, Windows).
+  - evidence: gate pass · `gate fast` exit 0; `node scripts/check-personal.mjs` exit 0; `bash harness/bin/tests/plugin-neutral.test.sh` exit 0; ci-ok on the PR pending · mac - · d3c00d3e32510ee6be783884a33ce18a92f54576
 
 ## Тесты
 
