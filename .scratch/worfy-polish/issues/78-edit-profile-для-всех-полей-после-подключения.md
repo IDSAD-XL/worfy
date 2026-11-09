@@ -51,7 +51,7 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
 - Смена `github.account` идёт через тот же шаг «GitHub account» (`src/renderer/projects/GithubAccount.tsx`): он
   проверяет право push, как при подключении.
 - `mode` и `workflow.folder` форма показывает без правки, с пометкой «Changed by moving the workflow files» — это
-  ticket 79 (удаление Project-а и перенос Full ↔ Silent).
+  ticket 81 (перенос Full ↔ Silent).
 
 ## Готово, когда
 
@@ -84,7 +84,7 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
 
 ## Вне скоупа
 
-- `mode` и `workflow.folder` — ticket 79.
+- `mode` и `workflow.folder` — ticket 81.
 - `name` Project-а: на нём держатся папка Profile-а, `runs/<name>` и записи registry Gate; переименование — отдельный
   вопрос.
 - Записи registry Gate (`gate[i].root`, `match`): их меняет `project-connect`, не `profile-set`.

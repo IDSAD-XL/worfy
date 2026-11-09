@@ -38,7 +38,7 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 
 Этот ticket — **удаление**. Перенос Full ↔ Silent большой (копия ticket-ов, spec, ADR и файла состояния между
 репозиторием и Workflow folder, commit в двух git, новый `mode` и `workflow.folder`, проверка, что ни одна Session не
-работает) — отдельный ticket после этого; номер даст Orchestrator. Ниже он описан, чтобы его можно было завести.
+работает) — отдельный ticket 81 после этого. Ниже он описан, чтобы его можно было завести.
 
 Удаление:
 
@@ -54,7 +54,7 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 - После удаления тот же репозиторий подключается снова — своим Project-ом или частью папки над несколькими
   репозиториями.
 
-Перенос (следующий ticket, не этот):
+Перенос (ticket 81, не этот):
 
 - Full → Silent: ticket-ы, `spec.md`, ADR, файл состояния переезжают из репозитория в Workflow folder; в репозитории —
   commit удаления этих файлов, в Workflow folder — commit добавления; `mode: silent`, `workflow.folder`.
@@ -91,6 +91,6 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 
 ## Вне скоупа
 
-- Перенос Full ↔ Silent — следующий ticket (см. выше).
+- Перенос Full ↔ Silent — ticket 81.
 - Правило «один путь — один Project» не меняется.
 - Удаление ticket-ов, репозиториев или веток пользователя.
