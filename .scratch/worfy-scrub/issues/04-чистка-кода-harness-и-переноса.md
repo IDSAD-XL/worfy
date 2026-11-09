@@ -1,7 +1,8 @@
 # 04 — Чистка кода: `src/`, `harness/`, `scripts/spikes/`, перенос старого Harness
 
 Type: task
-Status: open
+Status: done 2026-11-09T01:53Z
+PR: #1708
 Blocked by: 01
 Source: [spec.md](../spec.md), «Что нашла разведка 2026-11-08» (две особые точки); «Как работает» → «Перенос старого Harness»; «Риски», п. 1, 5; Q3, Q4, Q5, Q6
 
@@ -52,20 +53,26 @@ Test-ы и fixture переноса — здесь, не в Ticket-е 05: они
 - [ ] Test «узнан по хэшу»: красный до правки, зелёный после; перенос на fixture оставляет и удаляет те же файлы, что
       до правки.
   - evidence: test-run pass · `pnpm test test/contract/harness-migrate.test.ts -t "personal script"` exit 1 on plan.ts of origin/main, exit 0 after; module unit+contract tests (29 files) exit 0; move counts 447/408/39 before and after · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
+  - evidence: review pass · PR #1708 · - - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 - [ ] Отчёт guard-а по `src/`, `harness/`, `scripts/` и по файлам test-ов этого Ticket-а — ноль находок, кроме
       аккаунта репозитория в коде, который его читает.
   - evidence: review pass · two reviewers (high) on 845cac034: guard report on head — 0 findings in src/, harness/ and this ticket's test files, no new finding vs origin/main; the 3 left in scripts/codex-capture.mjs (invented host + Codex records home, same as test/fixtures/codex-messages) move to ticket 06 as guard stand-ins · - - · 845cac03457428b4d68751cf366df65bbdfa79ac
+  - evidence: review pass · PR #1708 · - - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 - [ ] Ручной шаг на машине владельца: хэши совпали 3 из 3.
   - evidence: test-run pass · orchestrator on the owner's Mac: the three PERSONAL_BIN hashes of plan.ts match 3 of 3 lowercase names in the old Harness bin folder; 1 of 3 also in the privacy.json deny list (the deny list holds project names, not tool names); no names printed · mac - · 5e50052a253e3cbcef9e2ed782337446328a80d9
+  - evidence: review pass · PR #1708 · - - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 - [ ] `bash harness/bin/tests/plugin-neutral.test.sh` — exit 0 на Mac и на Windows (Git Bash).
   - evidence: test-run pass · `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 (37 passed) · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
+  - evidence: review pass · PR #1708 · - - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 - [ ] `plugin-neutral.test.sh` красный, если в `harness/` вписать аккаунт репозитория или вымышленное запрещённое имя
       внутри длинного слова (mutant), и красный так же при запуске вне git checkout.
   - evidence: test-run pass · mutants on copies of harness/, in a git checkout and outside one: account in README.md exit 1, invented listed word inside a longer word exit 1, unchanged copy exit 0 · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
+  - evidence: review pass · PR #1708 · - - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, e2e `test/e2e/harness-migrate.spec.ts` — exit 0; `ci-ok` на PR зелёный
       (Linux, macOS и Windows job-ы).
   - evidence: gate pass · `gate fast` exit 0 · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
   - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0, `pnpm test:e2e test/e2e/harness-migrate.spec.ts` exit 0 (2 passed) · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/42545534073/job/128936003827 · ci - · 7c2dee5d066e6d3a39af9295ed8d8a9f97bb1f69
 
 ## Тесты
 
