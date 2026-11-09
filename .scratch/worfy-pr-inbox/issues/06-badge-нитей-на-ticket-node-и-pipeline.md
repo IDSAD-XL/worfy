@@ -26,7 +26,7 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
 
 1. `src/renderer/canvas/badges/ReviewThreads.tsx`: на Ticket-е, чей PR есть в снимке PR inbox (`usePrInbox.ts` из
    Ticket-а 03, без правки), — «N open threads» (нерешённые нити, где последнее слово не пользователя) и/или
-   «changes requested». Щелчок открывает вид Pull requests на этом PR. Нет PR в снимке — badge нет.
+   «changes requested». Щелчок открывает вид Pull requests на этом PR (`openPrInboxOf` из Ticket-а 03). Нет PR в снимке — badge нет.
 2. Ticket с несколькими репозиториями — сумма по его PR; связь PR живёт только в worfy (ADR-0104, пункт 3).
 3. Карточка Pipeline в стадии `human-review`: строка «Waits: N answers» (`src/renderer/pipeline/board.ts`,
    `PipelineBoard.tsx`).

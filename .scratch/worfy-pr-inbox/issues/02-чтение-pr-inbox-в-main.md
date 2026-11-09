@@ -1,10 +1,11 @@
-# 02 — Чтение PR inbox в main: поиск, детали, триггер уведомлений, темп, кэш по аккаунту, группы, seen-state
+# 02 — Чтение PR inbox в main: поиск раз в 5 минут, детали, темп, кэш по аккаунту, группы, seen-state
 
 Type: task
 Status: open
 Blocked by: —
 Source: [spec.md](../spec.md), «Как работает» → «Чтение в main (Ticket 02; Q3, Q4, Q10)»; «Решено без владельца»;
-«Риски» («Rate limit», «Следы в Silent mode», «Scope токена»); «Ticket-ы», «Волны» (Wave 1); решения Q3, Q4, Q10;
+«Риски» («Rate limit», «Следы в Silent mode»); «Ticket-ы», «Волны» (Wave 1); решения Q3, Q10;
+[критика](../../../docs/product/critic/worfy-pr-inbox-2026-11-09.md), возражение 3 (триггер уведомлений — Ticket 08);
 [ADR-0105](../../../docs/adr/0105-pr-reply-only-on-the-users-click.md), пункты 1, 6, 7
 
 Платформенный Ticket: нет (main процесс, gh через существующий `ghRunner`). Глубина ревью — `high`.
@@ -24,37 +25,37 @@ Source: [spec.md](../spec.md), «Как работает» → «Чтение в
      Project-а), одна страница, `number, updatedAt, headRefOid`;
    - детали только для PR со сдвинутым `updatedAt`, по 10 PR (поля — spec, «Чтение в main»), без `diffHunk` и
      `files`; повтор на 502/503/504 и деление страницы пополам;
-   - REST `GET /notifications?participating=true` с `If-Modified-Since`, темп `X-Poll-Interval`; попадание по PR
-     Project-а — детали сразу. Только `GET`. 403 (fine-grained токен) — режим «только поиск» с причиной в снимке;
-   - темп: без фокуса — 5 минут, с фокусом или открытым видом — 60 с или `X-Poll-Interval`; ошибка — удвоение до
-     30 минут; меньше 10 % rate limit — пауза до `resetAt`;
+   - темп: поиск раз в 5 минут, с фокусом и без; ошибка — удвоение до 30 минут, первый успех возвращает 5 минут;
+     меньше 10 % rate limit (`rateLimit { remaining resetAt }`) — пауза до `resetAt`;
+   - вход «проверить PR сейчас» (`refresh(repo, number)`): детали этого PR вне очереди. Его зовёт триггер
+     уведомлений Ticket-а 08; в этом Ticket-е — только test-ы;
    - кэш по аккаунту: два Project-а одного аккаунта не читают один PR дважды.
 2. Группы (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others) — чистая функция над снимком, по
    правилам spec-а; запрос только через команду помечен `viaTeam`.
 3. `src/main/projects/pr-inbox-state.ts` — seen-state в `<Project data folder>/pr-inbox.json`: по PR `seenAt`,
-   `seenHeadOid`, id последнего увиденного комментария; курсор `Last-Modified`. Без текстов. Тексты нитей — только в
+   `seenHeadOid`, id последнего увиденного комментария. Без текстов. Тексты нитей — только в
    памяти.
 4. `src/shared/ipc/pr-inbox.ts` и `src/main/ipc/pr-inbox.ts`: `prInbox.get` (снимок Project-а: группы, строки, нити,
-   режим триггера, причина ошибки), `prInbox.changed` (событие), `prInbox.markSeen` — каналы `project`: чтение
+   время следующего поиска, причина ошибки, `notice` — строка для вида, которую заполняет Ticket 08; здесь всегда `null`), `prInbox.changed` (событие), `prInbox.markSeen` — каналы `project`: чтение
    `read`, `markSeen` — `write`. Linked machine получает снимок Machine Project-а; сама не опрашивает GitHub.
 5. Поле `prInbox` в схеме `settings.json` Project-а (`projectSettingsSchema`,
    `src/shared/projects/action-templates.ts:176`): нет поля — включено, если у Project-а есть remote на GitHub;
    `false` — читатель Project-а не запускается.
 6. Запуск в `src/main/index.ts`, рядом с gate queue (`installGateQueueNotifications`, `index.ts:183`).
-7. stub gh (`test/fixtures/gh/gh-stub.mjs`) отвечает на `api graphql` (search, детали) и `api notifications` из
-   fixture-ов и пишет журнал вызовов.
+7. stub gh (`test/fixtures/gh/gh-stub.mjs`) отвечает на `api graphql` (search, детали) из fixture-ов и пишет журнал
+   вызовов.
 
 ## Готово, когда
 
 - [ ] Contract test: Project из двух репозиториев — поиск называет оба `repo:`, детали спрашивают только PR со
       сдвинутым `updatedAt`; чужой репозиторий того же аккаунта не спрашивается.
-- [ ] Contract test: 304 уведомлений не вызывает деталей; попадание по PR Project-а вызывает детали этого PR сразу.
-- [ ] Contract test: 403 уведомлений — режим «только поиск», причина в снимке; ошибки дальше нет.
+- [ ] Contract test: поиск — раз в 5 минут; `GET /notifications` не вызывается ни разу.
+- [ ] Contract test: `refresh(repo, number)` читает детали этого PR сразу, вне очереди поиска.
 - [ ] Contract test: 504 на деталях — повтор с половиной страницы; ошибка подряд — удвоение интервала до 30 минут.
 - [ ] Contract test: два Project-а одного аккаунта — один запрос деталей на PR.
 - [ ] Contract test: `prInbox: false` — ни одного вызова gh для Project-а.
 - [ ] Contract test: за N циклов чтения журнал stub-а не содержит ни одной записи — ни `--method` кроме `GET`, ни
-      `mutation`, ни `PATCH` уведомления.
+      `mutation`.
 - [ ] Contract test: `pr-inbox.json` после чтения — только id, sha и время; ни одного `body`.
 - [ ] Unit test: группы по fixture-снимку (каждая из пяти, «via team», повторный запрос ревью после моего ревью).
 - [ ] Test: ничего не пишется в репозитории Project-а и в Claude home (ADR-0005).

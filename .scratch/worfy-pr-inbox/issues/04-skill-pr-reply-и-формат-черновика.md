@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 01
+Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 4; «Как работает» → «Черновики ответов (Ticket 04; Q8)»;
 «Риски» («Следы в Silent mode», «Публикация по ошибке»); «Ticket-ы», «Волны» (Wave 2); решения Q2, Q8;
 [ADR-0105](../../../docs/adr/0105-pr-reply-only-on-the-users-click.md), пункты 3, 5, 6; spec
@@ -11,7 +11,9 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 Платформенный Ticket: skill и скрипт Harness (`harness/skills/pr-reply/`, `harness/bin/review-draft-lint`) идут на Mac
 и Windows; PR ждёт Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
 
-Ждёт Ticket 01: skill выходит вместе с guard-ом, который проверяет записи `gh api` на следы workflow.
+Ждёт Ticket 01: skill выходит вместе с guard-ом, который проверяет записи `gh api` на следы workflow. Ждёт Ticket 02:
+оба правят `src/shared/projects/action-templates.ts` ([критика](../../../docs/product/critic/worfy-pr-inbox-2026-11-09.md),
+возражение 1).
 
 ## Что происходит
 

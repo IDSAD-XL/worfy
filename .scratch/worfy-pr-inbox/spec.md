@@ -1,8 +1,8 @@
 # worfy-pr-inbox: PR inbox — открытые PR Project-а, нити ревью и черновики ответов
 
-Status: draft — ответы Q1–Q10 решены Orchestrator-ом под карт-бланш владельца 2026-11-09, владелец подтверждает при
-приёмке (раздел «Решения Orchestrator-а под карт-бланш владельца»)
-Critic: —
+Status: принят Orchestrator-ом под карт-бланш владельца 2026-11-09; владелец подтверждает при приёмке (ответы Q1–Q10 —
+в разделе «Решения Orchestrator-а под карт-бланш владельца»)
+Critic: [docs/product/critic/worfy-pr-inbox-2026-11-09.md](../../docs/product/critic/worfy-pr-inbox-2026-11-09.md) — Reorder; все три возражения и альтернатива приняты Orchestrator-ом 2026-11-09, ответ — раздел «Ответ на критику»
 Source: вопрос владельца 2026-11-09: где добавить сводку открытых PR, слежение за комментариями в них и черновики
 ответов — «это сильно упростит работу в командных проектах»; исследование Orchestrator-а того же дня (файл вне
 репозитория; строки сверены с `main` `1c651328e`);
@@ -11,10 +11,10 @@ Source: вопрос владельца 2026-11-09: где добавить св
 [ADR-0042](../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Silent mode);
 [ADR-0102](../../docs/adr/0102-private-project-skills-in-profile-folder.md) (частные skill-ы в папке Profile-а);
 [ADR-0104](../../docs/adr/0104-one-ticket-several-repositories.md) (один Ticket — несколько репозиториев);
-[ADR-0105](../../docs/adr/0105-pr-reply-only-on-the-users-click.md) (предложен этим же PR); spec
+[ADR-0105](../../docs/adr/0105-pr-reply-only-on-the-users-click.md) (принят Orchestrator-ом под карт-бланш владельца 2026-11-09); spec
 [worfy-human-review](../worfy-human-review/spec.md) (Team reviewer, решения 8 и 9).
-Ticket-ы: Epic `worfy-pr-inbox`, 7 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
-`Source:`. Ticket-ы — `issues/01`–`issues/07`.
+Ticket-ы: Epic `worfy-pr-inbox`, 8 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` /
+`Source:`. Ticket-ы — `issues/01`–`issues/08`.
 
 ## Цель
 
@@ -62,7 +62,7 @@ Claude Code с доступом к коду; пользователь прави
 
 ## Как работает
 
-### Чтение в main (Ticket 02; Q3, Q4, Q10)
+### Чтение в main (Ticket 02; Q3, Q10)
 
 - **Кто и откуда.** Main процесс, по Project-у, с аккаунтом Project-а: `readGithubAccount`
   (`src/main/workflow/profile.ts:670`) → `accountAuth` (`src/main/github/prs.ts:171`) → `GH_TOKEN` только в окружении
@@ -80,15 +80,11 @@ Claude Code с доступом к коду; пользователь прави
   line viewerCanReply comments(last:3) { id databaseId author{login} body createdAt url } }, comments(last:5)`. Без
   `diffHunk` и `files`: на большом репозитории крупные страницы падали по 504. Повтор на 502/503/504 и деление
   страницы пополам — как в `harness/bin/review-history` (Ticket 14 Epic-а `worfy-human-review`).
-- **Триггер перемен** (Q4) — REST `GET /notifications?participating=true` с `If-Modified-Since`, в темпе
-  `X-Poll-Interval`. Ответ 304 не тратит rate limit. Попадание по PR Project-а отправляет этот PR в «Детали» сразу.
-  Только чтение: worfy никогда не помечает уведомление прочитанным (`PATCH`) — это inbox самого пользователя на сайте
-  GitHub. Токен без scope `notifications`/`repo` (fine-grained PAT, GitHub App) получает 403: тогда только поиск, и вид
-  пишет «GitHub notifications unavailable for this token — checking every 5 minutes».
-- **Темп.** Без фокуса окна — раз в 5 минут; с фокусом или открытым видом — раз в 60 с или как велит
-  `X-Poll-Interval`. Ошибка — интервал удваивается до 30 минут, первый успех возвращает базовый (как
-  `src/main/github/gate-queue.ts:25-26`). Меньше 10 % rate limit (`x-ratelimit-remaining`, `rateLimit { remaining }`) —
-  пауза до `resetAt`. Кэш — по аккаунту: два Project-а одного аккаунта не читают один PR дважды.
+- **Темп.** Поиск раз в 5 минут — этого достаточно для рабочего вида (критика, возражение 3). Ошибка — интервал
+  удваивается до 30 минут, первый успех возвращает базовый (как `src/main/github/gate-queue.ts:25-26`). Меньше 10 %
+  rate limit (`rateLimit { remaining resetAt }`) — пауза до `resetAt`. Кэш — по аккаунту: два Project-а одного
+  аккаунта не читают один PR дважды. Вход `refresh(repo, number)` читает детали одного PR вне очереди — его зовёт
+  триггер уведомлений (Ticket 08).
 - **Linked machine.** Читает только Machine Project-а. Linked machine получает снимок через канал `project` с доступом
   `read`.
 - **Группы** считает main, детерминированно:
@@ -101,9 +97,23 @@ Claude Code с доступом к коду; пользователь прави
   5. Waiting on others — мой PR, моего хода нет; возраст с последней активности.
 - **Seen-state** — `<Project data folder>/pr-inbox.json` (рядом с `settings.json`,
   `src/main/projects/settings.ts:1-6`): по PR `seenAt`, `seenHeadOid`, id последнего увиденного комментария; курсор
-  `Last-Modified` уведомлений. Ни одного текста коллег. Тексты нитей main держит только в памяти.
+  `Last-Modified` уведомлений (Ticket 08). Ни одного текста коллег. Тексты нитей main держит только в памяти.
 - **Включено по умолчанию** (Q10) для каждого Project-а с remote на GitHub. Выключатель — поле `prInbox` в
   `settings.json` Project-а (`false` — не читать); переключатель — в окне Project settings.
+
+### Триггер уведомлений (Ticket 08; Q4)
+
+- REST `GET /notifications?participating=true` с `If-Modified-Since`, через `gh api -i`: строка статуса и заголовки
+  `Last-Modified` и `X-Poll-Interval` читаются из вывода. Темп — без фокуса окна раз в 5 минут, с фокусом или открытым
+  видом — `X-Poll-Interval` (обычно 60 с).
+- **304 — «без перемен», не сбой.** gh на 304 печатает `gh: HTTP 304` и выходит с кодом 1 (критика, возражение 2).
+  Триггер читает это как «ничего не изменилось»: без ошибки, без удвоения интервала, без чтения деталей. Ответ 304 не
+  тратит rate limit. Stub gh в test-ах повторяет настоящий exit 1.
+- 200 — уведомления о PR репозиториев Project-а; каждый такой PR — `refresh(repo, number)` у читателя Ticket-а 02.
+- Только чтение: worfy никогда не помечает уведомление прочитанным (`PATCH`) — это inbox самого пользователя на сайте
+  GitHub. Токен без scope `notifications`/`repo` (fine-grained PAT, GitHub App) получает 403: триггер выключается, вид
+  пишет «GitHub notifications unavailable for this token — checking every 5 minutes» (поле `notice` снимка), поиск
+  идёт как был.
 
 ### Вид и sidebar (Ticket 03; Q1, Q7)
 
@@ -112,6 +122,8 @@ Claude Code с доступом к коду; пользователь прави
   `src/renderer/shell/sidebar/PipelineSection.tsx`.
 - PR без Ticket-а — полноправные строки вида. Canvas ради них не меняется.
 - «Mark seen» сбрасывает «N new since you looked»; открытие строки — тоже.
+- Вход «открыть вид на одном PR» (`openPrInboxOf`) — тоже Ticket 03: им пользуются badge Ticket-а 06 и уведомления
+  Ticket-а 07 (критика, возражение 1).
 - Термин в `CONTEXT.md` — **PR inbox** (раздел Workflow), подпись в UI — «Pull requests» (Q7). Feature page —
   `docs/features/pr-inbox.md`.
 
@@ -220,12 +232,13 @@ Claude Code с доступом к коду; пользователь прави
 | Ticket | Что | Глубина ревью | Платформенный | Blocked by |
 | --- | --- | --- | --- | --- |
 | 01 | Guard: записи `gh api` в PR и issue и мутации GraphQL проверяются на следы workflow | `high` | да | — |
-| 02 | Чтение PR inbox в main: поиск, детали, триггер уведомлений, темп, кэш по аккаунту, группы, seen-state, выключатель Project-а | `high` | нет | — |
-| 03 | Вид «Pull requests», раздел sidebar, Command palette, переключатель в Project settings, термин PR inbox, feature page | `medium` | нет | 02 |
-| 04 | Skill `/worfy:pr-reply`, формат черновика, `review-draft-lint --reply`, action template `prReply` и запуск Session | `high` | да | 01 |
+| 02 | Чтение PR inbox в main: поиск раз в 5 минут, детали, темп, кэш по аккаунту, группы, seen-state, выключатель Project-а | `high` | нет | — |
+| 03 | Вид «Pull requests», вход «открыть вид на одном PR», раздел sidebar, Command palette, переключатель в Project settings, термин PR inbox, feature page | `medium` | нет | 02 |
+| 04 | Skill `/worfy:pr-reply`, формат черновика, `review-draft-lint --reply`, action template `prReply` и запуск Session | `high` | да | 01, 02 |
 | 05 | Редактор черновика и Send по щелчку: main перепроверяет и публикует ровно показанный текст (ADR-0105) | `max` | нет | 02, 03, 04 |
 | 06 | Badge нитей на Ticket Node и строка «Waits: N answers» на карточке Pipeline | `medium` | нет | 02, 03, `worfy-multi-repo-ticket` 06 |
-| 07 | Уведомления ОС и утренняя сводка; переключатели в Settings | `medium` | нет | 02 |
+| 07 | Уведомления ОС и утренняя сводка; переключатели в Settings | `medium` | нет | 02, 03 |
+| 08 | Триггер уведомлений GitHub: `gh api -i`, 304 (gh exit 1) — «без перемен», 403 — только поиск | `high` | нет | 02 |
 
 Платформенный Ticket — скрипт Harness, hook или путь ОС: PR ждёт Windows verdict до merge (ADR-0056).
 
@@ -235,18 +248,23 @@ Claude Code с доступом к коду; пользователь прави
 | --- | --- | --- |
 | 01 | `harness/hooks/guard.mjs`, `harness/hooks/tests/guard-silent.test.sh` | 1 |
 | 02 | `src/main/github/inbox.ts` (новый), `src/shared/ipc/pr-inbox.ts` (новый), `src/main/ipc/pr-inbox.ts` (новый), `src/main/index.ts`, `src/main/projects/pr-inbox-state.ts` (новый), `src/shared/projects/action-templates.ts` (поле `prInbox`), `test/contract/pr-inbox.test.ts` (новый), `test/unit/pr-inbox-groups.test.ts` (новый), `test/fixtures/gh/gh-stub.mjs` | 1 |
-| 03 | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/sidebar/PullRequestsSection.tsx` (новый), `src/renderer/pr-inbox/PrInboxView.tsx` (новый), `src/renderer/pr-inbox/usePrInbox.ts` (новый), `src/renderer/pr-inbox/pr-inbox.css` (новый), `src/renderer/palette/commands.ts`, `src/renderer/shell/ProjectSettings.tsx`, `CONTEXT.md`, `docs/features/pr-inbox.md` (новый), `docs/features/README.md`, `docs/features/app-shell.md`, `test/unit/pr-inbox-view.test.tsx` (новый), `test/e2e/pr-inbox.spec.ts` (новый), `.scratch/worfy-pr-inbox/evidence/03-*` | 2 |
+| 03 | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/sidebar/PullRequestsSection.tsx` (новый), `src/renderer/pr-inbox/PrInboxView.tsx` (новый), `src/renderer/pr-inbox/usePrInbox.ts` (новый), `src/renderer/pr-inbox/pr-inbox.css` (новый), `src/renderer/pr-inbox/open.ts` (новый), `src/renderer/palette/commands.ts`, `src/renderer/shell/ProjectSettings.tsx`, `CONTEXT.md`, `docs/features/pr-inbox.md` (новый), `docs/features/README.md`, `docs/features/app-shell.md`, `test/unit/pr-inbox-view.test.tsx` (новый), `test/unit/pr-inbox-open.test.ts` (новый), `test/e2e/pr-inbox.spec.ts` (новый), `.scratch/worfy-pr-inbox/evidence/03-*` | 2 |
 | 04 | `harness/skills/pr-reply/SKILL.md` (новый), `harness/bin/review-draft-lint`, `src/shared/projects/action-templates.ts`, `src/shared/ipc/actions.ts`, `src/main/actions/launch.ts`, `test/contract/harness-review-draft-lint.test.ts`, `test/contract/actions.test.ts`, `harness/evals/pr-reply-*` (новые) | 2 |
+| 08 | `src/main/github/inbox-notifications.ts` (новый), `src/main/github/inbox.ts`, `src/main/projects/pr-inbox-state.ts`, `test/fixtures/gh/gh-stub.mjs`, `test/contract/pr-inbox-notifications.test.ts` (новый), `docs/features/gate-and-github.md` | 2 |
 | 05 | `src/renderer/pr-inbox/DraftThread.tsx` (новый), `src/renderer/pr-inbox/PrInboxView.tsx`, `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts`, `src/main/github/pr-reply-send.ts` (новый), `docs/features/pr-inbox.md`, `test/contract/pr-inbox-send.test.ts` (новый), `test/unit/draft-thread.test.tsx` (новый), `test/e2e/pr-inbox.spec.ts` | 3 |
 | 06 | `src/renderer/canvas/badges/ReviewThreads.tsx` (новый), `src/renderer/pipeline/board.ts`, `src/renderer/pipeline/PipelineBoard.tsx`, `test/unit/review-threads-badge.test.tsx` (новый), `test/unit/pipeline-board.test.tsx`, `test/e2e/checks-badges.spec.ts`, `docs/features/gate-and-github.md` | 3 |
 | 07 | `src/main/notify.ts`, `src/main/index.ts`, `src/shared/settings/app-settings.ts`, `src/renderer/settings/PullRequestsSection.tsx` (новый), `src/renderer/toast/ToastRegion.tsx`, `docs/features/notifications.md`, `test/unit/pr-inbox-notices.test.ts` (новый), `test/e2e/pr-inbox-digest.spec.ts` (новый) | 4 |
 
 - **Wave 1 — 01, 02.** Общих файлов нет. Guard и читатель друг от друга не зависят.
-- **Wave 2 — 03, 04.** 03 ждёт читатель из 02. 04 правит `action-templates.ts`, как 02, поэтому не в Wave 1; с 03
-  общих файлов нет (кнопка Draft replies — в Ticket-е 05).
+- **Wave 2 — 03, 04, 08.** Все три ждут читатель из 02. 04 правит `action-templates.ts`, как 02, поэтому
+  `Blocked by: 01, 02`. Общих файлов между 03, 04 и 08 нет: кнопка Draft replies — в Ticket-е 05; строку триггера вид
+  показывает через поле `notice` снимка, которое 02 заводит, а 08 заполняет. После Wave 2 вид работает на поиске раз
+  в 5 минут; триггер только ускоряет его.
 - **Wave 3 — 05, 06.** 05 ждёт вид из 03 и формат черновика из 04. 06 читает `usePrInbox.ts` из 03 и не правит его;
-  идёт, когда влит Ticket 06 Epic-а `worfy-multi-repo-ticket`, иначе — в следующую Wave.
-- **Wave 4 — 07.** Последний, по решению Q6; общий с 02 файл `src/main/index.ts`.
+  правит `docs/features/gate-and-github.md` после 08; идёт, когда влит Ticket 06 Epic-а `worfy-multi-repo-ticket`,
+  иначе — в следующую Wave.
+- **Wave 4 — 07.** Последний, по решению Q6; `Blocked by: 02, 03` — ему нужен вид и вход «открыть вид на одном PR»
+  из 03; общий с 02 файл `src/main/index.ts`.
 
 Имена новых файлов — предложение; implementer сверяет их с `main`.
 
@@ -265,7 +283,7 @@ Claude Code с доступом к коду; пользователь прави
 ## Риски
 
 - **Rate limit.** Один токен служит PR tracker-у, Flight Recorder-у, Work track, `review-history` и Session-ам.
-  Закрывают: уведомления с бесплатным 304, кэш по аккаунту, пауза ниже 10 %, малые страницы без `diffHunk`, поиск не
+  Закрывают: уведомления с бесплатным 304 (Ticket 08), кэш по аккаунту, пауза ниже 10 %, малые страницы без `diffHunk`, поиск не
   чаще раза в 5 минут. Оценка для командного проекта — меньше 1 % часового бюджета REST и GraphQL.
 - **Следы в Silent mode.** Ответ не несёт номеров Ticket-ов и ADR, имён Epic-ов, путей Workflow folder и подписи ИИ.
   Lint идёт дважды: в Session и в main над правленым текстом. Слова коллег — только в памяти main и в папке Profile-а
@@ -282,6 +300,21 @@ Claude Code с доступом к коду; пользователь прави
 - **Общие файлы с `worfy-multi-repo-ticket`.** Ticket 06 правит Ticket Node и Pipeline board после Ticket-а 06 того
   Epic-а.
 
+## Ответ на критику
+
+Критика: [docs/product/critic/worfy-pr-inbox-2026-11-09.md](../../docs/product/critic/worfy-pr-inbox-2026-11-09.md),
+verdict Reorder. Orchestrator 2026-11-09 принял все три возражения и альтернативу критика.
+
+1. **`Blocked by:` не говорили о зависимостях из таблицы Волн.** Принято. Ticket 07 — `Blocked by: 02, 03` (ему нужен
+   вид), Ticket 04 — `Blocked by: 01, 02` (общий с 02 файл `action-templates.ts`). Вход «открыть вид на одном PR»,
+   которым пользуются 06 и 07, перешёл в Ticket 03.
+2. **gh выходит с кодом 1 на 304.** Принято. Ticket 08 читает ответ через `gh api -i`; `gh: HTTP 304` с exit 1 —
+   «без перемен», а не сбой, без удвоения интервала; stub gh повторяет настоящий exit 1, и test проверяет, что 304 не
+   читает деталей и не удваивает интервал.
+3. **Триггер уведомлений в самом большом Ticket-е.** Принято. Триггер вынесен из 02 в новый Ticket 08
+   (`Blocked by: 02`, Wave 2 рядом с 03 и 04). Ticket 02 работает на одном поиске раз в 5 минут; вид после Wave 2
+   рабочий без триггера.
+
 ## Решения Orchestrator-а под карт-бланш владельца 2026-11-09
 
 Каждый ответ — рекомендация исследования; решено Orchestrator-ом под карт-бланш владельца 2026-11-09, владелец
@@ -294,7 +327,7 @@ Claude Code с доступом к коду; пользователь прави
 - **Q4 — API уведомлений.** Только чтение, никогда не помечать прочитанным; для fine-grained токена — только поиск.
 - **Q5 — Haiku.** Разбор комментариев коллег Haiku — за переключателем в Settings, включённым по умолчанию (Ticket —
   после MVP, раздел «Не в этом Epic-е»).
-- **Q6 — уведомления и сводка.** В Epic-е: уведомления ОС и утренняя сводка — последний Ticket (07), отдельная Wave.
+- **Q6 — уведомления и сводка.** В Epic-е: уведомления ОС и утренняя сводка — Ticket 07, последняя Wave.
 - **Q7 — имя.** Подпись в UI «Pull requests», термин `CONTEXT.md` — «PR inbox».
 - **Q8 — где черновики.** Только на этой машине, в папке Profile-а (`state/pr-inbox/`); никогда не pending review на
   GitHub.
@@ -303,7 +336,8 @@ Claude Code с доступом к коду; пользователь прави
 
 ## Готово, когда
 
-- [ ] Владелец подтвердил решения Q1–Q10 и принял spec и ADR-0105; строка `Status:` — `принят владельцем YYYY-MM-DD`.
-- [ ] Заведены Ticket-ы 01–07 с разделами «Где в коде» из таблицы Волн.
+- [x] Orchestrator принял spec и ADR-0105 под карт-бланш владельца 2026-11-09, после критики (Reorder).
+- [ ] Владелец подтвердил решения Q1–Q10, spec и ADR-0105; строка `Status:` — `принят владельцем YYYY-MM-DD`.
+- [x] Заведены Ticket-ы 01–08 с разделами «Где в коде» из таблицы Волн.
 - [ ] Ни один test Epic-а не ходит на настоящий GitHub и к настоящей модели: только stub-ы.
-- [ ] Test-ы Ticket-ов 02, 05 и 07 проверяют, что без щелчка Send на GitHub не уходит ни одна запись.
+- [ ] Test-ы Ticket-ов 02, 05, 07 и 08 проверяют, что без щелчка Send на GitHub не уходит ни одна запись.

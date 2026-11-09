@@ -4,11 +4,13 @@ Type: task
 Status: open
 Blocked by: 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–3; «Как работает» → «Вид и sidebar (Ticket 03; Q1, Q7)»;
-«Ticket-ы», «Волны» (Wave 2); решения Q1, Q7, Q10
+«Ticket-ы», «Волны» (Wave 2); решения Q1, Q7, Q10;
+[критика](../../../docs/product/critic/worfy-pr-inbox-2026-11-09.md), возражение 1
 
 Платформенный Ticket: нет (renderer). Глубина ревью — `medium`.
 
-Вид показывает снимок из Ticket-а 02 (`prInbox.get`, `prInbox.changed`).
+Вид показывает снимок из Ticket-а 02 (`prInbox.get`, `prInbox.changed`). Этот Ticket владеет и входом «открыть вид на
+одном PR»: им пользуются badge Ticket-а 06 и уведомления и сводка Ticket-а 07 (критика, возражение 1).
 
 ## Что происходит
 
@@ -17,6 +19,8 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 - Разделы sidebar собираются по файлам `src/renderer/shell/sidebar/*Section.tsx` (`Sidebar.tsx:8`); образец —
   `PipelineSection.tsx`.
 - Command palette — группа `View` в `src/renderer/palette/commands.ts:82`.
+- Образец входа «открыть вид Project-а» — `openPipelineOf` (`src/renderer/pipeline/open.ts:12`): сразу для активного
+  Project-а, после выбора — для другого.
 
 ## Что делаем
 
@@ -26,23 +30,30 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
    ревью, число нерешённых нитей, «N new since you looked», возраст; «via team» у запроса через команду.
 3. Строка раскрывается: нити с последними комментариями, ссылка на строку кода на GitHub. Открытие строки и
    «Mark seen» вызывают `prInbox.markSeen`.
-4. Строка режима: «GitHub notifications unavailable for this token — checking every 5 minutes», если читатель в режиме
-   «только поиск»; причина ошибки чтения, если есть.
+4. Строка состояния: время следующего поиска, причина ошибки чтения, если есть, и `notice` снимка, если он не
+   `null` (его заполняет триггер уведомлений Ticket-а 08, например «GitHub notifications unavailable for this token —
+   checking every 5 minutes»). Вид не знает, откуда `notice`.
 5. `src/renderer/shell/sidebar/PullRequestsSection.tsx` — счётчики групп; щелчок открывает вид на группе.
 6. Command palette: «Pull requests» в группе `View`.
-7. Project settings (`src/renderer/shell/ProjectSettings.tsx`): переключатель «Read pull requests from GitHub» —
+7. Вход `openPrInboxOf(projectId, activeId, pr?)` в `src/renderer/pr-inbox/open.ts` по образцу `openPipelineOf`:
+   без `pr` — вид Project-а; с `pr` (`{repo, number}`) — вид с раскрытой строкой этого PR, прокрученной в поле зрения;
+   PR нет в снимке — вид открыт и пишет «This pull request is not in the inbox». Ответ — почему вид не открылся.
+8. Project settings (`src/renderer/shell/ProjectSettings.tsx`): переключатель «Read pull requests from GitHub» —
    поле `prInbox` (Q10); на Linked machine с Read only неактивен.
-8. `CONTEXT.md`, раздел Workflow — термин **PR inbox** (Q7): вид «Pull requests» Project-а — открытые PR пользователя и
+9. `CONTEXT.md`, раздел Workflow — термин **PR inbox** (Q7): вид «Pull requests» Project-а — открытые PR пользователя и
    запросы ревью у него по репозиториям Project-а, нити ревью и черновики ответов; ничего не публикует без щелчка
    Send. `_Avoid_`: inbox (без PR), входящие, dashboard.
-9. Feature page `docs/features/pr-inbox.md` (новая, английская, ADR-0088); строка в `docs/features/README.md`; виды в
+10. Feature page `docs/features/pr-inbox.md` (новая, английская, ADR-0088); строка в `docs/features/README.md`; виды в
    `docs/features/app-shell.md`.
 
 ## Готово, когда
 
 - [ ] Unit test: снимок из fixture-а — пять групп в порядке spec-а, строки со всеми полями, «via team».
-- [ ] Unit test: строка режима «только поиск» и строка ошибки.
+- [ ] Unit test: строка состояния — время следующего поиска, строка ошибки, `notice` из снимка.
 - [ ] E2e test: toolbar → Pull requests открывает вид; sidebar показывает счётчики; Command palette открывает вид.
+- [ ] Unit test: `openPrInboxOf` с PR — вид открыт, строка этого PR раскрыта; PR нет в снимке — строка «This pull
+      request is not in the inbox»; другой Project — сначала выбор Project-а.
+- [ ] E2e test: `openPrInboxOf` с PR из другого Project-а окна открывает его вид на этом PR.
 - [ ] E2e test: раскрытие строки показывает нити; «N new since you looked» гаснет после открытия.
 - [ ] E2e test: переключатель Project settings выключает чтение — журнал stub-а gh пуст после выключения.
 - [ ] E2e test: с открытым видом и раскрытой нитью журнал stub-а gh не содержит ни одной записи.
@@ -55,7 +66,7 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 
 ## Тесты
 
-- Unit `test/unit/pr-inbox-view.test.tsx` (новый); e2e `test/e2e/pr-inbox.spec.ts` (новый).
+- Unit `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.ts` (новые); e2e `test/e2e/pr-inbox.spec.ts` (новый).
 - Сначала падающий: на `main` в toolbar нет вида Pull requests.
 - Ни настоящего GitHub, ни модели: e2e идёт со stub-ом gh (`WORFY_GH`, `test/e2e/launch-env.ts`); fixture-ы —
   выдуманные владельцы, репозитории, login-ы и тексты.
@@ -69,9 +80,11 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 - `src/renderer/pr-inbox/PrInboxView.tsx` (новый)
 - `src/renderer/pr-inbox/usePrInbox.ts` (новый)
 - `src/renderer/pr-inbox/pr-inbox.css` (новый)
+- `src/renderer/pr-inbox/open.ts` (новый)
 - `src/renderer/palette/commands.ts`
 - `src/renderer/shell/ProjectSettings.tsx`
 - `CONTEXT.md`
 - `docs/features/pr-inbox.md` (новый), `docs/features/README.md`, `docs/features/app-shell.md`
 - `test/unit/pr-inbox-view.test.tsx` (новый)
+- `test/unit/pr-inbox-open.test.ts` (новый)
 - `test/e2e/pr-inbox.spec.ts` (новый)
