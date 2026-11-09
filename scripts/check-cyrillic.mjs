@@ -13,6 +13,11 @@
 //     JSON files are data and are not checked (harness/lib/input-words.json holds the Russian words
 //     of ticket input on purpose).
 //
+// Which files: in a git work tree, the tracked files and the new ones git does not ignore
+// (`git ls-files --cached --others --exclude-standard`), so a gitignored file — the report of an eval
+// under harness/evals/results/ — is not read: it never reaches the repository. Outside a git work
+// tree (`--root` on a plain folder) every file of the four folders, node_modules left out.
+//
 // Where Cyrillic is allowed:
 //   - comments and test names (the first argument of describe, it and test): nowhere;
 //   - test/fixtures/**: everywhere (the Russian documents tests read);
@@ -29,7 +34,8 @@
 //     `<!-- shortcut: accepts the old Russian token … -->` (in the front matter a YAML comment
 //     `# shortcut: …`) covers the lines up to the next blank line or `---`.
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -291,16 +297,39 @@ function* walk(dir) {
   }
 }
 
+const TOPS = ['src', 'scripts', 'test', 'harness']
+
+/**
+ * The files of the four code folders: from git in a git work tree, gitignored files left out; from
+ * the disk outside one. A tracked file deleted from the disk, a symbolic link and a submodule are
+ * not files here, as they are not for walk().
+ */
+function codeFiles(root) {
+  let listed
+  try {
+    // -z: paths unquoted, with `/` on every OS; stderr kept quiet, "not a git repository" is expected.
+    const args = ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...TOPS]
+    listed = execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch {
+    return TOPS.flatMap((top) => [...walk(join(root, top))])
+  }
+  return [...new Set(listed.split('\0').filter(Boolean))].map((rel) => join(root, rel)).filter((file) => {
+    try {
+      return lstatSync(file).isFile()
+    } catch {
+      return false
+    }
+  })
+}
+
 function main(argv) {
   const at = argv.indexOf('--root')
   const root = resolve(at >= 0 ? argv[at + 1] : REPO)
   let count = 0
-  for (const top of ['src', 'scripts', 'test', 'harness']) {
-    for (const file of walk(join(root, top))) {
-      for (const [line, what] of checkFile(root, file)) {
-        process.stderr.write(`${relPath(root, file)}:${line}: ${MESSAGES[what] ?? what}\n`)
-        count++
-      }
+  for (const file of codeFiles(root)) {
+    for (const [line, what] of checkFile(root, file)) {
+      process.stderr.write(`${relPath(root, file)}:${line}: ${MESSAGES[what] ?? what}\n`)
+      count++
     }
   }
   if (count > 0) {
