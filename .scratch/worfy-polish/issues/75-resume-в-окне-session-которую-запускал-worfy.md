@@ -1,7 +1,9 @@
 # 75 — Resume в read-only view Session, которую запускал worfy
 
 Type: bug
-Status: claimed 2026-11-09T08:44Z
+Status: blocked 2026-11-09T20:00Z
+Blocked reason: PR #1723 merged; owner's look in Mac Stable after the next update
+Waits: owner
 PR: #1723
 Branch: worfy-polish/75
 Blocked by: —

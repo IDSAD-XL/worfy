@@ -11,8 +11,8 @@
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 47 (flaky Windows): части 10–12 влиты 11-09; закрыть после Windows-job-ов main до 11-12. Влиты 73 (#1663, hook Stage), 74 (#1668, Electron из cache).
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 59/61; открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
+- `worfy-polish`: 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12. 75, 77 влиты 11-09, ждут взгляда владельца; в работе 76 (#1742), 79 (#1741), 82 (вопрос на запись Product Session вне её папки); дальше 78, потом 81.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
@@ -24,15 +24,16 @@
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
 - `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
-- `worfy-product-session`: 18/24; 19–24 (экран как прототип) влиты 11-09; 08, 21, 23 ждут взгляда владельца. Дальше 15; 17 после 15.
+- `worfy-product-session`: 20/32; 19–32 влиты 11-09 (32 — Live summary от Haiku, #1743); 08, 21, 23, 26–32 ждут взгляда владельца в Mac Stable. Дальше 15; 17 после 15.
 - `worfy-scrub`: guard `scripts/check-personal.mjs` блокирует `pnpm lint` (06); слова — только `<Harness home>/user/privacy.json` владельца, хэши — `--hash-from`.
-- `worfy-human-review`: 12/13; 13 влит 11-09 (#1701, eval 3/3, $13.32); 12 blocked: приёмка владельца.
+- `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09 (human-review-setup на его проекте), 14 — повторы на 504 (#1736).
+- `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): spec принят 11-09; Wave 1 — 02 влит (#1745), 01 (#1746) и 03 в работе.
 
 ## Ждёт владельца
 
 - Приёмки, старшие первыми: `worfy-multi-vendor` 43 (Mac Stable, затем ПК) → `worfy-windows` 16 → по готовности кода `worfy-auto-approve` 11; и ручные проверки (Mac и ПК, ~30 мин) — [пошаговые гайды](.scratch/owner-acceptance-guides.md).
 - `worfy-windows` 07 закрыт (#1127, отступления Q31 подтвердить).
-- Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), приёмка `worfy-human-review` 12.
+- Владелец в Mac Stable: экран Product Session рядом с прототипом (`worfy-product-session` 08, 21, 23), polish 75, 77 и Product Session 26–32 (в 32 — первый настоящий вызов Haiku).
 
 ## Риски и долги
 
@@ -48,7 +49,6 @@
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01); условие merge — `ci-ok` (ADR-0083).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: причины — в [agents.md](docs/lessons/agents.md).
-- CI: 5xx GitHub releases на zip Electron (11-08) закрыт polish 74. Один `gh run rerun --failed` на head при сбое GitHub, затем rebase.
 - Замок e2e: в `rules.md` Profile владельца heartbeat ещё старый (без выхода при снятом замке); новая строка — в PR `worfy-harness` 49, вносит владелец.
 - Windows exception-ы `terminal-windows-close-no-console-host` и `workflow-branches-gone-worktree-then-repository` (`test/quarantine/`) до 2026-12-15 — решает Orchestrator.
 - Решение владельца не принято (`worfy-terminal-ai` 09, «Итог»): ответ Terminal AI появляется через ~0,6 s после готовности, потому что `attempt()` в `src/main/terminal-ai/assist.ts` ждёт выхода процесса `claude`, а не сообщения `result`.
@@ -58,9 +58,7 @@
 
 ## Дальше
 
-- Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 влит (#552).
 - `worfy-harness` 50, 51 — платный повтор кейса eval (`~/.docker/bin` вынести на время run-а); 52 — Session без plugin-а для задач и платные шаги 2б, 4, 5.
-- `worfy-onboarding` ([spec](.scratch/worfy-onboarding/spec.md)): закрыт, 14/14, принят владельцем 2026-11-02; «Итог» ПК записан в 12.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 05, 08–12, 15, 17, 18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
 - Неделя работы владельца из Stable copy (условие 4 E2 и цель `worfy-week`): каждый дефект и каждое вмешательство человека — Ticket `worfy-week`, следующий номер 21.

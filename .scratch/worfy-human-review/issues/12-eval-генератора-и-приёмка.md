@@ -1,9 +1,8 @@
 # 12 — Eval генератора и приёмка
 
 Type: task
-Status: blocked 2026-11-08T14:35Z
-Blocked reason: PR #1679 смержен; пункт 2 — живой прогон генератора на публичном репозитории и пункт 3 — приёмка владельцем в Mac Stable после следующего Update
-Waits: owner
+Status: done 2026-11-09T20:00Z
+PR: #1679
 Blocked by: 05, 08, 10
 Source: [spec.md](../spec.md), «Готово, когда»; «Соглашения для Ticket-ов этого Epic-а» (платный eval); «Риски», п. 1–3, 6, 7
 
@@ -33,15 +32,15 @@ Source: [spec.md](../spec.md), «Готово, когда»; «Соглашен�
 
 ## Готово, когда
 
-- [ ] Три случая eval проходят; расход записан; `coverage.json` без файлов генератора в `uncovered`.
+- [x] Три случая eval проходят; расход записан; `coverage.json` без файлов генератора в `uncovered`.
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case human-review-setup-* --max-cost-usd 2/2/11` exit 0, 3 of 3 cases at or above 0.8 (0.97, 1.00, 0.93), costUsd 15.33; contract test/contract/harness-evals.test.ts exit 0 · mac - · 34c725e4b0239f8f448d3b04db8b5a35edd7fde1
-- [ ] Живой прогон на публичном репозитории: числа оценки, «совпало K из N» по 5 PR — в «Итог»; ни одного текста
+- [x] Живой прогон на публичном репозитории: числа оценки, «совпало K из N» по 5 PR — в «Итог»; ни одного текста
       комментария и логина в репозитории (`evidence-check --changed` — exit 0).
   - evidence: test-run pass · live run of the Stable human-review-setup on urfave/cli (public): estimate 118 PRs, reviews 148 (approved 125, changes requested 7, commented 15, dismissed 1), comments 108 (review bodies 78, line 16, conversation 14), substantive 100, reviewers 9, ~56969 tokens; review-draft-lint --skill exit 0 (26 rules, each with a section); check on 5 held-out PRs: matched 5 of 6, 4 extra; wall 14 min; nothing posted to GitHub; evidence-check exit 0 · mac - · 59b4ac03847806cce33999a3d6a4e9572d3e2ca6
-- [ ] (manual) Владелец на своём проекте: строка при добавлении, «Build», черновик голосом команды, ничего не ушло на
+- [x] (manual) Владелец на своём проекте: строка при добавлении, «Build», черновик голосом команды, ничего не ушло на
       GitHub без «да».
-  - needs: mac stable
-- [ ] `ci-ok` на PR зелёный.
+  - evidence: manual pass · owner 2026-11-09: human-review-setup on the owner's project in Mac Stable — «результат положительный, принимаем»
+- [x] `ci-ok` на PR зелёный.
 
 ## Тесты
 
