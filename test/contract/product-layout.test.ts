@@ -116,6 +116,28 @@ describe('product.layout', () => {
     }
   })
 
+  it('clearPlaces drops x, y and placed of every node in one write (ticket 31, «Prettify»); every other field stays', async () => {
+    const placed = { ...FIXTURE, nodes: [{ ...FIXTURE.nodes[0], x: 10, y: 20, placed: 2 }, { ...FIXTURE.nodes[1], collapsed: true, x: -5, y: 7.5, placed: 2 }, FIXTURE.nodes[2]] }
+    writeFileSync(mapFile, `${JSON.stringify(placed, null, 2)}\n`)
+    const result = await call({ projectId: 'p1', name: 'roadmap', clearPlaces: true })
+    expect(result).toEqual({ ok: true, value: null })
+    expect(update.calls).toBe(1)
+    expect(read()).toEqual({ ...FIXTURE, nodes: [FIXTURE.nodes[0], { ...FIXTURE.nodes[1], collapsed: true }, FIXTURE.nodes[2]] })
+  })
+
+  it('clearPlaces goes alone: with an id, a place or a fold it is refused by the schema', () => {
+    for (const input of [
+      { projectId: 'p1', name: 'roadmap', clearPlaces: true, id: 'q-1' },
+      { projectId: 'p1', name: 'roadmap', clearPlaces: true, x: 1, y: 2 },
+      { projectId: 'p1', name: 'roadmap', clearPlaces: true, collapsed: true },
+      { projectId: 'p1', name: 'roadmap', clearPlaces: false },
+      { projectId: 'p1', name: 'roadmap', x: 1, y: 2 },
+    ]) {
+      expect(productLayout.input.safeParse(input).success, JSON.stringify(input)).toBe(false)
+    }
+    expect(productLayout.input.safeParse({ projectId: 'p1', name: 'roadmap', clearPlaces: true }).success).toBe(true)
+  })
+
   it('a node that is not in the file is refused with the reason, and the file stays byte for byte', async () => {
     const before = readFileSync(mapFile)
     const result = await call({ projectId: 'p1', name: 'roadmap', id: 'nowhere', x: 1, y: 2 })

@@ -248,8 +248,8 @@ and the reason.
 
 **Looking at it.**
 
-- The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
-  "Fit". It stays one row: a narrow map tightens its gaps, and a row that still does not fit scrolls sideways. The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
+- The toolbar has the view switch "Tree · Graph", "Hide rejected", "Move nodes", "Prettify", "−" (zoom out), the zoom
+  percent, "+" (zoom in) and "Fit". It stays one row: a narrow map tightens its gaps, and a row that still does not fit scrolls sideways. The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
 - When the map's area changes size (the window, the divider beside the chat), the map fits into it again. After the
   owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
 - A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
@@ -275,13 +275,22 @@ and the reason.
 **By hand.** The owner only moves nodes and folds branches; what a node says is the advisor's, and the card has no field
 to type in.
 
-- A node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. In "Tree" its new place is saved in
-  the file. In "Graph" a drag moves the node only until the map is laid out again (a node added, a text changed, a
+- Nodes move only while the "Move nodes" toggle (a hand icon) is on. It is off each time the map opens and when it
+  shows another topic, and it is not remembered. While it is off, a drag on a node pans the map, as a drag of the
+  background does; a click on a node still opens its card, and folding still works.
+- With "Move nodes" on, a node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. In "Tree" its
+  new place is saved in the file. In "Graph" a drag moves the node only until the map is laid out again (a node added, a text changed, a
   branch folded, the view switched) and saves nothing; "Graph" also ignores the places saved in the file, which are
   "Tree" places.
 - The fold mark of a node with children, or ← and → on the node, folds and unfolds its branch. A folded mark tells how
   many nodes it hides. The fold is saved in the file.
-- When the change cannot be saved, the map says "Could not save the change:" and the reason.
+- "Prettify" lays the view shown out again. In "Tree" it drops the places saved in the file for every node of the topic,
+  hidden ones included, in one write through the same writer as a drag. The map has no undo, so it asks first in the
+  toolbar: "Drop N moved places?" with "Prettify" and "Cancel". The focus goes to "Cancel", and Escape closes the
+  question as "Cancel" does; once it closes, the focus is back on "Prettify", or on "Move nodes" when nothing is left to
+  drop. In "Graph" it drops the moves made since the last layout at once, without asking, and leaves the file alone.
+  Then the map fits into view as "Fit" fits it. The button is inactive while the view has no place moved by hand.
+- When the change cannot be saved, the map says "Could not save the change:" and the reason, and the places stay.
 
 **Chips in the chat.** A node that a `mind_map_add`, `mind_map_update` or `mind_map_decide` call wrote gets a chip
 under the message that made it: the last message of the turn shown before the call. A call after an answer puts its
@@ -303,7 +312,8 @@ mended.
 
 #### On a Linked machine
 
-On a read-only screen the map can be looked at, but nodes do not move and branches do not fold. A chip whose node is
+On a read-only screen the map can be looked at, but nodes do not move and branches do not fold: "Move nodes" and
+"Prettify" are inactive and their tooltip says why. A chip whose node is
 inside a folded branch selects the folded node above it, and a note says why.
 
 ### How it works
@@ -326,7 +336,7 @@ the agent writes with `Write`.
 **One check, one writer.** One function checks the whole file: a node's fields, two nodes with one id, a parent that is
 neither a node nor a Ticket of the map (`ticket:02`), a cycle, `replaces` on anything but a Decision, a Decision without
 a status or a reason, an Objection without a source. The tools run it before they write and the screen runs it when it
-reads. main is the only writer of `mind-map.json`: the tools and the owner's drag and fold go through the same writer. It
+reads. main is the only writer of `mind-map.json`: the tools and the owner's drag, fold and "Prettify" go through the same writer. It
 writes one change at a time per file, atomically, and never overwrites a file that already fails the check. On Windows,
 while another process holds the file open, it tries again for a second and then writes into the file in place.
 
@@ -368,10 +378,10 @@ out again.
 - `test/unit/mind-map-view.test.tsx`, `test/unit/mind-map-layout.test.ts`: the views, "Hide rejected", the card and the
   layout.
 - `test/unit/mind-map-hand.test.tsx`, `test/unit/node-chips.test.tsx`, `test/contract/product-layout.test.ts`: drag,
-  fold, their write to the file, and chips.
+  "Move nodes", "Prettify", fold, their write to the file, and chips.
 - `test/e2e/product-session.spec.ts`: in the running app, a node the advisor adds shows without a reload with its
-  chip, the open agents list widens its column without covering the chat, and a dragged node keeps its place after a
-  restart; in a 1160-wide window with the agents list open, the chat heading, the chips, the map's toolbar and the
+  chip, the open agents list widens its column without covering the chat, a drag with "Move nodes" off writes nothing,
+  a node dragged with it on keeps its place after a restart, and "Prettify" drops that place; in a 1160-wide window with the agents list open, the chat heading, the chips, the map's toolbar and the
   input field fit the narrow column, a chip rings its message, the card quotes it, and closing the card takes the
   ring off. Folding is covered by the unit
   tests only.

@@ -5,6 +5,7 @@
 // to ask the advisor. On a read-only screen (a Linked machine) nothing is dragged or folded. No ELK
 // worker in jsdom: the synchronous layout answers.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { getNodesBounds, getViewportForBounds } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
@@ -14,6 +15,30 @@ const invoke = vi.hoisted(() => vi.fn<(channel: string, input?: unknown) => Prom
 vi.mock('../../src/renderer/ipc', () => ({ invoke, subscribe: () => () => undefined, showSubscribeError: () => undefined }))
 const readOnly = vi.hoisted(() => ({ hint: null as string | null }))
 vi.mock('../../src/renderer/projects/useProjects', () => ({ useReadOnly: () => readOnly.hint }))
+// React Flow as it is, with its setViewport counted (ticket 31: «Prettify» fits the map as «Fit» does).
+const setViewport = vi.hoisted(() => vi.fn<(viewport: unknown) => void>())
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@xyflow/react')>()
+  const counted = new WeakMap<object, ReturnType<typeof real.useReactFlow>>()
+  return {
+    ...real,
+    useReactFlow: () => {
+      const flow = real.useReactFlow()
+      let mine = counted.get(flow)
+      if (mine === undefined) {
+        mine = {
+          ...flow,
+          setViewport: (viewport, options) => {
+            setViewport(viewport)
+            return flow.setViewport(viewport, options)
+          },
+        }
+        counted.set(flow, mine)
+      }
+      return mine
+    },
+  }
+})
 
 const topic = (patch: Partial<ProductTopicState> = {}): ProductTopicState => ({
   name: 'demo-roadmap',
@@ -109,12 +134,20 @@ async function drag(id: string, dx: number, dy: number): Promise<void> {
 
 const layoutCalls = () => invoke.mock.calls.filter(([channel]) => channel === 'product.layout').map(([, input]) => input)
 
+/** Turns «Move nodes» on (ticket 31): nodes are dragged only while it is. */
+const moveOn = (): void => {
+  const toggle = screen.getByRole('button', { name: 'Move nodes' })
+  if (toggle.getAttribute('aria-pressed') !== 'true') fireEvent.click(toggle)
+  expect(toggle.getAttribute('aria-pressed')).toBe('true')
+}
+
 describe('MindMap by hand', () => {
   it('a drag of a node writes its new x and y through product.layout when it is let go, and the node stays there', async () => {
     render(<MindMap projectId="p1" topic={topic()} />)
     await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
     const before = placeOf('who-pays')
     const zoom = zoomOf()
+    moveOn()
     await drag('who-pays', 80, 40)
     await waitFor(() => expect(layoutCalls()).toHaveLength(1))
     const [written] = layoutCalls() as { projectId: string; name: string; id: string; x: number; y: number }[]
@@ -128,6 +161,7 @@ describe('MindMap by hand', () => {
   it('the topic and the Tickets are not dragged: they are not in mind-map.json', async () => {
     render(<MindMap projectId="p1" topic={topic()} />)
     await waitFor(() => expect(wrapperOf('ticket:01').style.transform).toMatch(/translate/))
+    moveOn()
     await drag('ticket:01', 80, 40)
     await drag('@topic', 80, 40)
     expect(layoutCalls()).toEqual([])
@@ -191,6 +225,7 @@ describe('MindMap by hand', () => {
     await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
     const before = placeOf('who-pays')
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    moveOn()
     await drag('who-pays', 80, 40)
     await waitFor(() => expect(screen.getByTestId('mind-map-write-error').textContent).toContain('The Mind map has no node "who-pays".'))
     expect(placeOf('who-pays')).toEqual(before)
@@ -201,6 +236,12 @@ describe('MindMap by hand', () => {
     render(<MindMap projectId="p1" topic={topic()} />)
     await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
     const before = placeOf('who-pays')
+    // «Move nodes» cannot be turned on: it is inactive and says why.
+    const toggle = screen.getByRole('button', { name: 'Move nodes' })
+    expect((toggle as HTMLButtonElement).disabled).toBe(true)
+    expect(toggle.title).toBe('Studio gives this Machine read-only access')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
     await drag('who-pays', 80, 40)
     // The node does not follow the pointer either.
     expect(placeOf('who-pays')).toEqual(before)
@@ -215,6 +256,7 @@ describe('MindMap by hand', () => {
   it('a dragged node stays where it was let go while topics without its place arrive, and follows the file once the file has it', async () => {
     const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
     await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    moveOn()
     await drag('who-pays', 80, 40)
     await waitFor(() => expect(layoutCalls()).toHaveLength(1))
     const [written] = layoutCalls() as { x: number; y: number }[]
@@ -247,6 +289,7 @@ describe('MindMap by hand in the Graph', () => {
     expect(screen.getByRole('button', { name: 'Graph' }).getAttribute('aria-pressed')).toBe('true')
     const before = placeOf('who-pays')
     const zoom = zoomOf()
+    moveOn()
     await drag('who-pays', 80, 40)
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
@@ -331,5 +374,229 @@ describe('a chip’s node the screen hides', () => {
     ask('gone-node')
     expect(screen.getByTestId('mind-map-pick-note').textContent).toBe('This node is no longer on the Mind map.')
     expect(screen.queryByRole('region', { name: 'Node' })).toBeNull()
+  })
+})
+
+// «Move nodes» and «Prettify» (ticket 31): nodes move only while «Move nodes» is on, and it is off each time
+// the map opens; a drag on a node then pans the map. «Prettify» drops the places moved by hand in the view
+// shown — the Tree's in the file, through `product.layout` with `clearPlaces`, after a short question (the
+// map has no undo); the Graph's on the screen, without a question — and draws the automatic layout.
+describe('MindMap «Move nodes» and «Prettify»', () => {
+  const inGraph = () => localStorage.setItem('worfy.mindMap.view:p1:demo-roadmap', 'graph')
+  const prettify = () => screen.getByRole('button', { name: 'Prettify' }) as HTMLButtonElement
+  const placedAt = (x: number, y: number) => topic().nodes.map((node) => (node.id === 'who-pays' ? { ...node, x, y, placed: 2 as const } : node))
+
+  it('«Move nodes» is off when the map opens: a drag on a node moves nothing and saves nothing, and a click still opens its card', async () => {
+    const { unmount } = render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const toggle = screen.getByRole('button', { name: 'Move nodes' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    const before = placeOf('who-pays')
+    await drag('who-pays', 80, 40)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(placeOf('who-pays')).toEqual(before)
+    expect(layoutCalls()).toEqual([])
+    fireEvent.click(nodeOf('who-pays')!)
+    expect(screen.getByRole('region', { name: 'Node' })).toBeTruthy()
+    // Turned on, then the map opened again: it is off again (not remembered).
+    moveOn()
+    unmount()
+    render(<MindMap projectId="p1" topic={topic()} />)
+    expect(screen.getByRole('button', { name: 'Move nodes' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('«Prettify» is inactive while no node has a place moved by hand, in the Tree and in the Graph', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    expect(prettify().disabled).toBe(true)
+    expect(prettify().title).toBe('No node was moved by hand in this view')
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+    expect(prettify().disabled).toBe(true)
+    fireEvent.click(prettify())
+    expect(layoutCalls()).toEqual([])
+  })
+
+  it('in the Tree, «Prettify» asks first, then drops the places of the file in one write and draws the automatic layout; «Cancel» writes nothing', async () => {
+    const { unmount } = render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const laidOut = placeOf('who-pays')
+    unmount()
+    const { rerender } = render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    await waitFor(() => expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 }))
+    expect(prettify().disabled).toBe(false)
+    fireEvent.click(prettify())
+    const question = screen.getByRole('group', { name: 'Prettify' })
+    expect(question.textContent).toContain('Drop 1 moved place?')
+    fireEvent.click(within(question).getByRole('button', { name: 'Cancel' }))
+    expect(layoutCalls()).toEqual([])
+    expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 })
+
+    fireEvent.click(prettify())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Prettify' })).getByRole('button', { name: 'Prettify' }))
+    expect(layoutCalls()).toEqual([{ projectId: 'p1', name: 'demo-roadmap', clearPlaces: true }])
+    // The screen draws the layout at once, before main's change comes back.
+    await waitFor(() => expect(placeOf('who-pays')).toEqual(laidOut))
+    // The change is back: no place in the file, the button is inactive again.
+    rerender(<MindMap projectId="p1" topic={topic()} />)
+    expect(placeOf('who-pays')).toEqual(laidOut)
+    expect(prettify().disabled).toBe(true)
+  })
+
+  it('a refused «Prettify» puts the places back and says why', async () => {
+    invoke.mockResolvedValue({ ok: false, error: 'mind-map.json has errors' })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    await waitFor(() => expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 }))
+    fireEvent.click(prettify())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Prettify' })).getByRole('button', { name: 'Prettify' }))
+    await waitFor(() => expect(screen.getByTestId('mind-map-write-error').textContent).toContain('mind-map.json has errors'))
+    expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 })
+  })
+
+  it('in the Graph, «Prettify» drops the moves of the Graph without a question and writes nothing: the Tree’s places in the file stay', async () => {
+    inGraph()
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const laidOut = placeOf('who-pays')
+    // The Tree's place in the file is no manual place of the Graph.
+    expect(prettify().disabled).toBe(true)
+    moveOn()
+    await drag('who-pays', 80, 40)
+    await waitFor(() => expect(placeOf('who-pays')).not.toEqual(laidOut))
+    expect(prettify().disabled).toBe(false)
+    fireEvent.click(prettify())
+    expect(screen.queryByRole('group', { name: 'Prettify' })).toBeNull()
+    await waitFor(() => expect(placeOf('who-pays')).toEqual(laidOut))
+    expect(layoutCalls()).toEqual([])
+    expect(prettify().disabled).toBe(true)
+    // The Tree still has the place of the file.
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }))
+    await waitFor(() => expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 }))
+  })
+
+  it('the tooltips say what «Move nodes» does off and on, and what an active «Prettify» does', () => {
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    const toggle = screen.getByRole('button', { name: 'Move nodes' })
+    expect(toggle.title).toBe('Turn on to drag nodes to new places. Off: a drag on a node pans the map')
+    fireEvent.click(toggle)
+    expect(toggle.title).toBe('Turn off so a drag on a node pans the map')
+    expect(prettify().disabled).toBe(false)
+    expect(prettify().title).toBe('Lay the map out again: drop the places nodes were moved to by hand in this view')
+  })
+
+  it('«Move nodes» stays on when the view switches, and is off again when the map shows another topic, and back on the first one', () => {
+    const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
+    moveOn()
+    fireEvent.click(screen.getByRole('button', { name: 'Graph' }))
+    expect(screen.getByRole('button', { name: 'Move nodes' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }))
+    expect(screen.getByRole('button', { name: 'Move nodes' }).getAttribute('aria-pressed')).toBe('true')
+    // The same mount, another topic: off.
+    rerender(<MindMap projectId="p1" topic={topic({ name: 'demo-pricing' })} />)
+    expect(screen.getByRole('button', { name: 'Move nodes' }).getAttribute('aria-pressed')).toBe('false')
+    // Back on the first topic: still off.
+    rerender(<MindMap projectId="p1" topic={topic()} />)
+    expect(screen.getByRole('button', { name: 'Move nodes' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('the question counts the places of the nodes the screen hides: under «Hide rejected» and in a folded branch', () => {
+    const nodes = [
+      ...topic().nodes.map((node) => (node.id === 'idea-teams' ? { ...node, collapsed: true } : node.id === 'idea-teams' ? node : { ...node, x: 10, y: 20, placed: 2 as const })),
+      { id: 'per-team', kind: 'decision' as const, text: 'Per team', from: 'ticket:01', status: 'rejected' as const, reason: 'teams vary', x: 30, y: 40, placed: 2 as const },
+    ]
+    render(<MindMap projectId="p1" topic={topic({ nodes })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide rejected' }))
+    // who-pays and per-seat are folded under idea-teams; per-team is a rejected Decision, hidden.
+    expect(nodeOf('who-pays')).toBeNull()
+    expect(nodeOf('per-team')).toBeNull()
+    fireEvent.click(prettify())
+    expect(screen.getByRole('group', { name: 'Prettify' }).textContent).toContain('Drop 3 moved places?')
+  })
+
+  it('the question takes the focus on «Cancel» and is described by its text; Escape or «Cancel» closes it and gives the focus back to «Prettify»', () => {
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    prettify().focus()
+    fireEvent.click(prettify())
+    const question = screen.getByRole('group', { name: 'Prettify' })
+    const cancel = within(question).getByRole('button', { name: 'Cancel' })
+    expect(document.activeElement).toBe(cancel)
+    expect(document.getElementById(question.getAttribute('aria-describedby')!)?.textContent).toBe('Drop 1 moved place?')
+    fireEvent.keyDown(cancel, { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'Prettify' })).toBeNull()
+    expect(document.activeElement).toBe(prettify())
+    fireEvent.click(prettify())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Prettify' })).getByRole('button', { name: 'Cancel' }))
+    expect(document.activeElement).toBe(prettify())
+    expect(layoutCalls()).toEqual([])
+  })
+
+  it('once «Prettify» has dropped every place it is inactive, and the focus goes to «Move nodes»: in the Tree after the question, in the Graph at once', async () => {
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    fireEvent.click(prettify())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Prettify' })).getByRole('button', { name: 'Prettify' }))
+    expect(prettify().disabled).toBe(true)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move nodes' }))
+
+    cleanup()
+    inGraph()
+    render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    moveOn()
+    await drag('who-pays', 80, 40)
+    await waitFor(() => expect(prettify().disabled).toBe(false))
+    prettify().focus()
+    fireEvent.click(prettify())
+    expect(prettify().disabled).toBe(true)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move nodes' }))
+  })
+
+  // jsdom moves no real viewport (d3-zoom has no layout there), so the fit is read from the call: after «Prettify»
+  // the viewport is set to the one «Fit» gives for the nodes as they are drawn then (React Flow's own
+  // getViewportForBounds with «Fit»'s padding and zoom limits); the e2e test compares the viewports in the app.
+  it('after «Prettify» the map is fitted as «Fit» fits it, even after a zoom by hand', async () => {
+    inGraph()
+    render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const laidOut = placeOf('who-pays')
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+    moveOn()
+    await drag('who-pays', 80, 40)
+    await waitFor(() => expect(prettify().disabled).toBe(false))
+    setViewport.mockClear()
+    fireEvent.click(prettify())
+    await waitFor(() => expect(setViewport).toHaveBeenCalledTimes(1))
+    const drawn = [...document.querySelectorAll<HTMLElement>('.react-flow__node')].map((wrapper) => {
+      const id = wrapper.querySelector<HTMLElement>('[data-testid="mind-node"]')!.dataset.id!
+      return { id, position: placeOf(id), width: Number.parseFloat(wrapper.style.width), height: Number.parseFloat(wrapper.style.height), data: {} }
+    })
+    // The bounds are the laid-out map's: the moved node is back.
+    expect(placeOf('who-pays')).toEqual(laidOut)
+    // React Flow measures its pane as 0 × 0 in jsdom and takes 500 × 500 for it; the map fits into that size.
+    expect(setViewport.mock.calls[0]![0]).toEqual(getViewportForBounds(getNodesBounds(drawn), 500, 500, 0.1, 1.25, 0.12))
+  })
+
+  it('a refused «Prettify» brings back a drag still waiting for main as well as the file’s places', async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: null }).mockResolvedValue({ ok: false, error: 'mind-map.json has errors' })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    moveOn()
+    await drag('who-pays', 80, 40)
+    await waitFor(() => expect(layoutCalls()).toHaveLength(1))
+    const [written] = layoutCalls() as { x: number; y: number }[]
+    const at = { x: written!.x, y: written!.y }
+    // main's change has not come back: the drag still waits, and «Prettify» counts it.
+    fireEvent.click(prettify())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Prettify' })).getByRole('button', { name: 'Prettify' }))
+    await waitFor(() => expect(screen.getByTestId('mind-map-write-error').textContent).toContain('mind-map.json has errors'))
+    expect(placeOf('who-pays')).toEqual(at)
+  })
+
+  it('on a read-only screen «Prettify» is inactive even with places in the file, and says why', () => {
+    readOnly.hint = 'Studio gives this Machine read-only access'
+    render(<MindMap projectId="p1" topic={topic({ nodes: placedAt(900, 700) })} />)
+    expect(prettify().disabled).toBe(true)
+    expect(prettify().title).toBe('Studio gives this Machine read-only access')
   })
 })
