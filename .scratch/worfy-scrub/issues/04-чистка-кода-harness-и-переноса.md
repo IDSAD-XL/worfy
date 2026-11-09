@@ -54,6 +54,7 @@ Test-ы и fixture переноса — здесь, не в Ticket-е 05: они
   - evidence: test-run pass · `pnpm test test/contract/harness-migrate.test.ts -t "personal script"` exit 1 on plan.ts of origin/main, exit 0 after; module unit+contract tests (29 files) exit 0; move counts 447/408/39 before and after · mac - · b512e848f1a7e7bd7a256afe40c0878019693243
 - [ ] Отчёт guard-а по `src/`, `harness/`, `scripts/` и по файлам test-ов этого Ticket-а — ноль находок, кроме
       аккаунта репозитория в коде, который его читает.
+  - evidence: review pass · two reviewers (high) on 845cac034: guard report on head — 0 findings in src/, harness/ and this ticket's test files, no new finding vs origin/main; the 3 left in scripts/codex-capture.mjs (invented host + Codex records home, same as test/fixtures/codex-messages) move to ticket 06 as guard stand-ins · - - · 845cac03457428b4d68751cf366df65bbdfa79ac
 - [ ] Ручной шаг на машине владельца: хэши совпали 3 из 3.
   - evidence: test-run pass · orchestrator on the owner's Mac: the three PERSONAL_BIN hashes of plan.ts match 3 of 3 lowercase names in the old Harness bin folder; 1 of 3 also in the privacy.json deny list (the deny list holds project names, not tool names); no names printed · mac - · 5e50052a253e3cbcef9e2ed782337446328a80d9
 - [ ] `bash harness/bin/tests/plugin-neutral.test.sh` — exit 0 на Mac и на Windows (Git Bash).
