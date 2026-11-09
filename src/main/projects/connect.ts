@@ -3,7 +3,7 @@
 //
 // 1. The folder, only read (`git rev-parse`): a git repository — a subfolder or a linked worktree
 //    resolves to its root, as ProjectStore does —, or a folder outside git with at least two git
-//    repositories among its direct subfolders (`multi-repo`, like Atakama). A folder the Harness
+//    repositories among its direct subfolders (`multi-repo`, like another project of the owner). A folder the Harness
 //    already knows (`bin/profile -C` exits 0; for a multi-repo folder with `_resolved.workspace`)
 //    needs no draft: the caller adds it to the list at once. A `bin/profile` that gave no answer (not
 //    started, no node, stopped at its time limit) is the step's error, not a new folder (profileKnows).

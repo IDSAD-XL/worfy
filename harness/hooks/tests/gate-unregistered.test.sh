@@ -99,7 +99,7 @@ if node -e '
             same("C:\\a\\repo\\", "C:/a/repo", "win32") &&
             same("C:/a/repo/src", "C:/a/repo/", "win32") &&
             same("C:\\a\\repo", "C:/a/repo/", "win32") &&
-            same("/home/x/repo", "/home/x/repo/", "darwin") &&
+            same("/home/user/repo", "/home/user/repo/", "darwin") &&
             !same("C:", "C:/", "win32") &&
             !same("", "/", "linux") &&
             !same("C:/a/repo2", "C:/a/repo/", "win32") &&
@@ -109,9 +109,9 @@ if node -e '
             !same("D:\\a", "C:\\", "win32") &&
             same("/a", "/", "darwin") &&
             same("/a/b", "/", "linux") &&
-            same("/home/x/worfy/src", "/home/x/worfy", "darwin") &&
-            !same("/home/x/Worfy", "/home/x/worfy", "darwin") &&
-            !same("/home/x/a\\b", "/home/x/a", "linux")
+            same("/home/user/worfy/src", "/home/user/worfy", "darwin") &&
+            !same("/home/user/Worfy", "/home/user/worfy", "darwin") &&
+            !same("/home/user/a\\b", "/home/user/a", "linux")
         process.exit(ok ? 0 : 1)
     })' "$HOOKS/gate-paths.mjs"; then ok "registry paths: on Windows either separator and any letter case, elsewhere exact"
 else bad "registry paths: the comparison of gate-paths.mjs gave a wrong answer"; fi

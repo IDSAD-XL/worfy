@@ -8,6 +8,7 @@
 // personal scripts, hooks/, the shared rules of CLAUDE.md. Everything else in ~/.claude is personal
 // and never becomes a row. Nothing here writes; the plugin state comes from the installer (ticket
 // 13) through the caller.
+import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -31,8 +32,22 @@ export const HARNESS_SKILLS = ['epic-wave', 'ship-ticket', 'retro', 'qmd', 'over
  * (epic worfy-skills, ticket 02).
  */
 export const RETIRED_HOOKS = ['session-end.sh'] as const
-/** Q19: bin/ of ~/.claude is the Harness's except these. */
-export const PERSONAL_BIN = ['telegram-mcp', 'auction-staging-db-mcp', 'agent-time-split'] as const
+/**
+ * Q19: bin/ of ~/.claude is the Harness's except the personal scripts of the owner. The list holds the
+ * SHA-256 of each name in lower case, never the name: the repository is public (epic worfy-scrub, Q5).
+ * isPersonalBin tells a name by it; PlanOptions.personalBin stands in for it (the tests' own names).
+ */
+export const PERSONAL_BIN = [
+  '11fc0d6e3790776ae1850ceda4706986673f2aadee89ebfacb259c1a6bd93b98',
+  'e57d7b20caf96028c6d1fa8d0ea9c3f8613a648e26202a3fdf2e959f66a6a23a',
+  '527bab2531417f0e9e7c4346e4e7f1a7327db979e80f764c4aed73ffde75f768',
+] as const
+
+/** Whether `name` in bin/ of ~/.claude is a personal script: the SHA-256 of its lower case is on `list`. */
+export function isPersonalBin(name: string, list: readonly string[] = PERSONAL_BIN): boolean {
+  return list.includes(createHash('sha256').update(name.toLowerCase(), 'utf8').digest('hex'))
+}
+
 /** Q15: the qmd scripts; they go or stay with the qmd hook and the qmd record of .claude.json. */
 export const QMD_BINS = ['qmd-mcp', 'qmd-refresh', 'qmd-sync-main'] as const
 /** The file whose presence makes worfy see the old Harness (locate.ts); the move removes it last. */
@@ -96,6 +111,8 @@ export interface PlanOptions {
   offered: boolean
   /** The environment of `git` (HOME of the sandbox in tests); process.env by default. */
   env?: NodeJS.ProcessEnv
+  /** The SHA-256 list of the personal scripts of bin/ (isPersonalBin); PERSONAL_BIN by default. */
+  personalBin?: readonly string[]
   /** The installer's state of the plugin; undefined when not asked (the toolbar's offer). */
   pluginState?: HarnessState
 }
@@ -316,7 +333,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
   const fileRows = new Map<string, MigrationRow>()
   for (const dir of ['agents', 'skills', 'bin', 'hooks'] as const) {
     for (const name of listDir(join(claudeHome, dir))) {
-      if (dir === 'bin' && ((PERSONAL_BIN as readonly string[]).includes(name) || (QMD_BINS as readonly string[]).includes(name))) continue
+      if (dir === 'bin' && (isPersonalBin(name, options.personalBin) || (QMD_BINS as readonly string[]).includes(name))) continue
       const rel = join(dir, name)
       // The plugin's hooks are Node scripts now: an old hooks/<name>.sh is the plugin's hooks/<name>.mjs.
       // A retired hook counts as the plugin's: the Harness file goes, with nothing in its place.

@@ -1132,7 +1132,7 @@ const interfacesSchema = z.record(z.string(), z.array(z.string()))
 
 /**
  * WORFY_LINK_INTERFACES (e2e tests): a JSON map of interface names to addresses, say
- * `{"utun4":["100.101.102.103"]}`, the app's link takes for os.networkInterfaces(); undefined, with
+ * `{"utun4":["100.64.0.1"]}`, the app's link takes for os.networkInterfaces(); undefined, with
  * a warning, when it is not such a map. Only IP literals are kept: these addresses join the Host
  * allowlist (checks.ts, allowedHostNames), and a name there would let a site that points it at this
  * machine past the DNS rebinding check. Any other entry is dropped with a warning.

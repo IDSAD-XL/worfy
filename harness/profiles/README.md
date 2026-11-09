@@ -91,11 +91,11 @@ does not exist, the old `~/.claude/gate/config.json`). A project's entry has the
    in both places, `$HARNESS_HOME` wins. `_resolved.dir` is the folder where the profile was found.
 4. No `match` fits — the common directory (workspace): if the directory lies inside the common
    parent of all repositories of ONE profile (the profile has at least two entries), the profile is
-   that one. So `/home/me/work/suite` (above the three repositories of the project `suite`, not git itself)
+   that one. So `/home/you/work/suite` (above the three repositories of the project `suite`, not git itself)
    and the directories outside git next to them get the `suite` profile. The parent is computed
    from the registry, not stored. It does not count: the disk root, `$HOME`, a directory holding a
    repository of another profile or of an entry without a profile, and any directory inside a git
-   repository that is not in the registry (`/home/me/work/suite/scratch-tools` —
+   repository that is not in the registry (`/home/you/work/suite/scratch-tools` —
    exit 3: the gate, preflight and the session hooks treat it as unregistered). `hooks/gate.mjs`
    does not take this step: the gate checks only registered repositories.
 
@@ -255,7 +255,7 @@ list of `/`-separated paths, `check` that is not a command string. A guessed rol
 a PR without the other machine's gate full, or leave it with nobody to merge it.
 
 `tickets.root` — how `bin/ticket`, `bin/epic-status` and `bin/epic-board` read it:
-- an absolute path (`/home/me/work/suite/.scratch/`) or `~/…` — taken as is. This is how a
+- an absolute path (`/home/you/work/suite/.scratch/`) or `~/…` — taken as is. This is how a
   project of several repositories writes the root when its tickets lie in the common directory
   (workspace) outside git: from any of its repositories and from the common directory itself the
   tickets are the same;

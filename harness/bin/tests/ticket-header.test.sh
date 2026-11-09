@@ -153,10 +153,10 @@ out="$(tk block ep 09 --waits team 2>&1)"; rc=$?
 out="$(tk claim ep 09 --waits team 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && ok "--waits goes only with block" || bad "claim --waits: exit $rc"
 
-tk block ep 09 "waits for the vendor; and the keys" --waits "Windows-PC" >/dev/null 2>&1
+tk block ep 09 "waits for the vendor; and the keys" --waits "Someones-PC" >/dev/null 2>&1
 head -n 7 "$E/09-new.md" >"$T/h09"
 if grep -Eqx "Status: blocked $NOW" "$T/h09" && [ "$(sed -n 5p "$T/h09")" = 'Blocked reason: waits for the vendor; and the keys' ] \
-   && [ "$(sed -n 6p "$T/h09")" = 'Waits: Windows-PC' ] && [ "$(sed -n 7p "$T/h09")" = 'Blocked by: —' ]; then
+   && [ "$(sed -n 6p "$T/h09")" = 'Waits: Someones-PC' ] && [ "$(sed -n 7p "$T/h09")" = 'Blocked by: —' ]; then
     ok "block <reason> --waits <machine>: Status with time, then Blocked reason, then Waits"
 else bad "block 09:"; cat "$E/09-new.md"; fi
 tk block ep 09 "another reason" >/dev/null 2>&1

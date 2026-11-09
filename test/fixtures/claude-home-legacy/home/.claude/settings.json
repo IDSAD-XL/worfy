@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/bin/telegram-mcp --hello",
+            "command": "$HOME/.claude/bin/notify-mcp --hello",
             "timeout": 5
           }
         ]

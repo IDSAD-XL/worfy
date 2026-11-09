@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "name": "atakama",
-  "title": "Atakama",
+  "name": "acme",
+  "title": "Acme",
   "language": "en",
   "commands": {
     "verify": "bash ~/.claude/hooks/gate.sh full </dev/null"
   },
   "parallel": "single",
   "tickets": {
-    "root": "__SANDBOX__/repos/Atakama/.scratch/",
+    "root": "__SANDBOX__/repos/Acme/.scratch/",
     "status_tool": "~/.claude/bin/ticket",
     "epic_status": "~/.claude/bin/epic-status",
-    "tool": "~/.claude/profiles/atakama/bin/tickets.mjs"
+    "tool": "~/.claude/profiles/acme/bin/tickets.mjs"
   },
   "workflow": {
     "preflight": null,
@@ -19,7 +19,7 @@
   },
   "numbering": null,
   "qmd": {
-    "collections": ["atakama-lessons"],
-    "fallback_grep": ["~/.claude/profiles/atakama/lessons"]
+    "collections": ["acme-lessons"],
+    "fallback_grep": ["~/.claude/profiles/acme/lessons"]
   }
 }

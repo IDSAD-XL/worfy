@@ -35,13 +35,13 @@ beforeEach(() => {
   // the plugin does not ship (the Harness's tests and a file under another name).
   put('agents/mine.md', 'personal\n')
   put('skills/mine/SKILL.md', 'personal\n')
-  put('bin/telegram-mcp', '#!/bin/sh\n')
+  put('bin/notify-mcp', '#!/bin/sh\n')
   put('bin/tests/ticket.test.sh', '#!/bin/sh\n')
   put('bin/ТИКЕТЫ.md', 'notes\n')
   put('hooks/tests/gate.test.sh', '#!/bin/sh\n')
   put('CLAUDE.md', '# Me\n\n## Standing authorization\n\nyes\n\n## My notes\n\nx\n')
-  put('settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: '$HOME/.claude/bin/telegram-mcp notify' }] }] } }))
-  writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { telegram: { command: 'x' } } }))
+  put('settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: '$HOME/.claude/bin/notify-mcp notify' }] }] } }))
+  writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { notify: { command: 'x' } } }))
 })
 
 afterEach(() => {

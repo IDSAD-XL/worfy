@@ -130,7 +130,8 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)
     expect(existsSync(join(backup, 'claude', 'agents', 'scout.md'))).toBe(true)
     expect(existsSync(join(claudeHome, 'bin', 'epic-status'))).toBe(false)
-    expect(existsSync(join(claudeHome, 'bin', 'telegram-mcp'))).toBe(true)
+    // The fixture's personal scripts (invented names, not on PERSONAL_BIN of the app): rows the form keeps.
+    for (const name of ['notify-mcp', 'bazaar-staging-db-mcp', 'agent-clock']) expect(existsSync(join(claudeHome, 'bin', name)), name).toBe(true)
     expect(existsSync(join(backup, 'restore.mjs'))).toBe(true)
 
     // Closed, the toolbar no longer offers a move: nothing of the old Harness is left to take.

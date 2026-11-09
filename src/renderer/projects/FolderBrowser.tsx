@@ -6,7 +6,7 @@
 //
 // Paths are in the form of the other Machine's OS. This screen never parses, joins or rewrites one:
 // it only goes on by `path` and `parent` of an answer and chooses `path` as it came, so it works
-// with a Machine on another OS (`C:\Users\me` passes as it is).
+// with a Machine on another OS (`C:\Users\you` passes as it is).
 //
 // The look follows the "Add project" dialog (ConnectProject.tsx), one layer above it: a dialog on a
 // backdrop of black at 25%, the shared rows of the sidebar, colours only from the token roles.

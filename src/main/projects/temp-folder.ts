@@ -27,7 +27,7 @@ function userTemp(env: TempPlace['env']): string | null {
 
 /**
  * Whether `path` is %TEMP% of the user or a folder inside it. Both are compared after realpath (so
- * `ALEXEY~1` and `Alexey` match), without regard to case or to `/` against `\`; `Temp2` is not
+ * `SOMEON~1` and `Someone` match), without regard to case or to `/` against `\`; `Temp2` is not
  * inside `Temp`. Off Windows always false: there is no Storage Sense there.
  */
 export function insideUserTemp(path: string, place: Partial<TempPlace> = {}): boolean {

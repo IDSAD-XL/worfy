@@ -278,7 +278,7 @@ export const OPEN_BAR_ADDRESS_TAIL = 24
  * host with its port — is always shown whole: a cut in the middle of a long host could hide the
  * real domain (`https://bank.example.com.aaaa….evil.net/…`). Only the path, query and fragment are
  * cut: `head` gives way with an ellipsis, `tail` — its last OPEN_BAR_ADDRESS_TAIL characters — stays.
- * User info (`https://bank.example.com@evil.net/`) is left out: it can pass for the host. The whole
+ * User info (`https://bank.example.com@evil.example.org/`) is left out: it can pass for the host. The whole
  * address stays in the bar's tooltip. What is not a URL has no `site` and is cut the same way.
  */
 export function openBarAddress(url: string): { site: string; head: string; tail: string } {

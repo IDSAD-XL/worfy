@@ -32,7 +32,7 @@ const argValue = (name: string): string | undefined => {
 }
 
 const home = argValue('--home') ?? join(homedir(), '.claude')
-const auctionPrefix = argValue('--project-prefix') ?? '-Users-alexey-Work-Auction'
+const focusPrefix = argValue('--project-prefix') ?? '-Users-someone-Work-demo'
 const userHome = homedir()
 
 const isRecord = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -359,7 +359,7 @@ const surveyProjects = async (): Promise<string | undefined> => {
   const projectDirs = (await listDir(root)).filter((n) => !n.startsWith('.'))
   const main = newStats()
   const sub = newStats()
-  const auction = { main: 0, mainBytes: 0, sub: 0, subBytes: 0, largest: 0 }
+  const focus = { main: 0, mainBytes: 0, sub: 0, subBytes: 0, largest: 0 }
   const metaFields = new Map<string, number>()
   const spawnDepth = new Map<string, number>()
   const requestShape = new Map<string, number>()
@@ -392,7 +392,7 @@ const surveyProjects = async (): Promise<string | undefined> => {
         projectAgentIds.add(f.id)
       }
     }
-    const isAuction = projectDir.startsWith(auctionPrefix)
+    const isFocus = projectDir.startsWith(focusPrefix)
     for (const sessionId of sessions) {
       const path = join(dir, `${sessionId}.jsonl`)
       const files = agentsBySession.get(sessionId) ?? []
@@ -405,11 +405,11 @@ const surveyProjects = async (): Promise<string | undefined> => {
         if (info.firstCwd.includes(' ')) bump(dirRule.cwdShapes, 'space')
         if ([...info.firstCwd].some((ch) => ch.charCodeAt(0) > 127)) bump(dirRule.cwdShapes, 'non-ASCII')
       }
-      if (isAuction) {
+      if (isFocus) {
         const size = (await stat(path)).size
-        auction.main += 1
-        auction.mainBytes += size
-        auction.largest = Math.max(auction.largest, size)
+        focus.main += 1
+        focus.mainBytes += size
+        focus.largest = Math.max(focus.largest, size)
       }
       if (files.length > 0) sessionsWithAgents += 1
       const mainToolUseIds = info.agentToolUseIds
@@ -429,9 +429,9 @@ const surveyProjects = async (): Promise<string | undefined> => {
         }
         const agentInfo = await scanTranscript(f.jsonl, sub, { own: ids, project: projectAgentIds }, projectDir)
         toolUseIdsByAgent.set(f.id, agentInfo.agentToolUseIds)
-        if (isAuction) {
-          auction.sub += 1
-          auction.subBytes += (await stat(f.jsonl)).size
+        if (isFocus) {
+          focus.sub += 1
+          focus.subBytes += (await stat(f.jsonl)).size
         }
       }
       for (const f of files) {
@@ -506,7 +506,7 @@ const surveyProjects = async (): Promise<string | undefined> => {
 
   console.log('\n## 5. Volumes')
   console.log(`full read of every transcript: ${(elapsed / 1000).toFixed(1)} s for ${mb(main.bytes + sub.bytes)}`)
-  console.log(`${auctionPrefix}*: ${auction.main} main transcripts (${mb(auction.mainBytes)}), ${auction.sub} subagent transcripts (${mb(auction.subBytes)}); largest main there: ${mb(auction.largest)}`)
+  console.log(`${focusPrefix}*: ${focus.main} main transcripts (${mb(focus.mainBytes)}), ${focus.sub} subagent transcripts (${mb(focus.subBytes)}); largest main there: ${mb(focus.largest)}`)
   console.log(`largest main transcript: ${mb(main.largest.bytes)} (${short(main.largest.path)})`)
   console.log(`largest subagent transcript: ${mb(sub.largest.bytes)} (${short(sub.largest.path)})`)
   if (main.largest.path === '') return undefined
@@ -620,10 +620,10 @@ const surveySdk = async (largestSessionId: string | undefined): Promise<void> =>
   )
   // The folder name loses the difference between '/' and '-'; this only works for a prefix whose
   // path has no '-' or other non-alphanumerics, which is true for the default one.
-  const auctionRoot = `/${auctionPrefix.slice(1).replaceAll('-', '/')}`
+  const focusRoot = `/${focusPrefix.slice(1).replaceAll('-', '/')}`
   t = performance.now()
-  const project = await sdk.listSessions({ dir: auctionRoot })
-  console.log(`listSessions({ dir: ${short(auctionRoot)} }) with worktrees: ${project.length} sessions in ${(performance.now() - t).toFixed(0)} ms`)
+  const project = await sdk.listSessions({ dir: focusRoot })
+  console.log(`listSessions({ dir: ${short(focusRoot)} }) with worktrees: ${project.length} sessions in ${(performance.now() - t).toFixed(0)} ms`)
   if (largestSessionId !== undefined) {
     t = performance.now()
     const messages = await sdk.getSessionMessages(largestSessionId)

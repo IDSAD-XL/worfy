@@ -151,7 +151,7 @@ export class StageReader {
 
     // Which repository each Ticket in work is checked in: the root, or its `Repo:` in a Project over several.
     // The root only when it is inside a git work tree: a Profile that could not be read names no
-    // repositories, and the root of a Project over several (Atakama) is a plain folder — gh and git
+    // repositories, and the root of a Project over several (a multi-repo one) is a plain folder — gh and git
     // never run there.
     const several = profile.repos.length > 1
     const rootRepo = !several && tickets.some(inWork) && (await this.isInWorkTree(root)) ? root : null

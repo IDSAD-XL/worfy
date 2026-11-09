@@ -2,11 +2,13 @@
 // worfy-harness/02). This test pins the manifest fields the ticket sets and keeps out of harness/
 // the files of ~/.claude that are not the Harness: personal scripts, tests of personal profiles'
 // code, agents and hooks of single projects, machine state.
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterAll, describe, expect, it } from 'vitest'
+import { isPersonalBin } from '../../src/main/harness/migrate/plan'
 import { SESSION_KIND_VARIABLE } from '../../src/main/vendors/claude/options'
 import { removeTestTree } from '../remove'
 import { claudeEnv, startMessagesApiStandIn } from './messages-api-stand-in'
@@ -70,20 +72,24 @@ describe('harness/ holds only the Harness', () => {
     )
   })
 
-  // The ticket's list of what is not imported from ~/.claude.
-  const NOT_HARNESS: [string, RegExp][] = [
-    ['personal scripts', /(^|\/)(telegram-mcp|auction-staging-db-mcp|agent-time-split)$/],
-    ['tests of personal profiles’ code', /(^|\/)(atakama-tickets|production-check)\.test\.sh$/],
-    ['agents and hooks of single projects', /(^|\/)(atakama|auction)-[^/]*$/],
-    ['machine state', /(^|\/)(settings\.json|gate\/.*|profiles\/(worfy|auction|atakama)\/.*)$/],
-    ['synced skills', /^skills\/synced\//],
+  // The ticket's list of what is not imported from ~/.claude. The personal scripts are told by
+  // isPersonalBin, the owner's other projects by the SHA-256 of their names in lower case: the
+  // repository is public, so neither list names them (epic worfy-scrub).
+  const OTHER_PROJECTS = ['1b3c56eb295877d4cbd3df948dfc3140f44442792550f5e49fed6207963637d2', '95482ba25b7bf178dde12db3ff20f00e90fad0092f1811d39ca318f7071ac9d7']
+  const project = (name: string | undefined): boolean => name !== undefined && OTHER_PROJECTS.includes(createHash('sha256').update(name.toLowerCase()).digest('hex'))
+  const NOT_HARNESS: [string, (file: string) => boolean][] = [
+    ['personal scripts', (file) => isPersonalBin(file.split('/').at(-1) ?? '')],
+    ['tests of personal profiles’ code', (file) => project(/(^|\/)([^/]+)-tickets\.test\.sh$/.exec(file)?.[2]) || /(^|\/)production-check\.test\.sh$/.test(file)],
+    ['agents and hooks of single projects', (file) => project(/(^|\/)([^/-]+)-[^/]*$/.exec(file)?.[2])],
+    ['machine state', (file) => /(^|\/)(settings\.json|gate\/.*)$/.test(file) || [/(^|\/)profiles\/([^/]+)\/.*$/.exec(file)?.[2]].some((name) => name === 'worfy' || project(name))],
+    ['synced skills', (file) => /^skills\/synced\//.test(file)],
     // Claude Code loads a CLAUDE.md under harness/ into sessions that edit harness/: the global
     // rules reach sessions through hooks/inject-rules.mjs and hooks/rules/*.md instead (ticket 05).
-    ['CLAUDE.md', /(^|\/)CLAUDE\.md$/],
+    ['CLAUDE.md', (file) => /(^|\/)CLAUDE\.md$/.test(file)],
   ]
 
-  it.each(NOT_HARNESS)('has no %s', (_what, pattern) => {
-    expect(files.filter((file) => pattern.test(file))).toEqual([])
+  it.each(NOT_HARNESS)('has no %s', (_what, matches) => {
+    expect(files.filter(matches)).toEqual([])
   })
 })
 

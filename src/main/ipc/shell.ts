@@ -79,7 +79,7 @@ export interface PlaceOptions {
  * (a firmlink) and `/.nofollow/Users` are `/Users` under other names, and realpath keeps them as
  * they are. So a place is also compared by what it is, its device and inode: one that is the home
  * folder or a folder above it, or in which the names from such a folder down to the home folder
- * (`Users/alexey`) lead to the home folder, is left out. A place inside the home folder stays. A place
+ * (`Users/someone`) lead to the home folder, is left out. A place inside the home folder stays. A place
  * whose stat fails is left out, and so is every place when a folder above the home folder cannot be
  * read: then it is unknown what holds the home folder.
  */
@@ -100,7 +100,7 @@ export async function workflowPlaces(layout: ProjectLayout | null, options: Plac
   }
   // A folder that is not there has no identity a place could share.
   above.delete(null)
-  // The names from each folder above the home folder down to it: `alexey`, `Users/alexey`.
+  // The names from each folder above the home folder down to it: `someone`, `Users/someone`.
   const tails = [...new Set(homes.flatMap((each) => upToRoot(each, paths).slice(1).map((folder) => paths.relative(folder, each))))]
   const places = [layout.ticketsRoot, layout.workflowFolder]
   const kept = await Promise.all(

@@ -6,7 +6,7 @@
 //
 // - markers in <gate>/state/: `red-<key>-<tag>` (red) and `unverified-<key>-<tag>` (could not
 //   verify), where `tag` is the first 8 hex digits of SHA-1 of the worktree path as
-//   `git rev-parse --show-toplevel` prints it (`C:/Users/x/worfy` on Windows) and `key` is the
+//   `git rev-parse --show-toplevel` prints it (`C:/Users/user/worfy` on Windows) and `key` is the
 //   entry of <gate>/config.json whose `match` is the longest prefix of the repository root
 //   (gate-resolve.mjs --which);
 // - without a marker, the verdict file `verdict-<tag>.json` in the same folder: the Gate rewrites it
@@ -24,8 +24,8 @@
 // "Nothing ran" (`none` in the file) is "no data", never green. Nothing here writes: the
 // state folder and the transcripts are only listed and read, git only lists worktrees.
 //
-// Paths of Windows (worfy-windows ticket 03): realpath gives `C:\Users\x\worfy`, git and the Gate
-// write `C:/Users/x/worfy`, Git Bash `/c/Users/x/worfy`, and NTFS does not tell letter case apart.
+// Paths of Windows (worfy-windows ticket 03): realpath gives `C:\Users\user\worfy`, git and the Gate
+// write `C:/Users/user/worfy`, Git Bash `/c/Users/user/worfy`, and NTFS does not tell letter case apart.
 // The functions that hash, compare or resolve a path take the platform, `process.platform` by
 // default, so the Windows rules are tested on macOS and Linux; with any other platform a path is
 // read as before.
@@ -47,7 +47,7 @@ const run = promisify(execFile)
 const realpathNative = promisify(realpath.native)
 const realpathPlain = promisify(realpath)
 
-/** A Windows path as git prints it: `/` for `\`, the drive letter in upper case (`C:/Users/x/worfy`). */
+/** A Windows path as git prints it: `/` for `\`, the drive letter in upper case (`C:/Users/user/worfy`). */
 const gitSpelling = (path: string): string => path.replaceAll('\\', '/').replace(/^[a-z]:/u, (drive) => drive.toUpperCase())
 
 /**
@@ -233,7 +233,7 @@ function toolResultText(content: unknown): string[] {
 }
 
 /**
- * The Gate's script as a word of a command: `node "C:\Users\x\plugin\hooks\gate.mjs" fast`, or
+ * The Gate's script as a word of a command: `node "C:\Users\user\plugin\hooks\gate.mjs" fast`, or
  * `~/.claude/hooks/gate.sh fast` of a Harness older than worfy-windows ticket 03 and of old
  * transcripts; not `gate-unregistered.test.sh` or `gate-resolve.mjs`. A `\` before the name is a
  * path separator on Windows only: elsewhere bash reads `my\gate.sh` as `mygate.sh`.
@@ -244,7 +244,7 @@ const GATE_SCRIPT_WINDOWS = /(?:^|[\s;&|(/\\'"`])gate\.(?:mjs|sh)(?=$|[\s;&|)<>'
 const GATE_SCRIPT_NAMES = ['gate.mjs', 'gate.sh']
 /** A `cd` or `pushd` at the start of a shell command, with its argument if it has one. */
 const CD = /(?:^|[;&|({\n'"]|\b(?:then|do|else))\s*(?:cd|pushd)(?:[ \t]+("[^"]*"|'[^']*'|[^\s;&|)]+))?(?=$|[\s;&|)])/gu
-/** `/c` or `/c/Users/x`: how Git Bash spells `C:\` and `C:\Users\x`. */
+/** `/c` or `/c/Users/user`: how Git Bash spells `C:\` and `C:\Users\user`. */
 const GIT_BASH_DRIVE = /^\/([A-Za-z])(?=\/|$)/u
 
 /**

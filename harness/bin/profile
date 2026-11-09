@@ -175,12 +175,12 @@ try {
 
 // The common directory of a project made of several repositories (workspace). A directory that itself
 // lies in no `match` but lies in the common parent of all repositories of ONE profile belongs to
-// that profile: this is how a session in /home/me/work/suite (above three repositories, not git itself)
+// that profile: this is how a session in /home/you/work/suite (above three repositories, not git itself)
 // gets the suite profile. The common parent is computed from the registry, not stored: there is no second
 // registry of paths. Not a workspace: a profile with one repository (its directory is the
 // match itself), the disk root, $HOME and its parents, a directory inside a registry entry, and a directory holding a repository of another profile or of no profile.
 // Only directories OUTSIDE git get the common directory's profile. A git repository that is not in
-// the registry but lies in the common directory (scratch-tools in /home/me/work/suite)
+// the registry but lies in the common directory (scratch-tools in /home/you/work/suite)
 // is someone else's project: exit 3, like any unregistered repository. Otherwise the gate, the session hooks
 // and preflight would take it for one of the profile's repositories.
 const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
@@ -209,7 +209,7 @@ function workspaceOf(target) {
         if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
         // A directory inside an unregistered git repository that lies in the common directory is
         // someone else's project. If the git repository is the common directory itself or lies above it (git init
-        // in /home/me/work/suite, dotfiles in $HOME), that does not matter: the directory stays a workspace.
+        // in /home/you/work/suite, dotfiles in $HOME), that does not matter: the directory stays a workspace.
         if (checkoutCanon && checkoutCanon !== ws && under(checkoutCanon, ws)) continue
         if (under(target, ws)) hits.push({ name, ws, n: rs.length })
     }

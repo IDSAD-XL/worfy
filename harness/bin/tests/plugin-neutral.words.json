@@ -1,0 +1,60 @@
+{
+  "words": [
+    {
+      "kind": "a work project of the owner",
+      "length": 7,
+      "sha256": "95482ba25b7bf178dde12db3ff20f00e90fad0092f1811d39ca318f7071ac9d7"
+    },
+    {
+      "kind": "a work project of the owner",
+      "length": 7,
+      "sha256": "1b3c56eb295877d4cbd3df948dfc3140f44442792550f5e49fed6207963637d2"
+    },
+    {
+      "kind": "a work project of the owner",
+      "length": 20,
+      "sha256": "7f7ae106f328483e4eef0062a2011b27003ad58cf6ee8979e1bc9f4f5a86f922"
+    },
+    {
+      "kind": "a name of the owner",
+      "length": 6,
+      "sha256": "d217e1716cb7b36f8be65117f625a1e39d22fd585528632391bb74310a4f255d"
+    },
+    {
+      "kind": "a name of the owner",
+      "length": 7,
+      "sha256": "f42432253690936b9691823fe1fafa241070b50349e8d535ec4f4ecc46b5e26d"
+    },
+    {
+      "kind": "the account of the repository",
+      "length": 5,
+      "sha256": "caabb4cc7d78c91f57ae3fdf6e7f6c1d77e6317023a59323ff921fa8934fe5c6"
+    },
+    {
+      "kind": "the owner's folder of the repository",
+      "length": 11,
+      "sha256": "4a7efbfb4f64f8da233e4cbe8fae83af2dbe1ce2dd137cb7be4c43baf11e2981"
+    },
+    {
+      "kind": "the owner's tailnet",
+      "length": 10,
+      "sha256": "529a91c45f79ff135b7d433128a9242519b02778ff0cad2ef277ce3c5baa60f2"
+    },
+    {
+      "kind": "a personal tool of the owner",
+      "length": 16,
+      "sha256": "527bab2531417f0e9e7c4346e4e7f1a7327db979e80f764c4aed73ffde75f768"
+    },
+    {
+      "kind": "an account of the owner",
+      "length": 16,
+      "sha256": "962fce726d498464521366144b2c63d9fda2c014c90d4a57b5d5d63d0c0061c0"
+    }
+  ],
+  "allowed": [
+    {
+      "file": ".claude-plugin/plugin.json",
+      "line_sha256": "c28ed4315a7919e7c82e79d83677c5cefa78ebd7b0fd250646e88a6dc526182d"
+    }
+  ]
+}

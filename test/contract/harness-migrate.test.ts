@@ -10,6 +10,7 @@
 // The cases about boundaries, races and changes after the move are in
 // harness-migrate-boundaries.test.ts, and the sandbox is in harness-migrate-harness.ts
 // (worfy-windows ticket 28: the gate's bound of 1000 lines).
+import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path'
@@ -18,7 +19,7 @@ import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationStep } from '../../src/shared/ipc/harness-migration'
 import { applyMigration, MIGRATION_STEPS } from '../../src/main/harness/migrate/apply'
 import { removeTestTree } from '../remove'
-import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
+import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, PERSONAL_BIN, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
 import { applyOptions, backupDir, everything, fileId, findNode, git, hookCommands, makeSandbox, omit, pathWithoutClaude, plan, planOptions, posix, read, readJson, REPO, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
 import { ms } from '../time-scale'
@@ -85,7 +86,9 @@ const HARNESS_HOOKS = [
   '$HOME/.claude/hooks/guard.mjs',
 ]
 /** Names that are personal (Q19): no row may name them. */
-const PERSONAL = ['cloudflare', 'wrangler', 'sentry-cli', 'web-perf', 'synced', 'telegram-mcp', 'auction-staging-db-mcp', 'agent-time-split', 'freecad', '"model"', '"env"', 'effortLevel']
+const PERSONAL = ['cloudflare', 'wrangler', 'sentry-cli', 'web-perf', 'synced', 'notify-mcp', 'bazaar-staging-db-mcp', 'agent-clock', 'freecad', '"model"', '"env"', 'effortLevel']
+
+const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 /** The link to a folder a user can make without a special right: a junction on Windows, a symlink elsewhere. */
 const LINK_TO_A_FOLDER = process.platform === 'win32' ? 'junction' : 'dir'
@@ -184,16 +187,16 @@ describe('the plan of the form', () => {
     expect(view.rows.filter((row) => row.group === 'state').map((row) => row.id)).toEqual(['state:gate-config', 'state:gate-state', 'state:worktree-sessions'])
     expect(view.profiles.map((profile) => [profile.name, profile.fields])).toEqual([
       // `attribution` follows the proposed mode: off for Silent, on for Full.
-      ['atakama', { mode: 'silent', languageDocs: 'en', attribution: 'off' }],
-      ['auction', { mode: 'full', languageDocs: 'ru', attribution: 'on' }],
+      ['acme', { mode: 'silent', languageDocs: 'en', attribution: 'off' }],
+      ['bazaar', { mode: 'full', languageDocs: 'ru', attribution: 'on' }],
       ['worfy', { mode: 'full', languageDocs: 'ru', attribution: 'on' }],
     ])
-    expect(view.profiles.find((profile) => profile.name === 'atakama')?.carried).toEqual(['bin/', 'lessons/', 'state/'])
+    expect(view.profiles.find((profile) => profile.name === 'acme')?.carried).toEqual(['bin/', 'lessons/', 'state/'])
     expect(view.warnings).toEqual([RUNNING_SESSIONS_WARNING])
 
     // CLAUDE.md: the rules the plugin's hooks now carry are removed by default, the rest stays.
     const sections = view.claudeMd?.sections ?? []
-    expect(sections.filter((section) => section.defaultChoice === 'keep').map((section) => section.label)).toEqual(['Standing authorization', 'My machine', 'Telegram'])
+    expect(sections.filter((section) => section.defaultChoice === 'keep').map((section) => section.label)).toEqual(['Standing authorization', 'My machine', 'Notify'])
     // Its intro opens the plugin's orchestrator rules (harness/hooks/rules/orchestrator.md, ticket 05).
     expect(sections.find((section) => section.label === 'Workflow: orchestrator + subagents')).toMatchObject({ defaultChoice: 'remove', note: null })
     expect(sections.find((section) => section.label === 'Standing authorization')?.note).toContain("the user's own consent")
@@ -205,6 +208,35 @@ describe('the plan of the form', () => {
 
     const text = JSON.stringify(view)
     for (const name of PERSONAL) expect(text).not.toContain(name)
+  })
+
+  it('a personal script of bin/ is told by the SHA-256 of its lower-case name, from the list the caller passes; the list of the code holds hashes only', () => {
+    // Invented names of this test, one in another letter case (epic worfy-scrub, Q5).
+    for (const name of ['zork-notes-mcp', 'Quux-Clock']) writeFileSync(join(sandbox.claudeHome, 'bin', name), '#!/bin/sh\n')
+    const ids = (personalBin: readonly string[]): string[] => plan({ personalBin }).rows.map((row) => row.id)
+    const told = ids(['zork-notes-mcp', 'quux-clock'].map(sha256))
+    expect(told).not.toContain(fileId('bin/zork-notes-mcp'))
+    expect(told).not.toContain(fileId('bin/Quux-Clock'))
+    // Off the list, a script of bin/ is a row of the form, kept: the plugin does not carry it.
+    const untold = plan({ personalBin: [] }).rows.find((row) => row.id === fileId('bin/zork-notes-mcp'))
+    expect(untold?.choices).toEqual(['keep'])
+    expect(PERSONAL_BIN).toHaveLength(3)
+    for (const hash of PERSONAL_BIN) expect(hash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('plan.ts names no personal script in clear text: the guard of personal strings finds nothing in it', () => {
+    // The guard of the repository (scripts/check-personal.mjs, epic worfy-scrub ticket 01) with its own
+    // hash list, on a repository of plan.ts alone.
+    const root = join(sandbox.root, 'guarded')
+    for (const rel of ['scripts/check-personal.hashes.json', 'src/main/harness/migrate/plan.ts']) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true })
+      writeFileSync(join(root, rel), read(join(REPO, rel)))
+    }
+    git(root, 'init', '-q')
+    git(root, 'add', '-A')
+    const guard = run(findNode(), [join(REPO, 'scripts', 'check-personal.mjs'), '--root', root])
+    expect(guard.stdout).not.toContain('plan.ts')
+    expect(guard.status, guard.stdout + guard.stderr).toBe(0)
   })
 
   it('offers the status line of another build only with a bridge of this build: replaced, its argument kept', () => {
@@ -238,20 +270,20 @@ describe('the plan of the form', () => {
 
   it('.claude.json: inside a WORFY_CLAUDE_HOME sandbox, else in CLAUDE_CONFIG_DIR, else in the home folder', () => {
     // Joined with the separator of the system; CLAUDE_CONFIG_DIR resolved (on Windows `/cfg` gets a drive).
-    expect(claudeJsonPath({ WORFY_CLAUDE_HOME: '/s/.claude', CLAUDE_CONFIG_DIR: '/other' }, '/s/.claude', '/home/me')).toBe(join('/s/.claude', '.claude.json'))
-    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/me/.claude', '/home/me')).toBe(join(resolve('/cfg'), '.claude.json'))
-    expect(claudeJsonPath({}, '/home/me/.claude', '/home/me')).toBe(join('/home/me', '.claude.json'))
+    expect(claudeJsonPath({ WORFY_CLAUDE_HOME: '/s/.claude', CLAUDE_CONFIG_DIR: '/other' }, '/s/.claude', '/home/you')).toBe(join('/s/.claude', '.claude.json'))
+    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/you/.claude', '/home/you')).toBe(join(resolve('/cfg'), '.claude.json'))
+    expect(claudeJsonPath({}, '/home/you/.claude', '/home/you')).toBe(join('/home/you', '.claude.json'))
   })
 
   it('rewrites the paths of the old Harness in every form it is written in', () => {
     const homes = { claudeHome: sandbox.claudeHome, harnessHome: sandbox.harnessHome }
     expect(
       rewriteHarnessPaths(
-        '~/.claude/bin/ticket $HOME/.claude/hooks/gate.sh ~/.claude/gate/config.json ~/.claude/profiles/README.md ~/.claude/profiles/atakama/bin/x ~/.claude/agents/scout.md',
+        '~/.claude/bin/ticket $HOME/.claude/hooks/gate.sh ~/.claude/gate/config.json ~/.claude/profiles/README.md ~/.claude/profiles/acme/bin/x ~/.claude/agents/scout.md',
         homes,
       ),
     ).toBe(
-      '~/.claude/worfy-harness/plugin/bin/ticket $HOME/.claude/worfy-harness/plugin/hooks/gate.sh ~/.claude/worfy-harness/gate/config.json ~/.claude/worfy-harness/plugin/profiles/README.md ~/.claude/worfy-harness/projects/atakama/bin/x ~/.claude/worfy-harness/plugin/agents/scout.md',
+      '~/.claude/worfy-harness/plugin/bin/ticket $HOME/.claude/worfy-harness/plugin/hooks/gate.sh ~/.claude/worfy-harness/gate/config.json ~/.claude/worfy-harness/plugin/profiles/README.md ~/.claude/worfy-harness/projects/acme/bin/x ~/.claude/worfy-harness/plugin/agents/scout.md',
     )
     // The Harness's agents and skills go to the plugin; a personal skill stays where it is.
     expect(rewriteHarnessPaths('`~/.claude/agents/{scout,implementer,reviewer}.md` ~/.claude/skills/epic-wave/SKILL.md ~/.claude/skills/cloudflare ~/.claude/skills/qmd-extra', homes)).toBe(
@@ -264,15 +296,15 @@ describe('the plan of the form', () => {
   })
 
   it('attribution: a value the old Profile names is proposed as written, in both modes', () => {
-    // Without the field the proposal follows the mode (the test above: atakama off, worfy on).
+    // Without the field the proposal follows the mode (the test above: acme off, worfy on).
     const legacy = (name: string): string => join(sandbox.claudeHome, 'profiles', name, 'profile.json')
-    writeFileSync(legacy('atakama'), JSON.stringify({ ...readJson(legacy('atakama')), attribution: 'on' }))
+    writeFileSync(legacy('acme'), JSON.stringify({ ...readJson(legacy('acme')), attribution: 'on' }))
     writeFileSync(legacy('worfy'), JSON.stringify({ ...readJson(legacy('worfy')), attribution: 'off' }))
     // A value that is neither `on` nor `off` is not a choice: the mode decides.
-    writeFileSync(legacy('auction'), JSON.stringify({ ...readJson(legacy('auction')), attribution: 'maybe' }))
+    writeFileSync(legacy('bazaar'), JSON.stringify({ ...readJson(legacy('bazaar')), attribution: 'maybe' }))
     expect(plan().profiles.map((profile) => [profile.name, profile.fields.mode, profile.fields.attribution])).toEqual([
-      ['atakama', 'silent', 'on'],
-      ['auction', 'full', 'on'],
+      ['acme', 'silent', 'on'],
+      ['bazaar', 'full', 'on'],
       ['worfy', 'full', 'off'],
     ])
   })
@@ -296,7 +328,7 @@ describe('the move', () => {
     const harnessRels = view.rows
       .filter((row) => row.group === 'files' && row.choices.includes('remove'))
       .map((row) => posix(row.id.slice('file:'.length)))
-      .concat(['bin/qmd-mcp', 'bin/qmd-refresh', 'bin/qmd-sync-main', 'gate/config.json', 'gate/state', 'worktree-sessions', 'profiles/atakama', 'profiles/auction', 'profiles/worfy'])
+      .concat(['bin/qmd-mcp', 'bin/qmd-refresh', 'bin/qmd-sync-main', 'gate/config.json', 'gate/state', 'worktree-sessions', 'profiles/acme', 'profiles/bazaar', 'profiles/worfy'])
     const isHarness = (rel: string): boolean => harnessRels.some((root) => rel === root || rel === `${root}/` || rel.startsWith(`${root}/`))
     for (const rel of Object.keys(before).filter(isHarness)) expect(after[rel], rel).toBeUndefined()
     const backup = treeOf(join(backupDir(), 'claude'))
@@ -305,13 +337,13 @@ describe('the move', () => {
     // Personal files: byte for byte where they were.
     const personal = Object.keys(before).filter((rel) => !isHarness(rel) && !['settings.json', 'CLAUDE.md', '.claude.json'].includes(rel) && !rel.startsWith('worfy-harness/'))
     for (const rel of personal) expect(after[rel], rel).toBe(before[rel])
-    for (const rel of ['skills/cloudflare/SKILL.md', 'skills/synced/notes/SKILL.md', 'bin/telegram-mcp', 'bin/auction-staging-db-mcp', 'bin/agent-time-split', 'projects/-sandbox-repos-worfy/session.jsonl']) {
+    for (const rel of ['skills/cloudflare/SKILL.md', 'skills/synced/notes/SKILL.md', 'bin/notify-mcp', 'bin/bazaar-staging-db-mcp', 'bin/agent-clock', 'projects/-sandbox-repos-worfy/session.jsonl']) {
       expect(after[rel], rel).toBe(before[rel])
     }
 
     // settings.json: only the planned hook records went; everything else is deep-equal.
     const settings = readJson(join(sandbox.claudeHome, 'settings.json'))
-    expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toEqual(['$HOME/.claude/bin/telegram-mcp --hello'])
+    expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toEqual(['$HOME/.claude/bin/notify-mcp --hello'])
     expect(omit(settings, 'hooks', 'statusLine')).toEqual(omit(settingsBefore, 'hooks', 'statusLine'))
     expect(settings.statusLine).toEqual(settingsBefore.statusLine)
 
@@ -342,7 +374,7 @@ describe('the move', () => {
     // The form's values differ from the proposed ones (worfy: full, ru, on).
     const result = await applyMigration(selection(view, undefined, { worfy: { mode: 'silent', languageDocs: 'en', attribution: 'off' } }), applyOptions())
     expect(result.outcome).toBe('done')
-    const expected = { worfy: ['silent', 'en', 'off'], auction: ['full', 'ru', 'on'], atakama: ['silent', 'en', 'off'] }
+    const expected = { worfy: ['silent', 'en', 'off'], bazaar: ['full', 'ru', 'on'], acme: ['silent', 'en', 'off'] }
     for (const [name, [mode, docs, attribution]] of Object.entries(expected)) {
       const dir = join(sandbox.harnessHome, 'projects', name)
       const profile = readJson(join(dir, 'profile.json'))
@@ -361,10 +393,10 @@ describe('the move', () => {
         }
       }
     }
-    expect(read(join(sandbox.harnessHome, 'projects', 'atakama', 'rules.md'))).toContain('~/.claude/worfy-harness/plugin/hooks/gate.sh')
-    expect(read(join(sandbox.harnessHome, 'projects', 'auction', 'rules.md'))).toContain('`~/.claude/worfy-harness/plugin/agents/{scout,implementer,reviewer}.md`')
-    expect(readJson(join(sandbox.harnessHome, 'projects', 'atakama', 'profile.json')).commands).toEqual({ verify: 'bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full </dev/null' })
-    for (const rel of ['bin/tickets.mjs', 'lessons/lessons.md', 'state/pending-retro.log']) expect(existsSync(join(sandbox.harnessHome, 'projects', 'atakama', rel)), rel).toBe(true)
+    expect(read(join(sandbox.harnessHome, 'projects', 'acme', 'rules.md'))).toContain('~/.claude/worfy-harness/plugin/hooks/gate.sh')
+    expect(read(join(sandbox.harnessHome, 'projects', 'bazaar', 'rules.md'))).toContain('`~/.claude/worfy-harness/plugin/agents/{scout,implementer,reviewer}.md`')
+    expect(readJson(join(sandbox.harnessHome, 'projects', 'acme', 'profile.json')).commands).toEqual({ verify: 'bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full </dev/null' })
+    for (const rel of ['bin/tickets.mjs', 'lessons/lessons.md', 'state/pending-retro.log']) expect(existsSync(join(sandbox.harnessHome, 'projects', 'acme', rel)), rel).toBe(true)
 
     // bin/profile of harness/ (ticket 11) on the fixture repositories reads the form's mode. Started
     // as `node <script>`, as worfy starts the Harness scripts (ADR-0055): Windows has no shebang.
@@ -372,9 +404,9 @@ describe('the move', () => {
     const worfyMode = run(findNode(), [profileBin, '-C', sandbox.repos.worfy, '--field', 'mode'])
     expect(worfyMode).toMatchObject({ status: 0, stdout: 'silent\n' })
     expect(run(findNode(), [profileBin, '-C', sandbox.repos.worfy, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
-    expect(run(findNode(), [profileBin, '-C', sandbox.repos.atakamaServer, '--field', 'mode'])).toMatchObject({ status: 0, stdout: 'silent\n' })
-    // atakama moved with the proposed fields: Silent, so its attribution is off.
-    expect(run(findNode(), [profileBin, '-C', sandbox.repos.atakamaServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
+    expect(run(findNode(), [profileBin, '-C', sandbox.repos.acmeServer, '--field', 'mode'])).toMatchObject({ status: 0, stdout: 'silent\n' })
+    // acme moved with the proposed fields: Silent, so its attribution is off.
+    expect(run(findNode(), [profileBin, '-C', sandbox.repos.acmeServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
 
     // Gate: registry and markers in worfy-harness/gate/; gate.mjs of harness/ finds the project.
     expect(read(join(sandbox.harnessHome, 'gate', 'config.json'))).toBe(read(join(backupDir(), 'claude', 'gate', 'config.json')))
@@ -410,7 +442,7 @@ describe('the move', () => {
 
     expect(realpathSync.native(git(sandbox.harnessHome, 'rev-parse', '--show-toplevel').trim())).toBe(realpathSync.native(sandbox.harnessHome))
     const committed = git(sandbox.harnessHome, 'ls-tree', '-r', '--name-only', 'HEAD').trim().split('\n')
-    expect(committed).toEqual(expect.arrayContaining(['.gitignore', 'gate/config.json', 'projects/worfy/profile.json', 'projects/worfy/rules.md', 'projects/atakama/bin/tickets.mjs']))
+    expect(committed).toEqual(expect.arrayContaining(['.gitignore', 'gate/config.json', 'projects/worfy/profile.json', 'projects/worfy/rules.md', 'projects/acme/bin/tickets.mjs']))
     // State, not history: the plugin copy, markers, locks, backups and Profile state are not committed.
     for (const file of committed) expect(file).not.toMatch(/^(plugin|backup-|worktree-sessions|gate\/state)|\/state\//)
     expect(manifest.commits.harnessHome).toBe(git(sandbox.harnessHome, 'rev-parse', 'HEAD').trim())
@@ -456,7 +488,7 @@ describe('the move', () => {
     const options = { bridgeScript: join(resources, 'statusline-bridge.sh') }
     const view = plan(options)
     const stopHook = view.rows.find((row) => row.group === 'hooks' && row.label === '$HOME/.claude/hooks/stop.sh')
-    const kept = new Set([fileId('agents/scout.md'), fileId('hooks/stop.sh'), stopHook?.id, 'status-line', 'profile:auction', 'claude-md:3:Default loop'])
+    const kept = new Set([fileId('agents/scout.md'), fileId('hooks/stop.sh'), stopHook?.id, 'status-line', 'profile:bazaar', 'claude-md:3:Default loop'])
     const before = treeOf(sandbox.claudeHome)
     const settingsBefore = readJson(join(sandbox.claudeHome, 'settings.json'))
     const result = await applyMigration(
@@ -465,11 +497,11 @@ describe('the move', () => {
     )
     expect(result.outcome).toBe('done')
     const after = treeOf(sandbox.claudeHome)
-    for (const rel of ['agents/scout.md', 'hooks/stop.sh', 'profiles/auction/', 'profiles/auction/profile.json', 'profiles/auction/rules.md']) expect(after[rel], rel).toBe(before[rel])
-    expect(existsSync(join(sandbox.harnessHome, 'projects', 'auction'))).toBe(false)
+    for (const rel of ['agents/scout.md', 'hooks/stop.sh', 'profiles/bazaar/', 'profiles/bazaar/profile.json', 'profiles/bazaar/rules.md']) expect(after[rel], rel).toBe(before[rel])
+    expect(existsSync(join(sandbox.harnessHome, 'projects', 'bazaar'))).toBe(false)
     const settings = readJson(join(sandbox.claudeHome, 'settings.json'))
     expect(settings.statusLine).toEqual(settingsBefore.statusLine)
-    expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toEqual(['$HOME/.claude/bin/telegram-mcp --hello', '$HOME/.claude/hooks/stop.sh'])
+    expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).toEqual(['$HOME/.claude/bin/notify-mcp --hello', '$HOME/.claude/hooks/stop.sh'])
     expect(read(join(sandbox.claudeHome, 'CLAUDE.md'))).toContain(view.claudeMd?.sections.find((section) => section.label === 'Default loop')?.text ?? 'missing')
   })
 
@@ -497,7 +529,7 @@ describe('the move', () => {
     for (const name of ['qmd-mcp', 'qmd-refresh', 'qmd-sync-main']) expect(existsSync(join(sandbox.claudeHome, 'bin', name))).toBe(false)
     expect(hookCommands(join(sandbox.claudeHome, 'settings.json'))).not.toContain('$HOME/.claude/bin/qmd-refresh --quiet')
     const servers = readJson(sandbox.claudeJson).mcpServers as Record<string, unknown>
-    expect(Object.keys(servers)).toEqual(['freecad', 'telegram'])
+    expect(Object.keys(servers)).toEqual(['freecad', 'notify'])
   })
 
   // One move per test: the two moves in one test, with a new sandbox between them, ran past 45 s

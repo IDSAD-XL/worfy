@@ -38,7 +38,7 @@ function firstRun(text: string): { head: string; rest: string } {
  * The first word of a command as a POSIX shell reads it, and the text after it as written. A word
  * joins its parts: '…' as it is, "…" where `\` escapes only $, `, ", \ and a newline, and plain
  * text where `\` escapes a space, a quote, `\`, $ or a backtick — so shellWord's `'…'\''…'` reads
- * back as one word, and a Windows path written without quotes (C:\Users\me\x.sh) as written. A
+ * back as one word, and a Windows path written without quotes (C:\Users\you\x.sh) as written. A
  * quote left open: the text up to the first space, as written.
  */
 export function splitCommand(command: string): { head: string; rest: string } {

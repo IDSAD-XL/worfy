@@ -118,8 +118,8 @@ run "$F" "  padded  " "${TAB}tabs around${TAB}" $'\nevidence\n'
 [ "$rc" -eq 0 ] && [ "$(last "$F")" = "padded${TAB}tabs around${TAB}evidence" ] && ok "white space around a value is cut" || bad "padding: '$(tail -n 1 "$F")'"
 
 # --- 5. Quotes and backslashes are written as they are ---------------------------------------------
-run "$F" 'said "no" to it' "\"starts with a quote, isn't closed" 'C:\Users\x\new "a b".txt'
-[ "$rc" -eq 0 ] && [ "$(last "$F")" = "said \"no\" to it${TAB}\"starts with a quote, isn't closed${TAB}C:\\Users\\x\\new \"a b\".txt" ] \
+run "$F" 'said "no" to it' "\"starts with a quote, isn't closed" 'C:\Users\user\new "a b".txt'
+[ "$rc" -eq 0 ] && [ "$(last "$F")" = "said \"no\" to it${TAB}\"starts with a quote, isn't closed${TAB}C:\\Users\\user\\new \"a b\".txt" ] \
     && ok "double quotes, an apostrophe and backslashes are kept byte for byte" || bad "quotes: '$(tail -n 1 "$F")'"
 four_fields "$F" && ok "quotes: still four fields in every line" || bad "quotes: a line with another number of fields"
 
