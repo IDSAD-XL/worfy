@@ -87,16 +87,29 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard на `gh 
   слово, переменная shell тоже.
 - Пути записи: из списка тикета и ещё два, решено без владельца: `repos/<o>/<r>/issues` (новый issue — та же запись
   в issue) и `…/pulls/<n>/merge` (поля `commit_title`, `commit_message` — то же, что `gh pr merge --subject/--body`,
-  которые раздел 3 уже проверяет); `…/pulls/<n>/reviews/<id>` (`PUT` — правка текста review) тоже.
+  которые раздел 3 уже проверяет); `…/pulls/<n>/reviews/<id>` (`PUT` — правка текста review) тоже. Раунд 2 (ревью
+  PR #1754): `…/reviews/<id>/dismissals` с полем `message`; GraphQL GitHub Enterprise по полному URL (`api/graphql`).
 - Текст REST-записи — поля `body`, `title`, `commit_title`, `commit_message` (вложенное поле — по последнему ключу,
   `comments[][body]`), `-F key=@file`, а у `--input` JSON — те же поля на любой глубине (`body` и `comments[].body`
   review). Решено без владельца: файл `--input` не проверяется «целиком», если это JSON — `comments[].path` не
   публикуемый текст, а Epic часто назван по области кода (`silent-check`, комментарий про diff), и путь файла дал бы
-  ложный отказ. Не JSON — весь текст. Heredoc (`--input -`, `@-`, `"$(cat <<EOF …)"`) — так же.
+  ложный отказ. Не JSON — весь текст. Heredoc у `--input -` — так же; heredoc у `-F body=@-` и `"$(cat <<EOF …)"`
+  проверяется целиком (раунд 2). Обход JSON — со своим стеком: payload глубже стека вызовов не роняет hook.
 - GraphQL: проверяется, только когда в тексте запроса или в полях есть `mutation`; тогда все значения `-f`/`-F` и
   весь файл `--input`. `query { … }` — без вызова `silent-check`.
 - Нечитаемый файл (`--input`, `-F @file`) уходит в `silent-check` как `--file <путь>`: Full project с attribution on
   отвечает 0 до чтения файлов — команда проходит; проект, который проверяет, падает с `cannot read`, и guard
   отказывает с причиной «a file it sends could not be read (…)». Сообщения отказа называют `gh api <path>`.
+- Раунд 2: путь файла читается так, как его прочтёт shell команды: `~`, `$HOME`, `$TMPDIR`, переменные, которые
+  команда сама задала простым значением (`V=/x; …`, `export V=/x`); на Windows — пути Git Bash `/c/…` и `/tmp`
+  (временная папка пользователя). Путь с переменной, которую guard не знает, или с подстановкой команды — отказ,
+  который называет этот путь. Тот же разбор пути — у `git commit -F` и `gh pr --body-file`.
+- Раунд 2: если файл назван в более ранней части той же команды (шаг публикации Team reviewer-а писал payload и
+  отправлял его одной командой), отказ говорит записать файл одной командой и отправить следующей, а не «run the
+  same command again». Шаблон `harness/skills/human-review-setup/template/SKILL.template.md`, шаг 8, разбит на две
+  команды; contract test `test/contract/harness-human-review-setup.test.ts` это проверяет. Записанный вывод платного
+  прогона `test/fixtures/human-review-setup/built-SKILL.md` не тронут: это снимок прошлого прогона.
+- Раунд 2: связки коротких флагов читаются, как их читает gh (`-iX POST`, `-XPOST`, `-X=POST`, `-fbody=…`);
+  `docs/features/skills-agents-and-hooks.md` перечисляет записи `gh api` и мутации GraphQL.
 - Не проверяются (как и раньше): `gh api … --input -` без heredoc (текст приходит по pipe, hook его не видит — так же
   ведёт себя `gh pr create --body-file -` по pipe), `-f body="$(cat file)"`, записи вне PR и issue (labels, refs).
