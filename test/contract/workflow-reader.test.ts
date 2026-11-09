@@ -1020,6 +1020,29 @@ describe('workflow reader: a Ticket over several repositories (worfy-multi-repo-
     expect(ticketOf(model, 2)).toMatchObject({ pr: null, repos: [], prs: [], releases: [] })
   })
 
+  it('a Ticket of one repository whose PR line is in its worktree branch has that PR in prs as in pr', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const path = claimInWorktree(repo, 'demo/02', '02', '02-second.md')
+    const file = join(path, '.scratch', 'demo', 'issues', '02-second.md')
+    writeFileSync(file, readFileSync(file, 'utf8').replace('Type: task', 'Type: task\nPR: #31'))
+    git(path, 'commit', '-qam', 'pr')
+
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+    expect(ticketOf(model, 2)).toMatchObject({ fromBranch: 'demo/02', pr: 31, repos: [], prs: [{ repo: null, number: 31 }] })
+  })
+
+  it('a Ticket file that cannot be read gives the repository and PR epic-status gave', async () => {
+    const snapshot: EpicStatusSnapshot = {
+      ref: 'main',
+      epics: [{ epic: 'demo', hasSpec: false, hasMap: false }],
+      tickets: [{ epic: 'demo', num: 1, slug: 'first', title: 'x', statusRaw: 'open', state: 'open', pr: 3, repo: 'app', blockedRaw: null, blockedNums: [], blockedParsed: false }],
+    }
+    const fs = { readText: () => Promise.resolve(null), readdir: () => Promise.resolve(['01-first.md']) }
+    const model = await enrichSnapshot(dir, snapshot, join(dir, '.scratch'), { fs })
+    expect(model.tickets[0]).toMatchObject({ repo: 'app', pr: 3, repos: ['app'], prs: [{ repo: 'app', number: 3 }], releases: [] })
+  })
+
   it('a branch of the same name in two checkouts is found in both and belongs to one Ticket; the pair (repo, branch) is the key', async () => {
     const checkout = (name: string, branches: string[]): { name: string; path: string; heads: Map<string, string> } => {
       const path = join(dir, name)
