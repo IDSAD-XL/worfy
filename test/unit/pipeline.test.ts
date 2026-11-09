@@ -365,6 +365,9 @@ describe('stageOf: a Ticket over several repositories', () => {
   it('a review failure on the head of either branch sends the whole Ticket back to Implementing with rework', () => {
     const marks = [mark('review', 'success', LIB), mark('review', 'failure', APP, '2026-10-17T11:30:00Z')]
     expect(stageOf(both({ marks }, { marks }), ATALAYA)).toMatchObject({ stage: 'implementing', rework: true, enteredAt: '2026-10-17T11:30:00.000Z' })
+    // lib not reviewed yet is on Implementing too, without rework: the failure on app's head still makes it rework.
+    const failed = [mark('review', 'failure', APP, '2026-10-17T11:30:00Z')]
+    expect(stageOf(both({ marks: failed }, { marks: failed }), ATALAYA)).toMatchObject({ stage: 'implementing', rework: true })
   })
 
   it('after the PRs: red CI of either PR is red CI of the Ticket', () => {
@@ -397,7 +400,7 @@ describe('stageOf: a Ticket over several repositories', () => {
   })
 
   it('a Check passed with skipped in one repository is named skipped', () => {
-    const marks = [mark('review', 'success', LIB), mark('review', 'success', APP), mark('check/windows', 'skipped', LIB), mark('check/windows', 'success', APP)]
+    const marks = [mark('review', 'success', LIB), mark('review', 'success', APP), mark('check/windows', 'success', LIB), mark('check/windows', 'skipped', APP)]
     const open = (sha: string) => pr({ headSha: sha, checks: [green] })
     expect(stageOf(both({ marks, pr: open(LIB) }, { marks, pr: open(APP) }, { mode: 'full' }), WORFY)).toMatchObject({ stage: 'gate-merge', skipped: ['check/windows'] })
   })

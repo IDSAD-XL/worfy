@@ -881,7 +881,7 @@ describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-01
     writeFileSync(markFilePath(ws.harnessHome, 'atalaya', 'demo', 5), JSON.stringify({ epic: 'demo', num: '05', marks: marks.map((mark) => ({ at: REVIEWED_AT, ...mark })) }))
 
   /** A PR as the tracker gives it. */
-  const tracked = (number: number, headSha: string, state: 'OPEN' | 'MERGED', checks: TrackedPull['checks'] = []): TrackedPull =>
+  const tracked = (number: number, headSha: string, state: 'OPEN' | 'MERGED', checks: TrackedPull['checks'] = [], mergeCommit = '9'.repeat(40)): TrackedPull =>
     ({
       number,
       url: `https://github.com/o/r/pull/${number}`,
@@ -891,7 +891,7 @@ describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-01
       verdict: null,
       headSha,
       reviewDecision: null,
-      mergeCommit: state === 'MERGED' ? '9'.repeat(40) : null,
+      mergeCommit: state === 'MERGED' ? mergeCommit : null,
       mergedAt: state === 'MERGED' ? '2026-10-17T12:00:00Z' : null,
       checks,
       markStatuses: [],
@@ -899,7 +899,7 @@ describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-01
   const check = (state: 'success' | 'failure' | 'pending') => ({ name: 'test', state, startedAt: '2026-10-17T11:10:00Z', completedAt: state === 'pending' ? null : '2026-10-17T11:20:00Z' })
 
   /** A reader over the real git of the workspace and a stub PR tracker: `pulls` answers each repository's PRs. */
-  const readerOver = (ws: Workspace, pulls: Map<string, TrackedPull[]>, asked: [string, string[]][] = [], profile = profileOf(ws)) =>
+  const readerOver = (ws: Workspace, pulls: Map<string, TrackedPull[]>, asked: [string, string[]][] = [], profile = profileOf(ws), deployed = new Map<string, { sha: string; at: string }[]>()) =>
     new StageReader({
       workflow: { open: () => Promise.reject(new Error('unused')), close: () => Promise.resolve(false), model: () => Promise.resolve(null) },
       prs: {
@@ -909,7 +909,7 @@ describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-01
         },
       },
       profile: () => Promise.resolve({ ok: true, profile }),
-      deployments: { environment: () => Promise.resolve([]), deployMarks: () => Promise.resolve([]) } as unknown as StageSources['deployments'],
+      deployments: { environment: (folder: string) => Promise.resolve(deployed.get(folder) ?? []), deployMarks: () => Promise.resolve([]) } as unknown as StageSources['deployments'],
       harnessHome: ws.harnessHome,
     })
   const modelOf = (root: string, tickets: Ticket[]): WorkflowModel => ({ root, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] })
@@ -1002,6 +1002,23 @@ describe('a Ticket over several repositories (worfy-multi-repo-ticket 04, ADR-01
     // The second PR merged too: past the merge, Done waits for the Status line (ATALAYA ends on Done).
     prs.set(ws.app, [tracked(118, app, 'MERGED')])
     expect(await stageIn(readerOver(ws, prs), ws)).toMatchObject({ stage: 'done', merged: { count: 2, of: 2 } })
+  })
+
+  it('Deploy: the Ticket passes it once the merge commit of every repository is deployed', async () => {
+    const ws = workspace()
+    const lib = ws.head(ws.lib)
+    const app = ws.head(ws.app)
+    const pipeline: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'awaiting-merge' }, { kind: 'deploy', environment: 'production' }, { kind: 'done' }]
+    const profile = { ...profileOf(ws), pipeline }
+    // Each PR merged in its branch head: the deployed commit is that commit itself.
+    const prs = new Map([
+      [ws.lib, [tracked(41, lib, 'MERGED', [], lib)]],
+      [ws.app, [tracked(118, app, 'MERGED', [], app)]],
+    ])
+    const deployed = new Map([[ws.lib, [{ sha: lib, at: '2026-10-17T13:00:00Z' }]]])
+    expect(await stageIn(readerOver(ws, prs, [], profile, deployed), ws)).toMatchObject({ stage: 'deploy', merged: { count: 2, of: 2 } })
+    deployed.set(ws.app, [{ sha: app, at: '2026-10-17T14:00:00Z' }])
+    expect(await stageIn(readerOver(ws, prs, [], profile, deployed), ws)).toMatchObject({ stage: 'done', merged: { count: 2, of: 2 } })
   })
 
   it('a Repo: line the Profile does not have keeps the Ticket on Implementing; gh and git run only in the repositories it has', async () => {
