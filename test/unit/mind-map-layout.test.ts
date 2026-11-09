@@ -4,20 +4,27 @@
 // rejected Decision with its branch; 150 nodes are laid out by ELK (without its worker, as the Canvas's
 // tests run it) in both views with no two boxes overlapping. WORFY_MIND_MAP_TIMING=1 prints the times.
 import ELK from 'elkjs/lib/elk.bundled.js'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import type { MindMapNode } from '../../src/shared/product/mind-map'
 import {
   buildMindMapGraph,
+  cardPlace,
   elkGraph,
   layoutElk,
   layoutSync,
+  linesIn,
+  MAX_LINES,
+  MIND_MAP_FONT,
   MIND_MAP_VIEWS,
   nodeShape,
   nodeSize,
   ROOT_ID,
+  setTextMeasure,
   withFilePlaces,
+  wrappedLines,
   type MapGraph,
+  type MapNode,
   type Placement,
 } from '../../src/renderer/product/mind-map-layout'
 
@@ -216,6 +223,130 @@ describe('ELK’s Tree (ticket 21)', () => {
       if (node.parent === null) continue
       const parent = placement.get(node.parent)!
       expect(place.x).toBeGreaterThanOrEqual(parent.x + parent.width + 48)
+    }
+  })
+})
+
+// A node's text inside its box (ticket 23): the box's height follows the lines the text takes when measured
+// glyph by glyph, as the page's canvas measures it, not an average glyph that Cyrillic outgrows.
+describe('Mind map node text', () => {
+  /**
+   * A measure close to the UI font's: a Cyrillic letter wider than a Latin one (about 0.66 em against
+   * 0.52 em), a space narrow. The estimate of 0.55 em for every glyph undercounts Cyrillic.
+   */
+  const fontLike = (text: string, size: number, bold: boolean): number =>
+    [...text].reduce((width, glyph) => width + (glyph === ' ' ? 0.27 : /[\u0400-\u04ff]/.test(glyph) ? 0.66 : 0.52) * size * (bold ? 1.05 : 1), 0)
+  afterEach(() => setTextMeasure(null))
+
+  const node = (text: string, patch: Partial<MapNode> = {}): MapNode => ({ id: 'n', kind: 'decision', text, parent: ROOT_ID, status: 'accepted', ...patch })
+  /** The lines the browser takes for the text in the room the node really gives it (no margin). */
+  const room = (kind: MapNode['kind'], view: 'tree' | 'graph', branch = false): number => {
+    const size = MIND_MAP_FONT[view]
+    const pad = { decision: [0.64, 0.88], idea: [0.84, 1.2], question: [1.16, 1.44], objection: [1.16, 1.44] }[kind as 'decision']!
+    // The icon's circle (1.37 em at 0.76) and the gap after it (0.52 em); on a branch the fold mark (40 px) and its gap.
+    return (view === 'tree' ? 220 : 180) - (pad[0]! + pad[1]! + 1.56) * size - (branch ? 40 + 0.52 * size : 0)
+  }
+
+  const texts = [
+    'Mind map 60 / чат 40, граф двигается',
+    'Файл в docs/product/, правит tool агента',
+    'Советник: предлагает, спорит, пишет черновики Epic-ов; принимает владелец',
+    'The advisor proposes, argues and drafts Epics; the owner accepts or rejects each one',
+    'Проверить советника в интерфейсе потом',
+    'Ок',
+  ]
+
+  it('gives a long Russian or English text a box that holds every line it takes, up to MAX_LINES', () => {
+    setTextMeasure(fontLike)
+    for (const view of MIND_MAP_VIEWS) {
+      for (const text of texts) {
+        for (const branch of [false, true]) {
+          const shown = node(text, { branch })
+          const { height } = nodeSize(shown, view)
+          const size = MIND_MAP_FONT[view]
+          const needs = Math.min(MAX_LINES, wrappedLines(text, room('decision', view, branch), (part) => fontLike(part, size, false)))
+          // Every line the text takes, at the node's line height, and the 18 px of padding fit the box.
+          expect(needs * size * 1.35 + 18, `${view} «${text}»`).toBeLessThanOrEqual(height)
+          // The clamp MindMap.tsx gives the text lets that many lines through, and no more than the box holds.
+          expect(linesIn(shown, view, height), `${view} «${text}»`).toBeGreaterThanOrEqual(needs)
+          expect(linesIn(shown, view, height) * size * 1.35 + 18).toBeLessThanOrEqual(height)
+        }
+      }
+    }
+  })
+
+  it('makes a Russian text a line taller than the average-glyph estimate did, where Cyrillic is wider', () => {
+    const text = 'Проверить советника в интерфейсе потом'
+    const estimated = nodeSize(node(text), 'tree').height
+    setTextMeasure(fontLike)
+    expect(nodeSize(node(text), 'tree').height).toBeGreaterThan(estimated)
+  })
+
+  it('keeps room for the fold mark of a branch, so its text wraps sooner', () => {
+    setTextMeasure(fontLike)
+    const text = 'Файл в docs/product/, правит tool агента'
+    expect(nodeSize(node(text, { branch: true }), 'tree').height).toBeGreaterThan(nodeSize(node(text), 'tree').height)
+    // buildMindMapGraph marks a node of the file that has children drawn.
+    const graph = buildMindMapGraph(topic([decision('parent', null, 'accepted'), decision('child', 'parent', 'accepted')]), { hideRejected: false })
+    expect(graph.nodes.find((each) => each.id === 'parent')!.branch).toBe(true)
+    expect(graph.nodes.find((each) => each.id === 'child')!.branch).toBe(false)
+  })
+
+  it('wraps at the spaces and breaks a word longer than the line anywhere, as `overflow-wrap: anywhere` does', () => {
+    const glyphs = (part: string): number => part.length * 10
+    expect(wrappedLines('aaa bbb ccc', 75, glyphs)).toBe(2)
+    expect(wrappedLines('aaa bbb ccc', 115, glyphs)).toBe(1)
+    expect(wrappedLines('x'.repeat(25), 100, glyphs)).toBe(3)
+    expect(wrappedLines('aa ' + 'x'.repeat(25), 100, glyphs)).toBe(4)
+    // Counting stops past the most lines a node shows.
+    expect(wrappedLines('x'.repeat(5000), 100, glyphs)).toBe(MAX_LINES + 1)
+    expect(wrappedLines('', 100, glyphs)).toBe(1)
+  })
+})
+
+// Where the node card goes (ticket 23): beside its node, as the prototype puts it, inside the map.
+describe('Mind map node card place', () => {
+  const pane = { width: 1000, height: 700 }
+  const card = { width: 300, height: 260 }
+  const overlaps = (a: { x: number; y: number; width: number; height: number }, at: { left: number; top: number }): boolean =>
+    at.left < a.x + a.width && at.left + card.width > a.x && at.top < a.y + a.height && at.top + card.height > a.y
+
+  it('stands to the right of the node, its top a little above the node’s middle', () => {
+    const node = { x: 100, y: 200, width: 200, height: 60 }
+    expect(cardPlace(node, pane, card)).toEqual({ left: 314, top: 200 })
+  })
+
+  it('goes to the left of a node near the right edge, and under a node where neither side has room', () => {
+    const right = { x: 750, y: 300, width: 200, height: 60 }
+    const atRight = cardPlace(right, pane, card)
+    expect(atRight.left).toBe(750 - 14 - 300)
+    expect(overlaps(right, atRight)).toBe(false)
+    const narrow = { width: 500, height: 700 }
+    const middle = { x: 150, y: 100, width: 200, height: 60 }
+    const under = cardPlace(middle, narrow, card)
+    expect(under.top).toBe(100 + 60 + 14)
+    expect(overlaps(middle, under)).toBe(false)
+    expect(under.left).toBeGreaterThanOrEqual(8)
+    expect(under.left + card.width).toBeLessThanOrEqual(narrow.width - 8)
+    // Near the bottom, above the node instead.
+    const low = { x: 150, y: 560, width: 200, height: 60 }
+    const above = cardPlace(low, narrow, card)
+    expect(above.top).toBe(560 - 14 - 260)
+    expect(overlaps(low, above)).toBe(false)
+  })
+
+  it('keeps the card inside the map, 8 px from its edges, wherever the node is', () => {
+    for (const node of [
+      { x: 100, y: -40, width: 200, height: 60 },
+      { x: 100, y: 680, width: 200, height: 60 },
+      { x: -300, y: 300, width: 200, height: 60 },
+      { x: 1200, y: 300, width: 200, height: 60 },
+    ]) {
+      const at = cardPlace(node, pane, card)
+      expect(at.left).toBeGreaterThanOrEqual(8)
+      expect(at.left + card.width).toBeLessThanOrEqual(pane.width - 8)
+      expect(at.top).toBeGreaterThanOrEqual(8)
+      expect(at.top + card.height).toBeLessThanOrEqual(pane.height - 8)
     }
   })
 })

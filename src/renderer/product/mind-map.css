@@ -118,44 +118,44 @@
 }
 
 /* ── kinds ─────────────────────────────────────────────────────────────── */
-/* The colour and tint of a kind, for a node, its icon in the card and its sample in the legend. */
+/* The colour and tint of a kind, for a node, its kind pill in the card and its sample in the legend. */
 .w-mind__node--topic,
-.w-mind__icon--topic {
+.w-mind__kind-pill--topic {
   --mind-kind: var(--mind-topic);
   --mind-tint: var(--mind-topic-tint);
 }
 .w-mind__node--ticket,
-.w-mind__icon--ticket {
+.w-mind__kind-pill--ticket {
   --mind-kind: var(--mind-ticket);
   --mind-tint: var(--mind-ticket-tint);
 }
 .w-mind__node--idea,
-.w-mind__icon--idea,
+.w-mind__kind-pill--idea,
 .w-mind__legend-item--idea {
   --mind-kind: var(--mind-idea);
   --mind-tint: var(--mind-idea-tint);
 }
 .w-mind__node--question,
-.w-mind__icon--question,
+.w-mind__kind-pill--question,
 .w-mind__legend-item--question {
   --mind-kind: var(--mind-question);
   --mind-tint: var(--mind-question-tint);
 }
 .w-mind__node--decision,
-.w-mind__icon--decision,
+.w-mind__kind-pill--decision,
 .w-mind__legend-item--decision {
   --mind-kind: var(--mind-decision);
   --mind-tint: var(--mind-decision-tint);
 }
 .w-mind__node--objection,
-.w-mind__icon--objection,
+.w-mind__kind-pill--objection,
 .w-mind__legend-item--objection {
   --mind-kind: var(--mind-objection);
   --mind-tint: var(--mind-objection-tint);
 }
 /* After the Decision's: a rejected Decision carries both classes. */
 .w-mind__node--rejected,
-.w-mind__icon--rejected,
+.w-mind__kind-pill--rejected,
 .w-mind__legend-item--rejected {
   --mind-kind: var(--mind-rejected);
   --mind-tint: var(--mind-rejected-tint);
@@ -265,8 +265,7 @@
   line-height: 1;
 }
 
-.w-mind__node--ticket .w-mind__icon,
-.w-mind .w-mind__icon--ticket {
+.w-mind__node--ticket .w-mind__icon {
   padding: 0 0.4em;
   font-family: var(--font-mono);
 }
@@ -276,8 +275,9 @@
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  /* MAX_LINES of mind-map-layout.ts: the box's height is counted for this many lines at most. */
-  -webkit-line-clamp: 3;
+  /* MAX_LINES of mind-map-layout.ts: the box's height is counted for this many lines at most; a longer
+     text ends in an ellipsis, and the card shows it whole. */
+  -webkit-line-clamp: 4;
   overflow-wrap: anywhere;
 }
 
@@ -403,13 +403,16 @@
 }
 
 /* ── node card ─────────────────────────────────────────────────────────── */
+/* Beside its node, as the prototype puts it: MindMap.tsx sets `left` and `top` from cardPlace
+   (mind-map-layout.ts), 8 px from the map's edges at least; the top right corner only until it knows where
+   the node is. The width is CARD_WIDTH of MindMap.tsx. */
 .w-mind__card {
   position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  top: 8px;
+  right: 8px;
   z-index: 6;
-  width: min(320px, calc(100% - 2 * var(--space-3)));
-  max-height: calc(100% - 2 * var(--space-3));
+  width: min(300px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
   overflow: auto;
   box-sizing: border-box;
   padding: var(--space-3);
@@ -427,6 +430,39 @@
   color: var(--text-secondary);
   font-size: var(--text-12);
   font-weight: 600;
+}
+
+/* The kind as the prototype's pill: the kind's colour on its tint, in a border of the kind's colour; a
+   rejected Decision's grey and struck through. In the light theme the text is darker than the outline
+   colour, so a small label keeps a contrast of 4.5:1 on the tint. */
+.w-mind__kind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--mind-kind) 45%, transparent);
+  border-radius: 4px;
+  background: var(--mind-tint);
+  color: color-mix(in srgb, var(--mind-kind) 70%, var(--text));
+  font-size: var(--text-11);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.w-mind__kind-pill--topic {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.w-mind__kind-pill--rejected {
+  color: var(--text-muted);
+  border-color: var(--border-strong);
+  text-decoration: line-through;
+}
+
+@media (prefers-color-scheme: dark) {
+  .w-mind__kind-pill:not(.w-mind__kind-pill--topic, .w-mind__kind-pill--rejected) {
+    color: var(--mind-kind);
+  }
 }
 
 .w-mind__card-close {
@@ -466,20 +502,26 @@
   padding-left: 1.2em;
 }
 
+/* The step that rejected the Decision, in the problem red, as the prototype draws the overturn. */
+.w-mind__history-step--overturn {
+  color: var(--span-problem);
+}
+
+/* The card's links in the prototype's blue (`--working`), underlined only under the pointer. */
 .w-mind__link {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--working-text);
   font-size: inherit;
   text-align: left;
-  text-decoration: underline;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.w-mind__history .w-mind__link,
-.w-mind__history .w-mind__muted {
-  margin-left: var(--space-2);
+.w-mind__link:hover,
+.w-mind__link:focus-visible {
+  text-decoration: underline;
 }
 
 .w-mind__muted {

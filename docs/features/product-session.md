@@ -205,14 +205,21 @@ and the reason.
 
 - The toolbar has the view switch "Tree · Graph", "Hide rejected", "−" (zoom out), the zoom percent, "+" (zoom in) and
   "Fit". The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
+- When the map's area changes size (the window, the divider beside the chat), the map fits into it again. After the
+  owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
+- A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
+  the node's card shows it whole.
 - Both views grow left to right: the topic at the left, each node to the right of the node it grew from. "Tree" is the
   default, a tidy tree with text of 15 px. "Graph" is a layered layout with text of 12 px. The view is remembered per
   topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
 - The legend can be collapsed.
-- A click on a node opens its card: kind and status, text, Reason, Source, History (the earlier statuses of a Decision),
-  Grew from (a link to the parent's card) and Message ("Show in the chat"). The card of a map Ticket shows its Status
+- A click on a node opens its card beside the node: to its right, to its left where the right has no room, under or
+  above it where neither side has, always inside the map. The card shows the kind and status as a pill (struck through
+  for a rejected Decision), text, Reason, Source, History (every status of a Decision, oldest first, the one that
+  rejected it in red), Grew from (a link to the parent's card), Message (where the node appeared, "Show in the chat")
+  and Changed by (the message of each later status). The card of a map Ticket shows its Status
   and its file. The card of a node of `mind-map.json` says "To change this node, ask the advisor in the chat."
 - Tab moves between nodes, Enter or Space opens a card, Escape closes it.
 

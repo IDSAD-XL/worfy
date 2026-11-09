@@ -189,3 +189,144 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
   // worfy wrote nothing into the stand-in for ~/.claude beyond what was there (ADR-0005).
   expect(readdirSync(join(claudeHome, 'sessions'))).toEqual([])
 })
+
+// The Mind map's size, node text and node card as the prototype has them (worfy-product-session ticket 23),
+// in the dark theme with the app's real font: a long text, Russian or English, stays inside its node (the
+// box is as tall as the measured text needs, up to four lines; a longer one ends in an ellipsis); the card
+// opens beside its node with the kind as a pill and the whole history of an overturned Decision; when the
+// window narrows the map fits again, and after a zoom by hand it keeps the owner's view. The screenshots
+// go to the test's output folder.
+const MESSAGE = (n: number): string => `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`
+const LONG_MAP = [
+  { id: 'root-idea', kind: 'idea', text: 'Отдельный экран продуктовой работы: карта решений рядом с разговором', from: null, advice: true, message: MESSAGE(1) },
+  { id: 'who', kind: 'question', text: 'Who decides when the advisor and the critic disagree about the scope?', from: 'root-idea', message: MESSAGE(1) },
+  {
+    id: 'harness-first',
+    kind: 'decision',
+    text: 'Сначала проверить советника в Harness, интерфейс минимальный',
+    from: 'root-idea',
+    status: 'rejected',
+    reason: 'экран Mind map и есть суть продуктовой сессии',
+    history: [{ status: 'accepted', reason: 'дешевле начать без экрана', message: MESSAGE(2) }],
+    message: MESSAGE(4),
+  },
+  { id: 'split', kind: 'decision', text: 'Mind map 60 / чат 40, граф двигается и подсвечивает узлы сообщения', from: 'root-idea', status: 'accepted', reason: 'видно в прототипе', replaces: 'harness-first', message: MESSAGE(4) },
+  { id: 'laptop', kind: 'objection', text: 'Файл в docs/product/ правит tool агента, а не владелец руками', from: 'split', source: 'docs/design/F-SPEC.md', message: MESSAGE(4) },
+  { id: 'scale', kind: 'question', text: 'Как выглядит Mind map при сотне узлов и больше?', from: 'split', message: MESSAGE(4) },
+  { id: 'teams', kind: 'idea', text: 'Команда на большом проекте получает свою карту позже', from: 'laptop', message: MESSAGE(4) },
+  {
+    id: 'very-long',
+    kind: 'idea',
+    text: 'Очень длинный текст узла, который не помещается даже в четыре строки: советник предлагает, критик возражает, владелец решает, а карта показывает каждое решение и то, из чего оно выросло',
+    from: 'scale',
+    message: MESSAGE(4),
+  },
+]
+
+test('the Mind map keeps long texts inside their nodes, opens the card beside its node and fits again when the window narrows', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-mind-map' } })
+  try {
+    const { app, window } = launched
+    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = sessionView(window)
+    await expect(view).toBeVisible()
+    const map = view.getByTestId('product-session-map')
+    await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: LONG_MAP }, null, 2)}\n`)
+    const nodes = map.getByTestId('mind-node')
+    // The topic and the eight nodes.
+    await expect(nodes).toHaveCount(LONG_MAP.length + 1)
+    const pane = map.locator('.w-mind__flow')
+    const zoom = map.getByTestId('mind-map-zoom')
+
+    /** Each node's box, its text's box, and whether the text is clamped (more lines than shown). */
+    const texts = () =>
+      nodes.evaluateAll((elements) =>
+        elements.map((element) => {
+          const text = element.querySelector('.w-mind__text') as unknown as {
+            getBoundingClientRect(): { bottom: number; right: number }
+            scrollHeight: number
+            clientHeight: number
+            style: { webkitLineClamp: string }
+          }
+          const node = element.getBoundingClientRect()
+          const inner = text.getBoundingClientRect()
+          return {
+            id: (element as unknown as { dataset: { id: string } }).dataset.id,
+            inside: inner.bottom <= node.bottom + 0.5 && inner.right <= node.right + 0.5,
+            clamped: text.scrollHeight > text.clientHeight + 1,
+            lines: Number(text.style.webkitLineClamp),
+          }
+        }),
+      )
+    /** Every node lies inside the map's pane. */
+    const allInPane = async (): Promise<boolean> => {
+      const box = (await pane.boundingBox())!
+      const boxes = await nodes.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map(({ left, top, right, bottom }) => ({ left, top, right, bottom })))
+      return boxes.every((each) => each.left >= box.x - 1 && each.top >= box.y - 1 && each.right <= box.x + box.width + 1 && each.bottom <= box.y + box.height + 1)
+    }
+    const resize = async (width: number, height: number): Promise<void> => {
+      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height), { width, height })
+      await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(width)
+    }
+
+    // Measured with the real font: no text runs over its node's border, and a text is cut short only where
+    // it takes more than the four lines a node shows (the measure never counts fewer lines than the browser
+    // draws), as the longest one does.
+    await expect.poll(async () => (await texts()).filter((each) => !each.inside).map((each) => each.id)).toEqual([])
+    const clamped = (await texts()).filter((each) => each.clamped)
+    expect(clamped.map((each) => each.id)).toContain('very-long')
+    expect(clamped.filter((each) => each.lines !== 4).map((each) => each.id)).toEqual([])
+    await map.locator('[data-testid="mind-node"][data-id="very-long"]').click()
+    await expect(map.getByRole('region', { name: 'Node' })).toContainText('и то, из чего оно выросло')
+    await map.getByRole('button', { name: 'Close the card' }).click()
+    await map.getByRole('button', { name: 'Fit' }).click()
+    await expect.poll(allInPane).toBe(true)
+    await view.screenshot({ path: test.info().outputPath('23-mind-map-1440.png') })
+
+    // The card of the overturned Decision: beside its node, inside the map, the kind a struck pill, both
+    // steps of its history with the overturn marked, and the message that changed it.
+    const rejected = map.locator('[data-testid="mind-node"][data-id="harness-first"]')
+    await rejected.click()
+    const card = map.getByRole('region', { name: 'Node' })
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('mind-map-card-kind')).toHaveClass(/w-mind__kind-pill--rejected/)
+    await expect(card.getByTestId('mind-map-card-kind')).toHaveCSS('text-decoration-line', 'line-through')
+    await expect(card.locator('.w-mind__history li')).toHaveCount(2)
+    await expect(card.locator('.w-mind__history li[data-overturn="true"]')).toContainText('rejected — экран Mind map')
+    await expect(card.getByText('Changed by')).toBeVisible()
+    const [nodeBox, cardBox, paneBox] = [(await rejected.boundingBox())!, (await card.boundingBox())!, (await pane.boundingBox())!]
+    const apart = cardBox.x >= nodeBox.x + nodeBox.width || cardBox.x + cardBox.width <= nodeBox.x || cardBox.y >= nodeBox.y + nodeBox.height || cardBox.y + cardBox.height <= nodeBox.y
+    expect(apart).toBe(true)
+    expect(cardBox.x).toBeGreaterThanOrEqual(paneBox.x)
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(paneBox.x + paneBox.width)
+    await view.screenshot({ path: test.info().outputPath('23-node-card-1440.png') })
+    await card.getByRole('button', { name: 'Close the card' }).click()
+
+    // The window narrows: the map fits again, every node still in view.
+    const wide = Number.parseInt((await zoom.textContent()) ?? '')
+    await resize(1160, 860)
+    await expect.poll(async () => Number.parseInt((await zoom.textContent()) ?? '')).toBeLessThan(wide)
+    await expect.poll(allInPane).toBe(true)
+    await expect.poll(async () => (await texts()).filter((each) => !each.inside).map((each) => each.id)).toEqual([])
+    await view.screenshot({ path: test.info().outputPath('23-mind-map-1160.png') })
+    await map.locator('[data-testid="mind-node"][data-id="split"]').click()
+    await expect(card).toBeVisible()
+    await view.screenshot({ path: test.info().outputPath('23-node-card-1160.png') })
+    await card.getByRole('button', { name: 'Close the card' }).click()
+
+    // After a zoom by hand the owner's view stays when the window changes size.
+    await map.getByRole('button', { name: 'Zoom in' }).click()
+    const owners = await zoom.textContent()
+    await resize(1440, 900)
+    await window.waitForTimeout(300)
+    await expect(zoom).toHaveText(owners ?? '')
+  } finally {
+    await launched.close()
+  }
+})

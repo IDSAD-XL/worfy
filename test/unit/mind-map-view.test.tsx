@@ -69,9 +69,14 @@ beforeEach(() => {
   globals.DOMMatrixReadOnly = class {
     readonly m22 = 1
   }
-  // The pane is PANE big and a node as big as its style says; jsdom lays out nothing.
+  // The pane is PANE big (the flow and the renderer React Flow sizes its store by) and a node as big as its
+  // style says; jsdom lays out nothing.
   const size = (element: HTMLElement, side: 'width' | 'height'): number =>
-    element.classList.contains('react-flow') ? PANE[side] : element.classList.contains('react-flow__node') ? Number.parseFloat(element.style[side]) || 0 : 0
+    element.classList.contains('react-flow') || element.classList.contains('react-flow__renderer')
+      ? PANE[side]
+      : element.classList.contains('react-flow__node')
+        ? Number.parseFloat(element.style[side]) || 0
+        : 0
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
     return size(this, 'width')
   })
@@ -254,7 +259,10 @@ describe('MindMap', () => {
   it('moves the nodes to ELK’s layout once the window’s ELK answers; one request is out at a time, and a node added meanwhile is drawn by its parent', async () => {
     const elk = new ELK()
     const graph = buildMindMapGraph(topic(), { hideRejected: false })
-    const [byElk, sync] = [(await layoutElk(graph, 'tree', elk)).get('too-wide')!, layoutSync(graph, 'tree').get('too-wide')!]
+    // The topic is a node the two layouts place apart; the nodes added later grow from `too-wide`.
+    const byElkAll = await layoutElk(graph, 'tree', elk)
+    const [byElk, sync] = [byElkAll.get('@topic')!, layoutSync(graph, 'tree').get('@topic')!]
+    const parentX = byElkAll.get('too-wide')!.x
     expect([byElk.x, byElk.y]).not.toEqual([sync.x, sync.y])
     const at = (id: string) => nodeOf(id)!.closest<HTMLElement>('.react-flow__node')!.style.transform
     // ELK that answers when the test lets it, request by request; each request is listed once its
@@ -281,10 +289,10 @@ describe('MindMap', () => {
     const withNodes = (...ids: string[]) => topic({ nodes: [...topic().nodes, ...ids.map((id) => ({ id, kind: 'idea' as const, text: `Added ${id}`, from: 'too-wide' }))] })
     try {
       const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
-      expect(at('too-wide')).toBe(`translate(${sync.x}px,${sync.y}px)`)
+      expect(at('@topic')).toBe(`translate(${sync.x}px,${sync.y}px)`)
       await requested(1)
       await answer(0)
-      await waitFor(() => expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
+      await waitFor(() => expect(at('@topic')).toBe(`translate(${byElk.x}px,${byElk.y}px)`))
       expect(requests).toHaveLength(1)
 
       // The advisor adds two nodes while ELK works on the first: both are drawn at once, to the right of
@@ -294,11 +302,11 @@ describe('MindMap', () => {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
-      expect(at('too-wide')).toBe(`translate(${byElk.x}px,${byElk.y}px)`)
+      expect(at('@topic')).toBe(`translate(${byElk.x}px,${byElk.y}px)`)
       for (const id of ['late-1', 'late-2']) {
         expect(nodeOf(id)).not.toBeNull()
         const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(at(id))!
-        expect(Number(place[1])).toBeGreaterThan(byElk.x)
+        expect(Number(place[1])).toBeGreaterThan(parentX)
       }
       // One request is out (the one for `late-1`); the inputs after it wait for its answer.
       await requested(2)
@@ -445,5 +453,164 @@ describe('MindMap look', () => {
     const background = container.querySelector('[data-testid="rf__background"]')!
     expect(background).not.toBeNull()
     expect(background.querySelector('circle.dots, .react-flow__background-pattern.dots')).not.toBeNull()
+  })
+})
+
+// The size, the text and the node card as the prototype has them (ticket 23): the map fits again when its
+// area changes size, until the owner zooms or pans by hand; a node's text is clamped to the lines its box
+// holds; the card stands beside its node, with the kind as a pill and every step of a Decision's history.
+describe('MindMap fit, text and card', () => {
+  const camera = (): { tx: number; ty: number; scale: number } => {
+    const match = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(document.querySelector<HTMLElement>('.react-flow__viewport')!.style.transform)!
+    return { tx: Number(match[1]), ty: Number(match[2]), scale: Number(match[3]) }
+  }
+  /** Each drawn node's box on the screen, px from the pane's top left corner. */
+  const screenBoxes = (): Map<string, { x: number; y: number; width: number; height: number }> => {
+    const { tx, ty, scale } = camera()
+    return new Map(
+      Array.from(document.querySelectorAll<HTMLElement>('.react-flow__node')).map((element) => {
+        const place = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\)/.exec(element.style.transform)!
+        const id = element.querySelector<HTMLElement>('[data-testid="mind-node"]')!.dataset['id']!
+        return [id, { x: Number(place[1]) * scale + tx, y: Number(place[2]) * scale + ty, width: Number.parseFloat(element.style.width) * scale, height: Number.parseFloat(element.style.height) * scale }]
+      }),
+    )
+  }
+  const allInside = (pane: { width: number; height: number }): boolean =>
+    [...screenBoxes().values()].every((box) => box.x >= -0.5 && box.y >= -0.5 && box.x + box.width <= pane.width + 0.5 && box.y + box.height <= pane.height + 0.5)
+  /** The pane takes a new size, as a narrower window or a moved divider gives it; React Flow reads it on `resize`. */
+  const resizePane = async (width: number, height: number): Promise<void> => {
+    await act(async () => {
+      Object.assign(PANE, { width, height })
+      window.dispatchEvent(new Event('resize'))
+      // A fit lands on React Flow's next frame: wait past it, so a fit that should not happen would show.
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+  }
+  /** «Fit», and the wait for React Flow's next frame, where it fits: the map as it opens on a topic. */
+  const fitted = async (): Promise<void> => {
+    // React Flow measures the nodes first (the observer above reports them on a microtask).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
+    await waitFor(() => expect(allInside(PANE)).toBe(true))
+  }
+  const zoomBy = async (button: 'Zoom in' | 'Zoom out'): Promise<void> => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: button }))
+      await Promise.resolve()
+    })
+  }
+  afterEach(() => {
+    Object.assign(PANE, { width: 800, height: 600 })
+  })
+
+  it('fits the map again when its area shrinks or grows, so no node is cut off at the edge', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const zoom = screen.getByTestId('mind-map-zoom')
+    await fitted()
+    const wide = Number.parseInt(zoom.textContent!)
+    await resizePane(420, 600)
+    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeLessThan(wide))
+    expect(allInside({ width: 420, height: 600 })).toBe(true)
+    await resizePane(800, 600)
+    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBe(wide))
+  })
+
+  it('keeps the owner’s zoom when the area changes size after a zoom by hand; «Fit» fits again from then on', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    const zoom = screen.getByTestId('mind-map-zoom')
+    await fitted()
+    await zoomBy('Zoom in')
+    const owners = zoom.textContent
+    const before = camera()
+    await resizePane(420, 600)
+    expect(zoom.textContent).toBe(owners)
+    expect(camera()).toEqual(before)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }))
+    await waitFor(() => expect(allInside({ width: 420, height: 600 })).toBe(true))
+    const refitted = Number.parseInt(zoom.textContent!)
+    await resizePane(800, 600)
+    await waitFor(() => expect(Number.parseInt(zoom.textContent!)).toBeGreaterThan(refitted))
+  })
+
+  it('keeps the owner’s view after a pan with the wheel, a move React Flow reports with its event', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    await fitted()
+    const pane = document.querySelector<HTMLElement>('.react-flow__pane')!
+    await act(async () => {
+      fireEvent.wheel(pane, { deltaY: -200, clientX: 100, clientY: 100 })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const before = camera()
+    await resizePane(420, 600)
+    expect(camera()).toEqual(before)
+  })
+
+  it('clamps a node’s text to the lines its box holds, so a text wider than measured ends inside the box', () => {
+    const long = 'Mind map 60 / чат 40, граф двигается и подсвечивает узлы сообщения, когда владелец ведёт по нему указателем'
+    render(<MindMap projectId="p1" topic={topic({ nodes: [...topic().nodes, { id: 'long-ru', kind: 'idea', text: long, from: 'ticket:01' }] })} />)
+    for (const id of ['long-ru', 'who-pays', '@topic', 'ticket:02']) {
+      const node = nodeOf(id)!
+      const text = node.querySelector<HTMLElement>('.w-mind__text')!
+      const clamp = Number(text.style.webkitLineClamp)
+      const height = Number.parseFloat(node.closest<HTMLElement>('.react-flow__node')!.style.height)
+      const size = Number.parseFloat(node.style.fontSize)
+      // The lines the clamp lets through, at the node's line height (1.35), and the 18 px of padding, fit the box.
+      expect(clamp).toBeGreaterThanOrEqual(1)
+      expect(clamp * size * 1.35 + 18).toBeLessThanOrEqual(height)
+    }
+    // The long text takes the most lines a node shows, and its card has it whole.
+    expect(Number(nodeOf('long-ru')!.querySelector<HTMLElement>('.w-mind__text')!.style.webkitLineClamp)).toBe(4)
+    fireEvent.click(nodeOf('long-ru')!)
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText(long)).toBeTruthy()
+  })
+
+  it('opens the card beside its node, on the screen where the node is, not in a fixed corner', async () => {
+    render(<MindMap projectId="p1" topic={topic()} />)
+    await fitted()
+    for (const id of ['idea-teams', 'too-wide']) {
+      fireEvent.click(nodeOf(id)!)
+      const card = screen.getByRole('region', { name: 'Node' })
+      const node = screenBoxes().get(id)!
+      const left = Number.parseFloat(card.style.left)
+      const top = Number.parseFloat(card.style.top)
+      // jsdom lays out nothing: the card is CARD_WIDTH (300 px) wide here.
+      const right = left + 300
+      expect(right <= node.x || left >= node.x + node.width).toBe(true)
+      expect(left).toBeGreaterThanOrEqual(8)
+      expect(right).toBeLessThanOrEqual(PANE.width - 8)
+      expect(top).toBeGreaterThanOrEqual(8)
+      expect(top).toBeLessThanOrEqual(node.y + node.height)
+    }
+  })
+
+  it('shows the kind as a pill, struck through for a rejected Decision; every step of its history, the overturn marked, and the message that changed it', () => {
+    const show = vi.fn<(message: string) => void>()
+    const nodes = topic().nodes.map((node) => (node.id === 'harness-first' ? { ...node, message: 'm-3' } : node))
+    render(<MindMap projectId="p1" topic={topic({ nodes })} onShowMessage={show} />)
+    fireEvent.click(nodeOf('harness-first')!)
+    const card = screen.getByRole('region', { name: 'Node' })
+    const pill = within(card).getByTestId('mind-map-card-kind')
+    expect(pill.className).toContain('w-mind__kind-pill--rejected')
+    expect(within(pill).getByText('Decision · rejected')).toBeTruthy()
+    expect(within(pill).getByText('✕')).toBeTruthy()
+    const steps = Array.from(card.querySelectorAll<HTMLElement>('.w-mind__history li'))
+    expect(steps.map((step) => step.textContent)).toEqual(['accepted — Cheaper to start', 'rejected — The owner wants to see the screen'])
+    expect(steps.map((step) => step.dataset['overturn'])).toEqual([undefined, 'true'])
+    // «Message» is where the Decision appeared, «Changed by» the message that overturned it.
+    fireEvent.click(within(card).getByRole('button', { name: 'Show the message in the chat' }))
+    expect(show).toHaveBeenLastCalledWith('m-1')
+    fireEvent.click(within(card).getByRole('button', { name: 'Show the message that changed it in the chat' }))
+    expect(show).toHaveBeenLastCalledWith('m-3')
+    expect(within(card).getByText('Changed by')).toBeTruthy()
+
+    // An accepted Decision with no history: its pill in its kind, not struck; no history, no «Changed by».
+    fireEvent.click(nodeOf('map-split')!)
+    const accepted = screen.getByRole('region', { name: 'Node' })
+    expect(within(accepted).getByTestId('mind-map-card-kind').className).toContain('w-mind__kind-pill--decision')
+    expect(accepted.querySelector('.w-mind__history')).toBeNull()
+    expect(within(accepted).queryByText('Changed by')).toBeNull()
   })
 })
