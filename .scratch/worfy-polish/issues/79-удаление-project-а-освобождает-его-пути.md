@@ -94,3 +94,30 @@ Full требует `workflow.folder: null` (:606). `profile-set` `mode` не п
 - Перенос Full ↔ Silent — следующий ticket (см. выше).
 - Правило «один путь — один Project» не меняется.
 - Удаление ticket-ов, репозиториев или веток пользователя.
+
+## Итог
+
+- В меню Project-а этой Machine — вторая строка «Remove project…» (`src/renderer/shell/sidebar/ProjectsSection.tsx`).
+  На строках Linked machine её нет: Harness чужой Machine отсюда не удаляется. «Remove from list» — как раньше, сразу,
+  без вопроса.
+- Диалог `src/renderer/projects/RemoveProject.tsx` перечисляет, что уходит из Harness-а этой Machine (Profile и его
+  папка, записи registry Gate с путями, отметки агентов `runs/<profile>/`, коллекции qmd, пустая Workflow folder по
+  умолчанию), и что остаётся (репозитории и все файлы в них; ticket-ы, spec, ADR и файл состояния в репозитории в Full
+  mode; своя Workflow folder пользователя; настройки worfy). Кнопки: Cancel, «Remove from list» (выбор из брифа:
+  только список), «Remove project».
+- Main — `src/main/projects/remove.ts`: preview через `bin/profile -C <folder> --dir` и registry; отказ, если у папки
+  нет Profile-а, или Profile покрывает пути вне папки Project-а (репозиторий, который отдельно в списке, но входит в
+  Project над несколькими репозиториями: удаление унесло бы соседей). Ticket-ы в Workflow folder по умолчанию —
+  отказ до того, как что-то закрыто, с «Show in Finder». Затем: Orchestrator закрыт и удержан, Session-ы внутри папки
+  закрыты, `project-connect --remove <profile>`, потом `ProjectStore.remove`. Отказ скрипта оставляет Project в
+  списке, текст скрипта виден в диалоге. Сам worfy ничего не удаляет.
+- Каналы `projects.removal.preview`, `projects.removeProject`, `projects.removal.reveal` — `local`.
+- Тесты: `test/contract/projects-remove.test.ts` (настоящие `bin/profile` и `bin/project-connect` во временном
+  Harness home: что уходит, что остаётся, порядок «Session-ы, скрипт, список», отказы, повторное подключение),
+  `test/contract/projects.test.ts` (IPC со stub-ами), `test/unit/remove-project.test.tsx` (диалог),
+  `test/unit/use-projects.test.tsx` (строка меню), `harness/bin/tests/project-connect.test.sh` (`--remove`, затем те же
+  пути подключаются снова — своим Project-ом и частью папки над двумя репозиториями; своя Workflow folder и её ticket
+  остаются), e2e в `test/e2e/projects-connect.spec.ts` (подключить, удалить, подключить снова).
+- `docs/features/projects.md` описывает обе строки меню. Перевод `docs/features/ru/` не правился (ADR-0088: в PR с
+  поведением правится только английская страница).
+- Перенос Full ↔ Silent не сделан — следующий ticket (раздел «Вне скоупа»).

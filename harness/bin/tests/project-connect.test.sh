@@ -527,7 +527,7 @@ check "a collection another profile names is not removed" 1 "" grep -q "remove s
 check "the output names the shared collection as kept" 0 '"shared"' node -e 'const q=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.qmd; process.stdout.write(JSON.stringify(q)); process.exit(q.removed.includes("demo-docs")?0:1)' "$T/remove.out"
 check "--remove of a name already removed is exit 1" 1 "no profile" "$CONNECT" --remove demo
 
-# The paths --remove frees can be connected again (worfy-polish ticket 79: "Remove project…" of worfy): the same
+# The paths --remove frees can be connected again (what "Remove project…" of worfy relies on): the same
 # repository as a project of its own, and a repository as one of a Silent project over several. A Workflow
 # folder the user chose (here the folder above the repositories) is not removed, nor anything in it.
 check "after --remove the same repository passes --check" 0 '"ok": true' "$CONNECT" --check <"$T/demo.json"
