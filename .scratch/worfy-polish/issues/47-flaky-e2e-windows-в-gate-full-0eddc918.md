@@ -397,6 +397,50 @@ a pid's start time`.
   тяжёлым видом эпизода ещё не наблюдалась — это покажут run-ы `windows-e2e` после merge. Один красный первой попытки
   там — `browser-profile.spec.ts:127` («three pages, two on the partition of admin»), при простое машины: другая причина.
 
+### Часть 10. 2026-11-09, ветка `worfy-polish/47-part10`: четыре наблюдения 2026-11-06 — два уже исправлены, два исправлены здесь
+
+Разобраны пять test-ов из «Наблюдения 2026-11-06». Список упавших Windows job-ов ci.yml с 2026-11-06 — 611 run-ов,
+44 упавших Windows job-а, сообщения — из annotations и журналов job-ов. Timeout-ы не тронуты, ожиданий по часам нет.
+
+- **`test/e2e/update-settings.spec.ts:98` — уже исправлено #1538 (2026-11-07), здесь без правки.** Spec ждёт
+  `idleNow` (строка 124) и только потом подкладывает состояния. Оба красных после 2026-11-06 — на ветках без #1538:
+  run 42299523332 (job 128173473516) и run 42302761123 (job 128184532310). В обоих Command palette показала
+  `Update worfyworfy 9.9.9+b2b2b2b available` вместо `ready — restart`: рассылка main положила `available` поверх
+  подложенного `ready`. После merge #1538 закончились 382 run-а ci.yml, красного этого test-а среди них нет. Mac,
+  `--repeat-each=5`: 10 passed. Остался риск, который ещё ни разу не дал красного, поэтому не исправлен. Первая
+  плановая проверка идёт через 10 s после старта (`FIRST_CHECK_MS`, `src/main/update/check.ts:87`) и тоже рассылает
+  снимок. Test на Windows идёт 4.0–4.9 s, на Mac последний снимок подложен через 3.6 s после запуска, то есть
+  рассылка попадёт в test, только если тот замедлится вдвое. Если такой красный появится, spec должен ждать конца
+  второй проверки (второй запрос stub-а к `/branches/main` и `checking: false`), а timeout не поднимать.
+- **`test/contract/codex-app-server.test.ts:304` — уже исправлено #1617 (worfy-polish 66, 2026-11-08), здесь без
+  правки.** Ошибки в коде приложения нет: `close()` (`src/main/vendors/codex/app-server.ts:154-174`) разрешается
+  только после того, как `waitForExit` увидел выход процесса. `waitForExit` раз в 50 ms спрашивает систему
+  (`process.kill(pid, 0)`). Test же читал `exitCode` Node, а событие `exit` Node на Windows приходит позже. Теперь
+  test спрашивает систему (`systemRuns`). Красные: run-ы 42187093020, 42215759521, 42288755059 и 42416471257. Последний —
+  на ветке, где #1617 ещё нет: head `c0d0392a` не потомок `7fe2faab`. После merge #1617 закончились 192 run-а ci.yml,
+  красного этого test-а нет.
+- **`test/contract/autopilot-faults-api.test.ts:74` — исправлено здесь.** Force stop не отвечает раньше выхода
+  процесса. Цепочка: `forceStop` (`src/main/autopilot/run.ts:1799`) → `release` → `setUnattended(false)` (`run.ts:3178`)
+  → `relaunch` (`src/main/agent/orchestrator.ts:856-859`). Там старая Session закрыта, её `exited()` ждёт процесс через
+  `waitForExit` (`src/main/agent/session.ts:300`). Новый процесс Orchestrator-а стартует только после этого (ADR-0064).
+  Ошибка была в счёте stub-а: `alive()` (`test/contract/claude-process-stub.ts`) считал живыми процессы без `exitCode` и
+  `signalCode` Node. Это то же событие `exit`, которое на Windows приходит до 1.7 s позже ответа системы (run
+  40651661632, комментарий у `waitForExit`). Отсюда `expected 2 to be 1` (run 42296063770). Механизм тот же, что у
+  `codex-app-server.test.ts` выше. Правка: `alive()` считает события `spawn` и `exit` самого stub-а. Они идут от того
+  же `exitOf`, которого ждёт worfy, поэтому test и приложение считают одинаково. На Mac событие Node приходит сразу,
+  поэтому красный там не воспроизводится. Вердикт — Windows-job-ы CI. Красный был один, до переписывания test-а
+  в #1608.
+- **`test/unit/feature-docs-lag.test.ts:233` и `test/unit/guide-lag.test.ts:104` — исправлено здесь, в CI.** Дело не в
+  самих test-ах. В run-е 42251826160 (job 128008755706, job начался 16:23, test-ы шли около 16:32–16:33) test-ы
+  одного файла с одинаковой работой git шли сначала 470–584 ms. Потом те же test-ы шли 2176, 9369, 8225, 9400, 7124,
+  14335 ms, а `:233` — 43794 ms. В ту же минуту `build-version.test.ts` шёл 7208 и 9742 ms, а `guide-lag.test.ts:114` —
+  46905 ms (зелёный с retry). Это тот же эпизод диска C:, что в Части 9: через 8–13 минут после загрузки машины.
+  TEMP job-а `windows-e2e` уже на D:, а у шага unit и contract test-ов в `windows-tests.yml` TEMP был на C:.
+  Правка: `TEMP` и `TMP` = `runner.temp` в шаге «Run the unit and contract suite, or a part of it». Обе строки
+  закреплены в `test/contract/windows-tests-workflow.test.ts` и `test/contract/ci-workflow.test.ts`. Сократить работу
+  git в test-ах можно, но эпизод это не снимает: test, который обычно идёт 0.5 s, в эпизоде шёл 43 s. Под
+  эпизодом C: правка ещё не наблюдалась.
+
 ## Наблюдения 2026-11-06 (CI)
 
 Записаны по CI run-ам 2026-11-06 (сообщения test-ов — из annotations job-ов). Строки — по main `fe0ff152`.
@@ -405,18 +449,37 @@ a pid's start time`.
 - `test/contract/codex-app-server.test.ts:304` («close() kills a fake that outlives its stdin, after the time it was
   given»): job `windows (3/3) / full-suite`, push run main `90e7760d` — после `server.close(200)` процесс fake-а ещё
   жив (`expected false to be true`, строка 308): kill в `close()` не успел к проверке. Run 42288755059.
+  **Исправлено #1617** (test спрашивает систему, а не `exitCode` Node), разбор — Часть 10.
 - `test/contract/harness-evals-outcome.test.ts:1171` (describe «the tests-intact check (stub agents on synthetic kept
   runs)»): job `windows (3/3) / full-suite`, PR #1530 (head `d3b19239`) — подготовка `keptRuns` упала с
   `Error: kept run:` и пустым stderr (сообщение строится на строке 790). Run 42292913448.
 - `test/contract/autopilot-faults-api.test.ts:74` («API 500: the Run stops with turn-error…»): job
   `windows (1/3) / full-suite`, PR #1532 (head `2afcbfd3`) — после Force stop живы 2 процесса stub-а Claude Code
-  вместо 1 (`expected 2 to be 1`, строка 78). Run 42296063770.
+  вместо 1 (`expected 2 to be 1`, строка 78). Run 42296063770. **Причина и правка — Часть 10**: `alive()` stub-а
+  считал по событию `exit` Node, которое на Windows приходит позже ответа системы.
 - `test/unit/feature-docs-lag.test.ts:233` и `test/unit/guide-lag.test.ts:104`: job `windows (1/3) / full-suite`,
   push run main `a0d72a4f` — оба `Test timed out in 15000ms`; оба test-а строят временный git-репозиторий и делают в
-  нём commit-ы. Run 42251826160.
+  нём commit-ы. Run 42251826160. **Причина и правка — Часть 10**: эпизод диска C:, TEMP шага unit и contract
+  test-ов перенесён на D:.
 - `test/e2e/update-settings.spec.ts:98` («"Check now" shows the Available update…», проверка на строке 178 ждёт
   `ready — restart` в Command palette): job `windows-e2e (4/4)`, run id не записан. Гонка: первая рассылка состояния
   после смены `idle` (примерно через 2 s после старта приложения; `src/main/ipc/update.ts:198-210`,
   `src/main/update/idle.ts:73-80`) затирает последнее подложенное test-ом состояние `ready`. 0 красных из 20 до
   #1519 (TEMP job-а на диск D:), 3 из 26 после. Исправление — отдельным PR этого Ticket-а: spec ждёт `idleNow`,
-  потом подкладывает состояния.
+  потом подкладывает состояния. **Исправлено #1538**; красных после него нет, разбор — Часть 10.
+
+## Наблюдения 2026-11-09 (CI)
+
+Записаны по упавшим Windows job-ам ci.yml с 2026-11-06 по 2026-11-08 (611 run-ов, 44 упавших Windows job-а;
+сообщения — из annotations и журналов job-ов). Только записаны, не исправлены. Timeout-ы не поднимать.
+
+- `test/contract/evidence-image-protocol.test.ts:287` («serves the descriptor it checked: another file at the path since
+  the check, one grown over 8 MB, one cut short — none is served»), проверка на строке 291: `expected 200 to be 404`.
+  Handler с подменённым `lstat` (другие `dev`/`ino`) всё же отдал файл. Job `windows (1/3) / full-suite`, три раза на
+  push run-ах main: 42145908675 (2026-11-06, `8ec31f60`), 42354007348 (2026-11-07, `23b770bc`) и 42483722519
+  (2026-11-08, `d4bf31e8`). Причина не установлена; в других Ticket-ах и в quarantine этот test не записан.
+- Не flaky test-ы, для справки. Красные e2e 2026-11-08 (`session-view.spec.ts`, `launch.spec.ts`, `limits*.spec.ts`,
+  `linked-*.spec.ts`) и Windows-job-ы без annotations того же утра — это `Response code 504` GitHub при загрузке
+  Electron или «Electron failed to install correctly»: сбой инфраструктуры, его снял #1668 (кэш Electron).
+  `settings-health.spec.ts:128` (`1 failed · 5 warnings` против `4`) в run-е 42420059407 — промежуточный commit
+  PR-а worfy-skills 03, который сам менял это ожидание (#1611).

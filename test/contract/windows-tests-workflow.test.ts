@@ -213,8 +213,9 @@ describe('.github/workflows/windows-tests.yml', () => {
       run: CHECK,
     })
     // An expression inside `run` is pasted into the script before the shell reads it: a list such
-    // as `x; rm -rf .` would run as a command. Expressions stand in the six `env` values of the lists
-    // and in the Electron steps (the runner's folder, the cache key, a step output), never in a `run`.
+    // as `x; rm -rf .` would run as a command. Expressions stand in the six `env` values of the lists,
+    // in TEMP and TMP of the suite and in the Electron steps (the runner's folder, the cache key, a
+    // step output), never in a `run`.
     expect(code().filter((line) => line.includes('${{'))).toEqual([
       '          TEST_FILES: ${{ inputs.files }}',
       ...ELECTRON_EXPRESSIONS,
@@ -224,6 +225,8 @@ describe('.github/workflows/windows-tests.yml', () => {
       '          BASE: ${{ inputs.tests-base }}',
       '          SHARD: ${{ inputs.shard }}',
       '          TEST_FILES: ${{ steps.tests.outputs.files }}',
+      '          TEMP: ${{ runner.temp }}',
+      '          TMP: ${{ runner.temp }}',
     ])
     for (const name of [FILES_JOB, FULL_JOB]) {
       for (const step of steps(name)) expect([step.run ?? []].flat().join('\n')).not.toContain('${{')
@@ -287,7 +290,8 @@ describe('.github/workflows/windows-tests.yml', () => {
     expect(steps(FULL_JOB)[11]).toEqual({
       name: 'Run the unit and contract suite, or a part of it',
       if: "steps.tests.outputs.run != 'none'",
-      env: ['SHARD: ${{ inputs.shard }}', `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS_FILES.join(' ')}`, 'TEST_FILES: ${{ steps.tests.outputs.files }}'],
+      // TEMP and TMP on runner.temp, the runner's own disk D:, not on C: (worfy-polish 47, run 42251826160).
+      env: ['SHARD: ${{ inputs.shard }}', `HARNESS_SCRIPTS: ${HARNESS_SCRIPTS_FILES.join(' ')}`, 'TEST_FILES: ${{ steps.tests.outputs.files }}', 'TEMP: ${{ runner.temp }}', 'TMP: ${{ runner.temp }}'],
       run: SUITE,
     })
     expect(steps(FULL_JOB).flatMap((step) => step.run ?? [])).toEqual([...REFUSE, ...PNPM, INSTALL, VERSION, DOWNLOAD, PICK, ...SUITE])
