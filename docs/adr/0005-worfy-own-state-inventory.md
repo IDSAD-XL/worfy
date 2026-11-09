@@ -43,3 +43,8 @@ worfy ничего не пишет в репозитории Project-ов — н
   `<Workflow folder>/product/<тема>/` в Silent mode. Пишут его только tools `mind_map_*` и перетаскивание узла на
   экране (Ticket-ы 04, 09). Остальное собственное состояние worfy по-прежнему только в `WORFY_DATA_DIR`; в
   репозиторий эти файлы попадают docs PR-ом Orchestrator-а, сам worfy их не коммитит.
+- 2026-11-09 — ADR-0105 (принят Orchestrator-ом под карт-бланш владельца 2026-11-09, владелец подтверждает при
+  приёмке; Epic `worfy-pr-inbox`) добавляет два места состояния PR inbox:
+  `<Project data folder>/pr-inbox.json` в `WORFY_DATA_DIR` (что пользователь видел: id, sha, время; без текстов
+  коллег) и черновики ответов в `<Profile folder>/state/pr-inbox/drafts/` на этой машине, вне истории git Harness home:
+  их пишет Session, main дописывает правку пользователя и отметку `sent`.
