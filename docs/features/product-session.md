@@ -211,9 +211,10 @@ and the reason.
   owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
 - A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
   the node's card shows it whole.
-- Both views grow left to right: the topic at the left, each node to the right of the node it grew from. "Tree" is the
-  default, a tidy tree with text of 15 px. "Graph" is a layered layout with text of 12 px. The view is remembered per
-  topic on this Machine.
+- "Tree" is the default: a tidy tree with text of 15 px that grows left to right, the topic at the left, each node to
+  the right of the node it grew from. "Graph" is radial, with text of 12 px: the topic in the middle, the branches
+  around it, straight "grew from" arrows, no node over another; the same map always gets the same layout. The view is
+  remembered per topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
 - The legend can be collapsed.
@@ -231,7 +232,10 @@ and the reason.
 **By hand.** The owner only moves nodes and folds branches; what a node says is the advisor's, and the card has no field
 to type in.
 
-- A node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. Its new place is saved in the file.
+- A node of `mind-map.json` can be dragged; the topic and the map Tickets cannot. In "Tree" its new place is saved in
+  the file. In "Graph" a drag moves the node only until the map is laid out again (a node added, a text changed, a
+  branch folded, the view switched) and saves nothing; "Graph" also ignores the places saved in the file, which are
+  "Tree" places.
 - The fold mark of a node with children, or ← and → on the node, folds and unfolds its branch. A folded mark tells how
   many nodes it hides. The fold is saved in the file.
 - When the change cannot be saved, the map says "Could not save the change:" and the reason.
@@ -290,9 +294,12 @@ message is known. The chips come from the transcript itself: every `mind_map_add
 **Live redraw.** The watch of the Project's documents also follows the topic folders and reads a topic 50 ms after its
 last event; the screen gets `product.changed`. The watch is described on [Projects](projects.md).
 
-**Layout.** The Mind map is drawn with React Flow. ELK lays it out in the window's Web Worker, `mrtree` for "Tree" and
-`layered` for "Graph"; until ELK answers, a quick tree layout draws it. A node with `x` and `y` in the file stands where
-the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
+**Layout.** The Mind map is drawn with React Flow. ELK lays out "Tree" in the window's Web Worker with `mrtree`; until
+ELK answers, a quick tree layout draws it. "Graph" is laid out at once in the window by the prototype's algorithm: the
+leaves spread round the topic, each parent at the mean direction of its children, then springs on the arrows and
+pushes between boxes, and a last pass that moves a node straight away from the topic until it overlaps no other; it
+runs once per change of what it reads (the nodes, their parents, texts, kinds and fold marks). In "Tree" a node with `x`
+and `y` in the file stands where the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
 out again.
 
 ### Implementation

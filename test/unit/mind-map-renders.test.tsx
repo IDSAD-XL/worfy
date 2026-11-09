@@ -6,11 +6,11 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { nodeShape } from '../../src/renderer/product/mind-map-layout'
+import { layoutRadial, nodeShape } from '../../src/renderer/product/mind-map-layout'
 
 vi.mock('../../src/renderer/product/mind-map-layout', async (actual) => {
   const real = await actual<typeof import('../../src/renderer/product/mind-map-layout')>()
-  return { ...real, nodeShape: vi.fn(real.nodeShape) }
+  return { ...real, nodeShape: vi.fn(real.nodeShape), layoutRadial: vi.fn(real.layoutRadial) }
 })
 
 const topic: ProductTopicState = {
@@ -85,5 +85,35 @@ describe('MindMap camera moves', () => {
     })
     await waitFor(() => expect(viewport.style.transform).not.toBe(before))
     expect(nodesDrawn()).toBe(0)
+  })
+})
+
+// The Graph's layout runs on the window's thread (ticket 26, review round 2): a new topic that changes nothing
+// the layout reads — a place written back, an advice mark — lays out nothing again; a new text does.
+describe('MindMap Graph layout', () => {
+  it('is computed once per layout key, not once per topic', async () => {
+    localStorage.setItem('worfy.mindMap.view:p1:demo-roadmap', 'graph')
+    try {
+      vi.mocked(layoutRadial).mockClear()
+      const { rerender } = render(<MindMap projectId="p1" topic={topic} />)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      })
+      expect(vi.mocked(layoutRadial)).toHaveBeenCalledTimes(1)
+      const placed = topic.nodes.map((node) => (node.id === 'who-pays' ? { ...node, x: 10, y: 20, placed: 2 as const, advice: true } : node))
+      rerender(<MindMap projectId="p1" topic={{ ...topic, nodes: placed }} />)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      })
+      expect(vi.mocked(layoutRadial)).toHaveBeenCalledTimes(1)
+      const renamed = placed.map((node) => (node.id === 'who-pays' ? { ...node, text: 'Who pays for it, and when?' } : node))
+      rerender(<MindMap projectId="p1" topic={{ ...topic, nodes: renamed }} />)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      })
+      expect(vi.mocked(layoutRadial)).toHaveBeenCalledTimes(2)
+    } finally {
+      localStorage.clear()
+    }
   })
 })

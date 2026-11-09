@@ -234,6 +234,50 @@ describe('MindMap by hand', () => {
   })
 })
 
+// The Graph by hand (ticket 26, review round 2): a place in the file is the Tree's (left to right from the
+// topic) and the Graph lays out round the topic, so the Graph neither applies nor writes one. A drag there
+// moves the node until the next layout.
+describe('MindMap by hand in the Graph', () => {
+  const inGraph = () => localStorage.setItem('worfy.mindMap.view:p1:demo-roadmap', 'graph')
+
+  it('a drag writes nothing: the node stays where it was let go until the next layout, then the layout places it', async () => {
+    inGraph()
+    const { rerender } = render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    expect(screen.getByRole('button', { name: 'Graph' }).getAttribute('aria-pressed')).toBe('true')
+    const before = placeOf('who-pays')
+    const zoom = zoomOf()
+    await drag('who-pays', 80, 40)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(layoutCalls()).toEqual([])
+    const at = placeOf('who-pays')
+    expect(at.x).toBeCloseTo(before.x + (80 - STARTED) / zoom, 0)
+    expect(at.y).toBeCloseTo(before.y + 40 / zoom, 0)
+    // A new topic that changes nothing the layout reads (the advice mark): the node stays where it was let go.
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: topic().nodes.map((node) => ({ ...node, advice: false })) })} />)
+    expect(placeOf('who-pays')).toEqual(at)
+    // A text of the same length: a new layout, the same places, and the drag is gone.
+    rerender(<MindMap projectId="p1" topic={topic({ nodes: topic().nodes.map((node) => (node.id === 'per-seat' ? { ...node, text: 'Per user' } : node)) })} />)
+    expect(placeOf('who-pays')).toEqual(before)
+  })
+
+  it('a place saved in the file (by a drag in the Tree) does not move the node in the Graph; the Tree still uses it', async () => {
+    inGraph()
+    const { unmount } = render(<MindMap projectId="p1" topic={topic()} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    const laidOut = placeOf('who-pays')
+    unmount()
+    const placed = topic().nodes.map((node) => (node.id === 'who-pays' ? { ...node, x: 900, y: 700, placed: 2 as const } : node))
+    render(<MindMap projectId="p1" topic={topic({ nodes: placed })} />)
+    await waitFor(() => expect(wrapperOf('who-pays').style.transform).toMatch(/translate/))
+    expect(placeOf('who-pays')).toEqual(laidOut)
+    fireEvent.click(screen.getByRole('button', { name: 'Tree' }))
+    await waitFor(() => expect(placeOf('who-pays')).toEqual({ x: 900, y: 700 }))
+  })
+})
+
 describe('a chip’s node the screen hides', () => {
   const folded = (...ids: string[]) => topic().nodes.map((node) => (ids.includes(node.id) ? { ...node, collapsed: true } : node))
   const ask = (id: string) => act(() => pickNode({ projectId: 'p1', topic: 'demo-roadmap', id }))

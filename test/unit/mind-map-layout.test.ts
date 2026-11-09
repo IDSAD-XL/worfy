@@ -1,8 +1,9 @@
 // The graph and the layouts of the Mind map (src/renderer/product/mind-map-layout.ts, worfy-product-session
 // ticket 08): `replaces` never joins the tree the layout gets, so it makes no cycle there; a node of a
 // broken file, or one on a cycle main could not check, hangs from the root; «Hide rejected» leaves out a
-// rejected Decision with its branch; 150 nodes are laid out by ELK (without its worker, as the Canvas's
-// tests run it) in both views with no two boxes overlapping. WORFY_MIND_MAP_TIMING=1 prints the times.
+// rejected Decision with its branch; 150 nodes are laid out by ELK's Tree (without its worker, as the
+// Canvas's tests run it) and synchronously in both views with no two boxes overlapping; the Graph is radial
+// (ticket 26). WORFY_MIND_MAP_TIMING=1 prints the times.
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
@@ -11,7 +12,9 @@ import {
   buildMindMapGraph,
   cardPlace,
   elkGraph,
+  graphEdgePath,
   layoutElk,
+  layoutRadial,
   layoutSync,
   linesIn,
   MAX_LINES,
@@ -90,13 +93,12 @@ describe('buildMindMapGraph', () => {
     // "late" grew from "early" and overturned it: with `replaces` in the tree that would be a cycle.
     const graph = buildMindMapGraph(topic([decision('early', 'ticket:01', 'rejected'), decision('late', 'early', 'accepted', 'early')]), { hideRejected: false })
     expect(graph.edges.filter((edge) => edge.kind === 'replaces')).toEqual([{ id: 'replaces:late', source: 'late', target: 'early', kind: 'replaces' }])
-    for (const view of MIND_MAP_VIEWS) {
-      const input = elkGraph(graph, view)
-      expect(input.edges!.map((edge) => edge.id).sort()).toEqual(['from:early', 'from:late', 'from:ticket:01'])
-      expectTree(graph, input.edges!)
-      const placement = await layoutElk(graph, view, elk)
-      expect([...placement.keys()].sort()).toEqual([ROOT_ID, 'early', 'late', 'ticket:01'].sort())
-    }
+    const input = elkGraph(graph)
+    expect(input.edges!.map((edge) => edge.id).sort()).toEqual(['from:early', 'from:late', 'from:ticket:01'])
+    expectTree(graph, input.edges!)
+    const ids = [ROOT_ID, 'early', 'late', 'ticket:01'].sort()
+    expect([...(await layoutElk(graph, elk)).keys()].sort()).toEqual(ids)
+    for (const view of MIND_MAP_VIEWS) expect([...layoutSync(graph, view).keys()].sort()).toEqual(ids)
   })
 
   it('hangs from the root a node whose parent is not drawn, and breaks a cycle through `from` a file main could not check', () => {
@@ -116,7 +118,7 @@ describe('buildMindMapGraph', () => {
     const [top, under] = parentOf.get('a') === ROOT_ID ? ['a', 'b'] : ['b', 'a']
     expect(parentOf.get(top)).toBe(ROOT_ID)
     expect(parentOf.get(under)).toBe(top)
-    expectTree(graph, elkGraph(graph, 'tree').edges!)
+    expectTree(graph, elkGraph(graph).edges!)
   })
 
   it('«Hide rejected» leaves out a rejected Decision and everything that grew from it, and keeps the rest', () => {
@@ -176,21 +178,21 @@ function bigTopic(count: number): ProductTopicState {
 }
 
 describe('150 nodes', () => {
-  it('are laid out by ELK in both views, every node placed and no two boxes overlapping', async () => {
+  it('are laid out by ELK in the Tree and synchronously in both views, every node placed and no two boxes overlapping', async () => {
     const graph = buildMindMapGraph(bigTopic(150), { hideRejected: false })
     expect(graph.nodes).toHaveLength(161)
+    const started = performance.now()
+    const placement = await layoutElk(graph, elk)
+    const elkMs = performance.now() - started
+    expect(placement.size).toBe(161)
+    expectNoOverlap(placement)
     for (const view of MIND_MAP_VIEWS) {
-      const started = performance.now()
-      const placement = await layoutElk(graph, view, elk)
-      const elkMs = performance.now() - started
       const syncStarted = performance.now()
       const sync = layoutSync(graph, view)
       const syncMs = performance.now() - syncStarted
-      expect(placement.size).toBe(161)
       expect(sync.size).toBe(161)
-      expectNoOverlap(placement)
       expectNoOverlap(sync)
-      if (process.env['WORFY_MIND_MAP_TIMING'] === '1') console.info(`[mind-map] 150 nodes, ${view}: ELK ${elkMs.toFixed(1)} ms, synchronous ${syncMs.toFixed(1)} ms`)
+      if (process.env['WORFY_MIND_MAP_TIMING'] === '1') console.info(`[mind-map] 150 nodes, ${view}: synchronous ${syncMs.toFixed(1)} ms${view === 'tree' ? `, ELK ${elkMs.toFixed(1)} ms` : ''}`)
     }
   })
 })
@@ -215,7 +217,7 @@ describe('nodeShape', () => {
 describe('ELK’s Tree (ticket 21)', () => {
   it('grows left to right with the columns 48 px apart, and gives every node back at its own size', async () => {
     const graph = buildMindMapGraph(bigTopic(40), { hideRejected: false })
-    const placement = await layoutElk(graph, 'tree', elk)
+    const placement = await layoutElk(graph, elk)
     for (const node of graph.nodes) {
       const place = placement.get(node.id)!
       // The width ELK got for the column gap is taken off again: the box is the node's own.
@@ -224,6 +226,97 @@ describe('ELK’s Tree (ticket 21)', () => {
       const parent = placement.get(node.parent)!
       expect(place.x).toBeGreaterThanOrEqual(parent.x + parent.width + 48)
     }
+  })
+})
+
+/** The middle of a box. */
+const middle = (place: { x: number; y: number; width: number; height: number }) => ({ x: place.x + place.width / 2, y: place.y + place.height / 2 })
+
+/** Whether any two boxes overlap, by a sweep along x: quick enough for thousands of boxes. */
+function anyOverlap(placement: Placement): boolean {
+  const boxes = [...placement.values()].sort((p, q) => p.x - q.x)
+  for (let a = 0; a < boxes.length; a += 1) {
+    const p = boxes[a]!
+    for (let b = a + 1; b < boxes.length && boxes[b]!.x < p.x + p.width - 0.5; b += 1) {
+      const q = boxes[b]!
+      if (p.y + p.height > q.y + 0.5 && q.y + q.height > p.y + 0.5) return true
+    }
+  }
+  return false
+}
+
+// The Graph as the prototype lays it out (ticket 26): the root in the middle, the branches round it, no two
+// boxes overlapping, and the same places for the same graph.
+describe('the radial Graph (ticket 26)', () => {
+  it('keeps the root in the middle and spreads the branches round it, each depth further out', () => {
+    const graph = buildMindMapGraph(bigTopic(150), { hideRejected: false })
+    const placement = layoutRadial(graph)
+    expect(placement.size).toBe(graph.nodes.length)
+    const root = middle(placement.get(ROOT_ID)!)
+    const boxes = [...placement.values()]
+    const [left, right] = [Math.min(...boxes.map((box) => box.x)), Math.max(...boxes.map((box) => box.x + box.width))]
+    const [top, bottom] = [Math.min(...boxes.map((box) => box.y)), Math.max(...boxes.map((box) => box.y + box.height))]
+    // The root in the middle third of the map, both ways.
+    expect(root.x).toBeGreaterThan(left + (right - left) / 3)
+    expect(root.x).toBeLessThan(right - (right - left) / 3)
+    expect(root.y).toBeGreaterThan(top + (bottom - top) / 3)
+    expect(root.y).toBeLessThan(bottom - (bottom - top) / 3)
+    // The ten Tickets (the root's children) on every side of it, not in one column.
+    const quarters = new Set(
+      graph.nodes
+        .filter((node) => node.parent === ROOT_ID)
+        .map((node) => middle(placement.get(node.id)!))
+        .map((at) => `${at.x < root.x ? 'left' : 'right'}-${at.y < root.y ? 'up' : 'down'}`),
+    )
+    expect(quarters.size).toBe(4)
+    // Deeper nodes lie further out, on the average.
+    const depthOf = new Map<string, number>()
+    for (const node of graph.nodes) depthOf.set(node.id, node.parent === null ? 0 : depthOf.get(node.parent)! + 1)
+    const meanDistance = (depth: number): number => {
+      const ids = graph.nodes.filter((node) => depthOf.get(node.id) === depth).map((node) => middle(placement.get(node.id)!))
+      return ids.reduce((sum, at) => sum + Math.hypot(at.x - root.x, at.y - root.y), 0) / ids.length
+    }
+    expect(meanDistance(2)).toBeGreaterThan(meanDistance(1))
+    expect(meanDistance(3)).toBeGreaterThan(meanDistance(2))
+  })
+
+  it('lets no box overlap another, whatever the map: one node, a crowd under one parent, with «Hide rejected», 150 nodes', () => {
+    const crowd: MindMapNode[] = Array.from({ length: 60 }, (_, index) => ({ id: `c${index}`, kind: 'idea', text: `Idea ${index} ${'and more words '.repeat(index % 4)}`, from: 'ticket:01' }))
+    const graphs = [
+      buildMindMapGraph(topic([]), { hideRejected: false }),
+      buildMindMapGraph(topic(crowd), { hideRejected: false }),
+      buildMindMapGraph(bigTopic(150), { hideRejected: true }),
+      buildMindMapGraph(bigTopic(150), { hideRejected: false }),
+    ]
+    for (const graph of graphs) expectNoOverlap(layoutRadial(graph))
+  })
+
+  it('gives the same graph the same places, run after run', () => {
+    const first = layoutRadial(buildMindMapGraph(bigTopic(150), { hideRejected: false }))
+    const again = layoutRadial(buildMindMapGraph(bigTopic(150), { hideRejected: false }))
+    expect([...again.entries()]).toEqual([...first.entries()])
+    expect(layoutSync(buildMindMapGraph(bigTopic(150), { hideRejected: false }), 'graph')).toEqual(first)
+  })
+
+  it('lays out a chain 4000 nodes deep at once, no two boxes overlapping', () => {
+    const nodes: MindMapNode[] = [{ id: 'n0', kind: 'idea', text: 'Step 0', from: null }]
+    for (let index = 1; index < 4000; index += 1) nodes.push({ id: `n${index}`, kind: 'idea', text: `Step ${index}`, from: `n${index - 1}` })
+    const placement = layoutRadial(buildMindMapGraph(topic(nodes), { hideRejected: false }))
+    expect(placement.size).toBe(4002)
+    expect(anyOverlap(placement)).toBe(false)
+  })
+
+  it('draws "grew from" straight from border to border and `replaces` as a curve', () => {
+    const [parent, child] = [
+      { x: 0, y: 0, width: 100, height: 40 },
+      { x: 300, y: 0, width: 100, height: 40 },
+    ]
+    // From the parent's right side to 4 px before the child's left side: the arrowhead's room.
+    expect(graphEdgePath('from', parent, child)).toBe('M100,20 L296,20')
+    expect(graphEdgePath('from', child, parent)).toBe('M300,20 L104,20')
+    // Below and to the right: the line leaves through the parent's bottom, along the line between the middles.
+    expect(graphEdgePath('from', parent, { x: 100, y: 200, width: 100, height: 40 })).toBe('M60,40 L138,196')
+    expect(graphEdgePath('replaces', child, parent)).toMatch(/^M[-\d.]+,[-\d.]+ Q[-\d.]+,[-\d.]+ [-\d.]+,[-\d.]+$/)
   })
 })
 

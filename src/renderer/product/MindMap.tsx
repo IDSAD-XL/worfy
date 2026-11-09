@@ -1,14 +1,18 @@
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   getViewportForBounds,
   Handle,
   Position,
   ReactFlow,
   ReactFlowProvider,
+  useInternalNode,
   useReactFlow,
   useStore,
   type Edge,
+  type EdgeProps,
+  type EdgeTypes,
   type Node,
   type NodeChange,
   type NodeProps,
@@ -25,8 +29,10 @@ import { SegmentedControl } from '../theme/primitives'
 import {
   buildMindMapGraph,
   cardPlace,
+  graphEdgePath,
   layoutElk,
   layoutKey,
+  layoutRadial,
   layoutSync,
   linesIn,
   MIND_MAP_FONT,
@@ -36,6 +42,7 @@ import {
   setTextMeasure,
   SHAPE_OF,
   withFilePlaces,
+  type MapEdge,
   type MapGraph,
   type MapNode,
   type MapNodeKind,
@@ -55,7 +62,8 @@ import './mind-map.css'
 // drag of the background pans. A click on a node opens its card.
 //
 // By hand the owner only moves nodes and folds branches (ticket 09): a node of mind-map.json dragged and
-// let go, and the fold mark of a node with children (or ArrowLeft and ArrowRight on the node), ask main
+// let go in the Tree (in the Graph a drag moves the node until the next layout and writes nothing, ticket 26),
+// and the fold mark of a node with children (or ArrowLeft and ArrowRight on the node), ask main
 // to write its `x` and `y` or its `collapsed` through `product.layout`, the same writer as the advisor's
 // tools; the screen writes no file and keeps the dragged place only until main's change comes back. What a
 // node says is the advisor's: its card has no field to type in. A read-only screen (a Linked machine)
@@ -249,7 +257,8 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
   const rejected = node.kind === 'decision' && node.status === 'rejected'
   const size = width !== undefined && height !== undefined ? { width, height } : nodeSize(node, view)
   const pad = NODE_PAD[node.kind]
-  // Both views grow left to right (ticket 21): "grew from" enters on the left and leaves on the right.
+  // The Tree grows left to right (ticket 21): "grew from" enters on the left and leaves on the right. The
+  // Graph's arrows (GraphEdge) run between the borders and use these handles only to exist.
   const [target, source] = [Position.Left, Position.Right]
   const cross = [Position.Top, Position.Bottom]
   return (
@@ -408,6 +417,8 @@ function whereIs(all: MapGraph, drawn: MapGraph, id: string): { folded: string[]
   return { folded, shownAs: isDrawn(id) ? id : isDrawn(top) ? top : null }
 }
 
+const NO_MOVES: ReadonlyMap<string, { x: number; y: number }> = new Map()
+
 /** The places with the nodes being dragged, or let go and not yet written back, where the owner put them. */
 function withDragged(placement: Placement, dragged: ReadonlyMap<string, { x: number; y: number }>): Placement {
   if (dragged.size === 0) return placement
@@ -433,8 +444,45 @@ function pendingDrags(dragged: ReadonlyMap<string, { x: number; y: number }>, to
 /** The arrowheads of the two kinds of arrow, drawn by Arrowheads; their colours are mind-map.css's. */
 const arrowheadId = (flowId: string, kind: 'from' | 'replaces'): string => `w-mind-arrow-${kind}-${flowId}`
 
-function flowEdges(graph: MapGraph, placement: Placement, flowId: string): Edge[] {
-  // Curves, as in the prototype: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
+/** An arrow of the Graph (GraphEdge): its kind, which says its shape. */
+type GraphFlowEdge = Edge<{ kind: MapEdge['kind'] }, 'graph'>
+
+/**
+ * An arrow of the Graph, drawn between the two nodes' borders where they are now (a node being dragged
+ * too), not between handles: the radial layout puts a child on any side of its parent (ticket 26).
+ */
+function GraphEdge({ source, target, data, markerEnd }: EdgeProps<GraphFlowEdge>) {
+  const from = useInternalNode(source)
+  const to = useInternalNode(target)
+  if (from === undefined || to === undefined) return null
+  const box = (node: NonNullable<typeof from>) => ({
+    ...node.internals.positionAbsolute,
+    width: node.measured.width ?? node.width ?? 0,
+    height: node.measured.height ?? node.height ?? 0,
+  })
+  return <BaseEdge path={graphEdgePath(data?.kind ?? 'from', box(from), box(to))} markerEnd={markerEnd} />
+}
+
+const edgeTypes: EdgeTypes = { graph: GraphEdge }
+
+function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flowId: string): Edge[] {
+  if (view === 'graph') {
+    // Straight, as in the prototype's graph; `replaces` a red dashed curve to the Decision it overturned.
+    return graph.edges.map(
+      (edge): GraphFlowEdge => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: 'graph',
+        data: { kind: edge.kind },
+        className: edge.kind === 'from' ? 'w-mind__edge' : 'w-mind__edge w-mind__edge--replaces',
+        markerEnd: arrowheadId(flowId, edge.kind),
+        focusable: false,
+        ...(edge.kind === 'replaces' ? { zIndex: 1 } : {}),
+      }),
+    )
+  }
+  // Curves, as in the prototype's tree: "grew from" ends in a grey arrowhead at the child, `replaces` is red,
   // dashed and ends at the Decision it overturned.
   return graph.edges.map((edge) =>
     edge.kind === 'from'
@@ -502,13 +550,13 @@ function mergedPlaces(graph: MapGraph, elk: Placement, sync: Placement): Placeme
 }
 
 /**
- * Where the nodes go: ELK's layout from the window's worker (../canvas/elk/client.ts), the worker the
- * Epic frames share, so one request of the map is out at a time: when it answers, the newest inputs are
- * sent, those between are skipped. The last answer of this view stays meanwhile, and a node it does not
+ * Where the nodes go. The Graph: the radial layout, synchronous (ticket 26). The Tree: ELK's layout from the
+ * window's worker (../canvas/elk/client.ts), the worker the Epic frames share, so one request of the map is
+ * out at a time: when it answers, the newest inputs are sent, those between are skipped. The last answer of this view stays meanwhile, and a node it does not
  * place is drawn next to its parent (`mergedPlaces`). The synchronous layout draws before ELK's first
  * answer, without a worker, and after ELK failed. `byElk` — ELK's places are shown.
  */
-function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placement; byElk: boolean } {
+function usePlacement(graph: MapGraph, view: MindMapView): { key: string; placement: Placement; byElk: boolean } {
   // Once per graph and view, not per drawing: the key strings every node's text.
   const key = useMemo(() => layoutKey(graph, view), [graph, view])
   // `placement` null: ELK failed on those inputs.
@@ -527,13 +575,14 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
   useEffect(() => {
     latest.current = { key, graph, view }
     const elk = elkEngine()
-    if (elk === null) return
+    if (elk === null || view === 'graph') return
     const send = (): void => {
       const next = latest.current
-      if (!mounted.current || busy.current || next === null || sent.current === next.key) return
+      // Only the Tree goes to ELK: a switch to the Graph while a request is out sends nothing after it.
+      if (!mounted.current || busy.current || next === null || next.view === 'graph' || sent.current === next.key) return
       busy.current = true
       sent.current = next.key
-      layoutElk(next.graph, next.view, elk)
+      layoutElk(next.graph, elk)
         .then(
           (placement) => (mounted.current ? setAnswer({ key: next.key, view: next.view, placement }) : undefined),
           (error: unknown) => {
@@ -548,12 +597,22 @@ function usePlacement(graph: MapGraph, view: MindMapView): { placement: Placemen
     }
     send()
   }, [key, graph, view])
+  // The Graph's places, once per layout key (ticket 26, review round 2): it runs on this thread, so a new
+  // topic that changes no node's parent, text, kind or fold mark — a place written back, a status — lays
+  // out nothing again, and the places keep their identity.
+  const radial = useMemo(
+    () => (view === 'graph' ? layoutRadial(graph) : null),
+    // `key` stands for `graph` and `view`: the same nodes in a new graph get the same places.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
+  )
   const elkPlaces = answer?.view === view ? answer.placement : null
   const placement = useMemo(() => {
-    const sync = layoutSync(graph, view)
+    if (radial !== null) return radial
+    const sync = layoutSync(graph, 'tree')
     return elkPlaces === null ? sync : mergedPlaces(graph, elkPlaces, sync)
-  }, [elkPlaces, graph, view])
-  return { placement, byElk: elkPlaces !== null }
+  }, [radial, elkPlaces, graph])
+  return { key, placement, byElk: elkPlaces !== null }
 }
 
 /** «−», «+» and «Fit»; `onMoved` hears whether the owner set the zoom by hand (true) or fitted the map (false). */
@@ -853,7 +912,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const readOnly = useReadOnly()
   const whole = useMemo(() => buildMindMapGraph(topic, { hideRejected }), [topic, hideRejected])
   const { graph, folds } = useMemo(() => foldBranches(whole), [whole])
-  const { placement, byElk } = usePlacement(graph, view)
+  const { key: layoutAt, placement, byElk } = usePlacement(graph, view)
 
   // The places the owner dragged nodes to, until the file shows them: checked again with each new topic.
   const [dragged, setDragged] = useState<ReadonlyMap<string, { x: number; y: number }>>(() => new Map())
@@ -862,6 +921,18 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     setSeenTopic(topic)
     setDragged(pendingDrags(dragged, topic))
   }
+  // The places the owner dragged nodes to in the Graph (ticket 26, review round 2): for this layout only,
+  // never written. A place in the file is the Tree's, which grows left to right from the topic; the Graph
+  // lays out round the topic, so the Graph neither reads nor writes one. A new layout (another layout key)
+  // or a switch of the view drops them.
+  const [graphMoves, setGraphMoves] = useState<{ key: string; places: ReadonlyMap<string, { x: number; y: number }> }>(() => ({ key: '', places: new Map() }))
+  const movedInGraph = graphMoves.key === layoutAt ? graphMoves.places : NO_MOVES
+  const moveInGraph = (moves: readonly { id: string; at: { x: number; y: number } }[]): void =>
+    setGraphMoves((was) => {
+      const next = new Map(was.key === layoutAt ? was.places : NO_MOVES)
+      for (const { id, at } of moves) next.set(id, at)
+      return { key: layoutAt, places: next }
+    })
   const [writeError, setWriteError] = useState<string | null>(null)
 
   // Every node of the topic, the rejected ones too: where a chip's node is when the screen hides it.
@@ -875,11 +946,14 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   const chatOpen = useMindMapFocus((state) => (state.chats[projectId] ?? 0) > 0)
   const showInChat = onShowMessage ?? (chatOpen ? (message: string) => showMessage(projectId, message) : undefined)
 
-  const shown = useMemo(() => withDragged(withFilePlaces(graph, placement), dragged), [graph, placement, dragged])
+  const shown = useMemo(
+    () => (view === 'graph' ? withDragged(placement, movedInGraph) : withDragged(withFilePlaces(graph, placement), dragged)),
+    [view, graph, placement, dragged, movedInGraph],
+  )
   const nodes = useMemo(() => flowNodes(graph, shown, view, { selected: picked, lit: litIds, folds, movable: readOnly === null }), [graph, shown, view, picked, litIds, folds, readOnly])
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
-  const edges = useMemo(() => flowEdges(graph, shown, flowId), [graph, shown, flowId])
+  const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
   // the ring off its message, as the prototype's selectNode(null) does (ticket 25). A node picked in a folded
@@ -915,6 +989,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
       change.type === 'position' && change.position !== undefined && change.dragging === true && change.id === dragging.current ? [{ id: change.id, at: change.position }] : [],
     )
     if (moves.length === 0) return
+    if (view === 'graph') {
+      moveInGraph(moves)
+      return
+    }
     setDragged((was) => {
       const next = new Map(was)
       for (const { id, at } of moves) next.set(id, { x: at.x, y: at.y })
@@ -926,6 +1004,10 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     dragging.current = null
     // Whole pixels: the file stays readable, and the place written is the place the screen keeps.
     const at = { x: Math.round(node.position.x), y: Math.round(node.position.y) }
+    if (view === 'graph') {
+      moveInGraph([{ id: node.id, at }])
+      return
+    }
     setDragged((was) => new Map(was).set(node.id, at))
     write({ id: node.id, ...at }, () =>
       setDragged((was) => {
@@ -1026,6 +1108,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
 
   const choose = (next: MindMapView) => {
     setChosen({ key: storeKey, view: next })
+    setGraphMoves({ key: '', places: NO_MOVES })
     writeView(storeKey, next)
   }
 
@@ -1069,6 +1152,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onNodeClick={(_, node) => setPicked(node.id)}
             onPaneClick={() => {
               setPicked(null)
