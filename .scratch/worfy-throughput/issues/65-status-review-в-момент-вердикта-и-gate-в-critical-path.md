@@ -31,10 +31,14 @@ Source: «Итог» Ticket-а [62](62-merge-queue-или-ci-пачками.md),
 ## Готово, когда
 
 - [x] «Итог»: кто и когда ставит `review` сейчас — с примерами PR и временем.
+  - evidence: commit pass · critical-path takes the Gate from the head's review mark when a PR has no VERIFIED (worfy-throughput 65) · - - · 697969367181753b9789aba9685cae5992f2ced2
 - [ ] `review` ставится в момент вердикта: на PR после правки от `review` до merge — не секунды (пример в «Итог»).
   Пример — после следующего PR: правка источника сделана Orchestrator-ом вне репозитория (часть 2 «Итог»).
 - [x] `critical-path` берёт Gate из status `review` — unit test в `test/unit/critical-path.test.ts`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+  - evidence: test-run pass · `pnpm vitest run test/unit/critical-path.test.ts` exit 0 · mac - · 697969367181753b9789aba9685cae5992f2ced2
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 697969367181753b9789aba9685cae5992f2ced2
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 697969367181753b9789aba9685cae5992f2ced2
 
 ## Где в коде
 
