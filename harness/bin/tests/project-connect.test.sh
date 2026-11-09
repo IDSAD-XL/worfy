@@ -12,7 +12,8 @@
 # clean — a Silent project gets `.claude/worktrees/` in .git/info/exclude, once, and nothing else;
 # --facts reads remotes and branches of a repository and of a folder above several, and writes nothing;
 # --no-qmd skips the qmd step; --remove takes the profile, its registry entries, its runs folder and its own
-# qmd collections away in one commit, refuses an unknown or unsafe name, and rolls a failure back.
+# qmd collections away in one commit, refuses an unknown or unsafe name, and rolls a failure back; the paths it
+# frees connect again, and a Workflow folder the user chose stays with everything in it.
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${BIN_DIR:-$HARNESS/bin}"
@@ -525,6 +526,29 @@ check "qmd removed the project's own collection" 0 "collection remove demo-docs"
 check "a collection another profile names is not removed" 1 "" grep -q "remove shared" "$QMD_LOG"
 check "the output names the shared collection as kept" 0 '"shared"' node -e 'const q=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).removed.qmd; process.stdout.write(JSON.stringify(q)); process.exit(q.removed.includes("demo-docs")?0:1)' "$T/remove.out"
 check "--remove of a name already removed is exit 1" 1 "no profile" "$CONNECT" --remove demo
+
+# The paths --remove frees can be connected again (worfy-polish ticket 79: "Remove project…" of worfy): the same
+# repository as a project of its own, and a repository as one of a Silent project over several. A Workflow
+# folder the user chose (here the folder above the repositories) is not removed, nor anything in it.
+check "after --remove the same repository passes --check" 0 '"ok": true' "$CONNECT" --check <"$T/demo.json"
+check "after --remove the same repository is connected again" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/demo.json"
+check "bin/profile knows the connected-again repository" 0 "demo" "$PROFILE" -C "$T/demo" --name
+check "the connected-again project is removed once more" 0 '"removed"' "$CONNECT" --remove demo --no-qmd
+repo "$T/pair/one"
+repo "$T/pair/two"
+draft one full null "$T/pair/one" >"$T/one.json"
+check "one repository is connected as a project of its own" 0 '"profileDir"' "$CONNECT" --no-qmd <"$T/one.json"
+draft pair silent "\"$T/pair\"" "$T/pair/one" "$T/pair/two" >"$T/pair.json"
+check "while it is, a project over it and its neighbour is refused" 1 "is already in the gate registry" "$CONNECT" --check <"$T/pair.json"
+check "--remove one" 0 '"removed"' "$CONNECT" --remove one --no-qmd
+check "then the project over both repositories is connected" 0 '"gateKeys": [' "$CONNECT" --no-qmd <"$T/pair.json"
+check "bin/profile names pair for the freed repository" 0 "pair" "$PROFILE" -C "$T/pair/one" --name
+echo "# 01" >"$T/pair/01-ticket.md"
+pair_before="$(cd "$T/pair" && find . -path '*/.git' -prune -o -type f -print | sort; git -C "$T/pair/one" rev-parse HEAD; git -C "$T/pair/two" rev-parse HEAD)"
+check "--remove of the project over both repositories is written" 0 '"removed"' "$CONNECT" --remove pair --no-qmd
+[ "$pair_before" = "$(cd "$T/pair" && find . -path '*/.git' -prune -o -type f -print | sort; git -C "$T/pair/one" rev-parse HEAD; git -C "$T/pair/two" rev-parse HEAD)" ] \
+    && [ "$(cat "$T/pair/01-ticket.md")" = "# 01" ] && ok "--remove leaves the chosen Workflow folder, its ticket and both repositories as they were" || bad "--remove changed $T/pair"
+check "both repositories are free again" 0 '"ok": true' "$CONNECT" --check <"$T/pair.json"
 
 # --no-qmd with --remove: the collections stay; a failing qmd keeps the removal, with the reason.
 : >"$QMD_LOG"

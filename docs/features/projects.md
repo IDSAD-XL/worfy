@@ -258,7 +258,23 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
   the rest becomes active, or none. Its data folder stays, so a Project added again finds its settings there. Its Orchestrator closes, and
-  so do the shells of its [Terminals](terminal.md). The repository and the Harness Profile are not touched.
+  so do the shells of its [Terminals](terminal.md). The repository and the Harness Profile are not touched, so the Project's
+  paths stay in the gate registry: connecting the same folder again, alone or as one repository of a folder above several,
+  is refused with "already in the gate registry".
+- "Remove project…" is there only on the rows of this Machine. It also takes the Project out of this Machine's Harness, so
+  its folders can be connected again. A dialog asks first. It lists what goes: the Profile and its folder, the gate registry
+  entries with their paths, the agents' marks in `runs/<profile>/`, the qmd collections the Profile names (one that another
+  Profile names stays) and an empty default Workflow folder. It lists what stays: the repositories and every file in them,
+  the tickets, spec, ADRs and state file in a Full mode repository, a Workflow folder the person chose, and worfy's settings
+  of the Project. "Remove project" closes the Project's Orchestrator and its Sessions, runs `project-connect --remove <profile>`,
+  then takes the Project out of the list. "Remove from list" in the same dialog does what the menu row of that name does.
+  worfy deletes nothing itself, and the Harness never touches a repository.
+- "Remove project…" refuses, and removes nothing, when the default Workflow folder of a Silent mode Profile holds files
+  (the project's tickets): the dialog says so and offers "Show in Finder" for that folder, so the person moves the tickets
+  out first. It also refuses a folder the Harness has no Profile for, and a repository listed on its own whose Profile also
+  covers other repositories: removing that Profile would take them too. A refusal or a failure of `project-connect` keeps
+  the Project in the list, and the dialog shows the script's words. Moving a Project between Full and Silent mode is not
+  part of it.
 
 **A broken list.** A `projects.json` with broken JSON or the wrong shape is set aside, and the app starts with an empty list. A saved active
 Project that is not in the list reads as no active Project.
@@ -320,6 +336,10 @@ it is refused.
   `src/main/projects/holds.ts`: `ProjectHolds`. `src/main/ipc/linked.ts`: `linked.open` turns a window's choice into a hold.
 - `src/main/ipc/projects.ts`, `src/shared/ipc/projects.ts`: the channels and their access. `projects.select` is `local`,
   `projects.pickFolder` is `desktop`, and `projects.list`, `projects.remove`, `projects.add` and `projects.hold` are `project`.
+  `projects.removal.preview`, `projects.removeProject` and `projects.removal.reveal` ("Remove project…") are `local`: a
+  Linked machine never removes a Project from this Machine's Harness.
+- `src/main/projects/remove.ts`: "Remove project…", its preview, the checks before it and the order of its steps;
+  `src/renderer/projects/RemoveProject.tsx`: its dialog.
 - `src/main/agent/app-orchestrators.ts`: follows `onChange` and the holds, and closes the Orchestrator of a removed Project.
 - `src/renderer/projects/useProjects.ts`: the renderer's copy, `openProject` as the one way to open a Project, `groupProjects`
   for the Machines, and `useReadOnly`.
@@ -340,6 +360,10 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
 - `test/e2e/projects.spec.ts`: add, switch, settings, restart and remove in the built app, a broken `projects.json`, and the
   team reviewer offer with "Later" and "Build".
 - `test/unit/use-projects.test.tsx`: revisions, the groups by Machine, windows on a Linked machine.
+- `test/contract/projects-remove.test.ts`: "Remove project…" over the real `bin/profile` and `bin/project-connect` in a
+  temporary Harness home: what goes, what stays, the refusals, and the same folders connected again.
+  `test/unit/remove-project.test.tsx`: its dialog. `test/e2e/projects-connect.spec.ts`: connect, remove, connect again in
+  the built app. `harness/bin/tests/project-connect.test.sh`: `--remove`, then the same paths connected again.
 - `test/contract/projects-hold.test.ts`, `test/unit/project-holds.test.ts`: holds. `test/contract/link-access.test.ts`,
   `test/unit/link-access.test.ts`: what a Linked machine may call.
 

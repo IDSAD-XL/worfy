@@ -22,6 +22,10 @@ import { ms } from '../time-scale'
 // (test/fixtures/gh/gh-stub.mjs, GH_STUB_DIR): the accounts with their access, "Sign in with gh"
 // running the stand-in's `gh auth login` in the dialog's terminal, the pick written into the Profile;
 // gh failing and gh without accounts. Its screenshots are 25-*.png.
+//
+// worfy-polish ticket 79: "Remove project…" takes the connected Project out of the temporary Harness
+// (its Profile and gate registry entry) and out of the list, and the same folder connects anew.
+// Its screenshot is 79-remove-project-*.png.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -337,4 +341,46 @@ test('the GitHub account: gh failing says why; gh without accounts offers the si
   } finally {
     await launched.close()
   }
+})
+
+// ── "Remove project…" (worfy-polish ticket 79) ───────────────────────────────
+
+test('Remove project frees the folder: the Profile and its registry entry go, the repository stays, and Add project connects it anew', async () => {
+  const shop = makeRepo(join(scratch, 'shop'))
+  const launched = await launchApp({ env: { WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion() } })
+  try {
+    const { window } = launched
+    const harnessHome = harnessFor(launched)
+    const dialog = await toForm(launched, shop)
+    await dialog.getByRole('button', { name: 'Connect' }).click()
+    await expect(dialog).toHaveCount(0, { timeout: ms(20_000) })
+    const row = window.getByTestId('project-row').filter({ hasText: 'shop' })
+    await expect(row).toHaveCount(1)
+    const registry = (): unknown[] => (JSON.parse(readFileSync(join(harnessHome, 'gate', 'config.json'), 'utf8')) as { repos: unknown[] }).repos
+    expect(registry()).toHaveLength(1)
+
+    await row.click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Remove project…' }).click()
+    const remove = window.getByTestId('remove-project')
+    await expect(remove.getByTestId('remove-project-goes')).toContainText('The Profile fake-project (')
+    await expect(remove.getByTestId('remove-project-goes')).toContainText(`The gate registry entry for ${shop}: this folder can be connected again`)
+    await expect(remove.getByTestId('remove-project-stays')).toContainText(`The repositories in ${shop} and every file in them`)
+    await shoot(launched, remove, 'remove-project', '79')
+    await remove.getByRole('button', { name: 'Remove project' }).click()
+    await expect(remove).toHaveCount(0, { timeout: ms(20_000) })
+    await expect(window.getByTestId('project-row')).toHaveCount(0)
+    await expect(window.getByTestId('projects-notice')).toHaveText('shop was removed; its folders can be connected again.')
+    expect(registry()).toEqual([])
+    expect(existsSync(join(harnessHome, 'projects', 'fake-project'))).toBe(false)
+
+    // The same folder is new to the Harness again: Add project opens Connect for it, not "already known".
+    await pickNext(launched.app, shop)
+    await window.getByRole('button', { name: 'Add project' }).click()
+    const again = window.getByTestId('connect-project')
+    await expect(again).toHaveAttribute('data-step', 'mode')
+    await expect(again.getByTestId('connect-folder')).toHaveText(shop)
+  } finally {
+    await launched.close()
+  }
+  expect(git(shop, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
 })

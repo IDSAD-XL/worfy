@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { SessionRegistry } from '../../src/main/agent/session'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -20,6 +20,7 @@ const electron = vi.hoisted(() => {
   return {
     sent,
     showOpenDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
+    showItemInFolder: vi.fn<(path: string) => void>(),
     window,
   }
 })
@@ -29,6 +30,7 @@ vi.mock('electron', () => ({
   app: { on: () => undefined },
   BrowserWindow: { getAllWindows: () => [electron.window], fromWebContents: () => null },
   dialog: { showOpenDialog: electron.showOpenDialog },
+  shell: { showItemInFolder: electron.showItemInFolder },
 }))
 // The app runs the Harness scripts with the login shell environment; a test does not start the
 // login shell of the machine it runs on, so the scripts get this process's environment here.
@@ -173,6 +175,7 @@ beforeEach(async () => {
   vi.stubEnv('WORFY_HARNESS_HOME', '')
   electron.sent.length = 0
   electron.showOpenDialog.mockReset()
+  electron.showItemInFolder.mockReset()
   vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   await start()
@@ -1574,5 +1577,144 @@ describe('the team reviewer (worfy-human-review ticket 09)', () => {
       const on = await linkedCaller(true)
       expect(await on('projects.reviewer.remind', { id: project.id })).toStrictEqual({ ok: true, value: { due: true } })
     })
+  })
+})
+
+describe('Remove project (worfy-polish ticket 79): projects.removal.preview, projects.removeProject, projects.removal.reveal', () => {
+  /** The Harness home of the stubs: <harness>/projects/<name>/profile.json; the old Harness's registry is <claudeHome>/gate. */
+  let harness: string
+  /** One line per bin/project-connect run: its arguments. */
+  let connectCalls: string
+  /** What the Orchestrators were asked. */
+  let asked: string[]
+
+  /** `bin/profile -C <folder> --dir` prints <harness>/projects/<folder name>; any other call is absent (exit 4). */
+  function stubProfile(): void {
+    writeFileSync(
+      join(claudeHome, 'bin', 'profile'),
+      nodeScript(
+        [
+          'const args = process.argv.slice(2)',
+          "const name = (args[args.indexOf('-C') + 1] || '').split(/[\\\\/]/).filter(Boolean).pop()",
+          `if (args.includes('--dir')) process.stdout.write(${JSON.stringify(join(harness, 'projects') + sep)} + name + '\\n')`,
+          'else process.exitCode = 4',
+        ].join('\n'),
+      ),
+    )
+  }
+
+  /** `bin/project-connect`: notes its arguments, prints `stdout` and exits with `code`. */
+  function stubConnect(code: number, stdout: string): void {
+    writeFileSync(
+      join(claudeHome, 'bin', 'project-connect'),
+      nodeScript(
+        [`fs.appendFileSync(${JSON.stringify(connectCalls)}, process.argv.slice(2).join(' ') + '\\n')`, `process.stdout.write(${JSON.stringify(stdout)})`, `process.exitCode = ${code}`].join('\n'),
+      ),
+    )
+  }
+
+  /** A Profile `name` of the stub Harness home, with gate registry entries for `matches`. */
+  function profileOf(name: string, profile: Record<string, unknown>, matches: readonly string[]): string {
+    const dir = join(harness, 'projects', name)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'profile.json'), JSON.stringify({ schema: 2, name, ...profile }))
+    mkdirSync(join(claudeHome, 'gate'), { recursive: true })
+    writeFileSync(join(claudeHome, 'gate', 'config.json'), JSON.stringify({ repos: matches.map((match) => ({ key: name, match, profile: name })) }))
+    return dir
+  }
+
+  const connects = (): string[] => (existsSync(connectCalls) ? readFileSync(connectCalls, 'utf8').split('\n').filter(Boolean) : [])
+
+  beforeEach(async () => {
+    harness = join(scratch, 'harness-home')
+    connectCalls = join(scratch, 'connect-calls.txt')
+    asked = []
+    // The scripts get this process's environment, as in the team reviewer tests above: no login shell capture.
+    vi.doMock('../../src/main/agent/env', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../src/main/agent/env')>()),
+      agentEnv: () => Promise.resolve({ env: { ...process.env }, from: 'login-shell', error: null }),
+    }))
+    // The app's Orchestrators and Sessions, imported by a removal only: stand-ins that note what they are asked.
+    vi.doMock('../../src/main/agent/app-orchestrators', () => ({
+      sharedOrchestrators: () => ({ retain: (ids: ReadonlySet<string>) => asked.push(`retain ${[...ids].join(' ')}`) }),
+      keepClosed: (id: string) => {
+        asked.push(`keep closed ${id}`)
+        return () => asked.push(`release ${id}`)
+      },
+    }))
+    vi.doMock('../../src/main/agent/app-registry', () => ({ sharedRegistry: () => ({ list: () => [], get: () => undefined, noteInput: () => undefined }) }))
+    stubProfile()
+    await start()
+  })
+
+  afterEach(() => {
+    vi.doUnmock('../../src/main/agent/env')
+    vi.doUnmock('../../src/main/agent/app-orchestrators')
+    vi.doUnmock('../../src/main/agent/app-registry')
+  })
+
+  it('previews the Profile and its paths, then removes it through project-connect --remove and takes the Project out of the list', async () => {
+    const shop = makeRepo('shop')
+    const kept = (await addOk(makeRepo('kept'))).project
+    const project = (await addOk(shop)).project
+    const profileDir = profileOf('shop', { mode: 'full' }, [shop])
+    stubConnect(0, JSON.stringify({ name: 'shop', removed: { profileDir, gateKeys: ['shop'], runs: null, qmd: { status: 'skipped', reason: 'skipped: --no-qmd', removed: [], kept: [] }, leftover: [] } }))
+
+    expect(await value('projects.removal.preview', { id: project.id })).toStrictEqual({
+      status: 'ready',
+      profile: 'shop',
+      profileDir,
+      paths: [shop],
+      runs: join(harness, 'runs', 'shop'),
+      qmd: [],
+      mode: 'full',
+      workflowFolder: null,
+    })
+    const removed = await value<{ status: string; state: State; notes: string[] }>('projects.removeProject', { id: project.id })
+    expect(removed.status).toBe('removed')
+    expect(removed.notes).toStrictEqual([])
+    expect(removed.state.projects.map((each) => each.id)).toStrictEqual([kept.id])
+    expect((await value<State>('projects.list')).projects.map((each) => each.id)).toStrictEqual([kept.id])
+    expect(connects()).toStrictEqual(['--remove shop'])
+    expect(asked).toStrictEqual([`retain ${kept.id}`, `keep closed ${project.id}`, `release ${project.id}`])
+    // worfy deletes nothing itself: the stub removed nothing, so the Profile and the repository are as they were.
+    expect(existsSync(join(profileDir, 'profile.json'))).toBe(true)
+    expect(repoStatus(shop)).toBe('')
+  })
+
+  it("a refusal of project-connect leaves the Project in the list, with the script's words", async () => {
+    const shop = makeRepo('shop')
+    const project = (await addOk(shop)).project
+    profileOf('shop', { mode: 'full' }, [shop])
+    stubConnect(1, JSON.stringify({ ok: false, errors: [{ path: '', kind: 'write', message: 'the registry cannot be written' }] }))
+    expect(await value('projects.removeProject', { id: project.id })).toStrictEqual({
+      status: 'refused',
+      reason: 'The Harness did not remove the Profile shop, so the Project stays in the list: the registry cannot be written',
+      workflowFolder: null,
+    })
+    expect((await value<State>('projects.list')).projects.map((each) => each.id)).toStrictEqual([project.id])
+  })
+
+  it('Silent mode with tickets in the default Workflow folder: refused with the folder and no script run; reveal shows that folder', async () => {
+    const shop = makeRepo('shop')
+    const project = (await addOk(shop)).project
+    const profileDir = profileOf('shop', { mode: 'silent', workflow: { folder: null } }, [shop])
+    mkdirSync(join(profileDir, 'workflow'), { recursive: true })
+    writeFileSync(join(profileDir, 'workflow', '01-ticket.md'), '# 01')
+    stubConnect(0, '{}')
+    expect(await value('projects.removeProject', { id: project.id })).toMatchObject({ status: 'refused', workflowFolder: join(profileDir, 'workflow') })
+    expect(connects()).toStrictEqual([])
+    expect(asked).toStrictEqual([])
+    expect(await value('projects.removal.reveal', { id: project.id })).toStrictEqual({ path: join(profileDir, 'workflow') })
+    expect(electron.showItemInFolder.mock.calls).toStrictEqual([[join(profileDir, 'workflow')]])
+    expect(readFileSync(join(profileDir, 'workflow', '01-ticket.md'), 'utf8')).toBe('# 01')
+  })
+
+  it('reveal of a Full mode Project is refused: its Profile has no Workflow folder', async () => {
+    const shop = makeRepo('shop')
+    const project = (await addOk(shop)).project
+    profileOf('shop', { mode: 'full' }, [shop])
+    expect(await call('projects.removal.reveal', { id: project.id })).toStrictEqual({ ok: false, error: 'projects.removal.reveal failed: the Profile shop has no Workflow folder inside its folder' })
+    expect(electron.showItemInFolder).not.toHaveBeenCalled()
   })
 })

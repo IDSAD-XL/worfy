@@ -7,6 +7,7 @@ import { invokeOn, readableReason, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
+import { RemoveProject } from '../../projects/RemoveProject'
 import { readOnlyHint, writeAction } from '../../projects/read-only'
 import { onAddProjectRequest } from '../../projects/add-project'
 import { useGateQueue } from '../../projects/useGateQueue'
@@ -219,11 +220,16 @@ interface MenuProps {
   /** "Process gate queue" (worfy-windows ticket 17): only on the machine with `serve` of the cross-machine gate. */
   onGateQueue: (() => void) | null
   onRemove: () => void
+  /**
+   * "Remove project…" (worfy-polish ticket 79): the Project leaves this Machine's Harness too. Only on
+   * a row of this Machine: a Linked machine's Harness is not removed from here.
+   */
+  onRemoveProject: (() => void) | null
   onClose: () => void
 }
 
 /** The context menu of a Project row. Escape, a click elsewhere or leaving the menu closes it. */
-function ProjectMenu({ x, y, readOnly, onSettings, onGateQueue, onRemove, onClose }: MenuProps) {
+function ProjectMenu({ x, y, readOnly, onSettings, onGateQueue, onRemove, onRemoveProject, onClose }: MenuProps) {
   const menu = useRef<HTMLDivElement>(null)
   // The latest onClose, so the effect below runs once per opening and not on every render.
   const close = useRef(onClose)
@@ -273,6 +279,11 @@ function ProjectMenu({ x, y, readOnly, onSettings, onGateQueue, onRemove, onClos
       <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onRemove)}>
         Remove from list
       </button>
+      {onRemoveProject !== null ? (
+        <button type="button" role="menuitem" className="w-row" onClick={onRemoveProject}>
+          Remove project…
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -358,6 +369,8 @@ export default function ProjectsSection() {
   const [message, setMessage] = useState<Message>()
   const [menu, setMenu] = useState<{ machine: string | null; project: ProjectView; x: number; y: number }>()
   const [settingsFor, setSettingsFor] = useState<{ machine: string | null; project: ProjectView }>()
+  /** The Project whose "Remove project…" dialog is open; always one of this Machine. */
+  const [removing, setRemoving] = useState<ProjectView>()
   const [connecting, setConnecting] = useState<{ machine: string | null; machineName: string; folder: ConnectFolder; harnessHome: string }>()
   /** "Add project" before the folder: the Machine step, or the folders of a Linked machine. */
   const [picking, setPicking] = useState<{ kind: 'machine' } | { kind: 'browse'; machine: string; name: string }>()
@@ -490,6 +503,30 @@ export default function ProjectsSection() {
               onRemove={() => {
                 setMenu(undefined)
                 void remove(menu.machine, menu.project)
+              }}
+              onRemoveProject={
+                menu.machine === null
+                  ? () => {
+                      setMenu(undefined)
+                      setRemoving(menu.project)
+                    }
+                  : null
+              }
+            />
+          ) : null}
+
+          {removing ? (
+            <RemoveProject
+              project={removing}
+              onCancel={() => setRemoving(undefined)}
+              onRemoveFromList={() => {
+                setRemoving(undefined)
+                void remove(null, removing)
+              }}
+              onRemoved={(state, notes) => {
+                setRemoving(undefined)
+                acceptMachineProjects(null, state)
+                setMessage({ kind: 'notice', text: [`${removing.name} was removed; its folders can be connected again.`, ...notes].join(' ') })
               }}
             />
           ) : null}
