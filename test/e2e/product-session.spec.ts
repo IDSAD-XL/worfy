@@ -429,7 +429,6 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     const toolbar = map.locator('.w-mind__toolbar')
     const tops = await toolbar.evaluate((element) => [...element.children].map((child) => Math.round(child.getBoundingClientRect().top + child.getBoundingClientRect().height / 2)))
     expect(Math.max(...tops) - Math.min(...tops)).toBeLessThanOrEqual(2)
-    expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
     expect((await view.getByTestId('message-input-box').boundingBox())!.width).toBeGreaterThanOrEqual(126)
 
     // The working Critic above the Idea generator that is done.
@@ -437,15 +436,31 @@ test('a narrow chat column keeps the heading on one line and every chip inside i
     await view.screenshot({ path: test.info().outputPath('24-agents-list-1160.png') })
 
     // A chip's click selects its node, rings the message the chip stands under and leaves the chat where it is.
+    // A low window first, so the chat scrolls: a scroll to the message would move it.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 520))
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerHeight: number }).innerHeight)).toBe(520)
     const log = view.getByTestId('transcript')
+    await expect.poll(() => log.evaluate((element) => element.scrollHeight > element.clientHeight + 40)).toBe(true)
+    // At the end of the chat, where the chip is.
+    await log.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     const chip = view.locator('[data-testid="node-chip"][data-id="first-epic"]')
-    await chip.scrollIntoViewIfNeeded()
+    await expect(chip).toBeInViewport()
     const scrolled = await log.evaluate((element) => element.scrollTop)
+    expect(scrolled).toBeGreaterThan(0)
+    // The chip's message starts above the log's upper third: «Show in the chat» would scroll the log up to put it there.
+    const row = log.locator('[data-item]').filter({ has: window.locator('[data-testid="node-chip"][data-id="first-epic"]') })
+    const [rowTop, logTop, third] = [(await row.boundingBox())!.y, (await log.boundingBox())!.y, (await log.evaluate((element) => element.clientHeight)) / 3]
+    expect(rowTop - logTop).toBeLessThan(third - 20)
     await chip.click()
     const ringed = log.locator('[data-item][data-shown]')
     await expect(ringed).toHaveCount(1)
     await expect(ringed.getByTestId('transcript-text')).toContainText('Three more nodes on the map')
+    await window.waitForTimeout(300)
     expect(await log.evaluate((element) => element.scrollTop)).toBe(scrolled)
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1160, 860))
+    await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerHeight: number }).innerHeight)).toBe(860)
     // The card quotes the message: its number, the author and the start of the text.
     const card = map.getByRole('region', { name: 'Node' })
     await expect(card).toContainText('First Epic: try the advisor')

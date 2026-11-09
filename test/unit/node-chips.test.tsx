@@ -353,12 +353,28 @@ describe('chips of Mind map nodes under a message', () => {
   it('a click on a chip also rings the message it stands under, and asks the chat not to scroll', () => {
     render(<ProductBody />)
     expect(document.querySelector('[data-item][data-shown]')).toBeNull()
+    // The scrolls of the chat's log to a message: each row stands 500 px down the log, so bringing a row into
+    // view sets the log's scrollTop to 500. (Following the end sets it to the log's height, 0 here.)
+    const log = screen.getByTestId('transcript')
+    const rect = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return this.hasAttribute('data-item') ? DOMRect.fromRect({ x: 0, y: 500, width: 100, height: 40 }) : rect.call(this)
+    })
+    const scrolls: number[] = []
+    vi.spyOn(Element.prototype, 'scrollTop', 'set').mockImplementation(function (this: Element, value: number) {
+      if (this === log && value === 500) scrolls.push(value)
+    })
     act(() => fireEvent.click(screen.getAllByTestId('node-chip')[1]!))
     expect(useMindMapFocus.getState().shown).toMatchObject({ projectId: 'p1', message: 'uuid-2', scroll: false })
     const shown = document.querySelector<HTMLElement>('[data-item][data-shown]')
     expect(shown).not.toBeNull()
     expect(within(shown!).getByTestId('transcript-text').textContent).toContain('Two nodes: an idea and the question it raises.')
     expect(nodeOf('who-pays')!.className).toContain('w-mind__node--selected')
+    expect(scrolls).toEqual([])
+
+    // The card's «Show in the chat» for the same message does scroll the log to it.
+    act(() => fireEvent.click(within(screen.getByRole('region', { name: 'Node' })).getByRole('button', { name: 'Show the message in the chat' })))
+    expect(scrolls).toEqual([500])
   })
 
   // Ticket 24, row 14 of the comparison: the card's «Message» quotes the message — «#2 Advisor: “…”» — as the
