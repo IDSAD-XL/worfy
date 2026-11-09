@@ -316,7 +316,7 @@ export function ticketHeader(markdown: string): TicketHeader {
     if (line.startsWith('Release:')) {
       const words = line.slice('Release:'.length).trim().split(/[ \t]+/u)
       const [repo, kind, ref] = words
-      if (words.length === 3 && ((kind === 'tag' && ref !== '') || (kind === 'package' && PACKAGE_REF.test(ref!)))) header.releases.push({ repo: repo!, kind: kind!, ref: ref! })
+      if (words.length === 3 && (kind === 'tag' || (kind === 'package' && PACKAGE_REF.test(ref!)))) header.releases.push({ repo: repo!, kind: kind!, ref: ref! })
     }
   }
   return header

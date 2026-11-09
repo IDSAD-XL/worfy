@@ -1110,6 +1110,11 @@ describe('ticketHeader: the Repo, PR and Release lines of a Ticket file', () => 
     expect(ticketHeader(text).prs).toEqual([{ repo: 'app', number: 5 }])
   })
 
+  it('skips a Release line it cannot read: a kind other than tag and package, a word too many or too few', () => {
+    const text = ['# 01 - x', 'Status: open', 'Repo: lib', 'Release: lib branch main', 'Release: lib tag v1 v2', 'Release: lib tag', 'Release: lib package a@1 b@2', 'Release: lib tag v3', ''].join('\n')
+    expect(ticketHeader(text).releases).toEqual([{ repo: 'lib', kind: 'tag', ref: 'v3' }])
+  })
+
   it('ends the header at the first second-level heading after the Status line, not before it', () => {
     const text = ['# 01 - x', '## Before the status', 'Repo: lib', 'Status: open', 'Repo: app', 'PR: lib#1', '## After', 'PR: app#2', 'Release: lib tag v1', ''].join('\n')
     expect(ticketHeader(text)).toEqual({ repos: ['lib', 'app'], prs: [{ repo: 'lib', number: 1 }], releases: [] })
