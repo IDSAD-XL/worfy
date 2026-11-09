@@ -1,7 +1,7 @@
 # 77 — Кнопки Health check показывают, что проверка идёт
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T16:48Z
 Blocked by: —
 Source: решение владельца 2026-11-09 (отзыв тестера): после клика по кнопке в Health check не видно, идёт проверка
 или всё зависло. Строки перечитаны по main `964061f9a`.
@@ -52,9 +52,12 @@ Health check — один компонент `FirstRunChecks` (`src/renderer/she
 
 - [ ] Клик «Check again»: кнопка `disabled`, текст «Checking…», spinner; chip-ы строк «Checking…»; после ответа —
   прежний вид.
+  - evidence: test-run pass · `pnpm test test/unit/settings-health.test.tsx` exit 0 · mac - · cd7f42c2f51e550da85edf8ad990014368e18e0b
 - [ ] Клик по действию строки: эта кнопка «…ing…» со spinner-ом, остальные `disabled` с tooltip-ом; chip строки
   «Running…».
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/settings-health.spec.ts test/e2e/first-run.spec.ts test/e2e/getting-started-highlight.spec.ts` exit 0 · mac - · cd7f42c2f51e550da85edf8ad990014368e18e0b
 - [ ] Долгое действие показывает шаг и прошедшее время.
+  - evidence: test-run pass · `pnpm test test/unit/settings-health.test.tsx` exit 0 · mac - · cd7f42c2f51e550da85edf8ad990014368e18e0b
 - [ ] Строка «Health» в `docs/features/app-shell.md:278` (и перевод в `docs/features/ru/`) говорит, что нажатая
   кнопка показывает ход проверки.
 
@@ -83,3 +86,32 @@ Health check — один компонент `FirstRunChecks` (`src/renderer/she
 
 - Новые проверки и новые действия Health check.
 - Прогресс в процентах для `qmd pull`: только шаг и время.
+
+## Итог
+
+Нажатая кнопка Health check (First run и Settings → Health, один компонент `src/renderer/shell/FirstRunChecks.tsx`)
+показывает ход: spinner (класс `.w-update-spinner` из `src/renderer/shell/shell.css`, при reduced motion стоит) и свой
+текст вместо подписи — «Checking…», «Installing…», «Updating…» (Harness с подписью Update), «Downloading…»,
+«Setting up…», «Signing in…», «Skipping…», «Opening…» (Show log), «Moving…» (Move…, пока открыта форма переноса),
+«Copying…» (Copy, пока буфер обмена не принял). Строка действия — chip «Running…»; при «Check again» chip каждой
+строки — «Checking…». Остальные кнопки выключены, tooltip «Another check is running». Долгие действия (Harness,
+`npm install -g` qmd, `qmd pull`, `qmd-collections`) пишут под строкой шаг и прошедшее время: «Downloading models… 1:20»
+(`elapsedText` и `useTicking` из `src/renderer/update/store.ts`). main строк вывода процесса не шлёт, поэтому — только
+шаг и время, новый канал IPC не заводился; main не менялся. Ход показывает только строка, где нажали: у Harness и его
+зависимостей одно действие `harness-install`.
+
+Отступления от тикета:
+
+- Кнопки выключены через `aria-disabled` (вид F-SPEC «First run»: приглушённая, без заливки; клик игнорируется), а не
+  атрибутом `disabled`. `disabled` сбрасывает фокус на страницу: нажатая с клавиатуры кнопка теряет фокус, а после
+  закрытия формы переноса фокус не возвращается на «Move…» (пока идёт новая проверка, «Move…» выключена) — это ловили
+  три существующих test-а формы переноса.
+- Spinner — уже готовый `.w-update-spinner` из `shell.css`, а не вынесенный `Spinner` из `src/renderer/session/Transcript.tsx`:
+  не трогать файлы Product Session, которые правят параллельно.
+- Перевод `docs/features/ru/` не правился: в PR с поведением правится только английская страница (ADR-0088).
+- Chip строки стал шире (64 → 72 px, отступ подсказки 72 → 80 px), чтобы влезало «Checking…».
+
+Test-ы: `test/unit/settings-health.test.tsx`, блок «a pressed button shows the work under way» — «Check again», каждое
+действие main (8 случаев), время долгого действия на fake timers, Show log, Move…, Copy; e2e
+`test/e2e/settings-health.spec.ts` — шаг с Install, пока диалог main ждёт ответа test-а (без ожидания по часам), и снимок
+обеих тем `test-results/e2e/snapshots/settings-health-running/` (в репозиторий не кладётся).
