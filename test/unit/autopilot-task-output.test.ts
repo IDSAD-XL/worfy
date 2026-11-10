@@ -81,11 +81,31 @@ describe('the cost grows with the text, not with its square (it runs on the main
     expect(Math.min(took(text), took(text), took(text))).toBeLessThan(1_000)
   })
 
+  // Long enough for a thread clock that ticks in 15.6 ms steps (Windows) to read each line's cost within a third.
+  const SPAN_MS = 50
+
+  /** How much CPU time this thread spends on one scan of `text`, in ms: the scans repeat until they took SPAN_MS of it. */
+  function cpuPerScan(text: string): number {
+    const started = process.threadCpuUsage()
+    let scans = 0
+    let spent = 0
+    while (spent < SPAN_MS) {
+      taskOutputFiles(text)
+      scans += 1
+      const used = process.threadCpuUsage(started)
+      spent = (used.user + used.system) / 1000
+    }
+    return spent / scans
+  }
+
   // Not a time against a bound, which load on the machine moves (a full local test run made 7 ms into 134 ms): the
-  // growth of the time when the line grows 16 times, scans of both lines taken side by side. A linear scan grows about
-  // 16 times; the first scan, which looked back to the start of the line for every path, grew about 265 times in the
-  // Node of Electron 44 (3.1 ms for 500 paths, 820 ms for 8000). The limit sits between the two, 64 times: load slows
-  // both lines alike, and each line's fastest of up to five tries leaves out a pause that hit one try.
+  // growth of the cost when the line grows 16 times. A linear scan grows about 16 times; the first scan, which looked
+  // back to the start of the line for every path, grew about 265 times in the Node of Electron 44 (3.1 ms for 500
+  // paths, 820 ms for 8000). The limit sits between the two, 64 times. The cost is the CPU time of this thread, not the
+  // time on the clock: under a full local test run the clock made one 8 ms scan of the long line 30 to 400 ms, as the
+  // thread waited for a core, and the ratio of the fastest of five such scans went past 64 in 3 of 250 tries
+  // (worfy-polish 89); the thread's own CPU time of the same scans stayed within 20 times. Both lines are scanned for
+  // as long, so a pause of the garbage collector, which this thread's CPU time does count, falls on either alike.
   it('16 times more paths on one line cost less than 64 times more', () => {
     const line = (count: number) => Array.from({ length: count }, (_, index) => `/tmp/s/tasks/t${index}.output`).join(' ')
     const short = line(500)
@@ -96,8 +116,8 @@ describe('the cost grows with the text, not with its square (it runs on the main
     let fastestShort = Number.POSITIVE_INFINITY
     let fastestLong = Number.POSITIVE_INFINITY
     for (let attempt = 0; attempt < 5 && !(fastestLong / fastestShort < 64); attempt += 1) {
-      fastestShort = Math.min(fastestShort, took(short))
-      fastestLong = Math.min(fastestLong, took(long))
+      fastestShort = Math.min(fastestShort, cpuPerScan(short))
+      fastestLong = Math.min(fastestLong, cpuPerScan(long))
     }
     expect(fastestLong / fastestShort).toBeLessThan(64)
   })
