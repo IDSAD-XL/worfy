@@ -38,11 +38,14 @@ the Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, the review decision (
 required), the count of open threads ("2 open threads"), "N new since you looked", and "via team" when the review is asked
 only of a team the user is in.
 
+- **Title**: cut with an ellipsis when it does not fit; the whole title is its tooltip.
 - **CI dot**: green — passing, orange — failing, an empty blue ring — running, an empty grey ring — no CI. Its text is
   the tooltip.
 - **Age**: for Needs my review, the age of the PR; elsewhere, of its last comment or review. The tooltip has the time.
 - **Ticket chip**: the Ticket whose `PR:` line names this PR, else the Ticket whose branch is the PR's (its `Branch:`
-  line, or `<epic>/<NN>`).
+  line, or `<epic>/<NN>`). The number counts only in its repository: `PR: lib#41` names #41 of the repository
+  called `lib` (or `owner/lib`), and a bare `PR: #41` names #41 of the Ticket's `Repo:` repositories, of any repository
+  only when the Ticket has no `Repo:` line.
 - **N new since you looked**: comments of others newer than the user's last look at the PR.
 
 **An open row.** A click on the row opens it, a second click closes it. Open, it shows:
@@ -78,8 +81,8 @@ its name, then a row per group that holds one, with the count. A Project that re
 shows nothing. With nothing anywhere, the section says "No pull requests". A Project whose inbox cannot be read says why.
 
 **The switch.** Project settings has **Read pull requests from GitHub**, on by default. Off, worfy runs no gh for that
-Project's PR inbox, the view says so at once, and the sidebar leaves it out. The switch applies on Save, like the other
-fields of the window.
+Project's PR inbox, the view says so at once, and the sidebar leaves it out. Turned on again, the Project is read at
+once, without waiting for the next search. The switch applies on Save, like the other fields of the window.
 
 #### On a Linked machine
 
@@ -96,6 +99,8 @@ hint, and the switch of Project settings is inactive. Links open on the Machine 
   commit and a time, never a text ([ADR-0005](../adr/0005-worfy-own-state-inventory.md), amended by ADR-0105).
 - The renderer keeps one copy of each Project's inbox for the view and the section. It asks main again when main says
   the inbox changed, and when the Project's settings change, so the switch shows at once.
+- Main reads one Project at a time: the timer's reads and the read a request asks for (a Project shown for the first
+  time, or turned on again) wait for each other in one queue.
 - Every entry that opens the view goes through one function. With a PR it leaves an ask; the view takes it once the
   snapshot is there, then clears it, so coming back to the view does not open that row again.
 

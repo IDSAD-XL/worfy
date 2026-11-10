@@ -436,6 +436,49 @@ describe('failures and the pace', () => {
   })
 })
 
+describe('one read at a time', () => {
+  it('the first prInbox.get of several Projects and a tick read them one after another, never two gh calls at once', async () => {
+    const gh = world([stubPull(API, 1), stubPull(WEB, 2)])
+    let running = 0
+    let most = 0
+    const run: PrInboxOptions['run'] = async (args, cwd) => {
+      running += 1
+      most = Math.max(most, running)
+      try {
+        // A gh that takes a while: two reads side by side would overlap here.
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return await gh.run(args, cwd)
+      } finally {
+        running -= 1
+      }
+    }
+    const projects = [project('a', [API]), project('b', [WEB]), project('c', [API, WEB])]
+    const inbox = reader(gh, projects, { run })
+    await Promise.all([inbox.ensureRead('a'), inbox.ensureRead('b'), inbox.tick(), inbox.ensureRead('c')])
+    expect(most).toBe(1)
+    // Each Project was searched once: the tick found b and c read, or read them itself, never both.
+    expect(searches(gh)).toHaveLength(3)
+    for (const id of ['a', 'b', 'c']) expect(inbox.snapshot(id).readAt).not.toBeNull()
+  })
+
+  it('a failed read does not stop the queue: the next one runs', async () => {
+    const gh = world([stubPull(API, 1)])
+    let first = true
+    const run: PrInboxOptions['run'] = async (args, cwd) => {
+      if (first) {
+        first = false
+        throw new Error('gh: not logged in to github.com')
+      }
+      return gh.run(args, cwd)
+    }
+    const inbox = reader(gh, [project('a', [API]), project('b', [API])], { run, account: async () => null })
+    await expect(inbox.ensureRead('a')).resolves.toBeUndefined()
+    expect(inbox.snapshot('a').error).toContain('not logged in')
+    await inbox.ensureRead('b')
+    expect(inbox.snapshot('b').readAt).not.toBeNull()
+  })
+})
+
 describe('one cache per account', () => {
   it('two Projects of one account ask the details of a PR once', async () => {
     const gh = world([stubPull(API, 1), stubPull(API, 2, { author: ANA, requested: [ME] }), stubPull(WEB, 5)])
@@ -489,6 +532,39 @@ describe('the switch in settings.json', () => {
     expect(gh.calls()).toHaveLength(calls)
     expect(inbox.snapshot('p1')).toMatchObject({ enabled: false, nextSearchAt: null })
     expect(rowsOf(inbox.snapshot('p1'))).toEqual([])
+  })
+
+  it('switched on again: the next prInbox.get reads the Project at once, without waiting for a tick (worfy-pr-inbox ticket 03)', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API], { actionTemplates: {}, prInbox: false })
+    const inbox = reader(gh, [p])
+    await inbox.ensureRead('p1')
+    await inbox.tick()
+    expect(gh.calls()).toEqual([])
+    expect(inbox.snapshot('p1').enabled).toBe(false)
+
+    writeFileSync(join(p.dataDir, 'settings.json'), JSON.stringify({ actionTemplates: {} }))
+    await inbox.ensureRead('p1')
+    expect(searches(gh)).toHaveLength(1)
+    expect(inbox.snapshot('p1')).toMatchObject({ enabled: true })
+    expect(rowsOf(inbox.snapshot('p1'))).toHaveLength(1)
+    // Read and on: the next get waits for the search time as before.
+    await inbox.ensureRead('p1')
+    expect(searches(gh)).toHaveLength(1)
+  })
+
+  it('a Project off for want of a repository on GitHub is not looked at again by prInbox.get before its time', async () => {
+    const gh = world([stubPull(API, 1)])
+    let looks = 0
+    const local = project('local', [])
+    const inbox = reader(gh, [local], { repos: async () => (looks++, []) })
+    await inbox.ensureRead('local')
+    await inbox.ensureRead('local')
+    expect(looks).toBe(1)
+    clock = START + INBOX_SEARCH_INTERVAL_MS
+    await inbox.ensureRead('local')
+    expect(looks).toBe(2)
+    expect(gh.calls()).toEqual([])
   })
 
   it('a Project without a repository on GitHub is off', async () => {

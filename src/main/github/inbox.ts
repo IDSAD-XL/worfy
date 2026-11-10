@@ -268,6 +268,8 @@ export class PrInbox {
   private readonly base: number
   private readonly max: number
   private ticking = false
+  /** The reads of Projects, one after another: a tick and the first `prInbox.get` of a Project wait for each other. */
+  private queue: Promise<unknown> = Promise.resolve()
   private readonly trigger: NotificationsTrigger | null
 
   constructor(private readonly options: PrInboxOptions) {
@@ -286,21 +288,43 @@ export class PrInbox {
     if (this.ticking) return
     this.ticking = true
     try {
-      const projects = this.options.projects()
-      this.forget(new Set(projects.map((project) => project.id)))
-      for (const project of projects) await this.pollIfDue(project)
-      await this.trigger?.tick()
+      await this.serial(async () => {
+        const projects = this.options.projects()
+        this.forget(new Set(projects.map((project) => project.id)))
+        for (const project of projects) await this.pollIfDue(project)
+        await this.trigger?.tick()
+      })
     } finally {
       this.ticking = false
     }
   }
 
-  /** Reads the Project now if it was never read, as the first `prInbox.get` asks. */
+  /**
+   * Reads the Project now if it was never read, as the first `prInbox.get` asks, or if it was off and its switch is
+   * on again (worfy-pr-inbox ticket 03): the view then fills at once, not at the next tick. In the queue of the
+   * ticks, so N Projects opened at start search one after another and the second sees a rate-limit pause of the
+   * first. A Project off for want of a repository on GitHub is looked at again only when its time has come.
+   */
   async ensureRead(projectId: string): Promise<void> {
     const project = this.projectOf(projectId)
-    const state = this.states.get(projectId)
-    if (state?.running) return state.running
-    if (state === undefined) await this.pollIfDue(project)
+    const running = this.states.get(projectId)?.running
+    if (running) return running
+    const due = (): boolean => {
+      const state = this.states.get(projectId)
+      return state === undefined || (!state.enabled && this.options.enabled(project))
+    }
+    if (!due()) return
+    await this.serial(async () => {
+      // A tick in front of this one may have read the Project already.
+      if (due()) await this.pollIfDue(project)
+    })
+  }
+
+  /** Runs `work` after every read queued before it; a failed one does not stop the queue. */
+  private serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(work, work)
+    this.queue = next.catch(() => undefined)
+    return next
   }
 
   /** The timer of the app: a look every `everyMs`; returns its stop. */

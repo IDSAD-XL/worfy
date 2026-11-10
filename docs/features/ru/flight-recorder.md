@@ -362,7 +362,7 @@ Codex» в разделе How it works. GitHub хранит свой ответ 
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | Фильтр и Problems only; место подписей. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | Toast остановки: один на run, последний на Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | «History», «Run history» в «⋯», «Open Run history». |
-| `test/unit/toolbar-runs.test.tsx` | Вкладку **Runs**: четыре вкладки, Project, который она передаёт, выбранность на экране, неактивность без Project-а. |
+| `test/unit/toolbar-runs.test.tsx` | Вкладку **Runs**: пять вкладок (последняя — Pull requests), Project, который она передаёт, выбранность на экране, неактивность без Project-а. |
 | `test/unit/work-track-view.test.tsx` | Переключатель `Run history \| Work track`, который запоминается для каждого Project-а. |
 | `test/contract/flight-recorder-service.test.ts` | Сервис над всеми reader-ами, живое повторное вычисление, Retry, решения Auto-approval run-а и решения Shadow Project-а на данный момент. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | Reader-ы в main. Test transcript-ов ещё читает run на Codex из поддельного app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |

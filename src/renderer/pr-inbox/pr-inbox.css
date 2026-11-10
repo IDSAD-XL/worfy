@@ -244,6 +244,12 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* The row's actions keep their words on one line in a narrow window (560 px): they do not shrink. */
+.w-pr-inbox-row__actions > .w-pr-inbox-link,
+.w-pr-inbox-button {
+  flex: none;
+  white-space: nowrap;
+}
 .w-pr-inbox-button {
   height: 22px;
   padding: 0 var(--space-2);
@@ -314,10 +320,11 @@
 }
 
 /* The sidebar section: a Project's name, then a row per group that holds a PR, with its count. */
+/* A block, not a flex box: text-overflow cuts only a block's own text, so a long name ends with an
+   ellipsis (its whole path is the tooltip). */
 .w-pr-inbox-section__project {
-  display: flex;
-  align-items: center;
-  min-height: 22px;
+  display: block;
+  line-height: 22px;
   padding: 0 8px;
   font-size: var(--text-12);
   color: var(--text-secondary);

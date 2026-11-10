@@ -15,7 +15,7 @@ import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../sh
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
-import { SettingRow, SettingSwitch } from '../settings/controls'
+import { SettingSwitch } from '../settings/controls'
 import { PrimaryButton } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
@@ -59,6 +59,8 @@ const styles = {
   subtitle: { margin: '0 0 var(--space-4)', color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   field: { display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' },
   label: { fontWeight: 600 },
+  // A label with its switch at the row's end, as in Settings; the dialog's bold label and spacing.
+  toggle: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' },
   input: {
     height: 'var(--row-height)',
     padding: '0 var(--space-2)',
@@ -353,14 +355,15 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         ) : null}
 
         {templates ? (
-          <SettingRow
-            label="Read pull requests from GitHub"
-            description="The Pull requests view and its sidebar section: the open PRs and review requests of the Project's repositories, searched every 5 minutes. Off, worfy runs no gh for them."
-            disabled={readOnly !== null}
-            testId="project-settings-pr-inbox"
-          >
-            <SettingSwitch label="Read pull requests from GitHub" checked={inbox} onChange={setInbox} disabled={readOnly !== null} title={readOnly ?? undefined} testId="project-settings-pr-inbox-switch" />
-          </SettingRow>
+          <section style={styles.field} aria-label="Pull requests" data-testid="project-settings-pr-inbox">
+            <div style={styles.toggle}>
+              <span style={styles.label}>Read pull requests from GitHub</span>
+              <SettingSwitch label="Read pull requests from GitHub" checked={inbox} onChange={setInbox} disabled={readOnly !== null} title={readOnly ?? undefined} testId="project-settings-pr-inbox-switch" />
+            </div>
+            <span style={styles.hint}>
+              The Pull requests view and its sidebar section: the open PRs and review requests of the Project&apos;s repositories, searched every 5 minutes. Off, worfy runs no gh for them.
+            </span>
+          </section>
         ) : null}
 
         {project.path === undefined ? null : (

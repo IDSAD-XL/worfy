@@ -160,12 +160,32 @@ export function findRow(snapshot: PrInboxSnapshot, pr: PullRef): { group: PrInbo
 const nn = (num: number): string => String(num).padStart(2, '0')
 
 /**
- * The Ticket a PR belongs to: the one whose `PR:` line names it (a line without a repository names a PR of the
- * Project's one repository), else the one whose branch is the PR's, by its `Branch:` line or `<epic>/<NN>`.
+ * Whether a repository as a Ticket's header names it — a `Repo:` name of the layout (`lib`, harness/bin/TICKETS.md) or
+ * an `owner/name` — is the PR's `owner/name`. A layout name is compared with the name part: the renderer does not know
+ * which folder's `origin` it is.
+ */
+// shortcut: a layout name is matched by the GitHub name of the repository; a layout name that differs from it is not found. Map the names through main's remotes (remoteRepos) when such a Project asks for its chips.
+export function sameRepo(named: string, repo: string): boolean {
+  const name = named.toLowerCase()
+  const full = repo.toLowerCase()
+  return name.includes('/') ? name === full : name === full.slice(full.indexOf('/') + 1)
+}
+
+/**
+ * The Ticket a PR belongs to: the one whose `PR:` line names it, else the one whose branch is the PR's, by its
+ * `Branch:` line or `<epic>/<NN>`. A `PR:` line with a repository (`PR: lib#41`) names that repository's PR; a bare
+ * `PR: #N` names PR N of the Ticket's `Repo:` repositories, or of any repository when it has none (a Project of one
+ * repository).
  */
 export function ticketOfRow(row: Pick<PrInboxRow, 'repo' | 'number' | 'headRefName'>, tickets: readonly Ticket[]): Ticket | undefined {
-  const repo = row.repo.toLowerCase()
-  const byPr = tickets.find((ticket) => repoFactsOf(ticket).prs.some((pr) => pr.number === row.number && (pr.repo === null || pr.repo.toLowerCase() === repo)))
+  const byPr = tickets.find((ticket) => {
+    const facts = repoFactsOf(ticket)
+    return facts.prs.some((pr) => {
+      if (pr.number !== row.number) return false
+      const scope = pr.repo !== null ? [pr.repo] : facts.repos
+      return scope.length === 0 || scope.some((named) => sameRepo(named, row.repo))
+    })
+  })
   if (byPr !== undefined) return byPr
   return tickets.find((ticket) => (ticket.branch ?? `${ticket.epic}/${nn(ticket.num)}`) === row.headRefName)
 }

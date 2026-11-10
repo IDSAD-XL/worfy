@@ -120,7 +120,7 @@ export function PrRow({ group, row, ticket, now, expanded, readOnly, onToggle, o
       <button type="button" className="w-pr-inbox-row__head" aria-expanded={expanded} aria-controls={expanded ? bodyId : undefined} onClick={onToggle}>
         <span className="w-pr-inbox-row__line">
           <CiDot ci={row.ci} />
-          <span className="w-pr-inbox-row__title" data-testid="pr-inbox-title">
+          <span className="w-pr-inbox-row__title" data-testid="pr-inbox-title" title={row.title}>
             {row.title}
           </span>
           {row.isDraft ? <span className="w-pr-inbox-flag">Draft</span> : null}

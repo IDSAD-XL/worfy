@@ -355,7 +355,7 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | The filter and Problems only; the place of labels. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | The stop toast: one per run, the latest per Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | "History", "Run history" in "⋯", "Open Run history". |
-| `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: four tabs, the Project it passes, selected on the screen, inactive without a Project. |
+| `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: five tabs (Pull requests last), the Project it passes, selected on the screen, inactive without a Project. |
 | `test/unit/work-track-view.test.tsx` | The switch `Run history \| Work track`, remembered per Project. |
 | `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry, the Auto-approval decisions of a run and the Project's Shadow decisions so far. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. The transcripts test also reads a run on Codex from the fake app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |

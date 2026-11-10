@@ -155,12 +155,32 @@ const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: da
 const ghCalls = (): string[][] => (existsSync(ghLog) ? readFileSync(ghLog, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as string[]) : [])
 const graphqlCalls = (): string[][] => ghCalls().filter((args) => args[0] === 'api' && args[1] === 'graphql')
 
-/** No call that could write to GitHub: no method but GET, no GraphQL mutation, no `gh pr` or `gh issue` subcommand that writes. */
+/**
+ * No call that could write to GitHub: no method but GET; no REST call with a body (`-f`, `-F`, `--field`,
+ * `--raw-field`, `--input`) unless it says GET, since gh then sends a POST; no GraphQL mutation, and no GraphQL
+ * body from a file; no `gh pr` or `gh issue` subcommand that writes.
+ */
 function expectNoWrite(): void {
+  // A flag as gh takes it: `--name value`, `--name=value`, `-x value` or `-xvalue`.
+  const valueOf = (args: string[], names: string[]): string | undefined => {
+    for (const [index, arg] of args.entries()) {
+      for (const name of names) {
+        if (arg === name) return args[index + 1] ?? ''
+        if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1)
+        if (!name.startsWith('--') && arg.startsWith(name)) return arg.slice(name.length)
+      }
+    }
+    return undefined
+  }
   const writes = ghCalls().filter((args) => {
-    const method = args.findIndex((arg) => arg === '-X' || arg === '--method')
-    if (method >= 0 && args[method + 1]?.toUpperCase() !== 'GET') return true
-    if (args.some((arg) => /^query=\s*mutation\b/u.test(arg))) return true
+    const named = valueOf(args, ['-X', '--method'])?.toUpperCase()
+    if (named !== undefined && named !== 'GET') return true
+    if (args.some((arg) => /^(?:-[fF]|--field=|--raw-field=)?query=\s*mutation\b/u.test(arg))) return true
+    if (args[0] === 'api') {
+      if (valueOf(args, ['--input']) !== undefined) return true
+      const body = valueOf(args, ['-f', '-F', '--field', '--raw-field']) !== undefined
+      if (args[1] !== 'graphql' && body && named !== 'GET') return true
+    }
     return (args[0] === 'pr' || args[0] === 'issue') && ['comment', 'review', 'merge', 'edit', 'create', 'close', 'ready'].includes(args[1] ?? '')
   })
   expect(writes).toEqual([])
@@ -271,7 +291,7 @@ test('openPrInboxOf with a PR of the other Project selects it and opens its view
 })
 
 test('the switch of Project settings: off, main runs no gh for the Project; on, it reads; off again, the view says so', async () => {
-  test.setTimeout(ms(240_000))
+  test.setTimeout(ms(180_000))
   // Both Projects start with the switch off.
   settings(WEB, false)
   settings(OPS, false)
@@ -288,7 +308,8 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
     await window.waitForTimeout(TICK_AND_MARGIN_MS)
     expect(graphqlCalls()).toEqual([])
 
-    // On in Project settings of web: the reader searches at its next look, and the view fills.
+    // On in Project settings of web: the view asks again on the settings change and main reads web at once, without
+    // waiting for the reader's next look (30 s), so the view fills within the usual wait.
     const openSettings = async () => {
       await window.getByTestId('project-row').filter({ hasText: 'web' }).click({ button: 'right' })
       await window.getByRole('menuitem', { name: 'Project settings…' }).click()
@@ -301,7 +322,7 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
     expect(JSON.parse(readFileSync(join(dataDir, WEB, 'settings.json'), 'utf8'))).toMatchObject({ prInbox: true })
-    await expect(prRow(window, WEB_REPO, 118)).toBeVisible({ timeout: ms(TICK_AND_MARGIN_MS + 10_000) })
+    await expect(prRow(window, WEB_REPO, 118)).toBeVisible({ timeout: ms(15_000) })
     expect(graphqlCalls().length).toBeGreaterThan(0)
     // ops stays off: no search names its repository.
     expect(graphqlCalls().filter((args) => args.join(' ').includes(OPS_REPO))).toEqual([])

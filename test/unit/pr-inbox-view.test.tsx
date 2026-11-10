@@ -261,6 +261,8 @@ describe('the view of a snapshot', () => {
     await body(snapshotOf('web-00000001'))
     const answer = rowOf(API, 118)
     expect(text(answer, 'pr-inbox-title')).toBe('Retry the upload')
+    // A title cut with an ellipsis is whole in its tooltip.
+    expect(within(answer).getByTestId('pr-inbox-title').getAttribute('title')).toBe('Retry the upload')
     expect(text(answer, 'pr-inbox-ref')).toBe(`${API}#118`)
     // The Ticket by its branch demo/07.
     expect(text(answer, 'pr-inbox-ticket')).toBe('demo 07')
@@ -347,6 +349,61 @@ describe('the view of a snapshot', () => {
   })
 })
 
+describe('the Ticket chip and the repository of a PR: line', () => {
+  const LIB = 'example-org/lib'
+  const pull = (repo: string, number: number, headRefName = 'feature/x') => ({ repo, number, headRefName })
+  const load = async () => import('../../src/renderer/pr-inbox/usePrInbox')
+
+  it("a bare PR: #N counts only in the repositories of the Ticket's Repo: lines", async () => {
+    const { ticketOfRow } = await load()
+    const ticket = modelTicket('demo', 5, 'Api', { repos: [API], prs: [{ repo: null, number: 41 }] })
+    expect(ticketOfRow(pull(API, 41), [ticket])?.num).toBe(5)
+    expect(ticketOfRow(pull(WEB, 41), [ticket])).toBeUndefined()
+  })
+
+  it('a bare PR: #N of a Ticket with no Repo: line counts in any repository', async () => {
+    const { ticketOfRow } = await load()
+    const ticket = modelTicket('demo', 5, 'Any', { prs: [{ repo: null, number: 41 }] })
+    expect(ticketOfRow(pull(WEB, 41), [ticket])?.num).toBe(5)
+    expect(ticketOfRow(pull(API, 41), [ticket])?.num).toBe(5)
+  })
+
+  it('a Repo: line by its layout name matches the repository of that name', async () => {
+    const { ticketOfRow } = await load()
+    const ticket = modelTicket('demo', 5, 'Lib', { repos: ['lib'], prs: [{ repo: null, number: 41 }] })
+    expect(ticketOfRow(pull(LIB, 41), [ticket])?.num).toBe(5)
+    expect(ticketOfRow(pull(WEB, 41), [ticket])).toBeUndefined()
+  })
+
+  it('PR: lib#41 names #41 of the repository called lib, not #41 of another one', async () => {
+    const { ticketOfRow } = await load()
+    const ticket = modelTicket('demo', 5, 'Lib', { repos: [WEB, LIB], prs: [{ repo: 'lib', number: 41 }] })
+    expect(ticketOfRow(pull(LIB, 41), [ticket])?.num).toBe(5)
+    expect(ticketOfRow(pull(WEB, 41), [ticket])).toBeUndefined()
+    // By its full name, in any case.
+    const full = modelTicket('demo', 6, 'Lib', { prs: [{ repo: 'Example-Org/Lib', number: 41 }] })
+    expect(ticketOfRow(pull(LIB, 41), [full])?.num).toBe(6)
+    expect(ticketOfRow(pull('other-org/lib', 41), [full])).toBeUndefined()
+  })
+
+  it("another repository's PR of the same number goes to the Ticket of its branch", async () => {
+    const { ticketOfRow } = await load()
+    const tickets = [modelTicket('demo', 5, 'Api', { repos: [API], prs: [{ repo: null, number: 41 }] }), modelTicket('demo', 8, 'Web')]
+    expect(ticketOfRow(pull(WEB, 41, 'demo/08'), tickets)?.num).toBe(8)
+    expect(ticketOfRow(pull(API, 41, 'demo/08'), tickets)?.num).toBe(5)
+  })
+
+  it('sameRepo: a full name whole and in any case, a bare name by the name part', async () => {
+    const { sameRepo } = await load()
+    expect(sameRepo('Example-Org/Web', WEB)).toBe(true)
+    expect(sameRepo('web', WEB)).toBe(true)
+    expect(sameRepo('WEB', WEB)).toBe(true)
+    expect(sameRepo('other-org/web', WEB)).toBe(false)
+    expect(sameRepo('we', WEB)).toBe(false)
+    expect(sameRepo('example-org', WEB)).toBe(false)
+  })
+})
+
 describe('the status line', () => {
   it('says when the next search runs', async () => {
     await body(snapshotOf('web-00000001'))
@@ -378,6 +435,12 @@ describe('the status line', () => {
     expect(screen.getByTestId('pr-inbox-off').textContent).toContain('reading is off in Project settings')
     expect(screen.queryAllByTestId('pr-inbox-group')).toHaveLength(0)
     expect(screen.queryByTestId('pr-inbox-next')).toBeNull()
+  })
+
+  it('before the first read the view says it is reading, not that there are no pull requests', async () => {
+    await body(snapshotOf('web-00000001', { groups: [], readAt: null }))
+    expect(screen.getByTestId('pr-inbox-status').textContent).toContain('Reading pull requests…')
+    expect(screen.queryByText('No open pull requests and no review requests.')).toBeNull()
   })
 
   it('an empty inbox after a read says so, with the groups at zero', async () => {
@@ -536,6 +599,24 @@ describe('openPrInboxOf with a PR', () => {
     expect(read).toBeGreaterThan(select)
   })
 
+  it('the ask is cleared once the view took it: the view shown again opens no row and marks nothing again', async () => {
+    const { openPrInboxOf } = await opened()
+    const { usePrInboxFocus } = await import('../../src/renderer/pr-inbox/usePrInbox')
+    const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
+    await act(async () => {
+      await openPrInboxOf('web-00000001', 'web-00000001', { repo: API, number: 118 })
+    })
+    expect(rowOf(API, 118).dataset.expanded).toBe('true')
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.markSeen')).toHaveLength(1))
+    expect(usePrInboxFocus.getState().focus).toBeNull()
+    cleanup()
+    render(<PullRequestsView />)
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0))
+    expect(screen.getAllByTestId('pr-inbox-row').filter((each) => each.dataset.expanded === 'true')).toHaveLength(0)
+    await act(async () => Promise.resolve())
+    expect(main.calls.filter((call) => call.channel === 'prInbox.markSeen')).toHaveLength(1)
+  })
+
   it('an ask on a group marks that group and opens no row', async () => {
     const { openPrInboxOf } = await opened()
     await act(async () => {
@@ -543,6 +624,59 @@ describe('openPrInboxOf with a PR', () => {
     })
     expect(screen.getAllByTestId('pr-inbox-group').filter((group) => group.dataset.focused === 'true').map((group) => group.dataset.group)).toEqual(['needs-fix'])
     expect(screen.getAllByTestId('pr-inbox-row').filter((each) => each.dataset.expanded === 'true')).toHaveLength(0)
+  })
+})
+
+describe('on a read-only screen of a Linked machine', () => {
+  const HINT = 'Studio gives this Machine read-only access'
+  const PROJECTS_MODULE = '../../src/renderer/projects/useProjects'
+
+  beforeEach(() => {
+    vi.doMock(PROJECTS_MODULE, async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()), useReadOnly: () => HINT }))
+  })
+
+  afterEach(() => {
+    vi.doUnmock(PROJECTS_MODULE)
+  })
+
+  it('a row opens to its threads but tells main nothing', async () => {
+    await view()
+    fireEvent.click(within(rowOf(API, 118)).getByRole('button', { name: /Retry the upload/u }))
+    expect(within(rowOf(API, 118)).getAllByTestId('pr-inbox-thread')).toHaveLength(3)
+    await act(async () => Promise.resolve())
+    expect(main.calls.filter((call) => call.channel === 'prInbox.markSeen')).toHaveLength(0)
+    expect(text(rowOf(API, 118), 'pr-inbox-new')).toBe('3 new since you looked')
+  })
+
+  it('openPrInboxOf with a PR opens its row and marks nothing seen', async () => {
+    preload({ inbox: { 'web-00000001': snapshotOf('web-00000001') }, models: { [WEB_ROOT]: WEB_MODEL } })
+    const { PullRequestsView } = await import('../../src/renderer/pr-inbox/PrInboxView')
+    const { openPrInboxOf } = await import('../../src/renderer/pr-inbox/open')
+    render(<PullRequestsView />)
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').length).toBeGreaterThan(0))
+    await act(async () => {
+      await openPrInboxOf('web-00000001', 'web-00000001', { repo: API, number: 118 })
+    })
+    expect(rowOf(API, 118).dataset.expanded).toBe('true')
+    await act(async () => Promise.resolve())
+    expect(main.calls.filter((call) => call.channel === 'prInbox.markSeen')).toHaveLength(0)
+  })
+
+  it('the switch of Project settings is inactive, with the hint', async () => {
+    preload({
+      inbox: {},
+      answers: {
+        'projects.settings.get': () => ({ ok: true, value: { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '' } } }),
+        'terminal.shells': () => ({ ok: true, value: [] }),
+      },
+    })
+    const { ProjectSettings } = await import('../../src/renderer/shell/ProjectSettings')
+    render(<ProjectSettings project={{ id: 'web-00000001', name: 'web' }} onClose={() => undefined} />)
+    const toggle = (await screen.findByRole('switch', { name: 'Read pull requests from GitHub' })) as HTMLButtonElement
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.getAttribute('title')).toBe(HINT)
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
 })
 
