@@ -288,11 +288,15 @@ export async function askToOpen(owner: BrowserWindow | null, target: string, pla
   return response === 2 ? 'open' : response === 1 ? 'show' : 'cancel'
 }
 
-/** The URL when it is an https:// address; throws otherwise. */
-export function httpsUrl(url: string): string {
+/**
+ * The URL when it is an http:// or https:// address; throws otherwise. `file:`, `javascript:`,
+ * `data:` and the schemes of other apps never reach the system: the renderer is not trusted. http://
+ * opens since worfy-polish ticket 101 (an agent's `http://localhost:5173`); the browser marks it.
+ */
+export function webUrl(url: string): string {
   if (!URL.canParse(url)) throw new Error(`${url} is not an address`)
   const parsed = new URL(url)
-  if (parsed.protocol !== 'https:') throw new Error(`only https:// addresses are opened, not ${parsed.protocol}`)
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error(`only http:// and https:// addresses are opened, not ${parsed.protocol}`)
   return parsed.href
 }
 
@@ -317,7 +321,7 @@ export default [
     return { path: target, outcome: 'opened' as const }
   }),
   defineHandler(shellOpenExternal, async ({ url }) => {
-    const href = httpsUrl(url)
+    const href = webUrl(url)
     await shell.openExternal(href)
     return { url: href }
   }),

@@ -636,9 +636,15 @@ describe('shell.openExternal', () => {
     expect(electron.openExternal.mock.calls).toStrictEqual([['https://github.com/IDSAD-XL/worfy/pull/12']])
   })
 
+  it('opens an http:// address too, as the system parses it (worfy-polish ticket 101)', async () => {
+    const result = await call('shell.openExternal', { url: 'HTTP://localhost:5173/a b' })
+    expect(result).toStrictEqual({ ok: true, value: { url: 'http://localhost:5173/a%20b' } })
+    expect(electron.openExternal.mock.calls).toStrictEqual([['http://localhost:5173/a%20b']])
+  })
+
   it('refuses every other scheme, a non-address and a wrong type', async () => {
-    for (const url of ['http://github.com', 'file:///etc/passwd', 'javascript:alert(1)', 'ssh://host', 'HTTPS//no-colon']) {
-      await refused('shell.openExternal', { url }, /only https|not an address/)
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'data:text/html,x', 'mailto:a@b.c', 'ssh://host', 'HTTPS//no-colon']) {
+      await refused('shell.openExternal', { url }, /only http:\/\/ and https:|not an address/)
     }
     await refused('shell.openExternal', { url: 1 }, /invalid input/)
     await refused('shell.openExternal', {}, /invalid input/)

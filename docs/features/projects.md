@@ -546,10 +546,16 @@ out once.
 **"Open in Editor"** hands the file to the app the system assigns to it. It goes by the path relative to the Project root.
 
 **The text of both.** One markdown renderer, with tables, task lists and strikethrough. Raw HTML is shown as text and never
-runs. Images are not loaded: the alt text is shown. `https://` links open in the default browser, and a relative link opens a
-file of the Project in the default editor. An absolute path opens the same way when it lies inside the Project, one of its
+runs. Images are not loaded: the alt text is shown. `http://` and `https://` links open in the default browser, never in the
+window, and a relative link opens a file of the Project in the default editor. An absolute path opens the same way when it lies inside the Project, one of its
 worktrees, the Workflow folder or the Tickets root; elsewhere it opens nothing. A link to a file that is not a document asks first: open it, show it in the file
-manager or cancel. Any other link is text.
+manager or cancel. Any other link (`javascript:`, `file:`, `data:`, `mailto:`) is text and opens nothing.
+
+**Links in the text.** A bare `http://`, `https://` or `www.` address is a link too; punctuation and a closing quote or
+guillemet after it (`).`, `»`, `”`, `…`) stay outside the link, and an address inside a code span or a code block is not a
+link. A link stands out from the text: the link / accent colour (`#0062CC` light, `#C8F25A` dark), medium weight, a thin
+underline at 45 % of that colour that turns solid under the pointer and on keyboard focus, and the shared accent focus ring.
+The same renderer draws Claude's answers in the Session view and on the Canvas, so their links look and open the same way.
 
 **Limits.** A file over 1 MiB is refused and read as absent: an ADR leaves the list, and a `HANDOFF.md` of that size hides the
 Node. A file that cannot be read is left out the same way. A symbolic link counts only when it leads to HANDOFF or an ADR of
@@ -574,8 +580,8 @@ stay as they were read.
 #### On a Linked machine
 
 The `docs.*` channels are `read`, so a Linked machine with read-only access sees the documents too. The watch runs on the
-Project's Machine. "Open in Editor" and file links show `File is on <Machine>` instead of opening anything, and an `https://`
-link opens on the Machine where it was clicked.
+Project's Machine. "Open in Editor" and file links show `File is on <Machine>` instead of opening anything, and an `http://` or
+`https://` link opens on the Machine where it was clicked.
 
 ### How it works
 
@@ -616,8 +622,9 @@ link opens on the Machine where it was clicked.
   accepted advice, [sessions](sessions.md)).
   `src/renderer/product/useMindMap.ts`: one topic kept current; it holds the Project's documents open through `useDocs`.
 - `src/renderer/canvas/nodes/HandoffNode.tsx`: the Node. `src/renderer/shell/sidebar/AdrSection.tsx`: the section and the panel.
-- `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`: the renderer and what a link leads to.
-- `src/main/ipc/shell.ts`: `shell.openInEditor`. `src/renderer/machines/useFileElsewhere.ts`: `File is on <Machine>`.
+- `src/renderer/markdown/Markdown.tsx`, `src/renderer/markdown/links.ts`, `src/renderer/markdown/autolink-edges.ts`,
+  `src/renderer/markdown/markdown.css`: the renderer, what a link leads to, where a bare address ends and how a link looks.
+- `src/main/ipc/shell.ts`: `shell.openInEditor` and `shell.openExternal` (`http:` and `https:` only). `src/renderer/machines/useFileElsewhere.ts`: `File is on <Machine>`.
 - `src/renderer/palette/commands.ts`: "Go to" an ADR. `src/renderer/find/search-index.ts`: Find in HANDOFF.
 
 **Data flow.** The first user in the renderer calls `docs.open`. `docsSource` asks the layout for the root, and `DocsHub.open`

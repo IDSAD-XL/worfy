@@ -32,7 +32,8 @@ import '../badges/evidence.css'
 type RefTarget = { kind: 'external'; url: string; label: string } | { kind: 'file'; path: string; label: string } | { kind: 'text'; label: string }
 
 const PR = /^PR #(\d+)$/
-const URL_REF = /^https?:\/\/\S+$/
+/** Only https://: a ref is proof someone looks up, and F-SPEC draws an http:// one as text (markdown links take http:// too since worfy-polish ticket 101). */
+const URL_REF = /^https:\/\/\S+$/i
 /** A path in backticks: one word, with a folder or an extension, so `pnpm` alone stays a command. */
 const PATH_REF = /^`([^`\s]+)`$/
 

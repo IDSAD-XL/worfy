@@ -1,5 +1,5 @@
 // The shared markdown renderer (src/renderer/markdown/Markdown.tsx): GitHub-flavoured tables and
-// task lists, raw HTML shown as text and never executed, and the two kinds of links: https://
+// task lists, raw HTML shown as text and never executed, and the two kinds of links: http(s)://
 // addresses go to the browser (`shell.openExternal`), relative paths to the Project's file in the
 // default editor (`shell.openInEditor`). Anything else is not a link at all.
 import { fireEvent, render, screen } from '@testing-library/react'
@@ -221,12 +221,17 @@ describe('Markdown: links', () => {
     expect(container.innerHTML).not.toContain('alert')
   })
 
-  it('a javascript: or http:// link is not a link and opens nothing', () => {
-    const { container } = render(<Markdown text={'[run](javascript:alert(1)) and [plain](http://example.com)'} projectId="alpha" />)
+  it('a javascript:, file: or data: link is not a link and opens nothing', () => {
+    const { container } = render(<Markdown text={'[run](javascript:alert(1)), [disk](file:///etc/passwd) and [page](data:text/html,x)'} projectId="alpha" />)
     expect(container.querySelector('a')).toBeNull()
-    fireEvent.click(screen.getByText('run'))
-    fireEvent.click(screen.getByText('plain'))
+    for (const text of ['run', 'disk', 'page']) fireEvent.click(screen.getByText(text))
     expect(asked).toEqual([])
+  })
+
+  it('opens an http:// link in the browser too, never in the window (worfy-polish ticket 101)', () => {
+    render(<Markdown text={'The dev server: [local](http://localhost:5173/a).'} projectId="alpha" />)
+    expect(fireEvent.click(screen.getByRole('link', { name: 'local' }))).toBe(false)
+    expect(asked).toEqual([{ channel: 'shell.openExternal', input: { url: 'http://localhost:5173/a' } }])
   })
 })
 
@@ -238,7 +243,9 @@ describe('classifyLink', () => {
     ['./a/../b/c.md?x=1#top', { kind: 'file', path: 'b/c.md' }],
     ['/Users/test/projects/demo/README.md', { kind: 'file', path: '/Users/test/projects/demo/README.md' }],
     ['docs/F%20SPEC.md', { kind: 'file', path: 'docs/F SPEC.md' }],
-    ['http://example.com', { kind: 'none' }],
+    ['http://example.com', { kind: 'external', url: 'http://example.com/' }],
+    ['file:///etc/passwd', { kind: 'none' }],
+    ['data:text/html,x', { kind: 'none' }],
     ['javascript:alert(1)', { kind: 'none' }],
     ['mailto:a@b.c', { kind: 'none' }],
     ['//example.com/x', { kind: 'none' }],

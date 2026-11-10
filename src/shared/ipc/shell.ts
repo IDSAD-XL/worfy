@@ -1,6 +1,6 @@
 // The `shell` domain: handing a file or an address to macOS. Handled in src/main/ipc/shell.ts
 // (ADR-0006). Both channels refuse rather than guess: a path outside the Project and an address
-// that is not https:// come back as {ok:false} with the reason.
+// that is not http:// or https:// come back as {ok:false} with the reason.
 import { z } from 'zod'
 import { invokeChannel } from './channels'
 
@@ -38,7 +38,7 @@ export const shellOpenInEditor = invokeChannel(
 )
 
 /**
- * Opens an https:// address in the default browser; any other scheme is refused. `local`: a link
+ * Opens an http:// or https:// address in the default browser; any other scheme is refused. `local`: a link
  * opens on the Machine where it was clicked (worfy-link ticket 12; ADR-0053), so a window on a
  * Linked machine calls its own main, and no Linked machine opens an address on this one.
  */

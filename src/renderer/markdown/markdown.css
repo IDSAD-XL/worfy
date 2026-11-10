@@ -76,10 +76,29 @@
   accent-color: var(--primary);
 }
 
+/*
+ * A link stands out from the text around it (worfy-polish ticket 101): the link / accent colour of
+ * F-SPEC (#0062CC light, #C8F25A dark), a heavier weight, and a thin underline at 45 % of that
+ * colour that turns solid under the pointer and on keyboard focus. The focus ring is the shared
+ * one of controls (tokens.css). A code span inside a link keeps the link's colour.
+ */
 .w-md a {
   color: var(--accent);
-  text-decoration: underline;
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
+  border-radius: 2px;
+}
+
+.w-md a:hover,
+.w-md a:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+.w-md a code {
+  color: inherit;
 }
 
 .w-md__inert-link {

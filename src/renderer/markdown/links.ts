@@ -1,7 +1,8 @@
-// What a link in rendered markdown leads to. worfy opens exactly two kinds: an https:// address
-// in the default browser, and a file of the Project in the app macOS assigns to it. Everything
-// else (http://, javascript:, mailto:, protocol-relative //host, in-page #anchors) is shown as
-// text and opens nothing.
+// What a link in rendered markdown leads to. worfy opens exactly two kinds: an http:// or https://
+// address in the default browser, and a file of the Project in the app macOS assigns to it.
+// Everything else (javascript:, file:, data:, mailto:, protocol-relative //host, in-page #anchors)
+// is shown as text and opens nothing. http:// opens since worfy-polish ticket 101: agents write
+// `http://localhost:5173` and the like, and the system browser shows such a page as not secure.
 
 export type LinkTarget =
   | { kind: 'external'; url: string }
@@ -83,7 +84,7 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
   if (SCHEME.test(value)) {
     try {
       const url = new URL(value)
-      return url.protocol === 'https:' ? { kind: 'external', url: url.href } : { kind: 'none' }
+      return url.protocol === 'https:' || url.protocol === 'http:' ? { kind: 'external', url: url.href } : { kind: 'none' }
     } catch {
       return { kind: 'none' }
     }
