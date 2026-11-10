@@ -1,7 +1,8 @@
 # 86 — `check-cyrillic` читает gitignored-результаты eval-а, и lint краснеет в worktree
 
 Type: bug
-Status: claimed 2026-11-09T22:52Z
+Status: done 2026-11-10T02:10Z
+PR: #1756
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-09: после платного eval-а в worktree Ticket-а gate fast в этом worktree стал
 красным на `pnpm lint`. Строки перечитаны по main `c69ffd43b`.

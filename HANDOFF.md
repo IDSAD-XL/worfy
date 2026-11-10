@@ -2,32 +2,33 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; влиты 62, 64, 65 (#719), 66 (#949), 67 (#1011), 68 (#945), 69 (#1015), 70 (#778), 71 (#829), 52, 63 (#713); задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
-- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): 70/71; задачи 52 — у владельца; 31, 36, 47, 48, 50, 51 — шаг владельца.
+- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): закрыт, 20/20. Проверка 14 (перетаскивание без фризов) на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` на Mac и ПК — `0.3.0+bacbbcef` (2026-11-03). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 31 (Tailscale) принят 2026-10-31; 41 (дубль сообщения, #1114) и 42 (поток строк смены сети, #1119) — проверка после Stable.
+- `worfy-link` ([spec](.scratch/worfy-link/spec.md)): закрыт, 42/42, принят владельцем 2026-11-02; 41 (дубль сообщения) и 42 (поток строк смены сети) — проверка после Stable.
 - `worfy-windows` (ADR 0054–0057, 0062, 0063, 0069, 0071; прошлое — «Итог» 39, 60, 66, 67): 119/120; влиты 118–120; 15 и 118 вместе прошли зелёный gate full на ПК (`5557f744`). Осталась приёмка 16; красный только на Windows — fix или Windows exception (Q1/Q9).
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) — **добиваем, владелец 2026-10-23**: закрыт, 17/17, принят владельцем 2026-11-02 (17 — #1056, ветка git из файлов).
+- `worfy-terminal-ai` (ADR-0058): закрыт, 17/17, принят владельцем 2026-11-02.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18) — **отложен владельцем 2026-10-21**: 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): закрыт, 28/28, принят владельцем 2026-11-02; долги — «Итог» 03–06, 09, 10, 13–15.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-polish`: 76/85; 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца; 76, 79, 82 влиты 11-09. Дальше 78, 81, новые 83–86 (запас start context, reviewer-verdict, flaky test-ы, check-cyrillic).
+- `worfy-polish`: 79/86; 78, 85, 86 влиты в ночь на 11-10 (#1759, #1760, #1756); 47 (flaky Windows) закрыть после Windows-job-ов main до 11-12; 75, 77 ждут взгляда владельца. Дальше 81, 83, 84 и новый 87 (flaky `beforeAll` в `affected-tests.test.ts`).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 63/66; 63–65 влиты 11-09 (#1730, #1733, #1734); открыты 05, 43; 31 закрыт 11-09. 43: eco у друга.
-- `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10, влиты 01–10 (08 — #552, 09 — #550, 10 — #577); решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
-- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10 (01–07, 09, 10 влиты; 10 — #649); 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
+- `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 10/10; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
+- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 9/10; 08 — после следующего release; до 08 — шаги владельца из «Итог» 04, 06, 07 и 10 (10 — после Stable с #649).
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077, 0082): 24/24; 24 — картинки на Linked machine (#1018), три решения — подтвердить владельцу.
 - `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 18/19; 18 — #1008, ADR-0087. 19 (эмуляция устройств) — ждёт владельца, не брать.
 - `worfy-update` ([spec](.scratch/worfy-update/spec.md), ADR-0089): закрыт, 16/16, принят владельцем 2026-11-02 (Mac). `worfy-guide`: закрыт, 21/21.
 - `worfy-flight-recorder` (ADR-0091, 28/28) и `worfy-resource-planner` (12/12): закрыты, приняты владельцем 2026-11-01; Windows-часть FR 25 не проводилась.
-- `worfy-autopilot-queue` (очередь Epic-ов и старт Autopilot при занятом Orchestrator-е; [spec](.scratch/worfy-autopilot-queue/spec.md)): приёмка 20 принята владельцем 2026-11-07 («по всем +»; «Итог» 20). Открыт 21 — «Start anyway» в окне очереди и последний Epic, ждущий владельца (Q1, Q2 приёмки).
-- `worfy-work-track` (Work track во вкладке Runs; [spec](.scratch/worfy-work-track/spec.md)): закрыт, 13/13, принят владельцем 2026-11-07 («принимаю трек»); «Итог» 12.
+- `worfy-autopilot-queue` (очередь Epic-ов и старт Autopilot при занятом Orchestrator-е; [spec](.scratch/worfy-autopilot-queue/spec.md)): приёмка 20 принята владельцем 2026-11-07. Открыт 21 — «Start anyway» в окне очереди и последний Epic, ждущий владельца (Q1, Q2 приёмки).
+- `worfy-work-track` (Work track во вкладке Runs; [spec](.scratch/worfy-work-track/spec.md)): закрыт, 13/13, принят владельцем 2026-11-07.
 - `worfy-multi-vendor`: 45/46, код в main; осталась 43 (приёмка владельца). Подтвердить: «Итог» 16, 17, 21–23, 25–29, 31, 33–42, 44, 45 (`additionalContextLimit`), 46, ADR-0095; `high` 19–21. Должен: gate full ПК на `c4eb4117`.
-- `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07 («Итог» `worfy-retry` 11). Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
+- `worfy-retry` закрыт 14/14, принят владельцем 2026-11-07. Spec `worfy-auto-approve` принят 11-04; `worfy-faults` 8/8 принят 11-06; `worfy-failures` закрыт 10/10, подтвердить его «Итог» 09.
 - `worfy-evidence` закрыт 13/13, принят владельцем 11-07 на Mac и ПК («Итог» `worfy-evidence` 09).
 - `worfy-product-session`: 20/32; 19–32 влиты 11-09 (32 — Live summary от Haiku, #1743); 08, 21, 23, 26–32 ждут взгляда владельца в Mac Stable. Дальше 15; 17 после 15.
 - `worfy-scrub`: guard `scripts/check-personal.mjs` блокирует `pnpm lint` (06); слова — только `<Harness home>/user/privacy.json` владельца, хэши — `--hash-from`.
-- `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09 (human-review-setup на его проекте), 14 — повторы на 504 (#1736).
-- `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 4/8; 01–03, 07 влиты 11-09 (#1746, #1745, #1748, #1750); 04 — PR #1752; дальше 05, 06, 08.
+- `worfy-human-review`: закрыт 14/14; 12 принят владельцем 11-09.
+- `worfy-multi-repo-ticket` ([spec](.scratch/worfy-multi-repo-ticket/spec.md), ADR-0104): 6/8; 01–05, 07 влиты (04 — #1752, 05 — #1758); дальше 06, 08.
+- `worfy-pr-inbox` ([spec](.scratch/worfy-pr-inbox/spec.md)): 3/8; 01, 02, 08 влиты в ночь на 11-10 (#1754, #1755, #1761); дальше 03–07.
 
 ## Ждёт владельца
 
