@@ -373,10 +373,24 @@ mtime_of() {
   if [ "$(uname)" = Darwin ]; then stat -f %m "$1"; else stat -c %Y "$1"; fi
 }
 
+# Makes the lock folder; true only when this run made it. Not the `mkdir` command: uutils mkdir
+# (the coreutils of Ubuntu 26.04, version 0.8.0) looks for the folder first and exits 0 also when
+# another process made it between that look and its own mkdir, so two runs both took the lock
+# (measured there: two `mkdir` of one folder at once both exited 0 in 1332 of 2000 rounds; GNU and
+# BSD mkdir in 0). Perl's mkdir is the bare system call, which fails when the folder is there; perl
+# comes with macOS, Git for Windows and every Ubuntu (perl-base). An exit other than 0 or 1 (no perl)
+# ends the script rather than looping on a lock it can never take.
+take_lock() {
+  local code=0
+  perl -e 'mkdir($ARGV[0]) or exit 1' "$LOCK" 2>/dev/null || code=$?
+  [ "$code" -le 1 ] || die 1 "lock-run: cannot try to make $LOCK: perl exited $code"
+  return "$code"
+}
+
 lock_run() {
   [ $# -gt 0 ] || die 2 "lock-run: no command"
   local m hb pause=${E3_LOCK_PAUSE:-20}
-  until mkdir "$LOCK" 2>/dev/null; do
+  until take_lock; do
     m=$(mtime_of "$LOCK" 2>/dev/null) || continue
     # An abandoned lock is removed, and the pause below comes before this run tries to take it. Taking
     # it at once let two runs hold the lock: both read the old time, the first removed the lock and
