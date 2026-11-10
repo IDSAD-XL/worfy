@@ -15,7 +15,8 @@ import { ms } from '../time-scale'
 // - the toolbar tab opens the view, the sidebar section counts the groups, the palette opens the view too;
 // - two panes (worfy-polish 96): the list by group on the left, the selected PR on the right with its threads; a click
 //   or ↑ / ↓ selects a PR, and its "N new since you looked" goes; Send all (2) of the strip opens its dialog and posts
-//   nothing on Cancel; a long repository name at 1280 px is cut alone, the list never scrolls sideways; screenshots at
+//   nothing on Cancel; a long repository name at 1280 px is cut alone, the list never scrolls sideways; a long Epic
+//   name in the Ticket chip is cut after the repository name and never covers #N (worfy-polish 103); screenshots at
 //   1280 and 1600 px, both themes;
 // - openPrInboxOf with a PR of the other Project selects that Project and opens its view on the PR;
 // - the switch of Project settings: off, main runs no gh for the Project; on again, it reads;
@@ -634,6 +635,105 @@ test('a long repository name at 1280 px: the list never scrolls sideways, only t
     const shots = await snapshotThemes(window, 'pr-inbox-long-name-1280')
     for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `long-name-1280-${scheme}.png`))
     console.log(`pull requests long-name-1280: ${join(SCREENS, 'long-name-1280-light.png')} ${join(SCREENS, 'long-name-1280-dark.png')}`)
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})
+
+const LONG_EPIC = 'worfy-very-long-epic-name-for-layout'
+
+test('a long Epic name in the Ticket chip at 1280 px: #N stays whole and uncovered, the repository name gives way first, then the Epic name; the CI text stays whole', async () => {
+  test.setTimeout(ms(90_000))
+  // One Project, repository example/app, with Ticket 21 of an Epic whose name is longer than the row (its PR's branch
+  // is <epic>/21).
+  const app = join(scratch, 'app')
+  const issues = join(app, '.scratch', LONG_EPIC, 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(app, '.scratch', LONG_EPIC, 'spec.md'), '# Layout\n')
+  writeFileSync(join(issues, '21-ticket-21.md'), ['# 21 — Ticket 21', '', 'Type: task', 'Status: claimed — 2026-10-05', 'Blocked by: —', '', '## Что делаем', '', 'text', ''].join('\n'))
+  repo('app', 'example/app')
+  const APP = 'app-0000000a'
+  mkdirSync(join(dataDir, APP), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: APP, name: 'app', path: app }], activeId: APP }))
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const answer = join(claudeHome, 'epic-status.json')
+  const ticket = { epic: LONG_EPIC, num: 21, slug: 'ticket-21', title: '21 — Ticket 21', statusRaw: 'claimed — 2026-10-05', state: 'work', blockedRaw: '—', blockedNums: [], blockedParsed: true }
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: LONG_EPIC, hasSpec: true, hasMap: false }], tickets: [ticket] }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
+  writeFileSync(
+    join(ghDir, 'graphql.json'),
+    JSON.stringify({
+      viewer: ME,
+      pulls: [
+        stubPull('example/app', 842, 'Retry the export when the queue is busy', { ci: 'FAILURE', merge: 'UNSTABLE', branch: `${LONG_EPIC}/21` }),
+        stubPull('example/app', 77, 'A row without a Ticket', { author: ANA, requested: [{ login: ME }], ci: 'PENDING' }),
+      ],
+    }),
+  )
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await expect(sectionRow(window, APP, 'needs-fix')).toBeVisible({ timeout: ms(30_000) })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    const row = prRow(window, 'example/app', 842)
+    const chip = row.getByTestId('pr-inbox-ticket')
+    await expect(chip).toHaveText(`${LONG_EPIC} 21`, { timeout: ms(30_000) })
+    await expect(chip).toHaveAttribute('title', `${LONG_EPIC} 21 — Ticket 21`)
+    await expect(row.getByTestId('pr-inbox-ref')).toHaveText('app#842')
+    await expect(row.locator('.w-pr-inbox-item__number')).toHaveText('#842')
+    await expect(row.locator('.w-pr-inbox-ci-text')).toHaveText('CI failing')
+    const list = window.getByTestId('pr-inbox-list')
+    // The list does not scroll sideways.
+    const widths = await list.evaluate((node) => ({ scroll: node.scrollWidth, client: node.clientWidth }))
+    expect(widths.scroll).toBeLessThanOrEqual(widths.client)
+    // Measured in the page: what is cut, what is whole, and that the parts stand side by side in order — #N, the chip,
+    // the CI text, then the age — without one drawn over the next.
+    const facts = await row.evaluate((node) => {
+      const part = (selector: string) => {
+        const found = node.querySelector(selector)
+        if (found === null) throw new Error(`no ${selector}`)
+        return found
+      }
+      // Whole within the pixel the two widths are rounded to.
+      const cut = (selector: string): boolean => part(selector).scrollWidth > part(selector).clientWidth + 1
+      const rect = (selector: string) => part(selector).getBoundingClientRect()
+      const number = rect('.w-pr-inbox-item__number')
+      const chip = rect('[data-testid="pr-inbox-ticket"]')
+      const chipNumber = rect('.w-pr-inbox-ticket__number')
+      const ci = rect('.w-pr-inbox-ci-text')
+      const side = rect('.w-pr-inbox-item__side')
+      return {
+        repoCut: cut('[data-testid="pr-inbox-ref-repo"]'),
+        epicCut: cut('[data-testid="pr-inbox-ticket-epic"]'),
+        numberCut: cut('.w-pr-inbox-item__number'),
+        ciCut: cut('.w-pr-inbox-ci-text'),
+        chipNumberInside: chipNumber.left >= chip.left && chipNumber.right <= chip.right,
+        inOrder: number.width > 0 && number.right <= chip.left && chip.right <= ci.left && ci.right <= side.left,
+      }
+    })
+    expect(facts).toEqual({ repoCut: true, epicCut: true, numberCut: false, ciCut: false, chipNumberInside: true, inOrder: true })
+    // A short row of the same list: nothing is cut.
+    const plain = prRow(window, 'example/app', 77)
+    await expect(plain.getByTestId('pr-inbox-ref')).toHaveText('app#77')
+    const plainRepo = await plain.getByTestId('pr-inbox-ref-repo').evaluate((node) => node.scrollWidth <= node.clientWidth)
+    expect(plainRepo).toBe(true)
+    // The pane's header wraps; the chip there stays inside it.
+    await row.getByRole('button').click()
+    const meta = await pane(window).evaluate((node) => {
+      const chip = node.querySelector('[data-testid="pr-inbox-ticket"]')?.getBoundingClientRect()
+      const head = node.querySelector('.w-pr-inbox-pane__meta')?.getBoundingClientRect()
+      return chip !== undefined && head !== undefined && chip.left >= head.left && chip.right <= head.right + 0.5
+    })
+    expect(meta).toBe(true)
+    mkdirSync(SCREENS, { recursive: true })
+    const shots = await snapshotThemes(window, 'pr-inbox-long-ticket-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `long-ticket-1280-${scheme}.png`))
+    console.log(`pull requests long-ticket-1280: ${join(SCREENS, 'long-ticket-1280-light.png')} ${join(SCREENS, 'long-ticket-1280-dark.png')}`)
     expectNoWrite()
   } finally {
     await launched.close()

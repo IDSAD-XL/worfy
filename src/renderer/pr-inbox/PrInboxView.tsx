@@ -14,6 +14,7 @@ import { PR_INBOX_GROUP_TITLES, type PrInboxComment, type PrInboxGroup, type PrI
 import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { Ticket } from '../../shared/workflow/types'
+import { ticketTitle } from '../canvas/epic-layout'
 import { invoke, readableReason } from '../ipc'
 import { useNow } from '../limits/useLimits'
 import { ticketRef } from '../pipeline/board'
@@ -148,11 +149,16 @@ function CiDot({ ci, label = false }: { ci: PrInboxRow['ci']; label?: boolean })
   )
 }
 
+/** `<epic> <NN>`; a long Epic name is cut by the stylesheet, the number stays whole, the whole `<epic> <NN> — title` is the tooltip. */
 function TicketChip({ ticket }: { ticket: Ticket | undefined }) {
   if (ticket === undefined) return null
+  const ref = ticketRef(ticket)
   return (
-    <span className="w-chip w-chip--open w-mono w-pr-inbox-ticket" data-testid="pr-inbox-ticket" title={ticket.title}>
-      {ticketRef(ticket)}
+    <span className="w-chip w-chip--open w-mono w-pr-inbox-ticket" data-testid="pr-inbox-ticket" title={`${ref} — ${ticketTitle(ticket)}`}>
+      <span className="w-pr-inbox-ticket__epic" data-testid="pr-inbox-ticket-epic">
+        {ticket.epic}
+      </span>
+      <span className="w-pr-inbox-ticket__number">{ref.slice(ticket.epic.length)}</span>
     </span>
   )
 }

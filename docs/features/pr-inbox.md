@@ -43,7 +43,10 @@ activity first. A PR without a Ticket is a row like any other.
 **A row of the list.** The author's avatar (two letters of the login on a colour of its own; the user's own has a ring),
 the title, and under it the repository's name and number (`web#41`; the whole `owner/repo#N` is the tooltip; a long
 name is cut with an ellipsis, the number stays whole, and the list never scrolls sideways), the
-Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, and the CI dot — with its text beside it when CI is not green. On
+Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, and the CI dot — with its text beside it when CI is not green.
+When the line runs short, the repository name gives way first, then the Epic name in the Ticket chip (cut with an
+ellipsis; its number stays whole, and `<epic> <NN> — <title>` is the chip's tooltip). `#N` and the CI text stay
+whole, and nothing is drawn over anything. On
 the right: the age, the count of open threads with a speech-bubble icon (orange on the user's own PR, where someone
 waits for the user; "2 open threads" is the tooltip), and a blue dot when there are new comments ("N new since you
 looked" is the tooltip).
