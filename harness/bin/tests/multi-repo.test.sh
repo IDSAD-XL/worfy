@@ -37,6 +37,11 @@ export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-t}" GIT_COMMITTER_EMAIL="${GIT_
 export HOME="$T/home" USERPROFILE="$T/home" HARNESS_HOME="$T/hh"
 # Paths written into files node reads are in node's spelling: C:/… in Git Bash on Windows, the same as $T elsewhere.
 TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# slashes <path>: a path node prints, with / for \ — node on Windows prints D:\a\…, TN is D:/a/….
+slashes() { printf '%s' "$1" | tr '\\' '/'; }
+# jq without carriage returns: jq.exe on Windows ends its lines with CRLF. Git Bash drops the CR in $(…) but not in
+# `read`, so a loop over jq's lines would get "41\r" for 41; the stub gh strips them the same way.
+jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
 
 # --- the stubs: gh and npm of the fixture, first on PATH; the guards stop the test before a real one could run ------
 STUBS="$T/stubs"
@@ -127,7 +132,7 @@ people_merge() {
 [ "$(cd "$W" && node "$PROFILE" --field _resolved.repos | jq -r '[.[].name] | join(",")')" = "lib,app" ] \
     && [ "$(cd "$W" && node "$PROFILE" --field _resolved.mode)" = silent ] \
     && ok "profile from the working folder: Silent mode, the repositories lib and app" || bad "profile: $(cd "$W" && node "$PROFILE" --field _resolved 2>&1 | head -c 400)"
-[ "$(cd "$W" && node "$TICKET" root)" = "$TN/work/.scratch" ] && ok "the tickets live in the working folder above the repositories" \
+[ "$(slashes "$(cd "$W" && node "$TICKET" root)")" = "$TN/work/.scratch" ] && ok "the tickets live in the working folder above the repositories" \
     || bad "tickets root: $(cd "$W" && node "$TICKET" root 2>&1)"
 
 # --- 1. one ticket, two Repo: lines (the library first), one branch in both checkouts --------------------------------

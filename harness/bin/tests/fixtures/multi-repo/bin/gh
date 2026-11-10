@@ -9,6 +9,8 @@
 # Every call goes to $FIXTURE_GH_LOG as one line, "<repository>:" and the arguments. Anything else — `gh pr merge`
 # among them: people merge, never the agent — exit 1, so a call the fixture does not know shows up as a failure.
 set -u
+# jq.exe on Windows ends its lines with CRLF: the answers of this stub keep LF only, as gh's do.
+jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
 repo="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
 { printf '%s:' "$repo"; printf ' %s' "$@"; echo; } >>"$FIXTURE_GH_LOG"
 S="$FIXTURE_GH_STATE/$repo"
