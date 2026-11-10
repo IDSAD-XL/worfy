@@ -1,7 +1,9 @@
 # 08 — Приёмка: fixture-проект из двух репозиториев со stub `gh` и `npm`; настоящий Ticket в рабочем проекте
 
 Type: task
-Status: claimed 2026-11-10T03:55Z
+Status: blocked 2026-11-10T04:34Z
+Blocked reason: fixture tests merged in #1767 (100acec94); item 2 waits: the owner runs a real Ticket of two repositories in Mac Stable
+Waits: owner
 Branch: worfy-multi-repo-ticket/08
 Blocked by: 02, 06, 07
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–7; «Ticket-ы», «Волны» (Wave 5); «Решения владельца

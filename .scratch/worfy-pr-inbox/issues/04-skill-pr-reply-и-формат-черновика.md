@@ -1,7 +1,8 @@
 # 04 — Skill `/worfy:pr-reply`, формат черновика, `review-draft-lint --reply`, action template `prReply`
 
 Type: task
-Status: claimed 2026-11-10T00:53Z
+Status: done 2026-11-10T04:10Z
+PR: #1762
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 4; «Как работает» → «Черновики ответов (Ticket 04; Q8)»;
 «Риски» («Следы в Silent mode», «Публикация по ошибке»); «Ticket-ы», «Волны» (Wave 2); решения Q2, Q8;
