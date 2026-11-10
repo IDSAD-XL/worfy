@@ -87,7 +87,7 @@ beforeEach(() => {
   main.calls.length = 0
   main.readOnly = null
   main.answers = {
-    'projects.settings.get': { ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' } } },
+    'projects.settings.get': { ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } } },
     'terminal.shells': { ok: true, value: [] },
     'projects.reviewer.get': { ok: true, value: { status: 'none' } },
     'profileEdit.read': { ok: true, value: READ },
