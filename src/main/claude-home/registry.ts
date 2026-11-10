@@ -308,6 +308,20 @@ export async function processState(pid: number, procStart: string | undefined, o
   return collapse(stdout) === collapse(procStart) ? 'alive' : 'gone'
 }
 
+/**
+ * Whether no process has the pid now, by a signal 0 alone: no `ps` or PowerShell is started, so it may be
+ * asked often. A reused pid still counts as running here; processState() tells that apart.
+ */
+export function processGoneNow(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return true
+  try {
+    process.kill(pid, 0)
+    return false
+  } catch (error) {
+    return !(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM')
+  }
+}
+
 /** True when processState() says `alive`; a `ps` that could not answer counts as not running here. */
 export async function processAlive(pid: number, procStart: string | undefined): Promise<boolean> {
   return (await processState(pid, procStart)) === 'alive'

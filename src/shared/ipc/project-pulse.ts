@@ -42,9 +42,6 @@ export const projectPulseGet = invokeChannel('projectPulse.get', z.void(), proje
 /** The whole state again, after a change of any Project's part of it. */
 export const projectPulseChanged = eventChannel('projectPulse.changed', projectPulseStateSchema, 'project', 'read')
 
-/** The groups of the PR inbox whose pull requests need the user: the same ones the Pull requests rail badge counts. */
-export const PR_NEED_YOU_GROUPS: readonly string[] = ['needs-review', 'needs-answer', 'needs-fix']
-
 /** Who a Ticket waits for when it waits for no person: the Stages of the agents (src/shared/workflow/pipeline.ts). */
 const AGENT = 'agent'
 

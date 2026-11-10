@@ -17,7 +17,7 @@ import { nodeSession, openSession, setView, useNavigation } from '../../session/
 import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
-import { clearSessionRequest, requestLive, requestSession, useSessionRequest } from '../session-request'
+import { clearSessionRequest, forgetSessionRefusal, requestLive, requestSession, useSessionRequest } from '../session-request'
 import { projectsInScope, setRailBadge, useSidebarScope } from '../sidebar-scope'
 import { NoProjectSection, SidebarSection } from '../SidebarSection'
 
@@ -138,6 +138,14 @@ function Sessions({ project, others }: SessionsProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [vendorOpen, setVendorOpen] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // Why a Session of this Project asked from another one was not opened (the request below).
+  const refusal = useSessionRequest((state) => (state.refusal !== null && state.refusal.projectId === project.id ? state.refusal.text : null))
+  useEffect(() => forgetSessionRefusal, [])
+  const sayNothing = () => {
+    setProblem(null)
+    forgetSessionRefusal()
+  }
+  const said = problem ?? refusal
   // On a read-only screen (worfy-link ticket 25) "New session" is inactive, saying why.
   const readOnly = useReadOnly()
   const pulse = useProjectPulse()
@@ -146,11 +154,15 @@ function Sessions({ project, others }: SessionsProps) {
     const own = pulseOf(pulse, other.id)?.live ?? []
     return own.length > 0 ? [{ project: other, live: own }] : []
   })
+  // A Project inside this one (its own repository in a folder of this one) has its Sessions in this Project's
+  // registry answer too; shown under its own name, they are not listed or counted here again.
+  const elsewhereIds = new Set(elsewhere.flatMap((each) => each.live.map((session) => session.sessionId)))
+  const ownLive = live?.filter((session) => !elsewhereIds.has(session.sessionId))
   const named = others.length > 0
 
   const newSession = async (vendor: string | undefined) => {
     setVendorOpen(false)
-    setProblem(null)
+    sayNothing()
     const result = await invoke('sessions.new', { projectId: project.id, ...(vendor === undefined ? {} : { vendor }) })
     if (!result.ok) {
       setProblem(result.error)
@@ -164,7 +176,7 @@ function Sessions({ project, others }: SessionsProps) {
   // Session view is where it is worked with, so it opens there at once (as the palette's command does).
   const newProductSession = async () => {
     setVendorOpen(false)
-    setProblem(null)
+    sayNothing()
     const result = await invoke('sessions.new', { projectId: project.id, kind: 'product' })
     if (!result.ok) {
       setProblem(result.error)
@@ -208,6 +220,11 @@ function Sessions({ project, others }: SessionsProps) {
       return
     }
     if (requestedNode === undefined) return
+    // A hidden or archived Node would come back first, which a read-only screen does not do: as on an own row.
+    if (readOnly !== null && !shownOnCanvas(requestedNode)) {
+      clearSessionRequest({ projectId: project.id, text: readOnly })
+      return
+    }
     clearSessionRequest()
     open(requested.sessionId)
     // `open` reads the Layout of this render, which holds `requestedNode`.
@@ -244,7 +261,7 @@ function Sessions({ project, others }: SessionsProps) {
 
   // A Session of another Project: that Project opens, then its section opens the Session (requestSession).
   const openElsewhere = (other: ProjectView, sessionId: string) => {
-    setProblem(null)
+    sayNothing()
     // Asked first: the other Project's section may mount before the answer below comes.
     requestSession(other.id, sessionId)
     void openProject(windowMachine(), other.id).then((refused) => {
@@ -256,10 +273,10 @@ function Sessions({ project, others }: SessionsProps) {
 
   let body = null
   if (error !== undefined) body = <p style={styles.message}>The Sessions could not be read: {readableReason(error)}</p>
-  else if (live !== undefined && live.length > 0)
+  else if (ownLive !== undefined && ownLive.length > 0)
     body = (
       <ul style={styles.list}>
-        {live.map((session) => {
+        {ownLive.map((session) => {
           const title = session.name ?? history.find((each) => each.sessionId === session.sessionId)?.title ?? `Session ${session.sessionId.slice(0, 8)}`
           const row = sessionRow(session, worfyIds, worfy, title)
           // An archived or hidden Node would come back first: a change of the Project, which a read-only screen does not make.
@@ -289,7 +306,7 @@ function Sessions({ project, others }: SessionsProps) {
         })}
       </ul>
     )
-  const liveShown = (live?.length ?? 0) + elsewhere.reduce((sum, each) => sum + each.live.length, 0)
+  const liveShown = (ownLive?.length ?? 0) + elsewhere.reduce((sum, each) => sum + each.live.length, 0)
 
   return (
     <SidebarSection
@@ -308,9 +325,9 @@ function Sessions({ project, others }: SessionsProps) {
       }
       actions={actions}
       notice={
-        problem !== null ? (
+        said !== null ? (
           <p style={styles.message} role="alert">
-            {problem}
+            {said}
           </p>
         ) : null
       }

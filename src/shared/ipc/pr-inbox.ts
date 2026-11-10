@@ -13,6 +13,12 @@ export const PR_INBOX_GROUPS = ['needs-review', 'needs-answer', 'needs-fix', 're
 export const prInboxGroupSchema = z.enum(PR_INBOX_GROUPS)
 export type PrInboxGroup = z.infer<typeof prInboxGroupSchema>
 
+/**
+ * The groups whose pull requests need the user: they make the count on the Pull requests rail button and the
+ * «N PR need you» of a Project card (src/main/ipc/project-pulse.ts).
+ */
+export const PR_NEED_YOU: ReadonlySet<PrInboxGroup> = new Set<PrInboxGroup>(['needs-review', 'needs-answer', 'needs-fix'])
+
 /** What the view calls each group. */
 export const PR_INBOX_GROUP_TITLES: Readonly<Record<PrInboxGroup, string>> = {
   'needs-review': 'Needs my review',

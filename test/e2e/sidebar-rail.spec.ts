@@ -314,7 +314,9 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
     const sessions = window.getByRole('region', { name: 'Sessions', exact: true })
     await expect(sessions.getByTestId('sidebar-session')).toHaveCount(3)
     expect(await sessions.getByTestId('sidebar-sessions-project').evaluateAll((all) => all.map((group) => group.getAttribute('data-project')))).toEqual([ORCHARD, HARBOR])
-    await expect(sessions.locator(`[data-testid="sidebar-session"][data-project="${HARBOR}"] [data-testid="sidebar-session-name"]`)).toHaveText(['Dock schedule', 'Crane notes'])
+    // Both harbor Sessions share the test's pid, so their order follows the folder listing: compared without it.
+    const harborNames = sessions.locator(`[data-testid="sidebar-session"][data-project="${HARBOR}"] [data-testid="sidebar-session-name"]`)
+    await expect.poll(async () => (await harborNames.allTextContents()).sort()).toEqual(['Crane notes', 'Dock schedule'])
     await expect(sessions.getByTestId('sidebar-sessions-live')).toHaveText('3 live')
     await expect(sessions.getByTestId('sidebar-scope-note')).toHaveCount(0)
     await ticketShots(window, 'sessions-all', '99')

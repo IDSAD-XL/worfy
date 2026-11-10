@@ -40,6 +40,14 @@ const ADRS: Record<string, ReturnType<typeof adr>[]> = { [ALPHA.id]: [adr('0001'
 
 let asked: { channel: string; input: unknown }[]
 let selectRefusal: string | null
+/** Whether the Node of beta's first live Session is hidden on beta's Canvas. */
+let betaHidden: boolean
+/** The live Sessions of alpha's registry answer (claudeHome.*). */
+let alphaRegistry: ReturnType<typeof live>[]
+/** main's answer of projectPulse.get. */
+let pulse: ProjectPulseState
+/** main's answer of projects.list. */
+let list: ProjectsState
 
 function bridge(): WorfyBridge {
   return {
@@ -47,17 +55,17 @@ function bridge(): WorfyBridge {
       asked.push({ channel, input })
       const projectId = (input as { projectId?: string } | undefined)?.projectId
       const answers: Record<string, unknown> = {
-        'projects.list': LIST,
-        'projectPulse.get': PULSE,
-        'claudeHome.sessions': { live: ALPHA_LIVE, history: [] },
-        'claudeHome.live': { live: ALPHA_LIVE },
+        'projects.list': list,
+        'projectPulse.get': pulse,
+        'claudeHome.sessions': { live: alphaRegistry, history: [] },
+        'claudeHome.live': { live: alphaRegistry },
         'sessions.views': { views: [] },
         'docs.open': { projectId, handoff: null, adrs: ADRS[projectId ?? ''] ?? [] },
         'docs.adrs': { adrs: ADRS[projectId ?? ''] ?? [] },
         // The Canvas of beta has the Node of its first live Session.
         'layout.get': {
           projectId,
-          layout: { nodes: projectId === BETA.id ? [{ id: 'node-beta-1', kind: 'session', x: 0, y: 0, w: 320, h: 200, data: { sessionId: 'beta-live-1' } }] : [], viewport: { x: 0, y: 0, zoom: 1 } },
+          layout: { nodes: projectId === BETA.id ? [{ id: 'node-beta-1', kind: 'session', x: 0, y: 0, w: 320, h: 200, hidden: betaHidden, data: { sessionId: 'beta-live-1' } }] : [], viewport: { x: 0, y: 0, zoom: 1 } },
           revision: 1,
         },
       }
@@ -79,6 +87,10 @@ beforeEach(() => {
   localStorage.clear()
   asked = []
   selectRefusal = null
+  betaHidden = false
+  alphaRegistry = ALPHA_LIVE
+  pulse = PULSE
+  list = LIST
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge()
 })
 
@@ -153,6 +165,49 @@ describe('Sessions under «All Projects»', () => {
     })
     expect((await screen.findByRole('alert')).textContent).toBe('beta could not be opened: the Project folder is gone')
     expect(request.useSessionRequest.getState().request).toBeNull()
+  })
+
+  it('on a read-only screen does not bring back the hidden Node of another Project\'s Session, and says why', async () => {
+    const READ_ONLY = 'Read-only: the Linked machine gives this Machine read-only access'
+    vi.doMock('../../src/renderer/projects/useProjects', async (importOriginal) => ({ ...(await importOriginal<object>()), useReadOnly: () => READ_ONLY }))
+    betaHidden = true
+    await mountSection('SessionsSection')
+    await waitFor(() => expect(screen.getAllByTestId('sidebar-session')).toHaveLength(3))
+    const focus = await import('../../src/renderer/claude-home/focus')
+    const request = await import('../../src/renderer/shell/session-request')
+    const row = screen.getAllByTestId('sidebar-session').find((each) => each.getAttribute('data-session-id') === 'beta-live-1')
+    if (row === undefined) throw new Error('no row of beta')
+    await act(async () => {
+      fireEvent.click(row)
+    })
+    expect((await screen.findByRole('alert')).textContent).toBe(READ_ONLY)
+    expect(request.useSessionRequest.getState().request).toBeNull()
+    expect(focus.useSessionFocus.getState().request).toBeNull()
+    // Nothing is changed on beta's Canvas: only its Layout is read.
+    expect(asked.filter((call) => call.channel.startsWith('layout.') && call.channel !== 'layout.get')).toEqual([])
+    vi.doUnmock('../../src/renderer/projects/useProjects')
+  })
+
+  it('lists and counts a Session of a Project nested in the open one once: under the nested Project', async () => {
+    const INNER = { id: 'inner-0000000d', name: 'inner', path: `${ALPHA.path}/inner`, branch: 'main' }
+    const nested = live(12, 'inner-live-1', `${INNER.path}/src`, 'busy', 'Inner work')
+    // The open Project's registry answer holds every Session under its folder, the nested Project's too.
+    alphaRegistry = [...ALPHA_LIVE, nested]
+    pulse = { projects: [...PULSE.projects, { projectId: INNER.id, live: [nested], busy: 1, prNeedYou: null, waits: null }] }
+    list = { ...LIST, projects: [...LIST.projects, INNER] }
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(list)
+    const { default: Section } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    render(<Section />)
+    await waitFor(() => expect(screen.getAllByTestId('sidebar-session')).toHaveLength(4))
+    expect(screen.getAllByTestId('sidebar-session').filter((row) => row.getAttribute('data-session-id') === 'inner-live-1')).toHaveLength(1)
+    const own = screen.getAllByTestId('sidebar-sessions-project').find((group) => group.getAttribute('data-project') === ALPHA.id)
+    expect(own?.textContent).not.toContain('Inner work')
+    expect(screen.getByTestId('sidebar-sessions-live').textContent).toBe('4 live')
+    // Under one Project the nested one is not shown apart: its Session stays in the open Project's list.
+    const scope = await import('../../src/renderer/shell/sidebar-scope')
+    act(() => scope.setSidebarScope('project'))
+    expect(screen.getAllByTestId('sidebar-session').map((row) => row.getAttribute('data-session-id'))).toEqual(['alpha-live-1', 'inner-live-1'])
   })
 
   it('a request older than SESSION_REQUEST_MS is not carried out', async () => {

@@ -4,8 +4,10 @@
 //
 // - The Sessions come from the registry of live Sessions (~/.claude/sessions/<pid>.json), one folder for
 //   every Project. The hub lists it every `pollMs` while anyone is subscribed — names, sizes and times only
-//   (ClaudeHomeRegistry.registryStamp) — and reads it again when that changed, or every `recheckMs` while a
-//   Session is live: a process that died without removing its file changes no file. No watcher per
+//   (ClaudeHomeRegistry.registryStamp) — and reads it again when that changed. A process that died without
+//   removing its file changes no file: while a Session is live each poll asks the system whether its pid
+//   still runs (a signal 0, no process started; `gone`), and the whole registry, with its start-time check
+//   that tells a reused pid apart, is read again every `recheckMs` only. No watcher per
 //   Project: a polled folder is what the per-Project watch (registry.ts, WatchOptions.pollMs) falls back on
 //   anyway, as macOS drops some events of it. Each Session goes to the Project whose root or worktree holds
 //   its cwd, the deepest one when several do; the worktrees of each Project are listed again after
@@ -32,6 +34,8 @@ export interface PulseSources {
   projects: () => readonly PulseProject[]
   /** Every live Session of the registry (ClaudeHomeRegistry.liveAll). */
   live: () => Promise<LiveSession[]>
+  /** Whether the process of a pid has surely ended; a cheap check without the start time (processGoneNow). */
+  gone: (pid: number) => boolean
   /** Equal while the registry folder is unchanged (ClaudeHomeRegistry.registryStamp). */
   stamp: () => Promise<string>
   /** The Project's root and its worktrees (ClaudeHomeRegistry.roots). */
@@ -51,14 +55,14 @@ export interface PulseSources {
 export interface PulseTiming {
   /** How often the registry folder is listed while anyone is subscribed. */
   pollMs: number
-  /** How often it is read again while a Session is live, though no file changed. */
+  /** How often it is read whole again while a Session is live, though no file changed and no pid ended. */
   recheckMs: number
   /** How long a Project's list of worktrees is kept. */
   rootsMs: number
   now: () => number
 }
 
-export const PULSE_TIMING: PulseTiming = { pollMs: 1000, recheckMs: 5000, rootsMs: 30_000, now: () => Date.now() }
+export const PULSE_TIMING: PulseTiming = { pollMs: 1000, recheckMs: 60_000, rootsMs: 30_000, now: () => Date.now() }
 
 export type PulseSend = (state: ProjectPulseState) => void
 
@@ -89,6 +93,8 @@ export class ProjectPulseHub {
   private stops: (() => void)[] = []
   private running: Promise<void> | null = null
   private again = false
+  /** Bumped by stop(): a read that started before it keeps nothing (its subscribers are gone). */
+  private generation = 0
   /** Reads of the registry made so far; for tests. */
   reads = 0
 
@@ -141,12 +147,17 @@ export class ProjectPulseHub {
     for (const stop of this.stops) stop()
     this.stops = []
     // Read again from the start by the next subscriber: nothing kept here was watched meanwhile.
+    this.generation += 1
     this.state = null
     this.stamp = null
+    this.readAt = 0
     this.roots.clear()
   }
 
-  /** One poll: a read when the registry changed, or while a Session is live and the last read is `recheckMs` old. */
+  /**
+   * One poll: a read when the registry changed; while a Session is live, also when one of its processes ended or
+   * the last read is `recheckMs` old.
+   */
   private async tick(): Promise<void> {
     let stamp: string
     try {
@@ -155,8 +166,9 @@ export class ProjectPulseHub {
       console.error('[pulse] the registry of live Sessions could not be listed', error)
       return
     }
-    const anyLive = this.state?.projects.some((project) => project.live.length > 0) ?? false
-    if (stamp !== this.stamp || (anyLive && this.timing.now() - this.readAt >= this.timing.recheckMs)) await this.refresh(stamp)
+    const pids = this.state?.projects.flatMap((project) => project.live.map((session) => session.pid)) ?? []
+    const due = pids.length > 0 && (this.timing.now() - this.readAt >= this.timing.recheckMs || pids.some((pid) => this.sources.gone(pid)))
+    if (stamp !== this.stamp || due) await this.refresh(stamp)
   }
 
   /** Reads the state again; calls that come while one runs fold into one more read. */
@@ -192,6 +204,7 @@ export class ProjectPulseHub {
 
   private async read(stamp: string | undefined): Promise<void> {
     if (this.subscribers.size === 0) return
+    const generation = this.generation
     this.reads += 1
     let live: LiveSession[]
     let at: string | null
@@ -203,9 +216,12 @@ export class ProjectPulseHub {
       console.error('[pulse] the registry of live Sessions could not be read', error)
       return
     }
+    if (generation !== this.generation) return
     const projects = this.sources.projects()
     for (const path of [...this.roots.keys()]) if (!projects.some((project) => project.path === path)) this.roots.delete(path)
     const withRoots = await Promise.all(projects.map(async (project) => ({ id: project.id, path: project.path, roots: await this.rootsOf(project.path) })))
+    // The last subscriber left meanwhile: what was read is not watched from here on, so the next one reads afresh.
+    if (generation !== this.generation) return
     const sessions = assignSessions(withRoots, live)
     const next: ProjectPulseState = {
       projects: withRoots.map(({ id, path }): ProjectPulse => {

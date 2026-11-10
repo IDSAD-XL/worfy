@@ -74,8 +74,11 @@ storage, in worfy's data folder. No setting of the app holds them.
 The other Projects cost no watcher per Project in each window. Their Sessions, busy counts, pull requests that need you
 and waits come in one answer from main, `projectPulse.get`, and one event, `projectPulse.changed`. Main keeps one reader
 for every window. It lists the folder of live Sessions in the Claude home every second while a window is subscribed, and
-reads it again when it changed, or every 5 seconds while a Session is live. That catches a process that died without
-removing its file. It takes the pull requests from the PR inbox as last read, so it makes no GitHub call of its own. It
+reads it again when it changed. A process that died without removing its file changes no file, so while a Session is
+live each poll also asks the system whether its process still runs, which starts no other process. The whole folder,
+with the start-time check that tells a reused process number apart, is read again once a minute. A Session of a
+Project inside the open one is listed and counted once, under its own Project. A Linked machine gets no Project that
+is kept on this Machine only. It takes the pull requests from the PR inbox as last read, so it makes no GitHub call of its own. It
 takes the waits from the Stages it already computes for the windows. A window subscribes once and stays subscribed until
 it closes. The other Projects' ADRs are read once with `docs.adrs`, each time the ADR section comes into the panel, with no
 watcher. Only the open Project's documents are watched.
