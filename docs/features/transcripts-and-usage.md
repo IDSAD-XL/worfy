@@ -186,6 +186,9 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Claude Code** comes first, with two bars, 5-hour and 7-day.
 - **Codex** has a section only while the user is signed in to it. Its bars are the windows its plan reports, shortest first, each
   labelled by its length (`5h`, `weekly`). A plan that reports no windows shows "No limits reported".
+- **Short labels.** The toolbar shows a window's label in its short form: `5h` for Claude Code's 5-hour window and `7d` for its
+  7-day one; for Codex `5h` stays, `weekly` becomes `7d` and `daily` becomes `1d`. A label without an obvious short form (`monthly`,
+  `annual`) stays as it is. The full label stays in the value's tooltip and in the bar's accessible name (`5-hour limit`).
 - **Vendor logos.** Every section, Claude Code's too, starts with its Vendor's logo in the text colour and shows no Vendor
   name, to save the toolbar's width: the section's tooltip and its accessible name (`Codex limits`) name the Vendor. A section
   without bars shows its logo beside its line: `No limits reported`, `no data yet`.

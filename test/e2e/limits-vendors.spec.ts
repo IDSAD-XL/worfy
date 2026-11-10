@@ -131,9 +131,10 @@ async function expectStacked(section: Locator, ids: readonly string[]): Promise<
 /**
  * The widest a Vendor's section may be. Before worfy-polish ticket 93 a section was its logo and two bars
  * of 72 px side by side, 172 px. One line of label, share and reset time at 10 px measured 125 px for
- * Claude's (`7-day 38% Fri 11:19`) and 128 px for Codex's (`weekly 40% Sat 00:40`) on macOS.
+ * Claude's and 128 px for Codex's with the full labels; with the short ones (`7d 38% Fri 11:19`,
+ * `7d 40% Sat 00:40`; owner, 2026-11-10) 104 px and 107 px on macOS.
  */
-const SECTION_MAX = 136
+const SECTION_MAX = 112
 
 test('signed in to Codex: a Codex section with the windows of its plan next to Claude\'s, inside the toolbar', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
@@ -191,6 +192,10 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     // Claude's section keeps its bars and their test ids.
     await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
     await expect(claude.getByTestId('limit-seven_day-value')).toHaveText('38%')
+    // Short labels in the toolbar (owner, 2026-11-10), the full ones in the meters' names and the values' tooltips.
+    await expect(claude.locator('.w-limit-bar__label')).toHaveText(['5h', '7d'])
+    await expect(codex.locator('.w-limit-bar__label')).toHaveText(['5h', '7d'])
+    await expect(claude.getByTestId('limit-five_hour-value')).toHaveAttribute('title', /^5-hour: 62% · resets /)
     expect((await box(claude)).x, 'Claude\'s section first').toBeLessThan((await box(codex)).x)
 
     // Both sections fit the toolbar: the meter ends before the Harness column, inside the window.

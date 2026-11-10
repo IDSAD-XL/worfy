@@ -292,7 +292,8 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
    columns line up the labels, the shares (right-aligned) and the reset times; each window is a row of it
    (subgrid), with its thin bar under the line across all three columns. Two lines of 12 px, each with its
    2 px bar, fill 33 px of the 52 px toolbar. The text is 10 px: at 11 px a section was 133 px wide, at 10 px
-   125 px, against 172 px for two 72 px bars side by side before (test/e2e/limits-vendors.spec.ts). */
+   125 px, and 104 px with the short labels (`5h`, `7d`, limits/LimitBar.tsx), against 172 px for two 72 px
+   bars side by side before (test/e2e/limits-vendors.spec.ts). */
 .w-limits-stack {
   display: grid;
   grid-template-columns: auto auto auto;

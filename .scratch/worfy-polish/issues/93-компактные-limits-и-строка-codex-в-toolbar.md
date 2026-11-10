@@ -67,7 +67,8 @@ Source: просьба владельца 2026-11-10 по снимку экра�
 
 ## Вне скоупа
 
-- Тексты label-ов окон (`5-hour`, `7-day`, `5h`, `weekly`) и расчёт значений в `src/shared/agent/limits.ts`.
+- Тексты label-ов окон в `src/shared/agent/limits.ts` и `src/main/vendors/codex/limits.ts` (их читают Auto-continue и
+  Autopilot) и расчёт значений: короткие label-ы — только отображение в toolbar-е.
 - Высота toolbar-а и остальные его элементы.
 
 ## Итог
@@ -79,9 +80,15 @@ Source: просьба владельца 2026-11-10 по снимку экра�
 окнами получает второй столбец из двух. Цвет `blocked` для 101% остаётся (`test/unit/limits-meter.test.tsx`).
 
 **Ширина секции Vendor-а** (логотип + окна), Mac, окно 1280 px: до — 172 px (логотип 12 + две полосы по 72 + отступы);
-после — Claude 125 px, Codex 128 px, то есть около 73% прежней, не половина. Шрифт 11 px давал 133 px, поэтому выбран
-10 px. Ближе к половине можно прийти только короткими label-ами в toolbar-е (`5h`/`7d` вместо `5-hour`/`7-day`) — это
-вопрос владельцу, в тикете не сделано.
+с полными label-ами — Claude 125 px, Codex 128 px (около 73% прежней). Шрифт 11 px давал 133 px, поэтому выбран 10 px.
+
+**Короткие label-ы** (владелец одобрил 2026-11-10, через Orchestrator): toolbar показывает `5h` и `7d` у Claude
+(`5-hour`, `7-day`), у Codex `5h` остаётся, `weekly` → `7d`, `daily` → `1d`; `monthly`, `annual`, `usage` — как были.
+Это только видимый label (`shortLabel` в `src/renderer/limits/LimitBar.tsx`): tooltip значения (`5-hour: 62% · resets
+07:10`) и accessible name полосы (`5-hour limit`) — полные, константы в `src/shared/agent/limits.ts`,
+`src/main/vendors/codex/limits.ts` и `src/main/ipc/auto-continue.ts` не менялись, и сообщения Autopilot и Auto-continue
+пишут полные названия. Ширина секции при 1280 px: Claude 125 → 104 px, Codex 128 → 107 px, то есть около 60–62% от
+172 px; `SECTION_MAX` в `test/e2e/limits-vendors.spec.ts` — 136 → 112 px.
 
 **Колонка Harness.** Часть Codex — третья строка (`harness-codex-line`) под строкой версии, со своей кнопкой; разделитель
 `· ` убран. Шрифт остался 11 px: с тремя строками строка Harness и кнопки-иконки — 16 px вместо 20, итого 16 + 13 + 16 =

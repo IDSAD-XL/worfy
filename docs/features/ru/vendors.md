@@ -123,7 +123,7 @@ hook-и нового или обновлённого plugin-а выключен�
 профиля Project и [Terminal AI](terminal.md) идут только на Claude Code.
 
 **Limits по Vendor-ам.** В панели Limits на toolbar раздел на каждого Vendor-а: окна Claude Code, 5 часов и 7 дней, и, пока
-выполнен вход в Codex, окна, которые сообщает его план, с подписью по длине (`5h`, `weekly`). Подробности — в
+выполнен вход в Codex, окна, которые сообщает его план, с подписью по длине (`5h`, `weekly`), которую toolbar сокращает (`weekly` показывается как `7d`). Подробности — в
 [Limits](transcripts-and-usage.md#limits).
 
 **Session-ы Codex на Canvas.** Thread-ы Codex этого Project-а, начатые в worfy или в терминале, есть в истории Session-ов как

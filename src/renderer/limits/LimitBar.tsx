@@ -28,11 +28,26 @@ function Meter({ bar }: { bar: LimitBar }) {
   )
 }
 
+/**
+ * The short label a window shows in the toolbar (owner, 2026-11-10, worfy-polish ticket 93): `5h` and `7d`
+ * whichever Vendor names the window, so a Vendor's line takes less width. Only the visible label: the
+ * meter's accessible name and the value's tooltip keep the window's own label (`5-hour: 62% · …`), and so
+ * do the labels in src/shared/agent/limits.ts and src/main/vendors/codex/limits.ts, which other places
+ * (Auto-continue, Autopilot) use. A label without an obvious short form (`monthly`, `annual`, `usage`)
+ * stays as it is.
+ */
+const SHORT_LABELS: Readonly<Record<string, string>> = { '5-hour': '5h', '7-day': '7d', daily: '1d', weekly: '7d' }
+
+/** The label a window shows in the toolbar: its short form, or its own label. */
+function shortLabel(label: string): string {
+  return Object.hasOwn(SHORT_LABELS, label) ? SHORT_LABELS[label]! : label
+}
+
 /** How a bar whose data is older than an hour is drawn: the same lines, dimmed. */
 export const STALE_OPACITY = 0.55
 
 /**
- * One window in one line (worfy-polish ticket 93): its label, its share (or status in words) and its
+ * One window in one line (worfy-polish ticket 93): its short label (`5h`, `7d`), its share (or status in words) and its
  * reset time, with a thin bar under them. The windows of one Vendor stand one above the other in a grid
  * (`w-limits-stack`, src/renderer/shell/shell.css), whose columns line the labels, shares and times up;
  * a window is a row of that grid (CSS subgrid). The reset line is the time alone (`Mon 09:00`), with the
@@ -59,7 +74,7 @@ export function LimitBarView({ bar, testId = `limit-${bar.window}` }: { bar: Lim
       className="w-limit-bar"
       style={stale ? { opacity: STALE_OPACITY } : undefined}
     >
-      <span className="w-limit-bar__label">{bar.label}</span>
+      <span className="w-limit-bar__label">{shortLabel(bar.label)}</span>
       {/* A status in words ("limit reached") takes the reset time's column too when there is no reset time. */}
       <span
         className={bar.resets === null ? 'w-limit-bar__value w-limit-bar__value--wide' : 'w-limit-bar__value'}

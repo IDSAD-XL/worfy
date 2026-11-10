@@ -123,7 +123,7 @@ with the reason "worfy does not run hooks in Codex yet."; the Harness's hooks ar
 One-off requests, the Project profile draft and [Terminal AI](terminal.md) run on Claude Code only.
 
 **Limits per Vendor.** The Limits panel of the toolbar has a section per Vendor: Claude Code's 5-hour and 7-day windows, and
-while the user is signed in to Codex, the windows its plan reports, labelled by their length (`5h`, `weekly`). The details
+while the user is signed in to Codex, the windows its plan reports, labelled by their length (`5h`, `weekly`), which the toolbar shortens (`weekly` shows as `7d`). The details
 are in [Limits](transcripts-and-usage.md#limits).
 
 **Codex Sessions on the Canvas.** The Codex threads of the Project, started in worfy or in a terminal, are in the Session

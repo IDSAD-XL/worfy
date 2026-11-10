@@ -300,7 +300,7 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await expectItemsInside(window, toolbar, 'smallest window')
     // The Limits: the percents alone; the window's name and its reset line are the tooltip of the percent.
     await expect(percent).toHaveText('62%')
-    await expect(fiveHour.getByText('5-hour', { exact: true })).toBeHidden()
+    await expect(fiveHour.getByText('5h', { exact: true })).toBeHidden()
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toBeHidden()
     await expect(toolbar.getByTestId('limits-meter').getByText('Limits', { exact: true })).toBeHidden()
     await expect(percent).toHaveAttribute('title', /^5-hour: 62% · resets ([A-Z][a-z]{2} )?\d\d:\d\d$/u)
@@ -339,7 +339,7 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     // 1600 px: the labels, the reset lines and the words of the search field are back.
     await sizeWindow(launched, 1600, 900)
     await expectItemsInside(window, toolbar, '1600 px')
-    await expect(fiveHour.getByText('5-hour', { exact: true })).toBeVisible()
+    await expect(fiveHour.getByText('5h', { exact: true })).toBeVisible()
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toBeVisible()
     await expect(search.locator('.w-toolbar__palette-text')).toBeVisible()
     for (const scheme of ['light', 'dark'] as const) {
