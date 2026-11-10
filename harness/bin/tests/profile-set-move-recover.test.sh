@@ -221,7 +221,7 @@ done
 check "the spec folder outside tickets.root moved back too" present "$R/plans/epic-a/spec.md"
 
 # Copies whose bytes git would write otherwise (a symlink, an eol=crlf file) are the move's own copies: a kill
-# before their commit is rolled back. One changed byte (CRLF made LF) is a person's change and refuses.
+# before their commit is rolled back. One changed byte (the size the same) is a person's change and refuses.
 kill_at_plain() {
     PROFILE_SET_MOVE_KILL_AT="$1" run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
     check "killed at $1 with a symlink and an eol=crlf file: exit 137" [ $? -eq 137 ]
@@ -233,7 +233,7 @@ out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
 check "a symlink and an eol=crlf file in the copies: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
 back_to_full "a symlink and an eol=crlf file"
 kill_at_plain to-commit
-printf '# crlf\nline two\r\n' >"$WF/docs/adr/crlf.md"
+printf '# crlX\r\nline two\r\n' >"$WF/docs/adr/crlf.md"
 run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
 check "one byte of a copy changed: the next move exits 1" [ $? -eq 1 ]
 check "one byte of a copy changed: the reason names it" grep -q "docs/adr/crlf.md" "$T/err"
