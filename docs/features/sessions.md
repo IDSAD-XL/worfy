@@ -73,6 +73,14 @@ leaves such a word, and stays closed while text in the field is selected. The wh
 command replaces only that word: the text around it stays. Escape closes the menu until the caret leaves the word. A
 message that starts with a skill's name calls that skill. A Codex Session's menu is on [Vendors](vendors.md).
 
+**Draft.** Text typed and not sent stays in the field as its draft. It is still there after another view, another
+Session picked and back, another Project, or a restart of worfy. Line breaks are kept; the caret position is not.
+Every Session has one draft in the Session view, whatever its Vendor, the Orchestrator and a Product Session too. The
+field of a Session Node on the Canvas keeps its own. Sending clears the draft. A Node deleted or taken by the automatic
+archive drops its drafts, and Undo does not bring them back. Drafts live in the window's storage inside worfy's data
+folder, written a moment after the last keystroke and when the window goes. A draft over about 100 kB is cut to that
+size there; the open window keeps it whole.
+
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
 removes a message. An Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing
@@ -289,6 +297,7 @@ for a process also asks the system.
 | Events, settings and channels | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
+| Drafts of the input fields | `src/renderer/session/drafts.ts` |
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |

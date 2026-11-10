@@ -7,6 +7,7 @@ import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import { EMPTY_LAYOUT, type Layout, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
+import { dropGoneDrafts } from '../session/drafts'
 import { holdTakeover, mainNowOf, noteLayoutChange, type LayoutChannel, type SendAnswer } from './history'
 import type { LayoutOps } from './layout-ops'
 import { screenId } from './screen'
@@ -27,6 +28,8 @@ export function acceptLayoutState(state: LayoutState): void {
   const current = useLayoutsStore.getState().byProject[state.projectId]
   if (current && state.revision < current.revision) return
   useLayoutsStore.setState(({ byProject }) => ({ byProject: { ...byProject, [state.projectId]: state } }))
+  // A Node gone from the Layout or archived takes its message drafts along (session/drafts.ts).
+  dropGoneDrafts(state.projectId, current?.layout, state.layout)
 }
 
 /**

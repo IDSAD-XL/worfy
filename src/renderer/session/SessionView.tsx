@@ -16,6 +16,7 @@ import { codexDefaultEffort, headerEffort, headerModel, useCodexModels } from '.
 import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
+import { draftKey } from './drafts'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
 import { useWaitingRequests } from './open-requests'
@@ -299,7 +300,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           The Session waits for an answer this window cannot show. Interrupt refuses the request.
         </p>
       ) : null}
-      <MessageInput ref={input} key={nodeId} nodeId={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
+      <MessageInput ref={input} key={nodeId} nodeId={nodeId} draft={draftKey('chat', projectId, nodeId)} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
     </section>
   )
 

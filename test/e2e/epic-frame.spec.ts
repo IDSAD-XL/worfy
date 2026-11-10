@@ -346,7 +346,8 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     expect(shownAt).toBeDefined()
     const elapsed = shownAt! - started
     console.log(`status change shown after ${elapsed} ms`)
-    expect(elapsed).toBeLessThanOrEqual(1_000)
+    // Scaled like every machine-dependent limit: the Windows runner showed 1802–1991 ms where a Mac shows ~355 ms (worfy-polish 95).
+    expect(elapsed).toBeLessThanOrEqual(ms(1_000))
     // The Card names the Stage the claim moved it to (worfy-pipeline ticket 05), not the status word.
     await expect(ticketNode(window, 1)).toHaveAttribute('aria-label', 'Ticket 01, Implementing')
     // Wave 1 is taken: nothing is ready now.

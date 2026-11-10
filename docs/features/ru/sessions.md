@@ -44,6 +44,13 @@ Session. Меню открывается и закрывается, когда �
 текст. Меню фильтрует всё слово, а выбранная команда заменяет только это слово: текст вокруг остаётся. Escape закрывает меню, пока
 каретка не уйдёт из этого слова.
 
+**Черновик.** Набранный и не отправленный текст остаётся в поле как черновик. Он на месте после другого view, другой Session
+в picker-е и возврата, другого Project-а и перезапуска worfy. Переносы строк сохраняются, положение каретки — нет. У каждой
+Session один черновик в Session view, какой бы ни был её Vendor; у Orchestrator-а и Product Session тоже. Поле Session Node
+на Canvas хранит свой. Отправка очищает черновик. Node, удалённый или взятый автоматическим архивом, уносит свои черновики, и
+Undo их не возвращает. Черновики лежат в хранилище окна внутри папки данных worfy; запись — через миг после последнего нажатия
+и при закрытии окна. Черновик больше ~100 kB там обрезается до этого размера; открытое окно держит его целым.
+
 **Очередь.** Сообщение, отправленное во время turn, ждёт в очереди в main. Подсказка рядом с кнопкой отправки в это время говорит «Return to queue».
 Сообщения идут по одному на turn, каждое после `result` предыдущего turn. Chip «N queued» открывает список, где × убирает сообщение. Interrupt
 или crash придерживают очередь: заголовок списка меняется на «Held after Interrupt», и ничего не уходит до «Send queued». Пустая очередь никогда не
@@ -207,6 +214,7 @@ worfy. Session из терминала или Claude desktop уведомляе�
 | События, настройки и каналы | `src/shared/agent/events.ts`, `src/shared/agent/settings.ts`, `src/shared/ipc/agent.ts`, `src/shared/ipc/sessions.ts`, `src/shared/ipc/orchestrator.ts` |
 | Handler-ы | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
+| Черновики полей ввода | `src/renderer/session/drafts.ts` |
 | Store в renderer, соединение прошлых и live-событий | `src/renderer/session/store.ts` |
 | Карточки | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Элементы под полем ввода, находятся через glob | `src/renderer/session/composer/` |
