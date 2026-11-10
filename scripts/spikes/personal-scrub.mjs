@@ -12,6 +12,7 @@
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import process from 'node:process'
 
 const require = createRequire(import.meta.url)
 const { personal } = require('../../harness/lib/privacy.cjs')
