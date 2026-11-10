@@ -755,8 +755,11 @@ describe("Retry now, Cancel and the wait's changes for the countdown (worfy-retr
 // ── the app's wiring ─────────────────────────────────────────────────────────
 
 describe("the app's wiring (app-orchestrators.ts): the switch of app-settings.json, the Orchestrators' views, the quit", () => {
-  /** The app's Orchestrators and Auto-continue over a data folder of the test, the registry on the fake agent. */
-  async function app() {
+  /**
+   * The app's Orchestrators and Auto-continue over a data folder of the test, the registry on the fake
+   * agent; the wall clock starts at `now` (START_MS: a morning, so a retry minutes later is on the same day).
+   */
+  async function app(now = START_MS) {
     const data = join(scratch, 'app-data')
     mkdirSync(join(data, PROJECT), { recursive: true })
     mkdirSync(join(scratch, 'claude-home'), { recursive: true })
@@ -771,8 +774,10 @@ describe("the app's wiring (app-orchestrators.ts): the switch of app-settings.js
     const events: AgentEvent[] = []
     registry.observe((_sessionId, event) => events.push(event))
     // The pause goes by the wall clock (wallTimer, Date.now as the module takes it when made): the test
-    // moves that clock, which otherwise runs with the real one.
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+    // moves that clock. It starts at `now`, not at the real time: the line of the wait carries a date
+    // when the retry falls on the next day, and a test run a minute before midnight saw one
+    // (worfy-polish ticket 85).
+    vi.useFakeTimers({ now, toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
     vi.resetModules()
     const wiring = await import('../../src/main/agent/app-orchestrators')
     const { appSettingsStore } = await import('../../src/main/settings/store')
@@ -813,6 +818,17 @@ describe("the app's wiring (app-orchestrators.ts): the switch of app-settings.js
     await until(() => a.results() >= 2, 'the turn of the continuation')
     expect(a.messages()).toHaveLength(2)
     expect(a.messages()[1]!.startsWith(RETRY_START)).toBe(true)
+    a.quit()
+  })
+
+  it('a retry that falls on the next day: the line of the wait gives its date as well as its time', async () => {
+    // 23:59:30 local time; the first retry comes 48–72 s later (one minute ± 20 %), after midnight.
+    const a = await app(new Date(2026, 9, 5, 23, 59, 30).getTime())
+    a.store.setAutoContinue(PROJECT, true)
+    a.session().send(PERSON)
+    await until(() => a.notices().length === 1, 'the line of the wait')
+    // The minute depends on the spread of the pause and on how long the test took to get here.
+    expect(a.notices()[0]).toMatch(/^worfy: API error 529, retry 1 of 5 at 2026-10-06 00:0\d$/u)
     a.quit()
   })
 

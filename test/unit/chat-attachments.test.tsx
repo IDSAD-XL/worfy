@@ -2,7 +2,7 @@
 // open at full size, and its documents as chips with a type icon, the format and the name — no
 // paths, no attachment lines; an image without a copy is a chip, never a broken picture. Files
 // dropped anywhere on the chat go to the input field; the window opens no file dropped elsewhere.
-import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageAttachment } from '../../src/shared/agent/attachments'
@@ -283,16 +283,21 @@ describe('the input field with files dropped while it takes none', () => {
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')
     const input = createRef<MessageInputHandle>()
     render(<MessageInput ref={input} sessionId="s1" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
-    await act(async () => {
+    act(() => {
       input.current?.drop(files('a.png'))
-      // Reading the file and asking main take a few turns of the event loop.
-      await new Promise((settle) => setTimeout(settle, 50))
     })
   }
+  /** The `agent.attach` calls main got so far. */
+  const attachCalls = () => asked.filter((channel) => channel === 'agent.attach')
 
+  // Reading a dropped file takes jsdom's FileReader several macrotasks (setImmediate), then asking
+  // main and showing its answer take some promise turns: the tests below wait for the result itself,
+  // not for a fixed pause that a loaded machine outlasts (worfy-polish ticket 85).
   it('with its Session running, asks main to check a dropped file', async () => {
     await dropOnRunning()
-    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual(['agent.attach'])
+    await waitFor(() => expect(attachCalls()).toEqual(['agent.attach']))
+    // main's answer (the bridge here refuses every call) shows before the test ends, not after it.
+    await waitFor(() => expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach'))
   })
 
   it('a drop of no files keeps the error under the field', async () => {
@@ -300,25 +305,24 @@ describe('the input field with files dropped while it takes none', () => {
     const input = createRef<MessageInputHandle>()
     render(<MessageInput ref={input} sessionId="s1" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />)
     // main refuses the first file (the bridge here answers every call with an error).
-    await act(async () => {
+    act(() => {
       input.current?.drop(files('a.png'))
-      await new Promise((settle) => setTimeout(settle, 50))
     })
-    expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach')
+    await waitFor(() => expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach'))
     await act(async () => {
       input.current?.drop([])
-      await new Promise((settle) => setTimeout(settle, 50))
     })
     expect(screen.getByTestId('input-error').textContent).toBe('no agent.attach')
-    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual(['agent.attach'])
+    expect(attachCalls()).toEqual(['agent.attach'])
   })
 
   it('on a read-only screen takes none, though its Session runs, and says why', async () => {
     screenState.readOnly = 'Read-only: the Linked machine gives this Machine read-only access'
+    // The refusal comes at once, before any file is read: nothing is left to wait for.
     await dropOnRunning()
     expect(screen.getByTestId('input-error').textContent).toBe('Read-only: the Linked machine gives this Machine read-only access')
     expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
-    expect(asked.filter((channel) => channel === 'agent.attach')).toEqual([])
+    expect(attachCalls()).toEqual([])
   })
 })
 
