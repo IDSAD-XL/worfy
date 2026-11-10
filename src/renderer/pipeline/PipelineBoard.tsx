@@ -56,7 +56,7 @@ function RepoPulls({ ticket, columnOf }: Pick<TicketCardProps, 'ticket' | 'colum
         >
           {pullRowText(pull)}
           {pull.sub === 'failing' ? (
-            <span className="w-pipeline-flag w-pipeline-flag--attention" data-testid="pipeline-pr-sub">
+            <span className="w-pipeline-flag w-pipeline-flag--attention w-pipeline-flag--whole" data-testid="pipeline-pr-sub">
               {pull.sub}
             </span>
           ) : null}
@@ -70,7 +70,7 @@ function RepoPulls({ ticket, columnOf }: Pick<TicketCardProps, 'ticket' | 'colum
             </span>
           ) : null}
           {releases.map((line) => (
-            <span key={line.text} className={`w-pipeline-flag w-pipeline-flag--${line.checked ? 'working' : 'attention'}`} data-testid="pipeline-release" title={line.text}>
+            <span key={line.text} className={`w-pipeline-flag w-pipeline-flag--${line.checked ? 'working' : 'attention'} w-pipeline-flag--wrap`} data-testid="pipeline-release" title={line.text}>
               {line.text}
             </span>
           ))}

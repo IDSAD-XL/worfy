@@ -121,14 +121,18 @@ the list shows `—` for it.
 for each, one `Branch:` for all of them, and a `PR: <repo>#N` line for each PR. worfy shows it as one Ticket:
 
 - Its Ticket Node chip names every repository, in the order of the `Repo:` lines: `lib, app`.
-- Its Gate, PR and CI badges come in one row per repository, led by the repository's name. The branch is asked for in each
-  repository, and each row shows that repository's own PR, CI and review verdict.
+- Its Gate, PR and CI badges come in one row per repository the Project has. The repository's name stands on its own line
+  above the row's chips. The branch is asked for in each repository, and each row shows that repository's own PR, CI and
+  review verdict. A repository the Project does not have gets no row.
+- "Open PR" becomes a menu with one item per repository's PR, such as `lib PR #41` and `app PR #118`. With a PR in only one
+  repository it stays one button.
 - On the Pipeline board it has one card. The card has a row per repository with its PR and state: `lib #41 · merged`,
   `app #118 · open`, or `app · no PR` before that PR exists. The row's tooltip names the Stage that repository stands on,
-  and a row whose CI is red has its own `failing` flag. Once one PR is merged, the card says `1/2 merged`.
+  and a row whose CI is red has its own `failing` flag; no other caption gets a flag on a row. Once one PR is merged, the
+  card says `1/2 merged`.
 - The card stands on the Stage of the repository furthest behind. While a repository stands on the `release` Stage, the card
   says `waits for release lib-v1.4.0` for each `Release:` line not met yet, or `release lib-v1.4.0 not checked` when worfy
-  could not ask. Once the release is out, the line goes away.
+  could not ask. The line wraps on the narrow column rather than being cut. Once the release is out, the line goes away.
 - The PRs say nothing about each other. Their link is shown only on the board and in the Ticket file.
 
 A Ticket of one repository looks as before: one chip, one row of badges, and no PR rows on its card.
@@ -204,8 +208,10 @@ Project joins the list there without changing that Machine's active Project, and
 - A Ticket over several repositories: `stageOf` in `src/shared/workflow/pipeline.ts` gives `prs`, `merged` and `release`.
   `src/renderer/pipeline/PipelineBoard.tsx` and `board.ts` draw the card. `reposOfTicket` and `checksSourcesOfTicket` in
   `src/shared/ipc/checks.ts` name the repositories. `src/renderer/canvas/badges/ChecksBadges.tsx` and `use-checks.ts` ask
-  each of them, and `src/main/ipc/checks.ts` takes the Ticket's branch in each. `src/renderer/canvas/nodes/TicketNode.tsx`
-  draws the chip, and `epic-layout.ts` and `ticket-card.ts` give the card room for it.
+  each of them (`useChecksOf`, `useTicketChecksOf`), and `src/main/ipc/checks.ts` takes the Ticket's branch in each.
+  `src/renderer/canvas/actions/OpenPr.tsx` offers each PR through `ActionMenu`. `src/renderer/canvas/nodes/TicketNode.tsx`
+  draws the chip. `epic-layout.ts` and `ticket-card.ts` (`checkRowsHeight`) give the card room for it and for the checks
+  rows, counted as they are drawn.
 - `harness/bin/project-connect`: the check and the write. `harness/bin/silent-check`, `harness/hooks/guard.mjs`: the traces
   and the refusal. `harness/hooks/session-start.mjs`: what a Session is told. `harness/profiles/README.md`: the Profile field
   by field.
@@ -231,9 +237,10 @@ Project joins the list there without changing that Machine's active Project, and
 - `test/e2e/silent-project.spec.ts`: a Silent Project and a Project over two repositories in the built app, with nothing
   written into the Workflow folder or the repositories.
 - A Ticket over two repositories: `test/unit/pipeline-board.test.tsx` covers the card, its rows, `1/2 merged` and the release
-  line. `test/unit/checks-badges.test.tsx` covers the badge rows, `test/unit/ticket-card.test.tsx` and
-  `test/unit/epic-card-repos.test.tsx` the chip and the card's room, and `test/contract/github-prs.test.ts` the branch
-  taken in each repository.
+  line, a closed PR, and the flags that stay whole. `test/unit/checks-badges.test.tsx` covers the badge rows, and
+  `test/unit/canvas-actions.test.tsx` covers "Open PR". `test/unit/ticket-card.test.tsx` and
+  `test/unit/epic-card-repos.test.tsx` cover the chip and the card's room. `test/contract/github-prs.test.ts` covers the
+  branch taken in each repository.
 - `test/contract/github-accounts.test.ts`: the accounts, also from a gh without `--json`. `test/unit/gh-auth-text.test.ts`:
   the text output of `gh auth status`. `test/unit/temp-folder.test.ts`: the `%TEMP%` rule.
 - `test/unit/add-project-machine.test.tsx`, `test/unit/folder-browser.test.tsx`, `test/e2e/linked-add-project.spec.ts`:

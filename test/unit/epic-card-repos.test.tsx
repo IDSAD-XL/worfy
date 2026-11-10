@@ -11,7 +11,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Layout } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { cardHeights, epicColumns, TICKET_MIN_HEIGHT } from '../../src/renderer/canvas/epic-layout'
-import { CHECK_ROW_HEIGHT } from '../../src/renderer/canvas/ticket-card'
+import { checkRowsHeight } from '../../src/renderer/canvas/ticket-card'
 import source from '../../src/renderer/canvas/sources/epics'
 
 // Hoisted: the mocks below run before the module body.
@@ -70,9 +70,18 @@ describe('the card height follows the Project repositories', () => {
   it('a Ticket over several repositories is laid out with its chip of every repository and a checks row for each (worfy-multi-repo-ticket 06)', () => {
     const one = { ...fixed.ticket, repo: 'api' }
     const two = { ...fixed.ticket, repo: 'web', repos: ['api', 'web'] }
-    const heightOf = (ticket: typeof one) => cardHeights([ticket], epicColumns([ticket]), { severalRepos: true }).get(12)!
-    expect(heightOf(two) - heightOf(one)).toBeGreaterThanOrEqual(CHECK_ROW_HEIGHT)
-    // The chip «api, web» takes no more than one line beside the number here: the rest is the second checks row.
-    expect(heightOf(two) - heightOf(one)).toBe(CHECK_ROW_HEIGHT)
+    const heightOf = (ticket: typeof one) => cardHeights([ticket], epicColumns([ticket]), { severalRepos: true, repoNames: ['api', 'web'] }).get(12)!
+    // The chip «api, web» takes no more than one line beside the number here: the rest is the checks rows.
+    expect(heightOf(two) - heightOf(one)).toBe(checkRowsHeight(['api', 'web']) - checkRowsHeight([]))
+  })
+
+  it('rows are counted as they are drawn: only for the repositories the Project has', () => {
+    const named = { ...fixed.ticket, repo: 'gone', repos: ['api', 'gone'] }
+    const known = cardHeights([named], epicColumns([named]), { severalRepos: true, repoNames: ['api', 'web'] }).get(12)!
+    const unknown = cardHeights([named], epicColumns([named]), { severalRepos: true }).get(12)!
+    // `gone` is not the Project's: one row is drawn, the one every card has room for.
+    expect(unknown - known).toBe(checkRowsHeight(['api', 'gone']) - checkRowsHeight([]))
+    const both = { ...named, repos: ['api', 'web'], repo: 'web' }
+    expect(cardHeights([both], epicColumns([both]), { severalRepos: true, repoNames: ['api', 'web'] }).get(12)! - cardHeights([both], epicColumns([both]), { severalRepos: true, repoNames: ['api', 'web', 'docs'] }).get(12)!).toBe(0)
   })
 })

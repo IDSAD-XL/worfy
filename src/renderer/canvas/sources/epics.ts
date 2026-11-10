@@ -422,7 +422,7 @@ function frameLayout(
 }
 
 /** The card context as one string, to tell a new one from the same. */
-const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null])
+const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null, cards?.repoNames ?? null])
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
 const cache = new Map<string, EpicEntry>()
@@ -761,9 +761,11 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   // A Project of several repositories draws a repository chip on every card (TicketNode.tsx).
   const repos = useProjectRepos(root)
   const severalRepos = repos === undefined ? undefined : repos.repos.length >= 2
+  // The names as one string: a new answer naming the same repositories changes nothing. A Ticket over several of them has a checks row for each.
+  const names = repos === undefined ? null : JSON.stringify(repos.repos.map((repo) => repo.name))
   const cards = useMemo<CardContext>(
-    () => ({ stages: titles === null ? undefined : (JSON.parse(titles) as string[]), severalRepos }),
-    [titles, severalRepos],
+    () => ({ stages: titles === null ? undefined : (JSON.parse(titles) as string[]), severalRepos, repoNames: names === null ? undefined : (JSON.parse(names) as string[]) }),
+    [titles, severalRepos, names],
   )
   const nodes = useMemo(
     () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, cards),

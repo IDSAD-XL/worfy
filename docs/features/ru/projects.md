@@ -95,14 +95,18 @@ Gate, PR и CI своего репозитория, а Ticket без репоз�
 `Repo:` на каждый, одна строка `Branch:` на все и по строке `PR: <repo>#N` на каждый PR. worfy показывает его как один Ticket:
 
 - Chip Ticket Node называет все репозитории в порядке строк `Repo:`: `lib, app`.
-- Badge-и Gate, PR и CI идут строкой на каждый репозиторий, и в начале строки стоит имя репозитория. Ветка запрашивается в
-  каждом репозитории, и каждая строка показывает PR, CI и verdict ревью своего репозитория.
+- Badge-и Gate, PR и CI идут строкой на каждый репозиторий, который есть у Project-а. Имя репозитория стоит отдельной
+  строкой над chip-ами. Ветка запрашивается в каждом репозитории, и каждая строка показывает PR, CI и verdict ревью своего
+  репозитория. Репозиторий, которого у Project-а нет, строки не получает.
+- «Open PR» становится меню с пунктом на PR каждого репозитория, например `lib PR #41` и `app PR #118`. Если PR есть только в
+  одном репозитории, остаётся одна кнопка.
 - На Pipeline board у него одна карточка. В ней строка на каждый репозиторий с его PR и состоянием: `lib #41 · merged`,
   `app #118 · open` или `app · no PR`, пока этого PR нет. Tooltip строки называет стадию, на которой стоит этот репозиторий, а у
-  строки с красным CI свой флаг `failing`. Когда один PR влит, карточка пишет `1/2 merged`.
+  строки с красным CI свой флаг `failing`; другие подписи флага на строке не получают. Когда один PR влит, карточка пишет
+  `1/2 merged`.
 - Карточка стоит на стадии самого отстающего репозитория. Пока какой-то репозиторий стоит на стадии `release`, карточка пишет
   `waits for release lib-v1.4.0` для каждой невыполненной строки `Release:` или `release lib-v1.4.0 not checked`, если worfy
-  не смог спросить. Когда release вышел, строка пропадает.
+  не смог спросить. В узкой колонке строка переносится, а не обрезается. Когда release вышел, строка пропадает.
 - PR ничего не говорят друг о друге. Их связь видна только на board и в файле Ticket-а.
 
 Ticket одного репозитория выглядит как раньше: один chip, одна строка badge-ей и никаких строк PR на карточке.
@@ -171,6 +175,13 @@ Project входит в список там, не меняя активный Pr
 - `src/main/workflow/reader.ts`, `src/main/workflow/watch.ts`: чтение и наблюдение по раскладке; неудавшаяся раскладка
   запрашивается снова по `LAYOUT_RETRY_MS`. `src/main/workflow/marks.ts`, `src/main/workflow/stages.ts`: отметки обоих хранилищ.
 - `src/main/ipc/shell.ts`: `workflowPlaces`, места Ticket-а вне корня.
+- Ticket над несколькими репозиториями: `stageOf` в `src/shared/workflow/pipeline.ts` даёт `prs`, `merged` и `release`.
+  Карточку рисуют `src/renderer/pipeline/PipelineBoard.tsx` и `board.ts`. Репозитории называют `reposOfTicket` и
+  `checksSourcesOfTicket` в `src/shared/ipc/checks.ts`. `src/renderer/canvas/badges/ChecksBadges.tsx` и `use-checks.ts`
+  (`useChecksOf`, `useTicketChecksOf`) спрашивают каждый из них, а `src/main/ipc/checks.ts` принимает ветку Ticket-а в
+  каждом. `src/renderer/canvas/actions/OpenPr.tsx` предлагает каждый PR через `ActionMenu`.
+  `src/renderer/canvas/nodes/TicketNode.tsx` рисует chip. `epic-layout.ts` и `ticket-card.ts` (`checkRowsHeight`) дают
+  карточке место для него и для строк badge-ей, посчитанных так же, как они рисуются.
 - `harness/bin/project-connect`: проверка и запись. `harness/bin/silent-check`, `harness/hooks/guard.mjs`: следы и отказ.
   `harness/hooks/session-start.mjs`: что сообщают Session. `harness/profiles/README.md`: Profile по полям.
 
@@ -191,6 +202,10 @@ Project входит в список там, не меняя активный Pr
 - `test/e2e/projects-connect.spec.ts`: Silent по умолчанию, черновик, форма, Connect, неустановленный Harness, аккаунт.
 - `test/e2e/silent-project.spec.ts`: Silent Project и Project над двумя репозиториями в собранном приложении, ничего не записано
   в Workflow folder или репозитории.
+- Ticket над двумя репозиториями: `test/unit/pipeline-board.test.tsx` проверяет карточку, её строки, `1/2 merged`, строку release,
+  закрытый PR и флаги, которые не обрезаются. `test/unit/checks-badges.test.tsx` проверяет строки badge-ей, а
+  `test/unit/canvas-actions.test.tsx` проверяет «Open PR». `test/unit/ticket-card.test.tsx` и `test/unit/epic-card-repos.test.tsx`
+  проверяют chip и место на карточке. `test/contract/github-prs.test.ts` проверяет ветку, принятую в каждом репозитории.
 - `test/contract/github-accounts.test.ts`: аккаунты. `test/unit/temp-folder.test.ts`: правило `%TEMP%`.
 - `test/unit/add-project-machine.test.tsx`, `test/unit/folder-browser.test.tsx`, `test/e2e/linked-add-project.spec.ts`:
   «Add project» на Linked machine.

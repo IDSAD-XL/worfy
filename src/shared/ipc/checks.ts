@@ -204,14 +204,6 @@ export function worktreeOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike, t
 }
 
 /**
- * Where a Ticket's checks come from: `project` — the Project root, as for a Project of one
- * repository; `repo` — its own repository in a Project over several (its `Repo:` line names one of
- * them); `none` — such a Project, and the Ticket names no repository of it: it gets no Gate, PR or
- * CI badges.
- */
-export type TicketChecksSource = { kind: 'project' } | { kind: 'repo'; repo: ProjectRepoView } | { kind: 'none' }
-
-/**
  * The repositories a Ticket names: each `Repo:` line of a Ticket over several (ADR-0104), in file order, else its one
  * `Repo:` line; [] without one. Names are trimmed, each once.
  */
@@ -228,12 +220,6 @@ export function reposOfTicket(ticket: { repo?: string | null | undefined; repos?
 export function checksSourcesOfTicket(repos: readonly ProjectRepoView[], ticket: { repo?: string | null | undefined; repos?: readonly string[] | undefined }): ProjectRepoView[] | 'project' {
   if (repos.length < 2) return 'project'
   return reposOfTicket(ticket).flatMap((name) => repos.filter((each) => each.name === name).slice(0, 1))
-}
-
-export function checksSourceOfTicket(repos: readonly ProjectRepoView[], ticket: { repo?: string | null | undefined }): TicketChecksSource {
-  if (repos.length < 2) return { kind: 'project' }
-  const repo = ticket.repo ? repos.find((each) => each.name === ticket.repo) : undefined
-  return repo ? { kind: 'repo', repo } : { kind: 'none' }
 }
 
 const PR_STATE_RANK: Record<PullRequest['state'], number> = { OPEN: 0, MERGED: 1, CLOSED: 2 }

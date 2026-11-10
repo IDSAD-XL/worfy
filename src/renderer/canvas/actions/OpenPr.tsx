@@ -1,13 +1,16 @@
-import { pullOfTicket } from '../../../shared/ipc/checks'
+import { pullOfTicket, type PullRequest } from '../../../shared/ipc/checks'
 import { invoke } from '../../ipc'
-import { useTicketChecks } from '../badges/use-checks'
+import { useTicketChecksOf } from '../badges/use-checks'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
+import { ActionMenu } from './action-menu'
 
 // "Open PR" on a Ticket that has a PR (ticket 23): opens the PR's address from `gh` (the checks
 // snapshot of ticket 17; of the Ticket's own repository in a Project over several) in the browser through `shell.openExternal` (ticket 11). Only
 // https://github.com/ addresses are opened; any other is refused on the button. worfy writes
-// nothing to GitHub: the button only opens the page.
+// nothing to GitHub: the button only opens the page. A Ticket over several repositories (ADR-0104)
+// with a PR in more than one of them gets «Open PR» as a menu with an item per repository's PR, in
+// the order of its `Repo:` lines; with a PR in one of them, the one button.
 
 export const order = 30
 
@@ -18,22 +21,44 @@ function githubAddress(url: string): string | null {
   return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && parsed.port === '' && parsed.username === '' && parsed.password === '' ? parsed.href : null
 }
 
-function OpenPullRequest({ root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
-  const snapshot = useTicketChecks(root, ticket)
-  const pull = snapshot?.gh.available ? pullOfTicket(snapshot, ticket) : null
-  if (!pull) return null
+/** Opens `pull` in the browser; main's reason when refused, the address's when it is not GitHub's. */
+async function openPull(pull: PullRequest): Promise<string | undefined> {
   const address = githubAddress(pull.url)
+  if (address === null) return `Not a GitHub address: ${pull.url}`
+  const result = await invoke('shell.openExternal', { url: address })
+  return result.ok ? undefined : result.error
+}
+
+function OpenPullRequest({ root, ticket }: Extract<SlotProps['subject'], { kind: 'ticket' }>) {
+  const sources = useTicketChecksOf(root, ticket) ?? []
+  // The PR of the Ticket's branch in each place its checks come from, each repository once.
+  const pulls = sources.flatMap(({ repo, snapshot }) => {
+    const pull = snapshot?.gh.available ? pullOfTicket(snapshot, ticket) : null
+    return pull ? [{ repo: repo?.name ?? null, pull }] : []
+  })
+  if (pulls.length === 0) return null
+  if (pulls.length === 1) {
+    const { pull } = pulls[0]!
+    const address = githubAddress(pull.url)
+    return <ActionButton label="Open PR" testId="action-open-pr" enabled={address !== null} title={address ?? `Not a GitHub address: ${pull.url}`} run={() => openPull(pull)} />
+  }
   return (
-    <ActionButton
+    <ActionMenu
       label="Open PR"
+      text="Open PR"
+      title="Open the PR of a repository of this Ticket"
       testId="action-open-pr"
-      enabled={address !== null}
-      title={address ?? `Not a GitHub address: ${pull.url}`}
-      run={async () => {
-        if (address === null) return `Not a GitHub address: ${pull.url}`
-        const result = await invoke('shell.openExternal', { url: address })
-        return result.ok ? undefined : result.error
-      }}
+      menuLabel="The Ticket's PRs"
+      items={pulls.map(({ repo, pull }) => {
+        const address = githubAddress(pull.url)
+        return {
+          label: repo === null ? `PR #${pull.number}` : `${repo} PR #${pull.number}`,
+          title: address ?? `Not a GitHub address: ${pull.url}`,
+          testId: 'action-open-pr-item',
+          disabled: address === null,
+          run: () => openPull(pull),
+        }
+      })}
     />
   )
 }

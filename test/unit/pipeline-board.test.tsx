@@ -11,6 +11,8 @@
 //   there are none; a click opens the board of that Project.
 // jsdom lays nothing out: the columns side by side and both themes are checked against the built
 // app (test/e2e/pipeline.spec.ts).
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -674,6 +676,53 @@ describe('one card for a Ticket over several repositories (worfy-multi-repo-tick
     expect(columnOf(card)).toBe('agent-review')
     expect(rowsOf(card).map((row) => row.dataset.stage)).toEqual(['awaiting-merge', 'agent-review'])
     expect(rowsOf(card).map((row) => row.title)).toEqual(['lib: Awaiting merge', 'app: Agent review'])
+  })
+
+  it('a closed PR reads «closed» on its row', async () => {
+    const closed: NonNullable<StageFacts['pr']> = { ...pullOf(41, 'OPEN', LIB_HEAD), state: 'CLOSED', headSha: null }
+    await board(twoRepos(closed, pullOf(118, 'OPEN', APP_HEAD), null))
+    expect(rowsOf(cardOf('team', 4)).map((row) => [row.textContent, row.dataset.state])).toEqual([
+      ['lib #41 · closed', 'CLOSED'],
+      ['app #118 · open', 'OPEN'],
+    ])
+  })
+
+  it('a row has a flag only for failing: another caption of its repository is in its tooltip alone', async () => {
+    // Gate & merge with the e2e lock held by lib's PR: lib's own caption is «gate running».
+    const GATED: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'agent-review' }, { kind: 'ci' }, { kind: 'gate-merge' }, { kind: 'done' }]
+    const gated = ticket('team', 4, GATED, {
+      mode: 'silent',
+      status: 'work',
+      lock: { prs: [41] },
+      repos: [repoOf('lib', LIB_HEAD, pullOf(41, 'OPEN', LIB_HEAD)), repoOf('app', APP_HEAD, pullOf(118, 'OPEN', APP_HEAD), false)],
+    })
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="team" snapshot={snapshotOf(TEAM_ROOT, GATED, [gated])} titles={{}} onOpenTicket={() => undefined} />)
+    const [lib, app] = rowsOf(cardOf('team', 4))
+    expect(lib!.dataset.stage).toBe('gate-merge')
+    expect(lib!.title).toBe('lib: Gate & merge, gate running')
+    expect(within(lib!).queryByTestId('pipeline-pr-sub')).toBeNull()
+    expect(within(app!).queryByTestId('pipeline-pr-sub')).toBeNull()
+  })
+
+  it('the row’s failing flag stays whole and a release line wraps, on the narrow board column', async () => {
+    await board(twoRepos(pullOf(41, 'OPEN', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD, [red]), null))
+    expect(within(cardOf('team', 4)).getByTestId('pipeline-pr-sub').classList.contains('w-pipeline-flag--whole')).toBe(true)
+    cleanup()
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), 'not checked'))
+    expect(within(cardOf('team', 4)).getByTestId('pipeline-release').classList.contains('w-pipeline-flag--wrap')).toBe(true)
+    // The stylesheet: after `.w-pipeline-flag`, the one keeps its width, the other wraps and ends in no «…».
+    const sheet = readFileSync(join(import.meta.dirname, '../../src/renderer/pipeline/pipeline.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    const body = (selector: string) => {
+      const at = sheet.indexOf(`${selector} {`)
+      expect(at, selector).toBeGreaterThan(sheet.indexOf('.w-pipeline-flag {'))
+      return sheet.slice(at, sheet.indexOf('}', at))
+    }
+    expect(body('.w-pipeline-flag--whole')).toMatch(/flex\s*:\s*none/u)
+    expect(body('.w-pipeline-flag--whole')).toMatch(/overflow\s*:\s*visible/u)
+    expect(body('.w-pipeline-flag--wrap')).toMatch(/white-space\s*:\s*normal/u)
+    expect(body('.w-pipeline-flag--wrap')).toMatch(/overflow\s*:\s*visible/u)
+    expect(body('.w-pipeline-flag--wrap')).toMatch(/height\s*:\s*auto/u)
   })
 
   it('a repository without a PR yet has a row that says so', async () => {

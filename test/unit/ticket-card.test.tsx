@@ -14,7 +14,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { CHECK_ROW_HEIGHT, cardHeight, charEm, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { cardHeight, charEm, checkRowsHeight, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
 
 // The badges and actions are their own tests' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
@@ -229,11 +229,27 @@ describe('the card is as tall as what it shows', () => {
     expect(cardHeight({ ...base, meta: { lead: 'blocked by ', nums, tail: ' · done', attention: false } })).toBeGreaterThan(TICKET_MIN_HEIGHT + 15)
   })
 
-  it('a Ticket over several repositories gets room for a row of checks badges per repository past the first', () => {
-    expect(cardHeight({ ...base, checkRows: 1 })).toBe(cardHeight(base))
-    expect(cardHeight({ ...base, checkRows: 2 }) - cardHeight(base)).toBe(CHECK_ROW_HEIGHT)
-    expect(cardHeight({ ...base, checkRows: 3 }) - cardHeight(base)).toBe(2 * CHECK_ROW_HEIGHT)
-    expect(CHECK_ROW_HEIGHT).toBe(36)
+  it('a Ticket over several repositories gets room for a checks row per repository: its name on its own lines, then two lines of chips', () => {
+    // One repository, or none: the one row of chips every card has room for.
+    expect(cardHeight({ ...base, checkRepos: [] })).toBe(cardHeight(base))
+    expect(cardHeight({ ...base, checkRepos: ['backend'] })).toBe(cardHeight(base))
+    expect(checkRowsHeight([])).toBe(34)
+    // Two names of 7 and 8 characters: each row is a 16 px name line, 2 px, two lines of chips (34 px); 2 px between rows.
+    expect(checkRowsHeight(['backend', 'frontend'])).toBe(2 * (16 + 2 + 34) + 2)
+    expect(cardHeight({ ...base, checkRepos: ['backend', 'frontend'] }) - cardHeight(base)).toBe(2 * (16 + 2 + 34) + 2 - 34)
+    expect(checkRowsHeight(['lib', 'app', 'docs'])).toBe(3 * (16 + 2 + 34) + 2 * 2)
+    // A name longer than the line takes more lines of its own, and the card gets them.
+    const long = 'design-system-tokens-for-every-customer-facing-application'
+    expect(checkRowsHeight([long, 'app']) - checkRowsHeight(['lib', 'app'])).toBeGreaterThanOrEqual(16)
+    expect((checkRowsHeight([long, 'app']) - checkRowsHeight(['lib', 'app'])) % 16).toBe(0)
+  })
+
+  it('the name of a checks row has a whole line of its own and wraps, so the four chips keep their two lines', () => {
+    const rule = rulesFor(css('canvas/badges/checks-badges.css'), ['.w-checks__repo'])
+    expect(rule.map((each) => each.selector)).toEqual(['.w-checks > .w-checks__repo'])
+    expect(rule[0]!.body).toMatch(/flex\s*:\s*1 1 100%/u)
+    expect(rule[0]!.body).toMatch(/white-space\s*:\s*normal/u)
+    expect(rule[0]!.body).toMatch(/line-height\s*:\s*16px/u)
   })
 
   it('a word longer than the line is broken inside it, as overflow-wrap: anywhere does', () => {

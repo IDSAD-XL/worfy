@@ -215,6 +215,21 @@
   background: var(--working-bg);
   color: var(--working-text);
 }
+/* After `.w-pipeline-flag`, which they override. */
+/* The row's own `failing` flag stays whole beside a long repository name: the name wraps, the flag does not shrink. */
+.w-pipeline-flag--whole {
+  flex: none;
+  max-width: none;
+  overflow: visible;
+}
+/* «waits for release <ref>» and «release <ref> not checked»: a ref may be long, so the line wraps instead of ending in «…». */
+.w-pipeline-flag--wrap {
+  height: auto;
+  min-height: 16px;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
 
 /* The sidebar section: a Project's name, then a two-line row per Ticket in work. */
 .w-pipeline-section__project {
