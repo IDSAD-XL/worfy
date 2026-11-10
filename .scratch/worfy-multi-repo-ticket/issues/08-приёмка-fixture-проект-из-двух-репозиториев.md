@@ -27,10 +27,13 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 ## Готово, когда
 
 - [ ] Fixture test-ы проходят весь путь из п. 1 — exit 0 на Mac.
+  - evidence: test-run pass · `bash harness/bin/tests/multi-repo.test.sh` exit 0, passed 35, failed 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
 - [ ] Владелец провёл настоящий Ticket из двух репозиториев до `done`: одна карточка на Pipeline board, «1/2 merged»,
       «waits for release <version>», PR без ссылок друг на друга.
   - needs: mac stable
 - [ ] Evidence в `.scratch/worfy-multi-repo-ticket/evidence/08-*` без данных рабочего проекта.
+  - evidence: commit pass · Evidence of the fixture run of a ticket over two repositories · - - · e9ead1b5df286705d14ac20be4b33bdda045516a
 - [ ] `ci-ok` на PR зелёный.
 
 ## Тесты
