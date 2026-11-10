@@ -2,7 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-10T15:47Z
-PR: —
+PR: #1787
 Branch: worfy-polish/100
 Blocked by: —
 Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список доступных моделей Worfy не обновляется с появлением
