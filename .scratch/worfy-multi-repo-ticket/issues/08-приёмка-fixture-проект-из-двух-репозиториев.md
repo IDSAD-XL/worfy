@@ -1,7 +1,8 @@
 # 08 — Приёмка: fixture-проект из двух репозиториев со stub `gh` и `npm`; настоящий Ticket в рабочем проекте
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T03:55Z
+Branch: worfy-multi-repo-ticket/08
 Blocked by: 02, 06, 07
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–7; «Ticket-ы», «Волны» (Wave 5); «Решения владельца
 2026-11-09», Q8; [ADR-0104](../../../docs/adr/0104-one-ticket-several-repositories.md), «Последствия»
@@ -26,10 +27,15 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 ## Готово, когда
 
 - [ ] Fixture test-ы проходят весь путь из п. 1 — exit 0 на Mac.
+  - evidence: test-run pass · `bash harness/bin/tests/multi-repo.test.sh` exit 0, passed 35, failed 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
+  - evidence: test-run pass · `bash harness/bin/tests/multi-repo.test.sh` exit 0, passed 35, failed 0, also with a jq that ends lines with CRLF · mac - · c7bfa5117b06be436465310aa6f08209666e8873
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c7bfa5117b06be436465310aa6f08209666e8873
 - [ ] Владелец провёл настоящий Ticket из двух репозиториев до `done`: одна карточка на Pipeline board, «1/2 merged»,
       «waits for release <version>», PR без ссылок друг на друга.
   - needs: mac stable
 - [ ] Evidence в `.scratch/worfy-multi-repo-ticket/evidence/08-*` без данных рабочего проекта.
+  - evidence: commit pass · Evidence of the fixture run of a ticket over two repositories · - - · e9ead1b5df286705d14ac20be4b33bdda045516a
 - [ ] `ci-ok` на PR зелёный.
 
 ## Тесты

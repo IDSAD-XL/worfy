@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# gh of the multi-repo fixture: the `gh pr` calls the work on a ticket of two repositories makes, against a state
+# folder ($FIXTURE_GH_STATE) instead of GitHub. The repository is the folder name of the checkout gh runs in, as gh
+# takes it from the checkout's remote; each pull request is <state>/<repository>/<number>.json, numbered from
+# <state>/<repository>/next (1 without it).
+#   gh pr create [--draft] [--head B] …   a new PR, OPEN, a draft with --draft; prints its URL
+#   gh pr view <N> [--json …] [--jq F]    the PR as JSON {number, state, isDraft, headRefName}, through jq -r F with --jq
+#   gh pr ready <N>                       the draft is no longer one
+# Every call goes to $FIXTURE_GH_LOG as one line, "<repository>:" and the arguments. Anything else — `gh pr merge`
+# among them: people merge, never the agent — exit 1, so a call the fixture does not know shows up as a failure.
+set -u
+# jq.exe on Windows ends its lines with CRLF: the answers of this stub keep LF only, as gh's do.
+jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
+repo="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+{ printf '%s:' "$repo"; printf ' %s' "$@"; echo; } >>"$FIXTURE_GH_LOG"
+S="$FIXTURE_GH_STATE/$repo"
+mkdir -p "$S"
+case "${1:-} ${2:-}" in
+"pr create")
+    draft=false head=""
+    shift 2
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+        --draft) draft=true ;;
+        --head) head="$2"; shift ;;
+        esac
+        shift
+    done
+    [ -n "$head" ] || head="$(git rev-parse --abbrev-ref HEAD)"
+    n="$(cat "$S/next" 2>/dev/null || echo 1)"
+    jq -n --argjson n "$n" --argjson d "$draft" --arg h "$head" '{number: $n, state: "OPEN", isDraft: $d, headRefName: $h}' >"$S/$n.json"
+    echo $((n + 1)) >"$S/next"
+    echo "https://github.invalid/acme/$repo/pull/$n"
+    ;;
+"pr view")
+    n="${3:-}" filter=.
+    [ -f "$S/$n.json" ] || { echo "no pull requests found for $n" >&2; exit 1; }
+    shift 3
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+        --jq) filter="$2"; shift ;;
+        esac
+        shift
+    done
+    jq -r "$filter" "$S/$n.json"
+    ;;
+"pr ready")
+    n="${3:-}"
+    [ -f "$S/$n.json" ] || { echo "no pull requests found for $n" >&2; exit 1; }
+    jq '.isDraft = false' "$S/$n.json" >"$S/$n.new" && mv "$S/$n.new" "$S/$n.json"
+    ;;
+*)
+    echo "gh of the fixture: not a call it knows: gh $*" >&2
+    exit 1
+    ;;
+esac
