@@ -126,7 +126,7 @@ function repo(name: string, slug: string): string {
 /** The Project's settings.json with the PR inbox switched as asked (the templates empty: not configured). */
 function settings(projectId: string, prInbox: boolean): void {
   mkdirSync(join(dataDir, projectId), { recursive: true })
-  writeFileSync(join(dataDir, projectId, 'settings.json'), JSON.stringify({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' }, prInbox }))
+  writeFileSync(join(dataDir, projectId, 'settings.json'), JSON.stringify({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' }, prInbox }))
 }
 
 test.beforeEach(() => {
