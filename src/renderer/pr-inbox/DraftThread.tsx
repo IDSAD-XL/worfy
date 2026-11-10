@@ -286,7 +286,16 @@ export interface DraftThreadProps {
 }
 
 const draftStyles = {
-  box: { marginTop: 'var(--space-2)', padding: 'var(--space-2)', border: '1px dashed var(--border)', borderRadius: 'var(--radius-button)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' },
+  box: {
+    marginTop: 'var(--space-2)',
+    padding: 'var(--space-2)',
+    border: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)',
+    borderRadius: 'var(--radius-node)',
+    background: 'color-mix(in srgb, var(--primary) 4%, var(--surface))',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 'var(--space-1)',
+  },
   head: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 },
   title: { fontWeight: 600, fontSize: 'var(--text-12)' },
   place: { marginLeft: 'auto', color: 'var(--text-secondary)', fontSize: 'var(--text-12)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
@@ -385,7 +394,7 @@ export function DraftThread({ item, place, comments = [], text, busy, result, di
           <div style={draftStyles.actions}>
             <button
               type="button"
-              className="w-pr-inbox-button"
+              className="w-pr-inbox-button w-pr-inbox-button--primary"
               data-testid="pr-draft-send"
               disabled={busy || empty || disabled !== null || posted !== null}
               title={disabled ?? posted ?? (empty ? 'The reply is empty' : 'Post this text as it is, once, from the account of the Project')}

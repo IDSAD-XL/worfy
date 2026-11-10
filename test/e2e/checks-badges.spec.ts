@@ -491,12 +491,13 @@ test('review threads on Ticket 08: «3 open threads» and «changes requested» 
     for (const id of ['review-threads-count', 'review-threads-changes']) expect(await clippedBy(badge.getByTestId(id)), `${id} is cut by no box around it`).toEqual([])
     await ticket(8).screenshot({ path: test.info().outputPath('review-threads-badge.png') })
 
-    // A click opens the Pull requests view on that PR, its row expanded.
+    // A click opens the Pull requests view on that PR, selected and shown in the pane.
     await badge.click()
     await expect(window.getByTestId('pr-inbox-view')).toBeVisible()
     const row = window.locator(`[data-testid="pr-inbox-row"][data-repo="${slug}"][data-number="31"]`)
-    await expect(row).toHaveAttribute('data-expanded', 'true')
-    await expect(row.getByTestId('pr-inbox-thread')).toHaveCount(5)
+    await expect(row).toHaveAttribute('data-selected', 'true')
+    await expect(window.getByTestId('pr-inbox-pane')).toHaveAttribute('data-number', '31')
+    await expect(window.getByTestId('pr-inbox-pane').getByTestId('pr-inbox-thread')).toHaveCount(5)
 
     // Read-only: gh listed PRs and ran the inbox's GraphQL reads; no write of any kind (ADR-0105).
     const calls = readFileSync(ghLog, 'utf8')

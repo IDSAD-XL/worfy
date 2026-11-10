@@ -60,7 +60,7 @@ export const SEARCH_QUERY = `query($review: String!, $involves: String!) { viewe
 
 const COMMENT = 'id databaseId author { login } body createdAt url'
 export const PULL_FIELDS = [
-  'number title url state isDraft createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus',
+  'number title url state isDraft createdAt updatedAt headRefName headRefOid reviewDecision mergeable mergeStateStatus additions deletions',
   'author { login }',
   'commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }',
   'reviewRequests(first: 10) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }',
@@ -131,6 +131,8 @@ const pullSchema = z.object({
   reviewDecision: z.string().nullish().catch(null),
   mergeable: z.string().nullish().catch(null),
   mergeStateStatus: z.string().nullish().catch(null),
+  additions: z.number().int().nonnegative().nullish().catch(null),
+  deletions: z.number().int().nonnegative().nullish().catch(null),
   author: loginSchema,
   commits: nodes(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: z.string() }).nullish().catch(null) }) })),
   reviewRequests: nodes(z.object({ requestedReviewer: z.object({ __typename: z.string().optional(), login: z.string().optional(), slug: z.string().optional() }).nullish() })),
@@ -166,6 +168,8 @@ function toPull(repo: string, raw: z.output<typeof pullSchema>): InboxPull {
     reviewDecision: raw.reviewDecision ?? null,
     mergeable: raw.mergeable ?? null,
     mergeStateStatus: raw.mergeStateStatus ?? null,
+    additions: raw.additions ?? null,
+    deletions: raw.deletions ?? null,
     ci: rollup === undefined ? null : (ROLLUP[rollup] ?? null),
     reviewRequests: raw.reviewRequests.map(({ requestedReviewer: who }) => ({ login: who?.login ?? null, team: who?.slug ?? null })),
     reviews: raw.latestOpinionatedReviews.map((review) => ({ author: review.author, state: review.state, submittedAt: review.submittedAt ?? null })),
@@ -649,6 +653,8 @@ function rowOf(pull: InboxPull, viaTeam: boolean, viewer: string | null, seenAt:
     ci: pull.ci,
     reviewDecision: decisionOf(pull),
     mergeStateStatus: pull.mergeStateStatus,
+    additions: pull.additions,
+    deletions: pull.deletions,
     viaTeam,
     unresolvedThreads: pull.threads.filter((thread) => !thread.isResolved).length,
     newSinceSeen: fresh.length,

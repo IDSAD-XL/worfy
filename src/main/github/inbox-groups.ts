@@ -41,6 +41,9 @@ export interface InboxPull {
   reviewDecision: string | null
   mergeable: string | null
   mergeStateStatus: string | null
+  /** Lines added and removed by the PR; null when GitHub gives none. */
+  additions: number | null
+  deletions: number | null
   ci: CiState | null
   /** Who is asked to review: a user's login, or a team's slug. */
   reviewRequests: { login: string | null; team: string | null }[]

@@ -18,13 +18,16 @@ and CI badges of a Ticket are on [Gate and GitHub](gate-and-github.md).
   Project the tab is inactive, and its tooltip says to open one.
 - The **Pull requests** row of the Command palette, group View, with a Project.
 - A group of the **Pull requests** section of the sidebar: the view of that row's Project, scrolled to that group, its
-  frame marked. A row of another Project selects that Project first.
+  heading marked and its first PR selected (not marked seen). A row of another Project selects that Project first.
 - A click on a system notification of a new review request or reply opens the view on that PR, and **Open** of the
   morning digest opens it too: see [Notifications](notifications.md).
 
-The view belongs to the active Project. Another Project shows its own inbox, and its rows start closed.
+The view belongs to the active Project. Another Project shows its own inbox and starts with a selection of its own.
 
-**Groups.** Five, always in this order, each with its count. A group with no PR shows its heading and 0.
+**Two panes.** On the left, a compact list of the PRs by group; on the right, the selected PR in full. In a window
+narrower than about 720 px of content the list sits above the PR, each scrolling on its own.
+
+**Groups.** Five, always in this order, each heading with its count. The list shows only the groups that hold a PR.
 
 | Group | Holds |
 |---|---|
@@ -37,46 +40,63 @@ The view belongs to the active Project. Another Project shows its own inbox, and
 Main decides the group and the order inside it: Needs my review shows the oldest PR first, the others the oldest
 activity first. A PR without a Ticket is a row like any other.
 
-**A row.** The first line: the CI dot, the title, `Draft` for a draft PR, and the age. The second line: `owner/repo#N`,
-the Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, the review decision (Approved, Changes requested, Review
-required), the count of open threads ("2 open threads"), "N new since you looked", and "via team" when the review is asked
-only of a team the user is in.
+**A row of the list.** The author's avatar (two letters of the login on a colour of its own; the user's own has a ring),
+the title, and under it the repository's name and number (`web#41`; the whole `owner/repo#N` is the tooltip), the
+Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, and the CI dot — with its text beside it when CI is not green. On
+the right: the age, the count of open threads with a speech-bubble icon (orange on the user's own PR, where someone
+waits for the user; "2 open threads" is the tooltip), and a blue dot when there are new comments ("N new since you
+looked" is the tooltip).
 
 - **Title**: cut with an ellipsis when it does not fit; the whole title is its tooltip.
 - **CI dot**: green — passing, orange — failing, an empty blue ring — running, an empty grey ring — no CI. Its text is
   the tooltip.
 - **Age**: for Needs my review, the age of the PR; elsewhere, of its last comment or review. The tooltip has the time.
+  Its colour says how long the PR has waited: grey under 12 hours, lighter under 3 days, orange under 14 days, red
+  after.
 - **Ticket chip**: the Ticket whose `PR:` line names this PR, else the Ticket whose branch is the PR's (its `Branch:`
   line, or `<epic>/<NN>`). The number counts only in its repository: `PR: lib#41` names #41 of the repository
   called `lib` (or `owner/lib`), and a bare `PR: #41` names #41 of the Ticket's `Repo:` repositories, of any repository
   only when the Ticket has no `Repo:` line.
 - **N new since you looked**: comments of others newer than the user's last look at the PR.
 
-**An open row.** A click on the row opens it, a second click closes it. Open, it shows:
+**Selecting.** A click on a row selects its PR; **↑** and **↓** move the selection along the list, from anywhere in the
+shown view except a text field, a menu or a dialog, and stop at its ends. Before the user chooses, the view selects by
+itself the first PR that waits for the user's answer, else the first of the list; a PR that leaves the inbox gives way
+to that choice again. With one PR, that PR is selected.
 
-- **Open on GitHub**, and the PR's branch;
-- the review threads, open ones first, then resolved ones dimmed. Each has its file and line, a link to the comment on
+**The selected PR.** The right pane shows:
+
+- the title, `owner/repo#N`, the Ticket chip, `Draft` for a draft PR, "via team" when the review is asked only of a team
+  the user is in, the author, the branch, and "N new since you looked";
+- **what to do next**, one strip in the colour of the PR's group, from the group, CI, review and drafts: "Your review is
+  asked" with **Start review** (the Files tab on GitHub); "Answer N open threads" with how many draft replies are ready
+  below, or that Draft replies writes them; "CI failing", "Changes requested" or "Merge conflict" with **Open checks**
+  when CI fails; "Ready to merge" with **Open to merge**; "Waiting for reviewers", or "Draft PR: no review asked yet";
+- four cells: **CI**; **Review** (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
+  Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
+  lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
+- **Open on GitHub**, **Draft replies** (below) and **Mark seen**, active while the PR has new comments;
+- "Threads N open · M resolved", then the review threads, open ones first, then resolved ones dimmed. Each has its file and line, a link to the comment on
   GitHub, which shows that code line, `Outdated` when the code moved on, and its last three comments with the author and
   their age. A deleted account is `ghost`, as on GitHub;
-- **Conversation**: the last comments of the PR's conversation tab, when it has any;
-- **Draft replies**: a new Session that drafts replies to the open threads (below);
-- **Mark seen**, active while the row has new comments.
+- **Conversation**: the last comments of the PR's conversation tab, when it has any.
 
-Opening a row and **Mark seen** both record that the user has looked: "N new since you looked" goes. Closing a row
-records nothing. Links open in the system's browser, never in the window.
+Selecting a PR — a click, **↑** or **↓**, or an entry that names it — and **Mark seen** record that the user has looked:
+"N new since you looked" goes. The PR the view selects by itself, and the first PR of a group a sidebar row asked
+for, record nothing. Links open in the system's browser, never in the window.
 
 ### Draft replies and Send
 
-**Draft replies** on an open row starts a new Session Node of the Project on Claude Code, with a person, whose first
+**Draft replies** on the selected PR starts a new Session Node of the Project on Claude Code, with a person, whose first
 message is the Project's "Draft replies" template filled in with the PR (`/worfy:pr-reply owner/repo#N` by default).
 The skill reads the PR, its diff and its open threads, and writes a draft reply for each thread that waits for an
 answer into a file on this machine, in the Profile folder (`state/pr-inbox/drafts/`). It posts nothing. The row says
 "A Session drafts the replies: they appear under their threads", or why the Session did not start.
 
-**A draft under its thread.** An open row reads its drafts when it opens, every 5 seconds while it stays open, and when
-the window gets the focus. Each draft reply shows under its thread, or under **Conversation** for a reply in the PR's
+**A draft under its thread.** The selected PR's drafts are read when it is selected, every 5 seconds while it stays
+selected, and when the window gets the focus; no other PR's drafts are read. Each draft reply shows under its thread, or under **Conversation** for a reply in the PR's
 conversation: its label (Needs code change, Needs answer, FYI, Resolved by push), `Edited` once the user changed it,
-and the text in a field the user edits. A reply whose thread the row does not list shows under "Replies to threads not
+and the text in a field the user edits. A reply whose thread the PR does not list shows under "Replies to threads not
 shown here". A plan for a code change, when the skill wrote one, shows under the field; it is never posted. Buttons:
 
 - **Send** posts the text in the field, once. It is inactive while the field is empty.
@@ -134,11 +154,11 @@ a notification read, push, or post anything without the click on **Send** or **S
 - "Mark seen failed: <reason>" when main could not record a look.
 
 Before the first answer the view says "Reading pull requests…". A Project that reads no pull requests — the switch is off
-in Project settings, or none of its repositories is on GitHub — shows one line saying so and no groups. A read without a
-single PR says "No open pull requests and no review requests."
+in Project settings, or none of its repositories is on GitHub — shows one line saying so and no panes. A read without a
+single PR shows, instead of the panes, a calm note: "No open pull requests and no review requests."
 
-**Opening on one PR.** An entry can ask for one PR of a Project: the view of that Project opens with that PR's row
-open, scrolled into sight, and marked seen. When the inbox does not hold that PR, the view opens and says "This pull
+**Opening on one PR.** An entry can ask for one PR of a Project: the view of that Project opens with that PR selected,
+its row scrolled into sight, and marked seen. When the inbox does not hold that PR, the view opens and says "This pull
 request is not in the inbox: owner/repo#N".
 
 **The sidebar section.** **Pull requests**, under Pipeline. For each Project of the window's Machine that holds a PR:
@@ -152,7 +172,7 @@ once, without waiting for the next search. The switch applies on Save, like the 
 #### On a Linked machine
 
 A window on a Linked machine shows the inbox of that Machine's Project, as that Machine read it; it never asks GitHub
-itself. With Read only access the rows open, but nothing is marked seen, **Mark seen** is inactive with the read-only
+itself. With Read only access PRs can be selected, but nothing is marked seen, **Mark seen** is inactive with the read-only
 hint, and the switch of Project settings is inactive. Links open on the Machine where they are clicked.
 
 Drafts and Send stay on the machine of the Project: a window on a Linked machine shows neither the drafts nor **Draft
@@ -161,7 +181,7 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 ### How it works
 
 - Main reads GitHub, by Project, with the Project's GitHub account, only the Project's repositories: a search every 5
-  minutes, then the details of the PRs that moved. It computes the groups and the counts and sends the view a snapshot
+  minutes, then the details of the PRs that moved, their size (`additions`, `deletions`) among them. It computes the groups and the counts and sends the view a snapshot
   ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md), point 1). The view only draws it.
 - The words of colleagues stay in main's memory. What the user has seen goes to the Project's data folder as ids, a
   commit and a time, never a text ([ADR-0005](../adr/0005-worfy-own-state-inventory.md), amended by ADR-0105).
@@ -177,14 +197,16 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
   meanwhile is not overwritten. One change of a file at a time, so two clicks on Send post once
   ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md), points 2–6).
 - Every entry that opens the view goes through one function. With a PR it leaves an ask; the view takes it once the
-  snapshot is there, then clears it, so coming back to the view does not open that row again.
+  snapshot is there, then clears it, so coming back to the view does not select that PR again.
+- The pane is keyed by the PR: another PR starts with its own drafts, typed texts and scroll. The shell keeps every view
+  mounted and hides the others, so **↑** and **↓** count only while this view is shown.
 
 ### Implementation
 
 | What | Where |
 |---|---|
-| The view: groups, rows, threads, status line | `src/renderer/pr-inbox/PrInboxView.tsx`, `src/renderer/pr-inbox/pr-inbox.css` |
-| The renderer's copy of the inbox; the texts of a row; the Ticket of a PR | `src/renderer/pr-inbox/usePrInbox.ts` |
+| The view: the list, the selected PR, threads, status line, ↑ / ↓ | `src/renderer/pr-inbox/PrInboxView.tsx`, `src/renderer/pr-inbox/pr-inbox.css` |
+| The renderer's copy of the inbox; the texts of a row; the Ticket of a PR; what to do next, the merge state and the size | `src/renderer/pr-inbox/usePrInbox.ts` |
 | Opening the view, on one PR or one group | `src/renderer/pr-inbox/open.ts` |
 | The sidebar section | `src/renderer/shell/sidebar/PullRequestsSection.tsx` |
 | The tab and the view in the shell | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx` |
@@ -196,6 +218,7 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
 | The reader and the groups | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
 | What the user has seen; the switch as main reads it | `src/main/projects/pr-inbox-state.ts` |
 
-Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts`; the reader
+Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (with the
+screenshots of the two panes at 1280 and 1600 px in both themes); the reader
 in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; drafts and Send in
 `test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`.

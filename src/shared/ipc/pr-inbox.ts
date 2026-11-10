@@ -63,6 +63,12 @@ export const prInboxRowSchema = z.object({
   reviewDecision: z.string().nullable(),
   /** CLEAN, DIRTY, BLOCKED, BEHIND, UNSTABLE, …; null when GitHub gives none. */
   mergeStateStatus: z.string().nullable(),
+  /**
+   * Lines the PR adds and removes, as GitHub counts them; null when GitHub gives none. A snapshot of a Project machine
+   * that does not read them yet (a Linked machine of another version) parses with null.
+   */
+  additions: z.number().int().nonnegative().nullable().default(null),
+  deletions: z.number().int().nonnegative().nullable().default(null),
   /** The review is asked of the user only through a team: the row says "via team". */
   viaTeam: z.boolean(),
   unresolvedThreads: z.number().int().nonnegative(),
