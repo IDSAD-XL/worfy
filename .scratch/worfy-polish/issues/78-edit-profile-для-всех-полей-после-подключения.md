@@ -114,8 +114,9 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   `mode` и Workflow folder — текстом с пометкой «Changed by moving the workflow files»; `name` — текстом.
 - Поля вынесены из `ConnectProject.tsx`, а не скопированы: компоненты — `src/renderer/projects/ProfileFields.tsx`,
   стили и чтение/запись пути — `src/renderer/projects/profile-fields.ts`. Шаг Review работает на них же.
-- Каналы `profileEdit.read`, `profileEdit.check`, `profileEdit.write` (`src/main/ipc/profile-edit.ts`) — `project`, как
-  `ecoMode`: чтение и проверка — `read`, запись — `write`. Все три — только запуск `bin/profile-set --field <поле>…`;
+- Каналы `profileEdit.read`, `profileEdit.check`, `profileEdit.write` (`src/main/ipc/profile-edit.ts`): чтение и
+  проверка — `project` `read`, запись — `local`, как `pipeline.write` (ревью, раунд 1): Linked machine Profile читает и
+  не пишет, форма Project-а Linked machine — без Save. Все три — только запуск `bin/profile-set --field <поле>…`;
   main передаёт ровно поля `PROFILE_EDIT_FIELDS`, лишние ключи окна (`mode`, `name`) отбрасываются.
 - `harness/bin/profile-set --field` принимает любое поле Profile-а через точку, кроме `name`, `mode`, `schema`,
   `workflow.folder`, `workflow.pipeline` и объекта, который их содержит (`workflow`); их можно только `--read`.
@@ -142,10 +143,26 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   аккаунт, Esc, старый Harness); `test/contract/profile-edit.test.ts` (настоящий `bin/profile-set` во временном
   Harness home и stub скрипта: worfy сам `profile.json` не пишет); `test/e2e/edit-profile.spec.ts`.
 - Решено без владельца: `workflow.pipeline` через `--field` не пишется (у него свой вызов); `schema` тоже закрыт;
-  `language.*` и `attribution` можно вернуть к умолчанию пунктом «default»; поле-список, однажды записанное, отсюда не
-  удаляется (пустой ввод пишет `[]`).
+  `language.*` и `attribution` можно вернуть к умолчанию пунктом «default»; поле-список, которого в Profile не было,
+  при пустом вводе остаётся без значения (`null`), а записанное и очищенное пишется `[]` («ни одного»).
 - ADR-0073 (пункт 1: «узкий: только `workflow.pipeline`») этим тикетом расширен на любое поле, кроме перечисленных;
-  поправку ADR делает Orchestrator.
+  строка в «Amendments» ADR-0073 добавлена по вердикту ревью.
+- Раунд 1 ревью (PR #1759), исправлено:
+  - очищенные `commands.verify` и `tickets.path` уходят `""`, а не `null` (`null` — «нет проверки», схема его
+    пропускает), и Harness отказывает у поля; stub проверки в unit-test-е отвечает как `profile-set --check`, а
+    contract-test фиксирует, что настоящий скрипт `null` пропускает;
+  - `profile-set` проверяет Profile, который получится после записи, правилами `bin/profile` (новый общий
+    `harness/lib/profile-rules.cjs`, им же теперь пользуется `bin/profile`): `workflow.ci: "batch"` без
+    `ci_batch_run`, относительный `workflow.e2e_lock`, неполный `cross_machine_gate` не пишутся — ни `--set`, ни
+    `--check`, ни `--reset`, который оставил бы такой Profile;
+  - шаг аккаунта в Edit profile применяет только выбор человека (prop `pickOnly` в `GithubAccount.tsx`), отмечен
+    аккаунт как записан; Save ждёт с момента открытия шага; после конфликта шаг закрыт;
+  - тесты: Save во время записи, Escape и mousedown во время записи, вид только для чтения и Project Linked machine
+    без Save, загрузка аккаунтов, конфликт с открытым шагом.
+  - mutation testing раунда — снова в отдельной копии под /tmp: 24 mutant-а (8 в Harness: проверка правил
+    `bin/profile` в `--check`, `--set`, `--reset`, три правила `profile-rules.cjs`, отказ и раскрытие `~/` в
+    `bin/profile`; 16 в окне и доступе канала) — все убиты. Два mutant-а `bin/profile` сначала были пущены против
+    `profile.test.sh` и выжили: эти правила проверяет `profile-schema2.test.sh`, против него оба убиты.
 - Mutation testing в отдельной копии под /tmp (`git worktree add --detach` + `pnpm install --frozen-lockfile`):
   31 mutant, по одному на новый test — все убиты (Escape-test усилен после выжившего mutant-а: без
   `stopPropagation` клавиша доходила до `document`).
