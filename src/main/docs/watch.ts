@@ -618,15 +618,24 @@ export interface DocsHubOptions {
   onState?: (state: DocsState) => void
 }
 
+/** Where a Project's documents are read: its root, the label of its ADRs' status line, its Product Session folder. */
+export interface DocsRoot {
+  root: string
+  adrStatusLabel: string | undefined
+  productDir: readonly string[] | undefined
+}
+
 interface OpenProject {
   watcher: Promise<DocsWatcher>
   subscribers: Map<number | string, DocsSubscriber>
-  /** Makes the watcher anew with the options it was started with and this label (`DocsHub.hold`). */
-  start: (adrStatusLabel: string | undefined) => Promise<DocsWatcher>
+  /** Makes the watcher anew with the options it was started with and this label (`DocsHub.hold`), or at another root. */
+  start: (adrStatusLabel: string | undefined, at?: DocsRoot) => Promise<DocsWatcher>
   /** The label of the last open, taken by a watcher made anew. */
   adrStatusLabel: string | undefined
   /** How many holds keep the watch closed now. */
   held: number
+  /** The root a release asked for while another hold kept the watch closed. */
+  pendingRoot?: DocsRoot | undefined
 }
 
 /** One watcher per Project, shared by its subscribers; it stops when the last one leaves. */
@@ -654,7 +663,12 @@ export class DocsHub {
     const fresh = !project
     if (!project) {
       const subscribers = new Map<number | string, DocsSubscriber>()
-      const start = (label: string | undefined): Promise<DocsWatcher> => DocsWatcher.start({
+      let where = { root, productDir }
+      const start = (label: string | undefined, at?: DocsRoot): Promise<DocsWatcher> => {
+        if (at !== undefined) where = { root: at.root, productDir: at.productDir }
+        return startAt(label, where.root, where.productDir)
+      }
+      const startAt = (label: string | undefined, root: string, productDir: readonly string[] | undefined): Promise<DocsWatcher> => DocsWatcher.start({
         root,
         ...(label === undefined ? {} : { adrStatusLabel: label }),
         ...(this.options.debounceMs === undefined ? {} : { debounceMs: this.options.debounceMs }),
@@ -699,20 +713,29 @@ export class DocsHub {
    * inside it (EPERM), and the Harness's `project-connect --remove` renames the Profile folder, which
    * holds a Silent Project's Workflow folder, the root watched here (src/main/projects/remove.ts).
    * The returned function watches it again for the subscribers left, once every hold has let go,
-   * and sends them its state. Nothing is held when the Project is not watched.
+   * and sends them its state. Nothing is held when the Project is not watched. Given `at`, the watch
+   * follows the documents to that root: the move of a Project's workflow files between Full and Silent
+   * mode (src/main/ipc/profile-edit.ts) changes where they are.
    */
-  async hold(projectId: string): Promise<() => Promise<void>> {
+  async hold(projectId: string): Promise<(at?: DocsRoot) => Promise<void>> {
     const project = this.open_.get(projectId)
     if (!project) return () => Promise.resolve()
     project.held += 1
     await (await project.watcher.catch(() => null))?.close()
     let released = false
-    return async () => {
+    return async (at?: DocsRoot) => {
       if (released) return
       released = true
       project.held -= 1
+      // Kept even while another hold still keeps the watch closed: the last release starts it there.
+      if (at !== undefined) {
+        project.pendingRoot = at
+        project.adrStatusLabel = at.adrStatusLabel
+      }
       if (project.held > 0 || this.open_.get(projectId) !== project) return
-      const watcher = project.start(project.adrStatusLabel)
+      const root = project.pendingRoot
+      project.pendingRoot = undefined
+      const watcher = project.start(project.adrStatusLabel, root)
       project.watcher = watcher
       this.follow(projectId, watcher)
       const fresh = await watcher.catch(() => null)

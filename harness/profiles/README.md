@@ -237,7 +237,10 @@ home. `mode` and `workflow.folder` change only with the workflow files: `bin/pro
 [--folder <path>]` moves the tickets root, the state file, the ADR folder, the glossary and the lessons between the
 repository and the Workflow folder, with a commit on each side, and writes the two fields last; it refuses
 uncommitted changes, an open PR of a ticket's branch and Full mode for several repositories before any write, and a
-failure half-way puts both sides back (`lib/workflow-move.cjs`). The header of `bin/profile-set` holds the details.
+failure half-way puts both sides back (`lib/workflow-move.cjs`). A marker beside `profile.json`
+(`.move-in-progress.json`) lets the next `--move` roll back a move that was killed half-way. The qmd collections
+`<name>-docs` and `<name>-tickets` are not moved: after `qmd collection remove` of both and `profile-set --field qmd
+--reset`, `qmd-collections <name>` makes them at the new place. The header of `bin/profile-set` holds the details.
 
 Secrets are not written into the profile: no environment variable values, no passwords, no
 addresses of private databases. The profile names the variable (`$API_URL`), not its value.

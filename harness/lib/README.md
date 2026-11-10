@@ -11,8 +11,8 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   them, so it never writes one `bin/profile` calls broken.
 - `workflow-move.cjs` — the move of a project's workflow files between Full mode and Silent mode: the paths that
   move, the checks before it (clean trees, open PRs of the tickets' branches, Full mode for several repositories), the
-  copy and the commit on each side, and the rollback; `bin/profile-set --move` runs it and writes `mode` and
-  `workflow.folder` after it.
+  copy and the commit on each side, the rollback, and the marker of a move under way that the next move reads to
+  roll back a killed one; `bin/profile-set --move` runs it and writes `mode` and `workflow.folder` after it.
 - `old-words.cjs` — the old Russian placeholders of profile values and headings of `rules.md`, which
   `bin/profile` prints and `hooks/session-start.mjs` mixes in with their English forms for one release.
 - `code-fence.cjs` — the code blocks of a ticket file: `bin/ticket`, the writer of the header, and

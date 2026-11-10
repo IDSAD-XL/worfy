@@ -59,10 +59,20 @@
 // gh unable to tell; $PROFILE_SET_GH names the gh to start, for the tests). Then the tracked workflow files
 // are copied to the other side and committed there, removed with `git rm` on this side and committed, and the
 // profile gets mode and workflow.folder (Silent mode: --folder, by default <profile folder>/workflow, made with
-// `git init` when absent; Full mode: null). A failure on the way — the profile not written included — puts
-// both sides back as they were, and the profile stays as it was. The output on 0 adds
-// moved: { mode, folder, paths, files }. PROFILE_SET_MOVE_FAIL_AT (tests only): copy | to-commit |
-// from-commit | profile — fail as that step starts.
+// `git init` when absent; Full mode: null). A file the receiving side's .gitignore ignores moves too
+// (`git add -f`), and the output names it. A failure on the way — the profile not written included — puts
+// both sides back as they were, and the profile stays as it was; what the rollback could not put back is
+// `leftover` beside `errors`. The move first writes a marker next to profile.json (.move-in-progress.json)
+// and removes it once the profile is written or the rollback is whole. A profile-set killed in between
+// leaves it: --read of fields then prints `interrupted: true`, and the next --move rolls that move back
+// first (or closes it, when its profile had been written), but only while both sides are as it left them;
+// otherwise it refuses and names the marker. SIGTERM, SIGINT and SIGHUP wait for the end of a move. The
+// output on 0 adds moved: { mode, folder, paths, files, ignored, recovered, qmd } — `recovered` null,
+// "rolled-back" or "finished"; `qmd` the project's -docs and -tickets collections, which still read the old
+// place. PROFILE_SET_MOVE_FAIL_AT (tests only): copy | to-commit | from-commit | profile — fail as that step
+// starts; PROFILE_SET_MOVE_KILL_AT (tests only): the same steps, and `done` (the profile written, the marker
+// not yet removed) — exit at once, as a kill would, marker left. A move of thousands of files outlasts the
+// lock's stale limit: the lock's owner file is touched as it goes, so no other writer takes it over meanwhile.
 //
 // Exit codes: 0 — written (or nothing to change, or --read, or --check found nothing); 1 — the Pipeline or
 // a field breaks a rule or is not JSON, the profile cannot be read or written: nothing written, the reason
@@ -299,8 +309,9 @@ function fileProblems(profile, value) {
     return errors
 }
 /** Refuses the value: the problems on stdout as JSON and on stderr one per line, exit 1. */
-function refuse(errors) {
-    out(JSON.stringify({ ok: false, errors }))
+function refuse(errors, leftover = []) {
+    // leftover: what a rollback could not put back; the move then failed rather than was refused.
+    out(JSON.stringify(leftover.length > 0 ? { ok: false, errors, leftover } : { ok: false, errors }))
     for (const e of errors) err(`profile-set: ${pjPath}: ${e.path ? `${e.path}: ` : ""}${e.message} — not written`)
     process.exit(1)
 }
@@ -331,7 +342,9 @@ const nameOf = (profile) => (typeof profile.name === "string" && profile.name ? 
 
 if (mode === "read" && fields.length > 0) {
     const { profile, fingerprint } = readProfile()
-    out(JSON.stringify({ name: nameOf(profile), path: pjPath, fields: fieldValues(profile), fingerprint }))
+    // A move that did not end (its marker is there): the next --move rolls it back or closes it first.
+    const interrupted = fs.existsSync(require("../lib/workflow-move.cjs").markerPath(dir))
+    out(JSON.stringify({ name: nameOf(profile), path: pjPath, fields: fieldValues(profile), fingerprint, ...(interrupted ? { interrupted: true } : {}) }))
     process.exit(0)
 }
 if (mode === "read") {
@@ -557,7 +570,7 @@ while (!locked) {
  * refuses (exit 1) before any write when the plan has problems. Returns the report and the undo of the files.
  */
 function moveFiles() {
-    const { planMove, runMove, undoMove } = require("../lib/workflow-move.cjs")
+    const { planMove, runMove, undoMove, clearMarker } = require("../lib/workflow-move.cjs")
     const shown = spawnSync(process.execPath, [path.join(BIN, "profile"), "-C", target, "--json"], { encoding: "utf8", windowsHide: true })
     let resolved = null
     try {
@@ -568,9 +581,17 @@ function moveFiles() {
     if (problems.length > 0) refuse(problems.map((message) => ({ path: "", message: `${message} — nothing moved` })))
     let state
     try {
-        state = runMove(plan, { failAt: process.env.PROFILE_SET_MOVE_FAIL_AT || "" })
+        // A move of thousands of files outlasts LOCK_STALE_MS: the owner file is touched as it goes, so another
+        // writer does not take the lock of a live move for a killed one.
+        const alive = () => {
+            try {
+                const now = new Date()
+                fs.utimesSync(OWNER, now, now)
+            } catch {}
+        }
+        state = runMove(plan, { failAt: process.env.PROFILE_SET_MOVE_FAIL_AT || "", killAt: process.env.PROFILE_SET_MOVE_KILL_AT || "", alive })
     } catch (e) {
-        refuse([{ path: "", message: e.message }])
+        refuse([{ path: "", message: e.message }], e.undoProblems || [])
     }
     const result = structuredClone(profile)
     result.mode = moveTo
@@ -579,20 +600,50 @@ function moveFiles() {
     const broken = profileProblems(result)
     if (broken.length > 0) {
         const left = undoMove(state)
-        refuse(broken.map((b) => ({ ...b, message: `${b.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` })))
+        refuse(
+            broken.map((b) => ({ ...b, message: `${b.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` })),
+            left,
+        )
     }
     profile.mode = result.mode
     profile.workflow = result.workflow
+    // The qmd collections still read the old place: qmd-collections makes them again once they are gone
+    // (profiles/README.md, "Full mode and Silent mode", the move).
+    const collections = isObject(profile.qmd) && Array.isArray(profile.qmd.collections) ? profile.qmd.collections.filter((c) => typeof c === "string") : []
     const report = {
         mode: moveTo,
         folder: result.workflow.folder,
         paths: plan.moves.map((m) => m.rel),
         files: plan.moves.reduce((n, m) => n + m.files.length, 0),
+        ignored: plan.ignored,
+        recovered: recovered === null ? null : recovered.finished ? "finished" : "rolled-back",
+        qmd: collections.filter((c) => c === `${nameOf(profile)}-docs` || c === `${nameOf(profile)}-tickets`),
     }
-    return { report, undo: () => undoMove(state) }
+    return { report, undo: () => undoMove(state), done: () => clearMarker(dir) }
 }
 
 // --- compare-and-write, under the lock --------------------------------------------------
+// A move a killed profile-set left behind is rolled back (or closed, when its profile was written) before
+// anything else: the fingerprint below is then of the profile as it really stands.
+let recovered = null
+if (mode === "move") {
+    // The move is synchronous: with these handlers a SIGTERM, SIGINT or SIGHUP waits for its end instead of
+    // stopping it between its two commits. A kill that cannot be handled leaves the marker (recoverMove).
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => {})
+    const { recoverMove, markerPath } = require("../lib/workflow-move.cjs")
+    try {
+        recovered = recoverMove(dir, readProfile().profile)
+    } catch (e) {
+        refuse([{ path: "", message: `${markerPath(dir)}: ${e.message} — nothing moved` }])
+    }
+    if (recovered !== null && recovered.problems?.length > 0) {
+        refuse(
+            [{ path: "", message: `a move that did not end was found and could not be put back: ${recovered.problems.join("; ")} — nothing moved` }],
+            recovered.problems,
+        )
+    }
+}
+
 const { text: before, profile, fingerprint: currentFingerprint } = readProfile()
 const name = nameOf(profile)
 const expected = expect === "null" ? null : expect
@@ -632,6 +683,7 @@ if (after === before) {
     process.exit(0)
 }
 try {
+    if (moved !== null && process.env.PROFILE_SET_MOVE_KILL_AT === "profile") process.exit(137)
     if (moved !== null && process.env.PROFILE_SET_MOVE_FAIL_AT === "profile") throw new Error("failed at profile (PROFILE_SET_MOVE_FAIL_AT)")
     const tmp = `${pjPath}.tmp-${process.pid}`
     fs.writeFileSync(tmp, after)
@@ -640,8 +692,11 @@ try {
     if (moved === null) die(1, `cannot write ${pjPath}: ${e.message} — not written`)
     // The files moved, the profile did not: the files go back, so the profile and the files agree again.
     const left = moved.undo()
-    refuse([{ path: "", message: `cannot write ${pjPath}: ${e.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` }])
+    refuse([{ path: "", message: `cannot write ${pjPath}: ${e.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` }], left)
 }
+// The profile has the new mode: the move is whole, and its marker goes.
+if (moved !== null && process.env.PROFILE_SET_MOVE_KILL_AT === "done") process.exit(137)
+if (moved !== null) moved.done()
 
 // --- the commit: history, not a condition ---------------------------------------------
 const run = (args) => spawnSync(GIT, args, { encoding: "utf8", windowsHide: true })

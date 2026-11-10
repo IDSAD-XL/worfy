@@ -3,28 +3,41 @@
 // `mode` and `workflow.folder` itself only once the files have moved.
 //
 // The workflow files are the paths the profile names relative to the Workflow folder: the tickets root
-// (tickets.root, `.scratch` without it; the epic specs and evidence live in it), the state file
-// (docs.handoff.path), the ADR folder (docs.adr_dir, numbering.adr.dir), the glossary (docs.context.path) and
-// the lessons (`lessons: "repo:<path>"`). An absolute or `~/` path is outside both folders and stays where it
-// is. Full mode keeps them in the project's repository, Silent mode in the Workflow folder, a git repository
-// outside it (`<profile folder>/workflow` by default, made with `git init` when absent).
+// (tickets.root, `.scratch` without it; the epic specs and evidence live in it) and the folders of
+// tickets.path and tickets.spec before their first placeholder, the state file (docs.handoff.path), the ADR
+// folder (docs.adr_dir, numbering.adr.dir), the glossary (docs.context.path) and the lessons (`lessons:
+// "repo:<path>"`). An absolute or `~/` path is outside both folders and stays where it is. Full mode keeps
+// them in the project's repository, Silent mode in the Workflow folder, a git repository outside it
+// (`<profile folder>/workflow` by default, made with `git init` when absent).
 //
 //   planMove({ profile, resolved, to, folder, profileDir, gh }) → { problems, plan }
 //     Reads, writes nothing. problems: the reasons the move is refused (empty — it may go ahead): already in
-//     that mode; Full mode for a project of several repositories; a folder that is not a git
-//     repository of its own or has no branch checked out; uncommitted changes in the repository or the
-//     Workflow folder; a file of the move already at its new place; an open PR of a ticket's branch (gh
-//     unable to tell is a refusal too). `resolved` is `bin/profile --json`'s `_resolved`.
-//   runMove(plan, { failAt }) → state
-//     Copies the tracked files of each path to the other side, commits them there, removes them on this
-//     side with `git rm` and commits that. Each commit's message names where the files went or came from. A
-//     failure undoes what was done (undoMove) and throws, with `undoProblems` on the error when the undo
-//     itself left something behind. `failAt` (tests only): copy | to-commit | from-commit — fail as that
-//     step starts.
+//     that mode; Full mode for a project of several repositories; a Workflow folder inside the repository
+//     (by its real path: a link on the way counts) or, when the move would create it, inside any git work
+//     tree; a folder that is not a git repository of its own or has no branch checked out; uncommitted or
+//     untracked files in the repository or the Workflow folder; a file of the move already at its new place;
+//     an open PR of a ticket's branch (gh unable to tell is a refusal too). `resolved` is
+//     `bin/profile --json`'s `_resolved`. plan.ignored: the files the receiving side's .gitignore ignores; the
+//     move adds them all the same (`git add -f`), so nothing is left out of its commit.
+//   runMove(plan, { failAt, killAt, alive }) → state
+//     Writes the marker of the move (markerPath: the plan, next to profile.json), then copies the tracked
+//     files of each path to the other side, commits them there, removes them on this side with `git rm` and
+//     commits that. Each commit's message names where the files went or came from. A failure undoes what was
+//     done (undoMove) and throws, with `undoProblems` on the error when the undo itself left something
+//     behind. `failAt` (tests only): copy | to-commit | from-commit — fail as that step starts; `killAt` —
+//     end the process there, as a kill would. `alive` is called before each step and every 200 copied files
+//     (profile-set touches its lock with it).
 //   undoMove(state) → problems
 //     Puts both sides back as they were before runMove: the commits taken back, the removed files restored
-//     from the commit before, the copied ones deleted, a Workflow folder the move created removed.
-//     profile-set calls it when the profile cannot be written after the files moved.
+//     from the commit before, the copied ones deleted, a Workflow folder the move created removed. The
+//     marker goes when nothing is left. profile-set calls it when the profile cannot be written after the
+//     files moved, and removes the marker itself after a written profile.
+//   recoverMove(profileDir, profile) → null | { finished } | { rolledBack, problems }
+//     A marker left by a move that was killed (a timeout, the app's quit, a power cut): when the profile
+//     already has the new mode the move had finished and the marker goes; otherwise both sides are put back
+//     from what git says now, but only while each side is as that move left it (its own commit on top, its
+//     own files and nothing else changed). Anything else is a problem that names the marker, and nothing
+//     is touched.
 "use strict"
 
 const fs = require("node:fs")
@@ -34,8 +47,17 @@ const { git: GIT } = require("../hooks/eval-env.cjs")
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
 const at = (object, dotted) => dotted.split(".").reduce((v, k) => (isObject(v) && Object.hasOwn(v, k) ? v[k] : undefined), object)
-// GIT_* of a surrounding hook would point git at another repository.
-const gitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")))
+// The variables of a surrounding hook or `git -c` that would point git at another repository (the list
+// `git rev-parse --local-env-vars` prints) are dropped; the rest stay. Dropping every GIT_* also dropped
+// GIT_CONFIG_NOSYSTEM and GIT_CONFIG_GLOBAL: git then read another config than the caller's, and on Windows,
+// whose system config has core.autocrlf=true, a rollback wrote CRLF files the caller's git saw as changed.
+const LOCAL_REPO_ENV = new Set([
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_INTERNAL_SUPER_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+])
+const gitEnv = () =>
+    Object.fromEntries(Object.entries(process.env).filter(([key]) => !LOCAL_REPO_ENV.has(key) && !/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)))
 const git = (cwd, args) => spawnSync(GIT, ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, env: gitEnv() })
 const said = (r) => (r.error ? r.error.message : (r.stderr || r.stdout || `exit ${r.status}`).trim().split("\n")[0])
 const realDir = (p) => {
@@ -49,6 +71,25 @@ const inside = (inner, outer) => {
     const rel = path.relative(outer, inner)
     return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))
 }
+/** The path with its nearest existing ancestor resolved through links (realpath), the rest joined as given. */
+function resolveThroughLinks(p) {
+    let existing = path.resolve(p)
+    const rest = []
+    while (!fs.existsSync(existing) && path.dirname(existing) !== existing) {
+        rest.unshift(path.basename(existing))
+        existing = path.dirname(existing)
+    }
+    return path.join(realDir(existing), ...rest)
+}
+/** The nearest existing folder at or above `p`. */
+function nearestExisting(p) {
+    let at = path.resolve(p)
+    while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
+    return at
+}
+
+/** Where the marker of a move in progress lives: next to profile.json. */
+const markerPath = (profileDir) => path.join(profileDir, ".move-in-progress.json")
 
 /** The workflow paths of a profile, relative to the Workflow folder, with "/" between parts; one inside another is left out. */
 function workflowPaths(profile) {
@@ -61,6 +102,18 @@ function workflowPaths(profile) {
         at(profile, "numbering.adr.dir"),
         at(profile, "docs.context.path"),
         typeof lessons === "string" && lessons.startsWith("repo:") ? lessons.slice("repo:".length) : undefined,
+        // The folders of the ticket and spec templates before their first placeholder or wildcard.
+        ...["tickets.path", "tickets.spec"].map((f) => {
+            const v = at(profile, f)
+            if (typeof v !== "string") return undefined
+            const parts = v.trim().replace(/\\/g, "/").split("/")
+            const fixed = []
+            for (const part of parts.slice(0, -1)) {
+                if (/[<*?[]/.test(part)) break
+                fixed.push(part)
+            }
+            return fixed.length > 0 ? fixed.join("/") : undefined
+        }),
     ]
     const paths = []
     for (const raw of given) {
@@ -172,12 +225,21 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
     let createFolder = false
     if (to === "silent") {
         if (folder !== null && !path.isAbsolute(folder)) return { problems: [`the Workflow folder must be an absolute path, not ${folder}`], plan: null }
-        workflow = path.resolve(folder ?? path.join(profileDir, "workflow"))
+        // Through links: a folder reached through a link into the repository is inside it.
+        workflow = resolveThroughLinks(folder ?? path.join(profileDir, "workflow"))
         if (fs.existsSync(workflow)) {
-            workflow = realDir(workflow)
             const entries = fs.readdirSync(workflow)
             if (entries.length === 0) createFolder = "init"
         } else createFolder = "make"
+        // A folder this move would create must not land in another git work tree, where it would show as
+        // untracked files. The default one lies in the Harness home, whose .gitignore leaves it out.
+        const byDefault = workflow === resolveThroughLinks(path.join(profileDir, "workflow"))
+        if (createFolder && !byDefault) {
+            const above = createFolder === "init" ? path.dirname(workflow) : nearestExisting(workflow)
+            const top = git(above, ["rev-parse", "--show-toplevel"])
+            if (top.status === 0 && !top.error && top.stdout.trim() !== "")
+                problems.push(`the Workflow folder ${workflow} would be made inside the git repository ${realDir(top.stdout.trim())}: choose a folder outside every repository`)
+        }
     } else {
         if (folder !== null) return { problems: ["Full mode has no Workflow folder: the files move into the repository"], plan: null }
         workflow = realDir(resolved.workflow_folder)
@@ -194,7 +256,8 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
             continue
         }
         if (git(side.root, ["symbolic-ref", "-q", "HEAD"]).status !== 0) problems.push(`${side.what} has no branch checked out (detached HEAD): the move would commit on no branch`)
-        const status = git(side.root, ["status", "--porcelain"])
+        // Every untracked file, whatever status.showUntrackedFiles says.
+        const status = git(side.root, ["status", "--porcelain", "--untracked-files=all"])
         if (status.status !== 0 || status.error) problems.push(`git status in ${side.what} failed: ${said(status)}`)
         else if (status.stdout.trim() !== "") problems.push(`${side.what} has uncommitted changes: commit or stash them first`)
     }
@@ -209,6 +272,15 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
         if (fs.existsSync(path.join(target, ...rel.split("/")))) problems.push(`${rel} is already in ${to === "silent" ? "the Workflow folder" : "the repository"}: nothing is moved over it`)
         moves.push({ rel, files })
     }
+    // The files the receiving side's .gitignore would leave out of its commit: added all the same, and said.
+    let ignored = []
+    const all = moves.flatMap((m) => m.files)
+    if (!createFolder && all.length > 0) {
+        const r = spawnSync(GIT, ["-C", target, "check-ignore", "--no-index", "-z", "--stdin"], { input: all.join("\0"), encoding: "utf8", windowsHide: true, env: gitEnv() })
+        // Exit 1: none is ignored.
+        if (r.status === 0) ignored = r.stdout.split("\0").filter(Boolean)
+        else if (r.status !== 1 || r.error) problems.push(`git check-ignore in ${target} failed: ${said(r)}`)
+    }
 
     // The open PRs of the tickets' branches.
     const ticketsRel = workflowPaths({ tickets: profile.tickets })[0]
@@ -220,7 +292,7 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
         if (open.length > 0) problems.push(`tickets have open PRs: ${open.map((pr) => `#${pr.number} (${pr.headRefName})`).join(", ")} — merge or close them first`)
     }
     if (problems.length > 0) return { problems, plan: null }
-    return { problems, plan: { to, repo, workflow, source, target, createFolder, moves } }
+    return { problems, plan: { to, repo, workflow, source, target, createFolder, moves, ignored, profileDir } }
 }
 
 /** The identity flags for a commit in `root`: the repository's own, or a stand-in when it has none. */
@@ -256,13 +328,17 @@ function messages(plan) {
 }
 
 /** Runs the plan; a failure undoes what was done and throws. */
-function runMove(plan, { failAt = "" } = {}) {
+function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
     const state = { plan, made: false, initialized: false, copied: [], toHead: null, fromHead: null, toCommitted: false, removed: false, fromCommitted: false }
     const step = (name, fn) => {
+        // A kill (tests only): the process ends here, the marker and what was done so far left as they are.
+        if (killAt === name) process.exit(137)
         if (failAt === name) throw new Error(`failed at ${name} (PROFILE_SET_MOVE_FAIL_AT)`)
+        alive()
         fn()
     }
     try {
+        writeMarker(plan, headOf(plan.source), plan.createFolder ? null : headOf(plan.target))
         if (plan.createFolder === "make") {
             fs.mkdirSync(plan.workflow, { recursive: true })
             state.made = true
@@ -278,7 +354,8 @@ function runMove(plan, { failAt = "" } = {}) {
         const text = messages(plan)
         step("copy", () => {
             for (const rel of rels) state.copied.push(rel)
-            for (const file of all) {
+            for (const [i, file] of all.entries()) {
+                if (i % 200 === 199) alive()
                 const from = path.join(plan.source, ...file.split("/"))
                 const to = path.join(plan.target, ...file.split("/"))
                 fs.mkdirSync(path.dirname(to), { recursive: true })
@@ -289,7 +366,8 @@ function runMove(plan, { failAt = "" } = {}) {
         })
         if (all.length === 0) return state
         step("to-commit", () => {
-            must(git(plan.target, ["add", "--", ...rels]), "git add of the moved files")
+            // -f: a file the receiving side's .gitignore ignores (plan.ignored) moves with the rest.
+            must(git(plan.target, ["add", "-f", "--", ...rels]), "git add of the moved files")
             must(git(plan.target, [...commitArgs(plan.target), "commit", "-q", "--no-verify", "-m", text.to]), `git commit in ${plan.target}`)
             state.toCommitted = true
         })
@@ -344,7 +422,102 @@ function undoMove(state) {
         }
         if (state.initialized) tryStep("removing the git repository made in " + plan.workflow, () => fs.rmSync(path.join(plan.workflow, ".git"), { recursive: true, force: true }))
     }
+    // The marker stays while something is left, so the next move tries again and names it.
+    if (problems.length === 0) clearMarker(plan.profileDir)
     return problems
 }
 
-module.exports = { workflowPaths, ticketBranches, planMove, runMove, undoMove }
+/** Writes the marker of a move about to start: what recoverMove needs to put both sides back. */
+function writeMarker(plan, fromHead, toHead) {
+    const marker = {
+        to: plan.to,
+        repo: plan.repo,
+        workflow: plan.workflow,
+        source: plan.source,
+        target: plan.target,
+        createFolder: plan.createFolder,
+        rels: plan.moves.map((m) => m.rel),
+        fromHead,
+        toHead,
+        messages: messages(plan),
+        started: new Date().toISOString(),
+    }
+    const file = markerPath(plan.profileDir)
+    fs.writeFileSync(`${file}.tmp-${process.pid}`, JSON.stringify(marker, null, 2) + "\n")
+    fs.renameSync(`${file}.tmp-${process.pid}`, file)
+}
+
+/** Removes the marker; a marker already gone is fine. */
+function clearMarker(profileDir) {
+    fs.rmSync(markerPath(profileDir), { force: true })
+}
+
+/** The marker of a move that did not end, or null. A marker that cannot be read is an error. */
+function readMarker(profileDir) {
+    const file = markerPath(profileDir)
+    if (!fs.existsSync(file)) return null
+    const marker = JSON.parse(fs.readFileSync(file, "utf8"))
+    if (!isObject(marker) || !Array.isArray(marker.rels)) throw new Error(`${file} is not the marker of a move`)
+    return marker
+}
+
+/**
+ * How a side stands after a killed move: "before" (still at `base`), "committed" (one commit on top of
+ * `base` with the move's own message), or null — it moved on since, and only a person can tell what to keep.
+ */
+function sideState(root, base, message) {
+    const head = headOf(root)
+    if (head === base) return "before"
+    const parent = git(root, ["rev-parse", "-q", "--verify", "HEAD^"])
+    const parentSha = parent.status === 0 ? parent.stdout.trim() : null
+    const subject = git(root, ["log", "-1", "--format=%s"]).stdout.trim()
+    return parentSha === base && subject === message ? "committed" : null
+}
+
+/** Rolls back or closes a move a killed profile-set left behind; see the header. */
+function recoverMove(profileDir, profile) {
+    const marker = readMarker(profileDir)
+    if (marker === null) return null
+    if (profile.mode === marker.to) {
+        clearMarker(profileDir)
+        return { finished: true }
+    }
+    const plan = {
+        to: marker.to,
+        repo: marker.repo,
+        workflow: marker.workflow,
+        source: marker.source,
+        target: marker.target,
+        createFolder: marker.createFolder,
+        moves: marker.rels.map((rel) => ({ rel, files: [] })),
+        profileDir,
+    }
+    const problems = []
+    const named = `the marker ${markerPath(profileDir)} of a move that did not end`
+    const targetExists = fs.existsSync(plan.target)
+    const fromState = sideState(plan.source, marker.fromHead, marker.messages.from)
+    const toState = targetExists && fs.existsSync(path.join(plan.target, ".git")) ? sideState(plan.target, marker.toHead, marker.messages.to) : "before"
+    if (fromState === null) problems.push(`${plan.source} has commits since ${named}: put it back by hand, then delete the marker`)
+    if (toState === null) problems.push(`${plan.target} has commits since ${named}: put it back by hand, then delete the marker`)
+    // On the side the files left only the move's own deletions may be uncommitted; anything else is a person's change.
+    if (fromState !== null) {
+        const status = git(plan.source, ["status", "--porcelain", "--untracked-files=all"])
+        const foreign = status.stdout.split("\n").filter((line) => line !== "" && !/^(D |\sD|DD) /.test(line))
+        if (status.status !== 0 || foreign.length > 0) problems.push(`${plan.source} has changes since ${named}: commit or remove them by hand first`)
+    }
+    if (problems.length > 0) return { rolledBack: false, problems }
+    const state = {
+        plan,
+        made: plan.createFolder === "make",
+        initialized: Boolean(plan.createFolder),
+        copied: plan.createFolder === "make" ? [] : marker.rels,
+        toHead: marker.toHead,
+        fromHead: marker.fromHead,
+        toCommitted: toState === "committed",
+        removed: fromState === "before",
+        fromCommitted: fromState === "committed",
+    }
+    return { rolledBack: true, problems: undoMove(state) }
+}
+
+module.exports = { workflowPaths, ticketBranches, planMove, runMove, undoMove, recoverMove, clearMarker, markerPath, readMarker }

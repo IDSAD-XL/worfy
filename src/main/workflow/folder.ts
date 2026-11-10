@@ -172,6 +172,11 @@ export class LayoutCache {
     this.entries.set(key, { at: now, layout })
     return layout
   }
+
+  /** Drops the answer for `root`: the next get reads the Harness again (a move between Full and Silent mode changed it). */
+  forget(root: string): void {
+    this.entries.delete(resolve(root))
+  }
 }
 
 let shared: LayoutCache | undefined

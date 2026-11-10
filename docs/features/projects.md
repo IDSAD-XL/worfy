@@ -37,29 +37,51 @@ an old Profile of schema 1 in the Harness migration form: it proposes Full mode 
 repository and Silent mode otherwise, and the user may change the proposal.
 
 **Moving between the modes.** "Move to Silent mode…" (or "Move to Full mode…") under the mode in "Edit profile" opens a
-confirmation that says what moves where; for Silent mode it has a Workflow folder field, and empty means
-`<Profile folder>/workflow`, made with `git init` when it does not exist. "Move files" hands the move to
+confirmation that says what moves, from which path to which; for Silent mode it has a Workflow folder field, and empty
+means `<Profile folder>/workflow`, made with `git init` when it does not exist. A Silent Project over several repositories
+gets no "Move to Full mode…": the form says it stays in Silent mode. "Move files" hands the move to
 `harness/bin/profile-set --move`. The workflow files are the paths the Profile names relative to the Workflow folder: the
-Tickets root (with the Epic specs and evidence), the state file, the ADR folder, the glossary and the lessons. An absolute
-path stays where it is. Their tracked files are copied to the other side and committed there, then removed with `git rm`
+Tickets root (with the Epic specs and evidence), the folder of the Ticket and spec templates up to their first
+placeholder when it lies outside that root, the state file, the ADR folder, the glossary and the lessons kept in the
+repository. An absolute path stays where it is. Their tracked files are copied to the other side and committed there, then removed with `git rm`
 and committed on the side they left. Each commit message says where the files went or came from. Only then does the
 Profile get `mode` and `workflow.folder`: Silent mode writes the folder's path, and Full mode writes `null`. The change is
 committed in the Harness home's git.
 The move is refused before anything is written, with the reason in the form's footer, when:
 - the Project is already in that mode;
 - the Project is over several repositories and the move is to Full mode;
-- the repository or the Workflow folder has uncommitted changes, is no git repository of its own, or has no branch
-  checked out;
+- the repository or the Workflow folder has uncommitted or untracked changes (whatever `status.showUntrackedFiles`
+  says), is no git repository of its own, or has no branch checked out (a detached HEAD);
+- the Workflow folder lies inside the repository, also when a link on its path leads there, or a folder the move would
+  make (or `git init`) lies inside another git repository;
 - a file of the move already exists at its new place;
 - a PR of a Ticket's branch is open, or gh cannot tell. A Ticket's branch is its `Branch:` line or the Profile's
   branch template for its Epic. A repository without a remote has no PRs to ask about;
 - a Session of the Project in worfy is starting, busy or waiting for a permission (worfy checks this before it calls the
   script). An idle Session does not stop the move.
 
-A failure half-way puts both sides back as they were, and the Profile stays in its mode. worfy's watches of the Project
-close for the move and open again after it. When the form has unsaved edits the button waits for them to be saved or
-cancelled, because the form reads the Profile again after a move. A Project of a Linked machine shows no move. The qmd
-collections of the Project are not changed by a move.
+A file the receiving side's `.gitignore` ignores moves too (`git add -f`), and the footer names it. A failure half-way
+puts both sides back as they were, and the Profile stays in its mode. When the rollback cannot undo everything, the footer
+says the move failed and lists what is left to put right by hand.
+
+Before it starts, the move writes a marker beside `profile.json` (`.move-in-progress.json`). It is removed once the Profile
+is written or the rollback is whole. When worfy quits or the machine goes down in between, the form says a move was
+stopped half-way. The next move rolls that one back first and then moves (or only removes the marker when the Profile
+had been written). It refuses, naming the marker, when either side got a commit or another change since. worfy's quit
+does not stop a running move: the script waits for its end. worfy gives a move up to 30 minutes.
+
+worfy's watches of the Project close for the move and open again after it, where the files are now: the Tickets, the
+documents (ADRs, `HANDOFF.md`) and the cached layout of the Project are read again. When the form has unsaved edits the
+button waits for them to be saved or cancelled, because the form reads the Profile again after a move. A Project of a
+Linked machine shows no move.
+
+The qmd collections `<name>-docs` and `<name>-tickets` keep indexing the old place: the footer names them after the move.
+`harness/bin/qmd-collections` changes nothing while the Profile names collections, so they are made again by hand:
+1. `qmd collection remove <name>-docs` and `qmd collection remove <name>-tickets`;
+2. `harness/bin/profile-set -C <repository> --field qmd --read` prints the fingerprint of the Profile's `qmd` field;
+3. `harness/bin/profile-set -C <repository> --field qmd --expect <fingerprint> --reset` removes the field;
+4. `harness/bin/qmd-collections <name>` makes the collections at the new place and names them in the Profile again.
+   `<name>-memory` keeps its path, so it is taken as it is.
 
 **"Add project".** The "+" of the Projects section opens it, and "Connect…" of Getting started asks for the same thing. The
 header names five steps: Folder, Mode, Harness, Draft and Review. The footer says that nothing is written until Connect.

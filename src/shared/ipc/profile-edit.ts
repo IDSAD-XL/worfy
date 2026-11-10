@@ -77,6 +77,10 @@ export const profileEditReadSchema = z.discriminatedUnion('available', [
     fixed: profileEditValuesSchema,
     /** The fingerprint of `mode` and `workflow.folder` together: what `move` takes. */
     fixedFingerprint: pipelineFingerprintSchema,
+    /** A move of the workflow files was stopped half-way (worfy quit, the machine went down): the next move rolls it back first. */
+    interrupted: z.boolean(),
+    /** The Project has several repositories: it stays in Silent mode, a move to Full mode is not offered. */
+    severalRepos: z.boolean(),
     /** The fingerprint of the fields of PROFILE_EDIT_FIELDS together. */
     fingerprint: pipelineFingerprintSchema,
   }),
@@ -114,14 +118,30 @@ export const profileModeSchema = z.enum(['full', 'silent'])
 export type ProfileMode = z.output<typeof profileModeSchema>
 
 export const profileMoveResultSchema = z.discriminatedUnion('status', [
-  /** Moved: the files committed on both sides, `mode` and `workflow.folder` written. `warning`: why the Profile change was not committed in the Harness home's git. */
-  z.object({ status: z.literal('moved'), mode: profileModeSchema, folder: z.string().nullable(), files: z.number().int().nonnegative(), warning: z.string().nullable() }),
+  /**
+   * Moved: the files committed on both sides, `mode` and `workflow.folder` written. `warning`: why the Profile
+   * change was not committed in the Harness home's git. `ignored`: files the receiving side's .gitignore ignores,
+   * committed there all the same. `recovered`: what this run did first with a move stopped half-way. `qmd`: the
+   * Project's qmd collections, which still index the old place.
+   */
+  z.object({
+    status: z.literal('moved'),
+    mode: profileModeSchema,
+    folder: z.string().nullable(),
+    files: z.number().int().nonnegative(),
+    warning: z.string().nullable(),
+    ignored: z.array(z.string()),
+    recovered: z.enum(['finished', 'rolled-back']).nullable(),
+    qmd: z.array(z.string()),
+  }),
   /** `mode` and `workflow.folder` are not the ones read: nothing moved; the form reads them again. */
   z.object({ status: z.literal('conflict') }),
   /** Another write of the same Profile held its lock for the whole wait: nothing moved, try again. */
   z.object({ status: z.literal('busy') }),
   /** Refused before anything was written, or failed and rolled back: `reason` says why; the Project stays in its mode. */
   z.object({ status: z.literal('refused'), reason: z.string() }),
+  /** Failed, and the rollback could not undo everything: `left` names what is left to put right by hand. */
+  z.object({ status: z.literal('failed'), reason: z.string(), left: z.array(z.string()) }),
 ])
 export type ProfileMoveResult = z.output<typeof profileMoveResultSchema>
 

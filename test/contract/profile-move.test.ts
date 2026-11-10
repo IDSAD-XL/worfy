@@ -4,14 +4,22 @@
 // them into the default Workflow folder with a commit on each side, and bin/profile prints mode silent; Silent
 // -> Full brings them back. A Session of the Project at work refuses the move before profile-set runs; an idle
 // one does not. Uncommitted changes and an open PR of a ticket's branch are refused by the Harness with
-// nothing changed; a failure half-way leaves both sides and the Profile as they were. gh is a node stand-in
-// (PROFILE_SET_GH) that prints a prepared list: no real gh, no network.
-import { execFileSync, spawn, spawnSync } from 'node:child_process'
+// nothing changed; a failure half-way leaves both sides and the Profile as they were. Over the real Tickets and
+// documents watches (WorkflowHub, DocsHub) and the real layout reader (bin/profile, bin/ticket), the watches
+// follow the files to the Workflow folder: the layout of the root is read again, not taken from the cache, and
+// a change there reaches both. gh is a node stand-in (PROFILE_SET_GH) that prints a prepared list: no real gh,
+// no network.
+import { execFile, execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DocsHub } from '../../src/main/docs/watch'
+import { readProjectLayout, type ProjectLayout } from '../../src/main/workflow/folder'
+import type { ProfileRun, ProfileRunner } from '../../src/main/workflow/profile'
+import { WorkflowHub } from '../../src/main/workflow/watch'
 import type { SessionState } from '../../src/shared/agent/events'
+import type { DocsState } from '../../src/shared/ipc/docs'
 import type { ProfileEditRead } from '../../src/shared/ipc/profile-edit'
 import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
@@ -24,7 +32,8 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
-const { profileEditHandlers } = await import('../../src/main/ipc/profile-edit')
+const { profileEditHandlers, holdProjectWatches } = await import('../../src/main/ipc/profile-edit')
+const { docsSource } = await import('../../src/main/ipc/docs')
 type Handlers = ReturnType<typeof profileEditHandlers>
 type Run = { code: number | null; stdout: string; stderr: string }
 
@@ -40,6 +49,7 @@ let failAt: string
 let sessions: { cwd: string; state: SessionState }[]
 let holds: string[]
 let moves: string[][]
+let forgotten: string[]
 
 function git(cwd: string, ...args: string[]): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
@@ -77,12 +87,49 @@ function profileSet(args: readonly string[], stdin?: string): Promise<Run> {
   })
 }
 
+/** A Harness script run as worfy runs it, in the temporary homes. */
+const script =
+  (name: 'profile' | 'ticket'): ProfileRunner =>
+  (cwd, args) =>
+    new Promise<ProfileRun>((done) => {
+      execFile(NODE, [join(BIN, name), ...args], { cwd, env: harnessEnv(), encoding: 'utf8', windowsHide: true }, (error, stdout, stderr) => {
+        done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout, stderr })
+      })
+    })
+
+/** The real bin/epic-status, as the Tickets watch runs it. */
+const epicStatus = (cwd: string, ref: string | null): Promise<string> =>
+  new Promise((done, fail) => {
+    execFile(NODE, [join(BIN, 'epic-status'), '--json', ...(ref === null ? [] : ['--ref', ref])], { cwd, env: harnessEnv(), encoding: 'utf8', windowsHide: true }, (error, stdout, stderr) => {
+      if (error) fail(new Error(`epic-status: ${stderr}`))
+      else done(stdout)
+    })
+  })
+
+/** The real layout reader over the temporary homes; the cache keeps an answer until it is forgotten, so a stale one shows. */
+const readLayout = (root: string): Promise<ProjectLayout> => readProjectLayout({ root, claudeHome: join(scratch, 'home', '.claude'), env: harnessEnv(), run: script('profile'), runTicket: script('ticket'), log: () => undefined })
+function layoutCache(): { get: (root: string) => Promise<ProjectLayout>; forget: (root: string) => void } {
+  const cached = new Map<string, Promise<ProjectLayout>>()
+  return {
+    get: (root) => {
+      const hit = cached.get(root) ?? readLayout(root)
+      cached.set(root, hit)
+      return hit
+    },
+    forget: (root) => {
+      forgotten.push(root)
+      cached.delete(root)
+    },
+  }
+}
+
 const profileField = (field: string): string => spawnSync(NODE, [join(BIN, 'profile'), '-C', repo, '--field', field], { env: harnessEnv(), encoding: 'utf8', windowsHide: true }).stdout.trim()
 
 const handlers = (): Handlers =>
   profileEditHandlers({
     projects: () => [{ path: repo }],
     profileSet,
+    layouts: layoutCache(),
     sessions: () => Promise.resolve(sessions),
     holdWatches: (root) => {
       holds.push(`hold ${root}`)
@@ -130,6 +177,7 @@ beforeEach(() => {
   sessions = []
   holds = []
   moves = []
+  forgotten = []
   mkdirSync(join(scratch, 'home'), { recursive: true })
   mkdirSync(join(harnessHome, 'gate'), { recursive: true })
   mkdirSync(join(harnessHome, 'projects', 'demo'), { recursive: true })
@@ -165,7 +213,7 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
     expect(state.fixedFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u)
 
     const toSilent = await call(module, 'profileEdit.move', { root: repo, to: 'silent', folder: null, expected: state.fixedFingerprint })
-    expect(toSilent).toEqual({ status: 'moved', mode: 'silent', folder: realpathSync.native(workflow), files: 4, warning: null })
+    expect(toSilent).toEqual({ status: 'moved', mode: 'silent', folder: realpathSync.native(workflow), files: 4, warning: null, ignored: [], recovered: null, qmd: [] })
     expect(profileField('mode')).toBe('silent')
     expect(has(workflow)).toEqual([true, true, true, true])
     expect(has(repo)).toEqual([false, false, false, false])
@@ -173,11 +221,13 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
     expect([count(repo), count(workflow)]).toEqual([2, 1])
     expect(git(harnessHome, 'log', '-1', '--format=%s').trim()).toBe('Move demo to Silent mode')
     expect(holds).toEqual([`hold ${repo}`, `watch again ${repo}`])
+    expect(forgotten).toEqual([repo])
 
     const after = await read(module)
+    expect([after.interrupted, after.severalRepos]).toEqual([false, false])
     expect(after.fixed).toEqual({ mode: 'silent', 'workflow.folder': realpathSync.native(workflow) })
     const toFull = await call(module, 'profileEdit.move', { root: repo, to: 'full', folder: null, expected: after.fixedFingerprint })
-    expect(toFull).toEqual({ status: 'moved', mode: 'full', folder: null, files: 4, warning: null })
+    expect(toFull).toEqual({ status: 'moved', mode: 'full', folder: null, files: 4, warning: null, ignored: [], recovered: null, qmd: [] })
     expect(profileField('mode')).toBe('full')
     expect(has(repo)).toEqual([true, true, true, true])
     expect(has(workflow)).toEqual([false, false, false, false])
@@ -241,4 +291,55 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
     expect(result).toEqual({ status: 'conflict' })
     expect(has(repo)).toEqual([true, true, true, true])
   })
+
+  it('the real Tickets and documents watches follow the files to the Workflow folder and back', async () => {
+    const workflowHub = new WorkflowHub({ claudeHome: join(scratch, 'home', '.claude'), env: () => Promise.resolve(harnessEnv()), run: epicStatus, layout: (root) => readLayout(root) })
+    const states: DocsState[] = []
+    const docsHub = new DocsHub({ debounceMs: 20, onState: (state) => void states.push(state) })
+    try {
+      const layouts = layoutCache()
+      const module = profileEditHandlers({
+        projects: () => [{ path: repo }],
+        profileSet,
+        layouts,
+        sessions: () => Promise.resolve([]),
+        holdWatches: (root) => holdProjectWatches({ workflowHub, docsHub, docsSource: (at) => docsSource(at, layouts) }, root, ['p1']),
+      })
+      const ticketsSeen: number[][] = []
+      const first = await workflowHub.open(repo, { id: 'window', send: (delta) => void ticketsSeen.push(delta.tickets.map((ticket) => ticket.num)) })
+      expect(first.tickets.map((ticket) => ticket.num)).toEqual([1])
+      const opened = await docsHub.open('p1', (await docsSource(repo, layouts)).root, { id: 'window', send: () => undefined })
+      expect(opened.adrs.map((adr) => adr.number)).toEqual(['0001'])
+      // The cache answers Full mode until the move forgets it.
+      expect((await layouts.get(repo)).mode).toBe('full')
+
+      expect(await move(module, 'silent')).toMatchObject({ status: 'moved', mode: 'silent' })
+      expect((await layouts.get(repo)).mode).toBe('silent')
+      expect((await workflowHub.model(repo))?.tickets.map((ticket) => ticket.num)).toEqual([1])
+      await until('the documents state of the Workflow folder', () => states.at(-1)?.handoff !== null && states.at(-1)?.adrs.length === 1)
+
+      // A change in the Workflow folder reaches both watches: they watch it now, not the repository.
+      mkdirSync(join(workflow, '.scratch', 'epic-a', 'issues'), { recursive: true })
+      writeFileSync(join(workflow, '.scratch', 'epic-a', 'issues', '02-two.md'), '# 02 — two\n\nStatus: open\n')
+      writeFileSync(join(workflow, 'docs', 'adr', '0002-b.md'), '# 0002 — b\n')
+      await until('the new Ticket from the Workflow folder', () => ticketsSeen.some((nums) => nums.includes(2)))
+      await until('the new ADR from the Workflow folder', () => states.at(-1)?.adrs.length === 2)
+      git(workflow, 'add', '-A')
+      git(workflow, 'commit', '-q', '-m', 'two more')
+
+      expect(await move(module, 'full')).toMatchObject({ status: 'moved', mode: 'full', files: 6 })
+      writeFileSync(join(repo, 'docs', 'adr', '0003-c.md'), '# 0003 — c\n')
+      await until('the documents state of the repository again', () => states.at(-1)?.adrs.length === 3)
+      expect((await workflowHub.model(repo))?.tickets.map((ticket) => ticket.num)).toEqual([1, 2])
+    } finally {
+      await Promise.all([workflowHub.closeAll(), docsHub.closeAll()])
+    }
+  })
 })
+
+async function until(what: string, ready: () => boolean): Promise<void> {
+  for (let tries = 0; !ready(); tries += 1) {
+    if (tries > 400) throw new Error(`timed out waiting for ${what}`)
+    await new Promise((done) => setTimeout(done, 25))
+  }
+}

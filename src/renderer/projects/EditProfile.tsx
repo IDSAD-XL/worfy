@@ -217,7 +217,14 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
       case 'moved': {
         const files = answer.files === 1 ? '1 file' : `${answer.files} files`
         const where = answer.mode === 'silent' ? 'Moved to Silent mode' : 'Moved to Full mode'
-        setMessage({ error: false, text: `${where}: ${files}, committed in the repository and in the Workflow folder.${answer.warning ? ` The profile change is not in the Harness history: ${answer.warning}` : ''}` })
+        const notes = [
+          answer.recovered === 'rolled-back' ? 'A move stopped half-way before was rolled back first.' : null,
+          answer.recovered === 'finished' ? 'A move stopped half-way before had finished; only its marker was left.' : null,
+          answer.ignored.length > 0 ? `${answer.ignored.length === 1 ? '1 file is' : `${answer.ignored.length} files are`} ignored by the .gitignore at the new place and committed all the same: ${answer.ignored.join(', ')}.` : null,
+          answer.qmd.length > 0 ? `The qmd collections ${answer.qmd.join(', ')} still index the old place: remove them with qmd collection remove, reset the profile's qmd field with bin/profile-set --field qmd --reset, then run bin/qmd-collections.` : null,
+          answer.warning ? `The profile change is not in the Harness history: ${answer.warning}` : null,
+        ].filter((note): note is string => note !== null)
+        setMessage({ error: false, text: [`${where}: ${files}, committed in the repository and in the Workflow folder.`, ...notes].join(' ') })
         setReads((count) => count + 1)
         return
       }
@@ -230,6 +237,10 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
         return
       case 'refused':
         setMessage({ error: true, text: `Not moved: ${answer.reason}` })
+        return
+      case 'failed':
+        setReads((count) => count + 1)
+        setMessage({ error: true, text: `The move failed and was not fully rolled back: ${answer.reason}. Put right by hand: ${answer.left.join('; ')}` })
     }
   }
 
@@ -317,12 +328,22 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
             {fixed('mode', 'Mode', mode || 'full')}
             {fixed('workflow.folder', 'Workflow folder', typeof folder === 'string' ? folder : mode === 'silent' ? 'the default folder of the Harness' : 'none: the files live in the repository')}
             {viewOnly === null ? (
-              <MoveWorkflow
-                mode={mode === 'silent' ? 'silent' : 'full'}
-                moving={moving}
-                blocked={edited ? 'Save or cancel your edits first: the move reads the profile again.' : null}
-                onMove={move}
-              />
+              <>
+                {load.read.interrupted ? (
+                  <span style={fieldStyles.hint} data-testid="move-workflow-interrupted">
+                    A move of the workflow files was stopped half-way. The next move rolls it back first, then moves.
+                  </span>
+                ) : null}
+                <MoveWorkflow
+                  mode={mode === 'silent' ? 'silent' : 'full'}
+                  repository={project.path}
+                  folder={typeof folder === 'string' ? folder : null}
+                  severalRepos={load.read.severalRepos}
+                  moving={moving}
+                  blocked={edited ? 'Save or cancel your edits first: the move reads the profile again.' : null}
+                  onMove={move}
+                />
+              </>
             ) : null}
           </>,
         )}

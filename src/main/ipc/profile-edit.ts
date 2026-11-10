@@ -11,7 +11,8 @@
 // sides and writes `mode` and `workflow.folder`, rolling everything back on a failure). worfy adds the one
 // refusal only it can tell: a Session of the Project at work. Its watches of the Project (Tickets, documents)
 // close for the move and open again after it, as for a removal: Windows refuses to delete a folder a watch
-// holds a handle inside.
+// holds a handle inside. They open again where the files are now: the cached layout of the root is dropped,
+// the Tickets watch reads the layout afresh, and the documents watch starts at the root `docsSource` names.
 //
 // A window of a Linked machine with full access calls these handlers through the link, as `ecoMode`
 // does: the root it sends must be a Project of this Machine, and the Profile is written here.
@@ -33,12 +34,15 @@ import {
   type ProfileMoveResult,
 } from '../../shared/ipc/profile-edit'
 import { isInsidePath } from '../claude-home/registry'
+import type { DocsHub, DocsRoot } from '../docs/watch'
 import { harnessScriptEnv } from '../harness/script-env'
 import { realInsideProjects } from '../link/caller'
 import { realpathOrSelf } from '../projects/real-path'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
+import { projectLayouts, type LayoutCache } from '../workflow/folder'
 import { HarnessScriptStartError, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
+import type { WorkflowHub } from '../workflow/watch'
 import { defineHandler, type HandlerModule } from './index'
 import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileSetRunner } from './pipeline'
 
@@ -66,8 +70,12 @@ async function runOrTooOld(run: ProfileSetRunner, args: readonly string[], stdin
 /** The reason "Move" is refused on a Harness whose `bin/profile-set` has no `--move`. */
 export const PROFILE_MOVE_TOO_OLD = "this Harness's bin/profile-set cannot move the workflow files; update the Harness"
 
-/** How long a move may take: it lists the open PRs and copies and commits every workflow file. */
-const MOVE_TIMEOUT_MS = 120_000
+/**
+ * How long a move may take before worfy stops it: it lists the open PRs and copies and commits every workflow
+ * file, thousands in a large project. A stopped move is rolled back by the next one (its marker beside the
+ * Profile), so the limit only keeps a hung run from holding the watches closed for good.
+ */
+export const MOVE_TIMEOUT_MS = 30 * 60_000
 
 /** The states of a Session at work: a move waits until it is idle, or closed. */
 const AT_WORK: readonly SessionState[] = ['starting', 'busy', 'needs_permission']
@@ -130,6 +138,8 @@ export interface ProfileEditHandlersOptions {
   sessions?: () => Promise<readonly { readonly cwd: string; readonly state: SessionState }[]>
   /** Closes worfy's watches of the Project at `root` for a move; the returned function watches it again. The app's when absent. */
   holdWatches?: (root: string) => Promise<() => Promise<void>>
+  /** The layouts of the Projects: how many repositories one has, and the entry a move makes stale. The app's cache when absent. */
+  layouts?: Pick<LayoutCache, 'get' | 'forget'>
 }
 
 /** The app's live Sessions: the registry is imported on a move, not with this module. */
@@ -140,18 +150,39 @@ async function appSessions(): Promise<readonly { cwd: string; state: SessionStat
     .map(({ cwd, state }) => ({ cwd, state }))
 }
 
-/** The app's holds of the Tickets watch (keyed by the folder) and of the documents watch (keyed by the Project's id). */
+export interface ProjectWatches {
+  workflowHub: Pick<WorkflowHub, 'hold'>
+  docsHub: Pick<DocsHub, 'hold'>
+  /** Where the documents of the Project at a root are now (src/main/ipc/docs.ts, docsSource). */
+  docsSource: (root: string) => Promise<DocsRoot>
+}
+
+/**
+ * Closes the Tickets watch of `root` (keyed by the folder) and the documents watch of each Project id in `ids`.
+ * The returned function opens them again: the Tickets watch reads the layout afresh, the documents watch
+ * starts at the root `docsSource` names then, so after a move it follows the files to their new place. A
+ * `docsSource` that fails leaves the documents where they were watched.
+ */
+export async function holdProjectWatches(watches: ProjectWatches, root: string, ids: readonly string[]): Promise<() => Promise<void>> {
+  const [tickets, ...documents] = await Promise.all([watches.workflowHub.hold(root), ...ids.map((id) => watches.docsHub.hold(id))])
+  return async () => {
+    const at = documents.length === 0 ? undefined : await watches.docsSource(root).catch(() => undefined)
+    await Promise.all([tickets(), ...documents.map((watchAgain) => watchAgain(at))])
+  }
+}
+
+/** The app's watches of the Project at `root`: its Tickets watch and the documents watch of each of its ids. */
 async function appHoldWatches(root: string): Promise<() => Promise<void>> {
-  const [{ workflowHub }, { docsHub }] = await Promise.all([import('./workflow'), import('./docs')])
+  const [{ workflowHub }, { docsHub, docsSource }] = await Promise.all([import('./workflow'), import('./docs')])
   const ids = projectStore()
     .list()
     .filter((project) => resolve(project.path) === resolve(root))
     .map((project) => project.id)
-  const holds = await Promise.all([workflowHub.hold(root), ...ids.map((id) => docsHub.hold(id))])
-  return async () => {
-    await Promise.all(holds.map((watchAgain) => watchAgain()))
-  }
+  return holdProjectWatches({ workflowHub, docsHub, docsSource: (at) => docsSource(at) }, root, ids)
 }
+
+/** The strings of a JSON array, none when it is not one. */
+const stringsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string') : [])
 
 /** The reasons of a refused move (exit 1): the problems its stdout names, else its stderr. */
 const moveReasonOf = (run: ProfileRun): string =>
@@ -165,6 +196,7 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
   const profileMove = options.profileMove ?? options.profileSet ?? profileSetRunner(claudeHome(), harnessScriptEnv, MOVE_TIMEOUT_MS)
   const sessions = options.sessions ?? appSessions
   const holdWatches = options.holdWatches ?? appHoldWatches
+  const layouts = options.layouts ?? projectLayouts()
   /** The root as a Project of this Machine, or null: a window that shows a Linked machine sends that Machine's roots here. */
   const projectOf = (root: string): string | null => realInsideProjects(resolve(root), projects())
   const checkedRoot = (root: string, channel: string): string => {
@@ -185,7 +217,17 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
       if (fixed.code !== 0) throw failure(fixed, '--read')
       const read = readFields(edit)
       const fixedRead = readFields(fixed)
-      return { available: true, name: read.name, values: read.fields, fixed: fixedRead.fields, fixedFingerprint: fixedRead.fingerprint, fingerprint: read.fingerprint }
+      const repos = await layouts.get(checked).then((layout) => layout.repos.length, () => 0)
+      return {
+        available: true,
+        name: read.name,
+        values: read.fields,
+        fixed: fixedRead.fields,
+        fixedFingerprint: fixedRead.fingerprint,
+        interrupted: jsonOf(fixed.stdout)?.interrupted === true,
+        severalRepos: repos > 1,
+        fingerprint: read.fingerprint,
+      }
     }),
     defineHandler(profileEditCheck, async ({ root, values }): Promise<ProfileEditIssue[]> => {
       const checked = checkedRoot(root, 'profileEdit.check')
@@ -225,12 +267,17 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
       try {
         run = await profileMove(['-C', checked, '--expect', expected, '--move', to, ...(folder === null ? [] : ['--folder', folder])])
       } finally {
+        // Whatever the answer: a move stopped half-way or rolled back leaves the layout to be read again too.
+        layouts.forget(checked)
         await watchAgain()
       }
       if (run.code === 2 && /unknown argument: --move/u.test(run.stderr)) return { status: 'refused', reason: PROFILE_MOVE_TOO_OLD }
       if (run.code === PROFILE_SET_CONFLICT) return { status: 'conflict' }
       if (run.code === PROFILE_SET_BUSY) return { status: 'busy' }
-      if (run.code === 1) return { status: 'refused', reason: moveReasonOf(run) }
+      if (run.code === 1) {
+        const left = stringsOf(jsonOf(run.stdout)?.leftover)
+        return left.length > 0 ? { status: 'failed', reason: moveReasonOf(run), left } : { status: 'refused', reason: moveReasonOf(run) }
+      }
       if (run.code !== 0) throw failure(run, '--move')
       const json = jsonOf(run.stdout)
       const moved = json?.moved
@@ -242,6 +289,9 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
         folder: typeof report.folder === 'string' ? report.folder : null,
         files: typeof report.files === 'number' ? report.files : 0,
         warning: typeof json?.warning === 'string' ? json.warning : null,
+        ignored: stringsOf(report.ignored),
+        recovered: report.recovered === 'finished' || report.recovered === 'rolled-back' ? report.recovered : null,
+        qmd: stringsOf(report.qmd),
       }
     }),
   ]
