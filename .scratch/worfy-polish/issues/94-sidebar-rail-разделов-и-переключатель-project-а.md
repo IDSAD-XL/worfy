@@ -38,20 +38,20 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
 
 - [ ] Фильтр переключателя и выбор раздела посчитаны чистыми функциями; unit test-ы на «All», один Project,
       Project, который закрыли, и сохранение выбора.
-  - evidence: test-run pass · `pnpm test test/unit/sidebar-scope.test.tsx test/unit/epics-section-scope.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · acb09c21b
+  - evidence: test-run pass · `pnpm test test/unit/sidebar-scope.test.tsx test/unit/epics-section-scope.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · 62c69717e
 - [ ] Rail и панель: один раздел на экране, badges, клавиатура (стрелки по rail), имена для screen reader-а;
       unit test-ы sidebar-а обновлены там, где дизайн их меняет.
-  - evidence: test-run pass · `pnpm test test/unit/sidebar-scope.test.tsx test/unit/sidebar-section.test.tsx test/unit/machines-section.test.tsx test/unit/focus-mode.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · acb09c21b
+  - evidence: test-run pass · `pnpm test test/unit/sidebar-scope.test.tsx test/unit/sidebar-section.test.tsx test/unit/machines-section.test.tsx test/unit/focus-mode.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · 62c69717e
 - [ ] Кнопка sidebar в верхней полосе sidebar-а, в toolbar — только пока sidebar скрыт; Cmd/Ctrl+B работает.
-  - evidence: test-run pass · `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/focus-sidebar.spec.ts` exit 0 (in the 71-spec run, 233 passed) · mac dev · acb09c21b
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/sidebar-rail.spec.ts test/e2e/focus-sidebar.spec.ts` exit 0 (in the 73-spec run, 243 passed) · mac dev · 62c69717e
 - [ ] e2e spec rail и переключателя; все e2e spec-и, которые трогают sidebar, проходят.
-  - evidence: test-run pass · `pnpm test:e2e` of the 71 specs that name the sidebar or show it with no Project, sidebar-rail.spec.ts among them, exit 0, 233 passed · mac dev · acb09c21b
+  - evidence: test-run pass · `pnpm test:e2e` of the 73 specs that name the sidebar, show it with no Project or read the toolbar title, exit 0 after one fix of sidebar-rail.spec.ts, 243 passed · mac dev · 62c69717e
 - [ ] Английская страница `docs/features/app-shell.md` (раздел Sidebar) и страницы секций описывают rail и
       переключатель; перевод `ru` не обязателен (`rules.md`, раздел «Язык»).
-  - evidence: commit pass · Sidebar round 2: focus on show, switcher after open, empty panels (worfy-polish 94) · - - · acb09c21b
+  - evidence: commit pass · Sidebar round 3: wordmark strip and a full-width Project switcher (worfy-polish 94) · - - · 62c69717e
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» и один Project, fixture Project-ы.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · a13387dba
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 62c69717e
 
 ## Где в коде
 
