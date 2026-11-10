@@ -278,7 +278,7 @@ export class PrInbox {
     this.trigger =
       notifications === undefined
         ? null
-        : new NotificationsTrigger({ run: options.run, accounts: () => this.notificationAccounts(), refresh: (repo, number) => this.refresh(repo, number), focused: notifications.focused, now: this.now })
+        : new NotificationsTrigger({ run: options.run, accounts: () => this.notificationAccounts(), refresh: (repo, number) => this.refresh(repo, number), focused: notifications.focused, now: this.now, onOff: (account) => this.changedAccount(account) })
   }
 
   /** Reads every Project whose search is due, one after another, so a second Project of an account finds the first one's details. */
@@ -384,6 +384,11 @@ export class PrInbox {
     writeSeenPull(project.dataDir, key, { seenAt: new Date(this.now()).toISOString(), seenHeadOid: pull.headRefOid, lastSeenCommentId: newest?.id ?? null })
     this.options.onChange?.(projectId)
     return this.snapshot(projectId)
+  }
+
+  /** Tells every Project of the account (its cache key) that its snapshot changed. */
+  private changedAccount(account: string): void {
+    for (const [projectId, state] of this.states) if ((state.account ?? '') === account) this.options.onChange?.(projectId)
   }
 
   /** The accounts of the Projects read so far, with their repositories, for the notifications trigger. */

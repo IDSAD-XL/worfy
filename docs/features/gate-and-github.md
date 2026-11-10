@@ -608,14 +608,19 @@ once instead of at the next search. The inbox works without them.
   minutes. Less than 10 % of the REST rate limit left: no call until the limit resets.
 - **304 means "nothing changed".** Each call after the first sends `If-Modified-Since` with the last `Last-Modified`. gh exits
   with code 1 and prints `gh: HTTP 304` on such an answer; worfy reads that as an answer, not a failure: no error in the
-  view, no details read, the pace unchanged. GitHub does not count a 304 against the rate limit.
+  inbox snapshot, no details read, the pace unchanged, and a doubled interval after a failure is back to normal. GitHub does not count a 304 against the rate limit.
 - **200.** Only threads of type `PullRequest` in the Project's repositories, updated after the previous `Last-Modified`,
   count. Each such PR is read again once. Issues, releases and other repositories are ignored.
-- **403.** A fine-grained token, a GitHub App or a token without the `notifications` or `repo` scope may not read
-  notifications. The trigger stops for that account until worfy restarts, and the view says "GitHub notifications
-  unavailable for this token — checking every 5 minutes". The search goes on as before. A 403 of the rate limit only
-  pauses the trigger until the reset.
-- **Any other failure** doubles the trigger's interval, up to 30 minutes. The search is not touched.
+- **403 and 404.** A fine-grained token, a GitHub App or a token without the `notifications` or `repo` scope may not
+  read notifications. The trigger stops for that account until worfy restarts, and the `notice` field of the inbox
+  snapshot (`prInbox.get`) carries "GitHub notifications unavailable for this token — checking every 5 minutes"; every
+  Project of the account gets `prInbox.changed` at once. The search goes on as before.
+- **Rate limits.** A 403 or a 429 with `Retry-After` pauses the trigger for that many seconds. A 403 with less than
+  10 % of the rate limit left pauses it until `X-Ratelimit-Reset`. A 403 whose message names a rate limit (GitHub's
+  secondary rate limit, "You have exceeded a secondary rate limit"), and any 429, without those headers pause it for
+  a minute. None of them turns the trigger off or doubles its interval.
+- **Any other failure** — another status, a 200 whose body is not JSON, gh that does not start — doubles the
+  trigger's interval, up to 30 minutes. The search is not touched.
 - **Never "read".** worfy only reads. It never marks a notification as read: that is the user's own inbox on github.com.
 
 ### How it works
@@ -624,9 +629,10 @@ once instead of at the next search. The inbox works without them.
   in the runner's output mode `all`, so a non-zero exit still brings what `-i` printed: the status line and the headers.
   The status, `Last-Modified`, `X-Poll-Interval` and the rate limit headers are read from there.
 - **The cursor.** The last `Last-Modified` is kept per account in `pr-inbox.json` of every Project of that account, so a
-  restart goes on from it. Without a cursor no notification counts: the first search reads every PR anyway.
-- **Read-only.** The call has no `--method`; the tests check the gh stub's log for any other method, `PATCH` or a call on a
-  thread ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)).
+  restart goes on from it. Without a cursor no notification counts: the first search reads every PR anyway. A cursor
+  that cannot be saved is logged and kept in memory; the PRs of that answer are read all the same.
+- **Read-only.** The call has no `--method` and no fields. After every test the gh stub's log is checked for another
+  method in any spelling, a field or input, `PATCH`, or a call on a thread, and the stub itself refuses them ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)).
 
 ### Implementation
 
@@ -637,5 +643,6 @@ once instead of at the next search. The inbox works without them.
 | The cursor per account | `src/main/projects/pr-inbox-state.ts` |
 | The focus of the window | `src/main/ipc/pr-inbox.ts` |
 
-**Main tests.** `test/contract/pr-inbox-notifications.test.ts`: 304, 200, `If-Modified-Since` and the pace, 403, 500, the rate
-limit and the stub's log, against `test/fixtures/gh/gh-stub.mjs`.
+**Main tests.** `test/contract/pr-inbox-notifications.test.ts`: 304, 200, `If-Modified-Since` and the pace, 403, 404, 429,
+`Retry-After`, the secondary rate limit, 500, a body that is not JSON, a Project switched off, the cursor, and the stub's
+log, against `test/fixtures/gh/gh-stub.mjs`.

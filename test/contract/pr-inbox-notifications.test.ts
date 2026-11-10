@@ -4,13 +4,13 @@
 // changed", a 200 refreshes the PRs of the Project it names, a 403 turns the trigger off with a notice, any other
 // failure doubles the trigger's interval only. Nothing reaches GitHub: owners, repositories and logins are made up,
 // and the stand-in's log shows the trigger only reads.
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INBOX_SEARCH_INTERVAL_MS, PrInbox, type PrInboxOptions, type PrInboxProject } from '../../src/main/github/inbox'
-import { NOTIFICATIONS_OFF_NOTICE, NOTIFICATIONS_PATH, notifiedPulls, parseNotificationsAnswer } from '../../src/main/github/inbox-notifications'
+import { NOTIFICATIONS_OFF_NOTICE, NOTIFICATIONS_PATH, notificationsArgs, notifiedPulls, parseNotificationsAnswer } from '../../src/main/github/inbox-notifications'
 import { GhExitError } from '../../src/main/github/prs'
 import { PR_INBOX_FILE, prInboxSetting, readNotificationsCursor, writeNotificationsCursor } from '../../src/main/projects/pr-inbox-state'
 import { removeTestTree } from '../remove'
@@ -21,10 +21,37 @@ beforeEach(() => {
 })
 
 const temps: string[] = []
+/** The gh worlds of the running test: after it, every call of the stand-in is checked to be a read. */
+const worlds: GhWorld[] = []
 afterEach(() => {
   vi.unstubAllEnvs()
-  for (const dir of temps.splice(0)) removeTestTree(dir)
+  try {
+    for (const gh of worlds.splice(0)) expectOnlyReads(gh)
+  } finally {
+    for (const dir of temps.splice(0)) removeTestTree(dir)
+  }
 })
+
+/**
+ * Every call in the stand-in's log reads: no method but GET in any spelling, no field or input on a REST call (gh
+ * sends those as a POST), no mutation, no call on a notification thread; a notifications call is exactly
+ * `api -i notifications?participating=true`, with `If-Modified-Since` at most.
+ */
+function expectOnlyReads(gh: GhWorld): void {
+  for (const args of gh.calls()) {
+    const line = args.join(' ')
+    for (const [i, arg] of args.entries()) {
+      if (arg === '--method' || arg === '-X') expect(args[i + 1], line).toBe('GET')
+      expect(arg, line).not.toMatch(/^(?:--method=|-X.)/u)
+      if (args[1] !== 'graphql') expect(arg, line).not.toMatch(/^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/u)
+    }
+    expect(line).not.toMatch(/\b(?:PATCH|PUT|DELETE|POST|mutation)\b|notifications\/threads/u)
+    if (isNotifications(args)) {
+      expect(args.slice(0, 3), line).toEqual(['api', '-i', NOTIFICATIONS_PATH])
+      expect(args.length === 3 || (args.length === 5 && args[3] === '-H' && args[4]!.startsWith('If-Modified-Since: ')), line).toBe(true)
+    }
+  }
+}
 
 function tempDir(): string {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-pr-inbox-notifications-')))
@@ -84,6 +111,8 @@ interface Notifications {
   retryAfter?: number
   rate?: { limit: number; remaining: number; reset: number }
   notifications?: unknown[]
+  /** A raw body in place of `notifications`. */
+  body?: string
 }
 
 interface World extends GhWorld {
@@ -95,6 +124,7 @@ function world(): World {
   writeFileSync(join(gh.dir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls: [stubPull(API, 1), stubPull(API, 2), stubPull(OTHER, 3)] }))
   const notify = (answer: Notifications) => writeFileSync(join(gh.dir, 'notifications.json'), JSON.stringify(answer))
   notify({ lastModified: L0, notifications: [] })
+  worlds.push(gh)
   return { ...gh, notify }
 }
 
@@ -380,12 +410,157 @@ describe('the notifications trigger', () => {
     await at(inbox, gh, 5 * MINUTE)
     expect(polls(gh)).toHaveLength(5)
     expect(detailsAsked(gh).at(-1)).toEqual([`${API}#1`])
-    for (const args of gh.calls()) {
-      expect(args).not.toContain('--method')
-      expect(args).not.toContain('-X')
-      expect(args.join(' ')).not.toMatch(/PATCH|PUT|DELETE|POST|mutation|notifications\/threads/u)
+    // The same check runs after every test of this file, over its whole log.
+    expectOnlyReads(gh)
+  })
+
+  it('the stand-in refuses a write in any spelling, so a write would fail the trigger loudly', async () => {
+    const gh = world()
+    const p = project('p1', [API])
+    for (const extra of [['--method=PATCH'], ['-XPATCH'], ['--method', 'PATCH'], ['-f', 'read=true'], ['-F', 'read=true'], ['--input', 'x.json']]) {
+      await expect(gh.run(['api', 'notifications/threads/1', ...extra], p.root, {}, 'all')).rejects.toThrow(/a write is never expected/u)
     }
-    for (const args of polls(gh)) expect(args.slice(0, 3)).toEqual(['api', '-i', NOTIFICATIONS_PATH])
+    // Those refused calls are in the log; the check after this test must not see them.
+    writeFileSync(gh.log, '')
+  })
+
+  it('a 403 of the secondary rate limit without Retry-After is a pause of a minute, not off', async () => {
+    const gh = world()
+    const p = project('p1', [API])
+    gh.notify({ lastModified: L0, pollInterval: 30, notifications: [] })
+    const inbox = reader(gh, [p])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    gh.notify({ status: 403, message: 'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.' })
+    expect(await at(inbox, gh, 30 * SECOND)).toBe(2)
+    expect(inbox.snapshot('p1').notice).toBeNull()
+    // Paused for 60 s from 30 s: no poll at 60 s, though the pace is 30 s.
+    gh.notify({ lastModified: L0, pollInterval: 30, notifications: [] })
+    expect(await at(inbox, gh, 60 * SECOND)).toBe(2)
+    expect(await at(inbox, gh, 89 * SECOND)).toBe(2)
+    expect(await at(inbox, gh, 90 * SECOND)).toBe(3)
+    expect(inbox.snapshot('p1').notice).toBeNull()
+
+    // gh's own line for it, as the trigger read it.
+    gh.notify({ status: 403, message: 'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.' })
+    const refused = await gh.run(notificationsArgs(null), p.root, {}, 'all').catch((error: GhExitError) => error.output)
+    expect(refused).toContain('gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)')
+    expect(refused).not.toMatch(/retry-after/iu)
+  })
+
+  it('a 429 is a pause of a minute each time, never a doubled interval and never off', async () => {
+    const gh = world()
+    gh.notify({ lastModified: L0, pollInterval: 30, notifications: [] })
+    const inbox = reader(gh, [project('p1', [API])])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    gh.notify({ status: 429 })
+    expect(await at(inbox, gh, 30 * SECOND)).toBe(2)
+    expect(await at(inbox, gh, 89 * SECOND)).toBe(2)
+    expect(await at(inbox, gh, 90 * SECOND)).toBe(3)
+    // Again a minute (150 s), where a doubled interval would wait until 210 s.
+    expect(await at(inbox, gh, 149 * SECOND)).toBe(3)
+    expect(await at(inbox, gh, 150 * SECOND)).toBe(4)
+    expect(inbox.snapshot('p1').notice).toBeNull()
+    expect(inbox.snapshot('p1').error).toBeNull()
+  })
+
+  it('a 200 whose body is not JSON is a failure: the interval doubles and the cursor stays', async () => {
+    const gh = world()
+    const p = project('p1', [API])
+    const inbox = reader(gh, [p])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    gh.notify({ lastModified: L1, body: '<html>Unicorn!</html>' })
+    expect(await at(inbox, gh, MINUTE)).toBe(2)
+    expect(readNotificationsCursor(p.dataDir, ME)).toBe(L0)
+    expect(await at(inbox, gh, 2 * MINUTE)).toBe(2)
+    expect(await at(inbox, gh, 3 * MINUTE)).toBe(3)
+    expect(sinceOf(polls(gh)[2]!)).toBe(L0)
+  })
+
+  it('200 with a cursor, then 500, then 304: the 304 brings back the pace of 60 s', async () => {
+    const gh = world()
+    const inbox = reader(gh, [project('p1', [API])])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    gh.notify({ status: 500 })
+    expect(await at(inbox, gh, MINUTE)).toBe(2)
+    // Doubled: 120 s.
+    gh.notify({ lastModified: L0, notifications: [] })
+    expect(await at(inbox, gh, 2 * MINUTE)).toBe(2)
+    expect(await at(inbox, gh, 3 * MINUTE)).toBe(3)
+    expect(sinceOf(polls(gh)[2]!)).toBe(L0)
+    // That was a 304: 60 s again.
+    expect(await at(inbox, gh, 3 * MINUTE + 59 * SECOND)).toBe(3)
+    expect(await at(inbox, gh, 4 * MINUTE)).toBe(4)
+    expect(await at(inbox, gh, 5 * MINUTE)).toBe(5)
+  })
+
+  it('a Project switched off ("prInbox": false) after its first read makes no more notifications calls', async () => {
+    const gh = world()
+    const p = project('p1', [API])
+    const inbox = reader(gh, [p])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    writeFileSync(join(p.dataDir, 'settings.json'), JSON.stringify({ prInbox: false }))
+    expect(await at(inbox, gh, MINUTE)).toBe(1)
+    expect(await at(inbox, gh, 10 * MINUTE)).toBe(1)
+    expect(await at(inbox, gh, 60 * MINUTE)).toBe(1)
+    expect(searches(gh)).toHaveLength(1)
+  })
+
+  it('404 (a token GitHub serves no notifications to): off with the notice, like a 403', async () => {
+    const gh = world()
+    gh.notify({ status: 404, message: 'Not Found' })
+    const inbox = reader(gh, [project('p1', [API])])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    expect(inbox.snapshot('p1').notice).toBe(NOTIFICATIONS_OFF_NOTICE)
+    expect(await at(inbox, gh, 60 * MINUTE)).toBe(1)
+  })
+
+  it('turning off tells the Projects of the account at once, without waiting for their next search', async () => {
+    const gh = world()
+    const changed: string[] = []
+    const p1 = project('p1', [API])
+    const inbox = reader(gh, [p1], { onChange: (id) => changed.push(id) })
+    await at(inbox, gh, 0)
+    changed.length = 0
+    gh.notify({ status: 403 })
+    // No search is due at 60 s: only the trigger runs.
+    expect(await at(inbox, gh, MINUTE)).toBe(2)
+    expect(searches(gh)).toHaveLength(1)
+    expect(changed).toEqual(['p1'])
+    expect(inbox.snapshot('p1').notice).toBe(NOTIFICATIONS_OFF_NOTICE)
+  })
+
+  it('the cursor is written into pr-inbox.json of every Project of the account', async () => {
+    const gh = world()
+    const p1 = project('p1', [API])
+    const p2 = project('p2', [API])
+    const inbox = reader(gh, [p1, p2])
+    await at(inbox, gh, 0)
+    expect(polls(gh)).toHaveLength(1)
+    expect(readNotificationsCursor(p1.dataDir, ME)).toBe(L0)
+    expect(readNotificationsCursor(p2.dataDir, ME)).toBe(L0)
+  })
+
+  it.skipIf(process.platform === 'win32')('a cursor that cannot be saved: the PRs of that answer are still read, and the next poll sends it from memory', async () => {
+    const gh = world()
+    const p = project('p1', [API])
+    const inbox = reader(gh, [p])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await at(inbox, gh, 0)
+    gh.notify({ lastModified: L1, notifications: [thread(API, 'PullRequest', 1, '2026-11-10T09:00:30Z')] })
+    chmodSync(p.dataDir, 0o500)
+    let warned: unknown[][]
+    try {
+      expect(await at(inbox, gh, MINUTE)).toBe(2)
+    } finally {
+      chmodSync(p.dataDir, 0o700)
+      warned = [...warn.mock.calls]
+      warn.mockRestore()
+    }
+    expect(detailsAsked(gh).at(-1)).toEqual([`${API}#1`])
+    expect(readNotificationsCursor(p.dataDir, ME)).toBe(L0)
+    expect(warned.map(([line]) => line)).toEqual(['[pr-inbox] the notifications cursor was not saved'])
+    expect(await at(inbox, gh, 2 * MINUTE)).toBe(3)
+    expect(sinceOf(polls(gh)[2]!)).toBe(L1)
   })
 
   it('without the notifications option the reader never asks for notifications', async () => {

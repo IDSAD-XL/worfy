@@ -9,8 +9,10 @@
 //   error, no doubled interval, no details read. GitHub does not count a 304 against the rate limit.
 // - 200: the PR threads of the account's Projects' repositories updated after the previous `Last-Modified` — each
 //   PR is refreshed once. The new `Last-Modified` goes into pr-inbox.json of every Project of the account.
-// - 403 (a fine-grained token, a GitHub App, a token without the `notifications` or `repo` scope): the trigger is off
-//   for that account until worfy restarts; the snapshot's notice says so. A 403 or 429 of the rate limit is a pause.
+// - 403 (a fine-grained token, a GitHub App, a token without the `notifications` or `repo` scope) or 404 (a token
+//   GitHub serves no notifications to): the trigger is off for that account until worfy restarts; the snapshot's
+//   notice says so. A 403 of a rate limit — its message names one, or `Retry-After` or the rate limit headers say
+//   so — and any 429 are a pause: until `Retry-After` or `X-Ratelimit-Reset`, at least a minute.
 // - Any other status, or gh that does not answer: the trigger's interval doubles up to 30 minutes.
 // - Pace: with a focused window, GitHub's `X-Poll-Interval` (60 s when it gives none); without, every 5 minutes.
 //   Less than 10 % of the REST rate limit left: no call until `X-Ratelimit-Reset`.
@@ -28,6 +30,10 @@ export const NOTIFICATIONS_IDLE_MS = 5 * 60_000
 export const NOTIFICATIONS_MAX_MS = 30 * 60_000
 /** Below this share of the REST rate limit left, the trigger waits for `X-Ratelimit-Reset`. */
 export const NOTIFICATIONS_RATE_FLOOR = 0.1
+/** The pause after a refusal of a rate limit that names no time (GitHub: wait at least a minute). */
+export const RATE_LIMIT_PAUSE_MS = 60_000
+/** gh's line of a refusal by the primary or the secondary rate limit, e.g. "You have exceeded a secondary rate limit". */
+const RATE_LIMITED = /\brate limit\b/iu
 export const NOTIFICATIONS_OFF_NOTICE = 'GitHub notifications unavailable for this token — checking every 5 minutes'
 
 /** The arguments of one poll: `If-Modified-Since` only once a `Last-Modified` is known. */
@@ -139,6 +145,8 @@ export interface NotificationsOptions {
   refresh: (repo: string, number: number) => Promise<void>
   /** Whether a window of worfy has the focus: then GitHub's poll interval, else every 5 minutes. */
   focused: () => boolean
+  /** The trigger of `account` (its key) turned off: its notice changed. */
+  onOff?: (account: string) => void
   now: () => number
   idleMs?: number
   maxMs?: number
@@ -177,7 +185,7 @@ export class NotificationsTrigger {
     }
   }
 
-  /** The line for the view: why the notifications of `account` are not read, or null. */
+  /** The `notice` of the inbox snapshot: why the notifications of `account` are not read, or null. */
   notice(account: string): string | null {
     return this.states.get(account)?.off === true ? NOTIFICATIONS_OFF_NOTICE : null
   }
@@ -216,7 +224,7 @@ export class NotificationsTrigger {
       output = error.output
     }
     const answer = parseNotificationsAnswer(output)
-    const limited = this.noteRate(state, answer.headers)
+    const limited = this.noteRate(state, answer.headers) || ((answer.status === 403 || answer.status === 429) && this.notePause(state, answer.status, output))
     const interval = seconds(answer.headers.get('x-poll-interval'))
     if (answer.status === 304 || answer.status === 200) {
       state.backoffMs = null
@@ -225,8 +233,9 @@ export class NotificationsTrigger {
     if (answer.status === 304) return
     if (answer.status === 200) return this.answered(account, state, answer)
     if ((answer.status === 403 || answer.status === 429) && limited) return
-    if (answer.status === 403) {
+    if (answer.status === 403 || answer.status === 404) {
       state.off = true
+      this.options.onOff?.(account.key)
       return
     }
     this.failed(state)
@@ -243,9 +252,23 @@ export class NotificationsTrigger {
     const lastModified = answer.headers.get('last-modified')
     if (lastModified !== undefined && lastModified !== state.lastModified) {
       state.lastModified = lastModified
-      for (const dir of account.dataDirs) writeNotificationsCursor(dir, account.key, lastModified)
+      for (const dir of account.dataDirs) {
+        try {
+          writeNotificationsCursor(dir, account.key, lastModified)
+        } catch (error) {
+          // The PRs of this answer are still read; the cursor is kept in memory until worfy restarts.
+          console.warn('[pr-inbox] the notifications cursor was not saved', error)
+        }
+      }
     }
     for (const pull of pulls) await this.options.refresh(pull.repo, pull.number)
+  }
+
+  /** A refusal of a rate limit without its headers: any 429, or a 403 whose message names a rate limit. */
+  private notePause(state: TriggerState, status: number, output: string): boolean {
+    if (status !== 429 && !RATE_LIMITED.test(output)) return false
+    state.pausedUntil = Math.max(state.pausedUntil, this.options.now() + RATE_LIMIT_PAUSE_MS)
+    return true
   }
 
   private failed(state: TriggerState): void {
