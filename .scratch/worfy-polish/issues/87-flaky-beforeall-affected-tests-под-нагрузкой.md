@@ -28,10 +28,14 @@ generated-строки таблицы по исходникам всех test-о
 ## Готово, когда
 
 - [ ] `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` один — exit 0; время `beforeAll` — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` exit 0, 53 passed · mac - · 10e0b2bb5bab104f908db9256994803c72a67721
 - [ ] Тот же файл под нагрузкой полного `pnpm test` (параллельно с ним) 10 раз подряд — 0 падений; команда и счёт в
       «Итог»; до исправления — сколько падений из 10.
+  - evidence: test-run pass · 10 runs of `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` beside a full `pnpm test`: 0 of 10 failed (before the fix 0 of 10), command in the result section · mac - · 1a95c3d48
 - [ ] Полный `pnpm test` на нагруженной машине — exit 0, test-ы блока зелёные.
+  - evidence: test-run pass · `pnpm test` exit 0, 731 files passed, loadavg 37 to 132 · mac - · 10e0b2bb5bab104f908db9256994803c72a67721
 - [ ] Общий `hookTimeout` в `vitest.config.ts` не изменён.
+  - evidence: test-run pass · `git diff --exit-code origin/main...HEAD -- vitest.config.ts test/time-scale.ts` exit 0 · mac - · 10e0b2bb5bab104f908db9256994803c72a67721
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
 
 ## Где в коде
@@ -67,7 +71,10 @@ test «prints the rows as JSON when run as a command, and nothing else» тог�
 
 **Замеры под нагрузкой.** Одновременно с test-ами шли тяжёлые прогоны других агентов (loadavg 30–153 на 18 ядрах).
 
-- До исправления: `/tmp/claude-501/p87/loop.sh` — 10 запусков подряд
+Команда (zsh, из worktree): `pnpm test > load.log 2>&1 & sleep 20; for i in {1..10}; do node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts; echo "run $i exit $?"; done`;
+полный `pnpm test` запускается снова, если кончился раньше 10 запусков.
+
+- До исправления: 10 запусков подряд
   `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` параллельно с полным `pnpm test` того же worktree:
   **0 падений из 10** (20–168 s на запуск, loadavg 29–153); сам `pnpm test` — exit 0. Падение тикета в этих 10
   запусках не воспроизвелось.
@@ -75,8 +82,7 @@ test «prints the rows as JSON when run as a command, and nothing else» тог�
   исправления мерил оба способа подряд рядом с полным `pnpm test`: в процессе vitest — 2,6–26,3 s (медиана ~15 s),
   командой через `node` — 1,3–11,9 s (медиана ~7 s). То есть старый путь подходил к пределу 30 s на 3,7 s, новый
   оставляет больше 18 s.
-- После исправления: `/tmp/claude-501/p87/loop2.sh` — те же 10 запусков параллельно с полным `pnpm test`
-  (перезапускался, когда кончался): **0 падений из 10** (17–122 s на запуск, loadavg 34–97). Красные в тех
+- После исправления: та же команда, после каждого запуска ещё probe, полный `pnpm test` перезапускался дважды: **0 падений из 10** (17–122 s на запуск, loadavg 34–97). Красные в тех
   полных прогонах — `test/contract/terminal.test.ts:236` и один раз `test/contract/harness-hook-stdin.test.ts:342`
   (известные flaky из `worfy-polish` 66/69), плюс два test-а, которые нашли сам probe-файл; блок этого тикета зелёный
   во всех.
