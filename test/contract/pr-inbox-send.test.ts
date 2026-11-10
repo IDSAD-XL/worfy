@@ -240,6 +240,36 @@ describe('no write without Send', () => {
     expect(s.draft().items).toEqual([threadItem('Three tries: the server drops the first.', { edited: true }), conversationItem('Thanks.', { state: 'discarded' })])
   })
 
+  it('the view reading the drafts every few seconds asks bin/profile for the Profile folder once in 30 s, and again when it found none', async () => {
+    let now = 0
+    let asked = 0
+    let found: string | null = null
+    const s = await setup([threadItem('ok')], {
+      over: {
+        now: () => now,
+        profileDir: async () => {
+          asked += 1
+          return { dir: found, reason: found === null ? 'not registered yet' : null }
+        },
+      },
+    })
+    found = s.profileDir
+    for (const at of [0, 5_000, 29_999]) {
+      now = at
+      expect(prReplyDraftsSchema.parse(ok(await s.call('prInbox.drafts', pull))).items).toHaveLength(1)
+    }
+    expect(asked).toBe(1)
+    now = 30_000
+    ok(await s.call('prInbox.drafts', pull))
+    expect(asked).toBe(2)
+    found = null
+    now = 70_000
+    expect(prReplyDraftsSchema.parse(ok(await s.call('prInbox.drafts', pull))).problem).toMatch(/not registered yet/u)
+    now = 70_001
+    ok(await s.call('prInbox.drafts', pull))
+    expect(asked).toBe(4)
+  })
+
   it('a save or a discard of a reply the Session moved meanwhile is refused, and the file stays', async () => {
     const s = await setup([conversationItem('Thanks.')])
     const before = readFileSync(s.file, 'utf8')

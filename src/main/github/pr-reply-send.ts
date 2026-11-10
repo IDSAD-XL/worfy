@@ -31,6 +31,8 @@ import type { GhEnv, GhRunner } from './prs'
 /** GitHub's limit of posts that create content, per minute (docs.github.com, "secondary rate limits"). */
 export const POSTS_PER_MINUTE = 80
 const MINUTE_MS = 60_000
+/** How long a Profile folder found is taken as it is: the view reads the drafts of an open PR every 5 s, and each look would run bin/profile. */
+const FOLDER_TTL_MS = 30_000
 /** How many comments of a thread or of the conversation are read to find a reply posted before. */
 const LOOK_BACK = 100
 
@@ -156,6 +158,8 @@ export class PrReplySender {
   private readonly queues = new Map<string, Promise<unknown>>()
   /** When the posts of the last minute went out, oldest first. */
   private readonly posts: number[] = []
+  /** The Profile folder found for each Project root, and when. */
+  private readonly folders = new Map<string, { dir: string; at: number }>()
   private readonly now: () => number
   private readonly sleep: (ms: number) => Promise<void>
 
@@ -167,7 +171,7 @@ export class PrReplySender {
   /** The drafts of `repo`#`pr` for the Project at `root`: none without a file, a problem without a Profile folder or with a broken file. */
   async drafts(root: string, repo: string, pr: number): Promise<PrReplyDrafts> {
     const empty: PrReplyDrafts = { repo, pr, headOid: null, items: [], problem: null }
-    const folder = await this.options.profileDir(root)
+    const folder = await this.folder(root)
     if (folder.dir === null) return { ...empty, problem: `The Project has no Profile folder, where drafts live: ${folder.reason ?? 'unknown'}` }
     const file = draftFilePath(folder.dir, repo, pr)
     try {
@@ -383,10 +387,20 @@ export class PrReplySender {
 
   private async context(root: string, repo: string, pr: number): Promise<SendContext> {
     if (!REPO.test(repo)) throw new DraftRefusal(`Not a repository on GitHub: ${repo}`)
-    const folder = await this.options.profileDir(root)
+    const folder = await this.folder(root)
     if (folder.dir === null) throw new DraftRefusal(`The Project has no Profile folder, where drafts live: ${folder.reason ?? 'unknown'}`)
     const rules = lintRulesPath(folder.dir)
     return { root, repo, pr, file: draftFilePath(folder.dir, repo, pr), rules: existsSync(rules) ? rules : null }
+  }
+
+  /** The Project's Profile folder; one found is kept FOLDER_TTL_MS, none is asked again each time. */
+  private async folder(root: string): Promise<{ dir: string | null; reason: string | null }> {
+    const kept = this.folders.get(root)
+    if (kept !== undefined && this.now() - kept.at < FOLDER_TTL_MS) return { dir: kept.dir, reason: null }
+    const folder = await this.options.profileDir(root)
+    if (folder.dir === null) this.folders.delete(root)
+    else this.folders.set(root, { dir: folder.dir, at: this.now() })
+    return folder
   }
 
   private async read(file: string): Promise<string | null> {
