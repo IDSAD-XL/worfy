@@ -37,11 +37,15 @@ texts of this Harness»), краснеет на первой же правке �
 ## Готово, когда
 
 - [ ] `node harness/bin/start-context --agent implementer` — exit 0, implementer не больше 14 000 token-ов; число в «Итог».
+  - evidence: test-run pass · `node harness/bin/start-context --profile <fixture> --agent implementer` exit 0, implementer 13 723 tokens · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
 - [ ] Список правил `SKILL.md` и `implementer.md` до правки сверен с текстом после неё: каждое правило есть в
       `SKILL.md`, `implementer.md` или в файле шага, на который они ссылаются; таблица «правило → где теперь» — в «Итог».
+  - evidence: commit pass · Ship-ticket skill: steps 2 and 5 details move into step files, implementer starts at 13 723 tokens (worfy-polish 83) · - - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
 - [ ] `bash harness/bin/tests/start-context.test.sh` — exit 0 (разделы 3 и 3a), `THRESHOLD` не изменён.
+  - evidence: test-run pass · `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
 - [ ] Test-ы Harness-а, которые читают skill `ship-ticket` (`harness/bin/tests/epic-wave-ship-ticket.test.sh` и
       другие, что grep-ом находят `ship-ticket/SKILL.md`), — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` and 11 other texts tests exit 0 · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
 - [ ] Платный `eval --changed` — все затронутые case-ы на пороге или выше; команда, exit code и цена — в «Итог».
 - [ ] `ci-ok` на PR зелёный.
 
