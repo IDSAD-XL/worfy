@@ -257,7 +257,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     const started = Date.now()
     await writeFile(join(bData, SHARED, 'cards', 'c1', 'index.html'), cardHtml('Card of B v2'))
     await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B v2', { timeout: ms(1_000) })
-    expect(Date.now() - started).toBeLessThanOrEqual(1_000)
+    expect(Date.now() - started).toBeLessThanOrEqual(ms(1_000))
     cardOfB = await cardFrame(a, 'c1', linkedOrigin)
 
     // session.ask from the Card of B in A's window: the dialog on A once, never on B; "Cancel" sends

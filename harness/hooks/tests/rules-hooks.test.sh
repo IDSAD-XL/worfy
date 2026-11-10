@@ -916,11 +916,15 @@ const tick = () => {
 }
 tick()' "$1" 2>/dev/null
 }
+# The hook's own step limit (2.5 s), not a shorter one: every stand-in is a node process, and under load a start of
+# node took longer than the 300 ms that stood here. The hung stand-in was killed before it wrote its pid, or, with
+# epic-status hanging, the stand-in profile before it answered, so epic-status never ran: the case failed with
+# "the hung epic-status is still running (or never wrote its pid)".
 for who in profile epic-status; do
     rm -f "$T/hung.pid"
     started="$(date +%s)"
-    if [ "$who" = profile ]; then stage "$REPO" "${FAKES[@]}" FAKE_PROFILE=hang FAKE_PID="$T/hung.pid" CLAUDE_STAGE_STEP_MS=300
-    else stage "$REPO" "${FAKES[@]}" FAKE_ES=hang FAKE_PID="$T/hung.pid" CLAUDE_STAGE_STEP_MS=300; fi
+    if [ "$who" = profile ]; then stage "$REPO" "${FAKES[@]}" FAKE_PROFILE=hang FAKE_PID="$T/hung.pid"
+    else stage "$REPO" "${FAKES[@]}" FAKE_ES=hang FAKE_PID="$T/hung.pid"; fi
     took=$(( $(date +%s) - started ))
     [ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$took" -lt 8 ] && [ "$(own_err)" -eq 1 ] \
         && ok "stage-lines: $who hanging: given up after its step limit, one line on stderr, exit 0 (${took} s)" \

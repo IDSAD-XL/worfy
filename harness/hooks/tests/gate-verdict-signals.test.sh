@@ -83,11 +83,12 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
         fi
         pid=$!
         set +m
-        for _ in $(seq 1 300); do [ -s "$T/started" ] && break; sleep 0.1; done
+        # Until the script says it started or the gate is gone: no clock, which a loaded machine outruns.
+        until [ -s "$T/started" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.1; done
         if [ -s "$T/started" ]; then kill -s "$1" -- "-$pid"; else kill -s KILL -- "-$pid"; fi
         wait "$pid"; rc=$?
         out="$(cat "$T/stop.out")"
-        [ -s "$T/started" ] || out="the script did not start within 30 s; $out"
+        [ -s "$T/started" ] || out="the gate ended before its script started; $out"
     }
     for sig in TERM INT; do
         want=143; [ "$sig" = INT ] && want=130
@@ -208,7 +209,10 @@ EOF
         fi
         pid=$!
         set +m
-        for _ in $(seq 1 200); do [ -s "$T/in-slow" ] && break; kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done
+        # Until the call waits or the gate is gone, however long that takes: the gate either reaches the call or ends.
+        # A cap of 10 s stood here, and under load the gate had not reached the call by then: the group was killed
+        # and the case failed with rc 137.
+        until [ -s "$T/in-slow" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
         child="$(cat "$T/in-slow" 2>/dev/null)"
         if [ -z "$child" ]; then kill -s KILL -- "-$pid" 2>/dev/null
         else
@@ -359,10 +363,10 @@ EOF
     (cd "$U" && PATH="$T/slowgit:$PATH" exec node "$GATE" fast) </dev/null >"$T/stop.out" 2>"$T/err.fifo" &
     pid=$!
     exec 9<"$T/err.fifo"
-    for _ in $(seq 1 200); do [ -s "$T/in-slow" ] && break; sleep 0.05; done
+    until [ -s "$T/in-slow" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
     perl -e 'use Fcntl; sysopen(my $f, $ARGV[0], O_WRONLY | O_NONBLOCK) or die "$ARGV[0]: $!"; 1 while defined syswrite($f, "z" x 4096)' "$T/err.fifo"
     : >"$T/go"
-    for _ in $(seq 1 200); do [ -e "$STATE/verdict-$(tag "$U").json" ] && break; sleep 0.05; done
+    until [ -e "$STATE/verdict-$(tag "$U").json" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
     kill -s TERM "$pid"
     sleep 0.2
     cat <&9 >/dev/null

@@ -8,6 +8,7 @@ import { epicStatusSchema } from '../../src/shared/workflow/types'
 import { canvasReady, launchApp, parkPointer, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
+import { ms } from '../time-scale'
 
 // "Blocked by" Edges on the built app (worfy-week ticket 05), over the worfy-mvp Epic of the
 // fixtures with Tickets 01 and 02 done: by default every Edge is thin and pale and the Edges from
@@ -366,10 +367,10 @@ test('Edges are thin and pale, those from done Tickets hidden; hovering a Ticket
     const chainOf4 = chain(blockers, 4)
     expect(chainOf4).toContain(edgeId(1, 3))
     expect(chainOf4).toContain(edgeId(2, 4))
-    const ms = await hoverUntilLit(window, 4)
-    console.log(`edges: hover to lit chain ${ms} ms`)
-    test.info().annotations.push({ type: 'perf', description: `hoverToLit=${ms}ms` })
-    expect(ms).toBeLessThanOrEqual(100)
+    const hoverToLit = await hoverUntilLit(window, 4)
+    console.log(`edges: hover to lit chain ${hoverToLit} ms`)
+    test.info().annotations.push({ type: 'perf', description: `hoverToLit=${hoverToLit}ms` })
+    expect(hoverToLit).toBeLessThanOrEqual(ms(100))
     await expect.poll(() => drawn(window, 'lit')).toEqual(chainOf4)
     await expect.poll(() => drawn(window, 'pale')).toEqual(waiting.filter((id) => !chainOf4.includes(id)))
     // A lit line has a colour of its own: polled until the path has one, and it is not the pale one.

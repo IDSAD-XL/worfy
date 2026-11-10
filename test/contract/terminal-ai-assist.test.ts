@@ -1037,6 +1037,10 @@ describe('gitBranch', () => {
     const work = join(scratch, 'work')
     mkdirSync(work)
     writeFileSync(join(work, 'branch'), "console.log('from-path-git')\n")
+    // The stand-in runs once before the request: the first start of a file just written waits for the system's check
+    // of a new program (on macOS, under the load of the whole suite, longer than the budget of gitBranch, the product's
+    // 1 s times the run's multiplier), and the request then went without a branch (worfy-polish 92). Later starts skip it.
+    expect(execFileSync(join(bin, process.platform === 'win32' ? 'git.exe' : 'git'), ['branch', '--show-current'], { cwd: work, encoding: 'utf8' }).trim()).toBe('from-path-git')
     vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`)
     const sdk = new FakeSdk()
     const service = new AssistService({

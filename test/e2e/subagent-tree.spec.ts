@@ -136,7 +136,7 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     // Only a Node that came after the message counts.
     expect(appeared).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] the Subagent Node appeared ${appeared} ms after the message that starts it`)
-    expect(appeared, `the Subagent Node appeared ${appeared} ms after the event`).toBeLessThanOrEqual(500)
+    expect(appeared, `the Subagent Node appeared ${appeared} ms after the event`).toBeLessThanOrEqual(ms(500))
 
     await expect(impl).toHaveAttribute('data-status', 'running')
     await expect(impl.getByTestId('subagent-name')).toHaveText('impl-09')
@@ -350,7 +350,7 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     const treeShown = Math.round(onCanvas.tree! - onCanvas.sessionNode!)
     expect(treeShown).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] the tree of 24 Subagents was on the Canvas ${treeShown} ms after the Session Node`)
-    expect(treeShown).toBeLessThanOrEqual(1000)
+    expect(treeShown).toBeLessThanOrEqual(ms(1000))
     await node.getByTestId('session-node-title').dblclick()
     const rows = window.locator(rowSelector)
     await expect(rows).toHaveCount(24, { timeout: ms(5000) })
@@ -359,7 +359,7 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     // The rows come with the opened Session, not before it.
     expect(shown).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] 24 Subagents (24 files of ${Math.round((200 * filler.length) / 1024)} KB) shown ${shown} ms after opening the Session`)
-    expect(shown).toBeLessThanOrEqual(1000)
+    expect(shown).toBeLessThanOrEqual(ms(1000))
   } finally {
     await launched.close()
   }
