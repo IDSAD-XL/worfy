@@ -4,9 +4,10 @@
 // that one alone: hiding the sidebar in focus mode leaves it shown on the Canvas. Like every app
 // setting they outlive the window and are the same in every window of this Machine.
 //
-// Three things switch it, all through the same function: the button of the toolbar, the same button
-// in the focus mode bar, and View ▸ Toggle Sidebar of the app menu (Cmd/Ctrl+B), which reaches the
-// window as `menu.command`.
+// Three things switch it, all through the same function: the button at the top of the sidebar, which
+// is in the toolbar while the sidebar is hidden (worfy-polish ticket 94), the same button in the focus
+// mode bar, and View ▸ Toggle Sidebar of the app menu (Cmd/Ctrl+B), which reaches the window as
+// `menu.command`.
 import { createElement, useCallback, type ReactElement } from 'react'
 import { create } from 'zustand'
 import { focusModeActive, useFocusState } from '../focus/focus-state'
@@ -85,7 +86,7 @@ export interface SidebarToggleProps {
 /** Marks the button for the shell, which gives it the focus when the sidebar goes away with the focus in it. */
 export const SIDEBAR_TOGGLE_SELECTOR = '[data-sidebar-toggle]'
 
-/** The button that hides and shows the sidebar: the same in the toolbar and in the focus mode bar. */
+/** The button that hides and shows the sidebar: the same in the sidebar, in the toolbar and in the focus mode bar. */
 export function SidebarToggle({ visible, onToggle, className }: SidebarToggleProps): ReactElement {
   const name = visible ? 'Hide sidebar' : 'Show sidebar'
   return createElement(

@@ -101,11 +101,14 @@ export interface ToolbarViewProps {
 }
 
 export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar }: ToolbarViewProps) {
-  const title = project ? `worfy — ${project.name}` : 'worfy'
+  // The sidebar's strip carries the wordmark «worfy» (worfy-polish ticket 94): next to it the title names the Project
+  // alone, so «worfy» is not said twice side by side. With the sidebar hidden the title says it, as before.
+  const title = sidebarVisible ? (project?.name ?? 'No Project open') : project ? `worfy — ${project.name}` : 'worfy'
   return (
     <header className="w-toolbar" data-toast-keep-out="" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
-      {/* Hides and shows the sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. */}
-      <SidebarToggle className="w-toolbar__icon-button" visible={sidebarVisible} onToggle={onToggleSidebar} />
+      {/* Shows the hidden sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. While the sidebar is
+          shown, the button that hides it is in the sidebar's own strip (Sidebar.tsx, worfy-polish ticket 94). */}
+      {sidebarVisible ? null : <SidebarToggle className="w-toolbar__icon-button" visible={false} onToggle={onToggleSidebar} />}
 
       {/* The title is the one item that gives way: a long Project name ends with an ellipsis
           (the full text is the tooltip), and the controls to its right stay whole. */}

@@ -15,11 +15,24 @@ import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
+import { showSidebarSection } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
 import { MachineName } from './MachinesSection'
 
-/** First section of the sidebar (design F). */
+/**
+ * First section of the sidebar (design F): every Project, by Machine. The Project switcher does not
+ * filter it (worfy-polish ticket 94): it is where Projects are opened, added and removed.
+ */
 export const order = 10
+export const railTitle = 'Projects'
+
+export function RailIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1.8 4.2a1 1 0 0 1 1-1h3.4l1.4 1.5h5.6a1 1 0 0 1 1 1v6.6a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z" />
+    </svg>
+  )
+}
 
 const styles = {
   iconButton: {
@@ -414,6 +427,8 @@ export default function ProjectsSection() {
 
   // With Linked machines the Machine comes first (worfy-link ticket 11); without them, this Machine's picker as before.
   const addProject = async (): Promise<void> => {
+    // Its steps and their messages are in this section: it comes into the panel, from Getting started too.
+    showSidebarSection('ProjectsSection')
     setMessage(undefined)
     setConnecting(undefined)
     if (groups !== null && (link?.linked.length ?? 0) > 0) return setPicking({ kind: 'machine' })

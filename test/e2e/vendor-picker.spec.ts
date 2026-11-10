@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, repoRoot } from './helpers'
+import { canvasReady, launchApp, repoRoot, showSidebarSection } from './helpers'
 
 // The Vendor picker of "New session" and the VendorBadge (worfy-multi-vendor ticket 24), against the built
 // app with both agents on their fakes: Claude Code on the fake agent, Codex on the fake app-server
@@ -50,6 +50,7 @@ const order = (window: Page): Promise<(string | null)[]> =>
 
 /** Opens "Project settings…" of the Project, picks `label` for "Default vendor" and saves. */
 async function chooseDefaultVendor(window: Page, label: string): Promise<void> {
+  await showSidebarSection(window, 'Projects')
   await window.getByTestId('project-row').filter({ hasText: 'alpha' }).click({ button: 'right' })
   await window.getByRole('menuitem', { name: 'Project settings…' }).click()
   const dialog = window.getByRole('dialog', { name: 'Project settings' })
@@ -80,6 +81,7 @@ test('signed in to Codex: the picker lists both Vendors, the Default vendor of P
     await expect(window.getByTestId('orchestrator-node')).toBeVisible()
 
     // No Default vendor: Claude Code first, marked default; Codex can start.
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'codex')).toBeVisible()
     expect(await order(window)).toEqual(['claude', 'codex'])
@@ -91,6 +93,7 @@ test('signed in to Codex: the picker lists both Vendors, the Default vendor of P
     // Default vendor: Codex in Project settings — it comes first in the picker, marked default.
     await chooseDefaultVendor(window, 'Codex')
     expect(JSON.parse(readFileSync(join(dataDir, PROJECT, 'settings.json'), 'utf8'))).toMatchObject({ defaultVendor: 'codex' })
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'codex')).toContainText('default')
     expect(await order(window)).toEqual(['codex', 'claude'])
@@ -101,6 +104,7 @@ test('signed in to Codex: the picker lists both Vendors, the Default vendor of P
     // "None" in Project settings clears the Default vendor: Claude Code is first again.
     await chooseDefaultVendor(window, 'None (Claude Code)')
     expect(JSON.parse(readFileSync(join(dataDir, PROJECT, 'settings.json'), 'utf8'))).not.toHaveProperty('defaultVendor')
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'claude')).toContainText('default')
     expect(await order(window)).toEqual(['claude', 'codex'])
@@ -116,6 +120,7 @@ test('a pick of Codex runs a Codex Session: its Node, the Session view and the a
   try {
     const { window } = launched
     await canvasReady(launched, { size: SIZE })
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await option(window, 'codex').click()
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
@@ -165,6 +170,7 @@ test('Project settings: "Default vendor" says the Orchestrator runs on it from i
   try {
     const { window } = launched
     await canvasReady(launched, { size: SIZE })
+    await showSidebarSection(window, 'Projects')
     await window.getByTestId('project-row').filter({ hasText: 'alpha' }).click({ button: 'right' })
     await window.getByRole('menuitem', { name: 'Project settings…' }).click()
     const dialog = window.getByRole('dialog', { name: 'Project settings' })
@@ -190,6 +196,7 @@ test('not signed in to Codex: Codex stays in the picker, inactive, with the tool
   try {
     const { window } = launched
     await canvasReady(launched, { size: SIZE })
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     const codex = option(window, 'codex')
     await expect(codex).toHaveAttribute('aria-disabled', 'true')

@@ -22,7 +22,7 @@ import { profileJsonScript } from '../harness-node'
 
 /**
  * The Project of the F mockup (docs/design/F-canvas-light.dc.html), under an invented name as wide as
- * the mockup's, so the title `worfy — caution` takes the room the mockup draws.
+ * the mockup's, so the title takes about the room the mockup draws (the title names the Project alone next to the sidebar since worfy-polish ticket 94).
  */
 const PROJECT = 'caution'
 const WIDTH = 1280
@@ -151,7 +151,7 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     }, repo)
     await window.getByRole('button', { name: 'Add project' }).click()
     const toolbar = window.getByRole('banner')
-    await expect(toolbar.locator('.w-toolbar__name')).toHaveText(`worfy — ${PROJECT}`)
+    await expect(toolbar.locator('.w-toolbar__name')).toHaveText(PROJECT)
 
     const meter = window.getByTestId('limits-meter')
     const claude = meter.getByRole('group', { name: 'Claude Code limits' })

@@ -34,8 +34,8 @@ start, so a Linked machine finds this one where it was. If that port is taken, t
 one is kept from then on. The server listens on every interface. A port that cannot be taken or a key that cannot be
 read never stops worfy. The other parts of the app work, and "Link a machine" shows the reason.
 
-**The Machines section.** "Machines" in the sidebar stands between Projects and Epics and is collapsed until the user
-expands it. It lists the Linked machines, with "Link a machine…" under the list. The switches of the link are in
+**The Machines section.** "Machines" stands at the foot of the sidebar's rail; its icon has the dot of the Linked
+machines. It lists the Linked machines, with "Link a machine…" under the list. The switches of the link are in
 Settings → Machines. Both are described under [Linked machine](#linked-machine).
 
 ### How it works
@@ -137,8 +137,8 @@ Machine has it open. When the last one closes, an attempt in flight is cut off a
 | Offline | No connection, without such a message. worfy keeps trying |
 | Certificate changed | The last dial met a certificate other than the remembered one. The tooltip asks to remove it and link again |
 
-The dot next to the "Machines" heading shows even when the section is collapsed. It is amber when any Machine has
-"Certificate changed". Otherwise it is green and pulsing when at least one is online, with the number in its tooltip.
+A dot on the "Machines" tab of the sidebar's rail shows while another section is in the panel. It is amber when any
+Machine has "Certificate changed". Otherwise it is green when at least one is online, with the number in the tab's tooltip.
 With nobody online there is no dot.
 
 Under each row are the access lines. "Can work with your Projects" or "Can't see your Projects" describes this

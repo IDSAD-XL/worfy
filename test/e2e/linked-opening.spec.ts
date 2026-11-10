@@ -17,7 +17,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { loginProfileWithNode } from '../harness-node'
 import { MANY_EPICS, manyEpicsStatus, writeSessionHistory } from './many-epics'
@@ -188,6 +188,7 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     await settings.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true }).click()
     await chooseLevel(b.window, settings.getByTestId(`link-machine-access-${aId}`), 'all')
     await closeSettings(b.window)
+    await showSidebarSection(a.window, 'Projects')
     const betaRow = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"] [data-testid="project-row"][data-project-id="${BETA}"]`)
     await expect(betaRow).toContainText('beta', { timeout: ms(20_000) })
 

@@ -220,10 +220,13 @@ describe('inside the window shell', () => {
 
   const layer = (): HTMLElement => screen.getByTestId('focus-mode')
   const sidebar = (): HTMLElement => screen.getByRole('navigation', { name: 'Sidebar' })
-  /** A control of the sidebar: the heading of its first section. */
+  /**
+   * A control of the sidebar that stays in focus mode: the tab of its first section on the rail. The
+   * button that hides the sidebar is not one — focus mode has its own in its bar (worfy-polish ticket 94).
+   */
   const sidebarButton = (): HTMLElement => {
-    const button = within(sidebar()).getAllByRole('button')[0]
-    if (button === undefined) throw new Error('the sidebar has no button')
+    const button = within(sidebar()).getAllByRole('tab')[0]
+    if (button === undefined) throw new Error('the sidebar has no tab')
     return button
   }
   const one = (selector: string): HTMLElement => {

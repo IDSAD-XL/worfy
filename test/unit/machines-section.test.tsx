@@ -106,65 +106,46 @@ async function mountSidebar(link: LinkState, settings?: AppSettings) {
 }
 
 const region = () => screen.getByRole('region', { name: 'Machines' })
-// `hidden: true`: what is asked about a collapsed section is asked about its hidden body too.
-const heading = () => within(region()).getByRole('button', { name: 'Machines', hidden: true })
-const body = () => {
-  const element = document.getElementById(heading().getAttribute('aria-controls') ?? '')
-  if (element === null) throw new Error('aria-controls of the heading names no element')
-  return element
-}
 const dot = () => within(region()).queryByRole('img')
 
 describe('the Machines section of the sidebar', () => {
-  it('is collapsed for a user whose settings say nothing about it, and has no dot without a Linked machine', async () => {
+  // The panel of the sidebar shows one section at a time (worfy-polish ticket 94): the section no longer
+  // collapses, and its rail button carries the dot (sidebar-scope.ts, setRailBadge).
+  it('shows its list and "Link a machine…", and has no dot and no badge without a Linked machine', async () => {
     await mountSidebar(linkState(1))
-    expect(heading().getAttribute('aria-expanded')).toBe('false')
-    expect(body().hidden).toBe(true)
+    expect(within(region()).queryByRole('button', { name: 'Machines' })).toBeNull()
     expect(dot()).toBeNull()
-    // "Link a machine…" is in the body: a collapsed section does not offer it.
-    expect(within(region()).queryByRole('button', { name: 'Link a machine…' })).toBeNull()
-    expect(within(body()).getByTestId('link-machine-button')).toBeTruthy()
-  })
-
-  it('stays expanded for a user who expanded it, and collapsed for one who collapsed it', async () => {
-    const expanded = await mountSidebar(linkState(1, { linked: [machine(MINI, 'Mini')] }), appSettings(3, { MachinesSection: false }))
-    expect(heading().getAttribute('aria-expanded')).toBe('true')
-    expect(body().hidden).toBe(false)
     expect(within(region()).getByRole('button', { name: 'Link a machine…' })).toBeTruthy()
+    const { useRailBadge } = await import('../../src/renderer/shell/sidebar-scope')
+    function Badge() {
+      return <span data-testid="badge">{useRailBadge('MachinesSection')?.label ?? 'none'}</span>
+    }
+    render(<Badge />)
+    expect(screen.getByTestId('badge').textContent).toBe('none')
+  })
+
+  it('lists the Linked machines with their state', async () => {
+    await mountSidebar(linkState(1, { linked: [machine(MINI, 'Mini')] }))
     expect(within(region()).getByTestId('machine-row').getAttribute('data-state')).toBe('online')
-    expanded.unmount()
-
-    vi.resetModules()
-    await mountSidebar(linkState(1), appSettings(3, { MachinesSection: true }))
-    expect(heading().getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('a click on the heading expands it and asks main to remember that', async () => {
-    await mountSidebar(linkState(1))
-    fireEvent.click(heading())
-    expect(heading().getAttribute('aria-expanded')).toBe('true')
-    expect(body().hidden).toBe(false)
-    expect(main.calls.map(({ channel, input }) => [channel, input])).toStrictEqual([['appSettings.set', { sidebar: { collapsed: { MachinesSection: false } } }]])
-  })
-
-  it('one Linked machine online: a green dot in the header of the collapsed section, named for a screen reader and a tooltip', async () => {
+  it('one Linked machine online: a green dot in the header, named for a screen reader and a tooltip, and the same on its rail button', async () => {
     await mountSidebar(linkState(1, { linked: [machine(MINI, 'Mini'), machine(ATTIC, 'Attic', 'sleeping')] }))
-    expect(heading().getAttribute('aria-expanded')).toBe('false')
     const shown = dot()
     expect(shown).not.toBeNull()
     expect(shown!.getAttribute('aria-label')).toBe('1 linked machine online')
     expect(shown!.getAttribute('title')).toBe('1 linked machine online')
     expect(shown!.getAttribute('data-state')).toBe('online')
-    // In the header: outside the body a collapsed section hides…
-    expect(body().contains(shown)).toBe(false)
-    expect(shown!.closest('[hidden]')).toBeNull()
-    // …and outside the heading, so the section is still named "Machines" and a click on the dot
-    // does not collapse or expand it.
+    // Outside the heading, so the section is still named "Machines".
     expect(region().querySelector('h2')!.contains(shown)).toBe(false)
     expect(region().querySelector('h2')!.textContent).toBe('Machines')
-    fireEvent.click(shown!)
-    expect(heading().getAttribute('aria-expanded')).toBe('false')
-    expect(main.calls).toStrictEqual([])
+    const { useRailBadge } = await import('../../src/renderer/shell/sidebar-scope')
+    function Badge() {
+      const badge = useRailBadge('MachinesSection')
+      return <span data-testid="badge">{badge === undefined ? 'none' : `${badge.tone}: ${badge.label}`}</span>
+    }
+    render(<Badge />)
+    expect(screen.getByTestId('badge').textContent).toBe('ready: 1 linked machine online')
   })
 
   it('the dot follows the link: two online, then one with another certificate — amber, then nobody online — no dot', async () => {
@@ -184,11 +165,8 @@ describe('the Machines section of the sidebar', () => {
     expect(dot()).toBeNull()
   })
 
-  it('has no switch: neither in the header nor in the body, expanded or collapsed', async () => {
+  it('has no switch', async () => {
     await mountSidebar(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: true }))
-    expect(within(region()).queryAllByRole('switch', { hidden: true })).toStrictEqual([])
-    fireEvent.click(heading())
-    expect(heading().getAttribute('aria-expanded')).toBe('true')
     expect(within(region()).queryAllByRole('switch', { hidden: true })).toStrictEqual([])
     expect(screen.queryByTestId('link-access-switch')).toBeNull()
     expect(screen.queryByTestId('link-keep-awake-switch')).toBeNull()

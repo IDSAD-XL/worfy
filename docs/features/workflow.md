@@ -67,7 +67,9 @@ An arrow goes from a blocker to the Ticket it blocks. It is dashed while the blo
 the lit chain of a hovered or selected Node. The arrow of a done blocker is solid and is drawn only while lit. An arrow is
 drawn only when both Tickets have a card on the Canvas.
 
-**The sidebar and the palette.** The Epics section lists the Epics of the active Project with their progress, `N in
+**The sidebar and the palette.** The Epics section lists the Epics of the active Project — under "All Projects" of the
+sidebar's Project switcher, then those of every other Project with Epics, each under its name (see
+[App shell](app-shell.md#sidebar)) — with their progress, `N in
 work` and how long ago their last work was ("2h", "3d"); a click centres the frame. An Epic's last work is the newest
 status change among its Tickets (the time of the `Status:` line: claim, block, done). An Epic none of whose Tickets has
 changed status yet takes the time its `spec.md` was last written. Epics with a Ticket in work come first, then the rest
@@ -210,7 +212,8 @@ Implementing, CI, Agent review, Gate & merge, Closing, Done.
   "Some Stages may be short of facts" with the reason; a worktree branch that could not be read is one of them, by name,
   three at most and the rest counted.
 - **The Pipeline section of the sidebar:** the Tickets of every Project of the window's Machine that are neither on Queued
-  nor on Done. A click opens the board of that Project. With no such Ticket it says "Nothing in work".
+  nor on Done; of the active Project alone while the sidebar's Project switcher is on one Project. Its rail icon has a dot
+  while one of them is blocked or waits for someone. A click opens the board of that Project. With no such Ticket it says "Nothing in work".
 
 **The rule.** The Stages go in Pipeline order, and a Ticket stands on the first one not passed. Status `done` passes every
 Stage but Done, and a merged PR passes every Stage up to and including the merge. A Ticket that is `open` or has no status

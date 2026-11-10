@@ -302,7 +302,7 @@ Project joins the list there without changing that Machine's active Project, and
 
 ### Behaviour
 
-**The list.** "Projects" is the first section of the sidebar, after Getting started while that section is shown. A row shows a folder icon, the name of the folder and, on the
+**The list.** "Projects" is the first section of the sidebar's rail. The sidebar's Project switcher does not filter it. A row shows a folder icon, the name of the folder and, on the
 right, the checked-out branch: `HEAD` when detached, `—` when git cannot read it. The tooltip is the full path. The Project
 the window shows is highlighted, and the toolbar repeats it as `<name> · <branch>`. The branch is read again when the window
 gets focus and on every change of the list.
@@ -530,7 +530,8 @@ files of the same name in the repository are not read. These two places are fixe
 The text can be selected. The wheel moves the Canvas until the Node is clicked, and then it scrolls the text. Find searches
 the text of HANDOFF.
 
-**The ADR section.** It is in the sidebar after the Epics, with the count of ADRs in its header. A row shows the number, the
+**The ADR section.** It is in the sidebar's rail after the Epics, with the count of ADRs in its header. It shows the active
+Project's ADRs whatever the sidebar's Project switcher says. A row shows the number, the
 title and the status, sorted by number. The title is the first `# ` heading, or the file name without one. The status is
 what follows the status label, without the final dot, looked for in the first 20 lines. The label is `docs.adr_status_label`
 of the Profile, or `Status` without one; the old `Статус` is read as well. A file without such a line has no status.

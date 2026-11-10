@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn } from './helpers'
 
 // The pickers, the permission dialog and the slash menu of a Codex Session read its Vendor's
 // capabilities (worfy-multi-vendor ticket 25), against the built app with Codex on the fake app-server
@@ -65,8 +65,7 @@ test('a Codex Session: its presets, its slash menu and its approval with four an
   try {
     const { window } = launched
     await canvasReady(launched, { size: SIZE })
-    await window.getByTestId('sidebar-new-session').click()
-    await window.getByRole('menu', { name: 'New session on' }).locator('[data-testid="new-session-vendor-option"][data-vendor="codex"]').click()
+    await newSessionOn(window, 'codex')
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live).toHaveCount(1)
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')
@@ -165,8 +164,7 @@ test('a Codex Session on Default: the header names the default model and its def
   try {
     const { window } = launched
     await canvasReady(launched, { size: SIZE })
-    await window.getByTestId('sidebar-new-session').click()
-    await window.getByRole('menu', { name: 'New session on' }).locator('[data-testid="new-session-vendor-option"][data-vendor="codex"]').click()
+    await newSessionOn(window, 'codex')
     const live = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(live).toHaveCount(1)
     await expect(live.getByTestId('session-node-status')).toHaveText('idle')
@@ -189,12 +187,14 @@ test('a Codex Session on Default: the header names the default model and its def
 
     // At the default window, 1280 px (src/shared/window/bounds.ts), the model's name gives way but keeps
     // some room: a mark such as « (default)» in the effort's text took all of it, and the cell read empty.
+    // The sidebar is 24 px wider since worfy-polish ticket 94 (264 px): the cell keeps 18 px there, its first
+    // characters and the «…», so the floor is 12 px, no longer 20.
     await launched.app.evaluate(({ BrowserWindow }) => {
       const [win] = BrowserWindow.getAllWindows()
       win?.setContentSize(1280, win.getContentSize()[1] ?? 800)
     })
     await expect.poll(() => window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)).toBe(1280)
-    await expect.poll(() => view.getByTestId('session-model').evaluate((element) => element.clientWidth)).toBeGreaterThan(20)
+    await expect.poll(() => view.getByTestId('session-model').evaluate((element) => element.clientWidth)).toBeGreaterThan(12)
   } finally {
     await launched.close()
   }

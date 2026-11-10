@@ -16,7 +16,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, thisUser, type LaunchedApp } from './helpers'
+import { canvasReady, icacls, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, showSidebarSection, thisUser, type LaunchedApp } from './helpers'
 import { expectBorderedChipsFit } from './chip-fit'
 import { DENY_ACE_BYPASSED, denyBypassed } from './deny-ace'
 import { snapshotThemes } from './snapshots'
@@ -164,6 +164,8 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
     await canvasReady(b, { size: SIZE })
     await canvasReady(a, { size: SIZE })
     await linkThroughUi(a.window, b.window)
+    // Linking left the Machines section shown; the Projects of B are in the Projects section.
+    await showSidebarSection(a.window, 'Projects')
     await run({ a, b, bId: await machineIdOf(b.window), aData, bData, bHome: realpathSync.native(bHome), shop })
   } finally {
     // First, so that a close that throws cannot leave the folder locked; and a give-back that throws

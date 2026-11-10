@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { profileJsonScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -164,6 +164,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
     await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     await expect(board).toBeHidden()
 
+    await showSidebarSection(window, 'Pipeline')
     const sidebarShots = await snapshotThemes(window, 'pipeline-section')
     console.log(`pipeline section: ${sidebarShots.light} ${sidebarShots.dark}`)
 

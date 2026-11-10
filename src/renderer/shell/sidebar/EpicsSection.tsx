@@ -1,19 +1,25 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import type { ProjectView } from '../../../shared/ipc/projects'
 import { epicsOlderAfterOf } from '../../../shared/settings/app-settings'
 import { focusEpic } from '../../canvas/sources/epics'
 import { progressOf } from '../../canvas/epic-layout'
 import { useNow } from '../../limits/useLimits'
 import { ageText } from '../../pr-inbox/usePrInbox'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { readableReason, windowMachine } from '../../ipc'
+import { activeProject, openProject, useProjects } from '../../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../../settings/useAppSettings'
 import { useWorkflow } from '../../workflow/useWorkflow'
-import { SidebarSection } from '../SidebarSection'
+import { projectsInScope, useSidebarScope } from '../sidebar-scope'
+import { NoProjectSection, SidebarSection } from '../SidebarSection'
 import { arrangeEpics, olderFoldKey, type EpicRow } from './epics-order'
 import '../../canvas/epic-frame.css'
 
 /**
- * The Epics of the active Project, under its Projects (design F). A row has two lines, as in the F
- * mockups: the Epic's whole name, wrapped when it is long, then its progress and how long ago its
+ * The Epics of the Projects the Project switcher shows (worfy-polish ticket 94, sidebar-scope.ts): the
+ * open Project's, or — under «All» with more than one Project — the open Project's first and then those
+ * of every other Project of the window's Machine that has Epics, each under its name. A click centres
+ * the Epic on the Canvas, after opening its Project when it is another one. A row has two lines, as in
+ * the F mockups: the Epic's whole name, wrapped when it is long, then its progress and how long ago its
  * last work was.
  *
  * Order and the «Older» group (worfy-polish ticket 98, epics-order.ts): Epics with a Ticket in work
@@ -23,15 +29,19 @@ import '../../canvas/epic-frame.css'
  * settings, as the sections' own folds are (olderFoldKey).
  */
 export const order = 20
+export const railTitle = 'Epics'
 
-/**
- * A row whose name takes one line: 5 px of padding, the name (16), a gap (4), the progress (17) and
- * 6 px of padding (styles.row, name and progress below). The list is 3 to 15 of these rows high.
- */
-const ROW_HEIGHT = 48
+export function RailIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 14V2.5M3 3h8.5l-1.8 2.7L11.5 8.5H3" />
+    </svg>
+  )
+}
 
 const styles = {
   list: { margin: 0, padding: 0, listStyle: 'none' },
+  project: { padding: '6px 8px 2px', fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
     display: 'block',
@@ -160,15 +170,23 @@ function EpicButton({ row, now, onFocus }: { row: EpicRow; now: number; onFocus:
   )
 }
 
-export default function EpicsSection() {
-  const project = activeProject(useProjects())
-  const { model, error } = useWorkflow(project?.path)
-  const readingRow = useReadingRow(project !== undefined && model === undefined && error === undefined)
+interface ProjectEpicsProps {
+  project: ProjectView
+  /** The open Project: its messages (reading, an error, no Epics) show; another Project without Epics shows nothing. */
+  active: boolean
+  /** Under «All» with more than one Project: the Project's name above its Epics. */
+  named: boolean
+  onFocus: (project: ProjectView, epic: string) => void
+}
+
+/** One Project's Epics: the order, the age and the «Older» fold of polish 98, per Project. */
+function ProjectEpics({ project, active, named, onFocus }: ProjectEpicsProps) {
+  const { model, error } = useWorkflow(project.path)
+  const readingRow = useReadingRow(model === undefined && error === undefined)
   const after = useAppSettings(epicsOlderAfterOf)
   const now = useNow()
-  const [folded, toggleOlder] = useOlderFold(project?.id)
+  const [folded, toggleOlder] = useOlderFold(project.id)
   const olderId = useId()
-  if (!project) return null
 
   // The message stands in a live region that is always there, so a screen reader announces
   // "Reading epics…" and whatever replaces it; the list itself is not announced.
@@ -182,7 +200,7 @@ export default function EpicsSection() {
     const { recent, older } = arrangeEpics(model.epics, model.tickets, now, after)
     const item = (row: EpicRow) => (
       <li key={row.epic.epic}>
-        <EpicButton row={row} now={now} onFocus={() => focusEpic(project.id, row.epic.epic)} />
+        <EpicButton row={row} now={now} onFocus={() => onFocus(project, row.epic.epic)} />
       </li>
     )
     list = (
@@ -202,11 +220,55 @@ export default function EpicsSection() {
       </>
     )
   }
+  if (!active && list === null) return null
 
   return (
-    <SidebarSection id="EpicsSection" title="Epics" rowHeight={ROW_HEIGHT}>
-      <div role="status">{message === null ? null : <p style={styles.message}>{message}</p>}</div>
+    <div data-testid="sidebar-epics-project" data-project={project.id}>
+      {named ? (
+        <div style={styles.project} title={project.path}>
+          {project.name}
+        </div>
+      ) : null}
+      {active ? <div role="status">{message === null ? null : <p style={styles.message}>{message}</p>}</div> : null}
       {list}
+    </div>
+  )
+}
+
+export default function EpicsSection() {
+  const state = useProjects()
+  const project = activeProject(state)
+  const scope = useSidebarScope((store) => store.scope)
+  const [failure, setFailure] = useState<string | null>(null)
+  const onFocus = useCallback(
+    (of: ProjectView, epic: string) => {
+      setFailure(null)
+      if (of.id === project?.id) {
+        focusEpic(of.id, epic)
+        return
+      }
+      // The Canvas of the other Project takes the request once it shows (canvas/sources/epics.ts).
+      void openProject(windowMachine(), of.id).then((refused) => {
+        if (refused === undefined) focusEpic(of.id, epic)
+        else setFailure(`${of.name} could not be opened: ${readableReason(refused)}`)
+      })
+    },
+    [project?.id],
+  )
+  if (!project) return <NoProjectSection id="EpicsSection" title="Epics" what="Epics" />
+
+  // The open Project first, then the others in the order of the Projects section.
+  const shown = projectsInScope(state?.projects ?? [], scope, project.id)
+  const projects = [project, ...shown.filter((each) => each.id !== project.id)]
+  const named = projects.length > 1
+
+  return (
+    <SidebarSection id="EpicsSection" title="Epics" scope="filtered" notice={failure === null ? null : <p style={styles.message} role="alert">{failure}</p>}>
+      {projects.map((each) => (
+        // The open Project's block keeps its key across a switch: "Reading epics…" stays without a gap
+        // when the next Project is still being read (useReadingRow).
+        <ProjectEpics key={each.id === project.id ? '' : each.id} project={each} active={each.id === project.id} named={named} onFocus={onFocus} />
+      ))}
     </SidebarSection>
   )
 }

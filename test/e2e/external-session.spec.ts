@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { settled } from './wait'
 import { ms } from '../time-scale'
 
@@ -226,6 +226,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     expect(kinds.filter((kind) => kind.startsWith('session:')).sort()).toEqual([`session:${EXTERNAL}`, `session:${OTHER}`].sort())
 
     // The sidebar row of worfy's own Session leads to the Orchestrator's Node.
+    await showSidebarSection(window, 'Sessions')
     await window.locator(`[data-testid="sidebar-session"][data-session-id="${own}"]`).click()
     await expect(window.locator('.react-flow__node.selected [data-testid="orchestrator-node"]')).toHaveCount(1)
 

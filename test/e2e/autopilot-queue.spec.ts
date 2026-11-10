@@ -6,7 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { EPIC, journals, messages, PROJECT, prepareWorld, releaseTurn, setStatus, type World } from './autopilot-world'
 import { startWindow } from './autopilot-start'
 import { captureScreenshot } from './evidence-capture'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { WHOLLY_IN_VIEW } from './px'
 
 // A run over a queue of Epics in the built app (worfy-autopilot-queue ticket 17) on the fake agent
@@ -74,15 +74,37 @@ const frameOf = (window: Page, epic: string): Locator => window.locator(`[data-t
 
 /** The header of the Epic's frame — its title, its buttons, the line above them and the chips under them — centred by the sidebar, for a screenshot. */
 async function headerInView(window: Page, epic: string): Promise<Locator> {
+  await showSidebarSection(window, 'Epics')
   await window.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`).click()
   const header = frameOf(window, epic).locator('header.w-epic__header')
   await expect(header).toBeInViewport(WHOLLY_IN_VIEW)
   return header
 }
 
+/**
+ * "⋯" of the frame, inside the window: at 1400 px the frame of the Epic on the right may stand past the window's edge
+ * (by the width of the sidebar, 264 px since worfy-polish ticket 94), and a click there opens nothing. The sidebar's
+ * row of the Epic centres its frame then.
+ */
+async function moreOf(frame: Locator): Promise<Locator> {
+  const more = frame.getByTestId('action-autopilot-more')
+  const window = frame.page()
+  if (!(await more.evaluate((button, wanted) => {
+    const box = button.getBoundingClientRect()
+    const { innerWidth, innerHeight } = globalThis as unknown as { innerWidth: number; innerHeight: number }
+    return box.left >= 0 && box.top >= 0 && box.right <= innerWidth - wanted && box.bottom <= innerHeight
+  }, 8))) {
+    const epic = await frame.getAttribute('data-epic')
+    await showSidebarSection(window, 'Epics')
+    await window.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`).click()
+  }
+  await expect(more).toBeInViewport(WHOLLY_IN_VIEW)
+  return more
+}
+
 /** Chooses `item` in "⋯" of the frame. */
 async function choose(frame: Locator, item: string): Promise<void> {
-  await frame.getByTestId('action-autopilot-more').click()
+  await (await moreOf(frame)).click()
   const entry = frame.page().getByRole('menuitem', { name: item })
   await expect(entry).toHaveAttribute('aria-disabled', 'false')
   await entry.click()
@@ -90,8 +112,7 @@ async function choose(frame: Locator, item: string): Promise<void> {
 
 /** The items of "⋯" of the frame, read with the menu open, then closed again. */
 async function menuOf(frame: Locator): Promise<string[]> {
-  const more = frame.getByTestId('action-autopilot-more')
-  await more.click()
+  await (await moreOf(frame)).click()
   const items = frame.page().getByRole('menuitem')
   await expect(items.first()).toBeVisible()
   const labels = await items.allTextContents()

@@ -4,9 +4,11 @@
 // The schema holds every field the interface settings need at once, so the features that use them
 // add no field here:
 // - `interfaceScale` — the zoom of the whole window, 0.8–1.5 by steps of 0.1;
-// - `sidebar.collapsed` — which sidebar sections are collapsed, by section id (the section's file
-//   name without the extension, as ShellExtension.id in src/renderer/shell/registry.ts); a section
-//   with no key keeps its own default;
+// - `sidebar.collapsed` — what is folded, by key: the «Older» group of the Epics section, one key per
+//   Project (`EpicsOlder-<hash of the Project id>`, worfy-polish ticket 98), and the Getting started
+//   panel (`GettingStartedSection`, getting-started/store.ts). Sidebar sections themselves no longer
+//   collapse — the sidebar shows one at a time (worfy-polish ticket 94) — so the keys of section ids
+//   an older version wrote stay in the file and are not read;
 // - `sidebar.visible` — whether the sidebar is shown, apart for the normal view and the focus mode;
 // - `autoCompactWindow` — the autocompact window of a Session in tokens (worfy-polish ticket 24):
 //   `orchestrator` for a Project's Orchestrator, Autopilot's included, and its Subagents;

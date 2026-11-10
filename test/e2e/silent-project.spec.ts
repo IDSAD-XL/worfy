@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { nodeScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -328,6 +328,7 @@ test('an Epic put into an open Silent Project whose Workflow folder has no .scra
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), WORFY_GH: gh.command } })
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Epics')
     await expect(window.getByText('No epics in .scratch/')).toBeVisible({ timeout: ms(15_000) })
 
     // The stubbed epic-status answers with the Epic first; then the Epic is put and committed, as

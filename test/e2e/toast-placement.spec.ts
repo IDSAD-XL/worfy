@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { catScript, loginProfileWithNode } from '../harness-node'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, showSidebarSection } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
@@ -224,6 +224,7 @@ test('an error toast that stays covers no control: focus mode on a Ticket, the C
       expect(inHeader.checked.length, 'the header and its Interrupt button').toBeGreaterThanOrEqual(2)
     }
     await toCanvas()
+    await showSidebarSection(window, 'Sessions')
     await window.locator(`[data-testid="sidebar-session"][data-session-id="${SESSION}"]`).click()
     await window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`).getByTestId('session-node-title').dblclick()
     await expect(sessionView.getByTestId('session-view')).toHaveAttribute('data-session-id', SESSION)

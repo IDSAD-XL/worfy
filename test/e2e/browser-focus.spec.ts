@@ -418,8 +418,10 @@ async function guestScreencastFrames(path: string): Promise<number> {
 
 /** The colour the test gives the second Browser's page, so that it is told apart from the first's cream. */
 const BLUE = 'rgb(0, 128, 255)'
-// The window's capture turns it into about rgb(59, 130, 246) on a Mac's colour profile.
-const isBlue = (r: number, g: number, b: number): boolean => r < 100 && Math.abs(g - 129) < 35 && b > 200
+// The window's capture turns it into about rgb(59, 130, 246) on a Mac's colour profile. The light theme's accent,
+// #0062cc (0, 98, 204), is no page: it is the bar of the chosen section on the sidebar's rail (worfy-polish ticket 94),
+// 3 × 16 px, which a capture without a colour profile (CI, Windows) took for 14 pixels of the page under focus mode.
+const isBlue = (r: number, g: number, b: number): boolean => r < 100 && Math.abs(g - 129) < 35 && b > 225
 
 /**
  * How many pixels of `image` lie inside an area of the second page's blue: the pixel and its eight

@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, repoRoot } from './helpers'
+import { launchApp, repoRoot, showSidebarSection } from './helpers'
 import { ms } from '../time-scale'
 
 // worfy started from Finder (worfy-harness ticket 37). launchd gives such an app the PATH
@@ -138,6 +138,7 @@ test('started with the PATH of Finder and no node in the login shell either, the
     expect(() => execFileSync('/bin/sh', ['-c', 'command -v node'], { env: { PATH: SYSTEM_PATH }, stdio: 'ignore' })).toThrow()
 
     // worfy finds no node to run `profile` with: where the workflow lives is unknown, and the window says so.
+    await showSidebarSection(window, 'Epics')
     const reason = window.getByText(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script could not be run: node not found in PATH/)
     await expect(reason).toBeVisible({ timeout: ms(20_000) })
     await expect(window.getByText('No epics in .scratch/')).toHaveCount(0)

@@ -168,9 +168,11 @@ single PR shows, instead of the panes, a calm note: "No open pull requests and n
 its row scrolled into sight, and marked seen. When the inbox does not hold that PR, the view opens and says "This pull
 request is not in the inbox: owner/repo#N".
 
-**The sidebar section.** **Pull requests**, under Pipeline. For each Project of the window's Machine that holds a PR:
+**The sidebar section.** **Pull requests**, a section of the sidebar's rail. For each Project of the window's Machine that
+holds a PR — of the active Project alone while the sidebar's Project switcher is on one Project:
 its name, then a row per group that holds one, with the count. A Project that reads no pull requests, or holds none,
 shows nothing. With nothing anywhere, the section says "No pull requests". A Project whose inbox cannot be read says why.
+Its rail icon counts the pull requests that need you: Needs my review, Needs my answer and Needs a fix.
 
 **The switch.** Project settings has **Read pull requests from GitHub**, on by default. Off, worfy runs no gh for that
 Project's PR inbox, the view says so at once, and the sidebar leaves it out. Turned on again, the Project is read at

@@ -72,8 +72,20 @@ describe('ToolbarView', () => {
 
   it('shows the project name and branch', () => {
     render(<ToolbarView {...base} project={{ id: 'auberge-00000001', name: 'auberge', branch: 'main' }} />)
-    expect(screen.getByText('worfy — auberge')).toBeTruthy()
     expect(screen.getByText('main').className).toContain('w-mono')
+  })
+
+  it('names the Project alone next to the sidebar, whose strip says «worfy»; without the sidebar it says «worfy — <Project>»', () => {
+    const project = { id: 'auberge-00000001', name: 'auberge', branch: 'main' }
+    const { rerender, container } = render(<ToolbarView {...base} project={project} />)
+    const name = () => container.querySelector('.w-toolbar__name')?.textContent
+    expect(name()).toBe('auberge')
+    rerender(<ToolbarView {...base} project={undefined} />)
+    expect(name()).toBe('No Project open')
+    rerender(<ToolbarView {...base} sidebarVisible={false} project={project} />)
+    expect(name()).toBe('worfy — auberge')
+    rerender(<ToolbarView {...base} sidebarVisible={false} project={undefined} />)
+    expect(name()).toBe('worfy')
   })
 
   it('places toolbar items before the command palette hint', () => {
@@ -124,6 +136,29 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
     expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
     expect(toolbar.dataset.sidebar).toBe('visible')
+  })
+
+  it('keeps the keyboard focus on the button of the sidebar both ways: hidden, it is on «Show sidebar»; shown again, on «Hide sidebar» in the sidebar strip', () => {
+    render(<AppShell />)
+    const hide = screen.getByRole('button', { name: 'Hide sidebar' })
+    hide.focus()
+    fireEvent.click(hide)
+    const show = screen.getByRole('button', { name: 'Show sidebar' })
+    expect(document.activeElement).toBe(show)
+    fireEvent.click(show)
+    // The toolbar's button went away with the press (it is there only while the sidebar is hidden).
+    expect(screen.queryByRole('button', { name: 'Show sidebar' })).toBeNull()
+    const sidebar = screen.getByRole('navigation', { name: 'Sidebar' })
+    expect(document.activeElement).toBe(within(sidebar).getByRole('button', { name: 'Hide sidebar' }))
+  })
+
+  it('shown again with the focus elsewhere, the sidebar leaves the focus where it is', () => {
+    render(<AppShell canvas={<button type="button">on the canvas</button>} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    const elsewhere = screen.getByRole('button', { name: 'on the canvas' })
+    elsewhere.focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+    expect(document.activeElement).toBe(elsewhere)
   })
 
   it.each([

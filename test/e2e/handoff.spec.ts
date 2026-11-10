@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { SETTLE_READS_MS } from '../../src/main/docs/watch'
 import { ms } from '../time-scale'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 
 // The HANDOFF Node and the sidebar's ADR section against the built app, over a Project in a
 // temporary git repository. An edit of HANDOFF.md must show on the Node within a second; the ADR
@@ -93,6 +93,7 @@ test('the HANDOFF Node renders HANDOFF.md, follows an edit within a second, and 
     expect(shownAfter).toBeLessThanOrEqual(ms(1000))
 
     // Sidebar: the ADRs of docs/adr/, by number, with the count; README.md is not one.
+    await showSidebarSection(window, 'ADR')
     const section = window.getByRole('region', { name: 'ADR' })
     await expect(section.getByTestId('adr-count')).toHaveText(String(Object.keys(ADRS).length))
     const rows = section.getByTestId('sidebar-adr')

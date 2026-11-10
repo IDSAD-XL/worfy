@@ -370,15 +370,16 @@ test('on the default model the pickers do not make the bar under the input field
     const { now, withNativeLists } = await heights()
     expectSamePx([now, withNativeLists], barBox.height, 'the height of the bar, as it is and with the native lists')
     // The window from 800 to 1600 px wide with the sidebar shown (worfy-retry ticket 12): no element of
-    // the bar is lost, and from 1220 px up Send stays on the pickers' line. Measured every 10 px of
+    // the bar is lost, and from 1240 px up Send stays on the pickers' line. Measured every 10 px of
     // 800–1600 px: on origin/main db7ded110, with both switches, Send left the pickers' line below
     // 1260 px; with the Modes button it holds down to 1210 px, and this keeps that gain. With the third
     // icon of Auto-continue (worfy-retry ticket 02) and the slots narrowed to 12 px, measured every 2 px
-    // of 1190–1240 px: Send holds down to 1212 px.
+    // of 1190–1240 px: Send holds down to 1212 px. The sidebar is 24 px wider since worfy-polish ticket 94
+    // (264 px, the rail of sections): the same bar holds down to 1212 + 24 = 1236 px.
     for (let width = 800; width <= 1600; width += 20) {
       await resize(width, 800)
       await nothingLost(view, width)
-      if (width >= 1220) {
+      if (width >= 1240) {
         const [shownPickers, shownSend] = [await box(pickers), await box(send)]
         expect(Math.abs(shownSend.y + shownSend.height / 2 - (shownPickers.y + shownPickers.height / 2)), `Send on the pickers' line at ${width} px`).toBeLessThan(4)
       }

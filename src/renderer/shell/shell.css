@@ -6,29 +6,319 @@
   overflow: hidden;
 }
 
-/* Sidebar: translucent so the window's native vibrancy shows through. */
+/*
+ * Sidebar: translucent so the window's native vibrancy shows through. Variant C of the sidebar
+ * prototype (worfy-polish ticket 94, Sidebar.tsx): the strip at the top as high as the toolbar, then
+ * the rail of sections and the panel with one section.
+ */
 .w-sidebar {
   flex: none;
   width: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 0 var(--space-2) var(--space-2);
   background: var(--sidebar-translucent);
   border-right: 1px solid var(--toolbar-border);
 }
+/* The traffic lights sit on its left; they do not move with the interface scale (see .w-toolbar[data-sidebar='hidden']). */
 .w-sidebar__titlebar {
+  position: relative;
   flex: none;
   height: var(--toolbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  padding: 0 var(--space-2) 0 calc(80px / var(--interface-scale, 1));
   -webkit-app-region: drag;
 }
-.w-sidebar__sections {
+.w-sidebar__titlebar button {
+  -webkit-app-region: no-drag;
+}
+.w-sidebar__titlebar-gap {
+  flex: 1;
+}
+/* The app's name next to the traffic lights: text in the interface font, not a link. */
+.w-sidebar__wordmark {
+  flex: none;
+  font-size: var(--text-13);
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--text);
+  user-select: none;
+}
+/* The row of the Project switcher, under the strip: as wide as the rail and the panel together. */
+.w-sidebar__switcher {
+  flex: none;
+  display: flex;
+  padding: 0 var(--space-2) var(--space-2);
+}
+.w-sidebar__icon-button {
+  width: var(--row-height);
+  height: var(--row-height);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+}
+.w-sidebar__icon-button:hover {
+  background: var(--surface-raised);
+}
+.w-sidebar__body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+}
+.w-sidebar__rail {
+  flex: none;
+  width: 48px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--space-1);
+  padding: 2px 0 var(--space-2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.w-sidebar__rail::-webkit-scrollbar {
+  width: 0;
+}
+/* The tabs of the sections (the tablist), above Settings: the sections of the foot sit at its end. */
+.w-sidebar__tabs {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.w-sidebar__rail-button[data-rail-foot] {
+  margin-top: auto;
+}
+.w-sidebar__rail-button {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+.w-sidebar__rail-button:hover {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.w-sidebar__rail-button[aria-selected='true'] {
+  background: var(--selected);
+  color: var(--text);
+}
+/* The accent bar left of the chosen section, against the edge of the window. */
+.w-sidebar__rail-button[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.w-sidebar__rail-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.w-sidebar__rail-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  box-shadow: 0 0 0 2px var(--sidebar);
+  transform: scale(0.9);
+}
+.w-sidebar__rail-count[data-tone='working'] {
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+.w-sidebar__rail-count[data-tone='blocked'] {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-sidebar__rail-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+.w-sidebar__rail-dot[data-tone='working'] {
+  background: var(--working-text);
+}
+.w-sidebar__rail-dot[data-tone='blocked'] {
+  background: var(--blocked-text);
+}
+.w-sidebar__rail-dot[data-tone='ready'] {
+  background: var(--ready-dot);
+}
+/* The panel: the one section shown (sidebar-section.css). */
+.w-sidebar__sections {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px;
+}
+
+/* The Project switcher in its row under the strip (ProjectSwitcher.tsx): the whole width of the sidebar. */
+.w-project-switcher {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.w-project-switcher__button {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-12);
+  text-align: left;
+}
+.w-project-switcher__button:hover,
+.w-project-switcher__button[aria-expanded='true'] {
+  border-color: var(--border-strong);
+}
+.w-project-switcher__button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-project-switcher__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-muted);
+}
+/* A long name gives way, the chevron does not. */
+.w-project-switcher__chevron {
+  flex: none;
+}
+.w-project-switcher__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-project-switcher__menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  max-height: 60vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node), 0 12px 32px rgba(0, 0, 0, 0.18);
+  -webkit-app-region: no-drag;
+}
+.w-project-switcher__separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+.w-project-switcher__item {
+  width: 100%;
+  height: var(--row-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+.w-project-switcher__item:hover,
+.w-project-switcher__item:focus-visible {
+  background: var(--surface-raised);
+  outline: none;
+}
+.w-project-switcher__item[aria-checked='true'] {
+  background: var(--selected);
+}
+.w-project-switcher__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-project-switcher__detail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-project-switcher__check {
+  flex: none;
+  width: 11px;
+  display: inline-flex;
+  color: var(--accent);
+}
+.w-project-switcher__failure {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-button);
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  line-height: 16px;
+  overflow-wrap: anywhere;
 }
 
 /* Focus mode draws its layer here (focus/focus.css), over the toolbar and the view. A stacking
@@ -115,7 +405,9 @@ html[data-platform='linux'] .w-sidebar {
   background: var(--sidebar);
 }
 html[data-platform='windows'] .w-toolbar[data-sidebar='hidden'],
-html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
+html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'],
+html[data-platform='windows'] .w-sidebar__titlebar,
+html[data-platform='linux'] .w-sidebar__titlebar {
   padding-left: var(--space-2);
 }
 .w-toolbar button,

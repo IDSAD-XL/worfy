@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, launchApp, openSecondWindow, parkPointer, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, openSecondWindow, parkPointer, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
@@ -244,6 +244,7 @@ test('an Epic on the shelf is found like one with a frame: the sidebar, the pale
     // The sidebar's Epics section: the row of a done Epic centers its chip.
     await panAway(launched)
     expect(await offCenter(window, chipSelector('worfy-review'))).toBeGreaterThan(20)
+    await showSidebarSection(window, 'Epics')
     await window.locator('[data-testid="sidebar-epic"][data-epic="worfy-review"]').click()
     await expect.poll(() => offCenter(window, chipSelector('worfy-review'))).toBeLessThan(4)
 
