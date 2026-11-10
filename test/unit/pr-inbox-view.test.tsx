@@ -9,7 +9,8 @@
 //   opens the view on that group;
 // - the toolbar tab, the palette command, and the switch of Project settings.
 // main is a fake preload bridge; every fixture is invented — owners, repositories, logins and texts. Nothing
-// here reaches GitHub, and the view sends nothing but `prInbox.get` and `prInbox.markSeen` (ADR-0105).
+// here reaches GitHub: of the `prInbox` channels the view sends only `prInbox.get`, `prInbox.markSeen` and, for an
+// open row, `prInbox.drafts` (ADR-0105; Send is in test/unit/draft-thread.test.tsx).
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -480,7 +481,8 @@ describe('opening a row', () => {
     await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.markSeen').map((call) => call.input)).toEqual([{ projectId: 'web-00000001', repo: API, number: 118 }]))
     // "3 new since you looked" goes with main's answer.
     await waitFor(() => expect(text(rowOf(API, 118), 'pr-inbox-new')).toBeNull())
-    expect(channels().filter((channel) => channel.startsWith('prInbox.'))).toEqual(['prInbox.get', 'prInbox.markSeen'])
+    // An open row reads its draft replies (worfy-pr-inbox ticket 05); nothing is saved or sent without the user.
+    expect(channels().filter((channel) => channel.startsWith('prInbox.')).sort()).toEqual(['prInbox.drafts', 'prInbox.get', 'prInbox.markSeen'])
   })
 
   it('a link opens in the system browser, not in the window', async () => {

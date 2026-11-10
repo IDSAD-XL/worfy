@@ -51,6 +51,17 @@
 //     prints `-i`: status line, headers, blank line, body; above 299 gh's line on stderr and exit 1, a 304 too
 //     (`gh: HTTP 304`), as gh exits on any status above 299.
 //
+//   - replies.json: a world where worfy may post a reply (worfy-pr-inbox ticket 05), `{"status"?, "landed"?,
+//     "threads"?: {"<thread node id>": <databaseId of its first comment>}}`. Without the file a reply is a write like
+//     any other (below). Exactly two calls are understood, each with one `-f body=<text>` and nothing else:
+//     `api --method POST repos/<o>/<r>/pulls/<n>/comments/<id>/replies` and `api --method POST repos/<o>/<r>/issues/<n>/comments`.
+//     The reply goes into posted.json next to it, `[{"repo", "pr", "replyTo" (null in the conversation), "login",
+//     "body", "url"}]`, the login by GH_TOKEN (tokens.json), and the call prints the comment GitHub creates
+//     (`id`, `html_url`, `body`, `user.login`). With `status` the call fails with that HTTP status, as gh does, and
+//     posts nothing — unless `landed` is true: then the reply is posted although gh fails (an answer lost on the way).
+//     The two GraphQL reads before a Send, the comments of a thread (`node(id: $thread)`, the thread found through
+//     `threads`) and of a PR's conversation, are answered from posted.json, with `viewer` the same login.
+//
 // Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
 // a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
 // exits 2 (after its line in the log).
@@ -128,6 +139,8 @@ if (args.length === 1 && args[0] === '--version') {
   const token = elsewhere ? undefined : read('tokens.json', {})[login]
   if (token === undefined) fail(`no oauth token found for ${host} account ${login}`)
   process.stdout.write(`${token}\n`)
+} else if (replyPost() !== null) {
+  postReply(replyPost())
 } else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some(writeArg) || args.some((arg) => /\bmutation\b/.test(arg)))) {
   fail(`gh stub: a write is never expected: ${args.join(' ')}`, 2)
 } else if (args[0] === 'api' && args[1] === 'graphql' && inboxQuery()) {
@@ -190,6 +203,18 @@ function graphql() {
       data[name] = { issueCount: nodes.length, nodes }
     }
     process.stdout.write(JSON.stringify({ data }))
+    return
+  }
+  if (query.includes('node(id: $thread)')) {
+    const replyTo = read('replies.json', {}).threads?.[vars.thread]
+    const nodes = replyTo === undefined ? null : posted().filter((each) => each.replyTo === replyTo)
+    process.stdout.write(JSON.stringify({ data: { viewer: { login: stubLogin() }, node: nodes === null ? null : { comments: { nodes: nodes.map(commentNode) } } } }))
+    return
+  }
+  if (query.includes('pullRequest(number: $number)')) {
+    const slug = `${vars.owner}/${vars.name}`
+    const nodes = posted().filter((each) => each.repo === slug && each.pr === Number(vars.number) && each.replyTo === null)
+    process.stdout.write(JSON.stringify({ data: { viewer: { login: stubLogin() }, repository: { pullRequest: { comments: { nodes: nodes.map(commentNode) } } } } }))
     return
   }
   if (query.includes('pullRequest(number: $k0)')) {
@@ -256,8 +281,51 @@ function writeArg(arg) {
   return args[1] !== 'graphql' && /^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/.test(arg)
 }
 
-/** Whether an `api graphql` call is one of the PR inbox's two queries; any other GraphQL is not understood. */
+/** Whether an `api graphql` call is one of the PR inbox's queries; any other GraphQL is not understood. */
 function inboxQuery() {
   const query = args.find((arg, i) => args[i - 1] === '-f' && arg.startsWith('query=')) ?? ''
-  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('pullRequest(number: $k0)')
+  return (query.includes('review: search(') && query.includes('involves: search(')) || query.includes('pullRequest(number: $k0)') || query.includes('node(id: $thread)') || query.includes('pullRequest(number: $number)')
+}
+
+/** The login of GH_TOKEN (tokens.json); the viewer of graphql.json without one. */
+function stubLogin() {
+  const tokens = read('tokens.json', {})
+  return Object.keys(tokens).find((name) => tokens[name] === process.env.GH_TOKEN) ?? read('graphql.json', {}).viewer ?? 'nobody'
+}
+
+/** The replies posted so far (posted.json). */
+function posted() {
+  return read('posted.json', [])
+}
+
+/** A posted reply as GraphQL gives a comment. A function, not a const: the calls above run before this line. */
+function commentNode(each) {
+  return { author: { login: each.login }, body: each.body, url: each.url }
+}
+
+/**
+ * The reply this call posts, when it is one of the two worfy may make and replies.json lets it: its repository, PR,
+ * the comment it answers (null in the conversation) and its body. Null for any other call, which the write check
+ * then refuses.
+ */
+function replyPost() {
+  if (!dir || !existsSync(join(dir, 'replies.json'))) return null
+  if (args.length !== 6 || args[0] !== 'api' || args[1] !== '--method' || args[2] !== 'POST' || args[4] !== '-f' || !args[5].startsWith('body=')) return null
+  const thread = /^repos\/([^/\s]+\/[^/\s]+)\/pulls\/(\d+)\/comments\/(\d+)\/replies$/.exec(args[3])
+  const conversation = /^repos\/([^/\s]+\/[^/\s]+)\/issues\/(\d+)\/comments$/.exec(args[3])
+  const match = thread ?? conversation
+  if (match === null) return null
+  return { repo: match[1], pr: Number(match[2]), replyTo: thread === null ? null : Number(thread[3]), body: args[5].slice('body='.length) }
+}
+
+/** Posts the reply into posted.json and prints the comment, or fails as replies.json says. */
+function postReply(reply) {
+  const world = read('replies.json', {})
+  const list = posted()
+  const id = 9000 + list.length + 1
+  const url = reply.replyTo === null ? `https://github.com/${reply.repo}/pull/${reply.pr}#issuecomment-${id}` : `https://github.com/${reply.repo}/pull/${reply.pr}#discussion_r${id}`
+  const login = stubLogin()
+  if (world.status === undefined || world.landed === true) writeFileSync(join(dir, 'posted.json'), JSON.stringify([...list, { ...reply, login, url }]))
+  if (world.status !== undefined) fail(`gh: Server Error (HTTP ${world.status})`)
+  process.stdout.write(JSON.stringify({ id, html_url: url, body: reply.body, user: { login } }))
 }

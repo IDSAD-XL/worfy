@@ -1,6 +1,6 @@
 // The `prInbox` domain (worfy-pr-inbox ticket 02): the open PRs of the user and the review requests to the user in
-// the repositories of a Project, grouped by whose move it is (src/main/github/inbox.ts reads them with gh). Read-only
-// towards GitHub: the reader never writes there (ADR-0105). `prInbox.markSeen` writes only `pr-inbox.json` in the
+// the repositories of a Project, grouped by whose move it is (src/main/github/inbox.ts reads them with gh). The reader
+// never writes to GitHub (ADR-0105); the one write is `prInbox.send` below, on the user's click (ticket 05). `prInbox.markSeen` writes only `pr-inbox.json` in the
 // Project's data folder (ADR-0005): what the user has seen, as ids, a sha and a time, never a text.
 //
 // A Linked machine gets the snapshot of the Project machine through these channels and never polls GitHub itself.
@@ -126,11 +126,110 @@ export const prInboxDigestAnswerSchema = z.discriminatedUnion('state', [
 export type PrInboxDigestAnswer = z.output<typeof prInboxDigestAnswerSchema>
 export const prInboxDigest = invokeChannel('prInbox.digest', z.void(), prInboxDigestAnswerSchema, 'local')
 
+// ── the drafts of replies and Send (worfy-pr-inbox ticket 05, ADR-0105) ─────────────────────────────────────────
+//
+// Skill pr-reply writes the drafts of replies of one PR into `<Profile folder>/state/pr-inbox/drafts/<owner>-<name>-<N>.json`
+// (harness/bin/pr-reply-draft). The view shows them under their threads; the user edits a text, discards it, or
+// sends it. Send is the one write to GitHub main ever makes (src/main/github/pr-reply-send.ts): the text shown, as it
+// is, after review-draft-lint --reply checked it again, once. Every channel below is `local`: a Linked machine never
+// reaches the drafts or Send, whatever its access.
+
+/** The labels skill pr-reply gives a reply (harness/bin/review-draft-lint, `--reply`). */
+export const PR_REPLY_LABELS = ['needs code change', 'needs answer', 'FYI', 'resolved by push'] as const
+export const PR_REPLY_STATES = ['draft', 'sent', 'discarded'] as const
+/** GitHub's longest comment body, in characters; the lint holds a reply to far less. */
+export const PR_REPLY_MAX_CHARS = 65_536
+
+/** A repository on GitHub as `owner/name`, as the draft file and the reply's path name it. */
+const repoSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/u)
+
+/** One reply of a draft file, with its place in the file's `items`. */
+export const prReplyItemSchema = z.object({
+  /** The place of the reply in the file's `items`: what a save, a discard and a send name, with `kind` and `threadId`. */
+  index: z.number().int().nonnegative(),
+  kind: z.enum(['thread', 'conversation']),
+  /** The review thread's node id; null for a reply in the conversation. */
+  threadId: z.string().nullable(),
+  /** The databaseId of the thread's first comment, which the reply goes under; null for the conversation. */
+  replyTo: z.number().int().positive().nullable(),
+  label: z.string(),
+  body: z.string(),
+  /** A plan for the user, never posted. */
+  fixPlan: z.string().nullable(),
+  state: z.enum(PR_REPLY_STATES),
+  sentUrl: z.string().nullable(),
+  /** Why the last Send did not post it; null when none failed. */
+  error: z.string().nullable(),
+  /** The user changed the text: skill pr-reply keeps it as it is when it runs again. */
+  edited: z.boolean(),
+})
+export type PrReplyItem = z.infer<typeof prReplyItemSchema>
+
+export const prReplyDraftsSchema = z.object({
+  repo: z.string(),
+  pr: z.number().int().positive(),
+  /** The head commit the drafts are about; null without a draft file. */
+  headOid: z.string().nullable(),
+  /** Every reply of the file, in its order; empty without a file. */
+  items: z.array(prReplyItemSchema),
+  /** Why the drafts cannot be read (no Profile folder, a file of another shape); null when they can, or there are none. */
+  problem: z.string().nullable(),
+})
+export type PrReplyDrafts = z.infer<typeof prReplyDraftsSchema>
+
+const pullInput = projectInput.extend({ repo: repoSchema, number: z.number().int().positive() })
+
+/** Which reply: its place in the file, and its kind and thread, so a file the skill rewrote meanwhile is not mistaken. */
+export const prReplyRefSchema = z.object({ index: z.number().int().nonnegative(), kind: z.enum(['thread', 'conversation']), threadId: z.string().min(1).nullable() })
+export type PrReplyRef = z.infer<typeof prReplyRefSchema>
+
+const bodySchema = z.string().max(PR_REPLY_MAX_CHARS)
+
+/** What became of one reply of a Send. */
+export const prReplySendResultSchema = z.object({
+  index: z.number().int().nonnegative(),
+  /**
+   * `sent` — posted now; `already-sent` — the text of this account was on GitHub already (a Send whose answer was
+   * lost), the reply is only marked sent; `refused` — not posted, and nothing was sent to GitHub: a lint finding,
+   * a reply sent or discarded before, a file that changed; `failed` — GitHub or the network failed, the reply stays a
+   * draft with the reason; `skipped` — not tried, since an earlier reply of the same Send failed.
+   */
+  outcome: z.enum(['sent', 'already-sent', 'refused', 'failed', 'skipped']),
+  reason: z.string().nullable(),
+  sentUrl: z.string().nullable(),
+})
+export type PrReplySendResult = z.infer<typeof prReplySendResultSchema>
+
+/** The drafts of replies of one PR on this machine. Reads only. */
+export const prInboxDrafts = invokeChannel('prInbox.drafts', pullInput, prReplyDraftsSchema, 'local')
+
+/** The user's text of one reply into the draft file, as it is; the reply is marked `edited`. Never reaches GitHub. */
+export const prInboxSaveDraft = invokeChannel('prInbox.saveDraft', pullInput.extend({ item: prReplyRefSchema, body: bodySchema }), prReplyDraftsSchema, 'local')
+
+/** The reply will not be sent: `discarded` in the draft file. Never reaches GitHub. */
+export const prInboxDiscard = invokeChannel('prInbox.discard', pullInput.extend({ item: prReplyRefSchema }), prReplyDraftsSchema, 'local')
+
+/**
+ * Send, on the user's click: each reply with the text shown in its field, one after another — Send on one reply,
+ * or Send all after the dialog with every text. Main saves the text, checks it again with review-draft-lint --reply,
+ * and posts it once (ADR-0105).
+ */
+export const prInboxSend = invokeChannel(
+  'prInbox.send',
+  pullInput.extend({ items: z.array(prReplyRefSchema.extend({ body: bodySchema })).min(1).max(100) }),
+  z.object({ results: z.array(prReplySendResultSchema), drafts: prReplyDraftsSchema }),
+  'local',
+)
+
 declare module './channels' {
   interface IpcContract {
     'prInbox.digest': typeof prInboxDigest
     'prInbox.get': typeof prInboxGet
     'prInbox.markSeen': typeof prInboxMarkSeen
     'prInbox.changed': typeof prInboxChanged
+    'prInbox.drafts': typeof prInboxDrafts
+    'prInbox.saveDraft': typeof prInboxSaveDraft
+    'prInbox.discard': typeof prInboxDiscard
+    'prInbox.send': typeof prInboxSend
   }
 }
