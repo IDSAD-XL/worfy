@@ -2,7 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-10T12:39Z
-PR: —
+PR: #1784
 Blocked by: —
 Source: Orchestrator 2026-11-10. Решение владельца: один Ticket на все flaky test-ы, замеченные 2026-11-09…10 в CI и в
 локальном gate fast под полной нагрузкой машины.
