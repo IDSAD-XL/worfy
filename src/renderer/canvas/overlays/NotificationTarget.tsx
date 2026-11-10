@@ -3,6 +3,7 @@ import { sameProjectRoot } from '../../../shared/paths'
 import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, addressFor, navigation, openProject, useProjects } from '../../projects/useProjects'
 import { openPipelineOf } from '../../pipeline/open'
+import { openPrInboxOf } from '../../pr-inbox/open'
 import { openSession } from '../../session/navigation'
 import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
 import {
@@ -25,7 +26,8 @@ import { useOrchestratorViews } from '../nodes/orchestrator-view'
 // mounted loses nothing. The note then waits until this window knows the Session's Node
 // (session/notification-target.ts). Draws nothing. A note of a Ticket that waits for the owner
 // (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session; one of a
-// Linked machine's Ticket (worfy-pipeline ticket 10) opens it among that Machine's Projects, read only.
+// Linked machine's Ticket (worfy-pipeline ticket 10) opens it among that Machine's Projects, read only. A note of
+// a PR of the PR inbox (worfy-pr-inbox ticket 07) opens the Pull requests view of its Project on that PR.
 //
 // A note of a Linked machine's Session (worfy-link ticket 13) opens it among the Projects of that
 // Machine, the way the sidebar opens a Linked machine's Project (worfy-link ticket 09): a window on
@@ -75,6 +77,19 @@ export default function NotificationTarget() {
         navigation.load(addressFor(wanted, projectId))
       })
       return
+    }
+    // A PR of the PR inbox (worfy-pr-inbox ticket 07): the Pull requests view of its Project on that PR, once this
+    // window knows its Projects.
+    if ('view' in note && note.view === 'pull-requests') {
+      if (projects !== undefined) {
+        dropNote(pending)
+        void openPrInboxOf(note.projectId, projects.activeId ?? undefined, { repo: note.repo, number: note.number }).then((problem) => {
+          if (problem !== undefined) console.error('a notification could not open the Pull requests view of its Project:', problem)
+        })
+        return
+      }
+      const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
+      return () => clearTimeout(timer)
     }
     // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Pipeline board of its
     // Project, once this window knows its Projects.

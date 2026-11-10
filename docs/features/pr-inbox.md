@@ -17,6 +17,8 @@ and CI badges of a Ticket are on [Gate and GitHub](gate-and-github.md).
 - The **Pull requests** row of the Command palette, group View, with a Project.
 - A group of the **Pull requests** section of the sidebar: the view of that row's Project, scrolled to that group, its
   frame marked. A row of another Project selects that Project first.
+- A click on a system notification of a new review request or reply opens the view on that PR, and **Open** of the
+  morning digest opens it too: see [Notifications](notifications.md).
 
 The view belongs to the active Project. Another Project shows its own inbox, and its rows start closed.
 

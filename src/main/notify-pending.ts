@@ -20,6 +20,10 @@ export class PendingOpens {
 
   /** Keeps `note` for the client; a later click replaces an earlier one. */
   hold(clientId: ClientId, note: NotifyOpen): void {
+    if ('view' in note && note.view === 'pull-requests') {
+      this.notes.set(clientId, { note: { view: note.view, projectId: note.projectId, repo: note.repo, number: note.number }, at: this.now() })
+      return
+    }
     if ('view' in note) {
       // A Linked machine's Ticket names its Machine and its Project's id there; this Machine's, its root.
       const where = {

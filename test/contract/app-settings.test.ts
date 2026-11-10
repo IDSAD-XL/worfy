@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, liveSummaryOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -544,6 +544,39 @@ describe('AppSettingsStore', () => {
       expect(liveSummaryOf(other), JSON.stringify(liveSummary)).toBe(true)
       expect(productSessionSplitOf(other)).toBe(0.4)
     }
+  })
+
+  it('the PR inbox switches (worfy-pr-inbox ticket 07): on until chosen; off is written, read back after a restart and kept; a value of the wrong type reads as on', () => {
+    expect(prInboxNotifyOf(DEFAULT_APP_SETTINGS)).toBe(true)
+    expect(prInboxDigestOf(DEFAULT_APP_SETTINGS)).toBe(true)
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get()).not.toHaveProperty('prInboxNotify')
+    expect(prInboxNotifyOf(store.get())).toBe(true)
+
+    expect(store.set({ prInboxNotify: false })).toMatchObject({ prInboxNotify: false, revision: 3 })
+    expect(store.get()).not.toHaveProperty('prInboxDigest')
+    expect(store.set({ prInboxDigest: false })).toMatchObject({ prInboxNotify: false, prInboxDigest: false, revision: 4 })
+    // The same choice again changes nothing.
+    expect(store.set({ prInboxDigest: false }).revision).toBe(4)
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ prInboxNotify: false, prInboxDigest: false })
+    const restarted = new AppSettingsStore(file).get()
+    expect(prInboxNotifyOf(restarted)).toBe(false)
+    expect(prInboxDigestOf(restarted)).toBe(false)
+    // Another setting keeps them; on again is a choice too.
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ prInboxNotify: false, prInboxDigest: false })
+    expect(store.set({ prInboxNotify: true })).toMatchObject({ prInboxNotify: true, prInboxDigest: false })
+
+    for (const value of ['off', 0, null]) {
+      writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, prInboxNotify: value, prInboxDigest: value, revision: 7 }))
+      const other = new AppSettingsStore(file).get()
+      expect(prInboxNotifyOf(other), JSON.stringify(value)).toBe(true)
+      expect(prInboxDigestOf(other), JSON.stringify(value)).toBe(true)
+      expect(other).toMatchObject({ interfaceScale: 1.3, revision: 7 })
+    }
+    expect(readdirSync(join(file, '..'))).toEqual([APP_SETTINGS_FILE])
   })
 
   it('a Browser sleep field of the wrong type reads as not chosen, and the file is not set aside', () => {

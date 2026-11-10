@@ -29,6 +29,8 @@
 // divider the person chose; absent until the first drag, and a share outside 0.1–0.9 or of the wrong
 // type in the file reads as not chosen (60 / 40), the rest of the file stays. Its `liveSummary`
 // (ticket 32) is the switch of the live summary in Settings → Sessions; absent or not a boolean reads as on.
+// `prInboxNotify` and `prInboxDigest` (worfy-pr-inbox ticket 07) are the switches of Settings → Pull requests, kept
+// only once chosen; absent or not a boolean reads as on.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -182,8 +184,17 @@ const appSettingsFileSchema = z.object({
     .object({ split: productSessionSplitSchema.optional().catch(undefined), liveSummary: z.boolean().optional().catch(undefined) })
     .optional()
     .catch(undefined),
+  prInboxNotify: z.boolean().optional().catch(undefined),
+  prInboxDigest: z.boolean().optional().catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
+
+/** The PR inbox switches after `patch`: each one chosen, the others absent (on). */
+function prInboxChoice(current: Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'>, patch: Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'> = {}): Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'> {
+  const notify = patch.prInboxNotify ?? current.prInboxNotify
+  const digest = patch.prInboxDigest ?? current.prInboxDigest
+  return { ...(notify === undefined ? {} : { prInboxNotify: notify }), ...(digest === undefined ? {} : { prInboxDigest: digest }) }
+}
 
 type ArchiveChoice = AppSettings['sessionArchive']
 
@@ -286,6 +297,7 @@ function copy(settings: AppSettings): AppSettings {
     ...runChoice(settings.autopilotRun),
     ...(settings.guideLanguage === undefined ? {} : { guideLanguage: settings.guideLanguage }),
     ...productSessionChoice(settings.productSession),
+    ...prInboxChoice(settings),
     ...modesChoice(settings.autoApproval),
     ...continuesChoice(settings.autoContinue),
     revision: settings.revision,
@@ -319,6 +331,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...runChoice(current.autopilotRun, patch.autopilotRun),
     ...guideLanguageAfter(current.guideLanguage, patch.guideLanguage),
     ...productSessionChoice(current.productSession, patch.productSession),
+    ...prInboxChoice(current, patch),
     // Never from the patch: setAutoApproval() is the one way to change a mode.
     ...modesChoice(current.autoApproval),
     // Nor Auto-continue: setAutoContinue() is the one way to change it.
@@ -362,6 +375,8 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.guideLanguage === b.guideLanguage &&
     a.productSession?.split === b.productSession?.split &&
     a.productSession?.liveSummary === b.productSession?.liveSummary &&
+    a.prInboxNotify === b.prInboxNotify &&
+    a.prInboxDigest === b.prInboxDigest &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&

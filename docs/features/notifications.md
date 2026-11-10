@@ -17,6 +17,8 @@ of its own because of its length. Terms are explained in [Concepts](concepts.md)
 | A Session of a terminal or Claude Desktop went from busy to idle | Its name, else its folder name | "Finished its turn" | The Session |
 | A Ticket came to wait for the owner or this Machine | `<epic> NN` is waiting for you | Its Blocked reason, else `<epic> NN — <title>` | The Pipeline board of its Project |
 | A PR with the cross-machine gate's label waited over an hour | The Project's name | The PR and what to do next | Nothing: it raises the window |
+| The [PR inbox](pr-inbox.md) has a new review request for the user | The Project's name | "Review requested: `owner/name#N` `<PR title>`" | The Pull requests view on that PR |
+| Someone else replied in an unresolved thread of the user's own PR | The Project's name | "New reply: `owner/name#N` `<PR title>`" | The Pull requests view on that PR |
 | Too many pairing attempts failed within an hour | Link a machine is paused | How many, from which addresses, until when | Nothing: it raises the window |
 
 A turn the user interrupted gives no notification. The text of a Session's note is cut to 160 characters. For Bash the input is
@@ -32,9 +34,19 @@ The rules:
   gives nothing. `team` and `agent` waits give nothing. A new wait of the same Ticket notifies again.
 - **A PR of the gate queue notifies once per last commit.** A new commit, a report or a merge ends that wait. The queue's read
   is looked at every minute, and while a window has focus the PR waits for the next read.
+- **A PR inbox event notifies once per PR and event.** An event is a review request, or the last comment of an unresolved
+  thread on the user's own PR when that comment is someone else's. The user's own reply gives nothing. Replies in several threads
+  of one PR in one read give one note. Two Projects of this Machine that read the same repository notify an event once. What
+  the first read of a Project holds gives nothing, and a Project whose inbox was switched off starts again from such a first
+  read. An event that came while a window had focus or while the switch was off gives nothing either: it never comes later. A request asked again after the user's review notifies
+  again. The text never carries a word of a comment, only the kind of event, `owner/name#N` and the PR's title, cut to 80
+  characters.
+- **Settings → Pull requests** has two switches of this Machine, both on by default: "Notify about new review requests and
+  replies", and "Morning digest".
 - **A Session from a terminal or Claude Desktop** is seen through the registry watchers, which run while a window or a connected
   Linked machine has its Project open. The first sight of a Session is not a change.
-- worfy has no switch for notifications. The system's own Focus mode applies to them as to any app.
+- Apart from the PR inbox switch, worfy has no switch for notifications. The system's own Focus mode applies to them as to any
+  app.
 
 A click raises the window and restores it if minimized. On macOS worfy lives on without windows, and then a click opens a new
 one. The note waits for its window's page for up to 30 seconds, and after that a reload opens nothing.
@@ -62,6 +74,23 @@ button.
   exists, it stays under the toolbar and covers the popup, so an error is still seen.
 - The area is a landmark "Notifications". `error` toasts are announced as alerts, the others politely.
 
+### The morning digest
+
+The first time a worfy window gets the focus in a calendar day, one `action` toast sums up the [PR inbox](pr-inbox.md) of
+every Project of this Machine, for example "3 reviews wait for you (oldest 2 days) · 2 PRs have new comments · 1 ready to merge".
+Its button **Open** opens the Pull requests view of the active Project when the digest counts it, else of the first Project it
+counts.
+
+- It counts the PRs of Needs my review with the age of the oldest, the PRs with comments newer than the user's last look, and
+  the PRs of Ready. A PR two Projects both read counts once. An empty inbox shows nothing.
+- Until every Project whose inbox is on has been read once since worfy started, the digest waits, and comes with the first
+  read. A Project whose read failed does not hold it back.
+- The day is taken by the first decision, so an empty inbox in the morning shows no digest later that day. The notifications
+  tell of what comes later.
+- The day is kept in main's memory: a restart of worfy shows the digest again that day.
+- No model and no gh call: the digest reads the inboxes as main last read them. "Morning digest" off in Settings → Pull
+  requests shows nothing. Only a window on this Machine asks for it.
+
 ### Windows
 
 - "Has focus" is checked against the system. Electron can call a window focused that Windows never let to the front, so when
@@ -87,7 +116,7 @@ The Machine of a Project decides what to notify about and hands each note to two
 - A Linked machine drops a Ticket's note when its own list has a Project of the same repository, because it notified of it
   itself. It shows the others with the sender's name in the title, and a click opens the Pipeline board of that Project on that
   Machine, read-only.
-- The pairing pause and the notes of the gate queue stay on their own Machine.
+- The pairing pause and the notes of the gate queue and of the PR inbox stay on their own Machine.
 - Toasts belong to their window and do not travel.
 
 ## How it works
@@ -115,7 +144,9 @@ The Machine of a Project decides what to notify about and hands each note to two
 
 | What | Where |
 |---|---|
-| The rules, the display, the Tickets' and the gate queue's notes, the click | `src/main/notify.ts` |
+| The rules, the display, the Tickets', the gate queue's and the PR inbox's notes, the click | `src/main/notify.ts` |
+| The morning digest and its channel | `src/main/github/inbox-digest.ts`, `src/main/ipc/pr-inbox.ts`, `src/renderer/pr-inbox/digest.ts` |
+| The switches | `src/shared/settings/app-settings.ts`, `src/renderer/settings/PullRequestsSection.tsx` |
 | The note that waits for its page | `src/main/notify-pending.ts`, `src/main/ipc/notify.ts`, `src/shared/ipc/notify.ts` |
 | Installing it at the start of the app | `src/main/index.ts` |
 | A wait of a Ticket, and its key | `src/main/workflow/waits-notify.ts` |
@@ -130,4 +161,5 @@ The Machine of a Project decides what to notify about and hands each note to two
 Main tests: `test/unit/notify.test.ts`, `test/unit/link-notify.test.ts`, `test/unit/foreground.test.ts`,
 `test/unit/e2e-notifications.test.ts`, `test/contract/app-user-model-id.test.ts`, `test/e2e/linked-notify.spec.ts`,
 `test/unit/toasts.test.ts`, `test/unit/toasts-view.test.tsx`, `test/unit/toast-placement.test.ts`,
-`test/e2e/toast-placement.spec.ts`.
+`test/e2e/toast-placement.spec.ts`, `test/unit/pr-inbox-notices.test.ts`, `test/unit/pr-inbox-digest-toast.test.tsx`,
+`test/e2e/pr-inbox-digest.spec.ts`.

@@ -112,8 +112,23 @@ export const prInboxMarkSeen = invokeChannel(
 /** The PR inbox of a Project changed: a read answered, or a PR was marked seen. The view asks `prInbox.get`. */
 export const prInboxChanged = eventChannel('prInbox.changed', projectInput, 'project', 'read')
 
+/**
+ * The morning digest (worfy-pr-inbox ticket 07, src/main/github/inbox-digest.ts): a window of this Machine asks when
+ * it gets the focus. `show` — the first time today, with the line and the Projects it counts (in the order of the
+ * list); `pending` — an inbox is not read yet, ask again when one changes; `none` — nothing to show. This Machine's
+ * windows only: a Linked machine has no digest of the Project machine's inboxes.
+ */
+export const prInboxDigestAnswerSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('pending') }),
+  z.object({ state: z.literal('none') }),
+  z.object({ state: z.literal('show'), text: z.string(), projectIds: z.array(z.string()) }),
+])
+export type PrInboxDigestAnswer = z.output<typeof prInboxDigestAnswerSchema>
+export const prInboxDigest = invokeChannel('prInbox.digest', z.void(), prInboxDigestAnswerSchema, 'local')
+
 declare module './channels' {
   interface IpcContract {
+    'prInbox.digest': typeof prInboxDigest
     'prInbox.get': typeof prInboxGet
     'prInbox.markSeen': typeof prInboxMarkSeen
     'prInbox.changed': typeof prInboxChanged

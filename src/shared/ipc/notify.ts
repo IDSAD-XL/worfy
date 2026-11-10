@@ -3,7 +3,8 @@
 // click on it raises the window (or opens one) and main keeps the note until that window's
 // renderer takes it (`notify.pending`); the renderer opens that Session
 // (src/renderer/canvas/overlays/NotificationTarget.tsx), or for a Ticket that waits for the owner
-// the Pipeline board of its Project (worfy-pipeline ticket 06). `notify.open` carries no Session: it only
+// the Pipeline board of its Project (worfy-pipeline ticket 06), or for a PR of the PR inbox the Pull requests view on
+// that PR (worfy-pr-inbox ticket 07). `notify.open` carries no Session: it only
 // tells a mounted overlay to take the note now. An overlay that is not mounted yet misses it and
 // takes the note when it mounts, so a signal lost to a loading page loses nothing. A Linked machine's
 // note (worfy-link ticket 13) is shown and clicked on this Machine, and the window opens the Session
@@ -44,7 +45,20 @@ export const pipelineOpenSchema = z
   .refine((note) => note.projectRoot !== undefined || note.projectId !== undefined, { message: 'a Pipeline note names its Project by root or id' })
 export type PipelineOpen = z.output<typeof pipelineOpenSchema>
 
-export const notifyOpenSchema = z.union([sessionOpenSchema, pipelineOpenSchema])
+/**
+ * A PR of the PR inbox (worfy-pr-inbox ticket 07): a new review request, or a new reply in a thread of the user's PR.
+ * The window opens the Pull requests view of the Project of this Machine on that PR (openPrInboxOf).
+ */
+export const prInboxOpenSchema = z.object({
+  view: z.literal('pull-requests'),
+  projectId: z.string().min(1),
+  /** `owner/name`. */
+  repo: z.string().min(1),
+  number: z.number().int().positive(),
+})
+export type PrInboxOpen = z.output<typeof prInboxOpenSchema>
+
+export const notifyOpenSchema = z.union([sessionOpenSchema, pipelineOpenSchema, prInboxOpenSchema])
 export type NotifyOpen = z.output<typeof notifyOpenSchema>
 
 /** Sent to the window a click on a notification raised: take the note with `notify.pending` now. */
