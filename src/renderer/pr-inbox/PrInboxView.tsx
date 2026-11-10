@@ -21,6 +21,7 @@ import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
 import { useWorkflow } from '../workflow/useWorkflow'
+import { CommentBody } from './CommentBody'
 import { DraftRepliesButton, PrDrafts } from './DraftThread'
 import {
   ageHeat,
@@ -168,19 +169,19 @@ function FactChip({ label, tone }: { label: string; tone: FactTone }) {
   return <span className={tone === 'open' ? 'w-chip w-chip--open' : 'w-chip w-pr-inbox-chip--problem'}>{label}</span>
 }
 
-function Comment({ comment, now }: { comment: PrInboxComment; now: number }) {
+function Comment({ comment, repo, now }: { comment: PrInboxComment; repo: string; now: number }) {
   return (
     <li className="w-pr-inbox-comment" data-testid="pr-inbox-comment">
       <span className="w-pr-inbox-comment__meta">
         <span className="w-pr-inbox-comment__author">{comment.author ?? 'ghost'}</span>
         <span title={new Date(comment.createdAt).toLocaleString()}>{ageText(comment.createdAt, now)}</span>
       </span>
-      <p className="w-pr-inbox-comment__body">{comment.body}</p>
+      <CommentBody body={comment.body} repo={repo} />
     </li>
   )
 }
 
-function Thread({ thread, now, draft }: { thread: PrInboxThread; now: number; draft?: ReactNode }) {
+function Thread({ thread, repo, now, draft }: { thread: PrInboxThread; repo: string; now: number; draft?: ReactNode }) {
   const first = thread.comments[0]
   const place = thread.path === null ? 'Conversation' : thread.line === null ? thread.path : `${thread.path}:${thread.line}`
   return (
@@ -199,7 +200,7 @@ function Thread({ thread, now, draft }: { thread: PrInboxThread; now: number; dr
       </div>
       <ul className="w-pr-inbox-comments">
         {thread.comments.map((comment) => (
-          <Comment key={comment.id} comment={comment} now={now} />
+          <Comment key={comment.id} comment={comment} repo={repo} now={now} />
         ))}
       </ul>
       <div className="w-pr-inbox-thread__draft">{draft}</div>
@@ -222,7 +223,7 @@ function RowThreads({ row, now, render, drafts = [] }: { row: PrInboxRow; now: n
       {threadList.length > 0 ? (
         <ul className="w-pr-inbox-threads" aria-label="Review threads">
           {threadList.map((thread) => (
-            <Thread key={thread.id} thread={thread} now={now} draft={draftsOf(thread.id)} />
+            <Thread key={thread.id} thread={thread} repo={row.repo} now={now} draft={draftsOf(thread.id)} />
           ))}
         </ul>
       ) : (
@@ -233,7 +234,7 @@ function RowThreads({ row, now, render, drafts = [] }: { row: PrInboxRow; now: n
           <h4 className="w-pr-inbox-conversation__title">Conversation</h4>
           <ul className="w-pr-inbox-comments">
             {row.comments.map((comment) => (
-              <Comment key={comment.id} comment={comment} now={now} />
+              <Comment key={comment.id} comment={comment} repo={row.repo} now={now} />
             ))}
           </ul>
           {conversationDrafts}

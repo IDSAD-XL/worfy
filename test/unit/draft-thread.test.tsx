@@ -150,6 +150,28 @@ describe('DraftThread', () => {
     expect(screen.getByTestId('pr-draft-result').textContent).toBe('GitHub did not confirm the reply: HTTP 500')
   })
 
+  it('the comments a reply answers and a sent reply read as GitHub markdown; the field of a draft stays its text as written (worfy-polish ticket 104)', async () => {
+    const { DraftThread } = await import('../../src/renderer/pr-inbox/DraftThread')
+    const props = { place: 'src/a.ts:3', repo: API, busy: false, result: null, disabled: null, rewriteOff: null, onText: () => undefined, onSave: () => undefined, onSend: () => undefined, onDiscard: () => undefined, onAskRewrite: () => undefined }
+    const asked = { id: 'C1', databaseId: 1, author: 'dev-ana', body: 'Why **three** tries? See #4', createdAt: '2026-11-10T10:00:00Z', url: `https://github.com/${API}/pull/118#discussion_C1` }
+    const sentBody = 'Because:\n\n- the server drops one\n- `retry()` waits'
+    const { rerender } = render(<DraftThread {...props} comments={[asked]} item={item(0, { state: 'sent', body: sentBody, sentUrl: `https://github.com/${API}/pull/118#r1` })} text={sentBody} />)
+    const answered = screen.getByRole('list', { name: 'Comments it answers' })
+    expect(answered.querySelector('strong')?.textContent).toBe('three')
+    expect(within(answered).getByText('#4').getAttribute('href')).toBe(`https://github.com/${API}/issues/4`)
+    const sent = screen.getByTestId('pr-draft-sent-text')
+    expect([...sent.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['the server drops one', 'retry() waits'])
+    expect(sent.textContent).not.toContain('- ')
+    // A draft: the field holds the markdown source, not its rendering.
+    rerender(<DraftThread {...props} item={item(0, { body: sentBody })} text={sentBody} />)
+    expect((screen.getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe(sentBody)
+  })
+
+  it("through PrDrafts, a #N in a sent reply links into the PR's repository", async () => {
+    await drafts([item(0, { state: 'sent', body: 'Moved to #7', sentUrl: `https://github.com/${API}/pull/118#r0` })])
+    expect(within(draftAt(0)).getByText('#7').getAttribute('href')).toBe(`https://github.com/${API}/issues/7`)
+  })
+
   it('the read-only hint turns Send, Discard and Ask off', async () => {
     await drafts([item(0)], 'Linked machines can only view the Projects of Alpha')
     for (const id of ['pr-draft-send', 'pr-draft-discard', 'pr-draft-rewrite']) expect((within(draftAt(0)).getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true)

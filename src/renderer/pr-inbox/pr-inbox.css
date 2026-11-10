@@ -762,13 +762,35 @@
   font-weight: 600;
   color: var(--text-secondary);
 }
+/*
+ * The body is GitHub-flavoured markdown (CommentBody.tsx, worfy-polish ticket 104): the text size of the card, a
+ * little less room between blocks, and nothing wider than the card — code blocks and tables scroll on their own.
+ */
 .w-pr-inbox-comment__body {
   margin: 2px 0 0;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-comment__body .w-md {
   font-size: var(--text-12);
   line-height: 17px;
-  color: var(--text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+}
+.w-pr-inbox-comment__body .w-md p,
+.w-pr-inbox-comment__body .w-md ul,
+.w-pr-inbox-comment__body .w-md ol,
+.w-pr-inbox-comment__body .w-md pre,
+.w-pr-inbox-comment__body .w-md table,
+.w-pr-inbox-comment__body .w-md blockquote,
+.w-pr-inbox-comment__body .w-md .w-md__suggestion {
+  margin-bottom: 6px;
+}
+.w-pr-inbox-comment__body .w-md pre {
+  max-width: 100%;
+  padding: 6px var(--space-2);
+}
+.w-pr-inbox-comment__body .w-md code {
+  font-size: var(--text-11);
 }
 .w-pr-inbox-conversation {
   margin-top: 10px;

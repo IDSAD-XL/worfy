@@ -739,6 +739,26 @@ describe('selecting a PR', () => {
     expect(main.calls).toContainEqual({ channel: 'shell.openExternal', input: { url: `https://github.com/${API}/pull/118` } })
   })
 
+  it('a comment body reads as GitHub markdown: bold, a list, a code block, #N of the PR repository, a newline as a line break, raw HTML as text (worfy-polish ticket 104)', async () => {
+    const body = ['**Two things** before merge:', '', '- rename `tryUpload`', '- see #12', '', '```ts', 'const tries = 3', '```', '', '<details>open</details>'].join('\n')
+    const marked = { ...ROWS.answer, threads: [{ id: 'T1', isResolved: false, isOutdated: false, path: 'src/upload.ts', line: 12, viewerCanReply: true, comments: [comment('C11', ANA, ago(HOUR), body)] }], comments: [comment('C91', BO, ago(HOUR), 'Thanks @dev-ana,\nsee #3')] }
+    await view({ 'web-00000001': snapshotOf('web-00000001', { groups: [{ group: 'needs-answer', rows: [marked] }] }) })
+    const shown = within(within(pane()).getAllByTestId('pr-inbox-thread')[0]!).getByTestId('pr-inbox-comment-body')
+    expect(shown.querySelector('strong')?.textContent).toBe('Two things')
+    expect([...shown.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['rename tryUpload', 'see #12'])
+    expect(shown.querySelector('pre > code')?.textContent).toBe('const tries = 3\n')
+    expect(shown.querySelector('details')).toBeNull()
+    expect(shown.textContent).toContain('<details>open</details>')
+    fireEvent.click(within(shown).getByText('#12'))
+    expect(main.calls).toContainEqual({ channel: 'shell.openExternal', input: { url: `https://github.com/${API}/issues/12` } })
+    // The conversation too: a mention links to the person on GitHub.
+    const conversation = within(pane()).getByRole('region', { name: 'Conversation' })
+    expect(within(conversation).getByText('@dev-ana').getAttribute('href')).toBe(`https://github.com/${ANA}`)
+    expect(within(conversation).getByText('#3').getAttribute('href')).toBe(`https://github.com/${API}/issues/3`)
+    // A single newline in a comment is a line break, as GitHub shows it.
+    expect(within(conversation).getByTestId('pr-inbox-comment-body').querySelector('p > br')).not.toBeNull()
+  })
+
   it('a click on the selected PR again tells main again; "Mark seen" does too', async () => {
     await view()
     select(API, 118)
