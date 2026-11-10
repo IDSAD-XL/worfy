@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { machineLabel } from '../../shared/cards/bridge'
+import { attachmentImageUrl } from '../../shared/images'
 import { SHORTCUTS } from '../../shared/shortcuts'
+import { windowMachine } from '../ipc'
 import { matches as matchesShortcut } from '../shortcuts/match'
 import { clockOf, squash, type CommentImage, type QuoteComment, type SentQuote } from './quote-comments'
+import { imageDataOf } from './quote-store'
 import './quote-comments.css'
 
 // The parts of the comments on quotes (worfy-polish ticket 102) that QuoteComments.tsx draws: the
@@ -108,8 +112,18 @@ export function ImageIcon() {
   )
 }
 
-/** An image's thumbnail from its base64 data. */
-const imageSource = (image: CommentImage): string => `data:${image.mediaType};base64,${image.data}`
+/**
+ * An image's thumbnail: its bytes when this window read them, else main's kept copy by its ref, on
+ * the Machine whose Sessions the window shows (as MessageAttachments does); none when that Machine
+ * has no name to reach it by.
+ */
+function imageSource(image: CommentImage): string | undefined {
+  const data = imageDataOf(image.ref)
+  if (data !== undefined) return `data:${image.mediaType};base64,${data}`
+  const machine = windowMachine()
+  const label = machine === null ? null : machineLabel(machine)
+  return machine !== null && label === null ? undefined : attachmentImageUrl(image.ref, image.mediaType, label)
+}
 
 export function SelectionButton({ selection, commentKeys, onComment }: { selection: Selection; commentKeys: string; onComment: () => void }) {
   const ref = useRef<HTMLDivElement>(null)

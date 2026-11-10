@@ -1,4 +1,4 @@
-import { MAX_ATTACHMENTS, type Attachment } from '../../shared/agent/attachments'
+import { MAX_ATTACHMENTS, typedText, type Attachment, type ImageMediaType } from '../../shared/agent/attachments'
 
 // Comments on quotes of an agent's message (worfy-polish ticket 102): the user selects a part of an
 // answer, writes a comment on it (text, images, or both), and sends every comment of the round as
@@ -11,12 +11,21 @@ import { MAX_ATTACHMENTS, type Attachment } from '../../shared/agent/attachments
 //   draws differently (a link note, another version of the renderer) the quote is found again by its
 //   text, the occurrence nearest to where it was (anchorRange).
 // - The message is named by its anchor (quoteAnchor): the agent's message id, which the transcript
-//   file and the live events share, so a comment finds its message after a restart.
+//   file and the live events share, and a hash of the block's text, so a comment finds its block
+//   after a restart however much of the transcript is loaded.
+// - An image of a comment is kept by main, `<sha256>.<ext>` in its images folder (agent.attach with
+//   `keep`); the comment holds its ref, and the bytes are read back from main when the round goes.
 // - The text for the agent (agentText) is also what the user's bubble reads back (parseQuoted): a
 //   restart has only the transcript, and the bubble needs nothing else to draw the quote blocks.
 
-/** An image of a comment: an image attachment main has checked (agent.attach). */
-export type CommentImage = Extract<Attachment, { kind: 'image' }>
+/** An image of a comment: one main checked and keeps a copy of (agent.attach with `keep`), named by the sha256 of its bytes. */
+export interface CommentImage {
+  kind: 'image'
+  name: string
+  mediaType: ImageMediaType
+  size: number
+  ref: string
+}
 
 /** Images one comment takes (owner, answer 3). */
 export const COMMENT_IMAGES = 3
@@ -52,22 +61,54 @@ export interface QuoteComment {
 /** A comment that went: its quote stays dim in the message, and its block stands in the sent bubble. */
 export interface SentQuote {
   id: string
+  /** The round it went in (SentRound). */
+  round: string
   anchor: string
   start: number
   end: number
   quote: string
   text: string
   images: number
-  /** The text of the message it went in (agentText): the bubble that shows this text is its bubble. */
-  message: string
   /** Its number in that message, from 1. */
   number: number
+}
+
+/** A message a round of comments went in: its text once, for all its quotes. */
+export interface SentRound {
+  id: string
+  /** The text of the message (agentText) as the user typed it: the bubble that shows this text is its bubble. */
+  message: string
   at: number
 }
 
-/** The id of the agent's message a text row draws: its message id and which text block of that message it is. */
-export function quoteAnchor(messageId: string, block: number): string {
-  return `${messageId}#${block}`
+/**
+ * A round that was sent and has not reached the agent yet: it waits in the Session's queue. Its
+ * comments are out of the tray; it becomes sent when its prompt comes, and goes back to the tray
+ * when its message leaves the queue without being sent.
+ */
+export interface PendingRound {
+  id: string
+  message: string
+  at: number
+  comments: QuoteComment[]
+}
+
+/** A short hash of a text block (FNV-1a, 32 bits, hex): which block of a message a quote is in. */
+export function blockKey(text: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
+/**
+ * The id of the agent's text block a row draws: its message id and the hash of its text. It does not
+ * depend on the blocks before it, so a transcript loaded from a later event names it the same.
+ */
+export function quoteAnchor(messageId: string, text: string): string {
+  return `${messageId}#${blockKey(text)}`
 }
 
 /** Whitespace of any length as one space, none at the ends: how a quote is written for the agent and in a bubble. */
@@ -186,7 +227,8 @@ export interface ParsedMessage {
  * as many numbered items as it names, in order.
  */
 export function parseQuoted(message: string): ParsedMessage | null {
-  const lines = message.split('\n')
+  // A Codex transcript keeps the attachment lines main adds at the end of the text (messageText).
+  const lines = typedText(message).split('\n')
   const count = HEADER.exec(lines[0] ?? '')
   if (count === null || lines[1] !== '') return null
   const expected = Number(count[1])
@@ -259,12 +301,35 @@ export interface RoundMessage {
  * The message a round of comments goes in: the comments in text order (inTextOrder), their quotes and
  * texts before the field's own text (agentText), their images first among the attachments, in that
  * order, so `[image N]` is the message's N-th attachment; the field's attachments after them. Without
- * comments, the field's message as it is. Refused when the attachments are past MAX_ATTACHMENTS.
+ * comments, the field's message as it is. `imageOf` gives an image's bytes, read back from main.
+ * Refused: a slash command in the field (it would reach the agent as text after the comments), more
+ * than MESSAGE_IMAGES images of comments, more than MAX_ATTACHMENTS attachments, an image not read back.
  */
-export function composeRound(drafts: readonly QuoteComment[], message: RoundMessage, order?: (anchor: string) => number | undefined): { message: RoundMessage; round: QuoteComment[] } | { error: string } {
+export function composeRound(
+  drafts: readonly QuoteComment[],
+  message: RoundMessage,
+  imageOf: (image: CommentImage) => Attachment | undefined,
+  order?: (anchor: string) => number | undefined,
+): { message: RoundMessage; round: QuoteComment[] } | { error: string } {
   if (drafts.length === 0) return { message, round: [] }
+  if (message.text.trimStart().startsWith('/')) return { error: 'A command goes alone: send it without comments, or clear the comments first' }
   const round = inTextOrder(drafts, order)
-  const images = round.flatMap((each) => each.images)
-  if (images.length + message.attachments.length > MAX_ATTACHMENTS) return { error: `A message takes up to ${MAX_ATTACHMENTS} attachments: remove some from the comments or the field` }
+  const kept = round.flatMap((each) => each.images)
+  if (kept.length > MESSAGE_IMAGES) return { error: `Up to ${MESSAGE_IMAGES} images per message: remove some from the comments` }
+  if (kept.length + message.attachments.length > MAX_ATTACHMENTS) return { error: `A message takes up to ${MAX_ATTACHMENTS} attachments: remove some from the comments or the field` }
+  const images: Attachment[] = []
+  for (const image of kept) {
+    const attachment = imageOf(image)
+    if (attachment === undefined) return { error: `${image.name} could not be read back: attach it again` }
+    images.push(attachment)
+  }
   return { message: { text: agentText(agentItems(round), message.text), attachments: [...images, ...message.attachments] }, round }
+}
+
+/**
+ * The general text of a message, for ↑ in the input field: what the user typed after the comments of
+ * a round, or the message as it is when it carries none.
+ */
+export function ownText(message: string): string {
+  return parseQuoted(message)?.general ?? message
 }

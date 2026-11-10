@@ -2,6 +2,7 @@
 import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { INTERRUPT_NOTICE } from '../../shared/transcript/parse'
+import { ownText } from './quote-comments'
 
 export { INTERRUPT_NOTICE }
 
@@ -13,7 +14,8 @@ export function promptHistory(events: readonly AgentEvent[]): string[] {
   const prompts: string[] = []
   for (const event of events) {
     if (event.type !== 'notice' || event.kind !== 'user' || INTERRUPT_NOTICE.test(event.text)) continue
-    const typed = typedText(event.text)
+    // A round of comments on quotes gives back the text the user typed after them (worfy-polish ticket 102).
+    const typed = ownText(typedText(event.text))
     if (typed.trim() !== '') prompts.push(typed)
   }
   return prompts

@@ -1,4 +1,5 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
@@ -1030,7 +1031,7 @@ export function Transcript(props: TranscriptProps) {
     let key: string | undefined
     for (let at = items.length - 1; at >= 0 && key === undefined; at -= 1) {
       const one = items[at]!
-      if (jump.anchor !== undefined ? one.kind === 'text' && one.anchor === jump.anchor : one.kind === 'prompt' && one.text === jump.prompt) key = one.key
+      if (jump.anchor !== undefined ? one.kind === 'text' && one.anchor === jump.anchor : one.kind === 'prompt' && typedText(one.text) === jump.prompt) key = one.key
     }
     if (key === undefined) {
       jumped.current = jump.seq

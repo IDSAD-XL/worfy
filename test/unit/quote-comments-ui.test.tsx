@@ -1,16 +1,19 @@
 // Comments on quotes of an agent's message on screen (worfy-polish ticket 102): the button a
 // selection in an agent's message gets, the popover a comment is written in, the tray above the input
 // field and its chips, the round as it goes to the agent and as it stays afterwards, and the bubble
-// of a sent message with its quote blocks — in the transcript after a restart too.
+// of a sent message with its quote blocks — in the transcript after a restart too; a round that waits
+// in the Session's queue, and goes back to the tray when its message leaves it unsent; images kept by
+// main and read back for a round; a write the storage refuses, shown.
+import { createHash } from 'node:crypto'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentSource } from '../../src/shared/agent/attachments'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import { useQuoteComments, type QuoteCommentsLayer } from '../../src/renderer/session/QuoteComments'
-import { agentText, parseQuoted } from '../../src/renderer/session/quote-comments'
-import { forgetQuotesInMemory, readQuotes } from '../../src/renderer/session/quote-store'
+import { BACK_TO_TRAY_MS, useQuoteComments, type QuoteCommentsLayer, type QuoteCommentsOptions } from '../../src/renderer/session/QuoteComments'
+import { agentText, parseQuoted, quoteAnchor, type CommentImage, type QuoteComment } from '../../src/renderer/session/quote-comments'
+import { addDraft, flushQuotes, forgetQuotesInMemory, imageDataOf, readQuotes } from '../../src/renderer/session/quote-store'
 import { QuotedPrompt } from '../../src/renderer/session/QuotedPrompt'
 import { SentQuotesContext } from '../../src/renderer/session/sent-quotes'
 import { Transcript } from '../../src/renderer/session/Transcript'
@@ -30,16 +33,24 @@ let key = 0
 let storeKey = ''
 /** The layer the harness drew last: what the Session view gets from it. */
 const seen: { current: QuoteCommentsLayer | null } = { current: null }
-let attached: string[] = []
+let attached: { name: string; kind: string; keep: boolean }[] = []
+/** The kept images main has, by ref: what a `kept` source reads back. */
+let keptByMain = new Map<string, string>()
+/** The bytes main's stub answers for an image: its name, in base64. */
+const bytesOf = (name: string): string => Buffer.from(name).toString('base64')
+const refOf = (name: string): string => createHash('sha256').update(Buffer.from(bytesOf(name), 'base64')).digest('hex')
+const keptImage = (name: string): CommentImage => ({ kind: 'image', name, mediaType: 'image/png', size: 3, ref: refOf(name) })
+type Delivery = QuoteCommentsOptions['delivery']
+const NOTHING_YET: Delivery = { prompts: [], queued: [], ready: true }
 
 /** Keeps the layer the harness drew last. */
 const keep = (layer: QuoteCommentsLayer): void => {
   seen.current = layer
 }
 
-function Harness({ refusal = null }: { refusal?: string | null }) {
+function Harness({ refusal = null, delivery = NOTHING_YET }: { refusal?: string | null; delivery?: Delivery }) {
   const log = useRef<HTMLDivElement>(null)
-  const layer = useQuoteComments({ storeKey, sessionId: 'live-1', log, assistant: 'claude', refusal })
+  const layer = useQuoteComments({ storeKey, sessionId: 'live-1', log, assistant: 'claude', refusal, delivery })
   useLayoutEffect(() => keep(layer))
   return (
     <div>
@@ -87,12 +98,21 @@ beforeEach(() => {
   storeKey = `p1/n1/s${key}`
   seen.current = null
   attached = []
+  keptByMain = new Map()
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
-    invoke: (channel: string, input: { sources?: { name: string }[] }) => {
+    invoke: (channel: string, input: { sources?: { name: string; kind: string; ref?: string }[]; keep?: boolean }) => {
       if (channel !== 'agent.attach') return Promise.resolve({ ok: false, error: `no ${channel}` })
-      const name = input.sources?.[0]?.name ?? 'image.png'
-      attached.push(name)
-      return Promise.resolve({ ok: true, value: { results: [{ ok: true, attachment: { kind: 'image', name, mediaType: 'image/png', size: 3, data: 'AAAA' } }] } })
+      const results = (input.sources ?? []).map((source) => {
+        attached.push({ name: source.name, kind: source.kind, keep: input.keep === true })
+        if (source.kind === 'kept') {
+          const data = keptByMain.get(source.ref ?? '')
+          return data === undefined ? { ok: false, error: `${source.name} is no longer kept: attach it again` } : { ok: true, attachment: { kind: 'image', name: source.name, mediaType: 'image/png', size: 3, data } }
+        }
+        const data = bytesOf(source.name)
+        if (input.keep === true) keptByMain.set(refOf(source.name), data)
+        return { ok: true, attachment: { kind: 'image', name: source.name, mediaType: 'image/png', size: 3, data } }
+      })
+      return Promise.resolve({ ok: true, value: { results } })
     },
     on: () => 1,
     off: () => undefined,
@@ -100,6 +120,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
   cleanup()
   forgetQuotesInMemory()
   localStorage.clear()
@@ -185,11 +207,50 @@ describe('the popover', () => {
     const files = ['a.png', 'b.png', 'c.png', 'd.png'].map((name) => new File(['x'], name, { type: 'image/png' }))
     fireEvent.change(within(popover).getByTestId('quote-popover-file'), { target: { files } })
     await waitFor(() => expect(within(popover).getAllByTestId('quote-popover-image')).toHaveLength(3))
-    expect(attached).toEqual(['a.png', 'b.png', 'c.png'])
+    expect(attached.map((each) => each.name)).toEqual(['a.png', 'b.png', 'c.png'])
     expect(within(popover).getByTestId('quote-popover-error').textContent).toBe('Up to 3 images per comment.')
     fireEvent.click(within(popover).getByTestId('quote-popover-save'))
     await waitFor(() => expect(screen.queryByTestId('quote-popover')).toBeNull())
     expect(readQuotes(storeKey).drafts[0]?.images.map((each) => each.name)).toEqual(['a.png', 'b.png', 'c.png'])
+  })
+
+  it('has main keep each image: the comment names it by the sha256 of its bytes, and no bytes go into the storage', async () => {
+    render(<Harness />)
+    select('m1#0', 'the lint step')
+    fireEvent.click(await screen.findByTestId('quote-button'))
+    const popover = await screen.findByTestId('quote-popover')
+    fireEvent.change(within(popover).getByTestId('quote-popover-file'), { target: { files: [new File(['x'], 'shot.png', { type: 'image/png' })] } })
+    await waitFor(() => expect(within(popover).getAllByTestId('quote-popover-image')).toHaveLength(1))
+    expect(attached).toEqual([{ name: 'shot.png', kind: 'pasted', keep: true }])
+    fireEvent.click(within(popover).getByTestId('quote-popover-save'))
+    await waitFor(() => expect(screen.queryByTestId('quote-popover')).toBeNull())
+    expect(readQuotes(storeKey).drafts[0]?.images).toEqual([keptImage('shot.png')])
+    expect(imageDataOf(refOf('shot.png'))).toBe(bytesOf('shot.png'))
+    flushQuotes()
+    expect(localStorage.getItem(`worfy.quotes:${storeKey}`)).not.toContain(bytesOf('shot.png'))
+  })
+
+  it('counts the images of the other comments in the tray against the 10 of a message', async () => {
+    const others = Array.from({ length: 3 }, (_, index): QuoteComment => ({
+      id: `o${index}`,
+      anchor: 'm2#0',
+      start: index * 4,
+      end: index * 4 + 3,
+      quote: SECOND.slice(index * 4, index * 4 + 3),
+      text: '',
+      images: [0, 1, 2].map((each) => keptImage(`o${index}-${each}.png`)),
+      messageAt: null,
+      at: index,
+    }))
+    for (const each of others) addDraft(storeKey, each)
+    expect(others.flatMap((each) => each.images)).toHaveLength(9)
+    render(<Harness />)
+    select('m1#0', 'the lint step')
+    fireEvent.click(await screen.findByTestId('quote-button'))
+    const popover = await screen.findByTestId('quote-popover')
+    fireEvent.change(within(popover).getByTestId('quote-popover-file'), { target: { files: ['a.png', 'b.png'].map((name) => new File(['x'], name, { type: 'image/png' })) } })
+    await waitFor(() => expect(within(popover).getAllByTestId('quote-popover-image')).toHaveLength(1))
+    expect(within(popover).getByTestId('quote-popover-error').textContent).toBe('Up to 10 images per message.')
   })
 
   it('takes a pasted image', async () => {
@@ -223,33 +284,129 @@ describe('the tray above the input field', () => {
 })
 
 describe('sending a round', () => {
-  it('composes one message: the comments in text order, then the field’s text and attachments; once sent they leave the tray', async () => {
-    render(<Harness />)
+  it('composes one message: the comments in text order, then the field’s text; they leave the tray and stay sent once its prompt came', async () => {
+    const { rerender } = render(<Harness />)
     await commentOn('m2#0', 'slow', 'Why slow?')
     await commentOn('m1#0', 'the lint step', 'Keep it.')
-    const composed = seen.current!.compose({ text: 'Thanks.', attachments: [] })
+    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
     if ('error' in composed) throw new Error(composed.error)
     expect(composed.message.text).toBe(
       ['Comments on parts of your messages (2):', '', '1. > «the lint step» (your message 14:02)', '   Keep it.', '', '2. > «slow» (your message)', '   Why slow?', '', 'General:', 'Thanks.'].join('\n'),
     )
+    const queued: Delivery = { prompts: [], queued: [composed.message.text], ready: true }
+    rerender(<Harness delivery={queued} />)
     act(() => seen.current!.sent(composed.round, composed.message.text))
     expect(screen.queryByTestId('quote-tray')).toBeNull()
-    const sent = readQuotes(storeKey).sent
-    expect(sent.map((each) => [each.quote, each.number, each.message === composed.message.text])).toEqual([
-      ['the lint step', 1, true],
-      ['slow', 2, true],
+    expect(readQuotes(storeKey).pending).toHaveLength(1)
+    expect(readQuotes(storeKey).sent).toEqual([])
+    // An older prompt with the same text is not this round's.
+    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: 1 }], queued: [composed.message.text], ready: true }} />)
+    expect(readQuotes(storeKey).pending).toHaveLength(1)
+    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: Date.now() }], queued: [], ready: true }} />)
+    const state = readQuotes(storeKey)
+    expect(state.pending).toEqual([])
+    expect(state.rounds.map((each) => each.message)).toEqual([composed.message.text])
+    expect(state.sent.map((each) => [each.quote, each.number])).toEqual([
+      ['the lint step', 1],
+      ['slow', 2],
     ])
-    // The sent quotes tell the bubble of that message its blocks.
+    // The sent quotes tell the bubble of that message its blocks, in a Codex transcript too.
     expect(seen.current!.sentQuotes.sentIn(composed.message.text)?.get(1)?.quote).toBe('the lint step')
+    expect(seen.current!.sentQuotes.sentIn(`${composed.message.text}\n\nAttached images: shot.png`)?.get(2)?.quote).toBe('slow')
     // Over a sent quote a new comment may be made: a new round.
     select('m1#0', 'the lint step')
     expect((await screen.findByTestId('quote-button')).textContent).toContain('Comment')
   })
 
-  it('with no comments the field’s message goes as it is', () => {
+  it('goes back to the tray, with a notice, when its message leaves the queue unsent', async () => {
+    const { rerender } = render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    rerender(<Harness delivery={{ prompts: [], queued: [composed.message.text], ready: true }} />)
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+    vi.useFakeTimers()
+    // Removed from «N queued»: neither in the queue nor in the transcript.
+    rerender(<Harness delivery={{ prompts: [], queued: [], ready: true }} />)
+    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS - 1))
+    expect(readQuotes(storeKey).pending).toHaveLength(1)
+    act(() => vi.advanceTimersByTime(1))
+    expect(readQuotes(storeKey).pending).toEqual([])
+    expect(readQuotes(storeKey).sent).toEqual([])
+    expect(readQuotes(storeKey).drafts.map((each) => each.text)).toEqual(['Keep it.'])
+    expect(screen.getByTestId('quote-tray').textContent).toContain('1 comment on this message')
+    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')?.text).toBe('The message left the queue unsent: 1 comment back in the tray')
+  })
+
+  it('stays sent when its prompt comes a moment after the queue let it go (main sends the two apart)', async () => {
+    const { rerender } = render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    rerender(<Harness delivery={{ prompts: [], queued: [composed.message.text], ready: true }} />)
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    vi.useFakeTimers()
+    rerender(<Harness delivery={{ prompts: [], queued: [], ready: true }} />)
+    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS / 2))
+    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: null }], queued: [], ready: true }} />)
+    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 2))
+    expect(readQuotes(storeKey).sent.map((each) => each.quote)).toEqual(['the lint step'])
+    expect(readQuotes(storeKey).drafts).toEqual([])
+    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')).toBeUndefined()
+  })
+
+  it('waits while the transcript is not read or the queue not known', async () => {
+    const { rerender } = render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    rerender(<Harness delivery={{ prompts: [], queued: null, ready: true }} />)
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    vi.useFakeTimers()
+    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 3))
+    rerender(<Harness delivery={{ prompts: [], queued: [], ready: false }} />)
+    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 3))
+    expect(readQuotes(storeKey).pending).toHaveLength(1)
+  })
+
+  it('reads back from main the images of comments this window did not read (after a restart), and refuses one main no longer has', async () => {
+    keptByMain.set(refOf('kept.png'), bytesOf('kept.png'))
+    addDraft(storeKey, { id: 'k', anchor: 'm1#0', start: 0, end: 3, quote: 'The', text: '', images: [keptImage('kept.png')], messageAt: null, at: 1 })
+    render(<Harness />)
+    const composed = await seen.current!.compose({ text: '', attachments: [] })
+    if ('error' in composed) throw new Error(composed.error)
+    expect(attached).toEqual([{ name: 'kept.png', kind: 'kept', keep: false }])
+    expect(composed.message.attachments).toEqual([{ kind: 'image', name: 'kept.png', mediaType: 'image/png', size: 3, data: bytesOf('kept.png') }])
+    addDraft(storeKey, { id: 'l', anchor: 'm2#0', start: 0, end: 3, quote: 'The', text: '', images: [keptImage('lost.png')], messageAt: null, at: 2 })
+    await waitFor(() => expect(readQuotes(storeKey).drafts).toHaveLength(2))
+    expect(await seen.current!.compose({ text: '', attachments: [] })).toEqual({ error: 'lost.png is no longer kept: attach it again' })
+  })
+
+  it('refuses a slash command in the field while there are comments', async () => {
+    render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    expect(await seen.current!.compose({ text: '/compact', attachments: [] })).toEqual({ error: 'A command goes alone: send it without comments, or clear the comments first' })
+  })
+
+  it('with no comments the field’s message goes as it is', async () => {
     render(<Harness />)
     const message = { text: 'plain', attachments: [] }
-    expect(seen.current!.compose(message)).toEqual({ message, round: [] })
+    expect(await seen.current!.compose(message)).toEqual({ message, round: [] })
+  })
+})
+
+describe('a storage that refuses the comments', () => {
+  it('tells the user they stay in this window only', async () => {
+    const quota = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    render(<Harness />)
+    await commentOn('m1#0', 'the lint step', 'Keep it.')
+    act(() => flushQuotes())
+    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-store-error-toast')?.text).toBe('Comments could not be saved: they stay in this window until it closes')
+    quota.mockRestore()
   })
 })
 
@@ -296,7 +453,7 @@ describe('the bubble of a sent message', () => {
     const long = `${'start '.repeat(40)}and the end`
     const text = agentText([{ quote: long, text: 'c', images: 0, time: null }], '')
     const showQuote = vi.fn()
-    const sent = { id: 'q1', anchor: 'm1#0', start: 0, end: long.length, quote: long, text: 'c', images: 0, message: text, number: 1, at: 1 }
+    const sent = { id: 'q1', round: 'r1', anchor: 'm1#0', start: 0, end: long.length, quote: long, text: 'c', images: 0, number: 1 }
     render(
       <SentQuotesContext.Provider value={{ sentIn: (message) => (message === text ? new Map([[1, sent]]) : undefined), showQuote }}>
         <QuotedPrompt text={text} parsed={parseQuoted(text)!} attachments={[]} assistant="claude" find="f" />
@@ -319,6 +476,6 @@ describe('the bubble of a sent message', () => {
     expect(screen.getAllByTestId('quoted-prompt-block')).toHaveLength(2)
     expect(screen.getByText('plain words')).toBeTruthy()
     // The agent's text row carries its anchor, so a comment can find its message again.
-    expect(screen.getByTestId('transcript-text').querySelector('[data-quote-anchor]')?.getAttribute('data-quote-anchor')).toBe('m1#0')
+    expect(screen.getByTestId('transcript-text').querySelector('[data-quote-anchor]')?.getAttribute('data-quote-anchor')).toBe(quoteAnchor('m1', FIRST))
   })
 })

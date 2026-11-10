@@ -2,8 +2,9 @@
 // where a quote lies in its message and where it is found again, the rule against overlaps, the order
 // of a round, the text the agent gets (the 200-character cut in the middle, `[image N]` marks, the
 // limits of 3 and 10 images), how a sent message reads back into quote blocks, and the image scaling.
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { MAX_ATTACHMENTS, type Attachment } from '../../src/shared/agent/attachments'
+import { MAX_ATTACHMENTS, messageText, type Attachment } from '../../src/shared/agent/attachments'
 import {
   COMMENT_IMAGES,
   IMAGE_EDGE,
@@ -12,12 +13,14 @@ import {
   agentItems,
   agentText,
   anchorRange,
+  blockKey,
   chipWords,
   clockOf,
   composeRound,
   imageRefusal,
   inTextOrder,
   overlapping,
+  ownText,
   parseQuoted,
   quoteAnchor,
   quoteForAgent,
@@ -28,7 +31,9 @@ import {
   type QuoteComment,
 } from '../../src/renderer/session/quote-comments'
 
-const image = (name: string): CommentImage => ({ kind: 'image', name, mediaType: 'image/png', size: 4, data: Buffer.from(name).toString('base64') })
+const image = (name: string): CommentImage => ({ kind: 'image', name, mediaType: 'image/png', size: 4, ref: createHash('sha256').update(name).digest('hex') })
+/** The bytes of a comment's image, as the hook reads them back from main's copy. */
+const imageOf = (each: CommentImage): Attachment => ({ kind: 'image', name: each.name, mediaType: each.mediaType, size: each.size, data: Buffer.from(each.name).toString('base64') })
 
 let made = 0
 const comment = (fields: Partial<QuoteComment> & Pick<QuoteComment, 'anchor' | 'start' | 'end'>): QuoteComment => ({
@@ -44,9 +49,12 @@ const comment = (fields: Partial<QuoteComment> & Pick<QuoteComment, 'anchor' | '
 const MESSAGE = 'The build uses two steps. First the lint step, then the test step. The test step is slow.'
 
 describe('where a quote lies', () => {
-  it('names a text block by its message id and its place among that message’s blocks', () => {
-    expect(quoteAnchor('msg_1', 0)).toBe('msg_1#0')
-    expect(quoteAnchor('msg_1', 2)).toBe('msg_1#2')
+  it('names a text block by its message id and the hash of its text, not by its place', () => {
+    expect(blockKey('')).toBe('811c9dc5')
+    expect(blockKey('abc')).toMatch(/^[0-9a-f]{8}$/)
+    expect(blockKey('First block.')).not.toBe(blockKey('Second block.'))
+    expect(quoteAnchor('msg_1', 'First block.')).toBe(`msg_1#${blockKey('First block.')}`)
+    expect(quoteAnchor('msg_1', 'First block.')).not.toBe(quoteAnchor('msg_2', 'First block.'))
   })
 
   it('trims the whitespace at the ends of a selected range; a range of whitespace alone is none', () => {
@@ -197,6 +205,22 @@ describe('reading a sent message back into quote blocks', () => {
     })
   })
 
+  it('reads a Codex transcript’s text the same: the «Attached images» line main adds at its end is not the user’s', () => {
+    const text = agentText([{ quote: 'the lint step', text: 'Keep it.', images: 1, time: null }], 'General words')
+    const codex = messageText(text, [{ kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 4, data: 'AAAA' }])
+    expect(codex).toContain('\n\nAttached images: shot.png')
+    expect(parseQuoted(codex)).toEqual(parseQuoted(text))
+    expect(parseQuoted(codex)?.general).toBe('General words')
+    const alone = messageText(agentText([{ quote: 'q', text: '', images: 1, time: null }], ''), [{ kind: 'image', name: 'a.png', mediaType: 'image/png', size: 4, data: 'AAAA' }])
+    expect(parseQuoted(alone)).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: '', images: [1] }], general: '' })
+  })
+
+  it('↑ in the field gives back what the user typed, not the round’s comments', () => {
+    expect(ownText(agentText([{ quote: 'q', text: 'c', images: 0, time: null }], 'Line one\nline two'))).toBe('Line one\nline two')
+    expect(ownText(agentText([{ quote: 'q', text: 'c', images: 0, time: null }], ''))).toBe('')
+    expect(ownText('plain words')).toBe('plain words')
+  })
+
   it('a message of comments alone has an empty general text', () => {
     expect(parseQuoted(agentText([{ quote: 'q', text: 'c', images: 0, time: null }], ''))).toEqual({ quotes: [{ number: 1, quote: 'q', time: null, text: 'c', images: [] }], general: '' })
   })
@@ -240,7 +264,7 @@ describe('the message a round goes in', () => {
     const second = comment({ anchor: 'a#0', start: 20, end: 30, quote: 'second quote', text: 'two', images: [image('b1'), image('b2')], messageAt: 1_000 })
     const first = comment({ anchor: 'a#0', start: 0, end: 10, quote: 'first quote', text: 'one', images: [image('a1')], messageAt: 1_000 })
     const own: Attachment = { kind: 'file', name: 'notes.txt', path: '/tmp/notes.txt', size: 3, copied: false }
-    const composed = composeRound([second, first], field('General words', [own]))
+    const composed = composeRound([second, first], field('General words', [own]), imageOf)
     if ('error' in composed) throw new Error(composed.error)
     expect(composed.round.map((each) => each.id)).toEqual([first.id, second.id])
     expect(composed.message.attachments.map((each) => each.name)).toEqual(['a1', 'b1', 'b2', 'notes.txt'])
@@ -252,13 +276,38 @@ describe('the message a round goes in', () => {
 
   it('without comments the field’s message goes as it is', () => {
     const message = field('plain')
-    expect(composeRound([], message)).toEqual({ message, round: [] })
+    expect(composeRound([], message, imageOf)).toEqual({ message, round: [] })
+    // A command goes as it is when no comment would come before it.
+    expect(composeRound([], field('/compact'), imageOf)).toEqual({ message: field('/compact'), round: [] })
   })
 
   it('refuses a message past the attachment limit of a message', () => {
     const many = Array.from({ length: MAX_ATTACHMENTS }, (_, index): Attachment => ({ kind: 'file', name: `f${index}`, path: `/tmp/f${index}`, size: 1, copied: false }))
-    const composed = composeRound([comment({ anchor: 'a#0', start: 0, end: 1, images: [image('x')] })], field('', many))
+    const composed = composeRound([comment({ anchor: 'a#0', start: 0, end: 1, images: [image('x')] })], field('', many), imageOf)
     expect(composed).toEqual({ error: `A message takes up to ${MAX_ATTACHMENTS} attachments: remove some from the comments or the field` })
+  })
+
+  it('refuses more than 10 images of comments, however they came into the tray (an Undo of a deletion too)', () => {
+    const three = (tag: string) => [image(`${tag}1`), image(`${tag}2`), image(`${tag}3`)]
+    const drafts = ['a', 'b', 'c'].map((tag, index) => comment({ anchor: 'a#0', start: index * 10, end: index * 10 + 5, images: three(tag) }))
+    const ten = [...drafts, comment({ anchor: 'a#0', start: 40, end: 45, images: [image('d1')] })]
+    expect('error' in composeRound(ten, field('go'), imageOf)).toBe(false)
+    const eleven = [...drafts, comment({ anchor: 'a#0', start: 40, end: 45, images: [image('d1'), image('d2')] })]
+    expect(composeRound(eleven, field('go'), imageOf)).toEqual({ error: `Up to ${MESSAGE_IMAGES} images per message: remove some from the comments` })
+  })
+
+  it('refuses a slash command in the field while there are comments: it would reach the agent as plain text', () => {
+    const drafts = [comment({ anchor: 'a#0', start: 0, end: 5 })]
+    const refusal = { error: 'A command goes alone: send it without comments, or clear the comments first' }
+    expect(composeRound(drafts, field('/compact'), imageOf)).toEqual(refusal)
+    expect(composeRound(drafts, field('  /worfy:epic-wave polish'), imageOf)).toEqual(refusal)
+    expect('error' in composeRound(drafts, field('a path like a/b'), imageOf)).toBe(false)
+  })
+
+  it('refuses a round whose image could not be read back from main', () => {
+    const lost = image('lost')
+    const drafts = [comment({ anchor: 'a#0', start: 0, end: 5, images: [image('kept'), lost] })]
+    expect(composeRound(drafts, field(''), (each) => (each === lost ? undefined : imageOf(each)))).toEqual({ error: 'lost could not be read back: attach it again' })
   })
 })
 

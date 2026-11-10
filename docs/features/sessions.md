@@ -184,14 +184,24 @@ image's long side is scaled down to 1568 pixels before main checks it.
 - Send sends one message, and the field may be empty then. The comments come first, in the order they stand in the
   agent's text: a numbered quote, the time of its message, the comment indented under it and an `[image N]` mark per
   image, then "General:" and the field's text. The comments' images are the message's first attachments, in that order.
-  A quote over 200 characters is cut in the middle for the agent.
+  A quote over 200 characters is cut in the middle for the agent. A message that starts with `/` (a command) is refused
+  while there are comments: send it alone, or clear the comments first. More than 10 images of comments are refused at
+  Send too, however they came into the tray (Undo of a deletion as well).
+- While the agent works, the message waits in the queue, and its comments wait with it: out of the tray and lit dimly.
+  They become sent quotes when the message goes to the agent. A message removed from the queue, or a held queue
+  dropped, puts its comments back in the tray, and a notice says so.
 - The user's message draws a block per quote: a green bar, the quote folded to three lines with "Show all", the comment
   and its images. The window that sent it shows the whole quote, and the block's source line leads back to the quote. The
   block is read from the message's own text, so it is the same after a restart.
 - A sent quote stays lit, dimly, in that Session; a click on it scrolls to its block. It leaves the tray and can no
-  longer be edited.
+  longer be edited. ↑ in the input field brings back the text typed after the comments, not the comments.
 - The comments not sent yet survive another Session, another Project and a restart, as the field's draft does, and go
-  with their Node when it leaves the Canvas or is archived. A read-only screen, with no input field, offers no comments.
+  with their Node when it leaves the Canvas or is archived. A Node keeps the comments of its three Sessions changed last,
+  and a Session its 500 newest sent quotes. A read-only screen, with no input field, offers no comments.
+- An image of a comment is kept in worfy's data folder when it is added (`attachments/images`, by the sha256 of its
+  bytes); the comment names it, and no image bytes go into the window's storage. A round after a restart reads the image
+  back from there; one that is gone is refused with "attach it again". When the window's storage refuses to save the
+  comments, a notice says they stay in this window until it closes.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows

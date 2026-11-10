@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { SHORTCUTS } from '../../shared/shortcuts'
+import type { Attachment } from '../../shared/agent/attachments'
 import { invoke } from '../ipc'
 import { label as shortcutLabel, matches as matchesShortcut } from '../shortcuts/match'
 import { dismissToast, showToast } from '../toast/toasts'
 import { readCommentImage } from './comment-image'
 import type { OutgoingMessage } from './MessageInput'
-import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type QuoteComment } from './quote-comments'
+import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type PendingRound, type QuoteComment } from './quote-comments'
 import { CommentPopover, ContextMenu, HoverCard, ImageIcon, QuoteIcon, SelectionButton, type Menu, type MenuItem, type Popover, type Selected, type Selection } from './QuoteCommentParts'
-import { addDraft, editDraft, markSent, removeDrafts, useQuotes } from './quote-store'
+import { addDraft, editDraft, imageDataOf, keepImageData, markPending, onQuoteStoreError, removeDrafts, settlePending, useQuotes } from './quote-store'
+import { typedText } from '../../shared/agent/attachments'
 import type { SentQuotes } from './sent-quotes'
 import type { TranscriptJump } from './Transcript'
 import './quote-comments.css'
@@ -37,6 +39,21 @@ const HOVER_OUT_MS = 220
 const FLASH_MS = 1300
 /** How long Undo of a deletion is offered, in ms. */
 const UNDO_MS = 6000
+/**
+ * How long a sent round's message may be neither in the Session's queue nor in its transcript before
+ * its comments go back to the tray, in ms. main takes a queued message out of the queue a moment
+ * before its prompt goes out (session.ts, next), and the two reach the window as two events.
+ */
+export const BACK_TO_TRAY_MS = 1500
+/** How far a prompt's time may be before its round was sent and still be its prompt, in ms (two clocks of one Machine, a transcript's rounding). */
+const PROMPT_SKEW_MS = 60_000
+
+/** The sha256 of base64 bytes in hex: the ref main names its copy of an image by (agent/attachments.ts, imageRef). */
+async function refOf(data: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0))
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
 
 type Registry = { set: (name: string, highlight: unknown) => void; delete: (name: string) => void }
 
@@ -116,6 +133,12 @@ export interface QuoteCommentsOptions {
   assistant: string
   /** Why comments cannot be made now (a read-only screen); null when they can. */
   refusal: string | null
+  /**
+   * What tells a sent round's fate: the user's prompts the transcript shows (their text as the user
+   * typed it, and their time), the texts waiting in the Session's queue (null: not known yet), and
+   * whether the transcript has been read (`ready`). A round waits while any of it is unknown.
+   */
+  delivery: { prompts: readonly { text: string; at: number | null }[]; queued: readonly string[] | null; ready: boolean }
 }
 
 export interface QuoteCommentsLayer {
@@ -125,9 +148,9 @@ export interface QuoteCommentsLayer {
   tray: ReactNode
   /** Comments in the round. */
   count: number
-  /** The message as it goes with the round's comments, or why it cannot go. */
-  compose: (message: OutgoingMessage) => { message: OutgoingMessage; round: QuoteComment[] } | { error: string }
-  /** The round went in a message with this text. */
+  /** The message as it goes with the round's comments, its images read back from main, or why it cannot go. */
+  compose: (message: OutgoingMessage) => Promise<{ message: OutgoingMessage; round: QuoteComment[] } | { error: string }>
+  /** The round went in a message with this text: it leaves the tray and waits for its prompt. */
   sent: (round: readonly QuoteComment[], text: string) => void
   /** For the Transcript: the row to bring into view, and what to do once it is there. */
   jump: TranscriptJump | null
@@ -137,9 +160,11 @@ export interface QuoteCommentsLayer {
 }
 
 /** The comments on quotes of one Session view. */
-export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, refusal }: QuoteCommentsOptions): QuoteCommentsLayer {
+export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, refusal, delivery }: QuoteCommentsOptions): QuoteCommentsLayer {
   const quotes = useQuotes(storeKey)
-  const { drafts, sent } = quotes
+  const { drafts, sent, rounds } = quotes
+  // A waiting round is lit as a sent one: it is on its way, and no longer the tray's.
+  const waiting = useMemo(() => quotes.pending.flatMap((round) => round.comments), [quotes.pending])
   const [selection, setSelection] = useState<Selection | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [popover, setPopoverState] = useState<Popover | null>(null)
@@ -183,7 +208,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
           const at = anchorRange(text, kept)
           return at === null ? null : rangeAt(message, at.start, at.end)
         }
-        for (const each of sent) {
+        for (const each of [...sent, ...waiting]) {
           if (each.anchor !== anchor) continue
           const range = lit(each)
           if (range === null) continue
@@ -215,7 +240,7 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
       highlight.priority = priority + 1
       api.registry.set(HIGHLIGHT[name], highlight)
     })
-  }, [logRef, drafts, sent, hover, flash, popover])
+  }, [logRef, drafts, sent, waiting, hover, flash, popover])
 
   useLayoutEffect(() => {
     paint()
@@ -395,13 +420,19 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
       let image: CommentImage | null = null
       let error: string | null = null
       try {
-        const result = await invoke('agent.attach', { sessionId, sources: [await readCommentImage(file)] })
+        // main keeps a copy of the image: the comment names it by its ref, and no bytes go into the window's storage.
+        const result = await invoke('agent.attach', { sessionId, sources: [await readCommentImage(file)], keep: true })
         const first = result.ok ? result.value.results[0] : undefined
         if (!result.ok) error = result.error
         else if (first === undefined) error = `${file.name || 'The image'} could not be attached.`
         else if (!first.ok) error = first.error
         else if (first.attachment.kind !== 'image') error = `${first.attachment.name} is not an image.`
-        else image = first.attachment
+        else {
+          const { name, mediaType, size, data } = first.attachment
+          const ref = await refOf(data)
+          keepImageData(ref, data)
+          image = { kind: 'image', name, mediaType, size, ref }
+        }
       } catch (reason) {
         error = `${file.name || 'The image'} could not be read.`
         console.error('[quotes] an image could not be read', reason)
@@ -416,7 +447,8 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
   // ── the menu, the key, the pointer ──────────────────────────────────────────────────────────
   const goToReply = useCallback((id: string) => {
     const quote = sent.find((each) => each.id === id)
-    if (quote === undefined) return
+    const round = quote === undefined ? undefined : rounds.find((each) => each.id === quote.round)
+    if (quote === undefined || round === undefined) return
     setCard(null)
     setMenu(null)
     then.current = (row) => {
@@ -427,8 +459,8 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
       block.classList.add('w-qprompt__block--flash')
       block.focus({ preventScroll: true })
     }
-    setJump((was) => ({ seq: (was?.seq ?? 0) + 1, prompt: quote.message }))
-  }, [sent])
+    setJump((was) => ({ seq: (was?.seq ?? 0) + 1, prompt: round.message }))
+  }, [sent, rounds])
 
   /** Brings a comment's light into view and flashes it; `open` shows its card too, for the keyboard. */
   const goToLight = useCallback(
@@ -594,30 +626,109 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
 
   // ── sending ─────────────────────────────────────────────────────────────────────────────────
   const compose = useCallback(
-    (message: OutgoingMessage): { message: OutgoingMessage; round: QuoteComment[] } | { error: string } => {
-      return composeRound(drafts, message)
+    async (message: OutgoingMessage): Promise<{ message: OutgoingMessage; round: QuoteComment[] } | { error: string }> => {
+      // The bytes of images this window did not read (before a restart) come back from main's copies.
+      const missing = drafts.flatMap((each) => each.images).filter((image) => imageDataOf(image.ref) === undefined)
+      if (missing.length > 0 && sessionId !== null) {
+        const result = await invoke('agent.attach', { sessionId, sources: missing.map((image) => ({ kind: 'kept' as const, name: image.name, ref: image.ref, mediaType: image.mediaType })) })
+        if (!result.ok) return { error: result.error }
+        for (const [index, answer] of result.value.results.entries()) {
+          const image = missing[index]
+          if (image === undefined) continue
+          if (!answer.ok) return { error: answer.error }
+          if (answer.attachment.kind === 'image') keepImageData(image.ref, answer.attachment.data)
+        }
+      }
+      const imageOf = (image: CommentImage): Attachment | undefined => {
+        const data = imageDataOf(image.ref)
+        return data === undefined ? undefined : { kind: 'image', name: image.name, mediaType: image.mediaType, size: image.size, data }
+      }
+      return composeRound(drafts, message, imageOf)
     },
-    [drafts],
+    [drafts, sessionId],
   )
 
   const markRoundSent = useCallback(
     (round: readonly QuoteComment[], text: string) => {
       if (storeKey === null || round.length === 0) return
-      markSent(storeKey, round, text, Date.now())
+      markPending(storeKey, { id: newId(), message: text, at: Date.now(), comments: [...round] })
       say(`Sent with ${plural(round.length, 'quote')}.`)
     },
     [storeKey, say],
   )
 
+  // A waiting round becomes sent when its prompt shows in the transcript, and goes back to the tray
+  // when its message is neither there nor in the queue for BACK_TO_TRAY_MS (removed from the queue,
+  // or a held queue dropped). Nothing is decided before the transcript is read and the queue known.
+  const latest = useRef(delivery)
+  useLayoutEffect(() => {
+    latest.current = delivery
+  })
+  const backTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    if (storeKey === null) return
+    const timers = backTimers.current
+    const fate = (round: PendingRound): 'sent' | 'queued' | 'unknown' | 'gone' => {
+      const now = latest.current
+      if (now.prompts.some((prompt) => prompt.text === round.message && (prompt.at === null || prompt.at >= round.at - PROMPT_SKEW_MS))) return 'sent'
+      if (!now.ready || now.queued === null) return 'unknown'
+      return now.queued.includes(round.message) ? 'queued' : 'gone'
+    }
+    for (const round of quotes.pending) {
+      const now = fate(round)
+      if (now === 'sent') {
+        settlePending(storeKey, round.id, 'sent')
+        continue
+      }
+      if (now !== 'gone') {
+        const timer = timers.get(round.id)
+        if (timer !== undefined) clearTimeout(timer)
+        timers.delete(round.id)
+        continue
+      }
+      if (timers.has(round.id)) continue
+      timers.set(
+        round.id,
+        setTimeout(() => {
+          timers.delete(round.id)
+          const then = fate(round)
+          if (then === 'sent') settlePending(storeKey, round.id, 'sent')
+          else if (then === 'gone' && settlePending(storeKey, round.id, 'back') !== null) {
+            showToast({ kind: 'info', key: `quote-back:${round.id}`, text: `The message left the queue unsent: ${plural(round.comments.length, 'comment')} back in the tray`, testId: 'quote-back-toast' })
+          }
+        }, BACK_TO_TRAY_MS),
+      )
+    }
+  }, [storeKey, quotes.pending, delivery])
+  useEffect(() => {
+    const timers = backTimers.current
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
+    }
+  }, [storeKey])
+
+  // A write the window's storage refused is the user's to know: the comments stay in this window only.
+  useEffect(
+    () =>
+      onQuoteStoreError(() =>
+        showToast({ kind: 'error', key: 'quote-store-error', text: 'Comments could not be saved: they stay in this window until it closes', testId: 'quote-store-error-toast' }),
+      ),
+    [],
+  )
+
   const sentQuotes = useMemo<SentQuotes>(
     () => ({
       sentIn: (message) => {
-        const found = sent.filter((each) => each.message === message)
+        // A Codex transcript keeps the attachment lines main adds at the end of the text.
+        const typed = typedText(message)
+        const round = rounds.find((each) => each.message === typed)
+        const found = round === undefined ? [] : sent.filter((each) => each.round === round.id)
         return found.length === 0 ? undefined : new Map(found.map((each) => [each.number, each]))
       },
       showQuote: (id) => goToLight(id, false),
     }),
-    [sent, goToLight],
+    [sent, rounds, goToLight],
   )
 
   // ── drawing ─────────────────────────────────────────────────────────────────────────────────

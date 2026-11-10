@@ -57,7 +57,7 @@ import {
   agentStart,
   type ChatCommandAnswer,
 } from '../../shared/ipc/agent'
-import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment } from '../../shared/agent/attachments'
+import { MAX_ATTACHMENTS, tooManyAttachments, type Attachment, type AttachResult } from '../../shared/agent/attachments'
 import type { SettingsChange } from '../../shared/agent/settings'
 import { chatStartedText, parseChatCommand, type ChatCommand } from '../../shared/autopilot/chat-command'
 import { MAX_QUEUE_EPICS } from '../../shared/autopilot/epic-queue'
@@ -234,11 +234,18 @@ export function agentHandlers(
   // The messages of one Session reach it in the order they were sent, though checking the
   // attachments of one takes longer than checking another's.
   const lastSend = new WeakMap<Session, Promise<unknown>>()
-  const attachAll = async (sessionId: string, sources: Parameters<typeof attach>[0][]) => {
-    const target = attachments.target(registry().get(sessionId).cwd)
+  const attachAll = async (sessionId: string, sources: Parameters<typeof attach>[0][], keep = false) => {
+    const imagesDir = attachments.imagesDir()
+    const target = { ...attachments.target(registry().get(sessionId).cwd), imagesDir }
     // One at a time: a refused file must not hide what the others became.
-    const results = []
-    for (const source of sources) results.push(await attach(source, target))
+    const results: AttachResult[] = []
+    for (const source of sources) {
+      const result = await attach(source, target)
+      // An image to keep (`keep`) is refused when its copy could not be written: nothing could bring it back.
+      let failed: unknown = null
+      if (keep && result.ok && result.attachment.kind === 'image') await storeImages([result.attachment], imagesDir, (error) => (failed = error))
+      results.push(failed === null || !result.ok ? result : { ok: false as const, name: result.attachment.name, error: `${result.attachment.name} could not be kept: ${failed instanceof Error ? failed.message : String(failed)}` })
+    }
     return { results }
   }
   return [
@@ -291,10 +298,10 @@ export function agentHandlers(
       lastSend.set(session, sent)
       return sent.then(() => undefined)
     }),
-    defineHandler(agentAttach, ({ sessionId, sources }, { event }) => {
+    defineHandler(agentAttach, ({ sessionId, sources, keep }, { event }) => {
       // A file named by its path is read on this Machine: from a Linked machine, only inside its Projects.
       const checked = sources.map((source) => (source.kind === 'path' ? { ...source, path: insideProjects(event, source.path, projects, 'the file') } : source))
-      return attachAll(sessionId, checked)
+      return attachAll(sessionId, checked, keep)
     }),
     defineHandler(agentAttachPick, async ({ sessionId }, { event }) => {
       registry().get(sessionId)

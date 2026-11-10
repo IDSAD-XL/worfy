@@ -82,6 +82,31 @@ const selectInAnswer = (window: Page, text: string) =>
     return null
   })()`) as Promise<{ x: number; y: number } | null>
 
+/**
+ * Where the first and the last character of `text` stand in the last agent answer that can be
+ * commented on: a drag from just inside the one to just inside the other selects exactly `text`.
+ */
+const textEnds = (window: Page, text: string) =>
+  window.evaluate(`(() => {
+    const rows = document.querySelectorAll('.w-shell__view[data-view="session"] [data-quote-anchor]')
+    const row = rows[rows.length - 1]
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const at = node.data.indexOf(${JSON.stringify(text)})
+      if (at === -1) continue
+      const box = (offset) => {
+        const range = document.createRange()
+        range.setStart(node, offset)
+        range.setEnd(node, offset + 1)
+        return range.getBoundingClientRect()
+      }
+      const first = box(at)
+      const last = box(at + ${text.length} - 1)
+      return { from: { x: first.left + 1, y: first.top + first.height / 2 }, to: { x: last.right - 1, y: last.top + last.height / 2 } }
+    }
+    return null
+  })()`) as Promise<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>
+
 /** Whether a highlight of that name paints a range now. */
 const lit = (window: Page, name: string) => window.evaluate(`(() => (CSS.highlights.get(${JSON.stringify(name)})?.size ?? 0) > 0)()`) as Promise<boolean>
 
@@ -136,6 +161,41 @@ test('select a part of an answer, comment on it, send the round: the agent gets 
       await view.screenshot({ path: test.info().outputPath(`quote-comments-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })
+  } finally {
+    await app.close()
+  }
+})
+
+test('a part of an answer selected by a mouse drag gets the button, and its comment quotes exactly that part', async () => {
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'message-input', WORFY_AGENT_LOG: log }
+  const app = await launchApp({ env })
+  try {
+    const { window } = app
+    const view = await openSession(window)
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('hello')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    await expect(view.locator('[data-quote-anchor]')).toHaveCount(1)
+
+    // A real drag: press inside the first character, move, let go inside the last (the mouseup path).
+    const ends = await textEnds(window, QUOTE)
+    expect(ends).not.toBeNull()
+    await window.mouse.move(ends!.from.x, ends!.from.y)
+    await window.mouse.down()
+    await window.mouse.move(ends!.to.x, ends!.to.y, { steps: 8 })
+    await window.mouse.up()
+    const button = window.getByTestId('quote-button')
+    await expect(button).toContainText('Comment')
+    await button.click()
+
+    const popover = window.getByTestId('quote-popover')
+    await expect(popover.getByTestId('quote-popover-quote')).toHaveText(QUOTE)
+    await popover.getByTestId('quote-popover-text').fill('Say it shorter.')
+    await popover.getByTestId('quote-popover-save').click()
+    await expect(popover).toHaveCount(0)
+    await expect(view.getByTestId('quote-tray').getByTestId('quote-chip')).toHaveText([/«from the fake agent»/])
+    await expect.poll(() => lit(window, 'worfy-quote')).toBe(true)
   } finally {
     await app.close()
   }
