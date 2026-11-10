@@ -78,10 +78,17 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
   ждут пользователя (группы needs review / answer / fix), сколько Ticket-ов в работе blocked или ждут человека.
   В main один hub на все окна (`src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`): раз в секунду
   листает папку реестра live Session-ов (`~/.claude/sessions`), пока подписано хоть одно окно, и читает её заново при
-  изменении или раз в 5 с, пока есть live Session (процесс, умерший без удаления файла). Session относится к Project-у,
-  чей root или worktree содержит её cwd, к самому глубокому. Watcher-а на Project нет ни в одном окне.
+  изменении. Пока есть live Session, каждый poll проверяет её pid сигналом 0 (`processGoneNow`, без `ps` и PowerShell):
+  так ловится процесс, умерший без удаления файла; полное чтение с проверкой времени старта (pid занят другим
+  процессом) — раз в минуту. Session относится к Project-у, чей root или worktree содержит её cwd, к самому глубокому;
+  Session вложенного Project-а в «All» показана и посчитана один раз, под ним. Watcher-а на Project нет ни в одном окне.
+- **Linked machine не видит local-only Project-ы.** Ответ `projectPulse.get` и каждое `projectPulse.changed` для
+  удалённого клиента идут без Project-ов с `localOnly`, как `projects.list`.
+- **Чтение, начатое до ухода последнего окна, ничего не оставляет**: счётчик поколений в hub-е, следующее окно читает
+  заново.
 - **PR без новых вызовов GitHub.** Число «PR need you» — из снимка PR inbox, который main уже читает
-  (`appPrInboxSource`); `null`, пока PR inbox Project-а выключен.
+  (`appPrInboxSource`); `null`, пока PR inbox Project-а выключен. Группы «need you» — один `PR_NEED_YOU` в
+  `src/shared/ipc/pr-inbox.ts` для карточки и badge-а Pull requests.
 - **Waits из Stage-ей, которые main уже считает.** `StageHub.current(root)` и `StageHub.onChange` (`src/main/workflow/stages.ts`):
   hub читает последний снимок, ничего не запуская. Project, чей Pipeline не показывает ни одно окно, — `waits: null`
   (в «All» Pipeline section открывает все Project-ы, так что там число есть).
@@ -91,7 +98,8 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
   своим именем, как Epics в 94. Клик по Session-у другого Project-а: запрос `requestSession`
   (`src/renderer/shell/session-request.ts`), потом `openProject`; раздел нового Project-а открывает Session, когда её
   Node есть в Layout (не дольше 15 с). Клик по ADR другого Project-а: `openProject`, потом `openAdr`, как «Go to» палитры.
-  Отказ открыть Project — строка с role alert.
+  Отказ открыть Project — строка с role alert. На read-only экране скрытая Node Session-а другого Project-а не
+  возвращается, раздел говорит почему, как у своих строк.
 - **Карточки Projects.** Project Machine-ы окна — карточка в две строки (44 px): имя и ветка, ниже
   «N busy · N PR need you · N waits» или «quiet»; busy — цветом работы, остальное — цветом блока; нулевые и
   неизвестные части не пишутся. Project Linked machine — одна строка, как раньше.
@@ -104,6 +112,8 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
 - Badge Sessions больше не считает live Session-ы открытого Project-а нейтральным тоном: он считает busy.
 - Строка Project-а в Projects (`ListRow`) для Project-ов Machine-ы окна заменена карточкой.
 - Число в заголовке ADR (`adr-count`) и «N live» Sessions в «All» считают все показанные Project-ы.
+
+- Полное перечитывание реестра раз в 5 с, пока есть live Session: теперь раз в минуту, между ними — сигнал 0 по pid.
 
 **Решения без владельца.**
 - Канал без `close`: окно подписывается один раз и остаётся подписанным до закрытия. Иначе Linked machine, которая
