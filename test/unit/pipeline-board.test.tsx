@@ -17,6 +17,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
+import type { PrInboxRow, PrInboxSnapshot, PrInboxThread } from '../../src/shared/ipc/pr-inbox'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 import { stageId, stageLabel, stageOf, type CheckFact, type PipelineStage, type StageFacts } from '../../src/shared/workflow/pipeline'
@@ -827,5 +828,118 @@ describe('one card for a Ticket over several repositories (worfy-multi-repo-tick
     const card = cardOf('team', 4)
     expect(rowsOf(card)).toEqual([])
     expect(within(card).getByTestId('pipeline-merged').textContent).toBe('1/2 merged')
+  })
+})
+
+describe('«Waits: N answers» on a card on Human review (worfy-pr-inbox ticket 06)', () => {
+  const REPO = 'example-org/app'
+  const ME = 'dev-me'
+  const PEER = 'dev-peer'
+  let id = 0
+  /** An unresolved thread whose comments are by `authors`, oldest first. */
+  const thread = (...authors: string[]): PrInboxThread => ({
+    id: `T${++id}`,
+    isResolved: false,
+    isOutdated: false,
+    path: 'src/a.ts',
+    line: 1,
+    viewerCanReply: true,
+    comments: authors.map((author) => ({ id: `C${++id}`, databaseId: id, author, body: 'a question', createdAt: '2026-11-09T10:00:00Z', url: 'https://github.com/x' })),
+  })
+  /** The PR inbox of the Project: PR #7 on atalaya/03's branch with two threads waiting for the user and one the user answered. */
+  const inbox = (rows: PrInboxRow[] = [inboxRow(7, 'atalaya/03', [thread(PEER), thread(PEER, ME, PEER), thread(PEER, ME)])]): PrInboxSnapshot => ({
+    projectId: 'atalaya-00000002',
+    enabled: true,
+    viewer: ME,
+    groups: [
+      { group: 'needs-review', rows: [] },
+      { group: 'needs-answer', rows },
+      { group: 'needs-fix', rows: [] },
+      { group: 'ready', rows: [] },
+      { group: 'waiting', rows: [] },
+    ],
+    readAt: '2026-11-09T10:00:00Z',
+    nextSearchAt: '2026-11-09T10:05:00Z',
+    error: null,
+    notice: null,
+  })
+  function inboxRow(number: number, branch: string, threads: PrInboxThread[]): PrInboxRow {
+    return {
+      repo: REPO,
+      number,
+      title: `PR ${number}`,
+      url: `https://github.com/${REPO}/pull/${number}`,
+      isDraft: false,
+      author: ME,
+      headRefName: branch,
+      headRefOid: `sha${number}`,
+      createdAt: '2026-11-08T10:00:00Z',
+      updatedAt: '2026-11-09T10:00:00Z',
+      ci: 'passing',
+      reviewDecision: null,
+      mergeStateStatus: 'CLEAN',
+      viaTeam: false,
+      unresolvedThreads: threads.length,
+      newSinceSeen: 0,
+      lastActivityAt: '2026-11-09T10:00:00Z',
+      threads,
+      comments: [],
+    }
+  }
+  const ATALAYA_PROJECT = PROJECTS.projects[1]!
+
+  it('the board of a Project whose PR inbox holds the PR of a Ticket on Human review: «Waits: 2 answers» beside «Waits: team»', async () => {
+    preload({ projects: PROJECTS, pipelines: { [ATALAYA_ROOT]: atalayaSnapshot() }, models: { [ATALAYA_ROOT]: atalayaModel() }, answers: { 'prInbox.get': () => inbox() } })
+    const { PipelineBoard } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoard project={ATALAYA_PROJECT} />)
+    await waitFor(() => expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-answers').textContent).toBe('Waits: 2 answers'))
+    expect(columnOf(cardOf('atalaya', 3))).toBe('human-review')
+    expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-waits').textContent).toBe('Waits: team')
+    expect(main.calls.filter((call) => call.channel === 'prInbox.get')).toEqual([{ channel: 'prInbox.get', input: { projectId: 'atalaya-00000002' } }])
+  })
+
+  it('one thread: «Waits: 1 answer»', async () => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} answers={{ 'atalaya/3': 1 }} onOpenTicket={() => undefined} />)
+    expect(within(cardOf('atalaya', 3)).getByTestId('pipeline-answers').textContent).toBe('Waits: 1 answer')
+  })
+
+  it('on any other Stage the card has no such line, whatever its PR waits for', async () => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    const answers = { 'atalaya/3': 2, 'atalaya/9': 4, 'worfy-pipeline/6': 3, 'worfy-pipeline/4': 1 }
+    render(
+      <>
+        <PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} answers={answers} onOpenTicket={() => undefined} />
+        <PipelineBoardView name="worfy" snapshot={worfySnapshot()} titles={{}} answers={answers} onOpenTicket={() => undefined} />
+      </>,
+    )
+    expect(columnOf(cardOf('atalaya', 9))).toBe('queued')
+    expect(within(cardOf('atalaya', 9)).queryByTestId('pipeline-answers')).toBeNull()
+    expect(within(cardOf('worfy-pipeline', 6)).queryByTestId('pipeline-answers')).toBeNull()
+    expect(within(cardOf('worfy-pipeline', 4)).queryByTestId('pipeline-answers')).toBeNull()
+    expect(screen.getAllByTestId('pipeline-answers')).toHaveLength(1)
+  })
+
+  it('a Ticket whose PR the inbox does not hold, or whose threads all have the user’s last word: the card as before', async () => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    const { answersOf } = await import('../../src/renderer/pipeline/board')
+    render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} onOpenTicket={() => undefined} />)
+    const before = cardOf('atalaya', 3).innerHTML
+    expect(within(cardOf('atalaya', 3)).queryByTestId('pipeline-answers')).toBeNull()
+    cleanup()
+    for (const snapshot of [inbox([]), inbox([inboxRow(7, 'atalaya/03', [thread(PEER, ME)])]), inbox([inboxRow(8, 'other/01', [thread(PEER)])]), undefined]) {
+      const answers = answersOf(snapshot, atalayaModel())
+      expect(answers).toEqual({})
+      render(<PipelineBoardView name="atalaya" snapshot={atalayaSnapshot()} titles={{}} answers={answers} onOpenTicket={() => undefined} />)
+      expect(cardOf('atalaya', 3).innerHTML).toBe(before)
+      cleanup()
+    }
+  })
+
+  it('a Ticket over several repositories: the threads of all its PRs summed', async () => {
+    const { answersOf } = await import('../../src/renderer/pipeline/board')
+    const model = modelOf(ATALAYA_ROOT, [{ ...modelTicket('atalaya', 3, 'Login page'), repos: ['app', 'lib'], prs: [{ repo: 'app', number: 7 }] }])
+    const lib = { ...inboxRow(41, 'atalaya/03', [thread(PEER)]), repo: 'example-org/lib' }
+    expect(answersOf(inbox([inboxRow(7, 'feature/x', [thread(PEER), thread(PEER)]), lib]), model)).toEqual({ 'atalaya/3': 3 })
   })
 })

@@ -1,0 +1,27 @@
+/* The review threads badge on a Ticket card (ReviewThreads.tsx): «3 open threads» and «changes requested», each chip
+   on a line of its own under the checks chips, as compact as them (16 px with the border, 11 px text). ticket-card.ts
+   gives the card one line of 16 px and 2 px above it per chip (REVIEW_LINE); change both. The chips are whole: never
+   narrowed, never cut. */
+.w-ticket__badges:has(> .w-review-threads) {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.w-ticket__badges:has(> .w-review-threads) > .w-checks {
+  flex-basis: 100%;
+}
+.w-review-threads {
+  flex: 0 0 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  cursor: pointer;
+}
+.w-review-threads .w-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 3px;
+  font-size: var(--text-11);
+  line-height: 14px;
+}

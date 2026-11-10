@@ -235,6 +235,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 | `failing` | On CI with a failed check | A caption | In the tooltip |
 | `gate running`, `waiting for gate`, `gate busy` | On Gate & merge while the e2e lock of the Profile is held: for this PR, for others, or with no readable holder | A caption | In the tooltip |
 | Waits | The `Waits:` line, else `team` on Human review, Release and Awaiting merge, else `agent`. None on Done | `Waits: <who>` | `<who>` |
+| Answers | On Human review, review threads on its PRs wait for the user's answer, from the [PR inbox](pr-inbox.md) (see [PR and CI badges](gate-and-github.md#pr-and-ci-badges)) | `Waits: 2 answers` | None |
 | Stuck | The time on the Stage reached its threshold | A frame, and `stuck: on CI for 3 h` in the tooltip | The same |
 
 **Thresholds of stuck.**

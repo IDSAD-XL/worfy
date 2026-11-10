@@ -372,6 +372,150 @@ test('gh missing: «gh unavailable» on the Tickets in work, and the app goes on
   }
 })
 
+// ── the review threads badge (worfy-pr-inbox ticket 06) ──────────────────────────────────────
+
+test('review threads on Ticket 08: «3 open threads» and «changes requested» beside its checks, whole; a click opens the Pull requests view on its PR; nothing written to GitHub', async () => {
+  const dataDir = join(scratch, 'data')
+  const claudeHome = join(scratch, 'claude-home')
+  const ghDir = join(scratch, 'gh')
+  const ghLog = join(ghDir, 'calls.jsonl')
+  const repo = join(scratch, 'demo')
+  const slug = 'example-org/demo'
+  const me = 'dev-me'
+  const peer = 'dev-peer'
+
+  // The Project: Ticket 08 claimed, with its worktree; Ticket 09 open. `origin` is on github.com, so the PR inbox reads it.
+  const issues = join(repo, '.scratch', 'demo', 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo\n')
+  writeFileSync(join(issues, '08-ticket-8.md'), ticketFile(8, 'claimed — 2026-10-05'))
+  writeFileSync(join(issues, '09-ticket-9.md'), ticketFile(9, 'open'))
+  writeFileSync(join(repo, '.gitignore'), '.claude/\n')
+  git(repo, 'init', '-q')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-q', '-m', 'init')
+  git(repo, 'remote', 'add', 'origin', `https://github.com/${slug}.git`)
+  git(repo, 'worktree', 'add', '-q', '-b', 'demo/08', join(repo, '.claude', 'worktrees', '08'))
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const answer = join(claudeHome, 'epic-status.json')
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [ticketJson(8, 'claimed — 2026-10-05', 'work'), ticketJson(9, 'open', 'open')] }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
+
+  // GitHub: PR #31 on demo/08, CI passing and verified — the widest row of checks chips — and in the PR inbox the same
+  // PR with CHANGES_REQUESTED and three threads waiting for the user: one resolved and one the user answered do not count.
+  mkdirSync(ghDir)
+  writeFileSync(
+    join(ghDir, 'prs.json'),
+    JSON.stringify([
+      {
+        number: 31,
+        headRefName: 'demo/08',
+        state: 'OPEN',
+        url: `https://github.com/${slug}/pull/31`,
+        statusCheckRollup: [
+          { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' },
+          { __typename: 'StatusContext', context: 'review', state: 'SUCCESS' },
+        ],
+        comments: [],
+      },
+    ]),
+  )
+  const at = (hoursAgo: number): string => new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+  let ids = 0
+  const thread = (authors: string[], isResolved = false) => ({
+    id: `T${++ids}`,
+    isResolved,
+    isOutdated: false,
+    path: 'src/export.ts',
+    line: ids,
+    viewerCanReply: true,
+    comments: {
+      nodes: authors.map((author, index) => ({ id: `C${++ids}`, databaseId: ids, author: { login: author }, body: 'Why here?', createdAt: at(5 - index), url: `https://github.com/${slug}/pull/31#discussion_r${ids}` })),
+    },
+  })
+  writeFileSync(
+    join(ghDir, 'graphql.json'),
+    JSON.stringify({
+      viewer: me,
+      pulls: [
+        {
+          repo: slug,
+          number: 31,
+          updatedAt: at(1),
+          headRefOid: 'sha31',
+          reviewRequested: false,
+          involves: true,
+          pull: {
+            title: 'Export the report',
+            url: `https://github.com/${slug}/pull/31`,
+            state: 'OPEN',
+            isDraft: false,
+            createdAt: at(48),
+            author: { login: me },
+            headRefName: 'demo/08',
+            reviewDecision: 'CHANGES_REQUESTED',
+            mergeable: 'MERGEABLE',
+            mergeStateStatus: 'CLEAN',
+            commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+            reviewRequests: { nodes: [] },
+            latestOpinionatedReviews: { nodes: [] },
+            reviewThreads: { nodes: [thread([peer]), thread([peer, me, peer]), thread([peer]), thread([peer], true), thread([peer, me])] },
+            comments: { nodes: [] },
+          },
+        },
+      ],
+    }),
+  )
+  mkdirSync(join(dataDir, PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 0.8 } }))
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1600, 1000))
+    const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
+    const badge = ticket(8).getByTestId('badge-review-threads')
+    // The first search of the PR inbox answers within the reader's first look.
+    await expect(badge).toBeVisible({ timeout: ms(30_000) })
+    await expect(badge.getByTestId('review-threads-count')).toHaveText('3 open threads')
+    await expect(badge.getByTestId('review-threads-changes')).toHaveText('changes requested')
+    await expect(badge).toHaveAttribute('title', `${slug}#31: 3 open threads, changes requested\nOpen in Pull requests`)
+    await expect(ticket(8).getByTestId('checks-pr')).toHaveText('PR #31')
+    await expect(ticket(8).getByTestId('checks-verdict')).toHaveText('VERIFIED')
+    await expect(ticket(9).getByTestId('badge-review-threads')).toHaveCount(0)
+    // The card has the room the layout gave the two chips: nothing on it is cut, nothing overlaps.
+    await expectSettledWithoutOverlaps(window, [8, 9].map((num) => ({ name: `Ticket ${num}`, selector: `[data-testid="ticket-node"][data-ticket="${num}"]` })), 'cards that overlap')
+    expect(await ticketCardCuts(ticket(8)), 'nothing is cut on Ticket 08').toEqual([])
+    for (const id of ['review-threads-count', 'review-threads-changes']) expect(await clippedBy(badge.getByTestId(id)), `${id} is cut by no box around it`).toEqual([])
+    await ticket(8).screenshot({ path: test.info().outputPath('review-threads-badge.png') })
+
+    // A click opens the Pull requests view on that PR, its row expanded.
+    await badge.click()
+    await expect(window.getByTestId('pr-inbox-view')).toBeVisible()
+    const row = window.locator(`[data-testid="pr-inbox-row"][data-repo="${slug}"][data-number="31"]`)
+    await expect(row).toHaveAttribute('data-expanded', 'true')
+    await expect(row.getByTestId('pr-inbox-thread')).toHaveCount(5)
+
+    // Read-only: gh listed PRs and ran the inbox's GraphQL reads; no write of any kind (ADR-0105).
+    const calls = readFileSync(ghLog, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[])
+    expect(calls.some((args) => args[0] === 'api' && args[1] === 'graphql')).toBe(true)
+    const writes = calls.filter(
+      (args) =>
+        args.some((arg) => /^(?:-X|--method)(?:=)?(?!GET$)\S/iu.test(arg) || /^query=\s*mutation\b/u.test(arg)) ||
+        args.some((arg, index) => /^(?:-X|--method)$/u.test(arg) && (args[index + 1] ?? '').toUpperCase() !== 'GET') ||
+        ((args[0] === 'pr' || args[0] === 'issue') && args[1] !== 'list' && args[1] !== 'view'),
+    )
+    expect(writes).toEqual([])
+  } finally {
+    await launched.close()
+  }
+})
+
 // ── the stepper of a nine-Stage Pipeline on a 240 px Card (worfy-pipeline ticket 05) ──────────
 
 /** worfy's own Pipeline (spec.md of worfy-pipeline, owner's decision 4): nine Stages. */

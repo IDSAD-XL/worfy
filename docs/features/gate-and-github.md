@@ -462,6 +462,8 @@ Epic frame shows none. Chips wrap onto a second line and are not cut. The colour
 | `VERIFIED`, `REJECTED` | Ticket | The reviewer's verdict on the head commit. No chip when there is none. |
 | `gh unavailable` | Ticket | gh did not answer. The tooltip has the reason. |
 | `in %TEMP%` | Ticket, Session | The worktree lies in the Windows temporary folder. The tooltip has the warning and the path. |
+| `3 open threads`, `1 open thread` | Ticket | Review threads on the Ticket's PRs that wait for the user's answer, from the [PR inbox](pr-inbox.md). |
+| `changes requested` | Ticket | A PR of the Ticket has the review decision `CHANGES_REQUESTED`, from the PR inbox. |
 
 The tooltip of a Gate chip adds the worktree's path, and the tooltip of a Ticket's row sums up all its chips. A Ticket with a PR also has the
 action **Open PR**, which opens the address in the browser. An address that is not a page on `https://github.com/` leaves the button
@@ -526,6 +528,20 @@ is never switched. Without an account, or with a value that is not a GitHub logi
 that gh has no sign-in for gives `gh unavailable`, with a tooltip that names it and `gh auth login`, and never falls back to another
 account. An edited Profile counts from the next read that runs gh.
 
+**Review threads.** The chips `N open threads` and `changes requested` come from the Project's PR inbox snapshot, not
+from `checks.get`, and the badge runs no gh of its own. A thread counts when it is unresolved and its last comment is not
+by the user the inbox reads as. A PR belongs to the Ticket by the Ticket's `PR:` lines (repository and number), else by its
+branch (`Branch:` line or `<epic>/<NN>`), the same rule that gives a row of the Pull requests view its Ticket chip. A Ticket
+over several repositories sums the threads of all its PRs ([ADR-0104](../adr/0104-one-ticket-several-repositories.md),
+item 3), and the tooltip lists each PR that waits. A Ticket whose PR the snapshot does not hold, or a Project with the PR
+inbox off, has no chip. Each chip takes a line of its own under the checks chips, and the card is one line taller per
+chip, so its height changes when the snapshot does. A click opens the Pull requests view on the first PR that waits, its
+row expanded.
+
+**Waits: N answers on the Pipeline board.** A card on Human review whose PRs hold such threads has the line
+`Waits: 2 answers` (`Waits: 1 answer`) under `Waits: team`, summed over the PRs of a Ticket over several repositories. On
+any other Stage, and with no waiting thread, the card has no such line.
+
 **Nothing is written.** The badges read. worfy runs no gh command for them but `gh pr list` and `gh auth token -u <account>`, and changes
 nothing on GitHub, in the Project or in the Gate's state.
 
@@ -572,6 +588,8 @@ Paths are compared with either separator and without regard to letter case, and 
 | Reading gh: runner, account, tracker, CI and verdict | `src/main/github/prs.ts` |
 | The Project's GitHub account from its Profile | `src/main/workflow/profile.ts` |
 | The chips | `src/renderer/canvas/badges/ChecksBadges.tsx`, `src/renderer/canvas/badges/checks-badges.css` |
+| Review threads, and the room on the card | `src/renderer/canvas/badges/ReviewThreads.tsx`, `src/renderer/canvas/badges/review-threads.css`, `src/renderer/canvas/ticket-card.ts` |
+| `Waits: N answers` on the Pipeline board | `src/renderer/pipeline/board.ts`, `src/renderer/pipeline/PipelineBoard.tsx` |
 | The renderer's copy, polling, branches in work | `src/renderer/canvas/badges/use-checks.ts` |
 | Open PR | `src/renderer/canvas/actions/OpenPr.tsx` |
 | The Windows temporary folder | `src/main/projects/temp-folder.ts`, `src/shared/temp-folder.ts` |
@@ -589,6 +607,8 @@ the worktrees. The answer is parsed against its schema, so the extra fields of a
 
 - `test/e2e/checks-badges.spec.ts`: the whole Feature in the app over a gh stub, with nothing written, and gh missing.
 - `test/unit/checks-badges.test.tsx`: what each subject shows, polling, several repositories, the same folder asked by two Projects.
+- `test/unit/review-threads-badge.test.tsx`: which threads count, several repositories, the click, the room on the card.
+- `test/unit/pipeline-board.test.tsx`: `Waits: N answers` on Human review only.
 - `test/unit/gate-state.test.ts`, `test/unit/gate-key-spelling.test.ts`, `test/contract/gate-key-agreement.test.ts`: reading the Gate,
   and the registry key agreeing with the Gate's resolver.
 - `test/contract/github-prs.test.ts`: CI, the verdict, the tracker's intervals and lookups, the account and the token, what `checks.get` refuses.

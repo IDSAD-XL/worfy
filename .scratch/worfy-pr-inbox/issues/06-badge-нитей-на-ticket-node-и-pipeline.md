@@ -1,7 +1,7 @@
 # 06 — Badge нитей ревью на Ticket Node и строка «Waits: N answers» на карточке Pipeline
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T04:11Z
 Blocked by: 02, 03, `worfy-multi-repo-ticket` 06
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 6; «Как работает» → «Связь с Ticket-ом (Ticket 06)»;
 «Решено без владельца»; «Риски» («Общие файлы с `worfy-multi-repo-ticket`»); «Ticket-ы», «Волны» (Wave 3); решение
