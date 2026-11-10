@@ -29,6 +29,8 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 - [ ] Fixture test-ы проходят весь путь из п. 1 — exit 0 на Mac.
   - evidence: test-run pass · `bash harness/bin/tests/multi-repo.test.sh` exit 0, passed 35, failed 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
   - evidence: gate pass · `gate fast` exit 0 · mac - · e9ead1b5df286705d14ac20be4b33bdda045516a
+  - evidence: test-run pass · `bash harness/bin/tests/multi-repo.test.sh` exit 0, passed 35, failed 0, also with a jq that ends lines with CRLF · mac - · c7bfa5117b06be436465310aa6f08209666e8873
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c7bfa5117b06be436465310aa6f08209666e8873
 - [ ] Владелец провёл настоящий Ticket из двух репозиториев до `done`: одна карточка на Pipeline board, «1/2 merged»,
       «waits for release <version>», PR без ссылок друг на друга.
   - needs: mac stable
