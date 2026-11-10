@@ -52,15 +52,23 @@ Ticket 02 работает на одном поиске раз в 5 минут; 
 
 - [ ] Contract test: 304 (stub выходит с кодом 1, `gh: HTTP 304`) — ни одного чтения деталей, интервал не удвоен,
       ошибки в снимке нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] Contract test: 200 с уведомлением о PR Project-а — детали этого PR читаются сразу; уведомление о PR чужого
       репозитория и не-PR — ничего.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] Contract test: следующий опрос несёт `If-Modified-Since` из последнего `Last-Modified`; темп —
       `X-Poll-Interval`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] Contract test: 403 — триггер выключен, `notice` в снимке, поиск раз в 5 минут продолжается.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] Contract test: 500 — интервал триггера удвоен; поиск не тронут.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] Contract test: журнал stub-а — только `GET`; ни `PATCH`, ни `--method` кроме `GET`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox-notifications.test.ts` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] `docs/features/gate-and-github.md` описывает триггер.
+  - evidence: commit pass · PR inbox: GitHub notifications as a trigger for the reader, a 304 (gh exit 1) read as unchanged · - - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 57c6a1274f2e5c0c03af7f02cc7c52e4ba4a4262
 
 ## Тесты
 
