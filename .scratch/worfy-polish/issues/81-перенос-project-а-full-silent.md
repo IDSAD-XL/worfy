@@ -48,11 +48,24 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
 
 - [ ] Full → Silent: файлы workflow в Workflow folder, в репозитории их нет; `bin/profile` печатает `mode: silent` и
   новый `workflow.folder`; commit в репозитории, в Workflow folder и в git Harness-а.
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · f7beec4d4
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · f7beec4d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
 - [ ] Silent → Full: обратный путь проходит; для Project-а над несколькими репозиториями — отказ.
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · f7beec4d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
 - [ ] Незакоммиченные изменения, работающая Session или открытый PR ticket-а — отказ с причиной; ни один файл и
   Profile не изменились.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · f7beec4d4
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · f7beec4d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
 - [ ] Сбой на середине переноса — обе стороны и Profile как до переноса.
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · f7beec4d4
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · f7beec4d4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
 - [ ] `docs/features/projects.md` (и перевод в `docs/features/ru/`) описывает перенос.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
+  - evidence: commit pass · Move a Project's workflow files between Full and Silent mode (worfy-polish 81) · - - · f7beec4d4
 
 ## Тесты
 
@@ -75,3 +88,51 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
 - Удаление Project-а — ticket 79.
 - Правка остальных полей Profile-а — ticket 78.
 - Full mode для Project-а над несколькими репозиториями (ADR-0045).
+
+## Итог
+
+- Перенос — режим `harness/bin/profile-set --move <full|silent> [--folder <путь>]` с `--expect <fingerprint>` полей
+  `mode` и `workflow.folder` (тот, что печатает `--field mode --field workflow.folder --read`). `--field mode` и
+  `--field workflow.folder` по-прежнему отказывают (exit 2): эти поля пишет только перенос. План, проверки, копия,
+  commit-ы и откат — `harness/lib/workflow-move.cjs`.
+- Переезжают пути, которые Profile называет относительно Workflow folder: корень ticket-ов (`tickets.root`, без него
+  `.scratch`; spec-и и evidence внутри), `docs.handoff.path`, `docs.adr_dir`, `numbering.adr.dir`,
+  `docs.context.path`, `lessons: "repo:<путь>"`. Абсолютный путь и `~/` остаются на месте. Копируются только
+  отслеживаемые git файлы.
+- Порядок: копия на другую сторону → commit там → `git rm` и commit на исходной стороне → запись `mode` и
+  `workflow.folder` → commit в git Harness home (как у `--field`: сбой этого commit-а — предупреждение, не откат).
+  Сбой на любом шаге до записи Profile-а включительно возвращает обе стороны: commit-ы снимаются `reset --soft`,
+  удалённые файлы восстанавливаются из прежнего commit-а, копии удаляются, созданная переносом Workflow folder
+  удаляется целиком.
+- Отказы до любой записи (exit 1, причина в stderr и `{ ok: false, errors }`): уже в этом режиме; Full mode для
+  Project-а над несколькими репозиториями; незакоммиченные или неотслеживаемые файлы, не свой git-репозиторий или
+  detached HEAD в репозитории или Workflow folder; файл переноса уже на новом месте; открытый PR ветки ticket-а
+  (строка `Branch:` или шаблон `tickets.branch` для Epic-а) или gh не смог ответить (`$PROFILE_SET_GH` — stand-in для
+  test-ов). Репозиторий без remote gh не спрашивает.
+- worfy: канал `profileEdit.move` (`local`), кнопка «Move to Silent mode…» / «Move to Full mode…» под режимом в «Edit
+  profile» (`src/renderer/projects/MoveWorkflow.tsx`). Отказ «a Session of the Project is at work» — до вызова скрипта,
+  для Session в состоянии `starting`, `busy` или `needs_permission` с cwd внутри Project-а или его Workflow folder.
+  Watch-и Ticket-ов и документов Project-а закрываются на время переноса. `profileEdit.read` отдаёт
+  `fixedFingerprint`.
+- Test-ы: `harness/bin/tests/profile-set-move.test.sh` (156 проверок), `test/contract/profile-move.test.ts`,
+  четыре новых случая в `test/unit/edit-profile.test.tsx`. Mutation check — 14 мутантов, все убиты.
+
+### Решено без владельца
+
+- Переезжают и glossary, и lessons, а не только ticket-ы, spec, ADR и файл состояния: в Silent mode Profile ищет их в
+  Workflow folder (`harness/profiles/README.md`, «Full mode and Silent mode»), и оставленные в репозитории они бы
+  потерялись.
+- «Работает Session» — Session worfy не в ожидании (`starting`, `busy`, `needs_permission`). Session в `idle`,
+  включая Orchestrator, перенос не останавливает; иначе Orchestrator активного Project-а не дал бы перенести никогда.
+  Сессии Claude Code вне worfy (терминал) не проверяются.
+- «Незакоммиченные изменения» — весь `git status --porcelain`, включая неотслеживаемые файлы.
+- Detached HEAD — отказ: commit переноса не должен попасть на ветку, которой нет.
+- Commit-ы переноса — без hook-ов и подписи (`core.hooksPath=/dev/null`, `commit.gpgsign=false`), как commit-ы
+  `profile-set` в Harness home; identity репозитория, при её отсутствии — `Harness <harness@localhost>`.
+- Сообщение commit-а в репозитории не содержит пути Workflow folder (в пути — домашняя папка пользователя): «…into the
+  project's Workflow folder (Silent mode)».
+- Своя Workflow folder для Full → Silent: абсолютный путь вне репозитория; несуществующая или пустая — `git init`,
+  непустая — только свой чистый git-репозиторий.
+- Строку `.claude/worktrees/` в `.git/info/exclude` перенос не добавляет (её добавляет `project-connect` при
+  подключении Silent): у Full-репозитория worktree-корень обычно уже в `.gitignore`.
+- Коллекции qmd перенос не меняет.
