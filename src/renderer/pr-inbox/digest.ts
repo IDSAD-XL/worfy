@@ -2,7 +2,8 @@
 // main with `prInbox.digest` (src/main/github/inbox-digest.ts), which answers the digest the first time in a day. The
 // answer shows as one action toast (toast/toasts.ts) with the button Open: the Pull requests view of the active
 // Project when the digest counts it, else of the first Project it counts (openPrInboxOf). `pending` — an inbox is not
-// read yet — asks again at each `prInbox.changed` until main answers otherwise. A window on a Linked machine asks
+// read yet — asks again at each `prInbox.changed` while the window has the focus, until main answers otherwise; a
+// window that lost the focus meanwhile asks at its next focus. A window on a Linked machine asks
 // nothing: the digest tells of this Machine's Projects.
 import type { PrInboxDigestAnswer } from '../../shared/ipc/pr-inbox'
 import { invoke, showSubscribeError, subscribe, windowMachine } from '../ipc'
@@ -54,7 +55,8 @@ export function installPrInboxDigest(): () => void {
   let stopChanged: () => void = () => undefined
   try {
     stopChanged = subscribe('prInbox.changed', () => {
-      if (waiting) ask()
+      // Only a window in front takes the digest: one in the background waits for its own focus.
+      if (waiting && document.hasFocus()) ask()
     })
   } catch (error) {
     showSubscribeError('prInbox.changed', error)

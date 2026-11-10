@@ -456,10 +456,14 @@ export class PrInbox {
   private async pollIfDue(project: PrInboxProject): Promise<void> {
     const state = this.stateOf(project.id)
     if (!this.options.enabled(project)) {
+      const was = state.enabled
       state.enabled = false
       state.members.clear()
       // Read at once when it is turned on again.
       state.nextAt = -Infinity
+      // Told once, when it goes off: the PR inbox notifications (src/main/notify.ts) then forget the Project, and a
+      // read after it is on again is a first read (worfy-pr-inbox ticket 07).
+      if (was) this.options.onChange?.(project.id)
       return
     }
     if (state.running) return state.running

@@ -591,6 +591,42 @@ describe('the switch in settings.json', () => {
     expect(rowsOf(inbox.snapshot('p1'))).toEqual([])
   })
 
+  it('switched off: the reader tells of it once, with a snapshot that is off, and not again at the next looks (worfy-pr-inbox ticket 07)', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API])
+    const changes: PrInboxSnapshot[] = []
+    let inbox: PrInbox | undefined = undefined
+    inbox = reader(gh, [p], { onChange: (id) => void changes.push(inbox!.snapshot(id)) })
+    await inbox.tick()
+    expect(changes.map((each) => each.enabled)).toEqual([true])
+
+    writeFileSync(join(p.dataDir, 'settings.json'), JSON.stringify({ actionTemplates: {}, prInbox: false }))
+    for (let minute = 5; minute <= 15; minute += 5) {
+      clock = START + minute * MINUTE
+      await inbox.tick()
+    }
+    expect(changes.map((each) => each.enabled)).toEqual([true, false])
+    expect(rowsOf(changes[1]!)).toEqual([])
+
+    // On again: the next read tells of the Project as read.
+    writeFileSync(join(p.dataDir, 'settings.json'), JSON.stringify({ actionTemplates: {} }))
+    await inbox.ensureRead('p1')
+    expect(changes.map((each) => each.enabled)).toEqual([true, false, true])
+  })
+
+  it('a Project off from its first look is told of once, and its next looks tell nothing', async () => {
+    const gh = world([stubPull(API, 1)])
+    const p = project('p1', [API], { actionTemplates: {}, prInbox: false })
+    const changed: string[] = []
+    const inbox = reader(gh, [p], { onChange: (id) => void changed.push(id) })
+    await inbox.ensureRead('p1')
+    await inbox.tick()
+    clock = START + 5 * MINUTE
+    await inbox.tick()
+    expect(changed).toEqual(['p1'])
+    expect(gh.calls()).toEqual([])
+  })
+
   it('switched on again: the next prInbox.get reads the Project at once, without waiting for a tick (worfy-pr-inbox ticket 03)', async () => {
     const gh = world([stubPull(API, 1)])
     const p = project('p1', [API], { actionTemplates: {}, prInbox: false })

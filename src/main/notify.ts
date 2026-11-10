@@ -651,10 +651,12 @@ function prInboxEvents(snapshot: PrInboxSnapshot): { row: PrInboxRow; kind: PrIn
 /**
  * The PR inbox's notifications (worfy-pr-inbox ticket 07), from the snapshots of the reader
  * (src/main/github/inbox.ts): one per PR and event — a new review request, a new reply of someone else in a thread
- * of the user's PR — and only while no worfy window has focus. What the first read of a Project holds is not new;
- * neither is an event seen while a window had focus or while `prInboxNotify` was off: it never comes later. A
- * snapshot not read yet, or of a reader that is off, changes nothing (off forgets the Project, so a reader on again
- * starts from its next read).
+ * of the user's PR — and only while no worfy window has focus. An event is one PR's, by `repo#N` and its kind, so
+ * two Projects of this Machine that read the same repository notify it once: it is new only when no Project's last
+ * read holds it. What the first read of a Project holds is not new; neither is an event seen while a window had
+ * focus or while `prInboxNotify` was off: it never comes later. A snapshot not read yet changes nothing; one of a
+ * reader that is off (the reader tells of it when it goes off) forgets the Project, so a reader on again starts
+ * from its next read.
  */
 export class PrInboxNotices {
   /** The keys of the events of each Project's last read, by Project id. */
@@ -674,11 +676,14 @@ export class PrInboxNotices {
     if (snapshot.readAt === null || snapshot.viewer === null) return
     const events = prInboxEvents(snapshot)
     const before = this.seen.get(project.id)
+    // What the other Projects of this Machine see now: a repository two Projects read gives one note per event.
+    const elsewhere = [...this.seen].filter(([id]) => id !== project.id).map(([, keys]) => keys)
     // An event that left the snapshot (a review given, a reply answered) is forgotten: a new one notifies again.
     this.seen.set(project.id, new Set(events.flatMap((event) => event.keys)))
     if (before === undefined || !this.enabled()) return
+    const isNew = (key: string): boolean => !before.has(key) && !elsewhere.some((keys) => keys.has(key))
     const notes = events
-      .filter((event) => event.keys.some((key) => !before.has(key)))
+      .filter((event) => event.keys.some(isNew))
       .map(({ row, kind }): PrInboxNote => ({ title: project.name, body: prInboxNoteBody(kind, row), sessionId: null, pr: { projectId: project.id, repo: row.repo, number: row.number } }))
     if (notes.length === 0) return
     unlessFocused(this.deps.focused(), () => {

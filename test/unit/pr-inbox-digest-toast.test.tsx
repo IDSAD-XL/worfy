@@ -118,18 +118,24 @@ describe('the morning digest in the window', () => {
     expect(toasts.getState().toasts).toHaveLength(0)
   })
 
-  it('a `pending` answer asks again at the next change of an inbox, and only then', async () => {
+  it('a `pending` answer asks again at the next change of an inbox while the window has the focus, and only then', async () => {
     const main = preload(settings())
     main.answers.push({ state: 'pending' }, { state: 'show', text: '1 PR has new comments', projectIds: ['web-1'] })
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
     const { installPrInboxDigest } = await import('../../src/renderer/pr-inbox/digest')
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    installPrInboxDigest()
+    const stop = installPrInboxDigest()
     const changed = (): void => {
       for (const listener of main.listeners.get('prInbox.changed') ?? []) listener({ projectId: 'web-1' })
     }
     window.dispatchEvent(new Event('focus'))
     await settle()
     expect(main.asks).toBe(1)
+    // The window went to the background before the inboxes were read: a change asks nothing.
+    changed()
+    await settle()
+    expect(main.asks).toBe(1)
+    hasFocus.mockReturnValue(true)
     changed()
     await settle()
     expect(main.asks).toBe(2)
@@ -138,6 +144,8 @@ describe('the morning digest in the window', () => {
     changed()
     await settle()
     expect(main.asks).toBe(2)
+    stop()
+    hasFocus.mockRestore()
   })
 })
 

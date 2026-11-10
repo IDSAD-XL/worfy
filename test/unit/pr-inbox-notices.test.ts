@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
 // The real window module loads the app's page.
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
-const { PrInboxNotices, prInboxNoteBody, openNote } = await import('../../src/main/notify')
+const { PrInboxNotices, installPrInboxNotifications, prInboxNoteBody, openNote } = await import('../../src/main/notify')
 const { PendingOpens } = await import('../../src/main/notify-pending')
 const { PrInboxDigest, digestCounts, digestText } = await import('../../src/main/github/inbox-digest')
 
@@ -25,6 +25,8 @@ type PrInboxNote = Parameters<ConstructorParameters<typeof PrInboxNotices>[0]['s
 const ME = 'dev-me'
 const ANA = 'dev-ana'
 const PROJECT = { id: 'web-0000000w', name: 'web' }
+/** A second Project of the same Machine that reads the same repository (a second checkout of it). */
+const OPS = { id: 'ops-0000000o', name: 'ops' }
 const SECRET = 'Please rename the secret helper before merge'
 
 const comment = (id: string, author: string | null, body = SECRET) => ({ id, databaseId: 1, author, body, createdAt: '2026-11-09T10:00:00Z', url: `https://github.com/example-org/web/pull/1#${id}` })
@@ -82,7 +84,7 @@ function notices() {
     },
     () => state.on,
   )
-  return { state, shown, opened, read: (snap: PrInboxSnapshot) => subject.read(PROJECT, snap) }
+  return { state, shown, opened, read: (snap: PrInboxSnapshot) => subject.read(PROJECT, snap), readFor: (project: { id: string; name: string }, snap: PrInboxSnapshot) => subject.read(project, snap) }
 }
 
 const asked = (number: number) => row(number, { author: ANA })
@@ -158,14 +160,37 @@ describe('PrInboxNotices: a new review request', () => {
     expect(shown.map((each) => each.note.pr.number)).toEqual([6])
   })
 
-  it('two Projects are counted apart', () => {
-    const { shown, read } = notices()
+  it('two Projects that read the same repository notify one event once, whichever reads first', () => {
+    const { shown, read, readFor } = notices()
     read(snapshot({}))
+    readFor(OPS, snapshot({}, { projectId: OPS.id }))
+    // The same request in both Projects' next reads.
     read(snapshot({ 'needs-review': [asked(5)] }))
-    const other = new PrInboxNotices({ focused: () => false, show: (note) => shown.push({ note, click: () => undefined }), open: () => undefined })
-    other.read({ id: 'ops-0000000o', name: 'ops' }, snapshot({}, { projectId: 'ops-0000000o' }))
-    other.read({ id: 'ops-0000000o', name: 'ops' }, snapshot({ 'needs-review': [asked(5)] }, { projectId: 'ops-0000000o' }))
-    expect(shown.map((each) => each.note.title)).toEqual(['web', 'ops'])
+    readFor(OPS, snapshot({ 'needs-review': [asked(5)] }, { projectId: OPS.id }))
+    expect(shown.map((each) => `${each.note.title} ${each.note.pr.number}`)).toEqual(['web 5'])
+    // The other order, for a reply on my PR.
+    const reply = mine(118, [thread('T1', [comment('C1', ANA)])])
+    readFor(OPS, snapshot({ 'needs-review': [asked(5)], 'needs-answer': [reply] }, { projectId: OPS.id }))
+    read(snapshot({ 'needs-review': [asked(5)], 'needs-answer': [reply] }))
+    expect(shown.map((each) => `${each.note.title} ${each.note.pr.number}`)).toEqual(['web 5', 'ops 118'])
+    // One Project no longer holds the request, the other still does: it comes back to the first without a note.
+    read(snapshot({ 'needs-answer': [reply] }))
+    read(snapshot({ 'needs-review': [asked(5)], 'needs-answer': [reply] }))
+    expect(shown).toHaveLength(2)
+  })
+
+  it('the first read of a Project is its own baseline; PRs the other Project never had notify in each', () => {
+    const { shown, read, readFor } = notices()
+    read(snapshot({}))
+    // ops's first read holds #5, which web never saw: nothing.
+    readFor(OPS, snapshot({ 'needs-review': [asked(5)] }, { projectId: OPS.id }))
+    expect(shown).toHaveLength(0)
+    // web sees #5 later: ops holds it now, so it is not new on this Machine.
+    read(snapshot({ 'needs-review': [asked(5)] }))
+    expect(shown).toHaveLength(0)
+    read(snapshot({ 'needs-review': [asked(5), asked(6)] }))
+    readFor(OPS, snapshot({ 'needs-review': [asked(5), asked(7)] }, { projectId: OPS.id }))
+    expect(shown.map((each) => `${each.note.title} ${each.note.pr.number}`)).toEqual(['web 6', 'ops 7'])
   })
 })
 
@@ -223,6 +248,44 @@ describe('PrInboxNotices: the switch prInboxNotify', () => {
     state.on = true
     read(snapshot({ 'needs-review': [asked(5)], 'needs-answer': [mine(118, [thread('T1', [comment('C1', ANA)])])] }))
     expect(shown).toHaveLength(0)
+  })
+})
+
+describe('installPrInboxNotifications', () => {
+  it('looks at the snapshot of each Project whose inbox changed; a reader gone off forgets it, so on again is a first read', () => {
+    const snapshots = new Map<string, PrInboxSnapshot>([[PROJECT.id, snapshot({})]])
+    let listener: ((projectId: string) => void) | undefined
+    const shown: PrInboxNote[] = []
+    const stop = installPrInboxNotifications(
+      {
+        snapshot: (id) => snapshots.get(id)!,
+        onChange: (each) => {
+          listener = each
+          return () => {
+            listener = undefined
+          }
+        },
+      },
+      () => [PROJECT],
+      () => true,
+      { focused: () => false, show: (note) => shown.push(note), open: () => undefined },
+    )
+    const change = (snap: PrInboxSnapshot): void => {
+      snapshots.set(PROJECT.id, snap)
+      listener?.(PROJECT.id)
+    }
+    change(snapshot({}))
+    change(snapshot({ 'needs-review': [asked(5)] }))
+    expect(shown.map((note) => note.pr.number)).toEqual([5])
+    // Off (the reader tells of it with a snapshot that is off), then on with a new request already there.
+    change(snapshot({}, { enabled: false }))
+    change(snapshot({ 'needs-review': [asked(5), asked(6)] }))
+    expect(shown).toHaveLength(1)
+    // A Project no longer in the list is not looked at.
+    listener?.('gone-00000000')
+    stop()
+    change(snapshot({ 'needs-review': [asked(5), asked(6), asked(7)] }))
+    expect(shown).toHaveLength(1)
   })
 })
 

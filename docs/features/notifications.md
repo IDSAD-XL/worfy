@@ -36,8 +36,9 @@ The rules:
   is looked at every minute, and while a window has focus the PR waits for the next read.
 - **A PR inbox event notifies once per PR and event.** An event is a review request, or the last comment of an unresolved
   thread on the user's own PR when that comment is someone else's. The user's own reply gives nothing. Replies in several threads
-  of one PR in one read give one note. What the first read of a Project holds gives nothing, and so does an event that came while
-  a window had focus or while the switch was off: it never comes later. A request asked again after the user's review notifies
+  of one PR in one read give one note. Two Projects of this Machine that read the same repository notify an event once. What
+  the first read of a Project holds gives nothing, and a Project whose inbox was switched off starts again from such a first
+  read. An event that came while a window had focus or while the switch was off gives nothing either: it never comes later. A request asked again after the user's review notifies
   again. The text never carries a word of a comment, only the kind of event, `owner/name#N` and the PR's title, cut to 80
   characters.
 - **Settings → Pull requests** has two switches of this Machine, both on by default: "Notify about new review requests and
