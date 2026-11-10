@@ -2,7 +2,7 @@
 
 Type: bug
 Status: in-progress
-PR: —
+PR: #1778
 Blocked by: —
 Source: Orchestrator 2026-11-10. С 2026-11-10T08:02Z каждый CI run `main` падает на одном e2e test-е, на macOS и
 Windows, повторы тоже; последний зелёный run `main` — 06:48Z.
@@ -47,6 +47,7 @@ AutoArchiver запускается при первом чтении Layout-а (
 - [ ] Другие e2e spec-и проверены на фиксированные даты, которые попадают под тот же порог; список в «Итог».
   - evidence: commit pass · test: build the restored Product Session's transcript time from now, not a fixed date (worfy-polish 97) · - - · 1390348036f855d165d3f5dce295168dd7b19c8a
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ceb22dfe1d68dc1ffa081ca573bf5be34680f444
 
 ## Где в коде
 
