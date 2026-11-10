@@ -59,22 +59,33 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Правильная правка записана через `profile-set`; `bin/profile` печатает новое значение; commit в git Harness-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Значение против схемы (пустая команда `verify`, `tickets.path` без `NN`, неизвестный `workflow.finish`) отклонено
   с причиной у поля; `profile.json` не изменился.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Чужой fingerprint — отказ, форма перечитана.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] `mode` и `workflow.folder` в форме не правятся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
   - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] `docs/features/projects.md` (и перевод в `docs/features/ru/`) описывает «Edit profile».
   - evidence: commit pass · Edit profile: every Profile field after the connection (worfy-polish 78) · - - · 00780e604
+  - evidence: commit pass · Edit profile: review round 1 of worfy-polish 78 · - - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 
 ## Тесты
 
