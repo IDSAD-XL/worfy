@@ -31,16 +31,23 @@ Source: владелец 2026-11-10, решения «все да» (бриф Or
 
 - [ ] Модель workflow несёт время spec-а Epic-а (`specAt`), `statusAt` Ticket-ов уже доходит до renderer-а; contract
       test на чтение.
+  - evidence: test-run pass · `pnpm test test/contract/workflow-reader.test.ts` exit 0 · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] Порядок и группа «Older» посчитаны чистой функцией; unit test-ы на порядок, порог, «Never», Epic в работе
       со старой датой, Epic без времени.
+  - evidence: test-run pass · `pnpm test test/unit/epics-order.test.tsx` exit 0 · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] Секция Epics показывает время с последней работы, порядок и группу «Older · N», клик разворачивает её,
       состояние складки — по Project-у; unit test на render.
+  - evidence: test-run pass · `pnpm test test/unit/epics-section-order.test.tsx test/unit/epics-section-reading.test.tsx` exit 0 · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] Настройка порога в app settings (схема, store, patch) и строка в Settings → General; contract и unit test-ы.
+  - evidence: test-run pass · `pnpm test test/contract/app-settings.test.ts test/unit/settings-epics-older.test.tsx` exit 0 · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] e2e spec секции: Epic в работе, свежий, закрытый 8 дней назад и открытый 8 дней назад → порядок и группа;
       порог Never показывает всё. Время fixture-ов — от `Date.now()`, без фиксированных дат.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/epics-older.spec.ts test/e2e/epic-frame.spec.ts test/e2e/epics-reading.spec.ts test/e2e/sidebar-sections.spec.ts` exit 0 (15 passed) · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] Страница `docs/features/workflow.md` (и перевод `ru`) описывает новый порядок и группу.
+  - evidence: commit pass · Order the sidebar's Epics by last work and fold the old ones into «Older» (worfy-polish 98) · - - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 - [ ] Снимки секции: 1280 px, тёмная и светлая тема, группа свёрнута и развёрнута.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b68f0bbb30f7ef1f115ac8d79b72c81160d8c578
 
 ## Где в коде
 
