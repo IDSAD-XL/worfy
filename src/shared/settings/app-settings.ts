@@ -28,6 +28,9 @@
 //   only what the person chose in Settings → Canvas; sessionArchiveOf() fills the rest with
 //   SESSION_ARCHIVE_DEFAULTS, so a choice outlives a later change of the defaults. Main reads it at
 //   every run of the archive (src/main/layout/archive.ts);
+// - `epicsOlderAfter` — how long an Epic of the sidebar's Epics section goes without work before it
+//   moves into the folded «Older» group (worfy-polish ticket 98): Never, 3, 7 or 30 days. Absent
+//   while the person has not chosen in Settings → General; epicsOlderAfterOf() gives 7 days then;
 // - `browserSleep` — when a Live Browser goes to sleep (worfy-browser ticket 05, ADR-0078 items 6
 //   and 7): `maxLive` — how many Browsers of this Machine are Live at once; `offscreenSeconds` — how
 //   long a Browser no screen shows at a readable zoom stays Live; `idleMinutes` — how long one
@@ -157,6 +160,17 @@ export type SessionArchive = { [K in keyof SessionArchiveChoice]-?: NonNullable<
  * 10); a person who chose «Never» then keeps it.
  */
 export const SESSION_ARCHIVE_DEFAULTS: Readonly<SessionArchive> = Object.freeze({ after: '24h', ticketDone: true })
+
+/**
+ * How long an Epic of the sidebar goes without work before it moves into the folded «Older» group
+ * (worfy-polish ticket 98); `never` — every Epic stays in the list. Modelled on SESSION_ARCHIVE_AFTER.
+ */
+export const EPICS_OLDER_AFTER = ['never', '3d', '7d', '30d'] as const
+export const epicsOlderAfterSchema = z.enum(EPICS_OLDER_AFTER)
+export type EpicsOlderAfter = z.output<typeof epicsOlderAfterSchema>
+
+/** The threshold of a Machine whose person chose nothing: 7 days (the owner's decision of 2026-11-10). */
+export const EPICS_OLDER_AFTER_DEFAULT: EpicsOlderAfter = '7d'
 
 /** The bounds of each Browser sleep setting; a value outside them is refused in a change and read as not chosen from the file. */
 export const BROWSER_SLEEP_BOUNDS = Object.freeze({
@@ -298,6 +312,8 @@ export const appSettingsSchema = z.object({
   autoUpdate: z.boolean().optional(),
   /** The archive settings the person chose; absent while none is (see sessionArchiveOf). */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
+  /** When a sidebar Epic without work moves into «Older»; absent while not chosen (see epicsOlderAfterOf). */
+  epicsOlderAfter: epicsOlderAfterSchema.optional(),
   /** The Browser sleep settings the person chose; absent while none is (see browserSleepOf). */
   browserSleep: browserSleepChoiceSchema.optional(),
   /** The Autopilot budget settings the person chose; absent while none is (see autopilotBudgetOf). */
@@ -345,6 +361,8 @@ export const appSettingsPatchSchema = z.object({
   autoUpdate: z.boolean().optional(),
   /** Each field given is chosen, the default value too; the others stay as they are. */
   sessionArchive: sessionArchiveChoiceSchema.optional(),
+  /** Chosen once given, the default value too. */
+  epicsOlderAfter: epicsOlderAfterSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a value outside BROWSER_SLEEP_BOUNDS is refused. */
   browserSleep: browserSleepChoiceSchema.optional(),
   /** Each field given is chosen, as in `sessionArchive`; a reserve outside AUTOPILOT_RESERVE_BOUNDS is refused. */
@@ -434,6 +452,11 @@ export function sessionArchiveOf(settings: Pick<AppSettings, 'sessionArchive'>):
     after: settings.sessionArchive?.after ?? SESSION_ARCHIVE_DEFAULTS.after,
     ticketDone: settings.sessionArchive?.ticketDone ?? SESSION_ARCHIVE_DEFAULTS.ticketDone,
   }
+}
+
+/** When a sidebar Epic without work moves into «Older»: the person's choice, else EPICS_OLDER_AFTER_DEFAULT. */
+export function epicsOlderAfterOf(settings: Pick<AppSettings, 'epicsOlderAfter'>): EpicsOlderAfter {
+  return settings.epicsOlderAfter ?? EPICS_OLDER_AFTER_DEFAULT
 }
 
 /** The Browser sleep settings in force: each field the person chose, else its default. */

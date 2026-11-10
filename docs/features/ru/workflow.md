@@ -52,8 +52,14 @@ mode статус ветки worktree Ticket-а идёт поверх стату
 на подсвеченной цепочке Node-а под курсором или выбранного Node-а. Стрелка завершённого blocker-а сплошная и рисуется только
 при подсветке. Стрелка рисуется, только когда у обоих Ticket-ов есть карточка на Canvas.
 
-**Sidebar и Command palette.** Секция Epics перечисляет Epic-и активного Project-а с их прогрессом и `N in work`; клик
-центрирует frame. В Command palette есть строка «Go to» для каждого Epic-а и Ticket-а, а для Ticket-а без карточки она
+**Sidebar и Command palette.** Секция Epics перечисляет Epic-и активного Project-а с их прогрессом, `N in work` и тем,
+сколько прошло с их последней работы («2h», «3d»); клик центрирует frame. Последняя работа Epic-а — самая новая смена
+статуса среди его Ticket-ов (время строки `Status:`: claim, block, done). Epic, ни один Ticket которого ещё не менял
+статус, берёт время последней записи своего `spec.md`. Сначала идут Epic-и с Ticket-ом в работе, потом остальные по
+последней работе, новые сверху. Epic без Ticket-а в работе и без работы дольше порога уходит в группу «Older · N» внизу
+секции — и закрытый, и с открытыми Ticket-ами. Группа свёрнута, пока её не откроет клик, и складка помнится для каждого
+Project-а. Порог — «Fold Epics without work after» в Settings → General: Never, 3, 7 или 30 дней, по умолчанию 7; Never
+оставляет все Epic-и в списке. В Command palette есть строка «Go to» для каждого Epic-а и Ticket-а, а для Ticket-а без карточки она
 центрирует frame. Каждая неотмеченная ручная проверка Ticket-а (пункт его раздела готовности с ручной пометкой из Profile) —
 строка Command palette, которая находится только при вводе текста. Выбор строки ведёт к Ticket-у. worfy эти пункты не отмечает.
 
@@ -145,7 +151,7 @@ Project-а. Focus mode тоже читает файл там, а «Open in edito
 | Frame-ы и карточки как Node-ы; колонки; высота карточки | `src/renderer/canvas/sources/epics.ts`, `src/renderer/canvas/epic-layout.ts`, `src/renderer/canvas/ticket-card.ts` |
 | View | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
 | Стрелки | `src/renderer/canvas/edges/blocking.ts` |
-| Sidebar, Command palette, пустая панель | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
+| Sidebar, Command palette, пустая панель | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/shell/sidebar/epics-order.ts`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
 | Кнопки | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |
 | Может ли действие выполниться; шаблоны | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Запуск работы | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |

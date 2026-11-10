@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, epicsOlderAfterOf, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -338,6 +338,31 @@ describe('AppSettingsStore', () => {
     // The same choice again writes nothing; another setting keeps the choice.
     expect(store.set({ sessionArchive: { after: 'never' } }).revision).toBe(5)
     expect(store.set({ interfaceScale: 1.2 }).sessionArchive).toStrictEqual({ after: 'never', ticketDone: false })
+  })
+
+  it('the «Older» threshold of the sidebar Epics (worfy-polish ticket 98): 7 days until chosen; a choice is written, read back and kept', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get()).not.toHaveProperty('epicsOlderAfter')
+    expect(epicsOlderAfterOf(store.get())).toBe('7d')
+
+    // The default value chosen is kept as chosen.
+    expect(store.set({ epicsOlderAfter: '7d' })).toMatchObject({ epicsOlderAfter: '7d', revision: 3 })
+    expect(store.set({ epicsOlderAfter: 'never' })).toMatchObject({ epicsOlderAfter: 'never', revision: 4 })
+    expect(JSON.parse(readFileSync(file, 'utf8')).epicsOlderAfter).toBe('never')
+    expect(epicsOlderAfterOf(new AppSettingsStore(file).get())).toBe('never')
+
+    // The same choice again writes nothing; another setting keeps the choice.
+    expect(store.set({ epicsOlderAfter: 'never' }).revision).toBe(4)
+    expect(store.set({ interfaceScale: 1.2 }).epicsOlderAfter).toBe('never')
+
+    // A threshold this version does not know (a newer one wrote it): not chosen, the rest of the file stays.
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, epicsOlderAfter: '90d', revision: 7 }))
+    const other = new AppSettingsStore(file).get()
+    expect(other).not.toHaveProperty('epicsOlderAfter')
+    expect(other).toMatchObject({ interfaceScale: 1.3, revision: 7 })
   })
 
   it('an archive threshold this version does not know (a newer one wrote it) reads as not chosen; the rest of the file stays', () => {
@@ -725,6 +750,13 @@ describe('appSettings channels', () => {
     expect(await call('appSettings.set', { sessionArchive: { after: '7d', ticketDone: false } })).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
     expect((await call('appSettings.set', { sessionArchive: { after: '12h' } })).ok).toBe(false)
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { sessionArchive: { after: '7d', ticketDone: false } } })
+  })
+
+  it('appSettings.set takes the «Older» threshold of the sidebar Epics and refuses one outside the four (worfy-polish ticket 98)', async () => {
+    const call = await windowCaller()
+    expect(await call('appSettings.set', { epicsOlderAfter: '30d' })).toMatchObject({ ok: true, value: { epicsOlderAfter: '30d' } })
+    expect((await call('appSettings.set', { epicsOlderAfter: '14d' })).ok).toBe(false)
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { epicsOlderAfter: '30d' } })
   })
 
   it('appSettings.set takes the Browser sleep settings within their bounds and refuses one outside them (worfy-browser ticket 05)', async () => {

@@ -15,6 +15,8 @@
 // the Start window, worfy-resource-planner ticket 04); a window whose edges meet in the file reads as
 // not chosen, and a change that would make them meet is refused. `autoUpdate` ("Update automatically",
 // worfy-update ticket 03) is on in a file written before it existed, as `memoryIndicator` is.
+// `epicsOlderAfter` (worfy-polish ticket 98) is absent until the person picks a threshold in Settings → General; one
+// this version does not know reads as not chosen.
 // `guideLanguage` (worfy-guide ticket 03) is absent until the person picks EN or RU in the Guide; a
 // language this version does not know reads as not chosen. `autoApproval` (worfy-auto-approve ticket
 // 06) holds the Auto-approval mode of each Project that is not Off; an entry with a mode outside Off /
@@ -57,6 +59,7 @@ import {
   INTERFACE_SCALE_DEFAULT,
   sectionIdSchema,
   sessionArchiveAfterSchema,
+  epicsOlderAfterSchema,
   browserSleepChoiceSchema,
   autopilotBudgetChoiceSchema,
   autopilotRunChoiceSchema,
@@ -65,6 +68,7 @@ import {
   START_WINDOW_SAME_HOURS,
   startWindowValid,
   type GuideLanguage,
+  type EpicsOlderAfter,
   type AppSettings,
   type AutoCompactRole,
   type AppSettingsPatch,
@@ -141,6 +145,7 @@ const appSettingsFileSchema = z.object({
   memoryIndicator: z.boolean().default(true),
   autoUpdate: z.boolean().default(true),
   sessionArchive: z.object({ after: sessionArchiveAfterSchema.optional().catch(undefined), ticketDone: z.boolean().optional() }).optional(),
+  epicsOlderAfter: epicsOlderAfterSchema.optional().catch(undefined),
   browserSleep: z
     .object({
       maxLive: browserSleepChoiceSchema.shape.maxLive.catch(undefined),
@@ -246,6 +251,12 @@ function runChoice(current: RunChoice, patch?: RunChoice): Pick<AppSettings, 'au
   }
 }
 
+/** The «Older» threshold of the sidebar's Epics after `patch`: once chosen, it stays chosen. */
+function epicsOlderAfterChoice(current: EpicsOlderAfter | undefined, patched: EpicsOlderAfter | undefined): Pick<AppSettings, 'epicsOlderAfter'> {
+  const after = patched ?? current
+  return after === undefined ? {} : { epicsOlderAfter: after }
+}
+
 /** The language of the Guide after `patch`: once chosen, it stays chosen. */
 function guideLanguageAfter(current: GuideLanguage | undefined, patched: GuideLanguage | undefined): Pick<AppSettings, 'guideLanguage'> {
   const language = patched ?? current
@@ -292,6 +303,7 @@ function copy(settings: AppSettings): AppSettings {
     memoryIndicator: settings.memoryIndicator,
     autoUpdate: autoUpdateOf(settings),
     ...archiveChoice(settings.sessionArchive),
+    ...(settings.epicsOlderAfter === undefined ? {} : { epicsOlderAfter: settings.epicsOlderAfter }),
     ...sleepChoice(settings.browserSleep),
     ...budgetChoice(settings.autopilotBudget),
     ...runChoice(settings.autopilotRun),
@@ -326,6 +338,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
     autoUpdate: patch.autoUpdate ?? autoUpdateOf(current),
     ...archiveChoice(current.sessionArchive, patch.sessionArchive),
+    ...epicsOlderAfterChoice(current.epicsOlderAfter, patch.epicsOlderAfter),
     ...sleepChoice(current.browserSleep, patch.browserSleep),
     ...budgetChoice(current.autopilotBudget, patch.autopilotBudget),
     ...runChoice(current.autopilotRun, patch.autopilotRun),
@@ -366,6 +379,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.autoUpdate === b.autoUpdate &&
     a.sessionArchive?.after === b.sessionArchive?.after &&
     a.sessionArchive?.ticketDone === b.sessionArchive?.ticketDone &&
+    a.epicsOlderAfter === b.epicsOlderAfter &&
     SLEEP_FIELDS.every((field) => a.browserSleep?.[field] === b.browserSleep?.[field]) &&
     a.autopilotBudget?.enabled === b.autopilotBudget?.enabled &&
     a.autopilotBudget?.reservePercent === b.autopilotBudget?.reservePercent &&

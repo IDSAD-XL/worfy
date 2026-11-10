@@ -97,7 +97,8 @@ describe('the Epics section during the first read', () => {
 
     await answer({ ok: true, value: model(['shop-mvp', 'shop-daily']) })
     expect(readingRow()).toBeNull()
-    expect(screen.getAllByTestId('sidebar-epic').map((row) => row.getAttribute('data-epic'))).toEqual(['shop-mvp', 'shop-daily'])
+    // Neither Epic has a time (no status change, no spec time): the name order (worfy-polish ticket 98).
+    expect(screen.getAllByTestId('sidebar-epic').map((row) => row.getAttribute('data-epic'))).toEqual(['shop-daily', 'shop-mvp'])
   })
 
   it('replaces the row with the error when workflow.open fails', async () => {

@@ -263,7 +263,7 @@ Settings — это настройки самого worfy на этой Machine.
 
 | Раздел | Что в нём |
 |---|---|
-| General | Interface scale; Memory in the toolbar; Version; Updates там, где Update включён: см. [Updates](updates.md) |
+| General | Interface scale; Memory in the toolbar; Fold Epics without work after (группа «Older» секции Epics, см. [Workflow](workflow.md)); Version; Updates там, где Update включён: см. [Updates](updates.md) |
 | Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку |
 | Shortcuts | Список окна Keyboard shortcuts |
 | Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |

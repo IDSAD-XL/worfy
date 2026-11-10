@@ -123,6 +123,12 @@ export type EpicStatusSnapshot = z.infer<typeof epicStatusSchema>
 export const epicSchema = epicStatusEpicSchema.extend({
   /** The H1 of the Epic's spec.md, without the leading `#`; null when there is no spec or no H1. */
   title: z.string().nullable(),
+  /**
+   * When spec.md was last written (its mtime, ISO); null when it cannot be read. The sidebar takes it as the Epic's last
+   * work while none of its Tickets has changed status (worfy-polish ticket 98). Absent from a reader that has no file
+   * times (a stand-in in tests) and from a Linked machine's older worfy.
+   */
+  specAt: z.string().nullable().optional(),
 })
 export type Epic = z.infer<typeof epicSchema>
 

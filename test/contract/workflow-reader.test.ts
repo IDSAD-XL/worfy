@@ -4,7 +4,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -339,13 +339,16 @@ async function startWatcher(repo: string, home: string, deltas: WorkflowDelta[],
 // ── reader ───────────────────────────────────────────────────────────────────
 
 describe('workflow reader', () => {
-  it('reads Epics and Tickets from epic-status and adds the trail-section files and the Epic title', async () => {
+  it('reads Epics and Tickets from epic-status and adds the trail-section files, the Epic title and the time of its spec', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
+    // The spec was written 3 days ago (worfy-polish ticket 98): the time is relative to now, never a fixed date.
+    const spec = join(repo, '.scratch', 'demo', 'spec.md')
+    utimesSync(spec, new Date(Date.now() - 3 * 24 * 3600_000), new Date(Date.now() - 3 * 24 * 3600_000))
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
 
     expect(model.error).toBeNull()
-    expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo epic: a small one' }])
+    expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo epic: a small one', specAt: statSync(spec).mtime.toISOString() }])
     expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
     expect(ticketOf(model, 2)).toMatchObject({ state: 'open', blockedNums: [1], files: ['src/b.ts', 'src/shared.ts'], filesListed: true, fromBranch: null })
     expect(ticketOf(model, 4)).toMatchObject({ files: [], filesListed: false })
@@ -1274,7 +1277,8 @@ describe('workflow reader in Silent mode', () => {
 
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(model.error).toBeNull()
-    expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Silent epic: tickets outside the repository' }])
+    // The spec's time comes from the Workflow folder, where the spec is.
+    expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Silent epic: tickets outside the repository', specAt: statSync(join(scratch, 'demo', 'spec.md')).mtime.toISOString() }])
     expect(ticketOf(model, 1)).toMatchObject({ state: 'work', files: ['src/a.ts'], filesListed: true, fromBranch: null, branch: 'fix/first', repo: 'silent-repo' })
     expect(ticketOf(model, 2)).toMatchObject({ state: 'open', files: ['src/b.ts', 'src/c.ts'], filesListed: true, fromBranch: null })
     expect(model.branchErrors).toEqual([])
@@ -2541,6 +2545,25 @@ describe('workflow reader and the links on the way to the Tickets (Windows rules
     expect(fake.lstat.filter((path) => path === ISSUES)).toHaveLength(1)
     expect(fake.lstat.filter((path) => path === SCRATCH)).toHaveLength(1)
     expect(new Set(fake.lstat).size).toBe(fake.lstat.length)
+  })
+
+  // worfy-polish ticket 98: the time of spec.md, for the order of the sidebar's Epics. It is asked for only after the
+  // spec was read, so a spec behind a link to a share gets no stat either.
+  it('gives each Epic the time of its spec, null for a spec it may not read, and none without file times', async () => {
+    const fake = system()
+    const written = Date.now() - 5 * 60_000
+    const stats: string[] = []
+    const mtime = async (path: string): Promise<number | null> => (stats.push(path), written)
+    const read = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, { ...fake.options, fs: { ...fake.options.fs, mtime } })
+    expect(read.epics).toEqual([{ epic: 'alpha', hasSpec: true, hasMap: false, title: 'Alpha epic', specAt: new Date(written).toISOString() }])
+
+    stats.length = 0
+    fake.linked.set(`${SCRATCH}\\alpha\\spec.md`, '\\\\evil\\share\\spec.md')
+    const away = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, { ...fake.options, fs: { ...fake.options.fs, mtime } })
+    expect(away.epics).toEqual([{ epic: 'alpha', hasSpec: true, hasMap: false, title: null, specAt: null }])
+    expect(stats).toEqual([])
+
+    expect((await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, system().options)).epics[0]).not.toHaveProperty('specAt')
   })
 
   // worfy-polish ticket 36: the version is the hash of the text read; with no text there is none.
