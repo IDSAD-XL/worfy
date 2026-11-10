@@ -143,10 +143,17 @@ clean line of `review-draft-lint`. Ask whether to post it as it is, change it, o
 
 Post only after an explicit "yes" to this question in this conversation. A request to change something is not a
 "yes": change the draft, run `review-draft-lint` again, show it again and ask again. A question, silence or a
-"maybe" is not a "yes" either. On "yes", and only then:
+"maybe" is not a "yes" either. On "yes", and only then, run two commands, one after the other. The first writes the
+request body:
 
 ```bash
-node -e 'const fs = require("fs"); const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); fs.writeFileSync(process.argv[2], JSON.stringify(d.payload))' "<tmp>/review-<n>.json" "<tmp>/payload-<n>.json"
+node -e 'const fs = require("fs"); const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); fs.writeFileSync(process.argv[2], JSON.stringify(d.payload))' "<tmp>/review-<n>.json" "<tmp>/payload-<n>.json"; echo "EXIT=$?"
+```
+
+The second posts it. Keep it a command of its own: the Bash guard reads the file before the command runs, and a
+file the same command writes first does not exist yet.
+
+```bash
 gh api --method POST "repos/<owner>/<repo>/pulls/<n>/reviews" --input "<tmp>/payload-<n>.json"; echo "EXIT=$?"
 ```
 

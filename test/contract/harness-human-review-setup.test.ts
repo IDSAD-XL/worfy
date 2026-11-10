@@ -370,6 +370,19 @@ describe('the template of the generated skill', () => {
     }
   })
 
+  it('writes the request body and posts it in two separate commands: the Bash guard reads the file before a command runs', () => {
+    const code = [...templateStep(8).matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1] ?? '')
+    const post = code.filter((c) => c.includes('gh api --method POST'))
+    const write = code.filter((c) => c.includes('writeFileSync'))
+    expect(post, templateStep(8)).toHaveLength(1)
+    expect(write, templateStep(8)).toHaveLength(1)
+    const [postBlock = '', writeBlock = ''] = [post[0], write[0]]
+    expect(postBlock).not.toContain('writeFileSync')
+    expect(postBlock).toContain('--input "<tmp>/payload-<n>.json"')
+    expect(writeBlock).toContain('"<tmp>/payload-<n>.json"')
+    expect(code.indexOf(writeBlock)).toBeLessThan(code.indexOf(postBlock))
+  })
+
   it('voice-examples.md has a section for each tier, the rule of a third and no logins', () => {
     expect([...examplesTemplate.matchAll(/^## (.+)$/gm)].map((m) => m[1])).toEqual(TIERS)
     for (const tier of TIERS) expect(examplesTemplate, tier).toContain(`{{examples: ${tier}}}`)

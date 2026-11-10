@@ -94,11 +94,143 @@ git -C "$R" add -f .scratch
 expect "silent: a staged .scratch file under a clean message -> deny" deny "$R" 'git commit -m "Fix it"' 'index file names .scratch/checkout-flow/n.md'
 git -C "$R" rm -rq --cached .scratch && rm -rf "$R/.scratch"
 
+# --- gh api: writes into PRs and issues, GraphQL mutations ----------------------------------------
+# A reply, a review or a comment sent through `gh api` publishes text the same way `gh pr comment` does. The hook
+# only reads the command: no gh runs here, and nothing is sent anywhere.
+REPLY='gh api --method POST repos/o/r/pulls/7/comments/11/replies -f body='
+expect "silent: gh api POST …/replies -f body=<epic>/03 -> deny" deny "$R" "${REPLY}'Done in checkout-flow/03'" 'checkout-flow/03'
+[[ "$got" == *'gh api repos/o/r/pulls/7/comments/11/replies'* ]] && ok "gh api: the refusal names gh api <path>" \
+    || bad "gh api: the refusal does not name gh api <path>: ${got:0:300}"
+expect "silent: gh api POST …/replies with a clean body -> allow" allow "$R" "${REPLY}'The state is kept now.'"
+expect "silent: gh api, implicit POST (-f, no --method) on issues/7/comments -> deny" deny "$R" \
+    "gh api repos/o/r/issues/7/comments -f body='Follows ADR-0042'" 'ADR number'
+printf 'Reply\n\nsee HANDOFF\n' >"$T/reply.md"
+expect "silent: gh api -F body=@<file> with HANDOFF -> deny" deny "$R" "gh api repos/o/r/issues/7/comments -F body=@$T/reply.md" 'HANDOFF'
+expect "silent: gh api --raw-field=body=… -> deny" deny "$R" "gh api repos/o/r/pulls/comments/12 -X PATCH --raw-field=body='Ticket 05 done'" 'Ticket 05'
+expect "silent: gh api -X PATCH /repos/…/pulls/7 -f title=<epic>/05 (leading slash) -> deny" deny "$R" \
+    "gh api -X PATCH /repos/o/r/pulls/7 -f title='checkout-flow/05: fix'" 'checkout-flow/05'
+printf '{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"See Ticket 05"}]}\n' >"$T/review.json"
+printf '{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"Keep the state here."}]}\n' >"$T/review-clean.json"
+expect "silent: gh api POST …/reviews --input <payload>, a trace in comments[].body -> deny" deny "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json" 'Ticket 05'
+# The file path a review comment sits on is not published text: an epic is often named after the code area it changes.
+expect "silent: gh api --input <payload>, clean bodies, the epic name only in comments[].path -> allow" allow "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-clean.json"
+expect "silent: gh api --input <a file that does not exist> -> deny with the reason" deny "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json" 'could not be read'
+[[ "$got" == *'no-such-review.json'* && "$got" == *'`gh api repos/o/r/pulls/7/reviews` was not run'* ]] \
+    && ok "gh api, unreadable --input: the refusal names the file and gh api <path>" || bad "gh api, unreadable --input: ${got:0:400}"
+INPUT_HD=$'gh api --method POST repos/o/r/pulls/7/reviews --input - <<\'EOF\'\n{"event":"COMMENT","body":"Follows ADR-0042"}\nEOF'
+expect "silent: gh api --input - from a heredoc -> deny" deny "$R" "$INPUT_HD" 'ADR-0042'
+expect "silent: gh api graphql mutation with ADR-0042 in the body -> deny" deny "$R" \
+    "gh api graphql -f query='mutation { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: \"T1\", body: \"Follows ADR-0042\"}) { comment { id } } }'" 'ADR-0042'
+expect "silent: gh api graphql mutation, the text in a -f variable -> deny" deny "$R" \
+    "gh api graphql -f query='mutation(\$b: String!) { addComment(input: {subjectId: \"I1\", body: \$b}) { clientMutationId } }' -f b='Ticket 05 done'" 'Ticket 05'
+
+# Each write path the guard knows, one trace each: <description>|<command>.
+while IFS='|' read -r what c; do
+    expect "silent: gh api $what -> deny" deny "$R" "$c" 'carries traces'
+done <<'EOF'
+a new PR (POST …/pulls)|gh api repos/o/r/pulls -f title='checkout-flow/05' -f head=fix -f base=main
+a new issue (POST …/issues)|gh api repos/o/r/issues -f title='Ticket 05 follow-up'
+a PR description (PATCH …/issues/7)|gh api -X PATCH repos/o/r/issues/7 -f body='see HANDOFF'
+a line comment (POST …/pulls/7/comments)|gh api repos/o/r/pulls/7/comments -f body='Ticket 05' -f path=a.ts -F line=3
+an issue comment edit (PATCH …/issues/comments/12)|gh api -X PATCH repos/o/r/issues/comments/12 -f body='Ticket 05'
+a review edit (PUT …/reviews/99)|gh api -X PUT repos/o/r/pulls/7/reviews/99 -f body='Follows ADR-0042'
+a review submission (POST …/reviews/99/events)|gh api -X POST repos/o/r/pulls/7/reviews/99/events -f event=COMMENT -f body='Follows ADR-0042'
+a review dismissal, the message field (PUT …/reviews/99/dismissals)|gh api -X PUT repos/o/r/pulls/7/reviews/99/dismissals -f message='See ADR-0042'
+a merge, the commit_message field (PUT …/pulls/7/merge)|gh api -X PUT repos/o/r/pulls/7/merge -f commit_message='Ticket 05'
+the lower-case method -X put|gh api -X put repos/o/r/pulls/7/merge -f commit_title='Ticket 05'
+-fbody= (a value glued to its flag)|gh api repos/o/r/issues/7/comments -fbody='Ticket 05'
+-iX POST (a cluster of short flags)|gh api -iX POST repos/o/r/issues/7/comments -f body='Ticket 05'
+a nested field comments[][body]|gh api repos/o/r/pulls/7/reviews -f event=COMMENT -f 'comments[][path]=a.ts' -f 'comments[][body]=Ticket 05'
+by full URL with a host|gh api https://api.github.com/repos/o/r/issues/7/comments -f body='Ticket 05'
+a path with a query string|gh api 'repos/o/r/issues/7/comments?per_page=1' -f body='Ticket 05'
+a GraphQL mutation to GitHub Enterprise (…/api/graphql)|gh api https://ghe.example.com/api/graphql -f query='mutation { addComment(input: {subjectId: "I1", body: "Follows ADR-0042"}) { clientMutationId } }'
+EOF
+# GraphQL --input counts whole: the trace sits in a variable a REST payload would not look at.
+printf '{"query":"mutation($id: ID!, $note: String!) { addComment(input: {subjectId: $id, body: $note}) { clientMutationId } }","variables":{"id":"I1","note":"Ticket 05"}}\n' >"$T/mutation.json"
+expect "silent: gh api graphql --input <file>, a trace in a variable -> deny" deny "$R" "gh api graphql --input $T/mutation.json" 'Ticket 05'
+expect "silent: gh api graphql --input <a file that does not exist> -> deny with the reason" deny "$R" "gh api graphql --input $T/no-such-mutation.json" 'could not be read'
+# A byte order mark before a JSON payload: still JSON, so the epic name in comments[].path is not published text.
+printf '\xef\xbb\xbf{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"Keep it."}]}\n' >"$T/review-bom.json"
+expect "silent: gh api --input <payload with a byte order mark>, clean bodies -> allow" allow "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-bom.json"
+# -F body=@- publishes the heredoc as it is, also when it looks like JSON: only --input - is a payload.
+FIELD_HD=$'gh api repos/o/r/issues/7/comments -F body=@- <<\'EOF\'\n{"path": "a.ts", "note": "Ticket 05"}\nEOF'
+expect "silent: gh api -F body=@- with a JSON-looking heredoc -> deny on the whole text" deny "$R" "$FIELD_HD" 'Ticket 05'
+INPUT_HD_CLEAN=$'gh api --method POST repos/o/r/pulls/7/reviews --input - <<\'EOF\'\n{"event":"COMMENT","body":"Looks right.","comments":[{"path":"src/checkout-flow/a.ts","line":1,"body":"Keep it."}]}\nEOF'
+expect "silent: gh api --input - from a heredoc, clean bodies, the epic name only in comments[].path -> allow" allow "$R" "$INPUT_HD_CLEAN"
+# A payload nested deeper than the call stack: the hook still answers, with the trace.
+node -e 'const n = 20000; process.stdout.write("{\"body\":\"Ticket 05\",\"x\":" + "{\"a\":".repeat(n) + "1" + "}".repeat(n) + "}")' >"$T/review-deep.json"
+expect "silent: gh api --input <a payload nested 20000 deep> -> deny with the trace" deny "$R" \
+    "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review-deep.json" 'Ticket 05'
+
+# A file path as the shell of the command reads it.
+mkdir -p "$HOME/r" "$T/tmpd/r" "$T/vars"
+for d in "$HOME/r" "$T/tmpd/r" "$T/vars"; do cp "$T/review.json" "$d/review.json"; done
+OLD_TMPDIR="${TMPDIR-}"; export TMPDIR="$T/tmpd"
+POST='gh api --method POST repos/o/r/pulls/7/reviews --input'
+expect "silent: gh api --input ~/<file> -> read from HOME, deny with the trace" deny "$R" "$POST ~/r/review.json" 'Ticket 05'
+expect "silent: gh api --input \"\$HOME/<file>\" -> deny with the trace" deny "$R" "$POST \"\$HOME/r/review.json\"" 'Ticket 05'
+expect "silent: gh api --input \"\${TMPDIR}/<file>\" -> deny with the trace" deny "$R" "$POST \"\${TMPDIR}/r/review.json\"" 'Ticket 05'
+expect "silent: V=<dir>; gh api --input \$V/<file> -> deny with the trace" deny "$R" "V=$T/vars; $POST \"\$V/review.json\"" 'Ticket 05'
+expect "silent: gh api --input \$UNKNOWN/<file> -> deny, the variable named" deny "$R" "$POST \"\$UNKNOWN_DIR/review.json\"" 'names a shell variable'
+expect "silent: V=\$(mktemp -d); gh api --input \$V/<file> -> deny, the variable named" deny "$R" "V=\$(mktemp -d); $POST \$V/review.json" 'names a shell variable'
+if [ -n "$OLD_TMPDIR" ]; then export TMPDIR="$OLD_TMPDIR"; else unset TMPDIR; fi
+# Git Bash paths on Windows. A preloaded script makes process.platform win32 on every system, and the guard's
+# temporary folder (TMPDIR on macOS and Linux, TEMP and TMP on Windows) is $T/wintmp.
+mkdir -p "$T/wintmp/r" && cp "$T/review.json" "$T/wintmp/r/review.json"
+printf 'Object.defineProperty(process, "platform", { value: "win32" })\n' >"$T/win32.cjs"
+guard_win() { # <command> → the answer as guard prints it
+    local out
+    out="$(jq -n --arg c "$1" --arg d "$R" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' \
+        | TMPDIR="$T/wintmp" TEMP="$T/wintmp" TMP="$T/wintmp" node --require "$T/win32.cjs" "$GUARD")"
+    if [ -z "$out" ]; then echo allow; else printf 'deny: %s\n' "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; fi
+}
+got="$(guard_win "$POST /tmp/r/review.json")"
+[[ "$got" == deny*'Ticket 05'* ]] && ok "win32: gh api --input /tmp/<file> -> read from the temporary folder, deny with the trace" \
+    || bad "win32: --input /tmp/<file>: ${got:0:400}"
+got="$(guard_win "$POST /c/no-such-dir/review.json")"
+[[ "$got" == deny*'could not be read'* && "$got" =~ C:[/\\]no-such-dir[/\\]review\.json ]] && ok "win32: gh api --input /c/<file> -> read as C:/<file>" \
+    || bad "win32: --input /c/<file>: ${got:0:400}"
+
+# Elsewhere /tmp and /c/ are plain paths: the Git Bash mapping is for Windows only. The payloads go into a folder of
+# their own under the real /tmp, removed at the end.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *)
+        RT="$(mktemp -d /tmp/guard-silent.XXXXXX)"
+        cp "$T/review.json" "$RT/review.json" && cp "$T/review-clean.json" "$RT/review-clean.json"
+        expect "not win32: gh api --input /tmp/<file> -> read from /tmp itself, deny with the trace" deny "$R" "$POST $RT/review.json" 'Ticket 05'
+        expect "not win32: gh api --input /tmp/<clean payload> -> allow" allow "$R" "$POST $RT/review-clean.json"
+        rm -rf "$RT"
+        expect "not win32: gh api --input /c/<file> stays /c/" deny "$R" "$POST /c/no-such-dir/review.json" 'could not be read'
+        [[ "$got" == *'/c/no-such-dir/review.json'* && ! "$got" =~ C:[/\\]no-such-dir ]] && ok "not win32: /c/<file> is not read as C:/<file>" \
+            || bad "not win32: /c/<file>: ${got:0:400}"
+        ;;
+esac
+
+# The Team reviewer's posting step, both lines in one command: the payload does not exist when the guard reads it.
+WRITE_THEN_POST="node -e 'require(\"fs\").copyFileSync(process.argv[1], process.argv[2])' \"$T/review.json\" \"$T/payload-9.json\"
+$POST \"$T/payload-9.json\"; echo \"EXIT=\$?\""
+expect "silent: write the payload and post it in one command -> deny, telling to split it" deny "$R" "$WRITE_THEN_POST" 'Write the file in one command, then send it in the next one'
+[[ "$got" != *'then run the same command again'* ]] && ok "write then post in one command: the refusal does not ask to run the same command again" \
+    || bad "write then post in one command asks for the same command again: ${got:0:400}"
+expect "silent: post a missing payload, then remove it -> deny, check the path" deny "$R" "$POST $T/payload-8.json && rm $T/payload-8.json" 'Check the path'
+
 # --- Full project, attribution on: everything passes as before -------------------------------
 for c in 'git commit -m "Fix the button, Ticket 05"' 'git switch -c checkout-flow/05' 'gh pr create --title "x" --body "Follows ADR-0042"' \
          $'git commit -m "Fix" -m "Co-Authored-By: Claude Opus <noreply@anthropic.com>"' "$HD" 'git branch checkout-flow'; do
     expect "full: ${c%%$'\n'*} -> allow" allow "$FR" "$c"
 done
+full_api() { expect "full: gh api $1 -> allow" allow "$FR" "$2"; }
+full_api "POST …/replies with <epic>/03" "${REPLY}'Done in checkout-flow/03'"
+full_api "implicit POST …/issues/7/comments with ADR-0042" "gh api repos/o/r/issues/7/comments -f body='Follows ADR-0042'"
+full_api "POST …/reviews --input <payload with Ticket 05>" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/review.json"
+full_api "POST …/reviews --input <a file that does not exist>" "gh api --method POST repos/o/r/pulls/7/reviews --input $T/no-such-review.json"
+full_api "write the payload and post it in one command" "$WRITE_THEN_POST"
+full_api "graphql mutation with ADR-0042" "gh api graphql -f query='mutation { addComment(input: {subjectId: \"I1\", body: \"Follows ADR-0042\"}) { clientMutationId } }'"
 expect "full: git reset --hard is still refused" deny "$FR" 'git reset --hard' 'reset --hard'
 expect "full: a pipe that eats the exit code is still refused" deny "$FR" 'pnpm test | tail -5' 'pipe eats the exit code'
 expect "silent: git reset --hard is refused by section 1 first" deny "$R" 'git reset --hard' 'reset --hard'
@@ -341,6 +473,17 @@ stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEA
 export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
 unset CLAUDE_SILENT_CHECK_BIN
+
+# gh api that only reads never asks the check: a stand-in that finds traces in anything would refuse it otherwise.
+# A heredoc next to a read, and a field named body on a GET (gh sends it as a query parameter), are no text to publish.
+stub traces "gh api POST …/replies asks the check" deny "${REPLY}'Done'" 'ticket number' 1
+for c in $'gh api repos/o/r/pulls/7/comments >c.json && cat <<\'EOF\'\nnotes\nEOF' 'gh api /repos/o/r/pulls/7/comments --paginate --jq ".[].body"' \
+         'gh api -X GET repos/o/r/issues/7/comments -f per_page=100 -f body=x' 'gh api --method DELETE repos/o/r/issues/comments/12' \
+         'gh api -XGET repos/o/r/issues/7/comments -f body=x' 'gh api -iX GET repos/o/r/issues/7/comments -f body=x' \
+         "gh api graphql -f query='query { repository(owner: \"o\", name: \"r\") { pullRequest(number: 7) { title } } }'"; do
+    d="${c%%$'\n'*}"
+    stub traces "gh api read: ${d:0:60}… -> allow, no check" allow "$c" '' 0
+done
 
 TRY_MS=3000
 stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
