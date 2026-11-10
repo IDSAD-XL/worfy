@@ -710,6 +710,17 @@ describe('one card for a Ticket over several repositories (worfy-multi-repo-tick
     expect(within(card).getByTestId('pipeline-merged').textContent).toBe('1/2 merged')
   })
 
+  it('of two Release: lines, only the one not met yet is shown while the consumer waits', async () => {
+    const releases: StageFacts['releases'] = [
+      { ...LINE, state: 'released' },
+      { repo: 'lib', kind: 'package', ref: '@team/lib@1.4.0', state: 'waiting' },
+    ]
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), null, { releases }))
+    const card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('release')
+    expect(within(card).getAllByTestId('pipeline-release').map((flag) => flag.textContent)).toEqual(['waits for release @team/lib@1.4.0'])
+  })
+
   it('a release worfy could not check says so, as a flag that needs attention', async () => {
     await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), 'not checked'))
     const flag = within(cardOf('team', 4)).getByTestId('pipeline-release')
