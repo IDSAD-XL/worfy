@@ -54,11 +54,16 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · df0b954a7
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · df0b954a7
   - evidence: gate pass · `gate fast` exit 0 · mac - · df0b954a7
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · a62427b47
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · a62427b47
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a62427b47
 - [ ] Silent → Full: обратный путь проходит; для Project-а над несколькими репозиториями — отказ.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · f7beec4d4
   - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · df0b954a7
   - evidence: gate pass · `gate fast` exit 0 · mac - · df0b954a7
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · a62427b47
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a62427b47
 - [ ] Незакоммиченные изменения, работающая Session или открытый PR ticket-а — отказ с причиной; ни один файл и
   Profile не изменились.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · f7beec4d4
@@ -66,6 +71,8 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
   - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · df0b954a7
   - evidence: gate pass · `gate fast` exit 0 · mac - · df0b954a7
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · a62427b47
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a62427b47
 - [ ] Сбой на середине переноса — обе стороны и Profile как до переноса.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 · mac - · f7beec4d4
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · f7beec4d4
@@ -73,10 +80,14 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0 · mac - · df0b954a7
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-move.test.ts` exit 0 · mac - · df0b954a7
   - evidence: gate pass · `gate fast` exit 0 · mac - · df0b954a7
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0 · mac - · a62427b47
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/docs-hub-hold.test.ts` exit 0 · mac - · a62427b47
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a62427b47
 - [ ] `docs/features/projects.md` (и перевод в `docs/features/ru/`) описывает перенос.
   - evidence: gate pass · `gate fast` exit 0 · mac - · f7beec4d4
   - evidence: commit pass · Move a Project's workflow files between Full and Silent mode (worfy-polish 81) · - - · f7beec4d4
   - evidence: gate pass · `gate fast` exit 0 · mac - · df0b954a7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a62427b47
 
 ## Тесты
 
@@ -151,11 +162,11 @@ Silent mode — в Workflow folder вне репозитория (ADR-0042). П�
   Подтверждение называет lessons и оба пути. После переноса нижняя строка называет игнорируемые файлы и коллекции
   qmd, которые надо пересоздать.
 - Test-ы: `harness/bin/tests/profile-set-move.test.sh` (156 проверок), `harness/bin/tests/profile-set-move-recover.test.sh`
-  (173 проверки: ссылка, другой репозиторий, detached HEAD, файл на новом месте, папка шаблона spec-а, игнорируемый
+  (181 проверка: ссылка, другой репозиторий, detached HEAD, файл на новом месте, папка шаблона spec-а, игнорируемый
   файл, конфиг git вызывающего, `GIT_DIR` у gh, lock долгого переноса, kill на каждом шаге и восстановление, чужие
   изменения на каждой стороне после kill-а, сломанный marker), `test/contract/profile-move.test.ts` (в том
   числе над настоящими `WorkflowHub` и `DocsHub`), `test/unit/edit-profile.test.tsx`. Mutation check: раунд 1 —
-  14 мутантов, раунд review 1 — 22 мутанта, раунд review 2 — см. ниже, все убиты.
+  14 мутантов, раунд review 1 — 22 мутанта, раунд review 2 — 13 мутантов, среди них «проверка принимающей стороны выключена» и «проверка исходной стороны выключена», все убиты.
 
 ### Решено без владельца
 
