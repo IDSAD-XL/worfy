@@ -1,7 +1,8 @@
 # 90 — Flaky test: `codex-auto-continue.test.ts` падает с ENOTEMPTY, удаляя свою временную папку
 
 Type: bug
-Status: claimed 2026-11-10T07:27Z
+Status: done 2026-11-10T08:11Z
+PR: #1774
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10 в локальном gate fast на Mac (запуск 03:32Z; повтор в 03:38Z зелёный).
 В CI за 2026-11-09…11-10 не найдено: в log-ах job-ов `linux-tests`, `macos-tests` и `windows … / full-suite` этот

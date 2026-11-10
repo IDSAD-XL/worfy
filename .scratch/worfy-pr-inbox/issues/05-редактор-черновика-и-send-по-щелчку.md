@@ -1,7 +1,8 @@
 # 05 — Редактор черновика и Send по щелчку: main перепроверяет и публикует ровно показанный текст
 
 Type: task
-Status: claimed 2026-11-10T04:11Z
+Status: done 2026-11-10T06:48Z
+PR: #1771
 Blocked by: 02, 03, 04
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 4–5; «Как работает» → «Send по щелчку (Ticket 05; Q2,
 ADR-0105)»; «Решено без владельца»; «Риски» («Публикация по ошибке», «Scope токена»); «Ticket-ы», «Волны» (Wave 3);
@@ -66,6 +67,7 @@ ADR-0105)»; «Решено без владельца»; «Риски» («Пу�
   - evidence: test-run pass · `pnpm test -- test/unit/draft-thread.test.tsx` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] E2e test: правка черновика и щелчок Send — один POST с правленым текстом в журнале stub-а; без щелчка — ни
       одного.
+  - evidence: ci-check pass · test/e2e/pr-inbox.spec.ts:384 green in macos-e2e and windows-e2e of ci-ok on 2670c066f (land 150) · mac - · 2670c066f594ee9c506562cc6e48d2065be0a149
 - [ ] Владелец в Mac Stable отправил один ответ на настоящем PR командного проекта: на GitHub ровно текст из поля,
       без следов workflow и подписи ИИ.
   - needs: mac stable

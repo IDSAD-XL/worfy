@@ -1,7 +1,8 @@
 # 88 — Flaky test: в `e3-sandbox.test.ts` два run-а `lock-run` держат lock одновременно
 
 Type: bug
-Status: claimed 2026-11-10T06:54Z
+Status: done 2026-11-10T08:20Z
+PR: #1775
 Blocked by: —
 Source: CI run 42741932918 (PR #1763, ветка `worfy-multi-repo-ticket/06`, job `linux-tests (4/4)`, 2026-11-10T02:23Z).
 Изменения PR-а этого test-а и `scripts/e3-sandbox.sh` не касались. Раньше тот же test дал строку FLAKY (упал, прошёл

@@ -1,7 +1,8 @@
 # 87 — Flaky test: `beforeAll` в `affected-tests.test.ts` не укладывается в 30 s под нагрузкой
 
 Type: bug
-Status: claimed 2026-11-10T06:54Z
+Status: done 2026-11-10T08:02Z
+PR: #1773
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10 в прогонах `pnpm test` на Mac. Строки перечитаны по main `8d08ed9f7`.
 

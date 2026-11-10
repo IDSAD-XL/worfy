@@ -1,7 +1,8 @@
 # 06 — Badge нитей ревью на Ticket Node и строка «Waits: N answers» на карточке Pipeline
 
 Type: task
-Status: claimed 2026-11-10T04:11Z
+Status: done 2026-11-10T06:31Z
+PR: #1768
 Blocked by: 02, 03, `worfy-multi-repo-ticket` 06
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 6; «Как работает» → «Связь с Ticket-ом (Ticket 06)»;
 «Решено без владельца»; «Риски» («Общие файлы с `worfy-multi-repo-ticket`»); «Ticket-ы», «Волны» (Wave 3); решение
@@ -51,6 +52,7 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · bc2eb2394c0ae753b25381be4f1d7da2750e5b36
 - [ ] E2e test: щелчок по badge открывает вид Pull requests на этом PR; журнал stub-а gh без записей.
+  - evidence: ci-check pass · test/e2e/checks-badges.spec.ts:377 green in macos-e2e and windows-e2e of ci-ok on 6bfde5029 (land 149) · mac - · 6bfde5029d222db6e15bf775023483c864def26f
 - [ ] `docs/features/gate-and-github.md` описывает badge и строку.
   - evidence: commit pass · Review threads badge on the Ticket Node and Waits: N answers on the Pipeline card (worfy-pr-inbox 06) · - - · 6aeab913a8ae800b916058b99eb8c9f054afc176
   - evidence: commit pass · Review threads: one memoized PR-to-Ticket map, main's rule for whose answer a thread waits, trail of the ticket · - - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a

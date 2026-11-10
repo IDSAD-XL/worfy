@@ -1,7 +1,8 @@
 # 89 — Flaky test: отношение времени двух scan-ов в `autopilot-task-output.test.ts` выходит за 64 под нагрузкой
 
 Type: bug
-Status: open
+Status: done 2026-11-10T08:14Z
+PR: #1776
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10 в локальном gate fast на Mac (запуск 02:12Z; повтор в 02:23Z зелёный).
 В CI за 2026-11-09…11-10 не найдено: в log-ах job-ов `linux-tests`, `macos-tests` и `windows … / full-suite` этот
