@@ -1,7 +1,7 @@
 # 87 — Flaky test: `beforeAll` в `affected-tests.test.ts` не укладывается в 30 s под нагрузкой
 
 Type: bug
-Status: open
+Status: claimed 2026-11-10T06:54Z
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10 в прогонах `pnpm test` на Mac. Строки перечитаны по main `8d08ed9f7`.
 
@@ -45,3 +45,47 @@ generated-строки таблицы по исходникам всех test-о
 
 - Общие пределы набора и множитель в `test/time-scale.ts`.
 - Остальные flaky test-ы из таблицы `worfy-polish` 66.
+
+## Итог
+
+Код приложения и `scripts/` не менялись: правка только в `beforeAll` блока «scripts/affected-tests.table.json of this
+repository» (`test/unit/affected-tests.test.ts`). Общий `hookTimeout` и `test/time-scale.ts` не тронуты.
+
+**Где уходит время.** Сам `generate(REPO)` не медленный: system `node` строит 262 строки за 0,9–1,0 s
+(`node <probe> <worktree>`, два вызова подряд, loadavg 2,8). Тот же вызов под Node из Electron
+(`ELECTRON_RUN_AS_NODE=1 <electron> <probe>`) — 3,8 и 5,7 s; внутри vitest (`pnpm test` гоняет test-ы под Electron) —
+4,8 и 8,3 s. CPU profile под Electron: время размазано по разбору TypeScript (`scan`, `visitNode`, `forEachChild`,
+`parse…`) и по обходу `visit`/`evaluate` генератора, без одной горячей точки; повторной работы, которую можно
+выкинуть, не видно, а строки нужны блоку все (`names only files that exist`, `selected(...)`). Причина — Node из
+Electron, а не алгоритм.
+
+**Что сделано.** `beforeAll` больше не зовёт `generate(REPO)` в процессе test-а, а запускает команду генератора
+`scripts/affected-tests-table.mjs` настоящим `node` (`scriptNode()` из `test/script-node.ts`, как остальные скрипты в
+этом файле) и читает JSON из stdout; код выхода проверяется. Что команда печатает ровно `generate()`, держит
+test «prints the rows as JSON when run as a command, and nothing else» того же файла. CI так же зовёт
+`scripts/affected-tests.mjs` через `node`.
+
+**Замеры под нагрузкой.** Одновременно с test-ами шли тяжёлые прогоны других агентов (loadavg 30–153 на 18 ядрах).
+
+- До исправления: `/tmp/claude-501/p87/loop.sh` — 10 запусков подряд
+  `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` параллельно с полным `pnpm test` того же worktree:
+  **0 падений из 10** (20–168 s на запуск, loadavg 29–153); сам `pnpm test` — exit 0. Падение тикета в этих 10
+  запусках не воспроизвелось.
+- Сколько занял бы старый `beforeAll`: временный probe-test (в репозиторий не попал) в каждом из 10 запусков после
+  исправления мерил оба способа подряд рядом с полным `pnpm test`: в процессе vitest — 2,6–26,3 s (медиана ~15 s),
+  командой через `node` — 1,3–11,9 s (медиана ~7 s). То есть старый путь подходил к пределу 30 s на 3,7 s, новый
+  оставляет больше 18 s.
+- После исправления: `/tmp/claude-501/p87/loop2.sh` — те же 10 запусков параллельно с полным `pnpm test`
+  (перезапускался, когда кончался): **0 падений из 10** (17–122 s на запуск, loadavg 34–97). Красные в тех
+  полных прогонах — `test/contract/terminal.test.ts:236` и один раз `test/contract/harness-hook-stdin.test.ts:342`
+  (известные flaky из `worfy-polish` 66/69), плюс два test-а, которые нашли сам probe-файл; блок этого тикета зелёный
+  во всех.
+- Один файл: `node scripts/vitest-electron.mjs test/unit/affected-tests.test.ts` — exit 0, 53 passed (16,9 s до
+  исправления при loadavg 3,8; 68 s после при loadavg 23–50 от чужих прогонов). Время самого `beforeAll` vitest не
+  печатает; его содержимое отдельно — 1,9 s командой против 4,0 s в процессе (probe, loadavg 23).
+- Полный `pnpm test` на нагруженной машине (loadavg 37 в начале, 132 в конце) — exit 0, 731 файлов passed,
+  `test/unit/affected-tests.test.ts` — passed за 91 s. `pnpm lint`, `pnpm typecheck` — exit 0.
+- Mutant-ы в отдельной копии (`git worktree add --detach /tmp/claude-501/p87-mut`, удалена): команда генератора
+  печатает `[]` — 3 test-а красные (два блока тикета и test команды); команда печатает строки, но выходит с 1 —
+  весь блок красный на `beforeAll`; команда теряет строки `test/contract/` — красный «sends a fixture, a document and
+  a Harness script…». Без mutant-а — exit 0.
