@@ -1206,6 +1206,91 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     expect(existsSync(lock)).toBe(false)
   }, ms(120_000))
 
+  // uutils mkdir 0.8.0, the `mkdir` of Ubuntu 26.04 (the linux-tests job of CI), looks for the folder
+  // first and exits 0 also when its own mkdir fails because another process made the folder in
+  // between. Two runs that try at once both "took" the lock that way: the test above failed there in
+  // 12 of 200 rounds (worfy-polish 88). The stand-in `mkdir` here does the same, and holds each run
+  // between the look and the mkdir until the other run has looked too, so a lock taken with the
+  // `mkdir` command is taken twice on every machine. The run that loses waits in its pause (the
+  // stand-in `sleep`) until the lock is gone; no step is timed.
+  it('two runs that try at once do not both take the lock when mkdir looks first and then makes the folder', async () => {
+    const race = join(scratch, 'race')
+    mkdirSync(race)
+    writeFileSync(
+      join(race, 'lib.sh'),
+      [
+        'PATH=$REAL_PATH',
+        'me=$RACE_DIR/$RACER',
+        'if [ "$RACER" = first ]; then other=$RACE_DIR/second; else other=$RACE_DIR/first; fi',
+        'any_of() { for f in "$@"; do [ ! -e "$f" ] || return 0; done; return 1; }',
+        'gone() { [ ! -e "$1" ]; }',
+        'wait_until() {',
+        '  n=0',
+        '  until "$@"; do',
+        '    [ -d "$RACE_DIR" ] || exit 1',
+        '    n=$((n + 1))',
+        '    if [ "$n" -gt 1200 ] || [ -e "$RACE_DIR/abort" ]; then echo "$RACER gave up waiting: $*" >> "$RACE_DIR/stuck"; exit 1; fi',
+        '    sleep 0.05',
+        '  done',
+        '}',
+        '',
+      ].join('\n'),
+    )
+    stubCommand('mkdir', [
+      '. "$RACE_DIR/lib.sh"',
+      '[ "$1" = "$E3_LOCK_DIR" ] || exec mkdir "$@"',
+      'if [ -e "$1" ]; then echo "mkdir: $1: File exists" >&2; exit 1; fi',
+      ': > "$me.looked"',
+      'wait_until any_of "$other.looked" "$other.waiting" "$other.entered"',
+      'mkdir "$1" 2>/dev/null || [ -d "$1" ]',
+    ])
+    stubCommand('sleep', [
+      '. "$RACE_DIR/lib.sh"',
+      '[ "$1" != 300 ] || exit 1',
+      'case "$1" in 0.0*) exec sleep "$1" ;; esac',
+      'echo "$1" >> "$me.pauses"',
+      ': > "$me.waiting"',
+      'wait_until gone "$E3_LOCK_DIR"',
+    ])
+    writeFileSync(
+      join(race, 'under-lock.sh'),
+      ['. "$RACE_DIR/lib.sh"', 'echo "enter $RACER" >> "$RACE_DIR/log"', ': > "$me.entered"', 'wait_until any_of "$other.entered" "$other.waiting"', 'echo "exit $RACER" >> "$RACE_DIR/log"', ''].join('\n'),
+    )
+
+    const racer = (name: 'first' | 'second'): Promise<Run> =>
+      new Promise((resolve) => {
+        const started = Date.now()
+        const env = sandboxEnv({ RACER: name, RACE_DIR: race, REAL_PATH: process.env.PATH ?? '', E3_LOCK_PAUSE: '7' })
+        const child = spawn('bash', [SCRIPT, 'lock-run', 'sh', join(race, 'under-lock.sh')], { cwd: scratch, env, stdio: ['ignore', 'pipe', 'pipe'] })
+        let stdout = ''
+        let stderr = ''
+        let timedOut = false
+        child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()))
+        child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()))
+        const timer = setTimeout(() => {
+          timedOut = true
+          writeFileSync(join(race, 'abort'), '')
+          child.kill('SIGKILL')
+        }, 90_000)
+        child.on('close', (status) => {
+          clearTimeout(timer)
+          resolve({ status, stdout, stderr, timedOut, ms: Date.now() - started })
+        })
+      })
+
+    const [first, second] = await Promise.all([racer('first'), racer('second')])
+
+    expect(existsSync(join(race, 'stuck')) ? readFileSync(join(race, 'stuck'), 'utf8') : '').toBe('')
+    expectExit(first, 0)
+    expectExit(second, 0)
+    const log = readFileSync(join(race, 'log'), 'utf8').trim().split('\n')
+    expect([
+      ['enter first', 'exit first', 'enter second', 'exit second'],
+      ['enter second', 'exit second', 'enter first', 'exit first'],
+    ]).toContainEqual(log)
+    expect(existsSync(lock)).toBe(false)
+  }, ms(120_000))
+
   it('refuses without a command, taking no lock', () => {
     expectExit(sandbox(['lock-run']), 2)
     expect(existsSync(lock)).toBe(false)

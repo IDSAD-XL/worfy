@@ -1,7 +1,7 @@
 # 88 — Flaky test: в `e3-sandbox.test.ts` два run-а `lock-run` держат lock одновременно
 
 Type: bug
-Status: open
+Status: claimed 2026-11-10T06:54Z
 Blocked by: —
 Source: CI run 42741932918 (PR #1763, ветка `worfy-multi-repo-ticket/06`, job `linux-tests (4/4)`, 2026-11-10T02:23Z).
 Изменения PR-а этого test-а и `scripts/e3-sandbox.sh` не касались. Раньше тот же test дал строку FLAKY (упал, прошёл
@@ -45,12 +45,17 @@ stand-in-ов test-а.
 
 ## Готово, когда
 
-- [ ] Причина названа одной последовательностью шагов двух run-ов; она и счёт падений до исправления — в «Итог».
-- [ ] `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"` 200 раз подряд под
+- [x] Причина названа одной последовательностью шагов двух run-ов; она и счёт падений до исправления — в «Итог».
+  - evidence: test-run pass · `bash loop.sh e3-sandbox.sh@origin/main 25 8` (bash copy of the test) on Ubuntu 26.04, uutils mkdir 0.8.0 exit 0: 12 of 200 rounds both runs under the lock · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
+- [x] `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"` 200 раз подряд под
       нагрузкой — 0 падений; команда и счёт — в «Итог».
-- [ ] С `lock_run` без паузы после `rmdir` брошенного lock-а test красный (mutation-проверка, результат — в «Итог»).
-- [ ] Пределы времени test-а не изменены.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"` 200 times, 4 loops + 12 yes, macOS exit 0: 0 of 200 failed · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
+- [x] С `lock_run` без паузы после `rmdir` брошенного lock-а test красный (mutation-проверка, результат — в «Итог»).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "lock"` with no pause after rmdir (mutant) exit 1: abandoned lock test red 3 of 3 · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
+- [x] Пределы времени test-а не изменены.
+  - evidence: commit pass · Take the e2e lock with a bare mkdir(2): uutils mkdir let two lock-run calls hold it (worfy-polish 88) · - - · aab8b44e9dabcba825f4e906f50673ed007c1410
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
 
 ## Где в коде
 
@@ -63,3 +68,65 @@ stand-in-ов test-а.
 
 - Остальные test-ы `e3-sandbox.test.ts` и heartbeat lock-а.
 - Остальные flaky test-ы из таблицы `worfy-polish` 66.
+
+## Итог
+
+**Причина — настоящая дыра lock-а, не stand-in-ы test-а.** `lock_run` брал lock командой `mkdir`, а `mkdir` образа
+`ubuntu-26.04` (на нём идёт `linux-tests`, строка `Image: ubuntu-26.04` в log-е CI run 42741932918) — uutils
+coreutils 0.8.0 (Rust). Он сначала смотрит, есть ли папка, потом делает её, и если его `mkdir(2)` упал, а папка есть,
+выходит с exit code 0. Два `mkdir` одной папки в одно время оба «берут» её. Upstream это исправлено коммитом uutils
+«mkdir: do not ignore EEXIST on non-recursive creation» (2026-08-28), уже после 0.8.0.
+
+Последовательность двух run-ов (по `bash -x` и меткам упавшего раунда bash-копии test-а на Ubuntu 26.04):
+
+1. Оба run-а не смогли `mkdir`, оба прочли старое время брошенного lock-а, оба дошли до `rmdir`.
+2. `first` снял lock (`rmdir` — код 0) и ушёл в паузу; `second` сделал свой `rmdir` (код 1, папки уже нет) и тоже ушёл
+   в паузу.
+3. Паузы кончились почти одновременно (пауза `first` ждёт конца `rmdir` у `second`, пауза `second` — сразу).
+4. Оба вызвали `mkdir "$LOCK"`: оба uutils `mkdir` увидели, что папки нет; один её сделал, у второго `mkdir(2)` дал
+   EEXIST, папка есть — exit 0.
+5. Оба run-а запустили команду под lock-ом: log `enter first, enter second, exit second, exit first`. В xtrace каждого
+   run-а ровно два `mkdir` и ни одного ожидания чужого lock-а.
+
+На macOS (BSD `mkdir`) и в Debian 12 (GNU `mkdir`) падения нет: там `mkdir` — голый системный вызов.
+
+**Замеры до исправления.**
+
+| Где | Команда | Падения |
+|---|---|---|
+| macOS 26.6.1, 18 ядер, 4 параллельных цикла + 12 процессов `yes` | `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"`, 200 раз (`vitest-loop.sh`) | 0 из 200 |
+| Ubuntu 26.04 (контейнер из `ubuntu-base-26.04.1-base-arm64.tar.gz`, uutils 0.8.0) | два `mkdir` одной папки разом, 2000 раундов | оба exit 0 в 1332 из 2000 |
+| тот же контейнер | то же с `gnumkdir` (GNU coreutils 9.7 того же образа) | 0 из 2000 |
+| macOS / Debian 12 (GNU) | два `mkdir` разом, 2000 раундов | 0 из 2000 / 0 из 2000 |
+| Ubuntu 26.04 | копия test-а на bash (те же stand-in-ы `rmdir`/`sleep`, `lib.sh`, `under-lock.sh`, `E3_LOCK_PAUSE=7`), 8 параллельных циклов | 12 из 200 |
+| Ubuntu 26.04 | та же копия, 40 параллельных циклов | 7 из 1000 |
+| Debian 12 (GNU), 40 параллельных циклов | та же копия | 0 из 2000 |
+
+Сам vitest с Electron в Linux-контейнере не запускался; на Linux мерила bash-копия test-а (`bash -x`) — тот же скрипт, те же
+stand-in-ы, та же проверка log-а.
+
+**Исправление.** `scripts/e3-sandbox.sh`: новая функция `take_lock` делает папку lock-а через
+`perl -e 'mkdir($ARGV[0]) or exit 1'` — это голый `mkdir(2)`, он падает, когда папка есть. Perl есть в macOS, в Git for
+Windows и в каждой Ubuntu (`perl-base`). Код выхода perl кроме 0 и 1 (нет perl) завершает скрипт, а не крутит цикл.
+Формат lock-а прежний — пустая папка, её по-прежнему берут `mkdir` skill-ы и gate. Пауза после `rmdir` брошенного
+lock-а и heartbeat не менялись. Пределы времени test-ов (`ms(120_000)`, 90 s на run) не менялись.
+
+**Новый test** — `test/contract/e3-sandbox.test.ts`, «two runs that try at once do not both take the lock when mkdir
+looks first and then makes the folder». Stand-in `mkdir` ведёт себя как uutils 0.8.0 и держит каждый run между
+«посмотрел» и «сделал», пока другой run тоже не посмотрит, так что lock через команду `mkdir` берётся дважды на любой
+машине, без отсчёта по часам.
+
+**Mutation-проверка** (отдельная копия `git worktree add --detach /tmp/claude-501/p88-mut origin/main`, удалена):
+
+- старый `scripts/e3-sandbox.sh` (`until mkdir`) + новый test — новый test красный 5 из 5, та же ошибка, что в CI:
+  `expected [...] to deep equally contain [ 'enter first', 'enter second', …(2) ]`;
+- новый скрипт без паузы после `rmdir` брошенного lock-а (`continue` вместо `sleep`) — test «abandoned lock» красный
+  3 из 3, остальные 14 test-ов lock-run зелёные.
+
+**Замеры после исправления.**
+
+| Где | Команда | Падения |
+|---|---|---|
+| Ubuntu 26.04 | bash-копия test-а, 8 параллельных циклов | 0 из 200 |
+| Ubuntu 26.04 | bash-копия test-а, 40 параллельных циклов | 0 из 1000 |
+| macOS 26.6.1, 4 цикла + 12 `yes` | `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"`, 200 раз | 0 из 200 |
