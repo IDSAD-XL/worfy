@@ -33,6 +33,8 @@ Profile не правили, набор частей линзы задан в б
 - Окно: `contextIsolation`, `sandbox`, без `nodeIntegration`. `<webview>` подключается только без preload, в sandbox и
   только на partition Browser-а (`src/main/browser/attach-policy.ts`). Session Browser-а отказывает во всех permissions.
 - `shell.openExternal` из renderer-а пускает только https (`src/main/ipc/shell.ts:292-297`).
+  - Поправка 2026-11-10 (worfy-polish 101, PR #1788): `shell.openExternal` пускает `http:` и `https:`, функция
+    `webUrl()` вместо `httpsUrl()`; `file:`, `javascript:`, `data:` и прочие схемы по-прежнему отказаны.
 - MCP-сервер по HTTP слушает 127.0.0.1, требует bearer token Session-а (хранится SHA-256) и отвечает 403 на запрос с
   заголовком `Origin`.
 - Link: fingerprint сервера сверяется до отправки token-а; token хранится как SHA-256 и сравнивается `timingSafeEqual`;
@@ -58,6 +60,9 @@ Profile не правили, набор частей линзы задан в б
 | security-7 | LOW | `src/main/workflow/stages.ts:275`, `src/main/github/deployments.ts:41` | sha из GitHub Deployments API идёт в `git merge-base --is-ancestor` без проверки формата и без `--end-of-options`. Вызов через `execFile` без shell; опции `merge-base` только читают. Deployment создаёт только тот, у кого есть право записи в репозиторий | `sed -n 268,276p src/main/workflow/stages.ts; sed -n 41p src/main/github/deployments.ts` | confirmed, LOW | только таблица |
 | security-8 | LOW | `.github/workflows/ci.yml:122` | `actions/checkout`, `setup-node`, `upload-artifact` закреплены изменяемым тегом `@v7`, по SHA — только `pnpm/action-setup`. Нужен взлом организации `actions`; token только на чтение, секретов нет | `grep -n 'uses:' .github/workflows/*.yml` | confirmed, LOW | только таблица |
 | security-9 | LOW | `harness/bin/qmd-sync-main:113` (ещё `harness/bin/qmd-refresh:255`, `harness/bin/qmd-collections:227`) | `github.account` из Profile подставляется в shell-фрагмент `credential.helper` без проверки формата, в отличие от `harness/hooks/gh-token-env.mjs:36`. Profile лежит в домашней папке пользователя; кто может его записать, и так выполняет команды | `sed -n 105,115p harness/bin/qmd-sync-main` | moved с `:111` на `:113`, LOW | только таблица |
+
+> Поправка 2026-11-10 (worfy-polish 101, PR #1788): к security-3 — функция `httpsUrl()` переименована в `webUrl()`
+> (`src/main/ipc/shell.ts`) и пускает `http:` и `https:`; остальные схемы по-прежнему отказаны.
 
 Находка части 2 про CSP Card совпала с security-1 и влилась в неё. Её утверждение «данных проекта в этом пути нет»
 проверка опровергла: `workflow.get` есть в `CARD_OPS` (`src/shared/cards/bridge.ts:28`).

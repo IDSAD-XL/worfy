@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { invoke } from '../ipc'
 import { useFileElsewhere } from '../machines/useFileElsewhere'
 import { revealedNote } from '../toast/revealed'
+import { remarkAutolinkEdges } from './autolink-edges'
 import { classifyLink, isWindowsPathLink } from './links'
 import { remarkSoftBreaks } from '../../shared/markdown/soft-breaks'
 import './markdown.css'
@@ -14,10 +15,12 @@ import './markdown.css'
 // Raw HTML is never executed: without rehype-raw, react-markdown turns every HTML node into
 // plain text, so `<script>` or `<img onerror>` written by an agent is shown, not run. Markdown
 // images are not loaded either: they would fetch from wherever the text points; the alt text is
-// shown instead. Links open outside the window (links.ts): https:// in the browser, a relative
-// path as a file of the Project in the default editor. Fonts and colours come from the theme
-// tokens (markdown.css). In a window on a Linked machine a file link shows "File is on <Machine>"
-// instead (machines/useFileElsewhere.ts), and an https:// link opens on this Machine. A link to a
+// shown instead. Links open outside the window (links.ts): http:// and https:// in the browser, a
+// relative path as a file of the Project in the default editor. A bare address in prose is a link
+// too (remark-gfm), with a closing quote after it left outside (autolink-edges.ts). Fonts and
+// colours come from the theme tokens (markdown.css); a link stands out in the link / accent colour
+// (worfy-polish ticket 101). In a window on a Linked machine a file link shows "File is on <Machine>"
+// instead (machines/useFileElsewhere.ts), and an http(s):// link opens on this Machine. A link to a
 // file that is not a document (`.command`, `.term`, `.app`, `.exe`…) is not opened unasked: main asks
 // "Open", "Show in Finder" or "Cancel", and when it was shown the reason appears next to the link
 // (toast/revealed.ts, worfy-polish ticket 35).
@@ -32,6 +35,10 @@ export interface MarkdownProps {
   breaks?: boolean
 }
 
+/** remark plugins: autolink-edges runs last, on the links remark-gfm made. */
+const PLUGINS = [remarkGfm, remarkAutolinkEdges]
+const PLUGINS_WITH_BREAKS = [remarkGfm, remarkSoftBreaks, remarkAutolinkEdges]
+
 /**
  * react-markdown's own sanitising of a link or image address, except for an absolute Windows path
  * (`C:\…`, worfy-windows ticket 08), which it would blank as an unknown `c:` scheme. classifyLink
@@ -41,7 +48,7 @@ const keepWindowsPaths = (url: string): string => (isWindowsPathLink(url) ? url 
 
 function open(href: string | undefined, projectId: string | undefined, baseDir: string | undefined, note: (text: string) => void): void {
   const target = classifyLink(href, baseDir)
-  // An https:// address opens on the Machine where it was clicked: `shell.openExternal` is `local`,
+  // An http(s):// address opens on the Machine where it was clicked: `shell.openExternal` is `local`,
   // so a window on a Linked machine calls its own main (worfy-link ticket 12).
   if (target.kind === 'external') {
     void invoke('shell.openExternal', { url: target.url }).then((result) => {
@@ -105,7 +112,7 @@ export function Markdown({ text, projectId, baseDir, breaks = false }: MarkdownP
   )
   return (
     <div className="w-md">
-      <ReactMarkdown remarkPlugins={breaks ? [remarkGfm, remarkSoftBreaks] : [remarkGfm]} components={components} urlTransform={keepWindowsPaths}>
+      <ReactMarkdown remarkPlugins={breaks ? PLUGINS_WITH_BREAKS : PLUGINS} components={components} urlTransform={keepWindowsPaths}>
         {text}
       </ReactMarkdown>
     </div>
