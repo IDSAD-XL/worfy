@@ -401,6 +401,21 @@ describe('review-draft-lint', () => {
       expect(run.stderr).toMatch(/^review-draft-lint: (the draft of replies|cannot read)/)
     })
 
+    it('reads the optional edited mark of a reply the person changed, and refuses one that is no true or false', { timeout: ms(30_000) }, () => {
+      expect(lint(['--reply', file(replies([thread('Fine.', { edited: true }), conversation('Fine.', { edited: false })]))], outside).status).toBe(0)
+      const bad = lint(['--reply', file(replies([thread('Fine.', { edited: 'yes' })]))], outside)
+      expect(bad.status, bad.stdout + bad.stderr).toBe(2)
+      expect(bad.stderr).toContain('items[0] "edited" must be true or false')
+    })
+
+    it('reads the draft of replies from stdin with --reply -', { timeout: ms(30_000) }, () => {
+      const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, HARNESS_HOME: harnessHome, EVAL_HARNESS_HOME: '' }
+      for (const name of ['CLAUDE_GATE_CONFIG', 'CLAUDE_GATE_RESOLVE', 'CLAUDE_PROFILES_DIR', 'CLAUDE_PROFILE_BIN', 'CLAUDE_TICKET_BIN']) delete env[name]
+      const run = spawnSync(scriptNode(), [CLI, '--reply', '-'], { cwd: outside, encoding: 'utf8', env, input: JSON.stringify(replies([thread('Fine.'), conversation('')])) })
+      expect(run.status, run.stdout + run.stderr).toBe(1)
+      expect(run.stdout).toBe('items[1]: empty body\n')
+    })
+
     it('reads a conversation reply with threadId and replyTo given as null, and the optional error of a failed send', { timeout: ms(30_000) }, () => {
       const run = lint(['--reply', file(replies([conversation('Fine.', { threadId: null, replyTo: null, error: 'HTTP 502' }), thread('Fine.', { error: null })]))], outside)
       expect(run.status, run.stdout + run.stderr).toBe(0)

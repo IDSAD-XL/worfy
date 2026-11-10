@@ -1,0 +1,202 @@
+#!/usr/bin/env node
+// pr-reply-draft — checks the replies skill pr-reply drafted and writes them into the draft file of the pull
+// request, in the Profile folder of the project.
+//
+//   pr-reply-draft [-C <project dir>] < replies.json
+//
+// stdin: { schema: 1, repo: "<owner>/<name>", pr, headOid, items: [...] } — the shape of the draft of replies
+// (bin/review-draft-lint, "--reply"), with the replies this run drafted, each in state `draft`, without `sentUrl`,
+// `error` and `edited`. An empty `items` says that nothing waits for an answer.
+//
+// The skill writes through this script, not with a file tool: the Profile folder lies in the Harness home
+// (~/.claude/worfy-harness/projects/<name>/, or .git/worfy-harness of an eval run), where a session's own writes
+// stop for a permission prompt, and in a session with no person to answer are refused.
+//
+// Steps:
+//   1. the Profile folder: `bin/profile -C <project dir> --dir`;
+//   2. the new replies go through `review-draft-lint --reply -`, with `--rules <Profile folder>/state/human-review/lint.json`
+//      when the project has a team reviewer built (else the template's limits). A finding — its lines on stdout,
+//      exit 1, and nothing is written: the skill rewrites the replies named `items[<i>]` (the index in stdin) and
+//      runs this script again;
+//   3. the draft file `<Profile folder>/state/pr-inbox/drafts/<owner>-<name>-<pr>.json` gets the new replies, merged
+//      with what it holds (the person's work in worfy is kept):
+//      - a reply in `sent` or `discarded` stays as it is;
+//      - a reply in `draft` for a thread that no longer waits (no new reply for that thread; for a conversation
+//        reply, no new conversation reply) becomes `discarded`, with its text;
+//      - a reply in `draft` with `edited: true` for a thread that still waits stays as the person wrote it, and the
+//        new reply to the same thread is dropped; an edited conversation reply stays beside the new ones;
+//      - any other reply in `draft` is replaced by the new ones;
+//      `headOid` becomes the new one. No file and nothing waits: nothing is written. The file is written through a
+//      temporary file beside it and a rename; when it changed while this script merged (worfy saved an edit), the
+//      merge starts again from the new content, three times at most.
+//
+// Output (stdout, English): the clean line of review-draft-lint, then
+//   `pr-reply-draft: wrote <file>: <n> new, <k> kept as edited, <d> discarded`, or
+//   `pr-reply-draft: nothing waits and there is no draft file: nothing written`.
+// Exit codes: 0 — written, or nothing to write; 1 — findings of review-draft-lint, nothing written; 2 — usage error,
+// broken stdin, a project that is not registered, a draft file that is not a draft of replies of this pull
+// request, or a write that failed. Writes nothing but the draft file and its temporary file.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+const LINT = path.join(BIN, "review-draft-lint")
+
+const USAGE = `usage: pr-reply-draft [-C <project dir>] < replies.json
+exit: 0 written or nothing to write, 1 findings (nothing written), 2 usage error or broken input`
+
+const die = (code, msg) => {
+    if (msg) process.stderr.write(`pr-reply-draft: ${msg}\n`)
+    process.exit(code)
+}
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v)
+const STATES = ["draft", "sent", "discarded"]
+const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/
+
+// --- arguments ----------------------------------------------------------------------------------
+let dir = process.cwd()
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === "-C") {
+        const v = argv[++i]
+        if (v === undefined || v === "") die(2, `-C needs a value\n${USAGE}`)
+        dir = path.resolve(v)
+    } else if (a === "-h" || a === "--help") {
+        process.stdout.write(USAGE + "\n")
+        process.exit(0)
+    } else die(2, `unknown argument: ${a}\n${USAGE}`)
+}
+
+// --- stdin: the replies of this run -------------------------------------------------------------------
+let text
+try {
+    text = fs.readFileSync(0, "utf8").replace(/^﻿/, "")
+} catch (e) {
+    die(2, `cannot read the replies from stdin: ${e.message}`)
+}
+let input
+try {
+    input = JSON.parse(text)
+} catch (e) {
+    die(2, `the replies on stdin are not JSON: ${e.message}`)
+}
+if (!isObject(input) || !Array.isArray(input.items)) die(2, `the replies on stdin must be a draft of replies with "items"`)
+if (typeof input.repo !== "string" || !REPO.test(input.repo)) die(2, `"repo" must be <owner>/<name>, got ${JSON.stringify(input.repo)}`)
+input.items.forEach((item, i) => {
+    if (!isObject(item)) die(2, `items[${i}] must be an object`)
+    if (item.state !== "draft") die(2, `items[${i}] is a new reply: its "state" must be "draft", got ${JSON.stringify(item.state)}`)
+    for (const k of ["sentUrl", "error", "edited"])
+        if (item[k] !== undefined && item[k] !== null && item[k] !== false) die(2, `items[${i}] is a new reply: it takes no "${k}"`)
+})
+
+// --- the Profile folder ---------------------------------------------------------------------
+// A sibling script runs with the node running this one: Windows does not start an extensionless file by its #! line.
+const profile = spawnSync(process.execPath, [PROFILE, "-C", dir, "--dir"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+if (profile.status === 3) die(2, `${dir} is not a registered project: the drafts have nowhere to go (connect it with /worfy:connect-project)`)
+if (profile.status !== 0) die(2, `profile not read (exit ${profile.status}): ${String(profile.stderr || profile.error || "").split("\n")[0]}`)
+const profileDir = profile.stdout.trim()
+if (!profileDir) die(2, "profile printed no folder")
+
+// --- the check of the new replies ----------------------------------------------------------------
+const rules = path.join(profileDir, "state", "human-review", "lint.json")
+const lintArgs = ["--reply", "-", "-C", dir, ...(fs.existsSync(rules) ? ["--rules", rules] : [])]
+const lint = spawnSync(process.execPath, [LINT, ...lintArgs], { input: text, encoding: "utf8" })
+process.stdout.write(lint.stdout || "")
+process.stderr.write(lint.stderr || "")
+if (lint.status === 1) die(1, "nothing written: rewrite the replies named above and run this again")
+if (lint.status !== 0) die(2, `review-draft-lint gave exit ${lint.status === null ? lint.signal : lint.status}: nothing written`)
+
+// --- the merge ---------------------------------------------------------------------------------------
+const [owner, name] = input.repo.split("/")
+const file = path.join(profileDir, "state", "pr-inbox", "drafts", `${owner}-${name}-${input.pr}.json`)
+const keyOf = (item) => (item.kind === "thread" ? `thread ${item.threadId}` : "conversation")
+
+/** The new reply as the draft file keeps it: only the fields of the format, a send not tried yet. */
+function fresh(item) {
+    const out = { kind: item.kind }
+    if (item.kind === "thread") Object.assign(out, { threadId: item.threadId, replyTo: item.replyTo })
+    return Object.assign(out, { label: item.label, body: item.body, fixPlan: item.fixPlan ?? null, state: "draft", sentUrl: null })
+}
+
+/** The content of the draft file after this run, from its current text (null when there is none). */
+function merge(oldText) {
+    let old = null
+    if (oldText !== null) {
+        try {
+            old = JSON.parse(oldText.replace(/^﻿/, ""))
+        } catch (e) {
+            die(2, `the draft file ${file} is not JSON (${e.message}): nothing written`)
+        }
+        if (!isObject(old) || !Array.isArray(old.items) || old.items.some((it) => !isObject(it) || !STATES.includes(it.state)))
+            die(2, `the draft file ${file} is not a draft of replies: nothing written`)
+        if (old.repo !== input.repo || old.pr !== input.pr)
+            die(2, `the draft file ${file} is of ${old.repo}#${old.pr}, not of ${input.repo}#${input.pr}: nothing written`)
+    }
+    const waiting = new Set(input.items.map(keyOf))
+    const items = []
+    const keptThreads = new Set()
+    let kept = 0
+    let discarded = 0
+    for (const item of old ? old.items : []) {
+        if (item.state !== "draft") items.push(item)
+        else if (!waiting.has(keyOf(item))) {
+            items.push({ ...item, state: "discarded" })
+            discarded++
+        } else if (item.edited === true) {
+            items.push(item)
+            kept++
+            if (item.kind === "thread") keptThreads.add(keyOf(item))
+        }
+    }
+    let added = 0
+    for (const item of input.items) {
+        if (keptThreads.has(keyOf(item))) continue
+        items.push(fresh(item))
+        added++
+    }
+    const content = { schema: 1, repo: input.repo, pr: input.pr, headOid: input.headOid, items }
+    return { content, added, kept, discarded }
+}
+
+const read = () => {
+    try {
+        return fs.readFileSync(file, "utf8")
+    } catch (e) {
+        if (e.code === "ENOENT") return null
+        die(2, `cannot read the draft file ${file}: ${e.message}`)
+    }
+}
+
+for (let attempt = 1; ; attempt++) {
+    const before = read()
+    if (before === null && input.items.length === 0) {
+        process.stdout.write("pr-reply-draft: nothing waits and there is no draft file: nothing written\n")
+        process.exit(0)
+    }
+    const { content, added, kept, discarded } = merge(before)
+    const tmp = `${file}.${process.pid}.tmp`
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true })
+        fs.writeFileSync(tmp, JSON.stringify(content, null, 2) + "\n")
+        if (read() !== before) {
+            fs.rmSync(tmp, { force: true })
+            if (attempt < 3) continue
+            die(2, `the draft file ${file} kept changing while the replies were merged: nothing written`)
+        }
+        fs.renameSync(tmp, file)
+    } catch (e) {
+        try {
+            fs.rmSync(tmp, { force: true })
+        } catch {
+            // The temporary file is named in the error below; the next run writes a new one.
+        }
+        die(2, `cannot write the draft file ${file}: ${e.message}`)
+    }
+    process.stdout.write(`pr-reply-draft: wrote ${file}: ${added} new, ${kept} kept as edited, ${discarded} discarded\n`)
+    process.exit(0)
+}

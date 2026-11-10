@@ -25,13 +25,15 @@
 //
 // --reply <draft.json>: the draft of replies skill pr-reply writes to <Profile folder>/state/pr-inbox/drafts/,
 // which worfy posts only on the user's click, after checking it again: { schema: 1, repo: "<owner>/<name>", pr, headOid, items: [{ kind, threadId, replyTo, label, body,
-// fixPlan, state, sentUrl, error? }] }. kind `thread` — a reply in a review thread, with threadId and replyTo (the
+// fixPlan, state, sentUrl, error?, edited? }] }. kind `thread` — a reply in a review thread, with threadId and replyTo (the
 // databaseId of the thread's first comment); kind `conversation` — a comment in the conversation of the pull
 // request, without them (absent or null). label: needs code change, needs answer, FYI, resolved by push. state:
-// draft, sent, discarded; error — why the last send failed, or null. Only the bodies of the items in `draft` are
+// draft, sent, discarded; error — why the last send failed, or null; edited — true once the person changed the body
+// (bin/pr-reply-draft keeps such a reply when the skill runs again). Only the bodies of the items in `draft` are
 // checked: a sent reply is published, a discarded one never will be. The same rules as a review, a finding named
 // `items[<i>]`, an empty body is one, and one length for every reply: the largest max_chars of --rules, or of the
-// template's lint.json (skills/human-review-setup/template/) without it. A file of the wrong shape — exit 2.
+// template's lint.json (skills/human-review-setup/template/) without it. A file of the wrong shape — exit 2. `--reply -`
+// reads the draft from stdin: bin/pr-reply-draft checks the new replies that way before it writes them.
 //
 // --skill <folder>: every rule of <folder>/SKILL.md — a list item under a `## ` heading, outside code blocks —
 // ends with one or more references `[R<n>]`, and <folder>/research.md has a section `## R<n> — <title>` for
@@ -285,7 +287,7 @@ if (!Array.isArray(forbidden) || !forbidden.every((w) => typeof w === "string" &
 // --- the draft of replies -------------------------------------------------------------------
 const REPLY_LABELS = ["needs code change", "needs answer", "FYI", "resolved by push"]
 const REPLY_STATES = ["draft", "sent", "discarded"]
-const REPLY_FIELDS = ["kind", "threadId", "replyTo", "label", "body", "fixPlan", "state", "sentUrl", "error"]
+const REPLY_FIELDS = ["kind", "threadId", "replyTo", "label", "body", "fixPlan", "state", "sentUrl", "error", "edited"]
 const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/
 const isCount = (v) => Number.isInteger(v) && v > 0
 const isTextOrNull = (v) => v === undefined || v === null || typeof v === "string"
@@ -316,6 +318,7 @@ function replyTexts() {
         if (typeof item.body !== "string") badItem(`"body" must be text`)
         if (!REPLY_STATES.includes(item.state)) badItem(`"state" must be one of ${REPLY_STATES.join(", ")}; got ${JSON.stringify(item.state)}`)
         for (const k of ["fixPlan", "sentUrl", "error"]) if (!isTextOrNull(item[k])) badItem(`"${k}" must be text or null`)
+        if (item.edited !== undefined && typeof item.edited !== "boolean") badItem(`"edited" must be true or false`)
         if (item.state === "draft") texts.push([`items[${i}]`, item.body, max, "a reply", true])
     })
     return texts

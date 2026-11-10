@@ -6,9 +6,12 @@
 //   gh pr view <n> [--repo o/r] [--json a,b]   — the pull request of pull.json, the fields asked for
 //   gh pr diff <n> [--repo o/r]                — its diff
 //   gh api graphql -f query=<a query that reads reviewThreads> [-f owner= -f name= -F number=]
-//                                              — viewer, headRefOid, the review threads and the conversation comments
+//                                              — viewer, headRefOid, the review threads (each with `latest`, its last
+//                                                comment, as the alias of the skill's query) and the conversation comments
 //   gh --version, gh auth status               — a harmless answer
-//   a write                                    — refused, exit 1: a mutation, `api` with a method other than GET or
+//   a write                                    — refused, exit 1: `api graphql` whose query is not given inline as a
+//                                                read (`--input`, `-F query=@file`, no query, a `mutation` anywhere in
+//                                                it, comments included), `api` with a method other than GET or
 //                                                with fields on a REST path, `pr review|comment|merge|create|edit|close|
 //                                                reopen|ready`, `issue create|comment|edit|close|reopen`, `release`,
 //                                                `repo create|edit|delete|fork|rename`
@@ -54,9 +57,14 @@ function refuse(write) {
 const isWrite = () => {
   const [command, sub] = args
   if (command === 'api') {
-    const method = (option('-X') ?? option('--method') ?? 'GET').toUpperCase()
+    const glued = args.find((a) => /^-X./.test(a))?.slice(2)
+    const method = (option('-X') ?? glued ?? option('--method') ?? 'GET').toUpperCase()
     if (method !== 'GET') return true
-    if (args[1] === 'graphql') return /^\s*mutation\b/.test(fields().query ?? '')
+    if (args[1] === 'graphql') {
+      // Only an inline query that reads is answered; a query from a file or stdin cannot be seen, so it counts as a write.
+      const query = fields().query
+      return args.includes('--input') || query === undefined || query.startsWith('@') || /\bmutation\b/.test(query)
+    }
     return args.some((a) => ['-f', '-F', '--field', '--raw-field', '--input'].includes(a))
   }
   if (command === 'pr') return ['review', 'comment', 'merge', 'create', 'edit', 'close', 'reopen', 'ready'].includes(sub)
@@ -127,7 +135,10 @@ if (args[0] === 'api' && args[1] === 'graphql') {
         number: pull.number,
         headRefOid: pull.view.headRefOid,
         author: pull.view.author,
-        reviewThreads: { pageInfo: { hasNextPage: false, endCursor: 'end' }, nodes: pull.threads },
+        reviewThreads: {
+          pageInfo: { hasNextPage: false, endCursor: 'end' },
+          nodes: pull.threads.map((thread) => ({ ...thread, latest: { nodes: thread.comments.nodes.slice(-1) } })),
+        },
         comments: { pageInfo: { hasNextPage: false, endCursor: 'end' }, nodes: pull.conversation },
       },
     },

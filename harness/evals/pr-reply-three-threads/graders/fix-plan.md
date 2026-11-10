@@ -1,6 +1,6 @@
 ---
 type: regex
-target: { source: file, path: built/draft.json }
+target: { source: file, path: .git/worfy-harness/projects/demo/state/pr-inbox/drafts/octo-org-ledger-7.json }
 pattern: '"fixPlan"\s*:\s*"[^"]'
 match: contains
 ---
