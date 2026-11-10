@@ -2,6 +2,7 @@
 
 Type: feature
 Status: claimed 2026-11-10T10:49Z
+PR: #1783
 Branch: worfy-polish/98
 Blocked by: —
 Source: владелец 2026-11-10, решения «все да» (бриф Orchestrator-а).
