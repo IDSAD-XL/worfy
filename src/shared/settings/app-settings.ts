@@ -312,6 +312,10 @@ export const appSettingsSchema = z.object({
   autoContinue: autoContinueSchema.optional(),
   /** The Product Session screen the person chose; absent while nothing is (see productSessionSplitOf). */
   productSession: productSessionChoiceSchema.optional(),
+  /** Notifications of the PR inbox (worfy-pr-inbox ticket 07); absent while not chosen: on (see prInboxNotifyOf). */
+  prInboxNotify: z.boolean().optional(),
+  /** The morning digest of the PR inbox; absent while not chosen: on (see prInboxDigestOf). */
+  prInboxDigest: z.boolean().optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -360,6 +364,8 @@ export const appSettingsPatchSchema = z.object({
     .object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() })
     .refine((change) => change.split !== undefined || change.liveSummary !== undefined, 'a Product Session change names the split or the live summary')
     .optional(),
+  prInboxNotify: z.boolean().optional(),
+  prInboxDigest: z.boolean().optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -398,6 +404,16 @@ export function productSessionSplitOf(settings: Pick<AppSettings, 'productSessio
 /** Whether a Product Session shows the live summary while the advisor works: on unless set off (Settings → Sessions). */
 export function liveSummaryOf(settings: Pick<AppSettings, 'productSession'>): boolean {
   return settings.productSession?.liveSummary ?? true
+}
+
+/** Whether a new review request or reply in the PR inbox gives a system notification: on unless set off (Settings → Pull requests). */
+export function prInboxNotifyOf(settings: Pick<AppSettings, 'prInboxNotify'>): boolean {
+  return settings.prInboxNotify ?? true
+}
+
+/** Whether the first focus of the day shows the morning digest of the PR inbox: on unless set off (Settings → Pull requests). */
+export function prInboxDigestOf(settings: Pick<AppSettings, 'prInboxDigest'>): boolean {
+  return settings.prInboxDigest ?? true
 }
 
 /** The Auto-approval mode of Project `projectId`: its entry, else Off. */

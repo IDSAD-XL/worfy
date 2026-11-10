@@ -4,7 +4,7 @@ import './quit-listeners'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
 import { updateChanged } from '../shared/ipc/update'
-import { sessionArchiveOf } from '../shared/settings/app-settings'
+import { prInboxNotifyOf, sessionArchiveOf } from '../shared/settings/app-settings'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
@@ -24,7 +24,7 @@ import { appImageStore } from './images/stores'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
-import { startPrInbox } from './ipc/pr-inbox'
+import { appPrInboxSource, startPrInbox } from './ipc/pr-inbox'
 import { startGettingStarted } from './ipc/getting-started'
 import { appInstaller, onHarnessInstalled } from './ipc/harness'
 import { appUrlMatcher, emit, registerIpc } from './ipc/index'
@@ -36,7 +36,7 @@ import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, archiveTickMs, AutoArchiver, sessionBindings, startAppArchiver } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
-import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications } from './notify'
+import { appWaitsSources, electronNotifyDeps, followAppLinkPauses, installGateQueueNotifications, installNotifications, installPrInboxNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { registerAppSchemes } from './schemes'
@@ -186,6 +186,9 @@ function start(): void {
         // The PR inbox of each Project of this Machine (worfy-pr-inbox ticket 02): a GitHub search every 5 minutes,
         // focused or not; a Project with `"prInbox": false` or without a repository on GitHub runs no gh.
         app.on('will-quit', startPrInbox())
+        // Its notifications (worfy-pr-inbox ticket 07): a new review request or reply, one per PR and event, while no
+        // window has focus and `prInboxNotify` is on. Installed after the reader: the first read is the baseline.
+        app.on('will-quit', installPrInboxNotifications(appPrInboxSource(), () => projectStore().list(), () => prInboxNotifyOf(appSettingsStore().get())))
         // "Link a machine" paused after too many failed pairing attempts (worfy-link ticket 28), for
         // the app's link once it has started.
         app.on('will-quit', followAppLinkPauses(onAppLinkStart, appLinkService))

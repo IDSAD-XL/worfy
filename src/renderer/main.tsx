@@ -21,6 +21,7 @@ import { setView, useNavigation } from './session/navigation'
 import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
 import { ToastRegion } from './toast/ToastRegion'
+import { installPrInboxDigest } from './pr-inbox/digest'
 import { installUpdateToasts } from './update/toasts'
 
 const styles = {
@@ -122,6 +123,8 @@ if (container) {
   // The offer of the team reviewer after a Project is added (worfy-human-review ticket 09), and the
   // reminder to update it when a Project becomes active (ticket 10).
   installReviewOffers(followActiveProject)
+  // The morning digest of the PR inbox at the first focus of the day (worfy-pr-inbox ticket 07).
+  installPrInboxDigest()
   createRoot(container).render(
     <StrictMode>
       <App />

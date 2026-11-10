@@ -287,6 +287,7 @@ nothing.
 | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
 | Sessions | The autocompact window of Sessions |
 | Canvas | The automatic archive of finished Sessions |
+| Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
 | Browser | When a Live Browser goes to sleep |
 | Autopilot | The default Run mode, the Start window and the daily budget of the Limits: see [Run planning](run-planning.md#settings--autopilot) |
 | Plan | The plan Claude Code is signed in with, and for Pro a preset with an Apply button |
@@ -305,6 +306,8 @@ setting stays as it was. Most sections word it "Not saved: …".
 | Sessions: Other Sessions | 100K–1M tokens by 10K, or Claude Code default | 500K |
 | Archive finished sessions after | Never, 6 h, 24 h, 3 days, 7 days | 24 h |
 | …and when their Ticket is done | on, off | on |
+| Notify about new review requests and replies | on, off | on |
+| Morning digest | on, off | on |
 | Live browsers at once | 1, 2, 3, 4, 5, 6, 8, 10 | 3 |
 | Sleep when off screen after | 10 s, 30 s, 1, 2, 5, 10 min | 30 s |
 | Sleep when unused after | 1, 2, 5, 10, 15, 30 min, 1 h | 5 min |

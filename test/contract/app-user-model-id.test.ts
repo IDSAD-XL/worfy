@@ -16,6 +16,8 @@ const electron = vi.hoisted(() => ({ isPackaged: true }))
 /** app.on of the mock, and the function that stops the gate queue's notifications. */
 const appOn = vi.hoisted(() => vi.fn())
 const stopGateQueueNotices = vi.hoisted(() => (): void => undefined)
+/** The function that stops the PR inbox's notifications (worfy-pr-inbox ticket 07). */
+const stopPrInboxNotices = vi.hoisted(() => (): void => undefined)
 /**
  * The sources of the owner-wait notes appWaitsSources answers (the workflow hub, worfy-pipeline
  * ticket 09), and the arguments installNotifications got.
@@ -58,6 +60,7 @@ vi.mock('../../src/main/notify', () => ({
   },
   appWaitsSources: () => waitsSources,
   installGateQueueNotifications: () => stopGateQueueNotices,
+  installPrInboxNotifications: () => stopPrInboxNotices,
   followAppLinkPauses: () => () => undefined,
   electronNotifyDeps: {},
 }))
@@ -138,5 +141,11 @@ describe('the start in src/main/index.ts', () => {
     appOn.mockClear()
     await start('darwin', true)
     expect(appOn.mock.calls).toContainEqual(['will-quit', stopGateQueueNotices])
+  })
+
+  it("stops the PR inbox's notifications on quit (worfy-pr-inbox ticket 07)", async () => {
+    appOn.mockClear()
+    await start('darwin', true)
+    expect(appOn.mock.calls).toContainEqual(['will-quit', stopPrInboxNotices])
   })
 })

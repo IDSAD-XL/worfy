@@ -41,6 +41,13 @@
 // names no Session: a click raises worfy's window and opens nothing (WindowNote). The focus rule is
 // the same: while a worfy window has focus the note waits for the next read of the queue.
 //
+// The PR inbox (worfy-pr-inbox ticket 07, src/main/github/inbox.ts): a new review request to the user and a new
+// reply of someone else in a thread of the user's PR give one notification per PR and event (PrInboxNotices), only
+// while no worfy window has focus, and only with `prInboxNotify` of the app settings on. Its title is the
+// Project's name; its text names the kind of event, `repo#N` and the PR's title, never a word of a comment. A click
+// opens the Pull requests view of the Project on that PR. Only this Machine's reader feeds it: Linked machines get
+// no PR inbox notes.
+//
 // A Ticket that comes to wait for the owner (worfy-pipeline tickets 06 and 09,
 // src/main/workflow/waits-notify.ts; read from the workflow model, so it runs no gh, git or
 // `bin/profile` of its own) gets one note of no Session, a TicketNote: shown by NoteDisplay's rules, counted by Project
@@ -72,7 +79,9 @@ import { app, BrowserWindow, Notification } from 'electron'
 import type { AgentEvent } from '../shared/agent/events'
 import { readProjectMatchKey } from './autopilot/origin'
 import type { LiveSession } from '../shared/ipc/claude-home'
+import type { PrInboxRow, PrInboxSnapshot } from '../shared/ipc/pr-inbox'
 import type { GateQueueRead } from './github/gate-queue'
+import { same } from './github/inbox-groups'
 import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
 import { createFocusCheck, foregroundPid } from './foreground'
@@ -167,6 +176,26 @@ export interface WindowNoteDeps {
   show(note: WindowNote, onClick: () => void): void
   /** Raises worfy's window, or opens one; no Session opens. */
   open(note: WindowNote): void
+}
+
+/**
+ * A notification of the PR inbox (worfy-pr-inbox ticket 07): a click raises worfy's window and opens the Pull
+ * requests view of its Project on that PR.
+ */
+export interface PrInboxNote {
+  title: string
+  body: string
+  sessionId: null
+  pr: { projectId: string; repo: string; number: number }
+}
+
+/** The Electron parts of the PR inbox's notifications (PrInboxNotices); tests pass their own. */
+export interface PrInboxNoteDeps {
+  /** As NotifyDeps.focused. */
+  focused(): boolean | Promise<boolean>
+  show(note: PrInboxNote, onClick: () => void): void
+  /** Raises worfy's window, or opens one, and opens the Pull requests view on the note's PR. */
+  open(note: PrInboxNote): void
 }
 
 /** Where the notes of this Machine's Sessions go besides its own display (src/main/link/notes.ts). */
@@ -502,10 +531,15 @@ export const GATE_QUEUE_NOTICE_MS = 60 * 60_000
 export const GATE_QUEUE_TICK_MS = 60_000
 const PR_TITLE_LIMIT = 80
 
+/** A PR's title in one line of at most PR_TITLE_LIMIT characters. */
+function shortTitle(title: string): string {
+  const line = clip(title)
+  return line.length > PR_TITLE_LIMIT ? `${line.slice(0, PR_TITLE_LIMIT - 1)}…` : line
+}
+
 /** The text of the notification of a PR that waits in the gate queue, by this Machine's role. */
 export function gateQueueNoteBody(pr: { number: number; title: string }, role: 'serve' | 'request'): string {
-  const title = clip(pr.title)
-  const short = title.length > PR_TITLE_LIMIT ? `${title.slice(0, PR_TITLE_LIMIT - 1)}…` : title
+  const short = shortTitle(pr.title)
   const next = role === 'serve' ? 'Run Process gate queue' : 'No machine has taken it yet'
   return `PR #${pr.number} ${short} has waited for the gate queue for over an hour. ${next}`
 }
@@ -580,6 +614,108 @@ export function installGateQueueNotifications(
   return () => clearInterval(timer)
 }
 
+/** What a PR inbox notification tells of: a review asked of the user, or a reply in a thread of the user's PR. */
+export type PrInboxEventKind = 'review' | 'reply'
+
+/** The text of a PR inbox notification: the kind of event, `repo#N` and the PR's title; never a word of a comment. */
+export function prInboxNoteBody(kind: PrInboxEventKind, pr: { repo: string; number: number; title: string }): string {
+  return `${kind === 'review' ? 'Review requested' : 'New reply'}: ${pr.repo}#${pr.number} ${shortTitle(pr.title)}`
+}
+
+/**
+ * The events of a snapshot, one entry per PR, each with the keys that make it up: a PR of Needs my review is one
+ * event for as long as it stays there; on the user's own PR, each unresolved thread whose last comment is not the
+ * user's is one, by the id of that comment, so a later reply in it is a new event.
+ */
+function prInboxEvents(snapshot: PrInboxSnapshot): { row: PrInboxRow; kind: PrInboxEventKind; keys: string[] }[] {
+  const viewer = snapshot.viewer
+  const events: { row: PrInboxRow; kind: PrInboxEventKind; keys: string[] }[] = []
+  for (const { group, rows } of snapshot.groups) {
+    for (const row of rows) {
+      const pr = `${row.repo.toLowerCase()}#${row.number}`
+      if (group === 'needs-review') {
+        events.push({ row, kind: 'review', keys: [`${pr}\0review`] })
+        continue
+      }
+      if (viewer === null || !same(row.author, viewer)) continue
+      const keys = row.threads.flatMap((thread) => {
+        const last = thread.comments.at(-1)
+        return thread.isResolved || last === undefined || same(last.author, viewer) ? [] : [`${pr}\0reply\0${last.id}`]
+      })
+      if (keys.length > 0) events.push({ row, kind: 'reply', keys })
+    }
+  }
+  return events
+}
+
+/**
+ * The PR inbox's notifications (worfy-pr-inbox ticket 07), from the snapshots of the reader
+ * (src/main/github/inbox.ts): one per PR and event — a new review request, a new reply of someone else in a thread
+ * of the user's PR — and only while no worfy window has focus. What the first read of a Project holds is not new;
+ * neither is an event seen while a window had focus or while `prInboxNotify` was off: it never comes later. A
+ * snapshot not read yet, or of a reader that is off, changes nothing (off forgets the Project, so a reader on again
+ * starts from its next read).
+ */
+export class PrInboxNotices {
+  /** The keys of the events of each Project's last read, by Project id. */
+  private readonly seen = new Map<string, Set<string>>()
+
+  constructor(
+    private readonly deps: PrInboxNoteDeps,
+    /** `prInboxNotify` of the app settings; on by default. */
+    private readonly enabled: () => boolean = () => true,
+  ) {}
+
+  read(project: { id: string; name: string }, snapshot: PrInboxSnapshot): void {
+    if (!snapshot.enabled) {
+      this.seen.delete(project.id)
+      return
+    }
+    if (snapshot.readAt === null || snapshot.viewer === null) return
+    const events = prInboxEvents(snapshot)
+    const before = this.seen.get(project.id)
+    // An event that left the snapshot (a review given, a reply answered) is forgotten: a new one notifies again.
+    this.seen.set(project.id, new Set(events.flatMap((event) => event.keys)))
+    if (before === undefined || !this.enabled()) return
+    const notes = events
+      .filter((event) => event.keys.some((key) => !before.has(key)))
+      .map(({ row, kind }): PrInboxNote => ({ title: project.name, body: prInboxNoteBody(kind, row), sessionId: null, pr: { projectId: project.id, repo: row.repo, number: row.number } }))
+    if (notes.length === 0) return
+    unlessFocused(this.deps.focused(), () => {
+      for (const note of notes) this.deps.show(note, () => this.deps.open(note))
+    })
+  }
+}
+
+/** What installPrInboxNotifications reads: the app's PR inbox reader and its changes (src/main/ipc/pr-inbox.ts). */
+export interface PrInboxSource {
+  snapshot(projectId: string): PrInboxSnapshot
+  /** Calls `listener` with the id of each Project whose inbox changed; answers the function that stops it. */
+  onChange(listener: (projectId: string) => void): () => void
+}
+
+/**
+ * Notifies of the PR inbox of the Projects in worfy's list: each change of a Project's inbox is looked at once.
+ * `enabled` is `prInboxNotify` of the app settings, read at each change. Answers the function that stops it.
+ */
+export function installPrInboxNotifications(
+  source: PrInboxSource,
+  projects: () => readonly { id: string; name: string }[],
+  enabled: () => boolean,
+  deps: PrInboxNoteDeps = electronPrInboxNoteDeps,
+): () => void {
+  const notices = new PrInboxNotices(deps, enabled)
+  return source.onChange((projectId) => {
+    const project = projects().find((each) => each.id === projectId)
+    if (project === undefined) return
+    try {
+      notices.read(project, source.snapshot(projectId))
+    } catch (error) {
+      console.warn(`[pr-inbox] ${projectId}: the inbox could not be looked at for notifications`, error)
+    }
+  })
+}
+
 /** What the link service tells of a pause (src/main/link/service.ts, 'pairing-paused'). */
 export interface PairingPauseNews {
   failures: number
@@ -649,12 +785,14 @@ const shown = new Set<Notification>()
 const watched = new Set<number>()
 
 /** Keeps the note for a window whose renderer is not there yet; forgotten with the window. */
-function holdFor(window: BrowserWindow, note: DisplayNote, pending: PendingOpens): void {
+function holdFor(window: BrowserWindow, note: DisplayNote | PrInboxNote, pending: PendingOpens): void {
   const contents = window.webContents
   const id = contents.id
   pending.hold(
     id,
-    note.sessionId === null
+    'pr' in note
+      ? { view: 'pull-requests', projectId: note.pr.projectId, repo: note.pr.repo, number: note.pr.number }
+      : note.sessionId === null
       ? {
           view: 'pipeline',
           ...(note.projectRoot === null ? {} : { projectRoot: note.projectRoot }),
@@ -677,11 +815,11 @@ function holdFor(window: BrowserWindow, note: DisplayNote, pending: PendingOpens
  * Raises worfy and opens the Session of a clicked notification: in the open window, or in a new
  * one when none is open (macOS keeps the app running without windows). A note of a Linked
  * machine's Session keeps its Machine: the window's renderer opens it on that Machine. A Ticket's
- * note opens the Pipeline board of its Project the same way. A WindowNote only raises (or opens)
- * the window.
+ * note opens the Pipeline board of its Project the same way, and a PR inbox note the Pull requests view on its PR.
+ * A WindowNote only raises (or opens) the window.
  */
 export function openNote(
-  note: DisplayNote | WindowNote,
+  note: DisplayNote | WindowNote | PrInboxNote,
   pending: PendingOpens = pendingOpens,
   createWindow: () => BrowserWindow = createMainWindow,
   quiet: QuietWindows = quietWindows(),
@@ -704,7 +842,7 @@ export function openNote(
   // it now. An overlay that is not mounted yet (a page still loading, or loaded but before the
   // Canvas) misses the signal and takes the note when it mounts. So the outcome does not depend on
   // webContents.isLoading(), which is also true while a Card iframe loads.
-  if (note.sessionId === null && !('ticket' in note)) return
+  if (note.sessionId === null && !('ticket' in note) && !('pr' in note)) return
   holdFor(window, note, pending)
   if (existing !== undefined) emit(window.webContents, notifyOpen, {})
 }
@@ -730,7 +868,7 @@ function showSystem(note: { title: string; body: string }, onClick: () => void):
  * (`window`). Both share one focus check, on Windows checked against the system's foreground window
  * (foreground.ts). The platform is a parameter so that tests build the Windows wiring on any system.
  */
-export function electronDeps(platform: NodeJS.Platform): { notify: NotifyDeps<DisplayNote>; window: WindowNoteDeps } {
+export function electronDeps(platform: NodeJS.Platform): { notify: NotifyDeps<DisplayNote>; window: WindowNoteDeps; prInbox: PrInboxNoteDeps } {
   const focused = createFocusCheck({
     electronFocused: () => BrowserWindow.getFocusedWindow() !== null,
     platform,
@@ -741,6 +879,7 @@ export function electronDeps(platform: NodeJS.Platform): { notify: NotifyDeps<Di
   return {
     notify: { focused, show: showSystem, open: (note) => openNote(note), now: () => Date.now() },
     window: { focused, show: showSystem, open: (note) => openNote(note) },
+    prInbox: { focused, show: showSystem, open: (note) => openNote(note) },
   }
 }
 
@@ -751,6 +890,9 @@ export const electronNotifyDeps: NotifyDeps<DisplayNote> = thisPlatformDeps.noti
 
 /** The same for the gate queue's notifications. */
 export const electronWindowNoteDeps: WindowNoteDeps = thisPlatformDeps.window
+
+/** The same for the PR inbox's notifications. */
+export const electronPrInboxNoteDeps: PrInboxNoteDeps = thisPlatformDeps.prInbox
 
 /** Where the notes of the Tickets that wait for the owner come from: a workflow hub and a Project list. */
 export interface WaitsSources {
