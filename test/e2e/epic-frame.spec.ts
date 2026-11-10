@@ -867,6 +867,9 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
     writeFileSync(join(issues, '41-blocked.md'), ticketText(41, blockedWith('waits for the owner to answer which payment provider the platform uses in production'), '—'))
     writeFileSync(join(issues, '42-many.md'), ticketText(42, 'open', done))
   })
+  // The blocked Ticket's fixed date is weeks old, and no Ticket is in work: the Epic would wait in the sidebar's
+  // folded «Older» group (worfy-polish ticket 98). This test checks the row's long name, so every Epic stays listed.
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ epicsOlderAfter: 'never' }))
   const launched = await launch()
   try {
     const { window } = launched

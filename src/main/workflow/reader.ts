@@ -281,9 +281,13 @@ export interface TicketFs {
   readdir: (dir: string) => Promise<string[]>
   /** The real path of the Project root. A stand-in that has none leaves it out. */
   realpath?: (path: string) => Promise<string>
+  /** When a file was last written, in ms; null when it cannot be read. A stand-in that has none leaves it out, and the Epics then carry no `specAt`. */
+  mtime?: (path: string) => Promise<number | null>
 }
 
-const nodeFs: TicketFs = { readText, readdir: (dir) => readdir(dir), realpath: (path) => realpath(path) }
+const mtime = (path: string): Promise<number | null> => stat(path).then((s) => s.mtime.getTime(), () => null)
+
+const nodeFs: TicketFs = { readText, readdir: (dir) => readdir(dir), realpath: (path) => realpath(path), mtime }
 
 export interface EnrichOptions {
   /** The path rules of the platform; path.win32 in tests on any system. */
@@ -297,7 +301,7 @@ export interface EnrichOptions {
 }
 
 /**
- * Adds the trail section files, the manual checks and the Epic titles to a snapshot of the checkout, read from
+ * Adds the trail section files, the manual checks, the Epic titles and the times of their specs to a snapshot of the checkout, read from
  * `ticketsRoot` (the folder with `<epic>/spec.md` and `<epic>/issues/`).
  *
  * On Windows readFile and readdir through a link to `\\host\share\…` make the system contact
@@ -330,8 +334,16 @@ export async function enrichSnapshot(
 
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
-      const spec = epic.hasSpec ? await read(paths.join(scratch, epic.epic, 'spec.md')) : null
-      return { ...epic, title: spec === null ? null : firstHeading(spec) }
+      const specPath = paths.join(scratch, epic.epic, 'spec.md')
+      const spec = epic.hasSpec ? await read(specPath) : null
+      const title = spec === null ? null : firstHeading(spec)
+      if (fs.mtime === undefined) return { ...epic, title }
+      // The time the spec was added, for an Epic none of whose Tickets has changed status yet (the sidebar's order,
+      // worfy-polish ticket 98). Read only after the spec itself was: a link away from the Project never gets a stat.
+      // shortcut: the mtime, not the spec's first commit — a checkout or an edit of spec.md makes it newer, so such an
+      // Epic shows as recent, never hides; redo when Epics with no status change must keep their age across clones.
+      const at = spec === null ? null : await fs.mtime(specPath)
+      return { ...epic, title, specAt: at === null ? null : new Date(at).toISOString() }
     }),
   )
 

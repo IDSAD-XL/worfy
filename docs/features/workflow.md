@@ -67,8 +67,14 @@ An arrow goes from a blocker to the Ticket it blocks. It is dashed while the blo
 the lit chain of a hovered or selected Node. The arrow of a done blocker is solid and is drawn only while lit. An arrow is
 drawn only when both Tickets have a card on the Canvas.
 
-**The sidebar and the palette.** The Epics section lists the Epics of the active Project with their progress and `N in
-work`; a click centres the frame. The Command palette has a "Go to" row for each Epic and Ticket, and for a Ticket with no
+**The sidebar and the palette.** The Epics section lists the Epics of the active Project with their progress, `N in
+work` and how long ago their last work was ("2h", "3d"); a click centres the frame. An Epic's last work is the newest
+status change among its Tickets (the time of the `Status:` line: claim, block, done). An Epic none of whose Tickets has
+changed status yet takes the time its `spec.md` was last written. Epics with a Ticket in work come first, then the rest
+by last work, newest first. An Epic with no Ticket in work and no work for longer than the threshold goes into the group
+"Older · N" at the bottom of the section, closed Epics and Epics with open Tickets alike. The group is folded until a
+click opens it, and the fold is kept for each Project. The threshold is "Fold Epics without work after" in Settings →
+General: Never, 3, 7 or 30 days, 7 days by default; Never keeps every Epic in the list. The Command palette has a "Go to" row for each Epic and Ticket, and for a Ticket with no
 card it centres the frame. Each unchecked manual check of a Ticket (an item of its done section with the Profile's manual
 mark) is a palette row found only by typing. Picking it goes to the Ticket. worfy does not tick these items.
 
@@ -162,7 +168,7 @@ Machine. Focus mode reads the file there too, and "Open in editor" shows the toa
 | The views | `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/nodes/EpicFrameNode.tsx` |
 | Evidence: the items' states, the chip, the matrix, its screenshots and clips | `src/shared/workflow/evidence.ts`, `src/renderer/canvas/badges/Evidence.tsx`, `src/renderer/canvas/nodes/EvidenceMatrix.tsx`, `src/renderer/canvas/nodes/EvidencePreview.tsx`, `src/main/images/stores.ts`, `src/renderer/canvas/badges/evidence.css` |
 | The arrows | `src/renderer/canvas/edges/blocking.ts` |
-| Sidebar, palette, first-epic label | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
+| Sidebar, palette, first-epic label | `src/renderer/shell/sidebar/EpicsSection.tsx`, `src/renderer/shell/sidebar/epics-order.ts`, `src/renderer/palette/commands.ts`, `src/renderer/canvas/overlays/FirstEpic.tsx` |
 | The buttons | `src/renderer/canvas/actions/TicketActions.tsx`, `src/renderer/canvas/actions/EpicActions.tsx`, `src/renderer/canvas/actions/OpenPr.tsx`, `src/renderer/canvas/actions/gates.ts` |
 | Whether an action can run; templates | `src/shared/actions/render-template.ts`, `src/shared/projects/action-templates.ts` |
 | Starting the work | `src/main/actions/launch.ts`, `src/main/ipc/actions.ts`, `src/shared/ipc/actions.ts` |
