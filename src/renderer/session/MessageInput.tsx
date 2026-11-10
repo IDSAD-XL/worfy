@@ -7,6 +7,7 @@ import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } fr
 import { dropRefusal } from './chat-drop'
 import { composerItems } from './composer/index'
 import { formatSize } from './attachment-format'
+import { clearDraft, useDraft } from './drafts'
 import { composerHint } from './hints'
 import { stepHistory } from './history'
 import { markField, takePendingInput, usePendingInput } from './pending-input'
@@ -44,6 +45,10 @@ import { useSlashMenu } from './SlashMenu'
 // A Product Session's field (`product`; worfy-product-session ticket 19, Q4) is one line under the text:
 // attaching, Interrupt while a turn runs, and Send. Its bar has no context meter, queue, pickers or hints
 // (PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS); Return still sends, and while a turn runs main still queues.
+//
+// What is typed and not sent is the field's draft (`draft`, drafts.ts; worfy-polish ticket 95): a field
+// made again — another Session picked and back, another Project, a restart — opens with it, and a
+// send clears it. A failed send puts the text back, and so the draft too.
 
 /** A message as the field sends it. */
 export interface OutgoingMessage {
@@ -62,6 +67,8 @@ export interface MessageInputProps {
   history: readonly string[]
   /** Who the message goes to, for the field's label. */
   recipient: string
+  /** The key of the field's draft (drafts.ts, draftKey); none: what is typed goes with the field. */
+  draft?: string
   /** A Product Session's field: one line with attaching, Interrupt and Send. */
   product?: boolean
   /** Sends a message; resolves to an error text when it was not sent. */
@@ -149,8 +156,8 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
   )
 }
 
-export function MessageInput({ nodeId, sessionId, busy, history, recipient, product = false, onSend, onInterrupt, ref }: MessageInputProps) {
-  const [text, setText] = useState('')
+export function MessageInput({ nodeId, sessionId, busy, history, recipient, draft, product = false, onSend, onInterrupt, ref }: MessageInputProps) {
+  const [text, setText] = useDraft(draft)
   // The field's selection, as the textarea reports it: a caret when both ends meet (the slash menu follows it).
   const [caret, setCaret] = useState(0)
   const [caretEnd, setCaretEnd] = useState(0)
@@ -229,7 +236,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, prod
     }
     take()
     return usePendingInput.subscribe(take)
-  }, [nodeId])
+  }, [nodeId, setText])
 
   // The field still shows a prompt brought back by ↑/↓ from the history.
   const browsing = at !== null && text === history[at]
@@ -303,6 +310,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, prod
     setSending(true)
     setError(null)
     setText('')
+    if (draft !== undefined) clearDraft(draft)
     changeChips(() => [])
     setAt(null)
     sendingCount.current = attached.length

@@ -23,6 +23,7 @@ import { invoke } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { checkFiles, readFiles, roomFor, takeAttached } from '../../session/attach-files'
+import { clearDraft, draftKey, useDraft } from '../../session/drafts'
 import { STATE_CHIPS } from '../../session/format'
 import { AttachmentChips, type Chip } from '../../session/MessageInput'
 import { openSession } from '../../session/navigation'
@@ -278,7 +279,9 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
   const answer = liveAnswer ?? pastAnswer
   // On a read-only screen (worfy-link ticket 25) every action that writes is inactive, with the reason.
   const readOnly = useReadOnly()
-  const [draft, setDraft] = useState('')
+  // What is typed and not sent stays as this field's draft (session/drafts.ts; worfy-polish ticket 95).
+  const draftId = draftKey('node', project.id, id)
+  const [draft, setDraft] = useDraft(draftId)
   const [problem, setProblem] = useState<string | null>(null)
   const [chips, setChips] = useState<Chip[]>([])
   const [dragging, setDragging] = useState(false)
@@ -328,6 +331,7 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
     sendingNow.current = attached
     setProblem(null)
     setDraft('')
+    clearDraft(draftId)
     changeChips(() => [])
     // Why the message was not sent; null when it was. `named: true` — ensure() has shown why.
     let failure: { named: true } | { named: false; problem: string } | null = null
