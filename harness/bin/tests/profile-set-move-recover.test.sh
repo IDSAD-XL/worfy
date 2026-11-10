@@ -137,6 +137,14 @@ check "a detached HEAD: the reason" grep -q "detached HEAD" "$T/err"
 g -C "$R" checkout -q main
 check "a detached HEAD: no Workflow folder made" absent "$WF"
 
+g -C "$R" config status.showUntrackedFiles no
+printf 'new\n' >"$R/src/untracked.txt"
+run "$SET" -C "$R" --expect "$FP" --move silent >/dev/null 2>"$T/err"
+check "an untracked file hidden by status.showUntrackedFiles=no: exit 1" [ $? -eq 1 ]
+check "an untracked file hidden by the config: the reason" grep -q "the repository has uncommitted changes" "$T/err"
+rm -f "$R/src/untracked.txt"
+g -C "$R" config --unset status.showUntrackedFiles
+
 mkdir -p "$T/pre"
 g -C "$T/pre" init -q
 printf 'theirs\n' >"$T/pre/HANDOFF.md"

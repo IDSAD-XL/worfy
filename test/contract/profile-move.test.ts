@@ -285,6 +285,21 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
     expect(holds).toEqual([`hold ${repo}`, `watch again ${repo}`])
   })
 
+  it('a stopped move shows on the read; a rollback that left something is a failure with what is left, not a refusal', async () => {
+    writeFileSync(join(harnessHome, 'projects', 'demo', '.move-in-progress.json'), '{}\n')
+    expect((await read(handlers())).interrupted).toBe(true)
+    const left = ['taking back the commit in /x: git reset --keep failed']
+    const answer = { code: 1, stdout: JSON.stringify({ ok: false, errors: [{ path: '', message: 'failed at to-commit; the move was rolled back, except: …' }], leftover: left }), stderr: '' }
+    const module = profileEditHandlers({
+      projects: () => [{ path: repo }],
+      profileSet: (args, stdin) => (args.includes('--move') ? Promise.resolve(answer) : profileSet(args, stdin)),
+      layouts: layoutCache(),
+      sessions: () => Promise.resolve([]),
+      holdWatches: () => Promise.resolve(() => Promise.resolve()),
+    })
+    expect(await move(module, 'silent')).toEqual({ status: 'failed', reason: 'failed at to-commit; the move was rolled back, except: …', left })
+  })
+
   it('a stranger fingerprint of mode and folder is a conflict, and nothing moves', async () => {
     const module = handlers()
     const result = await call(module, 'profileEdit.move', { root: repo, to: 'silent', folder: null, expected: `sha256:${'0'.repeat(64)}` })
