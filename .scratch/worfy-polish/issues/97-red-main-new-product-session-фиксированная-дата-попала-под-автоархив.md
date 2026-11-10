@@ -1,7 +1,7 @@
 # 97 — Красный `main`: e2e `new-product-session.spec.ts:93` — фиксированная дата transcript-а попала под автоархив
 
 Type: bug
-Status: in-progress
+Status: done 2026-11-10T09:54Z
 PR: #1778
 Blocked by: —
 Source: Orchestrator 2026-11-10. С 2026-11-10T08:02Z каждый CI run `main` падает на одном e2e test-е, на macOS и

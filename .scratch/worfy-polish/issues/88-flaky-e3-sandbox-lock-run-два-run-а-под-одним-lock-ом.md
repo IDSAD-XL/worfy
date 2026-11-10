@@ -131,3 +131,7 @@ looks first and then makes the folder». Stand-in `mkdir` ведёт себя к
 | Ubuntu 26.04 | bash-копия test-а, 8 параллельных циклов | 0 из 200 |
 | Ubuntu 26.04 | bash-копия test-а, 40 параллельных циклов | 0 из 1000 |
 | macOS 26.6.1, 4 цикла + 12 `yes` | `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"`, 200 раз | 0 из 200 |
+
+**Тот же lock в skill-ах Harness — без Ticket-а** (решение владельца 2026-11-10). Lock e2e в skill-ах Harness берётся
+тем же `until mkdir`, и на `ubuntu-26.04` (uutils `mkdir` 0.8.0 выходит с кодом 0 на EEXIST) его тоже могут взять
+двое. Это важно только на Linux, а lock skill-ов сегодня работает на Mac и на ПК, поэтому остаётся эта запись.

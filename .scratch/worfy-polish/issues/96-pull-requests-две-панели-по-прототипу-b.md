@@ -1,7 +1,8 @@
 # 96 — Pull requests: две панели по прототипу B
 
 Type: feature
-Status: claimed 2026-11-10T09:59Z
+Status: done 2026-11-10T12:28Z
+PR: #1782
 Blocked by: —
 Source: владелец 2026-11-10 — вид «Pull requests» (Epic worfy-pr-inbox) выглядит бледно; из кликабельного прототипа
 с вариантами A / B / C (карточка `card-38855775`, `index.html` в папке карточек Project-а) выбран вариант **B**.

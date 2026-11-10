@@ -1,7 +1,8 @@
 # 84 — Eval case reviewer-verdict красный: reviewer пишет вердикт жирным и через тире
 
 Type: bug
-Status: claimed 2026-11-09T22:52Z
+Status: done 2026-11-10T10:48Z
+PR: #1757
 Blocked by: —
 Source: платный eval Orchestrator-а 2026-11-09 на origin/main (claude 2.1.289, модель claude-sonnet-5): case
 `reviewer-verdict` — 0.78, grader `rejected-first` не прошёл в 2 из 3 run-ов. Строки перечитаны по main `c69ffd43b`.

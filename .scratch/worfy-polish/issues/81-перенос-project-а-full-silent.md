@@ -1,9 +1,8 @@
 # 81 — Перенос Project-а Full ↔ Silent
 
 Type: task
-Status: blocked 2026-11-10T08:20Z
-Blocked reason: three review rounds used (#1770); one medium left: the copy check after a killed move refuses forever with a symlink or eol=crlf — owner decides: a 4th round or merge with a follow-up ticket
-Waits: owner
+Status: done 2026-11-10T11:33Z
+PR: #1770
 Branch: worfy-polish/81
 Blocked by: 78
 Source: решение владельца 2026-11-09, Q6: перенос — отдельный ticket, низкий приоритет, после ticket-а 78 и после

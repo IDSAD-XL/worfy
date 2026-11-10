@@ -1,7 +1,7 @@
 # 98 — Epics в sidebar: порядок по последней работе, время с последней работы и свёрнутая группа «Older»
 
 Type: feature
-Status: claimed 2026-11-10T10:49Z
+Status: done 2026-11-10T13:44Z
 PR: #1783
 Branch: worfy-polish/98
 Blocked by: —
