@@ -20,7 +20,9 @@ Harness на Machine, по умолчанию `worfy-harness` внутри Claud
 **Пункт в toolbar.** Это последний пункт toolbar. Когда места в toolbar не остаётся и после того, как заголовок Project-а
 исчез, пункт сжимается: его строки заканчиваются многоточием, а строка Harness хранит весь свой текст в tooltip-е. Во второй его строке версия приложения и собственная память worfy
 ([Storage and diagnostics](storage-and-diagnostics.md)). В Stable copy версия — это version chip
-[Update](updates.md).
+[Update](updates.md). Третья строка, под версией, — Harness в Codex, когда ему есть что сказать, например `Codex: approve hooks`, с
+кнопкой в её конце. С тремя строками пункт сохраняет высоту toolbar-а: строка Harness и кнопки-иконки — 16 px в высоту вместо 20,
+текст остаётся 11 px.
 
 | Состояние | Текст | Кнопка-иконка | Когда |
 |---|---|---|---|

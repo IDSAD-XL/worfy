@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { codexHooksCommand } from '../../src/shared/ipc/harness'
 import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // worfy-multi-vendor ticket 39: after Install installs the Harness into Codex as well, the toolbar shows
 // the step "Approve the Harness hooks in Codex": what to open (/hooks in Codex) and "Check again". The
@@ -136,7 +136,10 @@ test('Install into Codex opens "Approve the Harness hooks in Codex"; Check again
     // The install brought the Harness into Codex: Codex keeps its hooks off, and the step opens by itself.
     const step = window.getByRole('dialog', { name: 'Approve the Harness hooks in Codex' })
     await expect(step).toBeVisible()
-    await expect(item.getByTestId('harness-codex')).toHaveText('· Codex: approve hooks')
+    // The Codex part is the third line of the Harness column (worfy-polish ticket 93), not on the Harness line.
+    const column = window.getByTestId('harness-column')
+    await expect(column.getByTestId('harness-codex')).toHaveText('Codex: approve hooks')
+    await expect(item.getByTestId('harness-codex')).toHaveCount(0)
     await expect(step.getByTestId('codex-hooks-step-steps')).toContainText('/hooks')
     // Step 1: the binary the install into Codex used, started from the home folder (worfy-polish ticket 54).
     await expect(step.getByTestId('codex-hooks-step-command')).toHaveText(codexHooksCommand(env.WORFY_CODEX_CLI ?? '', process.platform === 'win32'))
@@ -154,10 +157,106 @@ test('Install into Codex opens "Approve the Harness hooks in Codex"; Check again
     approvePluginHooks(codexHome)
     await step.getByRole('button', { name: 'Check again' }).click()
     await expect(result).toHaveAttribute('data-trust', 'approved')
-    await expect(item.getByTestId('harness-codex')).toHaveCount(0)
+    await expect(column.getByTestId('harness-codex')).toHaveCount(0)
     await shoot(launched, 'approved')
     await step.getByRole('button', { name: 'Done' }).click()
     await expect(step).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
+// worfy-polish ticket 93: "Codex: approve hooks" is the third line of the Harness column, under the app
+// version, so the Harness line is whole; the three lines stay inside the 52 px toolbar at 1280 px and at
+// 1600 px, next to both Vendors' Limits (Claude's from limits.json, Codex's from the fake's account-plus).
+// With WORFY_EVIDENCE_DIR set, the toolbar screenshots are copied there as 93-toolbar-<width>-<theme>.png.
+test('"Codex: approve hooks" is the third line of the Harness column, inside the toolbar at 1280 px and 1600 px', async () => {
+  const dataDir = join(scratch, 'data')
+  mkdirSync(dataDir)
+  const receivedAt = Date.now() - 60_000
+  const inHours = (hours: number): number => Math.floor(Date.now() / 1000) + hours * 3600
+  writeFileSync(
+    join(dataDir, 'limits.json'),
+    JSON.stringify({
+      windows: {
+        five_hour: { utilization: 1.01, resetsAt: inHours(2), status: 'allowed', receivedAt, source: 'sdk' },
+        seven_day: { utilization: 0.26, resetsAt: inHours(72), status: 'allowed', receivedAt, source: 'sdk' },
+      },
+    }),
+  )
+  const launched = await launchApp({ env: { ...env, WORFY_DATA_DIR: dataDir, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
+    const item = window.getByTestId('harness-status')
+    await answerInstall(launched)
+    await item.getByTestId('harness-action').click()
+    const step = window.getByRole('dialog', { name: 'Approve the Harness hooks in Codex' })
+    await expect(step).toBeVisible()
+    await step.getByTestId('codex-hooks-step-close').click()
+    await expect(step).toHaveCount(0)
+
+    const toolbar = window.getByRole('banner')
+    const column = toolbar.getByTestId('harness-column')
+    const codexLine = column.getByTestId('harness-codex-line')
+    await expect(column).toHaveAttribute('data-lines', '3')
+    await expect(codexLine).toHaveText('Codex: approve hooks')
+    await expect(item).not.toContainText('Codex')
+    await expect(toolbar.getByTestId('limits-meter').getByRole('group', { name: 'Codex limits' }).getByRole('meter')).toHaveCount(2)
+    await expect(toolbar.getByTestId('limit-five_hour-value')).toHaveText('101%')
+    await expect(toolbar.getByTestId('limit-five_hour')).toHaveAttribute('data-level', 'blocked')
+
+    const box = async (locator: typeof column): Promise<{ x: number; y: number; width: number; height: number }> => {
+      const found = await locator.boundingBox()
+      if (found === null) throw new Error('not on screen')
+      return found
+    }
+    for (const width of [1280, 1600]) {
+      await expect
+        .poll(async () => {
+          const now = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
+          if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), width)
+          return now
+        })
+        .toBe(width)
+      const bar = await box(toolbar)
+      expect(bar.height, 'the toolbar keeps its 52 px').toBe(52)
+      const harness = await box(item)
+      const version = await box(column.getByTestId('app-line'))
+      const codex = await box(codexLine)
+      expect(version.y, `the version under the Harness line at ${width} px`).toBeGreaterThanOrEqual(harness.y + harness.height - 1)
+      expect(codex.y, `the Codex line under the version at ${width} px`).toBeGreaterThanOrEqual(version.y + version.height - 1)
+      expect(harness.y, `the Harness line inside the toolbar at ${width} px`).toBeGreaterThanOrEqual(bar.y)
+      expect(codex.y + codex.height, `the Codex line inside the toolbar at ${width} px`).toBeLessThanOrEqual(bar.y + bar.height)
+      // Neither line is cut with an ellipsis: the Harness line keeps its version, the Codex line its words.
+      for (const [what, locator] of [['Harness line', item.getByTestId('harness-text')], ['Codex line', codexLine.getByTestId('harness-codex')]] as const) {
+        const overflow = await locator.evaluate((node) => {
+          const found = node as unknown as { scrollWidth: number; clientWidth: number }
+          return { scrollWidth: found.scrollWidth, clientWidth: found.clientWidth }
+        })
+        expect(overflow.scrollWidth, `the ${what} is whole at ${width} px (${JSON.stringify(overflow)})`).toBeLessThanOrEqual(overflow.clientWidth)
+      }
+      // The search field still ends inside the window.
+      const search = await box(toolbar.locator('.w-toolbar__palette-hint'))
+      expect(search.x + search.width, `the search field inside the window at ${width} px`).toBeLessThanOrEqual(width)
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        const base = `93-toolbar-${width}-${scheme}.png`
+        const file = test.info().outputPath(base)
+        await toolbar.screenshot({ path: file })
+        const dir = process.env.WORFY_EVIDENCE_DIR
+        if (dir !== undefined && dir !== '') {
+          mkdirSync(dir, { recursive: true })
+          copyFileSync(file, join(dir, base))
+        }
+      }
+      await window.emulateMedia({ colorScheme: null })
+    }
+
+    // The line still opens the step.
+    await codexLine.getByTestId('harness-codex').click()
+    await expect(step).toBeVisible()
   } finally {
     await launched.close()
   }

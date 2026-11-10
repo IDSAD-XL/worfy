@@ -30,7 +30,7 @@ describe('LimitsMeterView', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     const fiveHour = screen.getByTestId('limit-five_hour')
     expect(within(fiveHour).getByRole('meter', { name: '5-hour limit' }).getAttribute('aria-valuenow')).toBe('62')
-    expect(fiveHour.textContent).toBe('5-hour62%resets 07:10')
+    expect(fiveHour.textContent).toBe('5h62%07:10')
     expect(fiveHour.dataset.level).toBe('working')
 
     const sevenDay = screen.getByTestId('limit-seven_day')
@@ -49,7 +49,7 @@ describe('LimitsMeterView', () => {
   it('data older than an hour adds no "as of" line: the bar is dimmed and "as of" is its tooltip', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     const sevenDay = screen.getByTestId('limit-seven_day')
-    expect(sevenDay.textContent).toBe('7-daylimit reached')
+    expect(sevenDay.textContent).toBe('7dlimit reached')
     expect(sevenDay.dataset.stale).toBe('true')
     expect(sevenDay.getAttribute('title')).toBe('limit reached · as of 03:00')
     expect(Number(sevenDay.style.opacity)).toBeLessThan(1)
@@ -69,20 +69,20 @@ describe('LimitsMeterView', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     const fiveHour = screen.getByTestId('limit-five_hour')
     expect(fiveHour.classList.contains('w-limit-bar')).toBe(true)
-    expect(within(fiveHour).getByText('5-hour').classList.contains('w-limit-bar__label')).toBe(true)
+    expect(within(fiveHour).getByText('5h').classList.contains('w-limit-bar__label')).toBe(true)
     expect(within(fiveHour).getByTestId('limit-five_hour-note').classList.contains('w-limit-bar__resets')).toBe(true)
     expect(within(screen.getByTestId('limits-meter')).getByText('Limits').classList.contains('w-limits__heading')).toBe(true)
   })
 
-  it('an old bar with a reset time still has two lines of text at most: the label line and the reset line', () => {
+  it('an old bar with a reset time is still one line of text and its bar: label, value, reset time', () => {
     const old: LimitsView = { claude: { windows: { ...claude.windows, five_hour: { ...claude.windows.five_hour!, receivedAt: AT - 2 * 24 * 60 * 60 * 1000 } } }, vendors: {} }
     render(<LimitsMeterView state={old} now={AT} timeZone={TZ} />)
     const fiveHour = screen.getByTestId('limit-five_hour')
-    expect(fiveHour.textContent).toBe('5-hour62%resets 07:10')
+    expect(fiveHour.textContent).toBe('5h62%07:10')
     expect(fiveHour.getAttribute('title')).toBe('62% · as of Sat 05:00')
-    // The children are the label line, the meter and the reset line; nothing else.
-    expect(fiveHour.children).toHaveLength(3)
-    expect(within(fiveHour).getByTestId('limit-five_hour-note').textContent).toBe('resets 07:10')
+    // The children are the label, the value, the reset time and the meter; nothing else (worfy-polish ticket 93).
+    expect([...fiveHour.children].map((child) => child.className)).toEqual(['w-limit-bar__label', 'w-limit-bar__value', 'w-limit-bar__resets', 'w-limit-bar__meter'])
+    expect(within(fiveHour).getByTestId('limit-five_hour-note').textContent).toBe('07:10')
     // The reset line carries its full text as the tooltip, in case it is cut.
     expect(within(fiveHour).getByTestId('limit-five_hour-note').getAttribute('title')).toBe('resets 07:10')
     expect(within(fiveHour).queryByText(/as of/)).toBeNull()
@@ -129,7 +129,7 @@ describe('LimitsMeterView: a section per Vendor', () => {
     // Each section starts with its Vendor's logo, Claude's too, and no Vendor's name is visible text: the
     // logos say whose bars are whose, the names are the tooltips (owner, 2026-11-03). A thin line parts the sections.
     const meter = screen.getByRole('group', { name: 'Limits' })
-    expect(meter.textContent).toBe('5-hour62%07:107-daylimit reached5h12%09:00weekly40%Mon 09:00')
+    expect(meter.textContent).toBe('5h62%07:107dlimit reached5h12%09:007d40%Mon 09:00')
     expect([...meter.children].map((child) => child.getAttribute('data-testid'))).toEqual(['limits-claude', 'limits-divider', 'limits-codex'])
     expect(screen.getByTestId('limits-divider').getAttribute('aria-hidden')).toBe('true')
     expectLogoFirst('claude', 'Claude Code')
@@ -137,10 +137,10 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(screen.getByRole('img', { name: 'Codex' })).toBe(screen.getByTestId('limits-codex-logo'))
 
     const claudeSection = screen.getByRole('group', { name: 'Claude Code limits' })
-    // Two sections make the panel compact: no "Limits" heading (the group keeps the name), the reset line is the time alone.
+    // Two sections make the panel compact: no "Limits" heading (the group keeps the name).
     expect(screen.getByRole('group', { name: 'Limits' }).dataset.compact).toBe('true')
     expect(screen.queryByText('Limits')).toBeNull()
-    expect(within(claudeSection).getByTestId('limit-five_hour').textContent).toBe('5-hour62%07:10')
+    expect(within(claudeSection).getByTestId('limit-five_hour').textContent).toBe('5h62%07:10')
     expect(within(claudeSection).getByTestId('limit-five_hour-note').getAttribute('title')).toBe('resets 07:10')
 
     const codexSection = screen.getByRole('group', { name: 'Codex limits' })
@@ -148,8 +148,54 @@ describe('LimitsMeterView: a section per Vendor', () => {
     expect(bars.map((bar) => [bar.getAttribute('aria-label'), bar.getAttribute('aria-valuenow')])).toEqual([['5h limit', '12'], ['weekly limit', '40']])
     // A window longer than a day shows the weekday of its reset, as Claude's 7-day one.
     expect(within(codexSection).getByTestId('limit-codex-primary').textContent).toBe('5h12%09:00')
-    expect(within(codexSection).getByTestId('limit-codex-secondary').textContent).toBe('weekly40%Mon 09:00')
+    expect(within(codexSection).getByTestId('limit-codex-secondary').textContent).toBe('7d40%Mon 09:00')
     expect(within(codexSection).getByTestId('limit-codex-secondary-note').getAttribute('title')).toBe('resets Mon 09:00')
+  })
+
+  // worfy-polish ticket 93: a Vendor's windows one above the other, so a section is as wide as one line.
+  it('each Vendor\'s windows stand one above the other in one stack; a Vendor with more than two gets a stack of two per column', () => {
+    const two: LimitsView = { claude, vendors: { codex: [codex('primary', '5h', 12, 300), codex('secondary', 'weekly', 40, 10080)] } }
+    render(<LimitsMeterView state={two} now={AT} timeZone={TZ} />)
+    const ids = (stack: HTMLElement): (string | null)[] => [...stack.children].map((child) => child.getAttribute('data-testid'))
+    expect(screen.getAllByTestId('limits-claude-stack').map(ids)).toEqual([['limit-five_hour', 'limit-seven_day']])
+    expect(screen.getAllByTestId('limits-codex-stack').map(ids)).toEqual([['limit-codex-primary', 'limit-codex-secondary']])
+    expect(screen.getByTestId('limits-codex-stack').classList.contains('w-limits-stack')).toBe(true)
+    cleanup()
+    const four: LimitsView = { claude, vendors: { codex: [codex('a', '5h', 1, 300), codex('b', 'weekly', 2, 10080), codex('c', 'monthly', 3, 43200), codex('d', 'annual', 4, 525600)] } }
+    render(<LimitsMeterView state={four} now={AT} timeZone={TZ} />)
+    expect(screen.getAllByTestId('limits-codex-stack').map(ids)).toEqual([
+      ['limit-codex-a', 'limit-codex-b'],
+      ['limit-codex-c', 'limit-codex-d'],
+    ])
+  })
+
+  // Owner, 2026-11-10 (worfy-polish ticket 93): the toolbar shows short labels; the full ones stay in the
+  // value's tooltip and the meter's accessible name.
+  it('the visible labels are short (5h, 7d; Codex weekly 7d, daily 1d), the tooltips and meters keep the full ones; others stay', () => {
+    const view: LimitsView = { claude, vendors: { codex: [codex('primary', '5h', 12, 300), codex('secondary', 'weekly', 40, 10080), codex('d', 'daily', 3, 1440), codex('m', 'monthly', 4, 43200)] } }
+    render(<LimitsMeterView state={view} now={AT} timeZone={TZ} />)
+    const label = (id: string): string | null | undefined => screen.getByTestId(id).querySelector('.w-limit-bar__label')?.textContent
+    expect(['limit-five_hour', 'limit-seven_day', 'limit-codex-primary', 'limit-codex-secondary', 'limit-codex-d', 'limit-codex-m'].map(label)).toEqual(['5h', '7d', '5h', '7d', '1d', 'monthly'])
+    expect(screen.getByTestId('limit-five_hour-value').getAttribute('title')).toBe('5-hour: 62% · resets 07:10')
+    expect(screen.getByTestId('limit-codex-secondary-value').getAttribute('title')).toBe('weekly: 40% · resets Mon 09:00')
+    expect(screen.getByRole('meter', { name: '5-hour limit' })).not.toBeNull()
+    expect(screen.getByRole('meter', { name: 'weekly limit' })).not.toBeNull()
+  })
+
+  it('a share over 100% keeps the warning colour on its value, and the bar stays full', () => {
+    const over: LimitsView = { claude: { windows: { five_hour: { ...claude.windows.five_hour!, utilization: 1.01 } } }, vendors: {} }
+    render(<LimitsMeterView state={over} now={AT} timeZone={TZ} />)
+    const fiveHour = screen.getByTestId('limit-five_hour')
+    expect(fiveHour.dataset.level).toBe('blocked')
+    expect(within(fiveHour).getByTestId('limit-five_hour-value').textContent).toBe('101%')
+    expect(within(fiveHour).getByTestId('limit-five_hour-value').style.color).toBe('var(--blocked-text)')
+    expect((within(fiveHour).getByRole('meter').firstElementChild as HTMLElement).style.width).toBe('100%')
+  })
+
+  it('a status in words with no reset time takes the reset time\'s column too', () => {
+    render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
+    expect(screen.getByTestId('limit-seven_day-value').classList.contains('w-limit-bar__value--wide')).toBe(true)
+    expect(screen.getByTestId('limit-five_hour-value').classList.contains('w-limit-bar__value--wide')).toBe(false)
   })
 
   it('Codex Pro: one section with the one weekly window', () => {
@@ -164,9 +210,10 @@ describe('LimitsMeterView: a section per Vendor', () => {
     render(<LimitsMeterView state={state} now={AT} timeZone={TZ} />)
     expect(sectionNames()).toEqual(['Claude Code limits'])
     expect(screen.queryByTestId('limits-codex')).toBeNull()
-    // One section is drawn as in the F mockup, its logo added: the heading, no Vendor name, no line, the whole reset line.
+    // One section keeps the heading, with no Vendor name and no line; its windows stand one above the other too.
     expect(screen.getByRole('group', { name: 'Limits' }).dataset.compact).toBeUndefined()
-    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toMatch(/^Limits5-hour62%resets 07:10/)
+    expect(screen.getByRole('group', { name: 'Limits' }).textContent).toMatch(/^Limits5h62%07:10/)
+    expect(screen.getAllByTestId('limits-claude-stack')).toHaveLength(1)
     expectLogoFirst('claude', 'Claude Code')
     expect(screen.queryByTestId('limits-divider')).toBeNull()
   })

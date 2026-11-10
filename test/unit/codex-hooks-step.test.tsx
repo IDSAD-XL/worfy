@@ -173,7 +173,7 @@ describe('the step from the toolbar Harness item', () => {
     // An install from this window, another one or the first-run screen: `harness.changed`.
     act(() => main.emit('harness.changed', withCodex(true)))
     expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
-    expect(screen.getByTestId('harness-codex').textContent).toBe('· Codex: approve hooks')
+    expect(screen.getByTestId('harness-codex').textContent).toBe('Codex: approve hooks')
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
     await vi.waitFor(() => expect(screen.queryByTestId('harness-codex')).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))

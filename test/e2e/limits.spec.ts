@@ -133,12 +133,19 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     const fiveHour = meter(first.window).getByTestId('limit-five_hour')
     const sevenDay = meter(first.window).getByTestId('limit-seven_day')
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
-    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d$/)
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^\d\d:\d\d$/)
     await expect(fiveHour.getByRole('meter', { name: '5-hour limit' })).toHaveAttribute('aria-valuenow', '62')
     await expect(fiveHour).toHaveAttribute('data-level', 'working')
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('38%')
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(sevenDay).toHaveAttribute('data-level', 'normal')
+    // worfy-polish ticket 93: the reset line is the time alone, the whole line its tooltip, and the
+    // 7-day window stands under the 5-hour one, one line each.
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveAttribute('title', /^resets \d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveAttribute('title', /^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    const [upper, lower] = [(await fiveHour.boundingBox())!, (await sevenDay.boundingBox())!]
+    expect(lower.y, 'the 7-day window under the 5-hour one').toBeGreaterThanOrEqual(upper.y + upper.height)
+    expect(lower.x, 'the two windows in one column').toBe(upper.x)
     await first.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits.png') })
 
     // Turn 2: an event without utilization and resetsAt; the 7-day bar shows its status in words.
@@ -148,14 +155,14 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
     await expect(sevenDay).toHaveAttribute('data-level', 'blocked')
     await expect(sevenDay.getByRole('meter')).toHaveCount(0)
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
   } finally {
     await first.close()
   }
 
   // Back-date what was saved by two days: after the restart the bars are dimmed and their tooltip
-  // says "as of" with a weekday; on screen they keep two lines of text, the label and the reset time
+  // says "as of" with a weekday; on screen each keeps its one line of text, label, value and reset time
   // (worfy-ui ticket 18: no "as of" line).
   const file = join(dataDir, 'limits.json')
   const saved = JSON.parse(readFileSync(file, 'utf8')) as { windows: Record<string, { receivedAt: number }> }
@@ -197,11 +204,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
       expect(boxes[name].cut, `${name} note is cut`).toBe(false)
       expect(boxes[name].y >= toolbar!.y && boxes[name].y + boxes[name].height <= toolbar!.y + toolbar!.height, `${name} note inside the toolbar`).toBe(true)
     }
-    // One line under the bar, the reset time; the bar is no taller than a fresh one (the toolbar never grows).
-    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d$/)
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    // One line of text over the bar, with the reset time; the bar is no taller than a fresh one (the toolbar never grows).
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^\d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     const staleHeight = (await fiveHour.boundingBox())!.height
-    expect(staleHeight, 'an old bar is two text lines and the meter').toBeLessThanOrEqual(40)
+    expect(staleHeight, 'an old bar is one text line and the meter').toBeLessThanOrEqual(20)
     await second.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits-as-of.png') })
 
     // The status line bridge's file, replaced by a rename as the script does it.
@@ -211,7 +218,7 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
 
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('91%')
     await expect(fiveHour).toHaveAttribute('data-level', 'blocked')
-    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d$/)
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^\d\d:\d\d$/)
     // Fresh again: no longer dimmed, no tooltip, and the same height as when it was old.
     await expect(fiveHour).not.toHaveAttribute('data-stale', 'true')
     await expect(fiveHour).not.toHaveAttribute('title', /as of/)

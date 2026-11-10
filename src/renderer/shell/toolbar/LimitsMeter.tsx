@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { limitSections, type LimitSection, type LimitsView } from '../../../shared/agent/limits'
+import { limitSections, type LimitBar, type LimitSection, type LimitsView } from '../../../shared/agent/limits'
 import { LimitBarView } from '../../limits/LimitBar'
 import { useLimits, useNow } from '../../limits/useLimits'
 import { VendorBadge } from '../../session/VendorBadge'
@@ -20,12 +20,16 @@ import { VendorBadge } from '../../session/VendorBadge'
 //
 // With more than one section the panel is compact, so that it, the Project title with its branch line,
 // the Harness column and the search field stay whole in a 1280 px window (test/e2e/limits-vendors.spec.ts):
-// no "Limits" heading (the group keeps it as its name), a thin line between the sections, smaller gaps,
-// and narrower bars whose reset line is the time alone, the whole line as its tooltip. With Claude's
-// section alone it looks as in the F mockup.
+// no "Limits" heading (the group keeps it as its name), a thin line between the sections and smaller gaps.
+// With Claude's section alone the heading stays.
+//
+// A Vendor's windows stand one above the other, one line each (worfy-polish ticket 93): its label, share
+// and reset time over a thin bar, in a grid whose columns line them up (`w-limits-stack`,
+// src/renderer/shell/shell.css). So a section is as wide as its widest line, not as two bars side by
+// side. Two lines fill the toolbar's height: a Vendor with more windows gets a stack of two per column.
 //
 // In a narrow window (worfy-polish ticket 48) the toolbar hides the heading, the bars' labels and their
-// reset lines (src/renderer/shell/shell.css): each bar shows its value, whose tooltip names the rest
+// reset times (src/renderer/shell/shell.css): each bar shows its value, whose tooltip names the rest
 // (src/renderer/limits/LimitBar.tsx).
 
 // Before the Harness item (500), which carries the app version.
@@ -33,6 +37,10 @@ export const order = 100
 
 const GAP = 12
 const COMPACT_GAP = 8
+/** Between a section's logo and its windows, and between its stacks. */
+const SECTION_GAP = 6
+/** How many windows stand one above the other. */
+const STACK = 2
 
 const muted = { fontSize: 'var(--text-11)', color: 'var(--text-muted)' } as const
 
@@ -41,7 +49,7 @@ const muted = { fontSize: 'var(--text-11)', color: 'var(--text-muted)' } as cons
  * its id (`limit-codex-primary`), since its window ids are its own. It starts with its Vendor's logo; the
  * Vendor's name is its tooltip.
  */
-function SectionView({ section, first, compact }: { section: LimitSection; first: boolean; compact: boolean }) {
+function SectionView({ section, first }: { section: LimitSection; first: boolean }) {
   const prefix = first ? 'limit' : `limit-${section.vendor}`
   return (
     <div
@@ -49,7 +57,7 @@ function SectionView({ section, first, compact }: { section: LimitSection; first
       aria-label={`${section.name} limits`}
       title={section.name}
       data-testid={`limits-${section.vendor}`}
-      style={{ display: 'flex', alignItems: 'center', gap: compact ? COMPACT_GAP : GAP, flex: 'none' }}
+      style={{ display: 'flex', alignItems: 'center', gap: SECTION_GAP, flex: 'none' }}
     >
       <VendorBadge vendor={section.vendor} form="icon" muted testId={`limits-${section.vendor}-logo`} />
       {section.empty !== null ? (
@@ -57,10 +65,23 @@ function SectionView({ section, first, compact }: { section: LimitSection; first
           {section.empty}
         </span>
       ) : (
-        section.bars.map((bar) => <LimitBarView key={bar.window} bar={bar} testId={`${prefix}-${bar.window}`} compact={compact} />)
+        stacks(section.bars).map((stack) => (
+          <div key={stack[0]?.window} className="w-limits-stack" data-testid={`limits-${section.vendor}-stack`}>
+            {stack.map((bar) => (
+              <LimitBarView key={bar.window} bar={bar} testId={`${prefix}-${bar.window}`} />
+            ))}
+          </div>
+        ))
       )}
     </div>
   )
+}
+
+/** The windows of a section two by two, one stack per column; the toolbar has room for two lines. */
+function stacks(bars: readonly LimitBar[]): LimitBar[][] {
+  const result: LimitBar[][] = []
+  for (let index = 0; index < bars.length; index += STACK) result.push(bars.slice(index, index + STACK))
+  return result
 }
 
 /** The thin line between two sections of a compact panel. */
@@ -87,7 +108,7 @@ export function LimitsMeterView({ state, now, timeZone }: { state: LimitsView; n
         sections.map((section, index) => (
           <Fragment key={section.vendor}>
             {index > 0 && <Divider />}
-            <SectionView section={section} first={index === 0} compact={compact} />
+            <SectionView section={section} first={index === 0} />
           </Fragment>
         ))
       )}

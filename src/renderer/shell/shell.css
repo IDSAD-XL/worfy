@@ -87,8 +87,9 @@
   .w-toolbar .w-toolbar__palette-text {
     display: none;
   }
-  .w-toolbar .w-limit-bar {
-    width: 30px;
+  .w-toolbar .w-limits-stack {
+    column-gap: 0;
+    min-width: 30px;
   }
   .w-toolbar .w-toolbar__palette-hint {
     width: auto;
@@ -143,6 +144,16 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
 .w-toolbar__icon-button--compact {
   width: 20px;
   height: 20px;
+}
+/* A Harness column with the Codex part as its third line (worfy-polish ticket 93, toolbar/HarnessStatus.tsx):
+   the Harness line and the icon buttons are 16 px high, so 16 + 13 + 16 px fit the 52 px toolbar with
+   the font at 11 px. */
+.w-harness-column[data-lines='3'] {
+  --w-harness-line: 16px;
+}
+.w-harness-column[data-lines='3'] .w-toolbar__icon-button--compact {
+  width: 16px;
+  height: 16px;
 }
 /* A signal (worfy-update ticket 06): the Harness to update. The icon takes the accent, and a dot
    sits in its top right corner. */
@@ -277,16 +288,47 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
   flex: 0 1 auto;
   min-width: 0;
 }
-/* A bar of the Limits (limits/LimitBar.tsx): room for `resets Thu 09:00`; a compact one, of a panel
-   with several Vendor sections, for `Thu 09:00` and `weekly 40%`. 72 px is the widest at which the
-   Project title stays whole in a 1280 px window next to two sections, each with its Vendor's logo
-   (worfy-multi-vendor ticket 24): at 73 px the title is cut by 1 px, at 80 px by 29 px
-   (test/e2e/limits-vendors.spec.ts). A narrow window narrows it further (above). */
-.w-limit-bar {
-  width: 104px;
+/* The windows of one Vendor (worfy-polish ticket 93): one above the other, one line each, in a grid whose
+   columns line up the labels, the shares (right-aligned) and the reset times; each window is a row of it
+   (subgrid), with its thin bar under the line across all three columns. Two lines of 12 px, each with its
+   2 px bar, fill 33 px of the 52 px toolbar. The text is 10 px: at 11 px a section was 133 px wide, at 10 px
+   125 px, and 104 px with the short labels (`5h`, `7d`, limits/LimitBar.tsx), against 172 px for two 72 px
+   bars side by side before (test/e2e/limits-vendors.spec.ts). */
+.w-limits-stack {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  column-gap: 3px;
+  row-gap: 3px;
+  font-size: 10px;
+  line-height: 12px;
+  white-space: nowrap;
 }
-.w-limit-bar--compact {
-  width: 72px;
+.w-limit-bar {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  row-gap: 1px;
+}
+.w-limit-bar__label {
+  grid-column: 1;
+  color: var(--text-secondary);
+}
+.w-limit-bar__value {
+  grid-column: 2;
+  justify-self: end;
+  font-weight: 600;
+}
+/* A status in words with no reset time ("limit reached") takes the reset time's column too. */
+.w-limit-bar__value--wide {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+.w-limit-bar__resets {
+  grid-column: 3;
+  color: var(--text-muted);
+}
+.w-limit-bar__meter {
+  grid-column: 1 / -1;
 }
 .w-toolbar__palette-hint {
   display: inline-flex;
