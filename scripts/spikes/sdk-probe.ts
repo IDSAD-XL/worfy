@@ -7,7 +7,7 @@
 //     [--env KEY=VALUE ...]
 //   pnpm exec electron scripts/spikes/sdk-probe.ts --rescrub <dir>
 //
-// Scenarios (all by default): init, controls, stop-hook, no-login, permissions, bypass.
+// Scenarios (all by default): init, controls, stop-hook, no-login, permissions, bypass, background-tasks.
 // --switch-model is the model `controls` switches to with setModel() mid-session (default: sonnet).
 // --env adds a variable to the Claude Code environment of every scenario (repeatable).
 // Electron 44 runs this file directly: its Node 24 strips the TypeScript types, so the file
@@ -29,14 +29,15 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { CanUseTool, Options, PermissionUpdate, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 
-type Scenario = 'init' | 'controls' | 'stop-hook' | 'no-login' | 'permissions' | 'bypass'
-const ALL: Scenario[] = ['init', 'controls', 'stop-hook', 'no-login', 'permissions', 'bypass']
+type Scenario = 'init' | 'controls' | 'stop-hook' | 'no-login' | 'permissions' | 'bypass' | 'background-tasks'
+const ALL: Scenario[] = ['init', 'controls', 'stop-hook', 'no-login', 'permissions', 'bypass', 'background-tasks']
 const MODEL = 'haiku'
 
 type Recorded = { t: number; turn: number; msg: unknown }
@@ -83,6 +84,13 @@ function cleanEnv(extra: Record<string, string> = {}): Record<string, string | u
 // --- sanitizing ------------------------------------------------------------------------------
 
 const user = home.split('/').pop() ?? ''
+// The owner's personal words (the deny list of the repository's personal-string guard, kept only
+// outside the repository): each becomes <personal>, wherever it stands — a skill or command name, its
+// description. Without the list nothing is replaced, and `pnpm lint` still finds what is left.
+const DENY = (createRequire(import.meta.url)('../../harness/lib/privacy.cjs') as { personal: (dir: string) => { deny: string[] } }).personal(
+  process.env.HARNESS_HOME ?? join(home, '.claude', 'worfy-harness'),
+).deny
+const scrubPersonal = (s: string): string => DENY.reduce((out, word) => out.replace(new RegExp(word.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<personal>'), s)
 const uuidMap = new Map<string, string>()
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
 
@@ -102,7 +110,7 @@ function scrubString(s: string): string {
     if (!uuidMap.has(key)) uuidMap.set(key, `00000000-0000-4000-8000-${String(uuidMap.size + 1).padStart(12, '0')}`)
     return uuidMap.get(key) as string
   })
-  out = scrubInventory(out)
+  out = scrubPersonal(scrubInventory(out))
   return out.length > 600 ? `${out.slice(0, 600)}…<truncated ${out.length - 600} chars>` : out
 }
 
@@ -534,7 +542,9 @@ async function runStopHook(): Promise<ScenarioResult> {
   const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim()
   const common = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf8' }).trim()
   const canon = resolve(top, common, '..')
-  const which = execFileSync('node', [join(home, '.claude', 'hooks', 'gate-resolve.mjs'), '--which', canon], { encoding: 'utf8' })
+  // The resolver of the Harness copy in this repository: the same code as the installed plugin's
+  // Stop hook runs, reading the same registry, so the marker carries the key that hook looks for.
+  const which = execFileSync('node', [join(top, 'harness', 'hooks', 'gate-resolve.mjs'), '--which', canon], { encoding: 'utf8' })
   const key = which.split('\t')[0]?.trim() ?? ''
   const tag = createHash('sha1').update(top).digest('hex').slice(0, 8)
   writeFileSync(join(state, `red-${key}-${tag}`), 'lint (sdk-probe red marker)\n')
@@ -696,7 +706,46 @@ async function runBypass(): Promise<ScenarioResult> {
   return { scenario: 'bypass', facts, messages }
 }
 
+// worfy-daily/29: a background Bash task outliving the turn that started it. One `sleep 5` with
+// run_in_background, no settings and no MCP, session state events on; after the turn's result the
+// task finishes and Claude Code starts a turn of its own for its notification. The probe waits for
+// that second result. Captured first by a throwaway script (2026-10-06); a scenario here since
+// worfy-polish 100, so the next SDK raise captures it again.
+async function runBackgroundTasks(): Promise<ScenarioResult> {
+  const s = start(
+    baseOptions({
+      model: 'sonnet',
+      settingSources: [],
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      tools: ['Bash'],
+      env: cleanEnv({ CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' }),
+      ...withoutUserMcp,
+    }),
+  )
+  const r1 = await s.turn('Use the Bash tool to run `sleep 5` with run_in_background set to true, then reply with the single word: started. When it finishes, reply with the single word: done.')
+  const results = () => all(s.messages, (m) => m.type === 'result').length
+  const until = Date.now() + 120_000
+  while (results() < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 1000))
+  // The idle state after the second result, before the stream is closed.
+  await new Promise((r) => setTimeout(r, 2000))
+  await s.finish()
+  return {
+    scenario: 'background-tasks',
+    facts: {
+      ...initFacts(s.messages),
+      turn1: resultFacts(r1),
+      results: results(),
+      types: countTypes(s.messages),
+      assistant_texts: all(s.messages, (m) => m.type === 'assistant').map((m) => textOf(m).slice(0, 120)),
+      errors: all(s.messages, (m) => typeof m.probe_error === 'string').map((m) => scrubString(String(m.probe_error))),
+    },
+    messages: s.messages,
+  }
+}
+
 const RUNNERS: Record<Scenario, () => Promise<ScenarioResult>> = {
+  'background-tasks': runBackgroundTasks,
   init: runInit,
   controls: runControls,
   'stop-hook': runStopHook,
@@ -732,7 +781,7 @@ function rescrub(dir: string): void {
   })
   for (const { values } of parsed) for (const v of values) registerInventory(v)
   const deep = (v: unknown, key = ''): unknown => {
-    if (typeof v === 'string') return scrubInventory(v)
+    if (typeof v === 'string') return scrubPersonal(scrubInventory(v))
     if (Array.isArray(v)) {
       // Earlier files numbered plugin names by position; take the name from `source` instead.
       if (key === 'plugins') return v.map((p) => (p && typeof p === 'object' ? { ...(deep(p) as object), name: pluginName(p as { source?: unknown }) } : deep(p)))

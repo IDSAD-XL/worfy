@@ -14,6 +14,7 @@ import type {
   Query,
   SDKAssistantMessage,
   SDKCompactBoundaryMessage,
+  SDKRateLimitInfo,
   SDKResultSuccess,
   SDKTaskNotificationMessage,
   SDKTaskProgressMessage,
@@ -55,7 +56,7 @@ const captured = capturedFiles.flatMap((name) => readMessages(join(CAPTURED, nam
 const capturedShapes = shapesOf(captured.map(({ message }) => message))
 
 const RECAPTURE =
-  'capture the SDK messages again for this SDK (scripts/spikes/sdk-probe.ts — a paid run, only on the owner’s word, in the PR that raises the SDK) and write manifest.json with `node scripts/sdk-compat.mjs manifest`'
+  'capture the SDK messages again for this SDK (scripts/spikes/sdk-probe.ts, and scripts/spikes/harness-plugin/probe.ts for plugin-*.jsonl — paid runs, only on the owner’s word, in the PR that raises the SDK; test/fixtures/sdk-messages/README.md) and write manifest.json with `node scripts/sdk-compat.mjs manifest`'
 
 describe('the pinned SDK and its captured messages', () => {
   it('package.json pins exactly the SDK version the messages were captured with', () => {
@@ -121,6 +122,12 @@ const EXCEPTIONS: readonly Exception[] = [
     path: 'parent_tool_use_id' satisfies keyof SDKAssistantMessage,
     type: typeof ('toolu_example' satisfies SDKAssistantMessage['parent_tool_use_id']),
     reason: 'the messages of a Subagent carry the tool use that started it; no capture ran a Subagent',
+  },
+  {
+    kind: 'rate_limit_event',
+    path: `rate_limit_info.unifiedWindows.${'five_hour' satisfies NonNullable<SDKRateLimitInfo['rateLimitType']>}`,
+    reason:
+      'the account of the 2026-11-10 capture (Claude Code 2.1.322) has no five-hour window, the 2026-10-05 one (2.1.289) had it; the Limits scenarios keep playing it for plans that have one (worfy-polish 100)',
   },
 ]
 

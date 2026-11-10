@@ -198,6 +198,12 @@ const userServers = (() => {
     return []
   }
 })()
+// The owner's personal words (the deny list of the repository's personal-string guard, kept only
+// outside the repository): each becomes <personal>, as in scripts/spikes/sdk-probe.ts.
+const DENY = (createRequire(import.meta.url)('../../../harness/lib/privacy.cjs') as { personal: (dir: string) => { deny: string[] } }).personal(
+  process.env.HARNESS_HOME ?? join(home, '.claude', 'worfy-harness'),
+).deny
+const scrubPersonal = (s: string): string => DENY.reduce((out, word) => out.replace(new RegExp(word.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<personal>'), s)
 
 function scrub(s: string): string {
   let out = s
@@ -222,6 +228,7 @@ function scrub(s: string): string {
     if (!uuidMap.has(key)) uuidMap.set(key, `00000000-0000-4000-8000-${String(uuidBase + uuidMap.size + 1).padStart(12, '0')}`)
     return uuidMap.get(key) as string
   })
+  out = scrubPersonal(out)
   return out.length > 600 ? `${out.slice(0, 600)}…<truncated ${out.length - 600} chars>` : out
 }
 

@@ -484,7 +484,7 @@ describe('the plugins and skills of a Session in a Project', () => {
     const reported = (init?.plugins ?? []).map((plugin) => plugin.source)
     // The settings enable the marketplace plugins of that run; the built-in, inline and synced ones come from elsewhere.
     const enabled = reported.filter((source) => !/@(builtin|inline|synced)$/u.test(source))
-    expect(enabled).toEqual(['plugin-1@claude-plugins-official', 'plugin-2@claude-plugins-official'])
+    expect(enabled).toEqual(['plugin-1@claude-plugins-official'])
     const home = tmp()
     writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: Object.fromEntries(enabled.map((id) => [id, true])) }))
     const off = sessionOptions(input({ skillsAllowlist: ['plugin-2'], userExtensions: userExtensions(home, tmp()) })).settings as Record<string, Record<string, unknown>>

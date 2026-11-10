@@ -141,7 +141,7 @@ export function bundledClaudeBinary(runtime: RuntimeInfo): string | undefined {
   }
 }
 
-/** How long the SDK's own spawn waits, after the process exited, for its stderr to close (SDK 0.3.289). */
+/** How long the SDK's own spawn waits, after the process exited, for its stderr to close (SDK 0.3.289 and 0.3.322). */
 const STDERR_DRAIN_MS = 200
 
 /** The event the process answers the SDK's `exit` with: the exit, once stderr is read to its end. */

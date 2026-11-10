@@ -6,7 +6,7 @@
         "toolName": "Bash",
         "input": {
           "command": "mkdir -p <tmp>/perm/one",
-          "description": "Create nested directories in temp folder (one)"
+          "description": "Create directory perm/one in the probe folder"
         },
         "options": {
           "suggestions": [
@@ -36,9 +36,9 @@
           ],
           "blockedPath": "<tmp>/perm/one",
           "displayName": "Bash",
-          "description": "Create nested directories in temp folder (one)",
-          "toolUseID": "toolu_01FezrbWUXCZS89y6rSrP6ZS",
-          "requestId": "00000000-0000-4000-8000-000000000001",
+          "description": "Create directory perm/one in the probe folder",
+          "toolUseID": "toolu_0191EwmpqAruiAyZ5R8FcNe7",
+          "requestId": "00000000-0000-4000-8000-000000000096",
           "signal": "<AbortSignal aborted=false>"
         }
       },
@@ -46,7 +46,7 @@
         "behavior": "allow",
         "updatedInput": {
           "command": "mkdir -p <tmp>/perm/one",
-          "description": "Create nested directories in temp folder (one)"
+          "description": "Create directory perm/one in the probe folder"
         },
         "updatedPermissions": [
           {

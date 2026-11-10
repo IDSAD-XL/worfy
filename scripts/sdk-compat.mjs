@@ -13,7 +13,7 @@
 // (`content[]`); an object with a string `type` carries it in brackets (`content[](tool_use).id`),
 // so blocks and stream events of different types keep their own keys. Values that are not the
 // SDK's own shape are recorded without their insides: a tool's `input` and the `structured_output`
-// a caller asked for. Records keyed by data (`modelUsage` by model, `wire_tool_inputs` by tool use)
+// a caller asked for. Records keyed by data (`modelUsage` and `model_usage_since_last_result` by model, `wire_tool_inputs` by tool use)
 // get `*` for the key.
 //
 // Reads only; never starts Claude Code or the SDK. Capturing messages of a new SDK version is a
@@ -40,7 +40,7 @@ manifest  manifest.json for an installed SDK package (default: the one this
 const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
 
 /** Keys whose object is keyed by data, not by the SDK: their keys become `*`. */
-const RECORD_KEYS = new Set(['modelUsage', 'wire_tool_inputs'])
+const RECORD_KEYS = new Set(['modelUsage', 'model_usage_since_last_result', 'wire_tool_inputs'])
 
 const typeOf = (value) => (value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value)
 
