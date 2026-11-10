@@ -481,6 +481,43 @@ describe('one read at a time', () => {
     expect(inbox.snapshot('a').readAt).not.toBeNull()
   })
 
+  it('a tick waits for the read of a prInbox.get in front of it, even when it starts with another Project', async () => {
+    const gh = world([stubPull(API, 1), stubPull(WEB, 2)])
+    let running = 0
+    let most = 0
+    const run: PrInboxOptions['run'] = async (args, cwd) => {
+      running += 1
+      most = Math.max(most, running)
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return await gh.run(args, cwd)
+      } finally {
+        running -= 1
+      }
+    }
+    // The tick looks at b first; the prInbox.get reads a.
+    const inbox = reader(gh, [project('b', [WEB]), project('a', [API])], { run })
+    await Promise.all([inbox.ensureRead('a'), inbox.tick()])
+    expect(most).toBe(1)
+    expect(searches(gh)).toHaveLength(2)
+  })
+
+  it('a tick that failed does not stop the queue: the next prInbox.get reads', async () => {
+    const gh = world([stubPull(API, 1)])
+    const projects = [project('a', [API])]
+    let broken = true
+    const inbox = reader(gh, projects, {
+      projects: () => {
+        if (broken) throw new Error('the Projects cannot be listed')
+        return projects
+      },
+    })
+    await expect(inbox.tick()).rejects.toThrow('the Projects cannot be listed')
+    broken = false
+    await inbox.ensureRead('a')
+    expect(inbox.snapshot('a').readAt).not.toBeNull()
+  })
+
   it('a failed read does not stop the queue: the next one runs', async () => {
     const gh = world([stubPull(API, 1)])
     let first = true
