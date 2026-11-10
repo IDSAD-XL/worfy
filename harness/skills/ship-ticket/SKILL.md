@@ -23,7 +23,8 @@ not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A b
 number, `<slug>`, `<branch>` — the branch, `<ticket-name>` — `<NN>-<slug>`, `<review-target>` — what
 is reviewed, `<file>` — a test file) are part of the profile contract: substitute them as written.
 
-**Step files.** Steps 7 to 11, the review of a PR another session wrote and the parts only some
+**Step files.** Steps 7 to 11, the details of steps 2 and 5 (the preflight's answer, where to work,
+the smallest change), the review of a PR another session wrote and the parts only some
 tickets need (Silent mode, manual GUI checks, the source of step 5) live in files next to this one.
 Each line that starts with `Read` names one and says when to read it: read it then, not before, unless another
 skill sends you there earlier — an agent that never gets there never pays for it. Claude Code spells out the plugin root only in this
@@ -77,6 +78,12 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/silent-mode.md` when `F _resolved
 (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), even where other instructions add them;
 the guard refuses such commits and PR texts. `on` — as usual.
 
+**GitHub account** — `F github.account`. `GH_TOKEN` of that account is set by the plugin's
+`SessionStart` hook (`hooks/gh-token-env.mjs`) for every Bash command of the session and of its
+agents; do not switch the global account without the owner's permission: other sessions use it.
+If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
+`F github.account` and say so in the report.
+
 **Language.** The report to the user and the briefs to agents are in `F language.reports`.
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
@@ -118,11 +125,11 @@ The preflight is the Harness's own, the same for every project:
 "${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
 ```
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-preflight.md` right after it: on `BLOCKED` stop, do not work around it; the file holds what the reasons mean, the base line for every brief, a minimal preflight where it cannot run, and the GitHub account.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-preflight.md` right after it: on `BLOCKED` stop, do not work around it; the file holds what the reasons mean, the base line for every brief, and a minimal preflight where it cannot run.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket (several `Repo:` lines: one name in each).
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-worktree.md` before the first edit: with `parallel: worktrees` all work is in your own worktree, entered with `EnterWorktree`; with `single`, in the main checkout.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-worktree.md` now, before step 3: with `parallel: worktrees` all work is in your own worktree, entered with `EnterWorktree`; with `single`, in the main checkout.
 
 ## 3. Take numbers before the content
 
@@ -145,7 +152,7 @@ Make sure the test is red, and only then fix. What must be running for the tests
 Along the files listed in the ticket (section `F tickets.trail_section`).
 Going outside that list is a reason to say so, not to widen the change silently.
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-5-smallest-change.md` before the first edit: the change is the smallest one that does the whole ticket, and the file holds the places to list first, the order of options, what is never cut and the `shortcut:` comment.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-5-smallest-change.md` before the first edit of the implementation: the change is the smallest one that does the whole ticket, and the file holds the places to list first, the order of options, what is never cut and the `shortcut:` comment.
 
 **Feature pages** — `F docs.feature_pages`. Exit code 4 or `null`: say "feature pages skipped: the
 profile has no `docs.feature_pages`". Set, and the change alters behaviour a page in that folder
