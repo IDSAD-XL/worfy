@@ -33,14 +33,18 @@ Source: владелец 2026-11-10, снимок экрана (бриф Orchest
 - [ ] «#N» в строке списка остаётся целым при длинном имени репозитория и длинном Ticket chip одновременно;
       порядок уступок: имя репозитория → текст Ticket chip; текст CI целый; обе темы.
 - [ ] Tooltip Ticket chip — `<epic> <NN> — <заголовок>`; unit test.
+  - evidence: test-run pass · `pnpm test test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
 - [ ] Правила стилей (минимальная ширина `repo#N` = «#N», сжимаемый chip с многоточием, обрезка второй строки)
       проверены unit test-ом по таблице стилей (jsdom раскладку не считает).
+  - evidence: test-run pass · `pnpm test test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
 - [ ] e2e spec Pull requests: случай с длинным Ticket chip при 1280 px — «#N», текст CI и chip не перекрывают
       друг друга, chip обрезан, «#N» целый. Запускается только в CI (локальный e2e не запускать: окна Electron
       забирают фокус).
 - [ ] Снимки строки с настоящим CSS в headless Chromium: светлая и тёмная тема, узкая и широкая строка.
 - [ ] Страница `docs/features/pr-inbox.md` описывает обрезку Ticket chip.
+  - evidence: commit pass · PR list: the Ticket chip never covers #N (worfy-polish 103) · - - · 57c871d4e34da6beeac339158263cbef796ecaf8
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
 
 ## Где в коде
 
