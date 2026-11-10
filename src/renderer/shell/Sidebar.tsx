@@ -134,10 +134,17 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
   )
   return (
     <nav aria-label="Sidebar" className="w-sidebar">
-      {/* Room for the native traffic lights; dragging here moves the window. Its controls do not drag. */}
+      {/* Room for the native traffic lights, the wordmark and, at the right edge, the button that hides the sidebar
+          (the owner's layout, 2026-11-10). Dragging here moves the window; the button does not drag. */}
       <div className="w-sidebar__titlebar">
-        {onToggle !== undefined && !focusMode ? <SidebarToggle className="w-sidebar__icon-button" visible onToggle={onToggle} /> : null}
+        <span className="w-sidebar__wordmark" data-testid="sidebar-wordmark">
+          worfy
+        </span>
         <span className="w-sidebar__titlebar-gap" />
+        {onToggle !== undefined && !focusMode ? <SidebarToggle className="w-sidebar__icon-button" visible onToggle={onToggle} /> : null}
+      </div>
+      {/* The Project switcher across the whole sidebar, under the strip: a long Project name has room. */}
+      <div className="w-sidebar__switcher">
         <ProjectSwitcher />
       </div>
       <div className="w-sidebar__body">

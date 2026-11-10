@@ -115,7 +115,7 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const toolbar = window.getByRole('banner')
     const name = toolbar.locator('.w-toolbar__name')
     const subtitle = toolbar.locator('.w-toolbar__subtitle')
-    await expect(name).toHaveText(`worfy — ${LONG_NAME}`)
+    await expect(name).toHaveText(LONG_NAME)
     await expect(subtitle).toHaveText(`${LONG_NAME} · main`)
     // Old data: the bar is dimmed with "as of" as its tooltip, and no "as of" line (worfy-ui ticket 18).
     await expect(toolbar.getByTestId('limit-seven_day')).toHaveAttribute('title', / · as of /)
@@ -168,7 +168,7 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
       })
       expect(cut).toEqual({ overflows: true, textOverflow: 'ellipsis' })
     }
-    await expect(name).toHaveAttribute('title', `worfy — ${LONG_NAME}`)
+    await expect(name).toHaveAttribute('title', LONG_NAME)
     await expect(subtitle).toHaveAttribute('title', `${LONG_NAME} · main`)
 
     for (const scheme of ['light', 'dark'] as const) {
@@ -288,7 +288,7 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
     await addProject(launched, repo)
     const toolbar = window.getByRole('banner')
-    await expect(toolbar.locator('.w-toolbar__name')).toHaveText(`worfy — ${LONG_NAME}`)
+    await expect(toolbar.locator('.w-toolbar__name')).toHaveText(LONG_NAME)
     await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
     await expect(window.getByRole('navigation', { name: 'Sidebar' })).toBeVisible()
     const fiveHour = toolbar.getByTestId('limit-five_hour')

@@ -72,8 +72,20 @@ describe('ToolbarView', () => {
 
   it('shows the project name and branch', () => {
     render(<ToolbarView {...base} project={{ id: 'auberge-00000001', name: 'auberge', branch: 'main' }} />)
-    expect(screen.getByText('worfy — auberge')).toBeTruthy()
     expect(screen.getByText('main').className).toContain('w-mono')
+  })
+
+  it('names the Project alone next to the sidebar, whose strip says «worfy»; without the sidebar it says «worfy — <Project>»', () => {
+    const project = { id: 'auberge-00000001', name: 'auberge', branch: 'main' }
+    const { rerender, container } = render(<ToolbarView {...base} project={project} />)
+    const name = () => container.querySelector('.w-toolbar__name')?.textContent
+    expect(name()).toBe('auberge')
+    rerender(<ToolbarView {...base} project={undefined} />)
+    expect(name()).toBe('No Project open')
+    rerender(<ToolbarView {...base} sidebarVisible={false} project={project} />)
+    expect(name()).toBe('worfy — auberge')
+    rerender(<ToolbarView {...base} sidebarVisible={false} project={undefined} />)
+    expect(name()).toBe('worfy')
   })
 
   it('places toolbar items before the command palette hint', () => {

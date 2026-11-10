@@ -101,7 +101,9 @@ export interface ToolbarViewProps {
 }
 
 export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar }: ToolbarViewProps) {
-  const title = project ? `worfy — ${project.name}` : 'worfy'
+  // The sidebar's strip carries the wordmark «worfy» (worfy-polish ticket 94): next to it the title names the Project
+  // alone, so «worfy» is not said twice side by side. With the sidebar hidden the title says it, as before.
+  const title = sidebarVisible ? (project?.name ?? 'No Project open') : project ? `worfy — ${project.name}` : 'worfy'
   return (
     <header className="w-toolbar" data-toast-keep-out="" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
       {/* Shows the hidden sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. While the sidebar is

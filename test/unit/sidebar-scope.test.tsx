@@ -223,6 +223,17 @@ describe('the rail and the panel', () => {
     await drawSidebar()
     expect(screen.queryByRole('button', { name: 'Hide sidebar' })).toBeNull()
   })
+
+  it('lays out the top as the owner chose: the strip holds the wordmark, then the button at its end; the switcher has a row of its own under it, before the rail', async () => {
+    const { container } = await drawSidebar(() => undefined)
+    const nav = container.querySelector('nav')
+    const strip = container.querySelector('.w-sidebar__titlebar')
+    expect([...(nav?.children ?? [])].map((child) => child.className)).toEqual(['w-sidebar__titlebar', 'w-sidebar__switcher', 'w-sidebar__body'])
+    expect([...(strip?.children ?? [])].map((child) => child.getAttribute('data-testid') ?? child.getAttribute('aria-label') ?? child.className)).toEqual(['sidebar-wordmark', 'w-sidebar__titlebar-gap', 'Hide sidebar'])
+    expect(screen.getByTestId('sidebar-wordmark').textContent).toBe('worfy')
+    expect(screen.getByTestId('sidebar-wordmark').closest('a')).toBeNull()
+    expect(container.querySelector('.w-sidebar__switcher [data-testid="project-switcher"]')).not.toBeNull()
+  })
 })
 
 describe('the Project switcher', () => {

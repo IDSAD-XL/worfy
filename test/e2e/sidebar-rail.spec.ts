@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFil
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, parkPointer, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -23,7 +23,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 const ORCHARD = 'orchard-0000000a'
 const HARBOR = 'harbor-0000000b'
 const MEADOW = 'meadow-0000000c'
-const MEADOW_NAME = 'meadow-field-research-notebooks'
+const MEADOW_NAME = 'meadow-field-notebooks'
 const HOUR = 60 * 60_000
 const SIZE = { width: 1280, height: 800 }
 const stamp = (ago: number): string => new Date(Date.now() - ago).toISOString().slice(0, 16) + 'Z'
@@ -102,6 +102,10 @@ const pick = async (window: Page, name: string): Promise<void> => {
   await window.getByRole('menu', { name: 'Sidebar shows' }).getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click()
 }
 
+/** The `-webkit-app-region` of an element: `drag` moves the window. */
+const appRegion = (locator: Locator): Promise<string> =>
+  locator.evaluate((node) => (globalThis as unknown as { getComputedStyle(of: unknown): { getPropertyValue(name: string): string } }).getComputedStyle(node).getPropertyValue('-webkit-app-region'))
+
 /** The screenshots of the ticket, when the run asks for them: copied out of test-results under the ticket's names. */
 async function ticketShots(window: Page, name: string): Promise<void> {
   // The pointer away from the sidebar: no hover on a row or a tab in the picture.
@@ -147,7 +151,7 @@ test('one section at a time on the rail; the switcher mixes the Projects or show
     await tab(window, 'Epics').click()
     await pick(window, 'harbor')
     await expect(switcher(window)).toHaveAccessibleName('Sidebar shows: harbor')
-    await expect(window.locator('.w-toolbar__name')).toHaveText('worfy — harbor')
+    await expect(window.locator('.w-toolbar__name')).toHaveText('harbor')
     await expect(epics(window).getByTestId('sidebar-epic')).toHaveCount(1)
     expect(await epicNames(window)).toEqual(['harbor-docks'])
     await expect(epics(window).getByTestId('sidebar-scope-label')).toHaveText('harbor')
@@ -206,25 +210,44 @@ test('the button that hides the sidebar is in its strip; while hidden, the toolb
   }
 })
 
-test('a long Project name stays inside the pill; the open menu lists «All Projects» and every Project', async () => {
+test('the top as the owner chose: the wordmark after the traffic lights, the button at the right edge, the switcher across the sidebar with a long name whole; the open menu lists every Project', async () => {
   const launched = await launch()
   try {
     const { window } = launched
     await setWindowSize(launched, SIZE)
     await pick(window, MEADOW_NAME)
     await expect(switcher(window)).toHaveAccessibleName(`Sidebar shows: ${MEADOW_NAME}`)
-    await expect(window.locator('.w-toolbar__name')).toHaveText(`worfy — ${MEADOW_NAME}`)
-    // The pill keeps its width and cuts the name: the sidebar's strip does not grow.
-    const pill = await switcher(window).boundingBox()
-    const strip = await sidebar(window).locator('.w-sidebar__titlebar').boundingBox()
-    expect(pill).not.toBeNull()
-    expect(strip).not.toBeNull()
-    if (pill === null || strip === null) return
-    expect(pill.x + pill.width).toBeLessThanOrEqual(strip.x + strip.width)
-    // The name is cut with an ellipsis, not pushed out of the pill.
-    expect(await switcher(window).locator('.w-project-switcher__name').evaluate((name) => name.scrollWidth > name.clientWidth)).toBe(true)
-    // The chevron keeps its 9 px.
-    expect((await switcher(window).locator('.w-project-switcher__chevron').boundingBox())?.width).toBeCloseTo(9, 0)
+    // Next to the wordmark the toolbar names the Project alone.
+    await expect(window.locator('.w-toolbar__name')).toHaveText(MEADOW_NAME)
+    const box = async (locator: Locator) => {
+      const found = await locator.boundingBox()
+      if (found === null) throw new Error('no box')
+      return found
+    }
+    const nav = await box(sidebar(window))
+    const strip = await box(sidebar(window).locator('.w-sidebar__titlebar'))
+    const wordmark = await box(sidebar(window).getByTestId('sidebar-wordmark'))
+    const hide = await box(sidebar(window).getByRole('button', { name: 'Hide sidebar' }))
+    const pill = await box(switcher(window))
+    await expect(sidebar(window).getByTestId('sidebar-wordmark')).toHaveText('worfy')
+    // Row 1: 80 px for the traffic lights (macOS), the wordmark, the button 8 px from the right edge.
+    if (process.platform === 'darwin') expect(wordmark.x - nav.x).toBeCloseTo(80, 0)
+    expect(nav.x + nav.width - 1 - (hide.x + hide.width)).toBeCloseTo(8, 0)
+    expect(hide.y + hide.height).toBeLessThanOrEqual(strip.y + strip.height)
+    // Row 2: the switcher under the strip, as wide as the sidebar less its padding; the long name whole, the chevron at the end.
+    expect(pill.y).toBeGreaterThanOrEqual(strip.y + strip.height)
+    expect(pill.width).toBeCloseTo(nav.width - 1 - 16, 0)
+    // Whole, and long: wider than the room for a name in the pill of round 1 (150 px less its icon, chevron and padding).
+    const name = await switcher(window).locator('.w-project-switcher__name').evaluate((each) => ({ scroll: each.scrollWidth, client: each.clientWidth }))
+    expect(name.scroll).toBeLessThanOrEqual(name.client)
+    expect(name.scroll).toBeGreaterThan(110)
+    const chevron = await box(switcher(window).locator('.w-project-switcher__chevron'))
+    expect(chevron.width).toBeCloseTo(9, 0)
+    expect(pill.x + pill.width - (chevron.x + chevron.width)).toBeLessThan(12)
+    // The strip drags the window, its button does not; the switcher's row is no drag area.
+    expect(await appRegion(sidebar(window).locator('.w-sidebar__titlebar'))).toBe('drag')
+    expect(await appRegion(sidebar(window).getByRole('button', { name: 'Hide sidebar' }))).toBe('no-drag')
+    expect(await appRegion(switcher(window))).not.toBe('drag')
     await tab(window, 'Projects').click()
     await expect(window.getByRole('region', { name: 'Projects', exact: true })).toBeVisible()
     await ticketShots(window, 'projects-long-name')

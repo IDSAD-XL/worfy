@@ -38,6 +38,21 @@
 .w-sidebar__titlebar-gap {
   flex: 1;
 }
+/* The app's name next to the traffic lights: text in the interface font, not a link. */
+.w-sidebar__wordmark {
+  flex: none;
+  font-size: var(--text-13);
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--text);
+  user-select: none;
+}
+/* The row of the Project switcher, under the strip: as wide as the rail and the panel together. */
+.w-sidebar__switcher {
+  flex: none;
+  display: flex;
+  padding: 0 var(--space-2) var(--space-2);
+}
 .w-sidebar__icon-button {
   width: var(--row-height);
   height: var(--row-height);
@@ -177,26 +192,29 @@
   padding: 0 6px;
 }
 
-/* The Project switcher in the strip at the top (ProjectSwitcher.tsx). */
+/* The Project switcher in its row under the strip (ProjectSwitcher.tsx): the whole width of the sidebar. */
 .w-project-switcher {
+  position: relative;
+  flex: 1;
   min-width: 0;
   display: flex;
 }
 .w-project-switcher__button {
+  flex: 1;
   min-width: 0;
-  max-width: 150px;
-  height: 26px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
   padding: 0 8px;
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: var(--radius-button);
   background: var(--surface);
-  color: var(--text-secondary);
+  color: var(--text);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--text-12);
+  text-align: left;
 }
 .w-project-switcher__button:hover,
 .w-project-switcher__button[aria-expanded='true'] {
@@ -216,6 +234,7 @@
   flex: none;
 }
 .w-project-switcher__name {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -223,10 +242,10 @@
 }
 .w-project-switcher__menu {
   position: absolute;
-  right: var(--space-2);
-  top: calc(var(--toolbar-height) - 8px);
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
   z-index: 30;
-  width: 230px;
   max-height: 60vh;
   overflow-y: auto;
   box-sizing: border-box;
@@ -288,9 +307,9 @@
 }
 .w-project-switcher__failure {
   position: absolute;
-  left: var(--space-2);
-  right: var(--space-2);
-  top: calc(var(--toolbar-height) - 4px);
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
   z-index: 30;
   margin: 0;
   padding: 6px 8px;

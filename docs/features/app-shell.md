@@ -16,8 +16,10 @@ so switching back finds it as it was.
 
 The column on the left of the window, 264 pixels wide. From the top:
 
-- **The strip**, as high as the toolbar. On macOS the traffic lights sit on its left. Then comes the button that hides the
-  sidebar (⌘B, Ctrl+B on Windows) and, on the right, the **Project switcher**.
+- **The strip**, as high as the toolbar. On macOS the traffic lights sit on its left. Then comes the wordmark "worfy" and,
+  at the right edge, the button that hides the sidebar (⌘B, Ctrl+B on Windows). Dragging the strip moves the window.
+- **The Project switcher**, a row of its own under the strip, as wide as the sidebar: the name of what the sidebar shows
+  and a chevron at its right end. A long Project name has the whole row.
 - **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
   foot Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
   another section is open: the number of live Sessions in a neutral colour, the number of pull requests that need you (review, answer or fix),
@@ -46,7 +48,9 @@ Sessions and ADR keep their header and say "Open a Project to see its …".
 
 While the sidebar is hidden, the button that shows it again is at the left of the toolbar. In focus mode the bar of focus
 mode has that button, and the sidebar's strip has none. The keyboard focus follows the button: hidden from its strip, the
-focus is on the toolbar's button; shown from the toolbar, it is on the button in the strip.
+focus is on the toolbar's button; shown from the toolbar, it is on the button in the strip. The toolbar's title names the open
+Project alone while the sidebar shows the wordmark ("No Project open" with none), and "worfy — <Project>" while the sidebar
+is hidden.
 
 ### How it works
 
@@ -538,8 +542,8 @@ Terminal included.
 
 #### macOS
 
-No title bar. The traffic lights sit in the sidebar's top strip, at the toolbar's height, and over the toolbar while the
-sidebar is hidden. The sidebar is translucent, so the system's vibrancy shows through it.
+No title bar. The traffic lights sit in the sidebar's top strip, at the toolbar's height, before the wordmark, and over
+the toolbar while the sidebar is hidden. The sidebar is translucent, so the system's vibrancy shows through it.
 
 #### Windows
 
