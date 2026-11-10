@@ -15,8 +15,9 @@
 //
 // The scripts: test/fixtures/codex-scripts/auto-continue-*.jsonl (codex-fake.test.ts checks their schema).
 import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { LimitsRefresher } from '../../src/main/agent/limits-usage'
 import { clockText, OrchestratorContinue } from '../../src/main/agent/orchestrator-continue'
 import { hasExited } from '../../src/main/agent/session/process'
@@ -122,6 +123,49 @@ describe('Auto-continue of an Autopilot Run on Codex (worfy-retry ticket 08)', (
     expect(h.kinds(1)).not.toContain('turn-retry')
     expect(continuations(h)).toEqual([])
     expect(h.messages()).toEqual([WAVE_1])
+  })
+})
+
+// ── the cleanup after a run ──────────────────────────────────────────────────
+
+/** How long each gh call of the run below waits before it ends (the hang mode of gh-stub.mjs). */
+const GH_HANG_MS = 3_000
+
+/** The process ids of the run's hung gh calls so far (hang.pids of its gh stand-in). */
+function hungPids(h: FaultRun): number[] {
+  try {
+    return readFileSync(join(h.gh!.dir, 'hang.pids'), 'utf8').split('\n').filter((line) => line.trim() !== '').map(Number)
+  } catch {
+    return []
+  }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+describe('The cleanup after a Codex run (worfy-polish ticket 90)', () => {
+  // A Force stop does not wait for a PR read (Autopilot's endRead drops its answer), so its gh stand-in
+  // went on after the run had stopped and wrote gh/calls.jsonl into the folder the afterEach was removing:
+  // ENOTEMPTY. The shared cleanup now waits for the run's PR reads before it removes the folder.
+  it('a PR read the Force stop left running: the folder goes only after its gh has exited', async () => {
+    const h = faultRun({ vendor: 'codex', autoContinue: true, codexScripts: ['turn', 'auto-continue-will-retry', 'autopilot-wave', 'resume'] })
+    writeFileSync(join(h.gh!.dir, 'hang'), String(GH_HANG_MS))
+    expect(await h.start()).toEqual({ refusal: null })
+    await until(() => hungPids(h).length > 0, 'a gh call of the run')
+    await h.autopilot.forceStop(PROJECT)
+    const [pid] = hungPids(h)
+    expect(alive(pid!)).toBe(true)
+    // Runs after every afterEach, the removal of the run's folder among them.
+    onTestFinished(() => {
+      expect(alive(pid!)).toBe(false)
+      expect(existsSync(h.scratch)).toBe(false)
+    })
   })
 })
 
