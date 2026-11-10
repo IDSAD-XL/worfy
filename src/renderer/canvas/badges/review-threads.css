@@ -16,6 +16,12 @@
   gap: 2px;
   cursor: pointer;
 }
+/* The wrapper of each chip is as tall as the chip: as a block it would take the card's line (17 px), 1 px over the
+   16 px a line of REVIEW_LINE holds — the 2 px a card with both chips overflowed by. */
+.w-review-threads > * {
+  display: inline-flex;
+  flex: none;
+}
 .w-review-threads .w-chip {
   display: inline-flex;
   align-items: center;

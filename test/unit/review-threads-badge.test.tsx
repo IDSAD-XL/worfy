@@ -6,6 +6,8 @@
 // PR. A Ticket whose PR the snapshot does not hold looks as before, and its card keeps its height (ticket-card.ts).
 // Every owner, login and text is invented; nothing here reaches main or GitHub.
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ReactNode } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -237,6 +239,19 @@ describe('the room of the badge on the card (ticket-card.ts)', () => {
     expect(reviewChipsOf(snapshotOf({}), tickets)).toEqual({})
     expect(reviewChipsOf(undefined, tickets)).toEqual({})
     expect(reviewChipsOf(snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING })] }, false), tickets)).toEqual({})
+  })
+
+  it('each chip and its wrapper are 16 px, the line REVIEW_LINE gives it (jsdom lays nothing out: the sheet is read)', () => {
+    const sheet = readFileSync(join(import.meta.dirname, '../../src/renderer/canvas/badges/review-threads.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    const body = (selector: string) => {
+      const at = sheet.indexOf(`${selector} {`)
+      expect(at, selector).toBeGreaterThanOrEqual(0)
+      return sheet.slice(at, sheet.indexOf('}', at))
+    }
+    // A wrapper that is a block takes the card's 17 px line around its 16 px chip: 2 px over for two chips.
+    expect(body('.w-review-threads > *')).toMatch(/display\s*:\s*inline-flex/u)
+    expect(body('.w-review-threads .w-chip')).toMatch(/height\s*:\s*16px/u)
+    expect(body('.w-review-threads')).toMatch(/gap\s*:\s*2px/u)
   })
 
   it('a card gets a line per chip; a card the inbox does not name is as tall as before', async () => {
