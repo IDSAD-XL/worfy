@@ -1,8 +1,8 @@
 # 93 — Компактные Limits по Vendor-ам и строка Codex отдельной третьей строкой колонки Harness
 
 Type: polish
-Status: claimed 2026-11-10T09:14Z
-PR: —
+Status: done 2026-11-10T11:00Z
+PR: #1779
 Blocked by: —
 Source: просьба владельца 2026-11-10 по снимку экрана Mac Stable (через Orchestrator).
 
@@ -48,6 +48,7 @@ Source: просьба владельца 2026-11-10 по снимку экра�
       `test/e2e/codex-hooks-step.spec.ts` в окне 1280 px и 1600 px.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/codex-hooks-step.spec.ts` exit 0 · mac - · bbc852378
 - [ ] Снимки toolbar-а в 1280 px и 1600 px (оба Vendor-а и «Codex: approve hooks») — в scratchpad, пути в отчёте.
+  - evidence: screenshot pass · toolbar at 1280 and 1600 px, dark and light, both vendors and Claude alone, e2e build of c4d64312d; checked by the orchestrator and the reviewer of #1779 · mac dev · c4d64312daf5fdc10a7fb84031f9abf2dc9e2318
 - [ ] Страницы `docs/features` (en и ru) описывают новую раскладку.
   - evidence: commit pass · Stack each Vendor's Limits one line per window; Codex part as the Harness column's third line (worfy-polish 93) · - - · bbc852378
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на PR зелёный.

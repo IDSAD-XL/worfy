@@ -1,7 +1,8 @@
 # 91 — Вердикт reviewer-а читается с первой строки, которая начинается с `VERIFIED` или `REJECTED`
 
 Type: bug
-Status: claimed 2026-11-10T09:17Z
+Status: done 2026-11-10T12:00Z
+PR: #1781
 Blocked by: 84
 Source: платный eval Orchestrator-а 2026-11-10 на head PR #1757 (worfy-polish 84): case `reviewer-verdict` — 0.89, в
 run-е 2 третьего раунда grader `rejected-first` не прошёл (trace — `worfy-orch/eval-traces-1757/r3-run2-failed`).
@@ -77,6 +78,7 @@ introduced the regression…»), а `REJECTED: …` стоит на следую
 - [ ] gate fast — exit 0, `[gate] green`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8b5e5a80c38c711b5cad554f73f08b7358e87910
 - [ ] `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · ci-ok green on 04180c0a4 incl. the Windows job (land 160, merged 71bc99ca4) · mac - · 04180c0a45169e25ce3a29981b4e57d56c200e31
 
 ## Где в коде
 

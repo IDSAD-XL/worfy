@@ -71,6 +71,7 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
       данные).
 - [ ] Владелец в Mac Stable открыл вид на командном проекте: группы и счётчики совпадают с GitHub.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-10 saw the Pull requests view in Mac Stable on a team project: their screenshot and design feedback led to worfy-polish 96 · mac stable · 2d591a7d56abe2c54830c424c55aa168dc393435
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5ce963663105a41c5c20f38fc60fb42726ad628b
   - evidence: gate pass · `gate fast` exit 0, [gate] green (fast): lint typecheck test · mac - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
