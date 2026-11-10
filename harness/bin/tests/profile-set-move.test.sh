@@ -29,6 +29,10 @@ ok() {
 bad() {
     fail=$((fail + 1))
     echo "FAIL $1"
+    # What the last run said, so a red run on another system can be told without a rerun.
+    [ -s "${T:-}/err" ] && echo "     stderr: $(head -c 400 "$T/err")"
+    [ -n "${R:-}" ] && [ -d "$R" ] && echo "     repository status: $(git -C "$R" status --porcelain | head -5 | tr '\n' ' ')"
+    return 0
 }
 check() {
     local name="$1"
@@ -104,6 +108,8 @@ json_get() { node -e 'const v=JSON.parse(require("fs").readFileSync(0,"utf8"))[p
 fp() { run "$SET" -C "$R" --field mode --field workflow.folder --read | json_get fingerprint; }
 pj_field() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const v=process.argv[2].split(".").reduce((o,k)=>o==null?undefined:o[k],p); process.stdout.write(v===undefined?"absent":JSON.stringify(v))' "$PJ" "$1"; }
 hh_commits() { git -C "$HH" rev-list --count HEAD; }
+# same_dir <a> <b>: one folder, however each is spelt (bin/profile prints D:\a\… on Windows, pwd -W D:/a/…).
+same_dir() { node -e 'const fs=require("fs"),[a,b]=process.argv.slice(1).map((p)=>fs.realpathSync.native(p).replace(/\\/g,"/")); process.exit((process.platform==="win32"?a.toLowerCase()===b.toLowerCase():a===b)?0:1)' "$1" "$2"; }
 head_of() { git -C "$1" rev-parse HEAD; }
 clean() { for d; do [ -z "$(git -C "$d" status --porcelain)" ] || return 1; done; }
 present() { for f; do [ -e "$f" ] || return 1; done; }
@@ -213,7 +219,7 @@ rc=$?
 check "Full -> Silent: exit 0" [ "$rc" -eq 0 ]
 [ "$rc" -eq 0 ] || echo "     stderr: $(head -c 600 "$T/err")"
 check "Full -> Silent: bin/profile prints mode silent" [ "$(run "$PROFILE" -C "$R" --field mode)" = silent ]
-check "Full -> Silent: the Workflow folder is the default one" [ "$(run "$PROFILE" -C "$R" --field _resolved.workflow_folder)" = "$(cd "$WF" && { pwd -W 2>/dev/null || pwd -P; })" ]
+check "Full -> Silent: the Workflow folder is the default one" same_dir "$(run "$PROFILE" -C "$R" --field _resolved.workflow_folder)" "$WF"
 check "Full -> Silent: workflow.folder written" [ "$(pj_field workflow.folder)" != null ]
 check "Full -> Silent: the tickets in the Workflow folder" present "$WF/.scratch/epic-a/issues/02-two.md" "$WF/.scratch/epic-a/spec.md"
 check "Full -> Silent: the state file, ADRs and glossary there" present "$WF/HANDOFF.md" "$WF/docs/adr/0001-a.md" "$WF/CONTEXT.md"
@@ -264,7 +270,7 @@ FP3="$(fp)"
 out="$(run "$SET" -C "$R" --expect "$FP3" --move silent --folder "$T/own-wf" 2>"$T/err")"
 check "Full -> Silent into a folder of one's own: exit 0" [ $? -eq 0 ]
 check "a folder of one's own: made a git repository with the files" present "$T/own-wf/.git" "$T/own-wf/HANDOFF.md"
-check "a folder of one's own: workflow.folder names it" [ "$(run "$PROFILE" -C "$R" --field _resolved.workflow_folder)" = "$(cd "$T/own-wf" && { pwd -W 2>/dev/null || pwd -P; })" ]
+check "a folder of one's own: workflow.folder names it" same_dir "$(run "$PROFILE" -C "$R" --field _resolved.workflow_folder)" "$T/own-wf"
 
 # --- a project of several repositories ------------------------------------------------------------------------------
 FPM="$(run "$SET" -C "$T/r/m1" --field mode --field workflow.folder --read | json_get fingerprint)"

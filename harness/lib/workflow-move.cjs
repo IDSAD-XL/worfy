@@ -320,9 +320,11 @@ function undoMove(state) {
         }
     }
     const rels = plan.moves.map((m) => m.rel)
-    // The side the files left: the commit taken back, the files restored from the commit before.
-    if (state.fromCommitted) tryStep("taking back the commit in " + plan.source, () => must(git(plan.source, ["reset", "-q", "--soft", state.fromHead]), "git reset --soft"))
-    if (state.removed || state.fromCommitted) {
+    // The side the files left: the commit taken back and the files restored from the commit before. After the
+    // commit, `reset --keep` does both in one step and leaves the index with the files' own stat data; it touches
+    // only the files the commit changed, and refuses rather than overwrite a change made since.
+    if (state.fromCommitted) tryStep("taking back the commit in " + plan.source, () => must(git(plan.source, ["reset", "-q", "--keep", state.fromHead]), "git reset --keep"))
+    else if (state.removed) {
         tryStep("restoring the files in " + plan.source, () => {
             must(git(plan.source, ["reset", "-q", state.fromHead, "--", ...rels]), "git reset of the moved files")
             must(git(plan.source, ["checkout", state.fromHead, "--", ...rels]), "git checkout of the moved files")
