@@ -122,7 +122,9 @@ export type ChecksSnapshot = z.infer<typeof checksSnapshotSchema>
  * `root` is the Project root or one of the Project's repositories (`checks.repos`): main refuses
  * any other folder, so `git` and `gh` never run elsewhere. `branches` are the branches of Tickets in
  * work that the renderer knows of — `<epic>/<NN>`, or the `Branch:` the workflow model names for a
- * Ticket of that repository; main refuses any other and adds the branches of the worktrees itself.
+ * Ticket of that repository (a Ticket over several repositories, ADR-0104, is a Ticket of each one
+ * its `Repo:` lines name, so its branch is asked in every one of them); main refuses any other and
+ * adds the branches of the worktrees itself.
  * `gh` runs at most once per interval whatever the call rate, so the renderer may ask often (it
  * asks only while its window is focused).
  *
@@ -208,6 +210,25 @@ export function worktreeOfTicket(snapshot: ChecksSnapshot, ticket: TicketLike, t
  * CI badges.
  */
 export type TicketChecksSource = { kind: 'project' } | { kind: 'repo'; repo: ProjectRepoView } | { kind: 'none' }
+
+/**
+ * The repositories a Ticket names: each `Repo:` line of a Ticket over several (ADR-0104), in file order, else its one
+ * `Repo:` line; [] without one. Names are trimmed, each once.
+ */
+export function reposOfTicket(ticket: { repo?: string | null | undefined; repos?: readonly string[] | undefined }): string[] {
+  const names = ticket.repos !== undefined && ticket.repos.length > 0 ? ticket.repos : ticket.repo ? [ticket.repo] : []
+  return [...new Set(names.map((name) => name.trim()).filter((name) => name !== ''))]
+}
+
+/**
+ * Every place a Ticket's checks come from: the Project root in a Project of one repository; in a Project over
+ * several, each of the Project's repositories the Ticket names, in the order of its `Repo:` lines — the badges ask
+ * for the PR of its branch in each one (ADR-0104, item 3); [] when it names none of them.
+ */
+export function checksSourcesOfTicket(repos: readonly ProjectRepoView[], ticket: { repo?: string | null | undefined; repos?: readonly string[] | undefined }): ProjectRepoView[] | 'project' {
+  if (repos.length < 2) return 'project'
+  return reposOfTicket(ticket).flatMap((name) => repos.filter((each) => each.name === name).slice(0, 1))
+}
 
 export function checksSourceOfTicket(repos: readonly ProjectRepoView[], ticket: { repo?: string | null | undefined }): TicketChecksSource {
   if (repos.length < 2) return { kind: 'project' }

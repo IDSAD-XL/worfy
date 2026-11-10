@@ -6,7 +6,8 @@
 //
 // A Project over several repositories (ADR-0045, `checks.repos`) is asked one repository at a
 // time: a Ticket's badges come from the snapshot of the repository its `Repo:` line names, and a
-// Ticket that names none has no badges. A copy is kept per Project and folder asked, the Project
+// Ticket that names none has no badges. A Ticket over several repositories (ADR-0104) is a Ticket
+// of each one its `Repo:` lines name: its branch is asked in every one, and it has badges from each. A copy is kept per Project and folder asked, the Project
 // root or a repository; the Ticket branches sent with it are those of that folder's Tickets in that
 // Project. The same folder may be a repository of one Project and a Project of its own: each
 // Canvas asks with its own Project (`project` of `checks.get`) and keeps its own copy.
@@ -16,6 +17,7 @@ import {
   branchNameSchema,
   checksSourceOfTicket,
   projectReposSchema,
+  reposOfTicket,
   type ChecksSnapshot,
   type ProjectRepos,
   type ProjectRepoView,
@@ -182,7 +184,7 @@ export function useChecks(root: string, repo?: ProjectRepoView | null): ChecksSn
   const repoName = repo?.name
   useEffect(() => {
     if (!model || key === null) return
-    const tickets = repoName === undefined ? model.tickets : model.tickets.filter((ticket) => ticket.repo === repoName)
+    const tickets = repoName === undefined ? model.tickets : model.tickets.filter((ticket) => reposOfTicket(ticket).includes(repoName))
     const branches = branchesInWork(tickets)
     const before = branchesByKey.get(key)
     if (before !== undefined && before.join('\n') === branches.join('\n')) return

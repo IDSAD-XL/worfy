@@ -11,6 +11,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { Layout } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { cardHeights, epicColumns, TICKET_MIN_HEIGHT } from '../../src/renderer/canvas/epic-layout'
+import { CHECK_ROW_HEIGHT } from '../../src/renderer/canvas/ticket-card'
 import source from '../../src/renderer/canvas/sources/epics'
 
 // Hoisted: the mocks below run before the module body.
@@ -64,5 +65,14 @@ describe('the card height follows the Project repositories', () => {
     const expected = cardHeights([ticket], epicColumns([ticket]), { severalRepos: true }).get(12)!
     expect(expected).toBeGreaterThan(TICKET_MIN_HEIGHT)
     await vi.waitFor(() => expect(height()).toBe(expected))
+  })
+
+  it('a Ticket over several repositories is laid out with its chip of every repository and a checks row for each (worfy-multi-repo-ticket 06)', () => {
+    const one = { ...fixed.ticket, repo: 'api' }
+    const two = { ...fixed.ticket, repo: 'web', repos: ['api', 'web'] }
+    const heightOf = (ticket: typeof one) => cardHeights([ticket], epicColumns([ticket]), { severalRepos: true }).get(12)!
+    expect(heightOf(two) - heightOf(one)).toBeGreaterThanOrEqual(CHECK_ROW_HEIGHT)
+    // The chip «api, web» takes no more than one line beside the number here: the rest is the second checks row.
+    expect(heightOf(two) - heightOf(one)).toBe(CHECK_ROW_HEIGHT)
   })
 })

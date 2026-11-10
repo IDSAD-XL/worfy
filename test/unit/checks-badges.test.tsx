@@ -269,6 +269,73 @@ describe('ChecksBadges in a Project over two repositories (worfy-harness ticket 
   })
 })
 
+describe('ChecksBadges on a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
+  const API = '/Users/test/projects/team/api'
+  const WEB = '/Users/test/projects/team/web'
+  // epic-status gives `repo` as the last Repo: line, `repos` as every one; one Branch: for all of them.
+  const both: Ticket = { ...ticket(8, 'work'), epic: 'team', branch: 'fix/both', repo: 'web', repos: ['api', 'web'] }
+  const onlyApi: Ticket = { ...ticket(9, 'work'), epic: 'team', branch: 'fix/api', repo: 'api' }
+  const pullOn = (number: number, branch: string, ci: 'passing' | 'failing', verdict: 'VERIFIED' | null): ChecksSnapshot['pulls'][number] => ({ number, url: `https://github.com/o/r/pull/${number}`, state: 'OPEN', branch, ci, verdict })
+  const snap = (root: string, pulls: ChecksSnapshot['pulls']): ChecksSnapshot => ({ root, worktrees: [{ path: root, branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls, gh: { available: true, error: null, intervalMs: 60_000 } })
+  const subject = (each: Ticket) => ({ kind: 'ticket' as const, projectId: 'p', root: ROOT, ticket: each })
+
+  beforeEach(() => {
+    model = { ...MODEL, epics: [{ epic: 'team', hasSpec: true, hasMap: false, title: 'Team' }], tickets: [both, onlyApi] }
+    repos = {
+      mode: 'silent',
+      repos: [
+        { name: 'api', path: API },
+        { name: 'web', path: WEB },
+      ],
+    }
+    snapshotsByRoot = {
+      [API]: snap(API, [pullOn(41, 'fix/both', 'passing', 'VERIFIED'), pullOn(42, 'fix/api', 'passing', null)]),
+      [WEB]: snap(WEB, [pullOn(118, 'fix/both', 'failing', null)]),
+    }
+  })
+
+  it('asks for the PR of the branch in both repositories and shows a row of each, led by its name', async () => {
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={subject(both)} />)
+    await vi.waitFor(() => expect(screen.getAllByTestId('checks-badges')).toHaveLength(2))
+    const rows = screen.getAllByTestId('checks-badges')
+    expect(rows.map((row) => row.dataset.repo)).toEqual(['api', 'web'])
+    expect(rows.map((row) => row.querySelector('[data-testid="checks-repo"]')?.textContent)).toEqual(['api', 'web'])
+    expect(rows.map((row) => row.querySelector('[data-testid="checks-pr"]')?.textContent)).toEqual(['PR #41', 'PR #118'])
+    // Each row is its own repository's: CI and the verdict are not summed across them.
+    expect(rows.map((row) => row.querySelector<HTMLElement>('[data-testid="checks-ci"]')?.dataset.value)).toEqual(['passing', 'failing'])
+    expect(rows.map((row) => row.querySelector<HTMLElement>('[data-testid="checks-verdict"]')?.dataset.value ?? null)).toEqual(['VERIFIED', null])
+    expect(rows.map((row) => row.title)).toEqual(['api: PR #41 open · CI passing · VERIFIED', 'web: PR #118 open · CI failing'])
+    expect(screen.getByTestId('checks-repos').contains(rows[0]!)).toBe(true)
+    // The Ticket's branch is asked in each repository its Repo: lines name, though its `repo` is only the last of them.
+    const asked = checksCalls as { root: string; branches: string[] }[]
+    expect(new Set(asked.map((each) => each.root))).toEqual(new Set([API, WEB]))
+    expect(asked.find((each) => each.root === WEB)?.branches).toEqual(['fix/both'])
+    expect(asked.find((each) => each.root === API)?.branches).toEqual(['fix/api', 'fix/both'])
+  })
+
+  it('a Ticket of one of the repositories has its one row, unnamed, as before', async () => {
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={subject(onlyApi)} />)
+    expect((await screen.findByTestId('checks-pr')).textContent).toBe('PR #42')
+    expect(screen.getAllByTestId('checks-badges')).toHaveLength(1)
+    expect(screen.getByTestId('checks-badges').dataset.repo).toBeUndefined()
+    expect(screen.getByTestId('checks-badges').title).toBe('PR #42 open · CI passing')
+    expect(screen.queryByTestId('checks-repo')).toBeNull()
+    expect(screen.queryByTestId('checks-repos')).toBeNull()
+  })
+
+  it('a repository the Project does not have is left out; one left gives one row as before', async () => {
+    const elsewhere: Ticket = { ...both, num: 10, repos: ['api', 'gone'], repo: 'gone' }
+    model = { ...model, tickets: [elsewhere] }
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={subject(elsewhere)} />)
+    expect((await screen.findByTestId('checks-pr')).textContent).toBe('PR #41')
+    expect(screen.getAllByTestId('checks-badges')).toHaveLength(1)
+    expect(screen.queryByTestId('checks-repo')).toBeNull()
+  })
+})
+
 describe('ChecksBadges when a repository of a Project is also a Project of its own', () => {
   // Project M over the repositories b and c; b is also added to worfy as Project B.
   const M = '/Users/test/projects/m'

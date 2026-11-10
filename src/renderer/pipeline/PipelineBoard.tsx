@@ -11,7 +11,7 @@ import { focusCanvasNode } from '../find/canvas-requests'
 import { setView } from '../session/navigation'
 import { useNow } from '../limits/useLimits'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
+import { mergedText, pullRowText, releaseLines, stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
 import { usePipeline } from './usePipeline'
 import './pipeline.css'
 
@@ -27,11 +27,61 @@ interface TicketCardProps {
   title: string | undefined
   /** The tooltip line of a stuck Ticket (stuckLine); null while it is not stuck. */
   stuck: string | null
+  /** The kind and the name of a Stage of the Pipeline by its id. */
+  columnOf: (stage: string) => PipelineColumn | undefined
   onOpen: () => void
 }
 
-/** One Ticket on the board: what it is, who it waits for, and its flags. */
-function TicketCard({ ticket, title, stuck, onOpen }: TicketCardProps) {
+/**
+ * The PRs of a Ticket over several repositories (ADR-0104): a row per repository in the order of its `Repo:` lines,
+ * «1/2 merged» once one is merged, and the release a repository waits for. A Ticket of one repository has none of
+ * these and its card is as it was.
+ */
+function RepoPulls({ ticket, columnOf }: Pick<TicketCardProps, 'ticket' | 'columnOf'>) {
+  const pulls = ticket.prs ?? []
+  const merged = mergedText(ticket.merged)
+  const releases = releaseLines(ticket, (stage) => columnOf(stage)?.kind)
+  if (pulls.length === 0 && merged === null && releases.length === 0) return null
+  return (
+    <span className="w-pipeline-card__repos" data-testid="pipeline-repos">
+      {pulls.map((pull) => (
+        <span
+          key={pull.repo}
+          className="w-pipeline-card__pr w-mono"
+          data-testid="pipeline-pr"
+          data-repo={pull.repo}
+          data-state={pull.state ?? 'none'}
+          data-stage={pull.stage}
+          title={`${pull.repo}: ${columnOf(pull.stage)?.title ?? pull.stage}${pull.sub === null ? '' : `, ${pull.sub}`}`}
+        >
+          {pullRowText(pull)}
+          {pull.sub === 'failing' ? (
+            <span className="w-pipeline-flag w-pipeline-flag--attention" data-testid="pipeline-pr-sub">
+              {pull.sub}
+            </span>
+          ) : null}
+        </span>
+      ))}
+      {merged !== null || releases.length > 0 ? (
+        <span className="w-pipeline-card__flags">
+          {merged !== null ? (
+            <span className="w-pipeline-flag w-pipeline-flag--working" data-testid="pipeline-merged">
+              {merged}
+            </span>
+          ) : null}
+          {releases.map((line) => (
+            <span key={line.text} className={`w-pipeline-flag w-pipeline-flag--${line.checked ? 'working' : 'attention'}`} data-testid="pipeline-release" title={line.text}>
+              {line.text}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+/** One Ticket on the board: what it is, who it waits for, its flags, and its PRs when it spans several repositories. */
+function TicketCard({ ticket, title, stuck, columnOf, onOpen }: TicketCardProps) {
   const blocked = ticket.blocked === null ? null : ticket.blocked.reason ? `Blocked: ${ticket.blocked.reason}` : 'Blocked'
   const name = title === undefined ? ticketRef(ticket) : `${ticketRef(ticket)} — ${title}`
   return (
@@ -63,6 +113,7 @@ function TicketCard({ ticket, title, stuck, onOpen }: TicketCardProps) {
             {title}
           </span>
         ) : null}
+        <RepoPulls ticket={ticket} columnOf={columnOf} />
         {blocked !== null || ticket.rework || ticket.waits !== null ? (
           <span className="w-pipeline-card__flags">
             {blocked !== null ? (
@@ -93,10 +144,11 @@ interface ColumnProps {
   titles: Readonly<Record<string, string>>
   /** The board's clock, for stuckLine. */
   now: number
+  columnOf: (stage: string) => PipelineColumn | undefined
   onOpenTicket: (ticket: { epic: string; num: number }) => void
 }
 
-function Column({ column, tickets, titles, now, onOpenTicket }: ColumnProps) {
+function Column({ column, tickets, titles, now, columnOf, onOpenTicket }: ColumnProps) {
   // Done is folded into its count until a click opens it; the choice lasts as long as the board.
   const [doneOpen, setDoneOpen] = useState(false)
   const folded = column.kind === 'done' && !doneOpen
@@ -121,6 +173,7 @@ function Column({ column, tickets, titles, now, onOpenTicket }: ColumnProps) {
               ticket={ticket}
               title={titles[ticketKeyOf(ticket)]}
               stuck={stuckLine(column, ticket, now)}
+              columnOf={columnOf}
               onOpen={() => onOpenTicket({ epic: ticket.epic, num: ticket.num })}
             />
           ))}
@@ -145,6 +198,7 @@ export function PipelineBoardView({ name, snapshot, titles, onOpenTicket }: Pipe
   // Stuck is found again on every snapshot, which draws the board anew, and every minute by this
   // clock. shortcut: a snapshot is judged by a clock up to a minute old, so a Ticket may be framed up to a minute late; take the time of the snapshot when that minute matters.
   const now = useNow()
+  const columnOf = (stage: string) => snapshot.pipeline.find((column) => column.id === stage)
   return (
     <div className="w-pipeline" data-testid="pipeline-board" data-root={snapshot.root}>
       <h2 className="w-pipeline__heading">{name}</h2>
@@ -155,7 +209,7 @@ export function PipelineBoardView({ name, snapshot, titles, onOpenTicket }: Pipe
       ) : null}
       <div className="w-pipeline__columns">
         {snapshot.pipeline.map((column) => (
-          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} now={now} onOpenTicket={onOpenTicket} />
+          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} now={now} columnOf={columnOf} onOpenTicket={onOpenTicket} />
         ))}
       </div>
     </div>

@@ -7,7 +7,7 @@
 // branches the workflow model names for that repository's Tickets (`Branch:`, Silent mode).
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { checksGet, checksRepos, type ChecksSnapshot, type ProjectRepos } from '../../shared/ipc/checks'
+import { checksGet, checksRepos, reposOfTicket, type ChecksSnapshot, type ProjectRepos } from '../../shared/ipc/checks'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { agentEnv } from '../agent/env'
@@ -98,11 +98,12 @@ async function targetIn(root: string, project: string, projects: readonly { read
 
 /**
  * The branches the model names for Tickets checked in this root: every Ticket's in a Project of one
- * repository, only those of `repo`'s Tickets in a Project over several.
+ * repository, only those of `repo`'s Tickets in a Project over several — a Ticket over several
+ * repositories (ADR-0104) is a Ticket of each one its `Repo:` lines name.
  */
 function namedBranches(model: WorkflowModel | null, repo: ProjectRepo | null, layout: ProjectLayout | null): Set<string> {
   const several = layout !== null && layout.repos.length > 1
-  return new Set((model?.tickets ?? []).flatMap((ticket) => (ticket.branch && (!several || ticket.repo === repo?.name) ? [ticket.branch] : [])))
+  return new Set((model?.tickets ?? []).flatMap((ticket) => (ticket.branch && (!several || ticket.repo === repo?.name || (repo !== null && reposOfTicket(ticket).includes(repo.name))) ? [ticket.branch] : [])))
 }
 
 /**

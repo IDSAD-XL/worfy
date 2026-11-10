@@ -166,6 +166,26 @@
   gap: 4px;
   min-width: 0;
 }
+/* A Ticket over several repositories (ADR-0104): a row per repository's PR, then «1/2 merged» and the release it waits for. */
+.w-pipeline-card__repos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.w-pipeline-card__pr {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.w-pipeline-card__pr[data-state='MERGED'] {
+  color: var(--text-muted);
+}
 .w-pipeline-card__waits {
   font-size: var(--text-11);
   line-height: 16px;

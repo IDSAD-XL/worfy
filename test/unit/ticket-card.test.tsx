@@ -14,7 +14,7 @@ import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import TicketNode, { defaultHeight, defaultWidth } from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
-import { cardHeight, charEm, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
+import { CHECK_ROW_HEIGHT, cardHeight, charEm, CONTENT_WIDTH, textLines, TICKET_MIN_HEIGHT, TICKET_WIDTH, type CardInput } from '../../src/renderer/canvas/ticket-card'
 
 // The badges and actions are their own tests' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
@@ -181,6 +181,23 @@ describe('the card draws every element whole', () => {
     expect(chip.textContent).toBe('application-server-with-a-long-name')
     expect(chip.getAttribute('style')).toBeNull()
   })
+
+  it('the chip of a Ticket over several repositories names every one, in the order of its Repo: lines (worfy-multi-repo-ticket 06)', async () => {
+    snapshot = { root: ROOT, pipeline: PIPELINE, tickets: [], error: null }
+    repoNames = ['lib', 'app']
+    bridge()
+    // epic-status gives `repo` as the last Repo: line and `repos` as all of them.
+    renderCards([ticket(1, { repo: 'app', repos: ['lib', 'app'] }), ticket(2, { repo: 'lib' })], '/repo-two')
+    await vi.waitFor(() => expect(screen.getAllByTestId('ticket-repo')).toHaveLength(2))
+    const [several, one] = [card(1), card(2)].map((each) => each.querySelector<HTMLElement>('[data-testid="ticket-repo"]')!)
+    expect(several!.textContent).toBe('lib, app')
+    expect(several!.dataset.repo).toBe('lib, app')
+    expect(several!.title).toBe('repositories lib, app')
+    // A Ticket of one repository: its chip as before.
+    expect(one!.textContent).toBe('lib')
+    expect(one!.dataset.repo).toBe('lib')
+    expect(one!.title).toBe('repository lib')
+  })
 })
 
 // ── the card's height ────────────────────────────────────────────────────────
@@ -210,6 +227,13 @@ describe('the card is as tall as what it shows', () => {
     expect(reason - shortReason).toBeGreaterThanOrEqual(15)
     const nums = Array.from({ length: 30 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')
     expect(cardHeight({ ...base, meta: { lead: 'blocked by ', nums, tail: ' · done', attention: false } })).toBeGreaterThan(TICKET_MIN_HEIGHT + 15)
+  })
+
+  it('a Ticket over several repositories gets room for a row of checks badges per repository past the first', () => {
+    expect(cardHeight({ ...base, checkRows: 1 })).toBe(cardHeight(base))
+    expect(cardHeight({ ...base, checkRows: 2 }) - cardHeight(base)).toBe(CHECK_ROW_HEIGHT)
+    expect(cardHeight({ ...base, checkRows: 3 }) - cardHeight(base)).toBe(2 * CHECK_ROW_HEIGHT)
+    expect(CHECK_ROW_HEIGHT).toBe(36)
   })
 
   it('a word longer than the line is broken inside it, as overflow-wrap: anywhere does', () => {

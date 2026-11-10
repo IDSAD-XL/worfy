@@ -13,6 +13,7 @@
 //
 // A card is as tall as what it shows (ticket-card.ts, worfy-canvas ticket 18): in the synchronous
 // layout each row is as tall as its tallest card; ELK gets each card's own height.
+import { reposOfTicket } from '../../shared/ipc/checks'
 import { freePlace, NODE_GAP } from '../../shared/layout/free-place'
 import type { Ticket } from '../../shared/workflow/types'
 import { readyWave, ticketLevels } from '../../shared/workflow/waves'
@@ -112,7 +113,7 @@ export interface EpicLayout {
 
 /** What the layout reads of a Ticket: its blocking, and what its card shows, which sets the card's height. */
 export type LayoutTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'slug' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
-  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo' | 'evidence'>>
+  Partial<Pick<Ticket, 'blockedReason' | 'waits' | 'repo' | 'repos' | 'evidence'>>
 
 export interface EpicLayoutInput {
   /** The Tickets of one Epic. */
@@ -249,7 +250,9 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       title: ticketTitle(t),
       state: t.state,
       waits: t.waits,
-      repo: t.repo?.trim() || (severalRepos ? 'no repo' : null),
+      repo: repoChipText(t) || (severalRepos ? 'no repo' : null),
+      // A Ticket over several repositories has a row of checks badges for each (ChecksBadges.tsx).
+      checkRows: severalRepos ? Math.max(1, reposOfTicket(t).length) : 1,
       ready: columns.ready.has(t.num),
       reason: reason || null,
       meta: blockersLine(t, columns.attention.get(t.num) ?? null, waitingOnOf(t, byNum)),
@@ -683,6 +686,9 @@ export function progressOf(tickets: readonly Pick<Ticket, 'state'>[]): Progress 
  * A Ticket file without an H1 gives no title, and the card then shows the slug of the file name
  * (`07-rate-limit-bids.md` → "rate-limit-bids") rather than no text at all.
  */
+/** The text of a Ticket's repository chip (TicketNode.tsx): every repository its `Repo:` lines name (ADR-0104); '' without one. */
+export const repoChipText = (ticket: Pick<Ticket, 'repo' | 'repos'>): string => reposOfTicket(ticket).join(', ')
+
 export function ticketTitle(ticket: Pick<Ticket, 'num' | 'title' | 'slug'>): string {
   const stripped = ticket.title.replace(new RegExp(`^\\s*0*${ticket.num}\\s*[—–:.-]\\s*`), '').trim()
   return stripped || ticket.title.trim() || ticket.slug

@@ -11,7 +11,7 @@
 //   there are none; a click opens the board of that Project.
 // jsdom lays nothing out: the columns side by side and both themes are checked against the built
 // app (test/e2e/pipeline.spec.ts).
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
@@ -593,5 +593,179 @@ describe('a click on a notification of a Ticket that waits for the owner (worfy-
     expect(usePendingNote.getState().pending).toBeNull()
     expect(useNavigation.getState().view).toBe('canvas')
     expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
+  })
+})
+
+describe('one card for a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
+  /** A Silent Project whose consumer waits for the library's release: Release stands before Awaiting merge. */
+  const TEAM: PipelineStage[] = [
+    { kind: 'queued' },
+    { kind: 'implementing' },
+    { kind: 'agent-review' },
+    { kind: 'ci' },
+    { kind: 'human-review' },
+    { kind: 'release' },
+    { kind: 'awaiting-merge' },
+    { kind: 'done' },
+  ]
+  const TEAM_ROOT = '/projects/team'
+  const LIB_HEAD = 'b'.repeat(40)
+  const APP_HEAD = 'c'.repeat(40)
+  const green: CheckFact = { name: 'ci', state: 'success', startedAt: '2026-11-09T10:00Z', completedAt: '2026-11-09T10:05Z' }
+  const red: CheckFact = { ...green, state: 'failure' }
+  const pullOf = (number: number, state: 'OPEN' | 'MERGED', headSha: string, checks: readonly CheckFact[] = [green]): NonNullable<StageFacts['pr']> => ({
+    number,
+    state,
+    headSha: state === 'OPEN' ? headSha : null,
+    checks,
+    reviewDecision: 'APPROVED',
+    mergedAt: state === 'MERGED' ? '2026-11-09T12:00Z' : null,
+    mergeCommit: state === 'MERGED' ? 'd'.repeat(40) : null,
+  })
+  /** One repository of the Ticket: its PR (or none) and a verified review on the head of its branch. */
+  const repoOf = (repo: string, headSha: string, pr: StageFacts['pr'], reviewed = true): NonNullable<StageFacts['repos']>[number] => ({
+    repo,
+    headSha,
+    pr,
+    marks: reviewed ? [{ kind: 'review', verdict: 'success', sha: headSha, at: '2026-11-09T11:00Z' }] : [],
+    deploys: [],
+  })
+  const LINE = { repo: 'lib', kind: 'tag', ref: 'lib-v1.4.0' }
+  const twoRepos = (lib: StageFacts['pr'], app: StageFacts['pr'], release: 'waiting' | 'released' | 'not checked' | null = 'waiting', change: Partial<StageFacts> = {}): PipelineTicket =>
+    ticket('team', 4, TEAM, {
+      mode: 'silent',
+      status: 'work',
+      repos: [repoOf('lib', LIB_HEAD, lib), repoOf('app', APP_HEAD, app)],
+      ...(release === null ? {} : { releases: [{ ...LINE, state: release }] }),
+      ...change,
+    })
+  const board = async (...tickets: PipelineTicket[]) => {
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="team" snapshot={snapshotOf(TEAM_ROOT, TEAM, tickets)} titles={{}} onOpenTicket={() => undefined} />)
+  }
+  const rowsOf = (card: HTMLElement) => within(card).queryAllByTestId('pipeline-pr')
+
+  it('a card with two PRs has a row per PR named by its repository, and «1/2 merged» once one of them is merged', async () => {
+    await board(twoRepos(pullOf(41, 'OPEN', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD)))
+    expect(screen.getAllByTestId('pipeline-card')).toHaveLength(1)
+    let card = cardOf('team', 4)
+    expect(rowsOf(card).map((row) => row.textContent)).toEqual(['lib #41 · open', 'app #118 · open'])
+    expect(rowsOf(card).map((row) => [row.dataset.repo, row.dataset.state])).toEqual([
+      ['lib', 'OPEN'],
+      ['app', 'OPEN'],
+    ])
+    // Nothing merged yet: no count.
+    expect(within(card).queryByTestId('pipeline-merged')).toBeNull()
+    cleanup()
+
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD)))
+    card = cardOf('team', 4)
+    expect(rowsOf(card).map((row) => row.textContent)).toEqual(['lib #41 · merged', 'app #118 · open'])
+    expect(rowsOf(card)[0]!.dataset.state).toBe('MERGED')
+    expect(within(card).getByTestId('pipeline-merged').textContent).toBe('1/2 merged')
+    // Half merged is in work, not an accident (ADR-0104, item 8): the card stands where the consumer stands.
+    expect(columnOf(card)).toBe('release')
+  })
+
+  it('the card stands on the Stage of the repository furthest behind, and each row says where its own repository stands', async () => {
+    // The library is approved and waits for its merge; the consumer still waits for the agents' review.
+    await board(twoRepos(pullOf(41, 'OPEN', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), null, { repos: [repoOf('lib', LIB_HEAD, pullOf(41, 'OPEN', LIB_HEAD)), repoOf('app', APP_HEAD, pullOf(118, 'OPEN', APP_HEAD), false)] }))
+    const card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('agent-review')
+    expect(rowsOf(card).map((row) => row.dataset.stage)).toEqual(['awaiting-merge', 'agent-review'])
+    expect(rowsOf(card).map((row) => row.title)).toEqual(['lib: Awaiting merge', 'app: Agent review'])
+  })
+
+  it('a repository without a PR yet has a row that says so', async () => {
+    await board(twoRepos(pullOf(41, 'OPEN', LIB_HEAD), null, null))
+    expect(rowsOf(cardOf('team', 4)).map((row) => [row.textContent, row.dataset.state])).toEqual([
+      ['lib #41 · open', 'OPEN'],
+      ['app · no PR', 'none'],
+    ])
+  })
+
+  it('names the PR whose CI is red on its own row; the card has the Ticket’s «failing» too', async () => {
+    await board(twoRepos(pullOf(41, 'OPEN', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD, [red]), null))
+    const card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('ci')
+    expect(within(card).getByTestId('pipeline-sub').textContent).toBe('failing')
+    const [lib, app] = rowsOf(card)
+    expect(within(lib!).queryByTestId('pipeline-pr-sub')).toBeNull()
+    expect(within(app!).getByTestId('pipeline-pr-sub').textContent).toBe('failing')
+    expect(app!.title).toBe('app: CI, failing')
+  })
+
+  it('the Stage release: «waits for release <version>» while the line is not met, nothing once it is released', async () => {
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD)))
+    let card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('release')
+    expect(within(card).getAllByTestId('pipeline-release').map((flag) => flag.textContent)).toEqual(['waits for release lib-v1.4.0'])
+    expect(within(card).getByTestId('pipeline-release').className).toContain('w-pipeline-flag--working')
+    cleanup()
+
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), 'released'))
+    card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('awaiting-merge')
+    expect(within(card).queryByTestId('pipeline-release')).toBeNull()
+    expect(within(card).getByTestId('pipeline-merged').textContent).toBe('1/2 merged')
+  })
+
+  it('a release worfy could not check says so, as a flag that needs attention', async () => {
+    await board(twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), 'not checked'))
+    const flag = within(cardOf('team', 4)).getByTestId('pipeline-release')
+    expect(flag.textContent).toBe('release lib-v1.4.0 not checked')
+    expect(flag.className).toContain('w-pipeline-flag--attention')
+  })
+
+  it('the consumer waits on release while the library is still open: the line shows, though the Ticket stands earlier', async () => {
+    // The library waits for the agents' review; the consumer has passed everything up to the release.
+    const facts: Partial<StageFacts> = { repos: [repoOf('lib', LIB_HEAD, pullOf(41, 'OPEN', LIB_HEAD), false), repoOf('app', APP_HEAD, pullOf(118, 'OPEN', APP_HEAD))] }
+    await board(twoRepos(null, null, 'waiting', facts))
+    const card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('agent-review')
+    expect(rowsOf(card).map((row) => row.dataset.stage)).toEqual(['agent-review', 'release'])
+    expect(within(card).getByTestId('pipeline-release').textContent).toBe('waits for release lib-v1.4.0')
+  })
+
+  it('no repository on release: the line is not shown before its time', async () => {
+    const facts: Partial<StageFacts> = { repos: [repoOf('lib', LIB_HEAD, pullOf(41, 'OPEN', LIB_HEAD), false), repoOf('app', APP_HEAD, pullOf(118, 'OPEN', APP_HEAD), false)] }
+    await board(twoRepos(null, null, 'waiting', facts))
+    const card = cardOf('team', 4)
+    expect(columnOf(card)).toBe('agent-review')
+    expect(within(card).queryByTestId('pipeline-release')).toBeNull()
+  })
+
+  it('a Ticket with one PR looks as before: no rows, no count, no release line of its own repository', async () => {
+    const one = ticket('team', 5, TEAM, {
+      mode: 'silent',
+      status: 'work',
+      repo: 'lib',
+      headSha: LIB_HEAD,
+      pr: pullOf(41, 'OPEN', LIB_HEAD),
+      marks: [{ kind: 'review', verdict: 'success', sha: LIB_HEAD, at: '2026-11-09T11:00Z' }],
+      releases: [{ ...LINE, state: 'waiting' }],
+    })
+    expect(one.prs).toBeUndefined()
+    expect(one.merged).toBeUndefined()
+    await board(one, ticket('team', 6, TEAM, { mode: 'silent' }))
+    for (const num of [5, 6]) {
+      const card = cardOf('team', num)
+      expect(within(card).queryByTestId('pipeline-repos')).toBeNull()
+      expect(within(card).queryByTestId('pipeline-pr')).toBeNull()
+      expect(within(card).queryByTestId('pipeline-merged')).toBeNull()
+      expect(within(card).queryByTestId('pipeline-release')).toBeNull()
+    }
+    // The library does not wait for its own release: it stands on Awaiting merge, its card as it was.
+    expect(columnOf(cardOf('team', 5))).toBe('awaiting-merge')
+    expect(cardOf('team', 5).textContent).toBe('team 05Waits: team')
+  })
+
+  it('a card from a Linked machine’s older worfy, with «merged» but no rows, still shows the count', async () => {
+    const older = { ...twoRepos(pullOf(41, 'MERGED', LIB_HEAD), pullOf(118, 'OPEN', APP_HEAD), null) }
+    delete older.prs
+    await board(older)
+    const card = cardOf('team', 4)
+    expect(rowsOf(card)).toEqual([])
+    expect(within(card).getByTestId('pipeline-merged').textContent).toBe('1/2 merged')
   })
 })

@@ -117,6 +117,22 @@ refuses Full mode for it at the draft and again at the write. Each Ticket says w
 Gate, PR and CI of its own repository, and a Ticket without a repository shows none. The folder itself has no branch, so
 the list shows `—` for it.
 
+**A Ticket over several repositories.** One change may span a library and its consumer: the Ticket then has a `Repo:` line
+for each, one `Branch:` for all of them, and a `PR: <repo>#N` line for each PR. worfy shows it as one Ticket:
+
+- Its Ticket Node chip names every repository, in the order of the `Repo:` lines: `lib, app`.
+- Its Gate, PR and CI badges come in one row per repository, led by the repository's name. The branch is asked for in each
+  repository, and each row shows that repository's own PR, CI and review verdict.
+- On the Pipeline board it has one card. The card has a row per repository with its PR and state: `lib #41 · merged`,
+  `app #118 · open`, or `app · no PR` before that PR exists. The row's tooltip names the Stage that repository stands on,
+  and a row whose CI is red has its own `failing` flag. Once one PR is merged, the card says `1/2 merged`.
+- The card stands on the Stage of the repository furthest behind. While a repository stands on the `release` Stage, the card
+  says `waits for release lib-v1.4.0` for each `Release:` line not met yet, or `release lib-v1.4.0 not checked` when worfy
+  could not ask. Once the release is out, the line goes away.
+- The PRs say nothing about each other. Their link is shown only on the board and in the Ticket file.
+
+A Ticket of one repository looks as before: one chip, one row of badges, and no PR rows on its card.
+
 **When the Harness gives no answer.** Each Project is read through the Harness, and there are two ways of not getting an
 answer:
 
@@ -158,7 +174,10 @@ Project joins the list there without changing that Machine's active Project, and
   In Silent mode the repositories get one thing, the line `.claude/worktrees/` in `.git/info/exclude`. Nothing goes into a
   working tree or `.gitignore`.
 - **One Ticket, one repository** ([ADR-0045](../adr/0045-one-ticket-one-repository.md)), so each repository answers for its
-  own checks. The default attribution follows the mode, and a value in the Profile wins
+  own checks. A Ticket may name several repositories, with a PR in each and a release Stage between them
+  ([ADR-0104](../adr/0104-one-ticket-several-repositories.md)). main computes a Stage per repository, and the Ticket stands
+  on the earliest one. The Stage carries `merged`, `release` and `prs`, a row per repository, and the board only draws
+  them. The default attribution follows the mode, and a value in the Profile wins
   ([ADR-0061](../adr/0061-attribution-default-follows-mode.md)). Marks have two stores by mode
   ([ADR-0067](../adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md)).
 - **A Ticket file outside the root stays reachable and bounded.** In Silent mode a Ticket and its links open from the
@@ -182,6 +201,11 @@ Project joins the list there without changing that Machine's active Project, and
 - `src/main/workflow/reader.ts`, `src/main/workflow/watch.ts`: read and watch by the layout; a failed layout is asked again
   on `LAYOUT_RETRY_MS`. `src/main/workflow/marks.ts`, `src/main/workflow/stages.ts`: the marks of both stores.
 - `src/main/ipc/shell.ts`: `workflowPlaces`, the places of a Ticket outside the root.
+- A Ticket over several repositories: `stageOf` in `src/shared/workflow/pipeline.ts` gives `prs`, `merged` and `release`.
+  `src/renderer/pipeline/PipelineBoard.tsx` and `board.ts` draw the card. `reposOfTicket` and `checksSourcesOfTicket` in
+  `src/shared/ipc/checks.ts` name the repositories. `src/renderer/canvas/badges/ChecksBadges.tsx` and `use-checks.ts` ask
+  each of them, and `src/main/ipc/checks.ts` takes the Ticket's branch in each. `src/renderer/canvas/nodes/TicketNode.tsx`
+  draws the chip, and `epic-layout.ts` and `ticket-card.ts` give the card room for it.
 - `harness/bin/project-connect`: the check and the write. `harness/bin/silent-check`, `harness/hooks/guard.mjs`: the traces
   and the refusal. `harness/hooks/session-start.mjs`: what a Session is told. `harness/profiles/README.md`: the Profile field
   by field.
@@ -206,6 +230,10 @@ Project joins the list there without changing that Machine's active Project, and
 - `test/e2e/projects-connect.spec.ts`: Silent by default, the draft, the form, Connect, the Harness not installed, the account.
 - `test/e2e/silent-project.spec.ts`: a Silent Project and a Project over two repositories in the built app, with nothing
   written into the Workflow folder or the repositories.
+- A Ticket over two repositories: `test/unit/pipeline-board.test.tsx` covers the card, its rows, `1/2 merged` and the release
+  line. `test/unit/checks-badges.test.tsx` covers the badge rows, `test/unit/ticket-card.test.tsx` and
+  `test/unit/epic-card-repos.test.tsx` the chip and the card's room, and `test/contract/github-prs.test.ts` the branch
+  taken in each repository.
 - `test/contract/github-accounts.test.ts`: the accounts, also from a gh without `--json`. `test/unit/gh-auth-text.test.ts`:
   the text output of `gh auth status`. `test/unit/temp-folder.test.ts`: the `%TEMP%` rule.
 - `test/unit/add-project-machine.test.tsx`, `test/unit/folder-browser.test.tsx`, `test/e2e/linked-add-project.spec.ts`:

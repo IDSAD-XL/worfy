@@ -286,8 +286,13 @@ export interface CardInput {
   state: TicketState
   /** The `Waits:` line. */
   waits?: string | null | undefined
-  /** The `Repo:` line. */
+  /** The repository chip's text: the `Repo:` line, or every one of a Ticket over several repositories. */
   repo?: string | null | undefined
+  /**
+   * How many rows of checks badges the card draws: one, or one per repository of a Ticket over several
+   * (ChecksBadges.tsx, ADR-0104); each row past the first gets two more lines of chips.
+   */
+  checkRows?: number | undefined
   ready: boolean
   /** The blocked reason, drawn in place of the blockers line; null when the line is drawn. */
   reason: string | null
@@ -299,6 +304,12 @@ export interface CardInput {
   evidence?: boolean | undefined
 }
 
+/** A row of checks badges of one more repository: two lines of chips (16 px each, 2 px apart), 2 px above it (`.w-checks-repos`). */
+export const CHECK_ROW_HEIGHT = 2 + 2 * 16 + 2
+
+/** The room of the checks rows past the first one. */
+const extraCheckRows = (card: CardInput): number => Math.max(0, (card.checkRows ?? 1) - 1) * CHECK_ROW_HEIGHT
+
 /** The card's height for `card`: border, padding, the top row, the title, the reason or blockers line, the slots (with the Evidence line). */
 export function cardHeight(card: CardInput): number {
   const title = TITLE_LINE * lines(card.title, { size: 13, weight: 600 }, CONTENT_WIDTH)
@@ -306,7 +317,7 @@ export function cardHeight(card: CardInput): number {
     card.reason !== null
       ? 2 * REASON_PAD_Y + REASON_LINE * Math.max(1, lines(card.reason, { size: 12 }, CONTENT_WIDTH - 2 * REASON_PAD_X))
       : META_LINE * Math.max(1, textLines(metaRuns(card.meta), CONTENT_WIDTH))
-  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + (card.evidence ? EVIDENCE_LINE : 0)
+  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + (card.evidence ? EVIDENCE_LINE : 0)
 }
 
 // ── the blockers line ────────────────────────────────────────────────────────
