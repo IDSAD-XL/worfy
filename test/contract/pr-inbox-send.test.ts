@@ -350,8 +350,8 @@ describe('failures and a second Send', () => {
     expect(posted(s.gh)).toHaveLength(1)
   })
 
-  it('the same text from another account in the thread is not this reply: it is posted', async () => {
-    const s = await setup([threadItem('Same words.')])
+  it('the same text from another account in the thread is not this reply: a second Send posts it', async () => {
+    const s = await setup([threadItem('Same words.', { error: IN_FLIGHT })])
     writeFileSync(join(s.gh.dir, 'posted.json'), JSON.stringify([{ repo: API, pr: PR, replyTo: REPLY_TO, login: ANA, body: 'Same words.', url: 'https://github.com/x' }]))
     expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Same words.'), body: 'Same words.' }] })).results[0]!.outcome).toBe('sent')
     expect(writes(s.gh)).toHaveLength(1)

@@ -264,13 +264,13 @@ describe('the drafts of a PR', () => {
   it('the typed text stays with its thread when a new read moves the replies in the file, and Send names that thread', async () => {
     await drafts([item(0), item(1)])
     fireEvent.change(field(1), { target: { value: 'Text meant for thread T1' } })
-    // The Session wrote the drafts again: T1 first now, T0 second.
-    await reread([item(0, { threadId: 'T1', body: 'Draft 1' }), item(1, { threadId: 'T0', body: 'Draft 0' })])
+    // The Session wrote the drafts again: T1 first now, with a new text of its own, T0 second.
+    await reread([item(0, { threadId: 'T1', body: 'Draft 1, drafted again' }), item(1, { threadId: 'T0', body: 'Draft 0' })])
     expect((within(ofThread('T1')).getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe('Text meant for thread T1')
     expect((within(ofThread('T0')).getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe('Draft 0')
     fireEvent.click(within(ofThread('T1')).getByTestId('pr-draft-send'))
     await waitFor(() => expect(sends()).toHaveLength(1))
-    expect(sends()[0]).toMatchObject({ items: [{ index: 0, kind: 'thread', threadId: 'T1', base: 'Draft 1', body: 'Text meant for thread T1' }] })
+    expect(sends()[0]).toMatchObject({ items: [{ index: 0, kind: 'thread', threadId: 'T1', base: 'Draft 1, drafted again', body: 'Text meant for thread T1' }] })
   })
 
   it('a reply in the conversation keeps its typed text by the text it was typed over, not by its place', async () => {
