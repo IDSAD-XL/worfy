@@ -1,7 +1,8 @@
 # 78 — «Edit profile»: все поля Profile-а после подключения Project-а
 
 Type: task
-Status: claimed 2026-11-09T22:36Z
+Status: done 2026-11-10T02:10Z
+PR: #1759
 Blocked by: —
 Source: просьба владельца 2026-11-09: после подключения Project-а поменять его Profile можно только руками в
 `profile.json`. Строки перечитаны по main `964061f9a`.
