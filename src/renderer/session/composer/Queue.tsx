@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { invoke } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
+import { queuedMessageRemoved } from '../queue-removals'
 import { useSessionControls } from '../store'
 import type { ComposerItemProps } from './index'
 
@@ -21,9 +22,11 @@ export default function Queue({ sessionId }: ComposerItemProps) {
   const readOnly = useReadOnly()
   if (sessionId === null || queue === null || queue.items.length === 0) return null
 
-  const remove = (id: string) => {
+  const remove = (id: string, text: string) => {
     void invoke('agent.queueRemove', { sessionId, id }).then((result) => {
       if (!result.ok) console.error('agent.queueRemove failed:', result.error)
+      // Taken out before it was sent: the comments it carried go back to the tray (queue-removals.ts).
+      else if (result.value.removed) queuedMessageRemoved(sessionId, text)
     })
   }
   const sendQueued = () => {
@@ -56,7 +59,7 @@ export default function Queue({ sessionId }: ComposerItemProps) {
             {queue.items.map((item, index) => (
               <li key={item.id} className="w-queue__item" data-testid="queue-item">
                 <span className="w-queue__text w-mono">{item.text}</span>
-                <button type="button" className="w-queue__remove" aria-label={`Remove queued message ${index + 1}`} data-testid="queue-remove" {...writeAction(readOnly, () => remove(item.id))}>
+                <button type="button" className="w-queue__remove" aria-label={`Remove queued message ${index + 1}`} data-testid="queue-remove" {...writeAction(readOnly, () => remove(item.id, item.text))}>
                   ×
                 </button>
               </li>

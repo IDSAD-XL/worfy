@@ -8,10 +8,11 @@ import { createHash } from 'node:crypto'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AttachmentSource } from '../../src/shared/agent/attachments'
+import { messageText, type Attachment, type AttachmentSource } from '../../src/shared/agent/attachments'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
-import { BACK_TO_TRAY_MS, useQuoteComments, type QuoteCommentsLayer, type QuoteCommentsOptions } from '../../src/renderer/session/QuoteComments'
+import { useQuoteComments, type QuoteCommentsLayer, type QuoteCommentsOptions } from '../../src/renderer/session/QuoteComments'
+import { queuedMessageRemoved } from '../../src/renderer/session/queue-removals'
 import { agentText, parseQuoted, quoteAnchor, type CommentImage, type QuoteComment } from '../../src/renderer/session/quote-comments'
 import { addDraft, flushQuotes, forgetQuotesInMemory, imageDataOf, readQuotes } from '../../src/renderer/session/quote-store'
 import { QuotedPrompt } from '../../src/renderer/session/QuotedPrompt'
@@ -40,17 +41,19 @@ let keptByMain = new Map<string, string>()
 const bytesOf = (name: string): string => Buffer.from(name).toString('base64')
 const refOf = (name: string): string => createHash('sha256').update(Buffer.from(bytesOf(name), 'base64')).digest('hex')
 const keptImage = (name: string): CommentImage => ({ kind: 'image', name, mediaType: 'image/png', size: 3, ref: refOf(name) })
-type Delivery = QuoteCommentsOptions['delivery']
-const NOTHING_YET: Delivery = { prompts: [], queued: [], ready: true }
+type Prompts = QuoteCommentsOptions['prompts']
+const NONE: Prompts = []
+/** An image as a round sends it: the bytes main's stub answers for it. */
+const imageAttachment = (name: string): Attachment => ({ kind: 'image', name, mediaType: 'image/png', size: 3, data: bytesOf(name) })
 
 /** Keeps the layer the harness drew last. */
 const keep = (layer: QuoteCommentsLayer): void => {
   seen.current = layer
 }
 
-function Harness({ refusal = null, delivery = NOTHING_YET }: { refusal?: string | null; delivery?: Delivery }) {
+function Harness({ refusal = null, prompts = NONE }: { refusal?: string | null; prompts?: Prompts }) {
   const log = useRef<HTMLDivElement>(null)
-  const layer = useQuoteComments({ storeKey, sessionId: 'live-1', log, assistant: 'claude', refusal, delivery })
+  const layer = useQuoteComments({ storeKey, sessionId: 'live-1', log, assistant: 'claude', refusal, prompts })
   useLayoutEffect(() => keep(layer))
   return (
     <div>
@@ -284,90 +287,95 @@ describe('the tray above the input field', () => {
 })
 
 describe('sending a round', () => {
-  it('composes one message: the comments in text order, then the field’s text; they leave the tray and stay sent once its prompt came', async () => {
-    const { rerender } = render(<Harness />)
+  /** Two comments, composed and sent: the round waits for its prompt. */
+  async function sendRound(field = 'Thanks.') {
+    const view = render(<Harness />)
     await commentOn('m2#0', 'slow', 'Why slow?')
     await commentOn('m1#0', 'the lint step', 'Keep it.')
-    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
+    const composed = await seen.current!.compose({ text: field, attachments: [] })
     if ('error' in composed) throw new Error(composed.error)
-    expect(composed.message.text).toBe(
+    act(() => seen.current!.sent(composed.round, composed.message.text))
+    return { ...view, text: composed.message.text }
+  }
+
+  it('composes one message: the comments in text order, then the field’s text; they leave the tray and stay sent once its prompt came', async () => {
+    const { rerender, text } = await sendRound()
+    expect(text).toBe(
       ['Comments on parts of your messages (2):', '', '1. > «the lint step» (your message 14:02)', '   Keep it.', '', '2. > «slow» (your message)', '   Why slow?', '', 'General:', 'Thanks.'].join('\n'),
     )
-    const queued: Delivery = { prompts: [], queued: [composed.message.text], ready: true }
-    rerender(<Harness delivery={queued} />)
-    act(() => seen.current!.sent(composed.round, composed.message.text))
     expect(screen.queryByTestId('quote-tray')).toBeNull()
     expect(readQuotes(storeKey).pending).toHaveLength(1)
     expect(readQuotes(storeKey).sent).toEqual([])
     // An older prompt with the same text is not this round's.
-    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: 1 }], queued: [composed.message.text], ready: true }} />)
+    rerender(<Harness prompts={[{ text, at: 1 }]} />)
     expect(readQuotes(storeKey).pending).toHaveLength(1)
-    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: Date.now() }], queued: [], ready: true }} />)
+    rerender(<Harness prompts={[{ text, at: Date.now() }]} />)
     const state = readQuotes(storeKey)
     expect(state.pending).toEqual([])
-    expect(state.rounds.map((each) => each.message)).toEqual([composed.message.text])
+    expect(state.rounds.map((each) => each.message)).toEqual([text])
     expect(state.sent.map((each) => [each.quote, each.number])).toEqual([
       ['the lint step', 1],
       ['slow', 2],
     ])
     // The sent quotes tell the bubble of that message its blocks, in a Codex transcript too.
-    expect(seen.current!.sentQuotes.sentIn(composed.message.text)?.get(1)?.quote).toBe('the lint step')
-    expect(seen.current!.sentQuotes.sentIn(`${composed.message.text}\n\nAttached images: shot.png`)?.get(2)?.quote).toBe('slow')
+    expect(seen.current!.sentQuotes.sentIn(text)?.get(1)?.quote).toBe('the lint step')
+    expect(seen.current!.sentQuotes.sentIn(`${text}\n\nAttached images: shot.png`)?.get(2)?.quote).toBe('slow')
     // Over a sent quote a new comment may be made: a new round.
     select('m1#0', 'the lint step')
     expect((await screen.findByTestId('quote-button')).textContent).toContain('Comment')
   })
 
-  it('goes back to the tray, with a notice, when its message leaves the queue unsent', async () => {
-    const { rerender } = render(<Harness />)
-    await commentOn('m1#0', 'the lint step', 'Keep it.')
-    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
-    if ('error' in composed) throw new Error(composed.error)
-    rerender(<Harness delivery={{ prompts: [], queued: [composed.message.text], ready: true }} />)
-    act(() => seen.current!.sent(composed.round, composed.message.text))
-    expect(screen.queryByTestId('quote-tray')).toBeNull()
-    vi.useFakeTimers()
-    // Removed from «N queued»: neither in the queue nor in the transcript.
-    rerender(<Harness delivery={{ prompts: [], queued: [], ready: true }} />)
-    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS - 1))
+  it('goes back to the tray, with a notice, when the user removes its message from this Session’s queue', async () => {
+    const { text } = await sendRound()
+    // Another Session's queue is not this round's.
+    act(() => queuedMessageRemoved('other-1', text))
     expect(readQuotes(storeKey).pending).toHaveLength(1)
-    act(() => vi.advanceTimersByTime(1))
+    // The queue lists a message with its attachment lines (queue.ts, snapshot).
+    act(() => queuedMessageRemoved('live-1', messageText(text, [imageAttachment('shot.png')])))
     expect(readQuotes(storeKey).pending).toEqual([])
     expect(readQuotes(storeKey).sent).toEqual([])
-    expect(readQuotes(storeKey).drafts.map((each) => each.text)).toEqual(['Keep it.'])
-    expect(screen.getByTestId('quote-tray').textContent).toContain('1 comment on this message')
-    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')?.text).toBe('The message left the queue unsent: 1 comment back in the tray')
+    expect(readQuotes(storeKey).drafts.map((each) => each.text).sort()).toEqual(['Keep it.', 'Why slow?'])
+    expect(screen.getByTestId('quote-tray').textContent).toContain('2 comments on 2 messages')
+    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')?.text).toBe('The message left the queue unsent: 2 comments back in the tray')
   })
 
-  it('stays sent when its prompt comes a moment after the queue let it go (main sends the two apart)', async () => {
-    const { rerender } = render(<Harness />)
-    await commentOn('m1#0', 'the lint step', 'Keep it.')
-    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
-    if ('error' in composed) throw new Error(composed.error)
-    rerender(<Harness delivery={{ prompts: [], queued: [composed.message.text], ready: true }} />)
-    act(() => seen.current!.sent(composed.round, composed.message.text))
+  it('keeps waiting when the queue empties without a removal (Start now keeps it aside), and is sent once when it goes later', async () => {
+    const { rerender, text } = await sendRound()
     vi.useFakeTimers()
-    rerender(<Harness delivery={{ prompts: [], queued: [], ready: true }} />)
-    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS / 2))
-    rerender(<Harness delivery={{ prompts: [{ text: composed.message.text, at: null }], queued: [], ready: true }} />)
-    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 2))
-    expect(readQuotes(storeKey).sent.map((each) => each.quote)).toEqual(['the lint step'])
-    expect(readQuotes(storeKey).drafts).toEqual([])
-    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')).toBeUndefined()
-  })
-
-  it('waits while the transcript is not read or the queue not known', async () => {
-    const { rerender } = render(<Harness />)
-    await commentOn('m1#0', 'the lint step', 'Keep it.')
-    const composed = await seen.current!.compose({ text: 'Thanks.', attachments: [] })
-    if ('error' in composed) throw new Error(composed.error)
-    rerender(<Harness delivery={{ prompts: [], queued: null, ready: true }} />)
-    act(() => seen.current!.sent(composed.round, composed.message.text))
-    vi.useFakeTimers()
-    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 3))
-    rerender(<Harness delivery={{ prompts: [], queued: [], ready: false }} />)
-    act(() => vi.advanceTimersByTime(BACK_TO_TRAY_MS * 3))
+    // The window sees an empty queue: no prompt, no removal. Nothing goes back to the tray.
+    rerender(<Harness prompts={[]} />)
+    act(() => vi.advanceTimersByTime(60_000))
     expect(readQuotes(storeKey).pending).toHaveLength(1)
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+    expect(toasts.getState().toasts.find((toast) => toast.testId === 'quote-back-toast')).toBeUndefined()
+    // «Send queued» in the person's Session sends it.
+    rerender(<Harness prompts={[{ text, at: Date.now() }]} />)
+    expect(readQuotes(storeKey).pending).toEqual([])
+    expect(readQuotes(storeKey).sent).toHaveLength(2)
+    expect(readQuotes(storeKey).drafts).toEqual([])
+  })
+
+  it('after a restart keeps waiting while the transcript read from its tail shows no prompt of it', async () => {
+    await sendRound()
+    cleanup()
+    forgetQuotesInMemory()
+    vi.useFakeTimers()
+    render(<Harness prompts={[{ text: 'another message', at: Date.now() }]} />)
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(readQuotes(storeKey).pending).toHaveLength(1)
+    expect(readQuotes(storeKey).drafts).toEqual([])
+    expect(screen.queryByTestId('quote-tray')).toBeNull()
+  })
+
+  it('a Codex round with images is sent after a restart: its prompt keeps the attachment lines', async () => {
+    const { text } = await sendRound()
+    cleanup()
+    forgetQuotesInMemory()
+    // A Codex transcript keeps the line naming the images at the end of the text (codex/history.ts).
+    render(<Harness prompts={[{ text: messageText(text, [imageAttachment('shot.png')]), at: null }]} />)
+    expect(readQuotes(storeKey).pending).toEqual([])
+    expect(readQuotes(storeKey).sent.map((each) => each.quote)).toEqual(['the lint step', 'slow'])
+    expect(readQuotes(storeKey).drafts).toEqual([])
   })
 
   it('reads back from main the images of comments this window did not read (after a restart), and refuses one main no longer has', async () => {
@@ -477,5 +485,19 @@ describe('the bubble of a sent message', () => {
     expect(screen.getByText('plain words')).toBeTruthy()
     // The agent's text row carries its anchor, so a comment can find its message again.
     expect(screen.getByTestId('transcript-text').querySelector('[data-quote-anchor]')?.getAttribute('data-quote-anchor')).toBe(quoteAnchor('m1', FIRST))
+  })
+
+  it('«Go to my reply» finds the prompt of a Codex round, whose text keeps the attachment lines', async () => {
+    const codex = messageText(sentText, [imageAttachment('one.png'), imageAttachment('two.png')])
+    const events: AgentEvent[] = [
+      { type: 'notice', kind: 'user', text: 'plain words' },
+      { type: 'notice', kind: 'user', text: codex },
+      { type: 'text', text: FIRST, messageId: 'm1', parentToolUseId: null, synthetic: false },
+    ]
+    const onJump = vi.fn()
+    render(<Transcript events={events} jump={{ seq: 1, prompt: sentText }} onJump={onJump} />)
+    await waitFor(() => expect(onJump).toHaveBeenCalledTimes(1))
+    const [row] = onJump.mock.calls[0] as [HTMLElement]
+    expect(row.querySelector('[data-testid="quoted-prompt"]')).not.toBeNull()
   })
 })

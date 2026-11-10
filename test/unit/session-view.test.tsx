@@ -721,6 +721,28 @@ describe('composer: pickers and queue (ticket 19)', () => {
     expect(screen.queryByTestId('queue-chip')).toBeNull()
   })
 
+  it('tells the comments on quotes of a message the user removed from the queue, only once main removed it', async () => {
+    const { onQueuedMessageRemoved } = await import('../../src/renderer/session/queue-removals')
+    const heard: [string, string][] = []
+    const stop = onQueuedMessageRemoved((sessionId, text) => heard.push([sessionId, text]))
+    let removed = false
+    answers['agent.queueRemove'] = () => ({ removed })
+    await mountInput()
+    emit('s', { type: 'queue', items: [{ id: 'q1', text: 'first' }, { id: 'q2', text: 'second' }], paused: true })
+    fireEvent.click(screen.getByTestId('queue-chip'))
+    // Already sent: main did not remove it, and its comments wait for its prompt.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 1' }))
+    await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'agent.queueRemove')).toHaveLength(1))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(heard).toEqual([])
+    removed = true
+    fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 2' }))
+    await vi.waitFor(() => expect(heard).toEqual([['s', 'second']]))
+    stop()
+  })
+
   it('a queue held after Interrupt offers Send queued', async () => {
     answers['agent.queueSend'] = () => undefined
     await mountInput()

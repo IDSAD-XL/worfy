@@ -188,8 +188,9 @@ image's long side is scaled down to 1568 pixels before main checks it.
   while there are comments: send it alone, or clear the comments first. More than 10 images of comments are refused at
   Send too, however they came into the tray (Undo of a deletion as well).
 - While the agent works, the message waits in the queue, and its comments wait with it: out of the tray and lit dimly.
-  They become sent quotes when the message goes to the agent. A message removed from the queue, or a held queue
-  dropped, puts its comments back in the tray, and a notice says so.
+  They become sent quotes when the message goes to the agent. A message the user removes from the queue (its ×) puts
+  its comments back in the tray, and a notice says so. A queue that empties otherwise (Autopilot's "Start now" keeps it
+  for the person's Session) leaves them waiting for the message to go.
 - The user's message draws a block per quote: a green bar, the quote folded to three lines with "Show all", the comment
   and its images. The window that sent it shows the whole quote, and the block's source line leads back to the quote. The
   block is read from the message's own text, so it is the same after a restart.

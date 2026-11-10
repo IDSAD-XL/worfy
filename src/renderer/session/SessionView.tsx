@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { chatCommandToast } from '../../shared/autopilot/chat-command'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
@@ -244,23 +243,15 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // Comments on quotes of the agent's messages (worfy-polish ticket 102): kept per SDK session, as its
   // messages are; none on a read-only screen, which has no input field to send them.
   const readOnly = useReadOnly()
-  // What tells a sent round's fate: the user's prompts shown (as typed: a Codex transcript keeps the
-  // attachment lines), the Session's queue (none without a running Session: main's queue went with it).
-  const delivery = useMemo(
-    () => ({
-      prompts: events.flatMap((event) => (event.type === 'notice' && event.kind === 'user' ? [{ text: typedText(event.text), at: event.at ?? null }] : [])),
-      queued: sessionId === null ? [] : (queue?.items.map((item) => item.text) ?? null),
-      ready: transcriptId === undefined || past.loaded,
-    }),
-    [events, sessionId, queue, transcriptId, past.loaded],
-  )
+  // The user's prompts shown: a sent round's comments wait for theirs (QuoteComments.tsx).
+  const prompts = useMemo(() => events.flatMap((event) => (event.type === 'notice' && event.kind === 'user' ? [{ text: event.text, at: event.at ?? null }] : [])), [events])
   const quotes = useQuoteComments({
     storeKey: claudeSessionId === null ? null : quoteKey(projectId, nodeId, claudeSessionId),
     sessionId,
     log: logRef,
     assistant: assistantLabel,
     refusal: readOnly,
-    delivery,
+    prompts,
   })
 
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at

@@ -158,6 +158,19 @@ describe('a round of comments through agent.send', () => {
     expect(back).toEqual({ ok: true, attachment: { kind: 'image', name: 'shot.png', mediaType: 'image/png', size: 32, data: pngData(5) } })
   })
 
+  it('refuses an image to keep when main cannot write its copy: nothing could bring it back', async () => {
+    const h = await harness()
+    const id = await h.start()
+    // The images folder cannot be made: a file stands where its parent folder goes.
+    await mkdir(join(scratch, 'data'), { recursive: true })
+    await writeFile(join(scratch, 'data', 'attachments'), 'not a folder')
+    const { results } = await h.ok<{ results: AttachResult[] }>('agent.attach', { sessionId: id, sources: [{ kind: 'pasted', name: 'shot.png', data: pngData(5) }], keep: true })
+    expect(results).toEqual([{ ok: false, name: 'shot.png', error: expect.stringMatching(/^shot\.png could not be kept: /) }])
+    // Without `keep` the same image is attached: only its copy failed.
+    const plain = await h.ok<{ results: AttachResult[] }>('agent.attach', { sessionId: id, sources: [{ kind: 'pasted', name: 'shot.png', data: pngData(5) }] })
+    expect(plain.results[0]?.ok).toBe(true)
+  })
+
   it('refuses to read back an image main no longer has, or whose bytes are no longer those of its ref', async () => {
     const h = await harness()
     const id = await h.start()

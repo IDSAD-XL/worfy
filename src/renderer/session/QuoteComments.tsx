@@ -7,9 +7,10 @@ import { label as shortcutLabel, matches as matchesShortcut } from '../shortcuts
 import { dismissToast, showToast } from '../toast/toasts'
 import { readCommentImage } from './comment-image'
 import type { OutgoingMessage } from './MessageInput'
-import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type PendingRound, type QuoteComment } from './quote-comments'
+import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type QuoteComment } from './quote-comments'
 import { CommentPopover, ContextMenu, HoverCard, ImageIcon, QuoteIcon, SelectionButton, type Menu, type MenuItem, type Popover, type Selected, type Selection } from './QuoteCommentParts'
-import { addDraft, editDraft, imageDataOf, keepImageData, markPending, onQuoteStoreError, removeDrafts, settlePending, useQuotes } from './quote-store'
+import { onQueuedMessageRemoved } from './queue-removals'
+import { addDraft, editDraft, imageDataOf, keepImageData, markPending, onQuoteStoreError, readQuotes, removeDrafts, settlePending, useQuotes } from './quote-store'
 import { typedText } from '../../shared/agent/attachments'
 import type { SentQuotes } from './sent-quotes'
 import type { TranscriptJump } from './Transcript'
@@ -39,12 +40,6 @@ const HOVER_OUT_MS = 220
 const FLASH_MS = 1300
 /** How long Undo of a deletion is offered, in ms. */
 const UNDO_MS = 6000
-/**
- * How long a sent round's message may be neither in the Session's queue nor in its transcript before
- * its comments go back to the tray, in ms. main takes a queued message out of the queue a moment
- * before its prompt goes out (session.ts, next), and the two reach the window as two events.
- */
-export const BACK_TO_TRAY_MS = 1500
 /** How far a prompt's time may be before its round was sent and still be its prompt, in ms (two clocks of one Machine, a transcript's rounding). */
 const PROMPT_SKEW_MS = 60_000
 
@@ -134,11 +129,10 @@ export interface QuoteCommentsOptions {
   /** Why comments cannot be made now (a read-only screen); null when they can. */
   refusal: string | null
   /**
-   * What tells a sent round's fate: the user's prompts the transcript shows (their text as the user
-   * typed it, and their time), the texts waiting in the Session's queue (null: not known yet), and
-   * whether the transcript has been read (`ready`). A round waits while any of it is unknown.
+   * The user's prompts the transcript shows, their text as it is there (a Codex transcript keeps the
+   * attachment lines) and their time: a waiting round becomes sent when its prompt is among them.
    */
-  delivery: { prompts: readonly { text: string; at: number | null }[]; queued: readonly string[] | null; ready: boolean }
+  prompts: readonly { text: string; at: number | null }[]
 }
 
 export interface QuoteCommentsLayer {
@@ -160,7 +154,7 @@ export interface QuoteCommentsLayer {
 }
 
 /** The comments on quotes of one Session view. */
-export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, refusal, delivery }: QuoteCommentsOptions): QuoteCommentsLayer {
+export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, refusal, prompts }: QuoteCommentsOptions): QuoteCommentsLayer {
   const quotes = useQuotes(storeKey)
   const { drafts, sent, rounds } = quotes
   // A waiting round is lit as a sent one: it is on its way, and no longer the tray's.
@@ -657,56 +651,25 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
     [storeKey, say],
   )
 
-  // A waiting round becomes sent when its prompt shows in the transcript, and goes back to the tray
-  // when its message is neither there nor in the queue for BACK_TO_TRAY_MS (removed from the queue,
-  // or a held queue dropped). Nothing is decided before the transcript is read and the queue known.
-  const latest = useRef(delivery)
-  useLayoutEffect(() => {
-    latest.current = delivery
-  })
-  const backTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  // A waiting round becomes sent when its prompt shows in the transcript. It goes back to the tray
+  // only when the user removed its message from the queue in this window (queue-removals.ts): an
+  // empty queue is no proof (Start now keeps the queue aside for later, a relaunch hands it over), nor
+  // is a prompt missing from a transcript read from its tail after a restart.
   useEffect(() => {
     if (storeKey === null) return
-    const timers = backTimers.current
-    const fate = (round: PendingRound): 'sent' | 'queued' | 'unknown' | 'gone' => {
-      const now = latest.current
-      if (now.prompts.some((prompt) => prompt.text === round.message && (prompt.at === null || prompt.at >= round.at - PROMPT_SKEW_MS))) return 'sent'
-      if (!now.ready || now.queued === null) return 'unknown'
-      return now.queued.includes(round.message) ? 'queued' : 'gone'
-    }
     for (const round of quotes.pending) {
-      const now = fate(round)
-      if (now === 'sent') {
-        settlePending(storeKey, round.id, 'sent')
-        continue
-      }
-      if (now !== 'gone') {
-        const timer = timers.get(round.id)
-        if (timer !== undefined) clearTimeout(timer)
-        timers.delete(round.id)
-        continue
-      }
-      if (timers.has(round.id)) continue
-      timers.set(
-        round.id,
-        setTimeout(() => {
-          timers.delete(round.id)
-          const then = fate(round)
-          if (then === 'sent') settlePending(storeKey, round.id, 'sent')
-          else if (then === 'gone' && settlePending(storeKey, round.id, 'back') !== null) {
-            showToast({ kind: 'info', key: `quote-back:${round.id}`, text: `The message left the queue unsent: ${plural(round.comments.length, 'comment')} back in the tray`, testId: 'quote-back-toast' })
-          }
-        }, BACK_TO_TRAY_MS),
-      )
+      if (prompts.some((prompt) => typedText(prompt.text) === round.message && (prompt.at === null || prompt.at >= round.at - PROMPT_SKEW_MS))) settlePending(storeKey, round.id, 'sent')
     }
-  }, [storeKey, quotes.pending, delivery])
+  }, [storeKey, quotes.pending, prompts])
   useEffect(() => {
-    const timers = backTimers.current
-    return () => {
-      for (const timer of timers.values()) clearTimeout(timer)
-      timers.clear()
-    }
-  }, [storeKey])
+    if (storeKey === null || sessionId === null) return
+    return onQueuedMessageRemoved((from, text) => {
+      if (from !== sessionId) return
+      const round = readQuotes(storeKey).pending.find((each) => each.message === typedText(text))
+      if (round === undefined || settlePending(storeKey, round.id, 'back') === null) return
+      showToast({ kind: 'info', key: `quote-back:${round.id}`, text: `The message left the queue unsent: ${plural(round.comments.length, 'comment')} back in the tray`, testId: 'quote-back-toast' })
+    })
+  }, [storeKey, sessionId])
 
   // A write the window's storage refused is the user's to know: the comments stay in this window only.
   useEffect(
