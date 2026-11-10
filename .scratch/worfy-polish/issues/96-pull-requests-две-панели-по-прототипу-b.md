@@ -44,21 +44,28 @@ Source: владелец 2026-11-10 — вид «Pull requests» (Epic worfy-pr-
 - [ ] Вид — две панели по прототипу B: список слева по группам, выбранный PR справа с плашкой «что дальше»,
       ячейками CI / Review / Merge / Size, нитями и черновиками.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (12 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (13 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] ↑/↓ двигают выбор; щелчок и клавиша отмечают PR просмотренным; выбор вида при открытии — нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-inbox-groups.test.ts test/contract/pr-inbox.test.ts` and the other pr-inbox unit and contract files exit 0 (282 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` and the other pr-inbox unit and contract files exit 0 (287 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] `additions` / `deletions` читаются в main и видны в ячейке Size; в test-ах — только stub-ы.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx test/unit/pr-inbox-groups.test.ts test/contract/pr-inbox.test.ts` and the other pr-inbox unit and contract files exit 0 (282 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pr-inbox-view.test.tsx` and the other pr-inbox unit and contract files exit 0 (287 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] Один PR и ни одного PR выглядят задуманно: один выбран; пусто — спокойное пустое состояние.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (12 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (13 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] Unit test-ы вида и e2e `test/e2e/pr-inbox.spec.ts` обновлены; новые e2e: выбор PR показывает справа его нити и
       черновик; ↑/↓ двигают выбор; Send из правой панели отправляет только по щелчку (log gh stub-а).
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (12 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (13 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] Снимки Playwright 1280 и 1600 px, светлая и тёмная тема.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (12 passed) · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/pr-inbox.spec.ts test/e2e/checks-badges.spec.ts` exit 0 (13 passed) · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 - [ ] `docs/features/pr-inbox.md` и `docs/features/ru/pr-inbox.md` описывают две панели.
   - evidence: commit pass · Pull requests view: two panes, the selected PR in full (worfy-polish 96) · - - · 1bffac678d5555d978c3aa09c341b44b2b167f77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 1bffac678d5555d978c3aa09c341b44b2b167f77
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e86dc04cf093add6e619a206cb866753b8839feb
 
 ## Где в коде
 
