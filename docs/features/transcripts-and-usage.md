@@ -189,17 +189,20 @@ any data arrives it says "no data yet". A window without data says "no data".
 - **Vendor logos.** Every section, Claude Code's too, starts with its Vendor's logo in the text colour and shows no Vendor
   name, to save the toolbar's width: the section's tooltip and its accessible name (`Codex limits`) name the Vendor. A section
   without bars shows its logo beside its line: `No limits reported`, `no data yet`.
+- **One line per window.** A Vendor's windows stand one above the other, one compact line each: the label, the value and the
+  reset time, with a thin bar under them; the labels, values and times line up between the lines. The text is 10 px, and the
+  reset line is the time alone (`Thu 09:00`), with `resets …` as its tooltip. A Vendor that reports more than two windows gets
+  a second column of two. This is the same with one Vendor and with several.
 - **Several sections** make the panel compact, so it fits next to the rest of the toolbar in a 1280 px window and the Project
-  title with its branch line stays whole: no "Limits" heading, a thin line between the sections, narrower bars, and the reset line
-  is the time alone (`Thu 09:00`), with `resets …` as its tooltip.
+  title with its branch line stays whole: no "Limits" heading and a thin line between the sections.
 
 - **Value:** the used share, `62%`. Without a share it is the status in words: allowed, near limit, limit reached.
-- **Reset:** `resets 14:20` for the 5-hour window and `resets Thu 09:00` for the 7-day one; a Codex window longer than a day shows the
-  weekday too.
+- **Reset:** `14:20` for the 5-hour window and `Thu 09:00` for the 7-day one, with `resets 14:20` and `resets Thu 09:00` as their
+  tooltips; a Codex window longer than a day shows the weekday too.
 - **Colour:** changes at 60% and 85%. A near-limit status also gives the first colour, and a rejected one the second; so does a Codex
   window Codex reports as reached.
 - **Old data:** older than an hour, the bar dims and its tooltip ends with `as of 13:05`.
-- **Narrow window:** up to 1100 px wide, each bar shows its value alone, with no "Limits" heading, label or reset line. The
+- **Narrow window:** up to 1100 px wide, each bar shows its value alone, with no "Limits" heading, label or reset time. The
   value's tooltip names the rest: `5-hour: 62% · resets 14:20`, with `· as of 13:05` for old data.
 
 ### How it works

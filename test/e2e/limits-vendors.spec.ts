@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, repoRoot } from './helpers'
+import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 // The Limits panel by Vendor (worfy-multi-vendor ticket 26) against the built app: Claude's section from
@@ -15,8 +15,10 @@ import { profileJsonScript } from '../harness-node'
 // The section comes from the poll, not from a Codex turn; the turn's `limits` event is
 // test/contract/codex-session-limits.test.ts.
 // The window is 1280 px wide with a Project open, as the F mockup draws the toolbar: with both sections, each
-// named by its Vendor's logo alone (ticket 24; owner, 2026-11-03), and the compact bars at 72 px, the Project
-// title and its branch line stay whole (ticket 26, rework round 1).
+// named by its Vendor's logo alone (ticket 24; owner, 2026-11-03), the Project title and its branch line stay
+// whole (ticket 26, rework round 1). worfy-polish ticket 93: each Vendor's windows stand one above the other,
+// one line each, so a section is about as wide as one line; checked at 1280 px and 1600 px, and with Claude's
+// section alone. With WORFY_EVIDENCE_DIR set, the toolbar screenshots are copied there.
 
 /**
  * The Project of the F mockup (docs/design/F-canvas-light.dc.html), under an invented name as wide as
@@ -79,14 +81,59 @@ const box = async (locator: Locator): Promise<{ x: number; y: number; width: num
   return found
 }
 
-/** Screenshots of the toolbar in both themes, for the ticket's evidence and the review. */
+/** Screenshots of the toolbar in both themes, kept with the test's output and copied to WORFY_EVIDENCE_DIR when it is set. */
 async function screenshots(window: Page, name: string): Promise<void> {
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
-    await window.getByRole('banner').screenshot({ path: test.info().outputPath(`${name}-${scheme}.png`) })
+    const file = test.info().outputPath(`${name}-${scheme}.png`)
+    await window.getByRole('banner').screenshot({ path: file })
+    const dir = process.env.WORFY_EVIDENCE_DIR
+    if (dir !== undefined && dir !== '') {
+      mkdirSync(dir, { recursive: true })
+      copyFileSync(file, join(dir, `${name}-${scheme}.png`))
+    }
   }
   await window.emulateMedia({ colorScheme: null })
 }
+
+/** The window's content to `width` px wide, once it is on screen (macOS fits a window shown later into the display). */
+async function sizeWindow({ app, window }: LaunchedApp, width: number): Promise<void> {
+  await expect
+    .poll(async () => {
+      const now = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
+      if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), width)
+      return now
+    })
+    .toBe(width)
+}
+
+/**
+ * A section's windows one above the other (worfy-polish ticket 93): each next one starts under the one
+ * before it, at the same x, and no text of a window is cut.
+ */
+async function expectStacked(section: Locator, ids: readonly string[]): Promise<void> {
+  for (let index = 1; index < ids.length; index++) {
+    const above = await box(section.getByTestId(ids[index - 1]!))
+    const below = await box(section.getByTestId(ids[index]!))
+    expect(below.y, `${ids[index]!} under ${ids[index - 1]!}`).toBeGreaterThanOrEqual(above.y + above.height)
+    expect(below.x, `${ids[index]!} in the column of ${ids[index - 1]!}`).toBe(above.x)
+  }
+  for (const id of ids) {
+    const cut = await section.getByTestId(id).evaluate((node) => {
+      type Element = { scrollWidth: number; clientWidth: number; querySelectorAll(selector: string): Iterable<Element> }
+      const element = node as unknown as Element
+      return [element, ...element.querySelectorAll('*')].some((each) => each.scrollWidth > each.clientWidth && each.clientWidth > 0)
+    })
+    expect(cut, `a text of ${id} is cut`).toBe(false)
+  }
+}
+
+/**
+ * The widest a Vendor's section may be. Before worfy-polish ticket 93 a section was its logo and two bars
+ * of 72 px side by side, 172 px. One line of label, share and reset time at 10 px measured 125 px for
+ * Claude's (`7-day 38% Fri 11:19`) and 128 px for Codex's (`weekly 40% Sat 00:40`) on macOS.
+ */
+const SECTION_MAX = 136
 
 test('signed in to Codex: a Codex section with the windows of its plan next to Claude\'s, inside the toolbar', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, CODEX_HOME: codexHome, WORFY_CODEX_SCRIPT: 'account-plus', WORFY_CODEX_SCRIPTS: join(repoRoot, 'test', 'fixtures', 'codex-scripts') } })
@@ -94,14 +141,7 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     const { app, window } = launched
     await expect(window.getByTestId('app-shell')).toBeVisible()
     await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
-    // Set the size once the window is on screen (macOS fits a window shown later into the display).
-    await expect
-      .poll(async () => {
-        const width = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
-        if (width !== WIDTH) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), WIDTH)
-        return width
-      })
-      .toBe(WIDTH)
+    await sizeWindow(launched, WIDTH)
     const repo = makeRepo(scratch, PROJECT)
     mkdirSync(join(launched.claudeHome, 'bin'), { recursive: true })
     writeFileSync(join(launched.claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
@@ -139,11 +179,14 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     await expect(meter).toHaveAttribute('data-compact', 'true')
     await expect(codex.getByTestId('limit-codex-secondary-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(codex.getByTestId('limit-codex-secondary-note')).toHaveAttribute('title', /^resets [A-Z][a-z]{2} \d\d:\d\d$/)
-    const first = await box(codex.getByTestId('limit-codex-primary'))
-    const second = await box(codex.getByTestId('limit-codex-secondary'))
-    expect(first.x, 'the 5-hour window before the weekly one').toBeLessThan(second.x)
-    // The compact bars are 72 px, the widest at which the title below stays whole (80 px cut it by 29 px).
-    expect(first.width, 'a compact bar is 72 px wide').toBe(72)
+    // The 5-hour window above the weekly one, and Claude's 5-hour above its 7-day (worfy-polish ticket 93).
+    await expectStacked(codex, ['limit-codex-primary', 'limit-codex-secondary'])
+    await expectStacked(claude, ['limit-five_hour', 'limit-seven_day'])
+    for (const [vendor, section] of [['claude', claude], ['codex', codex]] as const) {
+      const width = (await box(section)).width
+      test.info().annotations.push({ type: `${vendor} section width at ${WIDTH} px`, description: String(width) })
+      expect(width, `the ${vendor} section is no wider than ${SECTION_MAX} px`).toBeLessThanOrEqual(SECTION_MAX)
+    }
 
     // Claude's section keeps its bars and their test ids.
     await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
@@ -161,15 +204,6 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     expect(search.x, 'the search field after the Harness column').toBeGreaterThanOrEqual(harness.x + harness.width)
     expect(search.x + search.width, `the search field ends inside the window (${width} px)`).toBeLessThanOrEqual(width)
 
-    // No text of a bar is cut in the narrower bars: the labels, the shares and the reset times are whole.
-    for (const id of ['limit-five_hour', 'limit-seven_day', 'limit-codex-primary', 'limit-codex-secondary']) {
-      const cut = await meter.getByTestId(id).evaluate((node) => {
-        type Element = { scrollWidth: number; clientWidth: number; querySelectorAll(selector: string): Iterable<Element> }
-        const element = node as unknown as Element
-        return [element, ...element.querySelectorAll('*')].some((each) => each.scrollWidth > each.clientWidth && each.clientWidth > 0)
-      })
-      expect(cut, `a text of ${id} is cut`).toBe(false)
-    }
 
     // The Project title and its branch line stay whole next to both sections: neither is cut with an
     // ellipsis (visible Vendor names once left the title ~6 px, `w…`), and the title ends before the View switch.
@@ -190,7 +224,16 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     }
     await expect(toolbar.locator('.w-toolbar__subtitle-text')).toHaveText(`${PROJECT} · main`)
 
-    await screenshots(window, 'limits-vendors')
+    await screenshots(window, `limits-vendors-${WIDTH}`)
+
+    // 1600 px: the same two stacks, inside the toolbar.
+    await sizeWindow(launched, 1600)
+    await expectStacked(codex, ['limit-codex-primary', 'limit-codex-secondary'])
+    await expectStacked(claude, ['limit-five_hour', 'limit-seven_day'])
+    const wide = await box(meter)
+    expect(wide.y >= bar.y && wide.y + wide.height <= bar.y + bar.height, 'the Limits inside the toolbar at 1600 px').toBe(true)
+    expect(wide.x + wide.width, 'the Limits end before the Harness column at 1600 px').toBeLessThanOrEqual((await box(toolbar.getByTestId('harness-column'))).x)
+    await screenshots(window, 'limits-vendors-1600')
   } finally {
     await launched.close()
   }
@@ -220,6 +263,36 @@ test('signed in to Codex with no windows and Claude without data: each section i
     await expect(claude.getByRole('img', { name: 'Claude Code', exact: true })).toBeVisible()
     await expect(meter).toHaveText('no data yetNo limits reported')
     await screenshots(window, 'limits-vendors-empty')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('Claude Code alone, at 1280 px and 1600 px: its two windows one above the other under the "Limits" heading', async () => {
+  // No CODEX_HOME: no Codex poll, so Claude's section is the only one.
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { app, window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)).toBe(true)
+    const toolbar = window.getByRole('banner')
+    const meter = window.getByTestId('limits-meter')
+    const claude = meter.getByRole('group', { name: 'Claude Code limits' })
+    for (const width of [WIDTH, 1600]) {
+      await sizeWindow(launched, width)
+      await expect(claude.getByTestId('limit-five_hour-value')).toHaveText('62%')
+      await expect(meter.getByRole('group', { name: 'Codex limits' })).toHaveCount(0)
+      await expect(meter).not.toHaveAttribute('data-compact', 'true')
+      await expect(meter.getByText('Limits', { exact: true })).toBeVisible()
+      await expectStacked(claude, ['limit-five_hour', 'limit-seven_day'])
+      await expect(claude.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
+      await expect(claude.getByTestId('limit-seven_day-note')).toHaveAttribute('title', /^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+      expect((await box(claude)).width, `the section is no wider than ${SECTION_MAX} px`).toBeLessThanOrEqual(SECTION_MAX)
+      const limits = await box(meter)
+      const bar = await box(toolbar)
+      expect(limits.y >= bar.y && limits.y + limits.height <= bar.y + bar.height, 'the Limits inside the toolbar').toBe(true)
+      await screenshots(window, `limits-claude-only-${width}`)
+    }
   } finally {
     await launched.close()
   }

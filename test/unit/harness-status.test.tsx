@@ -69,9 +69,9 @@ describe('HarnessStatusView', () => {
 
     it('Codex not installed, outdated or failed: a part after the version, and the one action installs it', () => {
       const cases: [NonNullable<Status['codex']>['state'], string, string][] = [
-        [{ kind: 'not-installed' }, '· Codex: not installed', 'Install in Codex'],
-        [{ kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb' }, '· Codex 0.1.0+aaaaaaa', 'Update Harness in Codex'],
-        [{ kind: 'error', step: 'plugin add', reason: 'codex plugin add worfy@worfy-harness exited with 3' }, '· Codex error: plugin add', 'Retry'],
+        [{ kind: 'not-installed' }, 'Codex: not installed', 'Install in Codex'],
+        [{ kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb' }, 'Codex 0.1.0+aaaaaaa', 'Update Harness in Codex'],
+        [{ kind: 'error', step: 'plugin add', reason: 'codex plugin add worfy@worfy-harness exited with 3' }, 'Codex error: plugin add', 'Retry'],
       ]
       for (const [state, text, label] of cases) {
         const onInstall = vi.fn()
@@ -85,6 +85,38 @@ describe('HarnessStatusView', () => {
       }
     })
 
+    // worfy-polish ticket 93: on the Harness line the Codex part cut that line off.
+    it('the Codex part is the third line of the column, under the app version, with its button; the Harness line keeps its own text', () => {
+      render(
+        <HarnessStatusView
+          status={withCodex(installed, { state: { kind: 'not-installed' }, agentsDir, hooksToApprove: false, skippedAgents: [] })}
+          busy={false}
+          failure={undefined}
+          onInstall={() => undefined}
+          version="0.3.0"
+          versionNumber={1826}
+        />,
+      )
+      const column = screen.getByTestId('harness-column')
+      expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line', 'harness-codex-line'])
+      expect(column.dataset.lines).toBe('3')
+      expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.2.0+bbbbbbb')
+      const line = screen.getByRole('group', { name: 'Harness in Codex' })
+      expect(line.textContent).toBe('Codex: not installed')
+      expect(line.contains(screen.getByRole('button', { name: 'Install in Codex' }))).toBe(true)
+      cleanup()
+      // Without a Codex part the column keeps its two lines.
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0" />)
+      expect([...screen.getByTestId('harness-column').children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line'])
+      expect(screen.getByTestId('harness-column').dataset.lines).toBeUndefined()
+    })
+
+    it('a three-line column keeps the 52 px toolbar: its Harness line and icon buttons are 16 px high (shell.css)', () => {
+      const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
+      expect(css).toMatch(/\.w-harness-column\[data-lines='3'\] \{\s*--w-harness-line: 16px;\s*\}/)
+      expect(css).toMatch(/\.w-harness-column\[data-lines='3'\] \.w-toolbar__icon-button--compact \{\s*width: 16px;\s*height: 16px;\s*\}/)
+    })
+
     it('an error in Codex carries its reason in the tooltip', () => {
       const reason = 'codex plugin add worfy@worfy-harness exited with 3:\nfailed'
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'error', step: 'plugin add', reason }, agentsDir, hooksToApprove: false, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} />)
@@ -96,7 +128,7 @@ describe('HarnessStatusView', () => {
       expect(screen.queryByTestId('harness-codex')).toBeNull()
       cleanup()
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: true, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} />)
-      expect(screen.getByTestId('harness-codex').textContent).toBe('· Codex: approve hooks')
+      expect(screen.getByTestId('harness-codex').textContent).toBe('Codex: approve hooks')
       expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('/hooks')
       expect(screen.queryByTestId('harness-action')).toBeNull()
     })
@@ -104,7 +136,7 @@ describe('HarnessStatusView', () => {
     it("agent files of the user's own that worfy did not write over: named after the version and in the tooltip, with no button", () => {
       const skippedAgents = ['worfy-implementer.toml']
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents })} busy={false} failure={undefined} onInstall={() => undefined} />)
-      expect(screen.getByTestId('harness-codex').textContent).toBe('· Codex: 1 agent not written')
+      expect(screen.getByTestId('harness-codex').textContent).toBe('Codex: 1 agent not written')
       expect(screen.getByTestId('harness-codex').getAttribute('data-state')).toBe('skipped-agents')
       const title = screen.getByTestId('harness-codex').getAttribute('title') ?? ''
       expect(title).toContain(`worfy leaves worfy-implementer.toml in ${agentsDir} as it is`)
@@ -113,7 +145,7 @@ describe('HarnessStatusView', () => {
       cleanup()
       // With the hooks to approve, or an update to offer, the skipped files are in the tooltip.
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: true, skippedAgents })} busy={false} failure={undefined} onInstall={() => undefined} />)
-      expect(screen.getByTestId('harness-codex').textContent).toBe('· Codex: approve hooks')
+      expect(screen.getByTestId('harness-codex').textContent).toBe('Codex: approve hooks')
       expect(screen.getByTestId('harness-codex').getAttribute('title')).toContain('worfy leaves worfy-implementer.toml')
       cleanup()
       render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'outdated', from: '0.1.0+aaaaaaa', to: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents: ['worfy-scout.toml', 'worfy-reviewer.toml'] })} busy={false} failure={undefined} onInstall={() => undefined} />)

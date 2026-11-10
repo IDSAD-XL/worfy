@@ -24,6 +24,8 @@ gone, the item gives way: its lines end with an ellipsis, and the Harness line k
 without a number shows the build version `v<semver>+<short SHA>` with no tooltip. In the Stable copy the version is the
 version chip of [Update](updates.md): while an Update waits, its tooltip names the Update, and the build version follows
 on a second line.
+A third line, under the version, holds the Harness in Codex when it has something to say, such as `Codex: approve hooks`
+(see [In Codex](#in-codex) below).
 
 | State | Text | Icon button | When |
 |---|---|---|---|
@@ -174,7 +176,9 @@ starts it. Every file worfy writes starts with a comment line that begins `# Wri
 names the Harness version. A `worfy-*.toml` file without it is the user's own: worfy neither rewrites nor removes it. When such a file has the name of an agent of this build,
 that agent is not written, and the toolbar says so. A marked file of an agent this build does not have is removed.
 
-**On the toolbar.** The Codex part follows the Claude Code text after `·`, only while the Claude Code part is installed.
+**On the toolbar.** The Codex part is the third line of the toolbar item, under the app version, with its button at its end,
+only while the Claude Code part is installed. With three lines the item keeps the toolbar's height: the Harness line and the
+icon buttons are 16 px high instead of 20, and the text stays 11 px.
 The state waits for `codex plugin list --json` 10 s at most, and then the Codex part alone is `Codex error: plugin list`.
 
 | Codex part | Button | When |

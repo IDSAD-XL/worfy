@@ -22,6 +22,10 @@ import UpdateChip from '../../update/UpdateChip'
 // worfy-multi-vendor ticket 39: an install or update in Codex that leaves the Harness hooks to approve
 // opens the step "Approve the Harness hooks in Codex" (src/renderer/harness/CodexHooksStep.tsx), and
 // "Codex: approve hooks" on the line opens it again.
+// worfy-polish ticket 93: the Codex part is the third line of the column, under the app version, with
+// its own button (Install in Codex, Update Harness in Codex, Retry): on the Harness line it cut that line
+// off. With three lines the Harness line and the icon buttons are 16 px high instead of 20, so the
+// column (16 + 13 + 16 px) still fits the 52 px toolbar at the same 11 px font (src/renderer/shell/shell.css).
 
 // The app version (`app.version`) is the second line of this item, small and muted under the
 // Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
@@ -42,7 +46,7 @@ export const order = 500
 // worfy-polish ticket 48: the column gives way once the toolbar's title is gone (src/renderer/shell/shell.css),
 // so each text ends with an ellipsis rather than run past the window; the Harness line keeps its whole
 // text as its tooltip.
-const textStyle = { fontSize: 'var(--text-11)', lineHeight: '20px', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' } as const
+const textStyle = { fontSize: 'var(--text-11)', lineHeight: 'var(--w-harness-line, 20px)', color: 'var(--text-muted)', whiteSpace: 'nowrap', minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' } as const
 
 const iconProps = { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const
 
@@ -125,18 +129,56 @@ export interface HarnessStatusViewProps {
 /** The item for a given status: the Harness line, and the app version under it; exported for tests. */
 export function HarnessStatusView({ version, versionNumber, memory, update = null, ...props }: HarnessStatusViewProps) {
   const harness = <HarnessLine {...props} />
+  const codex = <CodexLine {...props} />
+  const lines = codexPartOf(props) === null ? undefined : '3'
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: '0 1 auto', minWidth: 0 }} data-testid="harness-column">
+    <div className="w-harness-column" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: '0 1 auto', minWidth: 0 }} data-testid="harness-column" data-lines={lines}>
       {harness}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, maxWidth: '100%' }} data-testid="app-line">
         {version ? <UpdateChip version={version} number={versionNumber} update={update} /> : null}
         {memory}
       </div>
+      {codex}
     </div>
   )
 }
 
-function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHooks, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
+/**
+ * The Codex part for a status, or null: only next to a Harness Claude Code has (worfy-multi-vendor ticket 35),
+ * as the same Install installs both, Claude Code first, so until then the Harness line says what to do.
+ */
+function codexPartOf({ status, busy, failure }: Pick<HarnessStatusViewProps, 'status' | 'busy' | 'failure'>): CodexPart | null {
+  if (failure !== undefined || status === undefined || busy) return null
+  return status.state.kind === 'installed' && status.codex !== undefined ? codexPart(status.codex) : null
+}
+
+/** The Codex line is 16 px high, as the Harness line of a three-line column. */
+const codexLineText = { lineHeight: '16px' } as const
+
+/** The third line of the column: the Codex part with its button (worfy-polish ticket 93). */
+function CodexLine({ status, busy, failure, onInstall, onApproveHooks }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
+  const codex = codexPartOf({ status, busy, failure })
+  if (codex === null || status === undefined) return null
+  const button = codex.button !== undefined && status.canInstall ? (
+    <IconButton icon={codex.button.icon} label={codex.button.label} title={codex.button.title} onClick={onInstall} testId="harness-action" accent={codex.button.icon === 'update'} />
+  ) : null
+  return (
+    <span role="group" aria-label="Harness in Codex" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: '100%' }} data-testid="harness-codex-line">
+      {codex.state === 'hooks' && onApproveHooks !== undefined ? (
+        <button type="button" style={{ ...textStyle, ...codexLineText, fontFamily: 'inherit', color: codex.tone, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted' }} title={codex.title} onClick={onApproveHooks} data-testid="harness-codex" data-state={codex.state}>
+          {codex.text}
+        </button>
+      ) : (
+        <span style={{ ...textStyle, ...codexLineText, color: codex.tone }} title={codex.title} data-testid="harness-codex" data-state={codex.state}>
+          {codex.text}
+        </span>
+      )}
+      {button}
+    </span>
+  )
+}
+
+function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: Omit<HarnessStatusViewProps, 'version' | 'versionNumber' | 'update'>) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -194,25 +236,12 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate, onApproveHoo
       button = action('retry', 'Retry', 'Retry reads the state again and runs what is left of the install, a missing dependency of the plugin included; the dialog names every command before anything runs')
       break
   }
-  // The Harness in Codex (worfy-multi-vendor ticket 35) only next to a Harness Claude Code has: the
-  // same Install installs both, Claude Code first, so until then the line above says what to do.
-  const codex = state.kind === 'installed' && status.codex !== undefined ? codexPart(status.codex) : null
-  if (codex?.button !== undefined) button = action(codex.button.icon, codex.button.label, codex.button.title, codex.button.icon === 'update')
   const cleanup = cleanupPart(status.cleanup ?? [])
   return (
     <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: '100%' }} data-testid="harness-status" data-state={state.kind}>
       <span style={{ ...textStyle, color: tone }} title={title ?? text} data-testid="harness-text">
         {text}
       </span>
-      {codex === null ? null : codex.state === 'hooks' && onApproveHooks !== undefined ? (
-        <button type="button" style={{ ...textStyle, fontFamily: 'inherit', color: codex.tone, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted' }} title={codex.title} onClick={onApproveHooks} data-testid="harness-codex" data-state={codex.state}>
-          · {codex.text}
-        </button>
-      ) : (
-        <span style={{ ...textStyle, color: codex.tone }} title={codex.title} data-testid="harness-codex" data-state={codex.state}>
-          · {codex.text}
-        </span>
-      )}
       {cleanup === null ? null : (
         <span style={{ ...textStyle, color: cleanup.tone }} title={cleanup.title} data-testid="harness-cleanup" data-state={cleanup.state}>
           · {cleanup.text}
