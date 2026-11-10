@@ -485,6 +485,29 @@
   gap: 4px;
 }
 
+/* A round sent and waiting in the queue: one line above the tray, dim as its quotes are. */
+.w-qwait {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border: 1px dashed color-mix(in srgb, var(--quote-line) 35%, transparent);
+  border-radius: var(--radius-node);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.w-qwait svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.w-qwait b {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* The tray above the input field: the comments of the reply. */
 .w-qtray {
   margin-bottom: 8px;

@@ -355,6 +355,41 @@ describe('sending a round', () => {
     expect(readQuotes(storeKey).drafts).toEqual([])
   })
 
+  it('a waiting round shows «Waiting to send · N comments» above the input field, and the line goes once its prompt came', async () => {
+    const { rerender, text } = await sendRound()
+    const line = screen.getByTestId('quote-waiting')
+    expect(line.textContent).toBe('Waiting to send · 2 commentsBack to drafts')
+    expect(within(screen.getByTestId('above-field')).getByTestId('quote-waiting')).toBe(line)
+    rerender(<Harness prompts={[{ text, at: Date.now() }]} />)
+    expect(screen.queryByTestId('quote-waiting')).toBeNull()
+  })
+
+  it('«Back to drafts» puts the comments of a waiting round back in the tray as they were', async () => {
+    await sendRound()
+    const before = readQuotes(storeKey).pending[0]!.comments
+    fireEvent.click(screen.getByTestId('quote-waiting-back'))
+    expect(screen.queryByTestId('quote-waiting')).toBeNull()
+    expect(readQuotes(storeKey).pending).toEqual([])
+    expect(readQuotes(storeKey).sent).toEqual([])
+    expect([...readQuotes(storeKey).drafts].sort((a, b) => a.id.localeCompare(b.id))).toEqual([...before].sort((a, b) => a.id.localeCompare(b.id)))
+    expect(screen.getByTestId('quote-tray').textContent).toContain('2 comments on 2 messages')
+  })
+
+  it('a prompt that comes after «Back to drafts» marks nothing sent and duplicates nothing', async () => {
+    const { rerender, text } = await sendRound()
+    fireEvent.click(screen.getByTestId('quote-waiting-back'))
+    rerender(<Harness prompts={[{ text, at: Date.now() }]} />)
+    const state = readQuotes(storeKey)
+    expect(state.sent).toEqual([])
+    expect(state.rounds).toEqual([])
+    expect(state.pending).toEqual([])
+    expect(state.drafts.map((each) => each.text).sort()).toEqual(['Keep it.', 'Why slow?'])
+    expect(within(screen.getByTestId('quote-tray')).getAllByTestId('quote-chip')).toHaveLength(2)
+    // A removal heard later finds no waiting round either.
+    act(() => queuedMessageRemoved('live-1', text))
+    expect(readQuotes(storeKey).drafts).toHaveLength(2)
+  })
+
   it('after a restart keeps waiting while the transcript read from its tail shows no prompt of it', async () => {
     await sendRound()
     cleanup()

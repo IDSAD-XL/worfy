@@ -8,7 +8,7 @@ import { dismissToast, showToast } from '../toast/toasts'
 import { readCommentImage } from './comment-image'
 import type { OutgoingMessage } from './MessageInput'
 import { anchorRange, chipWords, composeRound, imageRefusal, inTextOrder, overlapping, squash, trimRange, type CommentImage, type QuoteComment } from './quote-comments'
-import { CommentPopover, ContextMenu, HoverCard, ImageIcon, QuoteIcon, SelectionButton, type Menu, type MenuItem, type Popover, type Selected, type Selection } from './QuoteCommentParts'
+import { ClockIcon, CommentPopover, ContextMenu, HoverCard, ImageIcon, QuoteIcon, SelectionButton, type Menu, type MenuItem, type Popover, type Selected, type Selection } from './QuoteCommentParts'
 import { onQueuedMessageRemoved } from './queue-removals'
 import { addDraft, editDraft, imageDataOf, keepImageData, markPending, onQuoteStoreError, readQuotes, removeDrafts, settlePending, useQuotes } from './quote-store'
 import { typedText } from '../../shared/agent/attachments'
@@ -697,7 +697,25 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
   // ── drawing ─────────────────────────────────────────────────────────────────────────────────
   const ordered = useMemo(() => inTextOrder(drafts), [drafts])
   const messages = new Set(ordered.map((each) => each.anchor)).size
-  const tray =
+  // A round sent and not gone to the agent yet: one line each, with «Back to drafts» for a message
+  // that will not go (its queue went with a closed Session, or another window removed it). A prompt
+  // that comes after that finds no waiting round: the comments stay drafts, counted once.
+  const waitingLines =
+    storeKey === null || quotes.pending.length === 0
+      ? null
+      : quotes.pending.map((round) => (
+          <div key={round.id} className="w-qwait" role="status" data-testid="quote-waiting">
+            <ClockIcon />
+            <span>
+              Waiting to send · <b>{plural(round.comments.length, 'comment')}</b>
+            </span>
+            <span className="w-qtray__spacer" />
+            <button type="button" className="w-qtray__link" data-testid="quote-waiting-back" onClick={() => settlePending(storeKey, round.id, 'back')}>
+              Back to drafts
+            </button>
+          </div>
+        ))
+  const draftsTray =
     ordered.length === 0 ? null : (
       <div className="w-qtray" data-testid="quote-tray">
         <div className="w-qtray__head">
@@ -732,6 +750,13 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
           ))}
         </ul>
       </div>
+    )
+  const tray =
+    waitingLines === null && draftsTray === null ? null : (
+      <>
+        {waitingLines}
+        {draftsTray}
+      </>
     )
 
   const cardComment = card === null ? null : (drafts.find((each) => each.id === card.id) ?? null)
