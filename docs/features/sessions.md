@@ -32,8 +32,8 @@ keeps it and refuses to start. The Orchestrator runs on the Project's default Ve
 each Vendor's sign-in, and a badge shows each Session's Vendor: all three are on [Vendors](vendors.md).
 
 **Product Session.** A Product Session is a Session of kind `product`: the Product owner's advisor, apart from the
-development Sessions. "New Product Session" starts one, as a row of the sidebar's Sessions section above the list and as
-a command of the Command palette. It offers no Vendor: a Product Session runs on Claude Code only, and `sessions.new`
+development Sessions. It starts from the "Product Session" button of the sidebar's Sessions section, next to "New session"
+under its header, and from the command "New Product Session" of the Command palette. It offers no Vendor: a Product Session runs on Claude Code only, and `sessions.new`
 refuses any other Vendor with `Product Session runs on Claude Code only`. The new Session opens in the Session view at
 once. Its Node stays a Session Node on the Canvas, with the label "Product Session" under its header, and its name says
 "Product Session" where a plain one says "Session" ("New Product Session" before its Session has an id).

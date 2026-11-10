@@ -20,7 +20,7 @@ The column on the left of the window, 264 pixels wide. From the top:
   sidebar (⌘B, Ctrl+B on Windows) and, on the right, the **Project switcher**.
 - **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
   foot Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
-  another section is open: the number of live Sessions, the number of pull requests that need you (review, answer or fix),
+  another section is open: the number of live Sessions in a neutral colour, the number of pull requests that need you (review, answer or fix),
   a dot while a Ticket in work is blocked or waits for someone, and the dot of the Linked machines.
 - **The panel**, next to the rail. It shows one section: its name, which Projects it shows, its own buttons, and its list,
   which scrolls by itself.
@@ -33,17 +33,20 @@ opens at once. The section that is open is remembered for the window.
 - **All Projects** mixes the Projects in the sections that can: Pipeline, Pull requests and Epics. Epics shows the open
   Project's Epics first, then those of every other Project that has Epics, each under its name. A click on an Epic of
   another Project opens that Project and centres the Epic on its Canvas.
-- **One Project** opens that Project, as its row in the Projects section does, and the sections show it alone. While the
-  switcher is on one Project it follows the open one: opening another Project shows that one.
+- **One Project** opens that Project, as its row in the Projects section does, and the sections show it alone once it is
+  open. When the Project cannot be opened, the switcher says why and keeps its answer. While the switcher is on one
+  Project it follows the open one: opening another Project shows that one.
 - Sessions and ADR show the open Project in either answer. Under "All Projects", with more than one Project, the section
   says so under its header.
 - Projects and Machines are not filtered: Projects is where Projects are opened, added and removed.
 
 The answer is remembered for the window, as the open section is. A new window and a restart start from the last choice
-made in any window. On one Project with no Project open, the sections show every Project.
+made in any window. On one Project with no Project open, the sections show every Project. With no Project open, Epics,
+Sessions and ADR keep their header and say "Open a Project to see its …".
 
 While the sidebar is hidden, the button that shows it again is at the left of the toolbar. In focus mode the bar of focus
-mode has that button, and the sidebar's strip has none.
+mode has that button, and the sidebar's strip has none. The keyboard focus follows the button: hidden from its strip, the
+focus is on the toolbar's button; shown from the toolbar, it is on the button in the strip.
 
 ### How it works
 
@@ -535,8 +538,8 @@ Terminal included.
 
 #### macOS
 
-No title bar. The traffic lights sit inside the toolbar, and the sidebar is translucent, so the system's vibrancy shows
-through it.
+No title bar. The traffic lights sit in the sidebar's top strip, at the toolbar's height, and over the toolbar while the
+sidebar is hidden. The sidebar is translucent, so the system's vibrancy shows through it.
 
 #### Windows
 

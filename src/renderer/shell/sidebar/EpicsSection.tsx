@@ -10,7 +10,7 @@ import { activeProject, openProject, useProjects } from '../../projects/useProje
 import { setAppSettings, useAppSettings } from '../../settings/useAppSettings'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { projectsInScope, useSidebarScope } from '../sidebar-scope'
-import { SidebarSection } from '../SidebarSection'
+import { NoProjectSection, SidebarSection } from '../SidebarSection'
 import { arrangeEpics, olderFoldKey, type EpicRow } from './epics-order'
 import '../../canvas/epic-frame.css'
 
@@ -255,7 +255,7 @@ export default function EpicsSection() {
     },
     [project?.id],
   )
-  if (!project) return null
+  if (!project) return <NoProjectSection id="EpicsSection" title="Epics" what="Epics" />
 
   // The open Project first, then the others in the order of the Projects section.
   const shown = projectsInScope(state?.projects ?? [], scope, project.id)

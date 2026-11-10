@@ -126,6 +126,29 @@ describe('AppShell', () => {
     expect(toolbar.dataset.sidebar).toBe('visible')
   })
 
+  it('keeps the keyboard focus on the button of the sidebar both ways: hidden, it is on «Show sidebar»; shown again, on «Hide sidebar» in the sidebar strip', () => {
+    render(<AppShell />)
+    const hide = screen.getByRole('button', { name: 'Hide sidebar' })
+    hide.focus()
+    fireEvent.click(hide)
+    const show = screen.getByRole('button', { name: 'Show sidebar' })
+    expect(document.activeElement).toBe(show)
+    fireEvent.click(show)
+    // The toolbar's button went away with the press (it is there only while the sidebar is hidden).
+    expect(screen.queryByRole('button', { name: 'Show sidebar' })).toBeNull()
+    const sidebar = screen.getByRole('navigation', { name: 'Sidebar' })
+    expect(document.activeElement).toBe(within(sidebar).getByRole('button', { name: 'Hide sidebar' }))
+  })
+
+  it('shown again with the focus elsewhere, the sidebar leaves the focus where it is', () => {
+    render(<AppShell canvas={<button type="button">on the canvas</button>} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    const elsewhere = screen.getByRole('button', { name: 'on the canvas' })
+    elsewhere.focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+    expect(document.activeElement).toBe(elsewhere)
+  })
+
   it.each([
     ['mac', 'Hide sidebar (⌘B)', 'Meta+B'],
     ['windows', 'Hide sidebar (Ctrl+B)', 'Control+B'],

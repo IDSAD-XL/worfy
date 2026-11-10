@@ -9,7 +9,7 @@ import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { showRevealed } from '../../toast/revealed'
 import { showSidebarSection } from '../sidebar-scope'
-import { SidebarSection } from '../SidebarSection'
+import { NoProjectSection, SidebarSection } from '../SidebarSection'
 
 /**
  * The ADRs of the open Project (docs/adr/NNNN-*.md), after its Epics (design F) — under «All» of the
@@ -186,7 +186,7 @@ export default function AdrSection() {
     // The panel of the ADR is over the window; the section comes into the sidebar's panel, its row marked.
     if (pending.projectId === projectId) showSidebarSection('AdrSection')
   }, [pending, projectId])
-  if (!project) return null
+  if (!project) return <NoProjectSection id="AdrSection" title="ADR" what="ADRs" />
 
   const adrs = state?.adrs ?? []
   // A panel of another Project, or of an ADR that is gone, is not shown.

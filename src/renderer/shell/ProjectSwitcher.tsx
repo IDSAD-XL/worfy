@@ -20,7 +20,7 @@ const folderIcon = (
 )
 
 const chevron = (
-  <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg className="w-project-switcher__chevron" width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 6l4 4 4-4" />
   </svg>
 )
@@ -66,17 +66,28 @@ export function ProjectSwitcher() {
     if (refocus) button.current?.focus()
   }
 
+  // The number of the last pick: an answer of openProject for an older one changes nothing.
+  const picks = useRef(0)
+
+  // One Project: the sidebar shows it alone once it is open — not before, so a refusal keeps the
+  // answer the switcher had, and the sidebar never shows the Project that was open as the one chosen.
   const pickProject = (project: ProjectView) => {
-    setSidebarScope('project')
+    const pick = ++picks.current
     close(true)
     setFailure(null)
-    if (project.id === active?.id) return
+    if (project.id === active?.id) {
+      setSidebarScope('project')
+      return
+    }
     void openProject(windowMachine(), project.id).then((refused) => {
-      if (refused !== undefined) setFailure(`${project.name} could not be opened: ${readableReason(refused)}`)
+      if (pick !== picks.current) return
+      if (refused === undefined) setSidebarScope('project')
+      else setFailure(`${project.name} could not be opened: ${readableReason(refused)}`)
     })
   }
 
   const pickAll = () => {
+    picks.current += 1
     setSidebarScope('all')
     setFailure(null)
     close(true)

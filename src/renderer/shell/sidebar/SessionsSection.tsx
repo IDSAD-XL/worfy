@@ -16,7 +16,7 @@ import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
 import { setRailBadge } from '../sidebar-scope'
-import { SidebarSection } from '../SidebarSection'
+import { NoProjectSection, SidebarSection } from '../SidebarSection'
 
 /**
  * The live Sessions of the open Project — under «All» of the Project switcher too, which its header
@@ -125,7 +125,7 @@ function Sessions({ project }: { project: ProjectView }) {
   const readOnly = useReadOnly()
   const liveCount = live?.length ?? 0
   useEffect(() => {
-    setRailBadge('SessionsSection', liveCount > 0 ? { tone: 'working', count: liveCount, label: `${liveCount} live` } : undefined)
+    setRailBadge('SessionsSection', liveCount > 0 ? { tone: 'muted', count: liveCount, label: `${liveCount} live` } : undefined)
     return () => setRailBadge('SessionsSection', undefined)
   }, [liveCount])
 
@@ -281,5 +281,5 @@ function Sessions({ project }: { project: ProjectView }) {
 
 export default function SessionsSection() {
   const project = activeProject(useProjects())
-  return project ? <Sessions key={project.id} project={project} /> : null
+  return project ? <Sessions key={project.id} project={project} /> : <NoProjectSection id="SessionsSection" title="Sessions" what="Sessions" />
 }

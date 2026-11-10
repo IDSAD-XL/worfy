@@ -74,8 +74,16 @@
 .w-sidebar__rail::-webkit-scrollbar {
   width: 0;
 }
-.w-sidebar__rail-gap {
-  flex: 1;
+/* The tabs of the sections (the tablist), above Settings: the sections of the foot sit at its end. */
+.w-sidebar__tabs {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.w-sidebar__rail-button[data-rail-foot] {
+  margin-top: auto;
 }
 .w-sidebar__rail-button {
   position: relative;
@@ -202,6 +210,10 @@
   flex: none;
   display: inline-flex;
   color: var(--text-muted);
+}
+/* A long name gives way, the chevron does not. */
+.w-project-switcher__chevron {
+  flex: none;
 }
 .w-project-switcher__name {
   min-width: 0;

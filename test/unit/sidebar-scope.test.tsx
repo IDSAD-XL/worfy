@@ -4,7 +4,7 @@
 // (test/e2e/sidebar-rail.spec.ts); here the sections are stand-ins.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 
 const ALPHA = { id: 'alpha-0000000a', name: 'alpha', path: '/projects/alpha', branch: 'main' }
@@ -150,8 +150,12 @@ describe('the rail and the panel', () => {
   it('has a tab per section, the foot ones last, named by railTitle or by the file name', async () => {
     await drawSidebar()
     expect(tabNames()).toEqual(['Projects', 'Epics', 'Plain', 'Machines'])
-    // Settings is a button of the rail, not a section.
-    expect(within(rail()).getByRole('button', { name: 'Settings' })).toBeTruthy()
+    // Settings is a button of the rail, not a section: it stands outside the tablist, which holds tabs alone.
+    expect(within(rail()).queryByRole('button', { name: 'Settings' })).toBeNull()
+    expect([...rail().children].map((child) => child.getAttribute('role'))).toEqual(['tab', 'tab', 'tab', 'tab'])
+    expect(within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', { name: 'Settings' })).toBeTruthy()
+    // The first section of the foot carries the mark that pushes the foot down.
+    expect(within(rail()).getAllByRole('tab').map((tab) => tab.hasAttribute('data-rail-foot'))).toEqual([false, false, false, true])
   })
 
   it('shows the first section alone; the other sections stay mounted, hidden', async () => {
@@ -297,5 +301,29 @@ describe('the Project switcher', () => {
       fireEvent.click(item('beta'))
     })
     expect((await screen.findByRole('alert')).textContent).toBe('beta could not be opened: the folder is gone')
+    // The refusal keeps the answer the switcher had: the sidebar does not narrow to the Project that stayed open.
+    expect(screen.getByRole('button', { name: 'Sidebar shows: All Projects' })).toBeTruthy()
+    expect(localStorage.getItem('worfy.sidebar.scope')).toBeNull()
+  })
+
+  it('a Project that opens after «All Projects» was picked in the meantime does not narrow the sidebar', async () => {
+    let answer: (value: IpcResult<unknown>) => void = () => undefined
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel) => (channel === 'projects.list' ? Promise.resolve({ ok: true, value: LIST }) : new Promise((resolve) => (answer = resolve))),
+      on: () => 1,
+      off: () => undefined,
+    }
+    await drawSwitcher()
+    fireEvent.click(screen.getByTestId('project-switcher'))
+    fireEvent.click(item('beta'))
+    // Before beta answers, the sidebar still shows every Project.
+    expect(screen.getByRole('button', { name: 'Sidebar shows: All Projects' })).toBeTruthy()
+    fireEvent.click(screen.getByTestId('project-switcher'))
+    fireEvent.click(item('All Projects'))
+    await act(async () => {
+      answer({ ok: true, value: { ...LIST, activeId: BETA.id, revision: 2 } })
+    })
+    expect(screen.getByRole('button', { name: 'Sidebar shows: All Projects' })).toBeTruthy()
+    expect(localStorage.getItem('worfy.sidebar.scope')).toBe('all')
   })
 })

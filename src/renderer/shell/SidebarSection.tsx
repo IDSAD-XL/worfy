@@ -90,3 +90,17 @@ export function SidebarSection({ id, title, scope, meta, trailing, actions, noti
     </section>
   )
 }
+
+/**
+ * A section of the open Project while no Project is open (worfy-polish ticket 94): its header and a
+ * line that says what brings its list, as every section of the prototype has, not a blank panel.
+ */
+export function NoProjectSection({ id, title, what }: { id: string; title: string; what: string }) {
+  return (
+    <SidebarSection id={id} title={title}>
+      <p className="w-sidebar-section__empty" data-testid="sidebar-no-project">
+        Open a Project to see its {what}.
+      </p>
+    </SidebarSection>
+  )
+}

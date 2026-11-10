@@ -51,13 +51,15 @@ function RailBadgeMark({ id }: { id: string }) {
 interface RailTabProps {
   section: ShellExtension
   selected: boolean
+  /** The first of the sections at the foot of the rail (`railEnd`). */
+  first: boolean
   tabId: string
   panelId: string
   onSelect: () => void
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void
 }
 
-function RailTab({ section, selected, tabId, panelId, onSelect, onKeyDown }: RailTabProps) {
+function RailTab({ section, selected, first, tabId, panelId, onSelect, onKeyDown }: RailTabProps) {
   const title = railTitle(section)
   const badge = useRailBadge(section.id)
   const Icon = section.rail?.Icon ?? PlainIcon
@@ -75,6 +77,8 @@ function RailTab({ section, selected, tabId, panelId, onSelect, onKeyDown }: Rai
       title={badge === undefined ? title : `${title} — ${badge.label}`}
       tabIndex={selected ? 0 : -1}
       data-section-tab={section.id}
+      // The first of the sections at the foot of the rail: the room above it pushes them down (shell.css).
+      data-rail-foot={first ? '' : undefined}
       onClick={onSelect}
       onKeyDown={onKeyDown}
     >
@@ -115,19 +119,19 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
     rail.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
   }
 
+  const top = ordered.filter((section) => !section.rail?.end)
   const tab = (section: ShellExtension, index: number) => (
     <RailTab
       key={section.id}
       section={section}
       selected={section.id === active}
+      first={index === top.length}
       tabId={tabId(section.id)}
       panelId={panelId(section.id)}
       onSelect={() => showSidebarSection(section.id)}
       onKeyDown={onKeyDown(index)}
     />
   )
-  const top = ordered.filter((section) => !section.rail?.end)
-
   return (
     <nav aria-label="Sidebar" className="w-sidebar">
       {/* Room for the native traffic lights; dragging here moves the window. Its controls do not drag. */}
@@ -137,9 +141,11 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
         <ProjectSwitcher />
       </div>
       <div className="w-sidebar__body">
-        <div ref={rail} role="tablist" aria-label="Sidebar sections" aria-orientation="vertical" className="w-sidebar__rail">
-          {ordered.map((section, index) => (index === top.length ? [<span key="gap" className="w-sidebar__rail-gap" />, tab(section, index)] : tab(section, index)))}
-          {ordered.length === top.length ? <span className="w-sidebar__rail-gap" /> : null}
+        <div className="w-sidebar__rail">
+          {/* Only the tabs are in the tablist: Settings opens a dialog, not a section. */}
+          <div ref={rail} role="tablist" aria-label="Sidebar sections" aria-orientation="vertical" className="w-sidebar__tabs">
+            {ordered.map(tab)}
+          </div>
           <button type="button" className="w-sidebar__rail-button" aria-label="Settings" title={`Settings (${label(SHORTCUTS.settings)})`} onClick={() => openSettings()}>
             {gearIcon}
           </button>

@@ -16,7 +16,8 @@ argues: every objection it raises rests on a fact. Which Epics exist and in what
 Product Session suggests and never queues an Epic. There are no product analytics, so it says so instead of guessing
 how a feature is used.
 
-**Opening one.** "New Product Session" is a row of the sidebar's Sessions section, above the list, and a command of the
+**Opening one.** "Product Session" is a button of the sidebar's Sessions section, next to "New session" in the row
+under its header (its name for a screen reader is "New Product Session"), and "New Product Session" is a command of the
 Command palette. Neither offers a Vendor: a Product Session runs on Claude Code only, and any other Vendor is refused with
 `Product Session runs on Claude Code only`. The new Session opens in the Session view at once. Its Node stays a Session
 Node on the Canvas, with the label "Product Session" under its header. On a read-only screen of a Linked machine the

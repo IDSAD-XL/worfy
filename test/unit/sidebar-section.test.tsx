@@ -3,7 +3,7 @@
 // section shows (`scope`), its count and its buttons, a notice and an overlay outside the body. The
 // panel shows one section at a time, so a section no longer collapses (Sidebar.tsx, sidebar-scope.ts).
 // jsdom lays nothing out: the heights are checked against the built app (test/e2e/sidebar-sections.spec.ts).
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -227,5 +227,61 @@ describe('Sessions: New Product Session', () => {
     expect(screen.getByTestId('sidebar-new-session').getAttribute('title')).toBe(HINT)
     fireEvent.click(entry)
     expect(asked.some((each) => each.channel === 'sessions.new')).toBe(false)
+  })
+})
+
+describe('Sessions, Epics and ADR with no Project open, and the badge of Sessions', () => {
+  const PROJECT_ID = 'demo-0000000a'
+  const LIST = { projects: [{ id: PROJECT_ID, name: 'demo', path: '/projects/demo', branch: 'main' }], activeId: PROJECT_ID, revision: 1 }
+  const NONE = { projects: [], activeId: null, revision: 1 }
+  const LIVE = [1, 2].map((pid) => ({ pid, sessionId: `live-${pid}`, cwd: '/projects/demo', status: 'idle' }))
+
+  function preload(list: unknown): void {
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      invoke: (channel) => {
+        const value: unknown =
+          channel === 'projects.list'
+            ? list
+            : channel === 'claudeHome.sessions'
+              ? { live: LIVE, history: [] }
+              : channel === 'claudeHome.live'
+                ? { live: LIVE }
+                : channel === 'sessions.views'
+                  ? { views: [] }
+                  : channel === 'layout.get'
+                    ? { layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 1 }
+                    : undefined
+        return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+  }
+
+  it.each([
+    ['SessionsSection', 'Sessions', 'Open a Project to see its Sessions.'],
+    ['EpicsSection', 'Epics', 'Open a Project to see its Epics.'],
+    ['AdrSection', 'ADR', 'Open a Project to see its ADRs.'],
+  ])('%s keeps its header and says what brings its list, not a blank panel', async (file, title, line) => {
+    preload(NONE)
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(NONE as ProjectsState)
+    const { default: Section } = (await import(`../../src/renderer/shell/sidebar/${file}.tsx`)) as { default: () => ReactNode }
+    render(<Section />)
+    const section = screen.getByRole('region', { name: title })
+    expect(within(section).getByRole('heading', { level: 2 }).textContent).toBe(title)
+    expect(within(section).getByTestId('sidebar-no-project').textContent).toBe(line)
+  })
+
+  it('counts the live Sessions on the rail in the neutral tone: live is not busy', async () => {
+    preload(LIST)
+    const projects = await import('../../src/renderer/projects/useProjects')
+    projects.acceptProjectsState(LIST)
+    const scope = await import('../../src/renderer/shell/sidebar-scope')
+    const { default: SessionsSection } = await import('../../src/renderer/shell/sidebar/SessionsSection')
+    render(<SessionsSection />)
+    await screen.findAllByTestId('sidebar-session')
+    const { result } = renderHook(() => scope.useRailBadge('SessionsSection'))
+    expect(result.current).toEqual({ tone: 'muted', count: 2, label: '2 live' })
   })
 })

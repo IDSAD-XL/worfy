@@ -34,23 +34,33 @@ export interface AppShellProps {
 }
 
 /**
- * Keeps the keyboard focus when the sidebar goes away with the focus inside it: the browser would
- * leave it on <body>, where Tab starts from the top of the page — it is there when the sidebar's own
- * button hid it. It goes to the button that brings the sidebar back — the one of the focus mode bar
- * while focus mode is on screen (the toolbar is inert or hidden then), else the one of the toolbar.
+ * Keeps the keyboard focus when the sidebar comes or goes with the focus on a button that goes away
+ * with it: the browser would leave it on <body>, where Tab starts from the top of the page.
+ * - The sidebar goes away with the focus inside it — the sidebar's own button hid it: the focus goes
+ *   to the button that brings the sidebar back — the one of the focus mode bar while focus mode is
+ *   on screen (the toolbar is inert or hidden then), else the one of the toolbar.
+ * - The sidebar comes back by the toolbar's «Show sidebar», which the toolbar has only while the
+ *   sidebar is hidden (worfy-polish ticket 94): the focus goes to «Hide sidebar» in the sidebar's
+ *   strip. The button of the focus mode bar stays where it is, and so does its focus.
  *
  * A class, for getSnapshotBeforeUpdate: the one place React lets a component read the DOM after
- * the render and before the sidebar is taken out of it.
+ * the render and before the sidebar, or the toolbar's button, is taken out of it.
  */
-class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<HTMLElement | null> }, object, boolean> {
-  override getSnapshotBeforeUpdate(previous: { visible: boolean }): boolean {
-    if (!previous.visible || this.props.visible) return false
-    const sidebar = this.props.shell.current?.querySelector('.w-sidebar')
-    return sidebar != null && sidebar.contains(document.activeElement)
+class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<HTMLElement | null> }, object, Element | null> {
+  override getSnapshotBeforeUpdate(previous: { visible: boolean }): Element | null {
+    if (previous.visible === this.props.visible) return null
+    const focused = document.activeElement
+    if (focused == null) return null
+    if (previous.visible) {
+      const sidebar = this.props.shell.current?.querySelector('.w-sidebar')
+      return sidebar != null && sidebar.contains(focused) ? focused : null
+    }
+    return focused.matches(SIDEBAR_TOGGLE_SELECTOR) ? focused : null
   }
 
-  override componentDidUpdate(_props: unknown, _state: unknown, focusWasInSidebar: boolean): void {
-    if (!focusWasInSidebar) return
+  override componentDidUpdate(_props: unknown, _state: unknown, focused: Element | null): void {
+    // Only a focus that went away with its button is moved: one that is still on screen stays.
+    if (focused == null || focused.isConnected) return
     const toggles = this.props.shell.current?.querySelectorAll<HTMLElement>(SIDEBAR_TOGGLE_SELECTOR) ?? []
     // A layout effect: focus mode has made the toolbar inert — or hidden, while a tile is
     // see-through — or taken that off, before this runs.

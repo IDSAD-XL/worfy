@@ -68,9 +68,11 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
 - `test/unit/sidebar-scope.test.tsx`, `test/unit/epics-section-scope.test.tsx` — новые; `test/unit/sidebar-section.test.tsx`,
   `test/unit/machines-section.test.tsx`, `test/unit/focus-mode.test.tsx` — под новый дизайн.
 - `test/e2e/sidebar-rail.spec.ts` — новый; `test/e2e/helpers.ts` и e2e spec-и, которые трогают sidebar.
+- `src/shared/settings/app-settings.ts` — комментарий `sidebar.collapsed`.
+- `.scratch/worfy-polish/issues/99-sidebar-all-для-sessions-adr-и-карточки-projects.md` — follow-up по IPC.
 - `docs/features/app-shell.md` (раздел Sidebar), `docs/features/workflow.md`, `docs/features/pr-inbox.md`,
   `docs/features/projects.md`, `docs/features/link.md`, `docs/features/sessions.md`, `docs/features/focus-mode.md`,
-  `docs/features/README.md`.
+  `docs/features/README.md`, `docs/features/product-session.md`.
 
 ## Итог
 
@@ -123,7 +125,7 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
 - Pill Machine-ы справа сверху прототипа заменён переключателем Project-а; Machines остаётся разделом rail-а.
 - Settings — кнопка внизу rail-а (как в прототипе), открывает тот же диалог.
 
-**Следующий шаг: IPC для «All» в Sessions и ADR.**
+**Следующий шаг: IPC для «All» в Sessions и ADR** — отдельный Ticket worfy-polish 99 (Sessions и ADR по всем Project-ам, карточки Projects с живым состоянием, badge busy).
 - Sessions: `claudeHome.live` / `claudeHome.sessions` берут один `projectRoot` и держат watcher до
   `claudeHome.close`; Session-ы worfy читаются из `layout.get` и `sessions.views` открытого Project-а. Нужен один
   сводный ответ main «live / busy Session-ы каждого Project-а» и путь renderer-а «открыть Project, потом Session».
@@ -135,3 +137,19 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
 sidebar-а теперь tab rail-а). e2e: `sidebar-sections.spec.ts` переписан под rail; `helpers.ts` получил
 `showSidebarSection`, `expandMachines` / `collapseMachines` идут через rail; остальные spec-и, которые трогают
 sidebar, сначала открывают нужный раздел, `focus-sidebar.spec.ts` — tabs вместо складки.
+
+**Раунд 2 (review #1786: REJECTED).**
+- «Show sidebar» в toolbar исчезает при нажатии: теперь focus переходит на «Hide sidebar» в верхней полосе sidebar-а, а
+  не на <body> (`SidebarFocusKeeper` в `src/renderer/shell/AppShell.tsx` ведёт оба направления). Focus, который был не на
+  кнопке sidebar-а, остаётся на месте.
+- Переключатель ставит «один Project» только после того, как Project открылся. При отказе остаётся прежний ответ.
+  Ответ `openProject` на старый выбор (пользователь успел выбрать «All Projects») ничего не меняет.
+- Без открытого Project-а Epics, Sessions и ADR показывают заголовок и строку «Open a Project to see its …»
+  (`NoProjectSection` в `src/renderer/shell/SidebarSection.tsx`).
+- Badge Sessions — число live в нейтральном тоне (`.cnt.muted` прототипа), а не в тоне working (busy).
+- В tablist остались только tabs: Settings и промежутки вынесены из него; секции низа rail-а прижимает `margin-top: auto`.
+- Chevron переключателя больше не сжимается при длинном имени Project-а.
+- Комментарий `sidebar.collapsed` в `src/shared/settings/app-settings.ts`, страницы `link.md`, `product-session.md`,
+  `sessions.md`, `app-shell.md` описывают новый sidebar.
+- Скриншоты: к Epics («All» и один Project) добавлены Sessions со строкой «… only», Projects с длинным именем в pill и
+  открытое меню переключателя; обе темы, pointer отведён.
