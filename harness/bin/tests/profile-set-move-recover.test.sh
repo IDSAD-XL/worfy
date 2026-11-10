@@ -317,6 +317,20 @@ out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" 2>"$T/
 check "the amend undone by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
 back_to_full "the amend undone by hand"
 
+# The copies cannot be unstaged there (another git holds the index): they are not deleted either, the marker stays,
+# and once that git is done the next move finishes the rollback.
+kill_at from-commit --folder "$T/g1"
+: >"$T/g1/.git/index.lock"
+run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" >"$T/out" 2>"$T/err"
+check "the index there held by another git: exit 1" [ $? -eq 1 ]
+check "the index there held: what is left is on stdout" [ "$(json_get leftover <"$T/out")" != undefined ]
+check "the index there held: the copies not deleted" present "$T/g1/HANDOFF.md" "$T/g1/.scratch/epic-a/issues/01-one.md"
+check "the index there held: the marker kept" present "$MARKER"
+rm -f "$T/g1/.git/index.lock"
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" 2>"$T/err")"
+check "the index free again: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "the index free again"
+
 # The side the files came to, before its commit: a person's edit of a copy.
 kill_at to-commit
 printf 'edited\n' >>"$WF/HANDOFF.md"
@@ -359,6 +373,9 @@ check "a broken marker: exit 1" [ $? -eq 1 ]
 check "a broken marker: the reason says it cannot be read" grep -q "cannot be read" "$T/err"
 check "a broken marker: and to delete it by hand" grep -q "then delete the marker" "$T/err"
 check "a broken marker: --read prints interrupted" [ "$(run "$SET" -C "$R" --field mode --field workflow.folder --read | json_get interrupted)" = true ]
+printf '{"to":"silent","rels":[]}\n' >"$MARKER"
+run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
+check "a marker of another shape: refused with what to do" grep -q "cannot be read (it is not the marker of a move).*then delete the marker" "$T/err"
 rm -f "$MARKER"
 check "no move left under way" absent "$MARKER"
 
