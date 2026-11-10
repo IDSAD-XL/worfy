@@ -1,7 +1,7 @@
 # 04 — Skill `/worfy:pr-reply`, формат черновика, `review-draft-lint --reply`, action template `prReply`
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T00:53Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 4; «Как работает» → «Черновики ответов (Ticket 04; Q8)»;
 «Риски» («Следы в Silent mode», «Публикация по ошибке»); «Ticket-ы», «Волны» (Wave 2); решения Q2, Q8;
@@ -49,13 +49,25 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 
 - [ ] Contract test: `review-draft-lint --reply` — чистый черновик exit 0; `<epic>/<NN>`, `ADR-<4 цифры>`, подпись
       ИИ, личные данные — exit 1 с `items[<i>]`.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-review-draft-lint.test.ts, describe --reply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts test/contract/harness-pr-reply-draft.test.ts` exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
 - [ ] Contract test: режим review `review-draft-lint` — те же выходы, что до правки.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-review-draft-lint.test.ts, review mode tests unchanged plus the empty-comment pin) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-review-draft-lint.test.ts` exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
 - [ ] Contract test: `actions.prReply` запускает Session с текстом шаблона; Autopilot и Linked machine с Read only
       получают отказ.
+  - evidence: test-run pass · `pnpm test` (test/contract/actions.test.ts, describe actions.prReply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/actions.test.ts` exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
 - [ ] Eval `pr-reply-*` (dry run, затем платный под пределом из правил): черновики в файле, журнал stub-а gh — только
       чтение.
 - [ ] Тексты `SKILL.md`: запрет публикации, путь черновика, шаг lint.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-evals.test.ts, describe harness/evals: pr-reply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts` (describe harness/evals: pr-reply) exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a495f71bab5655646a9796c391b009e52cfb9db9
 - [ ] `test/contract/harness-review-draft-lint.test.ts` на Windows — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.
@@ -73,9 +85,28 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 
 - `harness/skills/pr-reply/SKILL.md` (новый)
 - `harness/bin/review-draft-lint`
+- `harness/bin/pr-reply-draft` (новый, раунд 2 ревью)
 - `src/shared/projects/action-templates.ts`
 - `src/shared/ipc/actions.ts`
 - `src/main/actions/launch.ts`
 - `test/contract/harness-review-draft-lint.test.ts`
 - `test/contract/actions.test.ts`
+- `test/contract/harness-pr-reply-draft.test.ts` (новый, раунд 2 ревью)
 - `harness/evals/pr-reply-*` (новые)
+
+## Результат
+
+- Session «Draft replies» стартует в корне Project, а не в checkout-е репозитория. Skill находит checkout по
+  `git remote get-url origin`, который называет `<owner>/<repo>` на github.com, и запускает каждую команду git как
+  `git -C "<checkout>"`. Так Project из нескольких репозиториев (ADR-0018) работает без смены каталога; оркестратор
+  принял это решение в ревью раунда 1.
+- Черновик пишет только `harness/bin/pr-reply-draft`. Skill передаёт ему ответы на stdin, скрипт проверяет их
+  `review-draft-lint --reply -` и при находке ничего не пишет. Причина: Profile folder лежит в Harness home
+  (`~/.claude/worfy-harness/...`, в eval — `.git/worfy-harness`). Запись туда инструментом Write или через `mkdir` ждёт
+  permission prompt, а без человека её отклоняют: в платном eval раунда 1 оба запуска получили отказ.
+- Повторный запуск сохраняет ответы `sent` и `discarded`, а также черновик, который человек правил (`edited: true`),
+  пока его нить ждёт ответа. Черновики нитей, которые больше не ждут, становятся `discarded`.
+- Eval разделён на два case-а. `pr-reply-guards` содержит четыре grader-а: нет записи в GitHub (ни команды, ни
+  `WRITE`/`REFUSED` в журнале stub-а gh), `pr-reply-draft` запущен, черновик есть в Profile folder и содержит только
+  ждущие нити. Любой из них в одиночку опускает запуск ниже порога 0.8. `pr-reply-three-threads` оценивает
+  содержание черновика и проверяет, что репозиторий остался чистым.

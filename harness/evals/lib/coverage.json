@@ -18,7 +18,9 @@
     "critic-verdict": ["agents/critic.md"],
     "human-review-setup-short-history": ["skills/human-review-setup/SKILL.md"],
     "human-review-setup-refresh-declined": ["skills/human-review-setup/SKILL.md", "skills/human-review-setup/refresh.md"],
-    "human-review-setup-full": ["skills/human-review-setup/SKILL.md", "skills/human-review-setup/analyse.md", "skills/human-review-setup/write.md", "skills/human-review-setup/check.md", "skills/human-review-setup/template/SKILL.template.md", "skills/human-review-setup/template/voice-examples.md", "skills/human-review-setup/template/lint.json"]
+    "human-review-setup-full": ["skills/human-review-setup/SKILL.md", "skills/human-review-setup/analyse.md", "skills/human-review-setup/write.md", "skills/human-review-setup/check.md", "skills/human-review-setup/template/SKILL.template.md", "skills/human-review-setup/template/voice-examples.md", "skills/human-review-setup/template/lint.json"],
+    "pr-reply-three-threads": ["skills/pr-reply/SKILL.md"],
+    "pr-reply-guards": ["skills/pr-reply/SKILL.md"]
   },
   "uncovered": {
     "skills/qmd/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",

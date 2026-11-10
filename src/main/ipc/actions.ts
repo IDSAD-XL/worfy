@@ -1,9 +1,9 @@
-// Handlers of the `actions` domain (src/shared/ipc/actions.ts): "Ship ticket", "Run wave" and
-// "Process gate queue" (this Machine's role from the app's gate queue reader, ./gate-queue.ts), and
+// Handlers of the `actions` domain (src/shared/ipc/actions.ts): "Ship ticket", "Run wave",
+// "Process gate queue" (this Machine's role from the app's gate queue reader, ./gate-queue.ts), "Draft replies", and
 // the Tickets "Ship ticket" has a live Session for. The work itself is src/main/actions/launch.ts;
 // here it is wired to the app's Projects, Sessions, Orchestrators and Bindings, and its changes go
 // to every client.
-import { actionsGateQueue, actionsLaunches, actionsLaunchesChanged, actionsRunWave, actionsShipTicket, type LaunchesSnapshot } from '../../shared/ipc/actions'
+import { actionsGateQueue, actionsLaunches, actionsLaunchesChanged, actionsPrReply, actionsRunWave, actionsShipTicket, type LaunchesSnapshot } from '../../shared/ipc/actions'
 import { ActionLauncher } from '../actions/launch'
 import { sharedNodeSessions } from '../agent/app-node-sessions'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
@@ -19,13 +19,14 @@ import { sharedGateQueue } from './gate-queue'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 /** The handlers over a launcher; tests pass their own. */
-export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket' | 'runWave' | 'gateQueue' | 'launched'>): HandlerModule {
+export function actionsHandlers(launcher: () => Pick<ActionLauncher, 'shipTicket' | 'runWave' | 'gateQueue' | 'prReply' | 'launched'>): HandlerModule {
   return [
     defineHandler(actionsShipTicket, ({ projectId, epic, num, near }) =>
       near ? launcher().shipTicket(projectId, epic, num, near) : launcher().shipTicket(projectId, epic, num),
     ),
     defineHandler(actionsRunWave, ({ projectId, epic }) => launcher().runWave(projectId, epic)),
     defineHandler(actionsGateQueue, ({ projectId }) => launcher().gateQueue(projectId)),
+    defineHandler(actionsPrReply, ({ projectId, repo, pr }) => launcher().prReply(projectId, repo, pr)),
     defineHandler(actionsLaunches, ({ projectId }) => launcher().launched(projectId)),
   ]
 }

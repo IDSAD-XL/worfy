@@ -262,7 +262,7 @@ describe('events of a Linked machine', () => {
     expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: true, value: { echoed: 'x', by: 'b' } })
   })
 
-  it('takes the settings of a Linked machine on a build from before "Process gate queue": no gateQueue reads as an empty template (worfy-windows ticket 17)', async () => {
+  it('takes the settings of a Linked machine on a build from before "Process gate queue" and "Draft replies": no gateQueue and no prReply read as empty templates (worfy-windows ticket 17, worfy-pr-inbox ticket 04)', async () => {
     const warnings: string[] = []
     const { a, b, calls, bId, aId } = await linkedPair((message) => warnings.push(message))
     b.service.settings.set({ projectsAccess: true })
@@ -271,7 +271,7 @@ describe('events of a Linked machine', () => {
     const connection = a.service.connectionTo(bId)
     if (connection === undefined) throw new Error('not connected')
     const older = { actionTemplates: { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '' } }
-    const read = { actionTemplates: { ...older.actionTemplates, gateQueue: '' } }
+    const read = { actionTemplates: { ...older.actionTemplates, gateQueue: '', prReply: '' } }
     connection.call = () => Promise.resolve({ ok: true, value: older })
     expect(await calls.call(bId, projectsSettingsGet.name, { id: 'p1' })).toEqual({ ok: true, value: read })
     const heard: RemoteEvent[] = []

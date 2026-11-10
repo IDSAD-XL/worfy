@@ -259,6 +259,179 @@ describe('review-draft-lint', () => {
     expect(over.stdout).toContain('length 121 chars, over 120 of tier nit')
   })
 
+  // --reply (below) must leave the review mode as it was: the clean line, and a comment with an empty body, which a
+  // review lets through (only a reply's empty body is a finding).
+  it('the review mode still passes an empty comment and says how many texts it read', { timeout: ms(30_000) }, () => {
+    const run = lint([file(draft([['nit', '']], '')), '--rules', file(RULES, 'lint.json')], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    expect(run.stdout).toBe('review-draft-lint: clean (1 texts)\n')
+    const two = lint([file(CLEAN), '--rules', file(RULES, 'lint.json'), '-C', repo])
+    expect(two.stdout).toBe('review-draft-lint: clean (3 texts)\n')
+  })
+
+  // The draft of replies of /worfy:pr-reply (worfy-pr-inbox ticket 04): `<Profile folder>/state/pr-inbox/drafts/
+  // <owner>-<repo>-<N>.json`, one item per reply, the same rules as a review, one length limit for every reply.
+  describe('--reply', () => {
+    type Item = Record<string, unknown>
+    const thread = (body: string, more: Item = {}): Item => ({ kind: 'thread', threadId: 'PRRT_kwDOAbc1', replyTo: 4211, label: 'needs answer', body, fixPlan: null, state: 'draft', sentUrl: null, ...more })
+    const conversation = (body: string, more: Item = {}): Item => ({ kind: 'conversation', label: 'FYI', body, fixPlan: null, state: 'draft', sentUrl: null, ...more })
+    const replies = (items: Item[], more: Item = {}): object => ({ schema: 1, repo: 'example-org/app', pr: 118, headOid: '0123abc4def5', items, ...more })
+    const CLEAN_REPLIES = replies([
+      thread('The retry stops after three attempts: the loop in `fetchCart` counts them.', { label: 'needs code change', fixPlan: 'Cap the loop in src/cart.ts at three attempts.' }),
+      conversation('Thanks, the rename is in the latest push.'),
+    ])
+
+    it('passes a clean draft of replies with exit 0, without --rules', { timeout: ms(30_000) }, () => {
+      const run = lint(['--reply', file(CLEAN_REPLIES), '-C', repo])
+      expect(run.status, run.stdout + run.stderr).toBe(0)
+      expect(run.stdout).toBe('review-draft-lint: clean (2 replies)\n')
+    })
+
+    it('names items[<i>] for a trace, an ADR number, an AI signature and personal data, exit 1', { timeout: ms(30_000) }, () => {
+      const run = lint([
+        '--reply',
+        file(
+          replies([
+            thread('Fixed, see checkout-flow/05 for the reason.'),
+            conversation('Done the way ADR-0012 says.'),
+            thread('Moved the check up.\n\nCo-Authored-By: Claude <noreply@anthropic.com>'),
+            thread(`The fixture path ${HOME_PATH} should come from the test folder.`),
+            conversation('As an AI, I agree with the rename.'),
+            thread('Clean one, in the middle of the list.'),
+            thread('This blammo of a function wants splitting in two.'),
+          ]),
+        ),
+        '--rules',
+        file(RULES, 'lint.json'),
+        '-C',
+        repo,
+      ])
+      expect(run.status, run.stdout + run.stderr).toBe(1)
+      expect(run.stdout.trim().split('\n')).toEqual([
+        'items[0]: epic/NN "checkout-flow/05"',
+        'items[1]: ADR number "ADR-0012"',
+        'items[2]: Claude attribution "Co-Authored-By: Claude"',
+        'items[3]: personal data home-path "jd…(4)"',
+        'items[4]: AI authorship "As an AI"',
+        'items[6]: forbidden "blammo"',
+      ])
+      expect(run.stdout + run.stderr).not.toContain('jdoe')
+    })
+
+    it('finds the Workflow folder and the epics of a Silent project', { timeout: ms(30_000) }, () => {
+      const run = lint(['--reply', file(replies([thread(`The notes are in ${workflowFolder}/notes.md, see billing-sync/03.`)])), '-C', silentRepo])
+      expect(run.status, run.stdout + run.stderr).toBe(1)
+      const lines = run.stdout.trim().split('\n')
+      expect(lines.filter((l) => l.startsWith('items[0]: Workflow folder path "')), run.stdout).toHaveLength(1)
+      expect(lines.filter((l) => l === 'items[0]: epic/NN "billing-sync/03"'), run.stdout).toHaveLength(1)
+      expect(run.stdout + run.stderr).not.toContain(HOST)
+    })
+
+    it('checks only the replies still in draft: a sent one and a discarded one are history', { timeout: ms(30_000) }, () => {
+      const run = lint([
+        '--reply',
+        file(
+          replies([
+            thread('Fixed, see checkout-flow/05.', { state: 'sent', sentUrl: 'https://github.com/example-org/app/pull/118#discussion_r1' }),
+            conversation('Done as ADR-0012 says.', { state: 'discarded' }),
+            thread('Clean.'),
+          ]),
+        ),
+        '-C',
+        repo,
+      ])
+      expect(run.status, run.stdout + run.stderr).toBe(0)
+      expect(run.stdout).toBe('review-draft-lint: clean (1 replies)\n')
+      const draft = lint(['--reply', file(replies([thread('Fixed, see checkout-flow/05.')])), '-C', repo])
+      expect(draft.status, draft.stdout + draft.stderr).toBe(1)
+    })
+
+    it('holds every reply to one length: 1200 characters by default, the largest tier of --rules with it', { timeout: ms(30_000) }, () => {
+      const at = (chars: number): string => 'a'.repeat(chars - 1) + '\u{1F600}'
+      expect(lint(['--reply', file(replies([thread(at(1200))])), '-C', outside], outside).status).toBe(0)
+      const over = lint(['--reply', file(replies([conversation('x'), thread(at(1201))]))], outside)
+      expect(over.status, over.stdout + over.stderr).toBe(1)
+      expect(over.stdout).toBe('items[1]: length 1201 chars, over 1200 of a reply\n')
+      const rules = file({ schema: 1, tiers: { nit: { max_chars: 120 }, argued: { max_chars: 300 } }, forbidden: [] }, 'lint.json')
+      expect(lint(['--reply', file(replies([thread(at(300))])), '--rules', rules], outside).status).toBe(0)
+      const overRules = lint(['--reply', file(replies([thread(at(301))])), '--rules', rules], outside)
+      expect(overRules.status, overRules.stdout + overRules.stderr).toBe(1)
+      expect(overRules.stdout).toBe('items[0]: length 301 chars, over 300 of a reply\n')
+    })
+
+    it('finds a reply in draft with an empty body', { timeout: ms(30_000) }, () => {
+      const run = lint(['--reply', file(replies([thread('Fine.'), conversation(' \n ')]))], outside)
+      expect(run.status, run.stdout + run.stderr).toBe(1)
+      expect(run.stdout).toBe('items[1]: empty body\n')
+      expect(lint(['--reply', file(replies([conversation('', { state: 'discarded' })]))], outside).status).toBe(0)
+    })
+
+    it.each<[string, unknown]>([
+      ['not JSON', '{ "schema": 1,'],
+      ['a list', []],
+      ['schema 2', replies([], { schema: 2 })],
+      ['a repo without an owner', replies([], { repo: 'app' })],
+      ['a repo with a space', replies([], { repo: 'example-org/my app' })],
+      ['pr 0', replies([], { pr: 0 })],
+      ['pr as text', replies([], { pr: '118' })],
+      ['no headOid', { schema: 1, repo: 'example-org/app', pr: 118, items: [] }],
+      ['a headOid that is no sha', replies([], { headOid: 'main' })],
+      ['items not a list', replies([], { items: {} })],
+      ['an unknown field', replies([], { reviewers: [] })],
+      ['an item that is no object', replies(['Fine.' as unknown as Item])],
+      ['an unknown kind', replies([thread('Fine.', { kind: 'review' })])],
+      ['a thread without threadId', replies([thread('Fine.', { threadId: undefined })])],
+      ['a thread with an empty threadId', replies([thread('Fine.', { threadId: '' })])],
+      ['a thread without replyTo', replies([thread('Fine.', { replyTo: undefined })])],
+      ['a thread with replyTo as text', replies([thread('Fine.', { replyTo: '4211' })])],
+      ['a thread with replyTo 0', replies([thread('Fine.', { replyTo: 0 })])],
+      ['a conversation with a threadId', replies([conversation('Fine.', { threadId: 'PRRT_x' })])],
+      ['a conversation with replyTo', replies([conversation('Fine.', { replyTo: 4211 })])],
+      ['an unknown label', replies([thread('Fine.', { label: 'nit' })])],
+      ['a body that is no text', replies([thread('Fine.', { body: 7 })])],
+      ['a fixPlan that is no text', replies([thread('Fine.', { fixPlan: 7 })])],
+      ['an unknown state', replies([thread('Fine.', { state: 'pending' })])],
+      ['a sentUrl that is no text', replies([thread('Fine.', { sentUrl: 7 })])],
+      ['an unknown field of an item', replies([thread('Fine.', { tier: 'nit' })])],
+      ['a review draft', CLEAN],
+    ])('gives exit 2 for a draft with %s, and names what is wrong', { timeout: ms(30_000) }, (_what, content) => {
+      const run = lint(['--reply', file(content)], outside)
+      expect(run.status, run.stdout + run.stderr).toBe(2)
+      expect(run.stdout).toBe('')
+      expect(run.stderr).toMatch(/^review-draft-lint: (the draft of replies|cannot read)/)
+    })
+
+    it('reads the optional edited mark of a reply the person changed, and refuses one that is no true or false', { timeout: ms(30_000) }, () => {
+      expect(lint(['--reply', file(replies([thread('Fine.', { edited: true }), conversation('Fine.', { edited: false })]))], outside).status).toBe(0)
+      const bad = lint(['--reply', file(replies([thread('Fine.', { edited: 'yes' })]))], outside)
+      expect(bad.status, bad.stdout + bad.stderr).toBe(2)
+      expect(bad.stderr).toContain('items[0] "edited" must be true or false')
+    })
+
+    it('reads the draft of replies from stdin with --reply -', { timeout: ms(30_000) }, () => {
+      const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home, HARNESS_HOME: harnessHome, EVAL_HARNESS_HOME: '' }
+      for (const name of ['CLAUDE_GATE_CONFIG', 'CLAUDE_GATE_RESOLVE', 'CLAUDE_PROFILES_DIR', 'CLAUDE_PROFILE_BIN', 'CLAUDE_TICKET_BIN']) delete env[name]
+      const run = spawnSync(scriptNode(), [CLI, '--reply', '-'], { cwd: outside, encoding: 'utf8', env, input: JSON.stringify(replies([thread('Fine.'), conversation('')])) })
+      expect(run.status, run.stdout + run.stderr).toBe(1)
+      expect(run.stdout).toBe('items[1]: empty body\n')
+    })
+
+    it('reads a conversation reply with threadId and replyTo given as null, and the optional error of a failed send', { timeout: ms(30_000) }, () => {
+      const run = lint(['--reply', file(replies([conversation('Fine.', { threadId: null, replyTo: null, error: 'HTTP 502' }), thread('Fine.', { error: null })]))], outside)
+      expect(run.status, run.stdout + run.stderr).toBe(0)
+    })
+
+    it('gives exit 2 for --reply beside a positional draft or --skill, and for broken lint.json', { timeout: ms(30_000) }, () => {
+      const draft = file(CLEAN_REPLIES)
+      expect(lint(['--reply', draft, draft], outside).status).toBe(2)
+      expect(lint(['--reply', draft, '--skill', root], outside).status).toBe(2)
+      expect(lint(['--reply'], outside).status).toBe(2)
+      const unknown = lint(['--reply', draft, '--rules', file({ ...RULES, maxLength: 3 }, 'lint.json')], outside)
+      expect(unknown.status, unknown.stdout + unknown.stderr).toBe(2)
+      expect(unknown.stderr).toContain('maxLength')
+    })
+  })
+
   describe('--skill', () => {
     function skill(skillMd: string, research: string): string {
       const dir = join(root, `skill${++n}`)

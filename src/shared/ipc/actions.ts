@@ -1,5 +1,6 @@
-// The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas, and "Process gate
-// queue" from the palette and the Project menu (worfy-windows ticket 17). worfy starts the
+// The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas, "Process gate
+// queue" from the palette and the Project menu (worfy-windows ticket 17), and "Draft replies" on a pull
+// request (worfy-pr-inbox ticket 04). worfy starts the
 // work with the same skills the terminal does and never writes a Ticket's status itself (ADR 0002):
 // main reads the Project's action template, fills it in (src/shared/actions/render-template.ts)
 // and sends the text — to a new Session in the Project's root, or to the Project's Orchestrator.
@@ -76,6 +77,32 @@ export const actionsGateQueue = invokeChannel(
 )
 
 /**
+ * A repository on GitHub as `owner/name`: an owner of letters, digits and inner hyphens, a name of letters, digits,
+ * dots, hyphens and underscores. The value goes into the first message of a Session that runs in bypassPermissions,
+ * so nothing else passes: no space, no line break, no second slash.
+ */
+export const githubRepoSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/)
+
+/**
+ * "Draft replies" (worfy-pr-inbox ticket 04, ADR-0105): starts a new Session Node of the Project on Claude Code,
+ * with a person, whose first message is the Project's "Draft replies" template filled in with the pull request
+ * (`/worfy:pr-reply {repo}#{pr}` by default). The skill writes reply drafts into files on this machine and posts
+ * nothing. Autopilot never calls it. `write`: a Linked machine with read-only access is refused. Refused, with the
+ * reason, when the template is empty (the old Harness has no such skill) or does not render.
+ */
+export const actionsPrReply = invokeChannel(
+  'actions.prReply',
+  z.object({ projectId, repo: githubRepoSchema, pr: z.number().int().positive() }),
+  z.object({
+    nodeId: z.string().min(1),
+    sessionId: z.string().min(1),
+    text: z.string().min(1),
+  }),
+  'project',
+  'write',
+)
+
+/**
  * The Tickets of a Project that "Ship ticket" has a live Session for. Main keeps them from the
  * launch until that Session closes: the Ticket stays open until the launched agent runs
  * `ticket claim`, and a second launch meanwhile would put two agents on one Ticket. `revision`
@@ -98,6 +125,7 @@ declare module './channels' {
     'actions.shipTicket': typeof actionsShipTicket
     'actions.runWave': typeof actionsRunWave
     'actions.gateQueue': typeof actionsGateQueue
+    'actions.prReply': typeof actionsPrReply
     'actions.launches': typeof actionsLaunches
     'actions.launches.changed': typeof actionsLaunchesChanged
   }
