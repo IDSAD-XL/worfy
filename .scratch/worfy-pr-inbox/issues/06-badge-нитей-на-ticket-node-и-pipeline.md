@@ -37,17 +37,23 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
 - [ ] Unit test: Ticket с PR, у которого 3 нерешённые нити и `CHANGES_REQUESTED`, — «3 open threads» и «changes
       requested»; без нитей — badge нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] Unit test: Ticket из двух репозиториев — сумма нитей обоих PR; PR находится и по (repo, branch) до номера.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] Unit test: карточка Pipeline в `human-review` — «Waits: 2 answers»; в других стадиях строки нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] Test: Ticket без PR в снимке — Node и карточка как до правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] E2e test: щелчок по badge открывает вид Pull requests на этом PR; журнал stub-а gh без записей.
 - [ ] `docs/features/gate-and-github.md` описывает badge и строку.
   - evidence: commit pass · Review threads badge on the Ticket Node and Waits: N answers on the Pipeline card (worfy-pr-inbox 06) · - - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: commit pass · Review threads: one memoized PR-to-Ticket map, main's rule for whose answer a thread waits, trail of the ticket · - - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 
 ## Тесты
 
