@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { invoke } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
-import { queuedMessageRemoved } from '../queue-removals'
+import { removeQueuedMessage } from '../queue-removals'
 import { useSessionControls } from '../store'
 import type { ComposerItemProps } from './index'
 
@@ -22,13 +22,8 @@ export default function Queue({ sessionId }: ComposerItemProps) {
   const readOnly = useReadOnly()
   if (sessionId === null || queue === null || queue.items.length === 0) return null
 
-  const remove = (id: string, text: string) => {
-    void invoke('agent.queueRemove', { sessionId, id }).then((result) => {
-      if (!result.ok) console.error('agent.queueRemove failed:', result.error)
-      // Taken out before it was sent: the comments it carried go back to the tray (queue-removals.ts).
-      else if (result.value.removed) queuedMessageRemoved(sessionId, text)
-    })
-  }
+  // Taken out before it was sent: the comments it carried go back to the tray (queue-removals.ts).
+  const remove = (id: string, text: string) => removeQueuedMessage(sessionId, id, text)
   const sendQueued = () => {
     void invoke('agent.queueSend', { sessionId }).then((result) => {
       if (!result.ok) console.error('agent.queueSend failed:', result.error)
