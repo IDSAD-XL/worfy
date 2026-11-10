@@ -1,11 +1,11 @@
-import { pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type PullRequest, type WorktreeChecks } from '../../../shared/ipc/checks'
+import { checksSourcesOfTicket, pullOfTicket, worktreeOfCwd, worktreeOfTicket, type GateOutcome, type ProjectRepoView, type PullRequest, type WorktreeChecks } from '../../../shared/ipc/checks'
 import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../../shared/temp-folder'
 import type { Ticket } from '../../../shared/workflow/types'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { StatusChip, type Status } from '../../theme/primitives'
 import type { SlotProps } from './index'
-import { useChecks, useTicketChecks } from './use-checks'
+import { useChecks, useProjectRepos } from './use-checks'
 import '../epic-frame.css'
 import './checks-badges.css'
 
@@ -14,8 +14,10 @@ import './checks-badges.css'
 // the `review` mark on the PR's head commit (ADR-0067), as main reads it into the snapshot.
 //
 // The snapshot comes from use-checks.ts, one copy per Project for all badges — per repository in a
-// Project over several, where a Ticket's badges come from its own repository's copy. Colours are
-// the ready / working / blocked tokens, always with a label.
+// Project over several, where a Ticket's badges come from its own repository's copy. A Ticket over
+// several repositories (ADR-0104) has a row of badges per repository its `Repo:` lines name, each
+// from that repository's copy and led by its name; nothing is summed across them. Colours are the
+// ready / working / blocked tokens, always with a label.
 
 export const order = 10
 
@@ -80,8 +82,12 @@ function summary(worktree: WorktreeChecks | null, pull: PullRequest | null, unav
   return parts.join(' · ')
 }
 
-function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
-  const snapshot = useTicketChecks(root, ticket)
+/**
+ * The badges of a Ticket from one folder's checks: the Project root (`repo` undefined) or one of its repositories.
+ * `label`: a Ticket over several repositories leads the row with the repository's name.
+ */
+function TicketChecksIn({ root, ticket, repo, label }: { root: string; ticket: Ticket; repo: ProjectRepoView | undefined; label: boolean }) {
+  const snapshot = useChecks(root, repo)
   const { model } = useWorkflow(root)
   if (!snapshot) return null
   const worktree = worktreeOfTicket(snapshot, ticket, model?.tickets ?? [ticket])
@@ -89,12 +95,43 @@ function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
   const candidate = worktree !== null || ticket.state === 'work' || ticket.fromBranch !== null
   const unavailable = !snapshot.gh.available && candidate
   if (!worktree && !pull && !unavailable) return null
+  const name = label && repo !== undefined ? repo.name : null
+  const line = summary(worktree, pull, unavailable)
   return (
-    <span className="w-checks" data-testid="checks-badges" title={summary(worktree, pull, unavailable)}>
+    <span className="w-checks" data-testid="checks-badges" data-repo={name ?? undefined} title={name === null ? line : `${name}: ${line}`}>
+      {name !== null ? (
+        <span className="w-checks__repo w-mono" data-testid="checks-repo">
+          {name}
+        </span>
+      ) : null}
       {worktree ? <GateBadge outcome={worktree.gate.outcome} path={worktree.path} /> : null}
       {worktree?.insideTemp ? <TempBadge path={worktree.path} /> : null}
       {pull ? <PullBadges pull={pull} /> : null}
       {unavailable ? <Neutral label="gh unavailable" title={snapshot.gh.error ?? undefined} testId="checks-gh-unavailable" /> : null}
+    </span>
+  )
+}
+
+/**
+ * A Ticket's badges: from the Project root in a Project of one repository; in a Project over several, from each
+ * repository the Ticket names — one row, as before, for a Ticket of one of them, a row per repository led by its name
+ * for a Ticket over several (ADR-0104); none for a Ticket that names none, and none until main said which
+ * repositories the Project has.
+ */
+function TicketChecks({ root, ticket }: { root: string; ticket: Ticket }) {
+  const repos = useProjectRepos(root)
+  // The model names the Ticket branches each folder is asked with: read it while main says which repositories there are.
+  useWorkflow(root)
+  if (repos === undefined) return null
+  const sources = checksSourcesOfTicket(repos.repos, ticket)
+  if (sources === 'project') return <TicketChecksIn root={root} ticket={ticket} repo={undefined} label={false} />
+  if (sources.length === 1) return <TicketChecksIn root={root} ticket={ticket} repo={sources[0]} label={false} />
+  if (sources.length === 0) return null
+  return (
+    <span className="w-checks-repos" data-testid="checks-repos">
+      {sources.map((repo) => (
+        <TicketChecksIn key={repo.name} root={root} ticket={ticket} repo={repo} label />
+      ))}
     </span>
   )
 }

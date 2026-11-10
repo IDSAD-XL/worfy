@@ -166,6 +166,26 @@
   gap: 4px;
   min-width: 0;
 }
+/* A Ticket over several repositories (ADR-0104): a row per repository's PR, then «1/2 merged» and the release it waits for. */
+.w-pipeline-card__repos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.w-pipeline-card__pr {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.w-pipeline-card__pr[data-state='MERGED'] {
+  color: var(--text-muted);
+}
 .w-pipeline-card__waits {
   font-size: var(--text-11);
   line-height: 16px;
@@ -194,6 +214,21 @@
 .w-pipeline-flag--working {
   background: var(--working-bg);
   color: var(--working-text);
+}
+/* After `.w-pipeline-flag`, which they override. */
+/* The row's own `failing` flag stays whole beside a long repository name: the name wraps, the flag does not shrink. */
+.w-pipeline-flag--whole {
+  flex: none;
+  max-width: none;
+  overflow: visible;
+}
+/* «waits for release <ref>» and «release <ref> not checked»: a ref may be long, so the line wraps instead of ending in «…». */
+.w-pipeline-flag--wrap {
+  height: auto;
+  min-height: 16px;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
 }
 
 /* The sidebar section: a Project's name, then a two-line row per Ticket in work. */

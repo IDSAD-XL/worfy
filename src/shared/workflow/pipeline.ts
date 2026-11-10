@@ -210,6 +210,20 @@ export interface StageFacts {
 export const stageSubSchema = z.enum(['failing', 'gate running', 'waiting for gate', 'gate busy'])
 export type StageSub = z.infer<typeof stageSubSchema>
 
+/** The PR of a Ticket's branch in one of its repositories, as the board shows it in a row of the Ticket's card. */
+export const repoPullSchema = z.object({
+  /** The repository, as the Ticket's `Repo:` line names it. */
+  repo: z.string(),
+  /** Null while the branch has no PR in this repository. */
+  number: z.number().int().positive().nullable(),
+  state: z.enum(['OPEN', 'CLOSED', 'MERGED']).nullable(),
+  /** The id of the Stage this repository alone stands on (stageId); the Ticket stands on the earliest of them. */
+  stage: z.string(),
+  /** That Stage's caption in this repository: `failing` names the PR whose CI is red. */
+  sub: stageSubSchema.nullable(),
+})
+export type RepoPull = z.infer<typeof repoPullSchema>
+
 export const ticketStageSchema = z.object({
   /** The id of the Stage the Ticket stands on (stageId). */
   stage: z.string(),
@@ -244,6 +258,13 @@ export const ticketStageSchema = z.object({
    * when its Pipeline has `release` and it has such lines. Absent otherwise, and from a Linked machine's older worfy.
    */
   release: z.array(releaseFactSchema).optional(),
+  /**
+   * A Ticket over several repositories (ADR-0104, items 3, 8): the PR of its branch in each repository, in the order of
+   * its `Repo:` lines, for the rows of its card on the Pipeline board — the number and state (null while the
+   * repository has no PR), the Stage that repository alone stands on and its caption. Absent for a Ticket of one
+   * repository, and from a Linked machine's older worfy.
+   */
+  prs: z.array(repoPullSchema).optional(),
 })
 export type TicketStage = z.infer<typeof ticketStageSchema>
 
@@ -296,6 +317,7 @@ export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): 
     sub: stageSubSchema.options.find((sub) => behind.some((stage) => stage.sub === sub)) ?? null,
     enteredAt: entered === null ? null : new Date(entered).toISOString(),
     merged: { count: repos.filter((repo) => repo.pr?.state === 'MERGED').length, of: repos.length },
+    prs: repos.map((repo, at) => ({ repo: repo.repo, number: repo.pr?.number ?? null, state: repo.pr?.state ?? null, stage: each[at]!.stage, sub: each[at]!.sub })),
     ...own,
   }
 }

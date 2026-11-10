@@ -36,3 +36,25 @@
   color: var(--accent);
   white-space: nowrap;
 }
+/* A Ticket over several repositories (ADR-0104): a row of badges per repository, each led by its name, the rows
+   one under another on whole lines — ticket-card.ts gives the card the room of each row (checkRowsHeight). */
+.w-checks-repos {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+/* The repository's name: a whole line of its own above the row's chips, on more lines when it is long —
+   ticket-card.ts (checkRowsHeight) counts those lines, and the chips keep their two. */
+.w-checks > .w-checks__repo {
+  display: block;
+  flex: 1 1 100%;
+  padding: 0 2px;
+  font-size: var(--text-11);
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

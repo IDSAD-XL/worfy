@@ -286,8 +286,14 @@ export interface CardInput {
   state: TicketState
   /** The `Waits:` line. */
   waits?: string | null | undefined
-  /** The `Repo:` line. */
+  /** The repository chip's text: the `Repo:` line, or every one of a Ticket over several repositories. */
   repo?: string | null | undefined
+  /**
+   * The repositories whose rows of checks badges the card draws for a Ticket over several (ChecksBadges.tsx,
+   * ADR-0104), in their order: each row is the repository's name on its own lines, then the chips on two. Fewer
+   * than two: the one row of chips, as for every Ticket.
+   */
+  checkRepos?: readonly string[] | undefined
   ready: boolean
   /** The blocked reason, drawn in place of the blockers line; null when the line is drawn. */
   reason: string | null
@@ -299,6 +305,27 @@ export interface CardInput {
   evidence?: boolean | undefined
 }
 
+/** The chips of one row of checks badges: two lines (16 px each, 2 px apart), as SLOTS_HEIGHT allows for. */
+const CHIP_LINES = 2 * 16 + 2
+/** `.w-checks__repo`: the repository's name, 11 px monospace on 16 px lines, 2 px padding each side, a whole line of its own. */
+const REPO_NAME_FONT: Font = { size: 11, weight: 500, mono: true }
+const REPO_NAME_LINE = 16
+/** The gap between a row's name and its chips, and between two rows (`.w-checks`, `.w-checks-repos`). */
+const ROW_GAP = 2
+
+/**
+ * The height of the checks rows of a Ticket over several repositories: per repository its name on as many lines as
+ * it takes, then two lines of chips; 2 px between rows. One row or none: the one row of chips (CHIP_LINES).
+ */
+export function checkRowsHeight(repos: readonly string[]): number {
+  if (repos.length < 2) return CHIP_LINES
+  const rows = repos.map((name) => REPO_NAME_LINE * Math.max(1, lines(name, REPO_NAME_FONT, CONTENT_WIDTH - 4)) + ROW_GAP + CHIP_LINES)
+  return rows.reduce((sum, row) => sum + row, 0) + ROW_GAP * (rows.length - 1)
+}
+
+/** The room the checks rows take past the one row of chips SLOTS_HEIGHT gives every card. */
+const extraCheckRows = (card: CardInput): number => checkRowsHeight(card.checkRepos ?? []) - CHIP_LINES
+
 /** The card's height for `card`: border, padding, the top row, the title, the reason or blockers line, the slots (with the Evidence line). */
 export function cardHeight(card: CardInput): number {
   const title = TITLE_LINE * lines(card.title, { size: 13, weight: 600 }, CONTENT_WIDTH)
@@ -306,7 +333,7 @@ export function cardHeight(card: CardInput): number {
     card.reason !== null
       ? 2 * REASON_PAD_Y + REASON_LINE * Math.max(1, lines(card.reason, { size: 12 }, CONTENT_WIDTH - 2 * REASON_PAD_X))
       : META_LINE * Math.max(1, textLines(metaRuns(card.meta), CONTENT_WIDTH))
-  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + (card.evidence ? EVIDENCE_LINE : 0)
+  return 2 * BORDER + 2 * PADDING_Y + topHeight(card) + CARD_GAP + title + CARD_GAP + line + CARD_GAP + SLOTS_HEIGHT + extraCheckRows(card) + (card.evidence ? EVIDENCE_LINE : 0)
 }
 
 // ── the blockers line ────────────────────────────────────────────────────────

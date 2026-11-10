@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
+import { reposOfTicket } from '../../../shared/ipc/checks'
 import type { Ticket } from '../../../shared/workflow/types'
 import { requestFocus } from '../../focus/focus-state'
 import { useInFocusTile } from '../../focus/focus-tile'
@@ -11,7 +12,7 @@ import { StatusChip } from '../../theme/primitives'
 import { showRevealed } from '../../toast/revealed'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
-import { ticketTitle } from '../epic-layout'
+import { repoChipText, ticketTitle } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
 import { blockersLine, blockersString, pad, type TICKET_MIN_HEIGHT, type TICKET_WIDTH } from '../ticket-card'
 import { TicketEvidence } from './EvidenceMatrix'
@@ -31,7 +32,7 @@ import '../epic-frame.css'
 // machine that button shows the toast "File is on <Machine>" instead (worfy-link ticket 12,
 // worfy-ui ticket 16). The card on the Canvas reads no file. The Node comes from sources/epics.ts. In a
 // Project over several repositories (ADR-0045) a chip next to the number names the Ticket's
-// repository (its `Repo:` line), or says it has none.
+// repository (its `Repo:` line) — every one of a Ticket over several (ADR-0104) — or says it has none.
 //
 // Nothing on the card is cut (worfy-canvas ticket 18): the title, the reason and the blockers line
 // wrap, the top row and the checks chips take more lines. The Node is as tall as ticket-card.ts
@@ -62,17 +63,21 @@ function StateChip({ ticket }: { ticket: Ticket }) {
   }
 }
 
-/** The Ticket's repository, shown only in a Project with more than one: its whole name (`.w-ticket__repo`). */
-function RepoChip({ root, repo }: { root: string; repo: string | null | undefined }) {
+/**
+ * The Ticket's repository, shown only in a Project with more than one: its whole name (`.w-ticket__repo`); every
+ * repository of a Ticket over several, in the order of its `Repo:` lines (ADR-0104).
+ */
+function RepoChip({ root, ticket }: { root: string; ticket: Pick<Ticket, 'repo' | 'repos'> }) {
   const repos = useProjectRepos(root)
   if (!repos || repos.repos.length < 2) return null
-  const name = repo?.trim() || null
+  const name = repoChipText(ticket) || null
+  const several = reposOfTicket(ticket).length > 1
   return (
     <span
       className="w-chip w-chip--open w-mono w-ticket__repo"
       data-testid="ticket-repo"
       data-repo={name ?? undefined}
-      title={name ? `repository ${name}` : 'no repository: the Ticket has no Repo: line'}
+      title={name ? `${several ? 'repositories' : 'repository'} ${name}` : 'no repository: the Ticket has no Repo: line'}
     >
       {name ?? 'no repo'}
     </span>
@@ -149,7 +154,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
       <Handle type="target" position={Position.Left} isConnectable={false} className="w-ticket__handle" />
       <div className="w-ticket__top" {...keepOut}>
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
-        <RepoChip root={root} repo={ticket.repo} />
+        <RepoChip root={root} ticket={ticket} />
         {stage !== null && snapshot !== undefined ? <Stepper pipeline={snapshot.pipeline} stage={stage} narrow={narrow} /> : <StateChip ticket={ticket} />}
         {placed.ready ? (
           // In the ready Wave: marked here, not by the Ticket's place in its column (ADR-0037).

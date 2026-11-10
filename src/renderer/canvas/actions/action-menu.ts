@@ -2,7 +2,8 @@
 // lives there). Written without JSX on purpose, as action-button.ts: the action slot
 // (badges/index.ts) collects every .tsx file of this folder as an action, and this is not one.
 //
-// The button is the common action button (`.w-action`) made a 20×20 square (`.w-action--icon`).
+// The button is the common action button (`.w-action`) made a 20×20 square (`.w-action--icon`), or
+// with `text` a text button ("Open PR" of a Ticket over several repositories, OpenPr.tsx).
 // The menu behaves as the Canvas menu (overlays/CanvasMenu.tsx): it is drawn into document.body with
 // `position: fixed`, under the button and aligned to its right edge — inside the Node, the
 // Canvas's zoom would scale it and the Epic frame would cut it off. The focus goes to its first
@@ -30,6 +31,8 @@ export interface ActionMenuItem {
 export interface ActionMenuProps {
   /** The button's accessible name. */
   label: string
+  /** Text on the button in place of «⋯»: the button is then a text action button, as «Open PR» is. */
+  text?: string
   title: string
   testId: string
   /** The menu's accessible name. */
@@ -46,7 +49,7 @@ interface Opened {
 /** The gap between the button and the menu under it. */
 const MENU_GAP = 4
 
-export function ActionMenu({ label, title, testId, menuLabel, items }: ActionMenuProps): ReactElement {
+export function ActionMenu({ label, text, title, testId, menuLabel, items }: ActionMenuProps): ReactElement {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [error, setError] = useState<string | null>(null)
   // The elements as callback refs keep in state: a ref object handed to createElement reads as a
@@ -121,7 +124,7 @@ export function ActionMenu({ label, title, testId, menuLabel, items }: ActionMen
     {
       ref: setButton,
       type: 'button',
-      className: 'w-action w-action--icon nodrag',
+      className: text === undefined ? 'w-action w-action--icon nodrag' : 'w-action nodrag',
       'aria-label': label,
       'aria-haspopup': 'menu',
       'aria-expanded': opened !== null,
@@ -131,7 +134,7 @@ export function ActionMenu({ label, title, testId, menuLabel, items }: ActionMen
       onClick: toggle,
       onDoubleClick: (event: { stopPropagation(): void }) => event.stopPropagation(),
     },
-    '⋯',
+    text ?? '⋯',
   )
   if (opened === null) return createElement(Fragment, null, trigger, null)
   const style: CSSProperties = { top: opened.top, right: opened.right }

@@ -9,7 +9,7 @@ import type { LimitsState, LimitWindow } from '../../src/shared/agent/limits'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
-import type { ChecksSnapshot } from '../../src/shared/ipc/checks'
+import type { ChecksSnapshot, ProjectRepos } from '../../src/shared/ipc/checks'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
 import { defaultAppSettings, type AppSettings } from '../../src/shared/settings/app-settings'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -36,6 +36,10 @@ const EPIC: Epic = { epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }
 let tickets: Ticket[]
 let templates: ActionTemplates
 let snapshot: ChecksSnapshot
+/** What checks.get answers for a repository folder, by its path; any other folder gets `snapshot`. */
+let snapshotsByRoot: Record<string, ChecksSnapshot>
+/** What checks.repos answers; null: no answer of that shape, one repository is assumed. */
+let reposAnswer: ProjectRepos | null
 let calls: { channel: string; input: unknown }[]
 let listeners: Map<string, (payload: unknown) => void>
 let launches: LaunchesSnapshot
@@ -72,6 +76,8 @@ beforeEach(() => {
   tickets = [ticket(7, 'done'), ticket(8, 'open', [7]), ticket(9, 'open'), ticket(10, 'open', [9]), ticket(11, 'work')]
   templates = { ...DEFAULT_ACTION_TEMPLATES }
   snapshot = { root: ROOT, worktrees: [], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } }
+  snapshotsByRoot = {}
+  reposAnswer = null
   launches = { projectId: PROJECT, revision: 0, tickets: [] }
   shipAnswer = { ok: true, value: { nodeId: 'n1', sessionId: 'pending-1', text: '/ship-ticket demo 08' } }
   const bridge = {
@@ -86,7 +92,9 @@ beforeEach(() => {
         case 'projects.settings.get':
           return Promise.resolve({ ok: true, value: { actionTemplates: templates } })
         case 'checks.get':
-          return Promise.resolve({ ok: true, value: snapshot })
+          return Promise.resolve({ ok: true, value: snapshotsByRoot[(input as { root: string }).root] ?? snapshot })
+        case 'checks.repos':
+          return Promise.resolve({ ok: true, value: reposAnswer ?? { closed: true } })
         case 'actions.shipTicket':
           return Promise.resolve(shipAnswer)
         case 'actions.launches':
@@ -1057,6 +1065,71 @@ describe('Open PR', () => {
     const { container } = render(<OpenPr subject={ticketSubject(9)} />)
     await vi.waitFor(() => expect(calls.some((call) => call.channel === 'checks.get')).toBe(true))
     expect(container.querySelectorAll('button')).toHaveLength(0)
+  })
+})
+
+describe('Open PR on a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
+  const API = `${ROOT}/api`
+  const WEB = `${ROOT}/web`
+  const pullOn = (number: number, url = `https://github.com/o/r/pull/${number}`): ChecksSnapshot['pulls'][number] => ({ number, url, state: 'OPEN', branch: 'fix/both', ci: null, verdict: null })
+  const snap = (root: string, pulls: ChecksSnapshot['pulls']): ChecksSnapshot => ({ root, worktrees: [], pulls, gh: { available: true, error: null, intervalMs: 60_000 } })
+
+  beforeEach(() => {
+    reposAnswer = {
+      mode: 'silent',
+      repos: [
+        { name: 'api', path: API },
+        { name: 'web', path: WEB },
+      ],
+    }
+    tickets = [...tickets, { ...ticket(12, 'work'), branch: 'fix/both', repo: 'web', repos: ['api', 'web'] }, { ...ticket(13, 'work'), branch: 'fix/both', repo: 'api' }]
+  })
+
+  it('offers the PR of each repository, in the order of its Repo: lines, and opens the one chosen', async () => {
+    snapshotsByRoot = { [API]: snap(API, [pullOn(41)]), [WEB]: snap(WEB, [pullOn(118)]) }
+    const { default: OpenPr } = await import('../../src/renderer/canvas/actions/OpenPr')
+    render(<OpenPr subject={ticketSubject(12)} />)
+    await vi.waitFor(() => expect(screen.getByTestId('action-open-pr').textContent).toBe('Open PR'))
+    const button = screen.getByTestId('action-open-pr')
+    expect(button.getAttribute('aria-haspopup')).toBe('menu')
+    fireEvent.click(button)
+    const items = screen.getAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['api PR #41', 'web PR #118'])
+    fireEvent.click(items[1]!)
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'shell.openExternal')).toEqual([{ channel: 'shell.openExternal', input: { url: 'https://github.com/o/r/pull/118' } }]))
+  })
+
+  it('an item whose address is not GitHub\'s is inactive and says why', async () => {
+    snapshotsByRoot = { [API]: snap(API, [pullOn(41, 'https://evil.example/o/r/pull/41')]), [WEB]: snap(WEB, [pullOn(118)]) }
+    const { default: OpenPr } = await import('../../src/renderer/canvas/actions/OpenPr')
+    render(<OpenPr subject={ticketSubject(12)} />)
+    await vi.waitFor(() => expect(screen.getByTestId('action-open-pr').getAttribute('aria-haspopup')).toBe('menu'))
+    fireEvent.click(screen.getByTestId('action-open-pr'))
+    const [api, web] = screen.getAllByRole('menuitem')
+    expect(api!.getAttribute('aria-disabled')).toBe('true')
+    expect(api!.getAttribute('title')).toBe('Not a GitHub address: https://evil.example/o/r/pull/41')
+    expect(web!.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(api!)
+    expect(calls.some((call) => call.channel === 'shell.openExternal')).toBe(false)
+  })
+
+  it('with a PR in only one of its repositories, the one button opens it', async () => {
+    snapshotsByRoot = { [API]: snap(API, []), [WEB]: snap(WEB, [pullOn(118)]) }
+    const { default: OpenPr } = await import('../../src/renderer/canvas/actions/OpenPr')
+    render(<OpenPr subject={ticketSubject(12)} />)
+    const button = await screen.findByRole('button', { name: 'Open PR' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('https://github.com/o/r/pull/118'))
+    expect(button.getAttribute('aria-haspopup')).toBeNull()
+  })
+
+  it('a Ticket of one repository keeps its one button, with the PR of its own repository', async () => {
+    snapshotsByRoot = { [API]: snap(API, [pullOn(41)]), [WEB]: snap(WEB, [pullOn(118)]) }
+    const { default: OpenPr } = await import('../../src/renderer/canvas/actions/OpenPr')
+    render(<OpenPr subject={ticketSubject(13)} />)
+    const button = await screen.findByRole('button', { name: 'Open PR' })
+    await vi.waitFor(() => expect(button.getAttribute('title')).toBe('https://github.com/o/r/pull/41'))
+    expect(button.getAttribute('aria-haspopup')).toBeNull()
+    expect(new Set(calls.filter((call) => call.channel === 'checks.get').map((call) => (call.input as { root: string }).root))).toEqual(new Set([API]))
   })
 })
 

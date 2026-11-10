@@ -1033,7 +1033,7 @@ const silentTicket = (num: number, branch: string | null, repo: string | null): 
  * A Silent-mode Project over the repositories `api` and `web`. With `apiIsProject`, `api` is also
  * added to worfy as a Project of its own, whose model names its own Ticket branch `own/b`.
  */
-async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean } = {}) {
+async function severalRepos({ apiIsProject = false, both = false }: { apiIsProject?: boolean; both?: boolean } = {}) {
   const workspace = await tempDir()
   const api = join(workspace, 'api')
   const web = join(workspace, 'web')
@@ -1041,6 +1041,8 @@ async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean }
   await mkdir(api)
   await mkdir(web)
   const tickets = [silentTicket(5, 'fix/x', 'api'), silentTicket(6, 'fix/y', 'web'), silentTicket(7, null, null)]
+  // With `both`, Ticket 08 spans both repositories (ADR-0104): epic-status gives `repo` as its last Repo: line.
+  if (both) tickets.push({ ...silentTicket(8, 'fix/both', 'web'), repos: ['api', 'web'] })
   const model: WorkflowModel = { root: workspace, epics: [{ epic: 'atalaya', hasSpec: true, hasMap: false, title: 'Atalaya' }], tickets, error: null, branchErrors: [] }
   const layout: ProjectLayout = {
     root: workspace,
@@ -1182,6 +1184,26 @@ describe('checks in a Project over several repositories and in Silent mode (worf
     })
     for (const root of [world.api, world.elsewhere]) expect((await world.call('checks.repos', { root })).ok, root).toBe(false)
     expect((await world.call('checks.repos', { root: 'relative' })).ok).toBe(false)
+  })
+})
+
+describe('checks.get for a Ticket over several repositories (worfy-multi-repo-ticket 06, ADR-0104)', () => {
+  it('takes its Branch: in every repository its Repo: lines name, not only in the last one', async () => {
+    const world = await severalRepos({ both: true })
+    for (const root of [world.api, world.web]) {
+      const result = await world.call('checks.get', { root, branches: ['fix/both'] })
+      expect(result.ok, root).toBe(true)
+    }
+    expect(new Set(world.ghCwds)).toEqual(new Set([world.api, world.web]))
+    // A Ticket of one repository is still refused in the other.
+    const refused = await world.call('checks.get', { root: world.web, branches: ['fix/x'] })
+    expect(!refused.ok && refused.error).toMatch(/is not the branch of a Ticket of this Project/)
+  })
+
+  it('without the Ticket over both, its branch is refused in api as before', async () => {
+    const world = await severalRepos()
+    const result = await world.call('checks.get', { root: world.api, branches: ['fix/both'] })
+    expect(!result.ok && result.error).toMatch(/is not the branch of a Ticket of this Project/)
   })
 })
 

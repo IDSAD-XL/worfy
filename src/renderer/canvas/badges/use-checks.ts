@@ -6,16 +6,19 @@
 //
 // A Project over several repositories (ADR-0045, `checks.repos`) is asked one repository at a
 // time: a Ticket's badges come from the snapshot of the repository its `Repo:` line names, and a
-// Ticket that names none has no badges. A copy is kept per Project and folder asked, the Project
+// Ticket that names none has no badges. A Ticket over several repositories (ADR-0104) is a Ticket
+// of each one its `Repo:` lines name: its branch is asked in every one, and it has badges from each. A copy is kept per Project and folder asked, the Project
 // root or a repository; the Ticket branches sent with it are those of that folder's Tickets in that
 // Project. The same folder may be a repository of one Project and a Project of its own: each
 // Canvas asks with its own Project (`project` of `checks.get`) and keeps its own copy.
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import {
   branchNameSchema,
-  checksSourceOfTicket,
+  checksSourcesOfTicket,
   projectReposSchema,
+  reposOfTicket,
   type ChecksSnapshot,
   type ProjectRepos,
   type ProjectRepoView,
@@ -170,41 +173,64 @@ export function branchesInWork(tickets: readonly Ticket[]): string[] {
   return [...new Set(branches)].sort()
 }
 
+/** One folder to ask: the Project root (`repo` null) or one of its repositories, by its name. */
+interface Asked {
+  repo: string | null
+  folder: string
+}
+
+/**
+ * The checks of several folders of the Project at `root`, in the order given, kept current while
+ * the calling component is mounted: of the root itself for `undefined`, of a repository (with its
+ * Tickets' branches) for one. Each folder keeps the one shared copy useChecks keeps.
+ */
+export function useChecksOf(root: string, repos: readonly (ProjectRepoView | undefined)[]): (ChecksSnapshot | undefined)[] {
+  const { model } = useWorkflow(root)
+  // The effects run again only when the folders asked change, not on every new array.
+  const signature = JSON.stringify(repos.map((repo): Asked => (repo === undefined ? { repo: null, folder: root } : { repo: repo.name, folder: repo.path })))
+  const asked = useMemo(() => JSON.parse(signature) as Asked[], [signature])
+  useEffect(() => {
+    if (!model) return
+    for (const { repo, folder } of asked) {
+      const key = keyOf(root, folder)
+      const tickets = repo === null ? model.tickets : model.tickets.filter((ticket) => reposOfTicket(ticket).includes(repo))
+      const branches = branchesInWork(tickets)
+      const before = branchesByKey.get(key)
+      if (before !== undefined && before.join('\n') === branches.join('\n')) continue
+      branchesByKey.set(key, branches)
+      // New Tickets in work: ask now rather than at the next focused tick.
+      void fetchChecks(key)
+    }
+  }, [asked, root, model])
+  useEffect(() => {
+    for (const { folder } of asked) acquire(root, folder)
+    return () => {
+      for (const { folder } of asked) release(keyOf(root, folder))
+    }
+  }, [asked, root])
+  return useChecksStore(useShallow((store) => asked.map(({ folder }) => store.byRoot[keyOf(root, folder)])))
+}
+
 /**
  * The checks of one folder of the Project at `root`, kept current while the calling component is
  * mounted: of the root itself when `repo` is undefined, of that repository (with its Tickets'
  * branches) when it is one, of nothing — no asking at all — when it is null.
  */
 export function useChecks(root: string, repo?: ProjectRepoView | null): ChecksSnapshot | undefined {
-  const { model } = useWorkflow(root)
-  const folder = repo === undefined ? root : repo === null ? null : repo.path
-  const key = folder === null ? null : keyOf(root, folder)
-  const repoName = repo?.name
-  useEffect(() => {
-    if (!model || key === null) return
-    const tickets = repoName === undefined ? model.tickets : model.tickets.filter((ticket) => ticket.repo === repoName)
-    const branches = branchesInWork(tickets)
-    const before = branchesByKey.get(key)
-    if (before !== undefined && before.join('\n') === branches.join('\n')) return
-    branchesByKey.set(key, branches)
-    // New Tickets in work: ask now rather than at the next focused tick.
-    void fetchChecks(key)
-  }, [key, repoName, model])
-  useEffect(() => {
-    if (key === null || folder === null) return
-    acquire(root, folder)
-    return () => release(key)
-  }, [key, root, folder])
-  return useChecksStore((store) => (key === null ? undefined : store.byRoot[key]))
+  return useChecksOf(root, repo === null ? [] : [repo])[0]
 }
 
 /**
- * A Ticket's checks: from the Project root in a Project of one repository, from the Ticket's own
- * repository in a Project over several; none for a Ticket there that names no repository of it,
- * and none until main said which repositories the Project has.
+ * Every place a Ticket's checks come from, each with its snapshot (undefined until main answered):
+ * the Project root in a Project of one repository; each repository of the Project the Ticket names
+ * in a Project over several (a Ticket over several repositories, ADR-0104, has one per repository);
+ * [] for a Ticket there that names none. Undefined until main said which repositories the Project has.
  */
-export function useTicketChecks(root: string, ticket: Pick<Ticket, 'repo'>): ChecksSnapshot | undefined {
+export function useTicketChecksOf(root: string, ticket: Pick<Ticket, 'repo' | 'repos'>): { repo: ProjectRepoView | undefined; snapshot: ChecksSnapshot | undefined }[] | undefined {
   const repos = useProjectRepos(root)
-  const source = repos === undefined ? null : checksSourceOfTicket(repos.repos, ticket)
-  return useChecks(root, source === null || source.kind === 'none' ? null : source.kind === 'repo' ? source.repo : undefined)
+  const sources = repos === undefined ? [] : checksSourcesOfTicket(repos.repos, ticket)
+  const asked = sources === 'project' ? [undefined] : sources
+  const snapshots = useChecksOf(root, asked)
+  if (repos === undefined) return undefined
+  return asked.map((repo, at) => ({ repo, snapshot: snapshots[at] }))
 }
