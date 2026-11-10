@@ -1,7 +1,8 @@
 # 08 — Приёмка: fixture-проект из двух репозиториев со stub `gh` и `npm`; настоящий Ticket в рабочем проекте
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T03:55Z
+Branch: worfy-multi-repo-ticket/08
 Blocked by: 02, 06, 07
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–7; «Ticket-ы», «Волны» (Wave 5); «Решения владельца
 2026-11-09», Q8; [ADR-0104](../../../docs/adr/0104-one-ticket-several-repositories.md), «Последствия»

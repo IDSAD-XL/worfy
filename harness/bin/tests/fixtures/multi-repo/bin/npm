@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# npm of the multi-repo fixture: only `npm view <name>@<version> version`, the call that tells whether a version of
+# the library is published. The registry is a file, $FIXTURE_NPM_REGISTRY, one published `<name>@<version>` per line,
+# and the answer is the one npm gives: the version when it is published, nothing with exit 0 when it is not. Every
+# call goes to $FIXTURE_NPM_LOG as one line, the arguments after "npm:". Anything else (install, publish) — exit 1:
+# the fixture never reaches a registry.
+set -u
+{ printf 'npm:'; printf ' %s' "$@"; echo; } >>"$FIXTURE_NPM_LOG"
+if [ "$#" -eq 3 ] && [ "$1" = view ] && [ "$3" = version ]; then
+    if grep -qxF -- "$2" "$FIXTURE_NPM_REGISTRY" 2>/dev/null; then echo "${2##*@}"; fi
+    exit 0
+fi
+echo "npm of the fixture: not a call it knows: npm $*" >&2
+exit 1

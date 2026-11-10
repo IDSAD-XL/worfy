@@ -1,0 +1,9 @@
+{
+  "name": "acme-shop",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@acme/lots": "^1.3.0"
+  }
+}
