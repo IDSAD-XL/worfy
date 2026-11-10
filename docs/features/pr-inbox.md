@@ -41,7 +41,8 @@ Main decides the group and the order inside it: Needs my review shows the oldest
 activity first. A PR without a Ticket is a row like any other.
 
 **A row of the list.** The author's avatar (two letters of the login on a colour of its own; the user's own has a ring),
-the title, and under it the repository's name and number (`web#41`; the whole `owner/repo#N` is the tooltip), the
+the title, and under it the repository's name and number (`web#41`; the whole `owner/repo#N` is the tooltip; a long
+name is cut with an ellipsis, the number stays whole, and the list never scrolls sideways), the
 Ticket chip (`<epic> <NN>`) when the PR is a Ticket's, and the CI dot — with its text beside it when CI is not green. On
 the right: the age, the count of open threads with a speech-bubble icon (orange on the user's own PR, where someone
 waits for the user; "2 open threads" is the tooltip), and a blue dot when there are new comments ("N new since you
@@ -61,21 +62,27 @@ looked" is the tooltip).
 
 **Selecting.** A click on a row selects its PR; **↑** and **↓** move the selection along the list, from anywhere in the
 shown view except a text field, a menu or a dialog, and stop at its ends. Before the user chooses, the view selects by
-itself the first PR that waits for the user's answer, else the first of the list; a PR that leaves the inbox gives way
-to that choice again. With one PR, that PR is selected.
+itself the first PR that waits for the user's answer, else the first of the list. That choice is made once and kept: a
+new search that reorders the groups does not move the pane off the PR, nor off a draft being typed there. The view
+chooses again only when the selected PR leaves the inbox. With one PR, that PR is selected, and the pane has no
+"↑ ↓ next PR" hint.
 
 **The selected PR.** The right pane shows:
 
 - the title, `owner/repo#N`, the Ticket chip, `Draft` for a draft PR, "via team" when the review is asked only of a team
   the user is in, the author, the branch, and "N new since you looked";
-- **what to do next**, one strip in the colour of the PR's group, from the group, CI, review and drafts: "Your review is
-  asked" with **Start review** (the Files tab on GitHub); "Answer N open threads" with how many draft replies are ready
-  below, or that Draft replies writes them; "CI failing", "Changes requested" or "Merge conflict" with **Open checks**
-  when CI fails; "Ready to merge" with **Open to merge**; "Waiting for reviewers", or "Draft PR: no review asked yet";
+- **what to do next**, one strip in the colour of the PR's group, from the group, CI, review and drafts, with its main
+  button: "Your review is asked" with **Start review** (the Files tab on GitHub); "Answer N open threads" with
+  **Send all (N)** when two draft replies or more are ready below (it opens the dialog of Send all, below), with
+  **Draft replies** when there is none yet, and with no button for one draft, whose **Send** is under its thread;
+  "CI failing", "Changes requested" or "Merge conflict" with **Open checks**; "Ready to merge" with **Open to merge**;
+  "Waiting for reviewers", or "Draft PR: no review asked yet". Needs my review is blue and Needs my answer violet in the
+  light theme (lime in the dark one);
 - four cells: **CI**; **Review** (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
   Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
   lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
-- **Open on GitHub**, **Draft replies** (below) and **Mark seen**, active while the PR has new comments;
+- **Open on GitHub**, **Draft replies** (below; in the strip instead when it is the strip's button) and **Mark seen**,
+  active while the PR has new comments;
 - "Threads N open · M resolved", then the review threads, open ones first, then resolved ones dimmed. Each has its file and line, a link to the comment on
   GitHub, which shows that code line, `Outdated` when the code moved on, and its last three comments with the author and
   their age. A deleted account is `ghost`, as on GitHub;

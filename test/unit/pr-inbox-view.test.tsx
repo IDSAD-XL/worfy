@@ -3,8 +3,10 @@
 // - the view (src/renderer/pr-inbox/PrInboxView.tsx): the groups that hold a PR in the spec's order, a row of the list
 //   with every field; the selected PR in the pane — what to do next, CI, review, merge state, size, "via team"; the
 //   status line — the next search, why the last read failed, the snapshot's notice; the empty inbox;
-// - selecting: the view's own choice tells main nothing; a click, ↑ / ↓ and an entry that names a PR tell main the PR
-//   was seen (`prInbox.markSeen`), and "N new since you looked" goes; drafts are read for the selected PR only;
+// - selecting: the view's own choice tells main nothing and stays over a snapshot that reorders its group; a click,
+//   ↑ / ↓ and an entry that names a PR tell main the PR was seen (`prInbox.markSeen`), and "N new since you looked"
+//   goes; drafts are read for the selected PR only, and after ↓ a Send goes with the new PR; the strip's Send all opens
+//   the dialog with every text;
 // - openPrInboxOf with a PR: the view selects it, or says the PR is not in the inbox; another Project is selected
 //   first;
 // - the sidebar section (src/renderer/shell/sidebar/PullRequestsSection.tsx): the counts of the groups, a click
@@ -12,12 +14,13 @@
 // - the toolbar tab, the palette command, and the switch of Project settings.
 // main is a fake preload bridge; every fixture is invented — owners, repositories, logins and texts. Nothing
 // here reaches GitHub: of the `prInbox` channels the view sends only `prInbox.get`, `prInbox.markSeen` and, for the
-// selected PR, `prInbox.drafts` (ADR-0105; Send is in test/unit/draft-thread.test.tsx).
+// selected PR, `prInbox.drafts`; `prInbox.send` only from a click on Send or on Send all in its dialog (ADR-0105; the
+// rest of Send is in test/unit/draft-thread.test.tsx).
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrInboxBodyProps } from '../../src/renderer/pr-inbox/PrInboxView'
-import type { PrInboxRow, PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
+import type { PrInboxRow, PrInboxSnapshot, PrReplyDrafts, PrReplyItem } from '../../src/shared/ipc/pr-inbox'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -301,6 +304,14 @@ describe('the view of a snapshot', () => {
     expect(screen.getAllByTestId('pr-inbox-group-count').map((count) => count.textContent)).toEqual(['2'])
   })
 
+  it('name#N of a row: the repository name is its own part, cut by the stylesheet; #N stays whole', async () => {
+    await body(snapshotOf('web-00000001'))
+    const ref = within(rowOf(API, 118)).getByTestId('pr-inbox-ref')
+    expect(ref.textContent).toBe('api#118')
+    expect(within(ref).getByTestId('pr-inbox-ref-repo').textContent).toBe('api')
+    expect(ref.getAttribute('title')).toBe(`${API}#118`)
+  })
+
   it('a row of the list has its title, name#N, Ticket chip, CI, open threads, a new mark and its age', async () => {
     await body(snapshotOf('web-00000001'))
     const answer = rowOf(API, 118)
@@ -366,6 +377,9 @@ describe('the view of a snapshot', () => {
     expect(next.dataset.tone).toBe('answer')
     expect(text(next, 'pr-inbox-next-step-title')).toBe('Answer 2 open threads')
     expect(next.textContent).toContain('No drafts yet: Draft replies starts a Session that writes them.')
+    // No draft: Draft replies is the strip's main button, and only there.
+    expect(within(next).getByTestId('pr-inbox-draft-replies').className).toContain('w-pr-inbox-button--primary')
+    expect(within(pane()).getAllByTestId('pr-inbox-draft-replies')).toHaveLength(1)
     expect(within(next).queryByTestId('pr-inbox-next-step-action')).toBeNull()
     // CI, review, merge state and size.
     expect(fact('ci').textContent).toBe('CI passing')
@@ -399,6 +413,12 @@ describe('the view of a snapshot', () => {
     expect(text(next, 'pr-inbox-next-step-title')).toBe('Your review is asked')
     expect(next.textContent).toContain(`${ANA} opened it 3d ago, asked through your team.`)
     expect(within(next).getByTestId('pr-inbox-next-step-action').textContent).toBe('Start review')
+    expect(within(next).getByTestId('pr-inbox-next-step-action').className).toContain('w-pr-inbox-button--primary')
+    // Not a PR to answer: Draft replies stays in the row of actions.
+    expect(within(next).queryByTestId('pr-inbox-draft-replies')).toBeNull()
+    expect(within(pane()).getAllByTestId('pr-inbox-draft-replies')).toHaveLength(1)
+    // More than one PR: the keys that move to the next one are shown.
+    expect(within(pane()).queryByTestId('pr-inbox-keys-hint')).not.toBeNull()
     expect(within(next).getByTestId('pr-inbox-next-step-action').getAttribute('href')).toBe(`https://github.com/${WEB}/pull/41/files`)
     expect(text(pane(), 'pr-inbox-via-team')).toBe('via team')
     expect(text(fact('review'), 'pr-inbox-review')).toBe('Review required')
@@ -433,12 +453,13 @@ describe('the view of a snapshot', () => {
     expect(fact('ci').textContent).toBe('No CI')
   })
 
-  it('one PR: it is selected and shown, its group alone in the list', async () => {
+  it('one PR: it is selected and shown, its group alone in the list, with no hint of keys to a next PR', async () => {
     await body(snapshotOf('web-00000001', { groups: [{ group: 'waiting', rows: [ROWS.waiting] }] }))
     expect(groupTitles()).toEqual(['Waiting on others'])
     expect(selectedRows()).toEqual([`${WEB}#39`])
     expect(text(pane(), 'pr-inbox-pane-title')).toBe('Sketch the settings page')
     expect(within(pane()).getByText('No review threads.')).toBeTruthy()
+    expect(within(pane()).queryByTestId('pr-inbox-keys-hint')).toBeNull()
   })
 
   it('on a read-only screen the pane has Mark seen inactive, with the hint', async () => {
@@ -494,19 +515,23 @@ describe('the pure parts of the two panes', () => {
 
   it('nextStep of a PR that waits for an answer counts its drafts; a mention without a thread asks for an answer too', async () => {
     const { nextStep } = await load()
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 2, true).text).toBe('2 draft replies are ready below: read, edit, Send.')
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 1, true).text).toBe('1 draft reply is ready below: read, edit, Send.')
-    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, false).text).toBe('Drafts of replies stay on the machine of the Project.')
+    // Two drafts or more: Send all; one: its Send under the thread, no button of the strip; none: Draft replies.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 2, true)).toMatchObject({ text: '2 draft replies are ready below: read, edit, then send each or all.', action: { kind: 'send-all', count: 2 } })
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 1, true)).toMatchObject({ text: '1 draft reply is ready below: read, edit, then Send under its thread.', action: null })
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true)).toMatchObject({ text: 'No drafts yet: Draft replies starts a Session that writes them.', action: { kind: 'draft-replies' } })
+    // A Linked machine: no drafts here, no button.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, false)).toMatchObject({ text: 'Drafts of replies stay on the machine of the Project.', action: null })
     expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 0 }, NOW, 0, true).title).toBe('Your answer is awaited')
     expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 1 }, NOW, 0, true).title).toBe('Answer 1 open thread')
   })
 
-  it('nextStep of a PR to fix names what is wrong', async () => {
+  it('nextStep of a PR to fix names what is wrong, and always opens the checks', async () => {
     const { nextStep } = await load()
     const fix = (over: Partial<PrInboxRow>) => nextStep('needs-fix', { ...ROWS.fix, ci: 'passing', reviewDecision: null, mergeStateStatus: 'CLEAN', ...over }, NOW, 0, true)
-    expect(fix({ ci: 'failing' })).toMatchObject({ title: 'CI failing', action: { label: 'Open checks' } })
-    expect(fix({ reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ title: 'Changes requested', action: null })
-    expect(fix({ mergeStateStatus: 'DIRTY' })).toMatchObject({ title: 'Merge conflict', text: 'Resolve the conflict with the base branch.', action: null })
+    const checks = { kind: 'link', label: 'Open checks', url: `${ROWS.fix.url}/checks` }
+    expect(fix({ ci: 'failing' })).toMatchObject({ title: 'CI failing', action: checks })
+    expect(fix({ reviewDecision: 'CHANGES_REQUESTED' })).toMatchObject({ title: 'Changes requested', action: checks })
+    expect(fix({ mergeStateStatus: 'DIRTY' })).toMatchObject({ title: 'Merge conflict', text: 'Resolve the conflict with the base branch.', action: checks })
     expect(nextStep('waiting', { ...ROWS.waiting, isDraft: false }, NOW, 0, true).title).toBe('Waiting for reviewers')
   })
 
@@ -745,6 +770,143 @@ describe('selecting a PR', () => {
     container.hidden = false
     key('ArrowDown')
     expect(selectedRows()).toEqual([`${WEB}#40`])
+  })
+
+  // Two PRs that wait for an answer, each with a thread and its draft reply: X (api#118) first, Y (web#40) second.
+  const X = { ...ROWS.answer, lastActivityAt: ago(HOUR) }
+  const Y = row(WEB, 40, {
+    title: 'Fix the date picker',
+    unresolvedThreads: 1,
+    lastActivityAt: ago(3 * HOUR),
+    threads: [{ id: 'T5', isResolved: false, isOutdated: false, path: 'src/date.ts', line: 7, viewerCanReply: true, comments: [comment('C51', BO, ago(3 * HOUR), 'Which zone?')] }],
+  })
+  const answering = (rows: PrInboxRow[]): PrInboxSnapshot => snapshotOf('web-00000001', { groups: [{ group: 'needs-answer', rows }] })
+  const draftItem = (index: number, threadId: string, body: string): PrReplyItem => ({
+    index,
+    kind: 'thread',
+    threadId,
+    replyTo: 500 + index,
+    label: 'needs answer',
+    body,
+    fixPlan: null,
+    state: 'draft',
+    sentUrl: null,
+    error: null,
+    edited: false,
+  })
+  const DRAFTS: Record<number, PrReplyItem[]> = { 118: [draftItem(0, 'T1', 'Draft for 118')], 40: [draftItem(0, 'T5', 'Draft for 40')] }
+  const draftsOf = (repo: string, pr: number): PrReplyDrafts => ({ repo, pr, headOid: 'abc1234', items: DRAFTS[pr] ?? [], problem: null })
+  const draftsAnswer = (input: unknown): IpcResult<unknown> => {
+    const { repo, number } = input as { repo: string; number: number }
+    return { ok: true, value: draftsOf(repo, number) }
+  }
+
+  it("the view's own pick stays over a snapshot that reorders its group: the typed text of its draft stays, and it is not marked seen", async () => {
+    await view({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
+    expect(selectedRows()).toEqual([`${API}#118`])
+    const field = (await within(pane()).findByTestId('pr-draft-field')) as HTMLTextAreaElement
+    expect(field.value).toBe('Draft for 118')
+    fireEvent.change(field, { target: { value: 'Typed by me, not saved yet' } })
+    // A reviewer comments on Y: main sorts Y first.
+    main.inbox['web-00000001'] = answering([{ ...Y, lastActivityAt: ago(MIN), newSinceSeen: 1 }, X])
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row').map((each) => each.dataset.number)).toEqual(['40', '118']))
+    expect(selectedRows()).toEqual([`${API}#118`])
+    expect(pane().dataset.number).toBe('118')
+    expect((within(pane()).getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe('Typed by me, not saved yet')
+    // X is merged and leaves the snapshot: the view picks again, still without telling main.
+    main.inbox['web-00000001'] = answering([{ ...Y, lastActivityAt: ago(MIN) }])
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(pane().dataset.number).toBe('40'))
+    expect(selectedRows()).toEqual([`${WEB}#40`])
+    // X back again (a reopened PR) does not take the pane from Y.
+    main.inbox['web-00000001'] = answering([X, Y])
+    await act(async () => main.emit('prInbox.changed', { projectId: 'web-00000001' }))
+    await waitFor(() => expect(screen.getAllByTestId('pr-inbox-row')).toHaveLength(2))
+    expect(pane().dataset.number).toBe('40')
+    await act(async () => Promise.resolve())
+    expect(seenCalls()).toEqual([])
+  })
+
+  it('after ↓ the pane is the new PR\'s from the start: no draft of the last one shows, and Send goes with the new repository, number and text', async () => {
+    let release: () => void = () => undefined
+    const late = new Promise<void>((resolve) => (release = resolve))
+    const answers = {
+      'prInbox.drafts': (input: unknown) => {
+        const { repo, number } = input as { repo: string; number: number }
+        // The drafts of Y come late: until then the pane must not show X's.
+        return (number === 40 ? late.then(() => ({ ok: true, value: draftsOf(repo, number) })) : { ok: true, value: draftsOf(repo, number) }) as never
+      },
+      'prInbox.send': (input: unknown): IpcResult<unknown> => {
+        const { repo, number } = input as { repo: string; number: number }
+        return { ok: true, value: { results: [], drafts: draftsOf(repo, number) } }
+      },
+    }
+    await view({ 'web-00000001': answering([X, Y]) }, answers)
+    await within(pane()).findByTestId('pr-draft')
+    key('ArrowDown')
+    expect(pane().dataset.number).toBe('40')
+    await act(async () => Promise.resolve())
+    expect(within(pane()).queryByTestId('pr-draft')).toBeNull()
+    expect(within(pane()).queryByText('Draft for 118')).toBeNull()
+    await act(async () => release())
+    const field = (await within(pane()).findByTestId('pr-draft-field')) as HTMLTextAreaElement
+    expect(field.value).toBe('Draft for 40')
+    expect(main.calls.filter((call) => call.channel === 'prInbox.send')).toEqual([])
+    fireEvent.click(within(pane()).getByTestId('pr-draft-send'))
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.send')).toHaveLength(1))
+    expect(main.calls.find((call) => call.channel === 'prInbox.send')?.input).toEqual({
+      projectId: 'web-00000001',
+      repo: WEB,
+      number: 40,
+      items: [{ index: 0, kind: 'thread', threadId: 'T5', base: 'Draft for 40', body: 'Draft for 40' }],
+    })
+  })
+
+  it('the strip of a PR with two drafts or more: Send all (N) opens the dialog with every text, and only its own Send all posts', async () => {
+    const answer = { ...X, unresolvedThreads: 2 }
+    DRAFTS[118] = [draftItem(0, 'T1', 'Draft for 118'), draftItem(1, 'T2', 'Second draft for 118')]
+    try {
+      await view({ 'web-00000001': answering([answer]) }, {
+        'prInbox.drafts': draftsAnswer,
+        'prInbox.send': (input: unknown) => {
+          const { repo, number } = input as { repo: string; number: number }
+          return { ok: true, value: { results: [], drafts: draftsOf(repo, number) } }
+        },
+      })
+      const next = within(pane()).getByTestId('pr-inbox-next-step')
+      const button = await within(next).findByTestId('pr-inbox-next-step-action')
+      expect(button.textContent).toBe('Send all (2)')
+      expect(button.className).toContain('w-pr-inbox-button--primary')
+      expect(next.textContent).toContain('2 draft replies are ready below')
+      // With drafts the strip carries Send all, not Draft replies.
+      expect(within(next).queryByTestId('pr-inbox-draft-replies')).toBeNull()
+      fireEvent.change(within(pane()).getAllByTestId('pr-draft-field')[0]!, { target: { value: 'Edited first' } })
+      fireEvent.click(button)
+      const dialog = screen.getByTestId('pr-send-all-dialog')
+      expect(within(dialog).getAllByTestId('pr-send-all-text').map((each) => each.textContent)).toEqual(['Edited first', 'Second draft for 118'])
+      await act(async () => Promise.resolve())
+      expect(main.calls.filter((call) => call.channel === 'prInbox.send')).toEqual([])
+      fireEvent.click(within(dialog).getByTestId('pr-send-all-cancel'))
+      expect(screen.queryByTestId('pr-send-all-dialog')).toBeNull()
+      fireEvent.click(within(next).getByTestId('pr-inbox-next-step-action'))
+      fireEvent.click(within(screen.getByTestId('pr-send-all-dialog')).getByTestId('pr-send-all-confirm'))
+      await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.send')).toHaveLength(1))
+      const sent = main.calls.find((call) => call.channel === 'prInbox.send')?.input as { repo: string; number: number; items: { body: string }[] }
+      expect([sent.repo, sent.number, sent.items.map((each) => each.body)]).toEqual([API, 118, ['Edited first', 'Second draft for 118']])
+    } finally {
+      DRAFTS[118] = [draftItem(0, 'T1', 'Draft for 118')]
+    }
+  })
+
+  it('the strip of a PR with one draft has no button: its Send is under its thread', async () => {
+    await view({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
+    await within(pane()).findByTestId('pr-draft')
+    const next = within(pane()).getByTestId('pr-inbox-next-step')
+    await waitFor(() => expect(next.textContent).toContain('1 draft reply is ready below: read, edit, then Send under its thread.'))
+    expect(within(next).queryByTestId('pr-inbox-next-step-action')).toBeNull()
+    expect(within(next).queryByTestId('pr-inbox-draft-replies')).toBeNull()
+    expect(within(pane()).getByTestId('pr-draft-send')).toBeTruthy()
   })
 
   it('a refused markSeen says why in the status line', async () => {

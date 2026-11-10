@@ -149,9 +149,21 @@
   background: var(--surface);
 }
 
+/* The colour of "Needs my answer": in the light theme --primary is the blue of "Needs my review" too. */
+.w-pr-inbox {
+  --pr-answer: var(--span-verifier);
+}
+@media (prefers-color-scheme: dark) {
+  .w-pr-inbox {
+    --pr-answer: var(--primary);
+  }
+}
+
 /* ── the list ── */
 .w-pr-inbox-list {
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-bottom: var(--space-2);
   border-right: 1px solid var(--border);
@@ -164,7 +176,7 @@
   --group: var(--working-dot);
 }
 .w-pr-inbox-group[data-group="needs-answer"] {
-  --group: var(--primary);
+  --group: var(--pr-answer);
 }
 .w-pr-inbox-group[data-group="needs-fix"] {
   --group: var(--blocked-ring);
@@ -255,14 +267,25 @@
   line-height: 16px;
   color: var(--text-muted);
 }
+/* name#N: only the repository name gives way, cut with an ellipsis; #N, the Ticket chip and the CI text stay whole. */
 .w-pr-inbox-item__ref {
-  flex: none;
+  display: flex;
+  min-width: 0;
   font-size: var(--text-11);
+  white-space: nowrap;
 }
-.w-pr-inbox-item__sub .w-chip {
+.w-pr-inbox-item__repo {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.w-pr-inbox-item__number {
+  flex: none;
+}
+.w-pr-inbox-item__sub .w-chip,
+.w-pr-inbox-item__sub .w-pr-inbox-ci-text,
+.w-pr-inbox-item__sub > .w-pr-inbox-ci {
+  flex: none;
 }
 .w-pr-inbox-item__side {
   display: flex;
@@ -466,8 +489,8 @@
   --tone-text: var(--working-text);
 }
 .w-pr-inbox-next[data-tone="answer"] {
-  --tone: var(--primary);
-  --tone-text: var(--primary);
+  --tone: var(--pr-answer);
+  --tone-text: var(--pr-answer);
 }
 .w-pr-inbox-next[data-tone="fix"] {
   --tone: var(--blocked-ring);

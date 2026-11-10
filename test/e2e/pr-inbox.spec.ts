@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
 // The Pull requests view (worfy-pr-inbox ticket 03) against the built app: two Projects, `web` and `ops`, each a
@@ -13,7 +14,9 @@ import { ms } from '../time-scale'
 // invented PRs (test/fixtures/gh/gh-stub.mjs). The reader of ticket 02 searches them; the view shows them.
 // - the toolbar tab opens the view, the sidebar section counts the groups, the palette opens the view too;
 // - two panes (worfy-polish 96): the list by group on the left, the selected PR on the right with its threads; a click
-//   or ↑ / ↓ selects a PR, and its "N new since you looked" goes; screenshots at 1280 and 1600 px, both themes;
+//   or ↑ / ↓ selects a PR, and its "N new since you looked" goes; Send all (2) of the strip opens its dialog and posts
+//   nothing on Cancel; a long repository name at 1280 px is cut alone, the list never scrolls sideways; screenshots at
+//   1280 and 1600 px, both themes;
 // - openPrInboxOf with a PR of the other Project selects that Project and opens its view on the PR;
 // - the switch of Project settings: off, main runs no gh for the Project; on again, it reads;
 // - the stub's log holds no write of any kind after all of it: the view only reads (ADR-0105);
@@ -70,7 +73,7 @@ function stubPull(
   repo: string,
   number: number,
   title: string,
-  over: { author?: string; requested?: { login?: string; team?: string }[]; reviewDecision?: string | null; ci?: string; threads?: unknown[]; draft?: boolean; size?: [number, number]; merge?: string } = {},
+  over: { author?: string; requested?: { login?: string; team?: string }[]; reviewDecision?: string | null; ci?: string; threads?: unknown[]; draft?: boolean; size?: [number, number]; merge?: string; branch?: string } = {},
 ): StubPull {
   const author = over.author ?? ME
   const requested = over.requested ?? []
@@ -88,7 +91,7 @@ function stubPull(
       isDraft: over.draft ?? false,
       createdAt: at(72),
       author: { login: author },
-      headRefName: `feature/${number}`,
+      headRefName: over.branch ?? `feature/${number}`,
       reviewDecision: over.reviewDecision ?? null,
       mergeable: 'MERGEABLE',
       mergeStateStatus: over.merge ?? 'CLEAN',
@@ -443,7 +446,7 @@ test('a draft reply under its thread in the pane: nothing is posted on selecting
     await expect(pane(window)).toHaveAttribute('data-number', '118')
     const draft = pane(window).getByTestId('pr-inbox-thread').getByTestId('pr-draft')
     await expect(draft.getByTestId('pr-draft-field')).toHaveValue(drafted, { timeout: ms(15_000) })
-    await expect(pane(window).getByTestId('pr-inbox-next-step')).toContainText('1 draft reply is ready below: read, edit, Send.')
+    await expect(pane(window).getByTestId('pr-inbox-next-step')).toContainText('1 draft reply is ready below: read, edit, then Send under its thread.')
     await expect(pane(window).getByTestId('pr-inbox-draft-replies')).toBeEnabled()
     const shots = await snapshotThemes(window, 'pr-inbox-draft')
     console.log(`pull requests draft: ${shots.light} ${shots.dark}`)
@@ -498,14 +501,25 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
   mkdirSync(dirname(draftFile), { recursive: true })
   const body = 'Three tries: the server drops the first one. I will say so in a comment above the loop.'
   const item = { kind: 'thread', threadId: 'T1', replyTo: 11, label: 'needs answer', body, fixPlan: 'Add a comment above the retry loop', state: 'draft', sentUrl: null }
-  writeFileSync(draftFile, JSON.stringify({ schema: 1, repo: WEB_REPO, pr: 118, headOid: 'abc1234', items: [item] }))
+  // A second reply, in the conversation: two drafts, so the strip carries Send all (2).
+  const thanks = { kind: 'conversation', threadId: null, replyTo: null, label: 'thanks', body: 'Thanks for the quick look, both points are in the next push.', fixPlan: null, state: 'draft', sentUrl: null }
+  writeFileSync(draftFile, JSON.stringify({ schema: 1, repo: WEB_REPO, pr: 118, headOid: 'abc1234', items: [item, thanks] }))
   const launched = await launch()
   try {
     const { window } = launched
     const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
     await views.getByRole('button', { name: 'Pull requests' }).click()
-    await expect(pane(window).getByTestId('pr-draft-field')).toBeVisible({ timeout: ms(15_000) })
+    await expect(pane(window).getByTestId('pr-draft-field').first()).toBeVisible({ timeout: ms(15_000) })
+    // The strip's main button of a PR with two drafts: Send all (2) opens the dialog with every text; Cancel posts nothing.
+    const sendAll = pane(window).getByTestId('pr-inbox-next-step').getByTestId('pr-inbox-next-step-action')
+    await expect(sendAll).toHaveText('Send all (2)')
+    await sendAll.click()
+    const dialog = window.getByTestId('pr-send-all-dialog')
+    await expect(dialog.getByTestId('pr-send-all-text')).toHaveText([body, thanks.body])
+    await dialog.getByTestId('pr-send-all-cancel').click()
+    await expect(dialog).toHaveCount(0)
+    expectNoWrite()
     mkdirSync(SCREENS, { recursive: true })
     const shoot = async (name: string): Promise<void> => {
       const shots = await snapshotThemes(window, `pr-inbox-${name}`)
@@ -515,6 +529,7 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
     for (const width of [1280, 1600]) {
       await window.setViewportSize({ width, height: 800 })
       await expect(pane(window)).toBeVisible()
+      await expect(pane(window).getByTestId('pr-inbox-keys-hint')).toBeVisible()
       // The two panes side by side at both widths.
       const [list, shown] = await Promise.all([window.getByTestId('pr-inbox-list').boundingBox(), pane(window).boundingBox()])
       expect(list !== null && shown !== null && list.x + list.width <= shown.x + 1 && Math.abs(list.y - shown.y) < 2).toBe(true)
@@ -525,6 +540,8 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
     await sectionRow(window, OPS, 'needs-review').click()
     await expect(view(window)).toHaveAttribute('data-project', OPS)
     await expect(pane(window)).toHaveAttribute('data-number', '5')
+    // One PR: no ↑ ↓ to a next one.
+    await expect(pane(window).getByTestId('pr-inbox-keys-hint')).toHaveCount(0)
     for (const width of [1280, 1600]) {
       await window.setViewportSize({ width, height: 800 })
       await shoot(`one-pr-${width}`)
@@ -539,6 +556,76 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
       await window.setViewportSize({ width, height: 800 })
       await shoot(`no-prs-${width}`)
     }
+    expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})
+
+const LONG_REPO = 'example-org/customer-billing-platform-integration-services'
+
+test('a long repository name at 1280 px: the list never scrolls sideways, only the name is cut; #N, the CI text and the Ticket chip stay whole', async () => {
+  test.setTimeout(ms(90_000))
+  // One Project whose repository has a long name, with Ticket demo 07 (its PR's branch is demo/07).
+  const billing = join(scratch, 'billing')
+  const issues = join(billing, '.scratch', 'demo', 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(billing, '.scratch', 'demo', 'spec.md'), '# Demo\n')
+  writeFileSync(join(issues, '07-ticket-7.md'), ['# 07 — Ticket 7', '', 'Type: task', 'Status: claimed — 2026-10-05', 'Blocked by: —', '', '## Что делаем', '', 'text', ''].join('\n'))
+  repo('billing', LONG_REPO)
+  const BILLING = 'billing-000000b'
+  mkdirSync(join(dataDir, BILLING), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: BILLING, name: 'billing', path: billing }], activeId: BILLING }))
+  mkdirSync(join(claudeHome, 'bin'), { recursive: true })
+  const answer = join(claudeHome, 'epic-status.json')
+  const ticket = { epic: 'demo', num: 7, slug: 'ticket-7', title: '07 — Ticket 7', statusRaw: 'claimed — 2026-10-05', state: 'work', blockedRaw: '—', blockedNums: [], blockedParsed: true }
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [ticket] }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
+  writeFileSync(
+    join(ghDir, 'graphql.json'),
+    JSON.stringify({
+      viewer: ME,
+      pulls: [
+        stubPull(LONG_REPO, 1207, 'Retry the invoice export when the ledger is busy', { ci: 'FAILURE', merge: 'UNSTABLE', branch: 'demo/07', size: [58, 14] }),
+        stubPull(LONG_REPO, 1188, 'Show the currency of each line', { author: ANA, requested: [{ login: ME }], ci: 'PENDING' }),
+      ],
+    }),
+  )
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await expect(sectionRow(window, BILLING, 'needs-fix')).toBeVisible({ timeout: ms(30_000) })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    const failing = prRow(window, LONG_REPO, 1207)
+    await expect(failing.getByTestId('pr-inbox-ticket')).toHaveText('demo 07', { timeout: ms(30_000) })
+    await expect(failing.getByTestId('pr-inbox-ref')).toHaveText('customer-billing-platform-integration-services#1207')
+    const list = window.getByTestId('pr-inbox-list')
+    // The list does not scroll sideways.
+    const widths = await list.evaluate((node) => ({ scroll: node.scrollWidth, client: node.clientWidth }))
+    expect(widths.scroll).toBeLessThanOrEqual(widths.client)
+    // Only the repository name is cut: it is narrower than its text.
+    const name = await failing.getByTestId('pr-inbox-ref-repo').evaluate((node) => ({ scroll: node.scrollWidth, client: node.clientWidth }))
+    expect(name.scroll).toBeGreaterThan(name.client)
+    // #N, the CI text and the Ticket chip are whole and inside the list.
+    const box = await list.boundingBox()
+    for (const part of [failing.locator('.w-pr-inbox-item__number'), failing.locator('.w-pr-inbox-ci-text'), failing.getByTestId('pr-inbox-ticket')]) {
+      await expect(part).toBeVisible()
+      const whole = await part.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)
+      const at = await part.boundingBox()
+      expect(whole && box !== null && at !== null && at.x >= box.x && at.x + at.width <= box.x + box.width).toBe(true)
+    }
+    await expect(failing.locator('.w-pr-inbox-item__number')).toHaveText('#1207')
+    await expect(failing.locator('.w-pr-inbox-ci-text')).toHaveText('CI failing')
+    // Needs fix with failing CI: the strip opens the checks.
+    await failing.getByRole('button').click()
+    await expect(pane(window).getByTestId('pr-inbox-next-step-action')).toHaveText('Open checks')
+    mkdirSync(SCREENS, { recursive: true })
+    const shots = await snapshotThemes(window, 'pr-inbox-long-name-1280')
+    for (const scheme of ['light', 'dark'] as const) copyFileSync(shots[scheme], join(SCREENS, `long-name-1280-${scheme}.png`))
+    console.log(`pull requests long-name-1280: ${join(SCREENS, 'long-name-1280-light.png')} ${join(SCREENS, 'long-name-1280-dark.png')}`)
     expectNoWrite()
   } finally {
     await launched.close()

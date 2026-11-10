@@ -270,8 +270,12 @@ export function PrListItem({ group, row, ticket, viewer, now, selected, onSelect
             {row.title}
           </span>
           <span className="w-pr-inbox-item__sub">
+            {/* A long repository name is cut with an ellipsis; #N stays whole. */}
             <span className="w-mono w-pr-inbox-item__ref" data-testid="pr-inbox-ref" title={`${row.repo}#${row.number}`}>
-              {name}#{row.number}
+              <span className="w-pr-inbox-item__repo" data-testid="pr-inbox-ref-repo">
+                {name}
+              </span>
+              <span className="w-pr-inbox-item__number">#{row.number}</span>
             </span>
             <TicketChip ticket={ticket} />
             <CiDot ci={row.ci} label={row.ci !== 'passing'} />
@@ -316,6 +320,8 @@ export interface PrPaneProps {
   now: number
   /** The read-only hint of a Linked machine's screen: "Mark seen" is off with it. */
   readOnly: string | null
+  /** The list holds this PR alone: no ↑ ↓ hint. */
+  single: boolean
   onMarkSeen: () => void
 }
 
@@ -349,7 +355,7 @@ function Size({ row }: { row: PrInboxRow }) {
 }
 
 /** The selected PR in full: its title and facts, what to do next, the links and buttons, its threads with their drafts. */
-export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, onMarkSeen }: PrPaneProps) {
+export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, single, onMarkSeen }: PrPaneProps) {
   const review = reviewText(row.reviewDecision)
   const merge = mergeText(row.mergeStateStatus)
   const fresh = newText(row.newSinceSeen)
@@ -388,8 +394,9 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, o
           </div>
         </header>
         <PrDrafts projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} threads={row.threads}>
-          {(render, drafts) => {
+          {(render, drafts, sendAll) => {
             const step = nextStep(group, row, now, drafts.filter((item) => item.state === 'draft').length, render !== null)
+            const action = step.action
             return (
               <>
                 <div className="w-pr-inbox-next" data-testid="pr-inbox-next-step" data-tone={step.tone}>
@@ -400,10 +407,24 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, o
                     <b data-testid="pr-inbox-next-step-title">{step.title}</b>
                     <span>{step.text}</span>
                   </span>
-                  {step.action !== null ? (
-                    <ExternalLink url={step.action.url} className="w-pr-inbox-button w-pr-inbox-button--link" testId="pr-inbox-next-step-action">
-                      {step.action.label}
+                  {action?.kind === 'link' ? (
+                    <ExternalLink url={action.url} className="w-pr-inbox-button w-pr-inbox-button--primary w-pr-inbox-button--link" testId="pr-inbox-next-step-action">
+                      {action.label}
                     </ExternalLink>
+                  ) : action?.kind === 'send-all' && sendAll !== null ? (
+                    // The dialog of Send all with every text first: nothing is posted without its own Send all (ADR-0105).
+                    <button
+                      type="button"
+                      className="w-pr-inbox-button w-pr-inbox-button--primary"
+                      data-testid="pr-inbox-next-step-action"
+                      disabled={sendAll.off !== null}
+                      title={sendAll.off ?? undefined}
+                      onClick={sendAll.open}
+                    >
+                      Send all ({sendAll.count})
+                    </button>
+                  ) : action?.kind === 'draft-replies' ? (
+                    <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} primary />
                   ) : null}
                 </div>
                 <div className="w-pr-inbox-facts">
@@ -437,7 +458,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, o
                     Open on GitHub
                   </ExternalLink>
                   <span style={{ flex: 1 }} />
-                  <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} />
+                  {action?.kind === 'draft-replies' ? null : <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} />}
                   <button type="button" className="w-pr-inbox-button" disabled={row.newSinceSeen === 0 || readOnly !== null} title={readOnly ?? undefined} onClick={onMarkSeen}>
                     Mark seen
                   </button>
@@ -448,10 +469,12 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, o
                     {open} open · {resolved} resolved
                   </span>
                   <span style={{ flex: 1 }} />
-                  <span className="w-pr-inbox-threads-head__keys" aria-hidden="true">
-                    <kbd>↑</kbd>
-                    <kbd>↓</kbd> next PR
-                  </span>
+                  {single ? null : (
+                    <span className="w-pr-inbox-threads-head__keys" data-testid="pr-inbox-keys-hint" aria-hidden="true">
+                      <kbd>↑</kbd>
+                      <kbd>↓</kbd> next PR
+                    </span>
+                  )}
                 </h4>
                 <RowThreads row={row} now={now} render={render ?? undefined} drafts={drafts} />
               </>
@@ -489,7 +512,8 @@ export function PrInboxBody({ name, snapshot, tickets, now, selected, focusedGro
   const groups = listedGroups(snapshot)
   const empty = snapshot.readAt !== null && groups.length === 0
   const shown = shownKey(snapshot, selected)
-  const current = shown === null ? undefined : listOrder(snapshot).find(({ row }) => rowKey(row) === shown)
+  const order = listOrder(snapshot)
+  const current = shown === null ? undefined : order.find(({ row }) => rowKey(row) === shown)
   return (
     <div className="w-pr-inbox" data-testid="pr-inbox-view" data-project={snapshot.projectId}>
       <header className="w-pr-inbox__head">
@@ -579,6 +603,7 @@ export function PrInboxBody({ name, snapshot, tickets, now, selected, focusedGro
               viewer={snapshot.viewer}
               now={now}
               readOnly={readOnly}
+              single={order.length === 1}
               onMarkSeen={() => onMarkSeen(current.row)}
             />
           ) : null}
@@ -640,13 +665,19 @@ function ProjectPrInbox({ project }: { project: Pick<ProjectView, 'id' | 'name' 
   }
 
   // An ask for this Project is taken once its snapshot is there: the asked PR is selected; an asked group gets its first PR.
+  let pick = selected
   if (focus !== null && focus.projectId === project.id && snapshot !== undefined && focus.seq !== taken?.seq) {
     setTaken(focus)
     const found = focus.pr === null ? null : findRow(snapshot, focus.pr)
     const first = focus.pr === null && focus.group !== null ? listedGroups(snapshot).find(({ group }) => group === focus.group)?.rows[0] : undefined
-    if (found !== null) setSelected(rowKey(found.row))
-    else if (first !== undefined) setSelected(rowKey(first))
+    if (found !== null) pick = rowKey(found.row)
+    else if (first !== undefined) pick = rowKey(first)
   }
+  // The view's own pick is made once — on the first snapshot with PRs, or when the selected PR leaves it — and then
+  // kept: a later snapshot that reorders the groups does not move the pane off a PR whose draft is being typed.
+  // It does not mark the PR seen; only the user's click, key or entry does.
+  if (snapshot !== undefined && snapshot.enabled) pick = shownKey(snapshot, pick)
+  if (pick !== selected) setSelected(pick)
   const takenRow = taken?.pr == null || snapshot === undefined ? null : findRow(snapshot, taken.pr)
   const missing = taken?.pr != null && snapshot !== undefined && takenRow === null ? taken.pr : null
   const focusedGroup = taken !== null && taken.pr === null ? taken.group : null

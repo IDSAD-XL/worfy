@@ -527,9 +527,18 @@ export interface PrDraftsProps {
   threads: readonly { id: string; path: string | null; line: number | null }[]
   /**
    * The reply under a thread or the conversation, placed by the caller; the replies it does not place go below.
-   * In a window of a Linked machine `render` is null and `drafts` empty: the drafts stay on the Project's machine.
+   * `sendAll` opens the dialog of Send all with every text, for a caller's own button: null with fewer than two
+   * drafts. In a window of a Linked machine `render` and `sendAll` are null and `drafts` empty: the drafts stay on
+   * the Project's machine.
    */
-  children: (render: ((item: PrReplyItem) => ReactNode) | null, drafts: readonly PrReplyItem[]) => ReactNode
+  children: (render: ((item: PrReplyItem) => ReactNode) | null, drafts: readonly PrReplyItem[], sendAll: SendAllButton | null) => ReactNode
+}
+
+/** Send all for a button of the caller: how many replies it sends, why it is off (null when it is on), and the dialog. */
+export interface SendAllButton {
+  count: number
+  off: string | null
+  open: () => void
 }
 
 /** Why the Session cannot be asked to rewrite; null when it can. */
@@ -546,7 +555,7 @@ async function liveSession(session: string | null): Promise<string | null> {
  * `children`; Send all and the problems of the drafts are here.
  */
 export function PrDrafts(props: PrDraftsProps) {
-  if (!draftsHere()) return <>{props.children(null, [])}</>
+  if (!draftsHere()) return <>{props.children(null, [], null)}</>
   return <ThisMachineDrafts {...props} />
 }
 
@@ -601,9 +610,11 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
   )
 
   const anyEmpty = pending.some((item) => state.textOf(item).trim() === '')
+  const sendAllOff = disabled ?? (anyEmpty ? 'A reply is empty: write it or discard it' : state.busy ? 'Sending…' : null)
+  const openSendAll = (): void => setConfirming(pending.map((item) => ({ item, place: place(item), text: state.textOf(item) })))
   return (
     <>
-      {children(render, items)}
+      {children(render, items, pending.length > 1 ? { count: pending.length, off: sendAllOff, open: openSendAll } : null)}
       {state.error !== null || state.drafts?.problem != null || pending.length > 1 || asked !== null ? (
         <div style={draftStyles.bar} data-testid="pr-drafts-bar">
           {state.drafts?.problem != null ? (
@@ -629,7 +640,7 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
               data-testid="pr-drafts-send-all"
               disabled={state.busy || disabled !== null || anyEmpty}
               title={disabled ?? (anyEmpty ? 'A reply is empty: write it or discard it' : `Show the ${pending.length} replies before they are sent`)}
-              onClick={() => setConfirming(pending.map((item) => ({ item, place: place(item), text: state.textOf(item) })))}
+              onClick={openSendAll}
             >
               Send all…
             </button>
@@ -658,13 +669,15 @@ export interface DraftRepliesButtonProps {
   repo: string
   number: number
   readOnly: string | null
+  /** The main button of its place (the "what to do next" strip of the Pull requests view). */
+  primary?: boolean
 }
 
 /**
  * "Draft replies" on an open row: a new Session with skill pr-reply over the PR (`actions.prReply`), and a line on how
  * it went. None in a window of a Linked machine: the drafts stay on the machine of the Project.
  */
-export function DraftRepliesButton({ projectId, repo, number, readOnly }: DraftRepliesButtonProps) {
+export function DraftRepliesButton({ projectId, repo, number, readOnly, primary = false }: DraftRepliesButtonProps) {
   const [line, setLine] = useState<string | null>(null)
   if (!draftsHere()) return null
   const start = (): void => {
@@ -681,7 +694,7 @@ export function DraftRepliesButton({ projectId, repo, number, readOnly }: DraftR
       ) : null}
       <button
         type="button"
-        className="w-pr-inbox-button"
+        className={primary ? 'w-pr-inbox-button w-pr-inbox-button--primary' : 'w-pr-inbox-button'}
         data-testid="pr-inbox-draft-replies"
         disabled={readOnly !== null}
         title={readOnly ?? 'A new Session drafts replies to the open threads into a file on this machine; nothing is posted'}

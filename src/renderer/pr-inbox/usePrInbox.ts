@@ -306,12 +306,18 @@ export function sizeOf(row: Pick<PrInboxRow, 'additions' | 'deletions'>): { addi
 /** The tone of the "what to do next" strip: one per group. */
 export type NextTone = 'review' | 'answer' | 'fix' | 'ready' | 'waiting'
 
-/** The "what to do next" strip of the pane: a title, a line, and a page of the PR on GitHub to open, when one helps. */
+/**
+ * The main button of the "what to do next" strip: a page of the PR on GitHub to open, Send all of its draft replies (the
+ * dialog with every text first), or Draft replies; null when the strip has none.
+ */
+export type NextAction = { kind: 'link'; label: string; url: string } | { kind: 'send-all'; count: number } | { kind: 'draft-replies' }
+
+/** The "what to do next" strip of the pane: a title, a line, and its main button, when one helps. */
 export interface NextStep {
   tone: NextTone
   title: string
   text: string
-  action: { label: string; url: string } | null
+  action: NextAction | null
 }
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
@@ -328,19 +334,22 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         tone: 'review',
         title: 'Your review is asked',
         text: `${row.author ?? 'ghost'} opened it ${ageText(row.createdAt, now)} ago${row.viaTeam ? ', asked through your team' : ''}.${open > 0 ? ` ${plural(open, 'open thread', 'open threads')} from others.` : ''}`,
-        action: { label: 'Start review', url: `${row.url}/files` },
+        action: { kind: 'link', label: 'Start review', url: `${row.url}/files` },
       }
     case 'needs-answer':
       return {
         tone: 'answer',
         title: open > 0 ? `Answer ${plural(open, 'open thread', 'open threads')}` : 'Your answer is awaited',
+        // One draft: its Send stays under its thread, beside the text it posts; the strip points there.
         text:
-          drafts > 0
-            ? `${plural(drafts, 'draft reply is', 'draft replies are')} ready below: read, edit, Send.`
-            : canDraft
-              ? 'No drafts yet: Draft replies starts a Session that writes them.'
-              : 'Drafts of replies stay on the machine of the Project.',
-        action: null,
+          drafts > 1
+            ? `${drafts} draft replies are ready below: read, edit, then send each or all.`
+            : drafts === 1
+              ? '1 draft reply is ready below: read, edit, then Send under its thread.'
+              : canDraft
+                ? 'No drafts yet: Draft replies starts a Session that writes them.'
+                : 'Drafts of replies stay on the machine of the Project.',
+        action: drafts > 1 ? { kind: 'send-all', count: drafts } : drafts === 0 && canDraft ? { kind: 'draft-replies' } : null,
       }
     case 'needs-fix': {
       const failing = row.ci === 'failing'
@@ -350,11 +359,11 @@ export function nextStep(group: PrInboxGroup, row: PrInboxRow, now: number, draf
         tone: 'fix',
         title: failing && changes ? 'CI failing and changes requested' : failing ? 'CI failing' : changes ? 'Changes requested' : conflict ? 'Merge conflict' : 'Needs a fix',
         text: failing ? 'Open the failing checks on GitHub.' : changes ? 'Read the requested changes in the threads below.' : conflict ? 'Resolve the conflict with the base branch.' : 'Look at the PR on GitHub.',
-        action: failing ? { label: 'Open checks', url: `${row.url}/checks` } : null,
+        action: { kind: 'link', label: 'Open checks', url: `${row.url}/checks` },
       }
     }
     case 'ready':
-      return { tone: 'ready', title: 'Ready to merge', text: 'Approved, CI passing, no conflict.', action: { label: 'Open to merge', url: row.url } }
+      return { tone: 'ready', title: 'Ready to merge', text: 'Approved, CI passing, no conflict.', action: { kind: 'link', label: 'Open to merge', url: row.url } }
     case 'waiting':
       return { tone: 'waiting', title: row.isDraft ? 'Draft PR: no review asked yet' : 'Waiting for reviewers', text: `Last activity ${ageText(row.lastActivityAt, now)} ago.`, action: null }
   }
