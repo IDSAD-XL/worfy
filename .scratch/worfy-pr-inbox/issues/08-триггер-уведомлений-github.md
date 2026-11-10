@@ -1,7 +1,7 @@
 # 08 — Триггер уведомлений GitHub: `GET /notifications` с `If-Modified-Since`, 304 — «без перемен»
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T00:29Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Как работает» → «Триггер уведомлений (Ticket 08; Q4)»; «Риски» («Rate limit», «Scope
 токена»); «Ticket-ы», «Волны» (Wave 2); решение Q4; [критика](../../../docs/product/critic/worfy-pr-inbox-2026-11-09.md),

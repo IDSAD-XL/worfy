@@ -18,8 +18,10 @@
 //   moved) fails the whole page in gh: the page's PRs are then read one by one, and that PR leaves the cache.
 // - Pace: a search per Project every 5 minutes, focused or not. A failed read doubles the interval up to 30 minutes;
 //   the first success brings back 5. An answer whose rate limit has less than 10 % left stops every call of that
-//   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn (the notifications
-//   trigger of ticket 08 calls it).
+//   account until its `resetAt`. `refresh(repo, number)` reads one PR's details out of turn.
+// - Notifications (ticket 08, src/main/github/inbox-notifications.ts): with the `notifications` option, each tick
+//   also asks GitHub's notifications of every account whose Projects were read, and refreshes the PRs they name.
+//   Its 403 leaves a notice in the snapshot; the search goes on either way.
 // - Cache: per account. Two Projects of one account never read the details of one PR twice. A PR no Project's last
 //   search found, and every PR of a Project that left the list, leave it.
 // - Off: `"prInbox": false` in the Project's settings.json, or no repository on GitHub — not one gh call.
@@ -34,6 +36,7 @@ import { PR_INBOX_GROUPS, type PrInboxRow, type PrInboxSnapshot } from '../../sh
 import { readPrInboxState, writeSeenPull } from '../projects/pr-inbox-state'
 import { gitRunner, type GitRunner } from '../workflow/stages'
 import { commentsOf, decisionOf, groupPulls, lastActivityOf, same, timeOf, type InboxComment, type InboxMember, type InboxPull } from './inbox-groups'
+import { NotificationsTrigger, type NotificationsAccount } from './inbox-notifications'
 import { accountAuth, type GhEnv, type GhRunner } from './prs'
 import { parseRemote } from './remote'
 
@@ -225,6 +228,11 @@ export interface PrInboxOptions {
   retryWaitMs?: number
   searchIntervalMs?: number
   maxIntervalMs?: number
+  /** The notifications trigger of ticket 08; without it the inbox reads by its search alone. */
+  notifications?: {
+    /** Whether a window of worfy has the focus: GitHub's poll interval then, every 5 minutes otherwise. */
+    focused: () => boolean
+  }
 }
 
 interface CachedPull {
@@ -260,11 +268,17 @@ export class PrInbox {
   private readonly base: number
   private readonly max: number
   private ticking = false
+  private readonly trigger: NotificationsTrigger | null
 
   constructor(private readonly options: PrInboxOptions) {
     this.now = options.now ?? Date.now
     this.base = options.searchIntervalMs ?? INBOX_SEARCH_INTERVAL_MS
     this.max = options.maxIntervalMs ?? INBOX_MAX_INTERVAL_MS
+    const notifications = options.notifications
+    this.trigger =
+      notifications === undefined
+        ? null
+        : new NotificationsTrigger({ run: options.run, accounts: () => this.notificationAccounts(), refresh: (repo, number) => this.refresh(repo, number), focused: notifications.focused, now: this.now })
   }
 
   /** Reads every Project whose search is due, one after another, so a second Project of an account finds the first one's details. */
@@ -275,6 +289,7 @@ export class PrInbox {
       const projects = this.options.projects()
       this.forget(new Set(projects.map((project) => project.id)))
       for (const project of projects) await this.pollIfDue(project)
+      await this.trigger?.tick()
     } finally {
       this.ticking = false
     }
@@ -354,7 +369,7 @@ export class PrInbox {
       readAt: state?.readAt == null ? null : new Date(state.readAt).toISOString(),
       nextSearchAt: on && state ? new Date(state.nextAt).toISOString() : null,
       error: on ? (state?.error ?? null) : null,
-      notice: null,
+      notice: on && state ? (this.trigger?.notice(state.account ?? '') ?? null) : null,
     }
   }
 
@@ -369,6 +384,21 @@ export class PrInbox {
     writeSeenPull(project.dataDir, key, { seenAt: new Date(this.now()).toISOString(), seenHeadOid: pull.headRefOid, lastSeenCommentId: newest?.id ?? null })
     this.options.onChange?.(projectId)
     return this.snapshot(projectId)
+  }
+
+  /** The accounts of the Projects read so far, with their repositories, for the notifications trigger. */
+  private notificationAccounts(): NotificationsAccount[] {
+    const byAccount = new Map<string, NotificationsAccount & { repos: string[]; dataDirs: string[] }>()
+    for (const project of this.options.projects()) {
+      const state = this.states.get(project.id)
+      if (state === undefined || !state.enabled || state.readAt === null || !this.options.enabled(project)) continue
+      const key = state.account ?? ''
+      const account = byAccount.get(key) ?? { key, root: project.root, repos: [], dataDirs: [], env: () => this.envOf(project.root, state.account) }
+      for (const repo of state.repos) if (!account.repos.some((each) => each.toLowerCase() === repo.toLowerCase())) account.repos.push(repo)
+      account.dataDirs.push(project.dataDir)
+      byAccount.set(key, account)
+    }
+    return [...byAccount.values()]
   }
 
   private projectOf(projectId: string): PrInboxProject {

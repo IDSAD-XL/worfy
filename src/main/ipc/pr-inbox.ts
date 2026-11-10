@@ -2,6 +2,7 @@
 // reader (src/main/github/inbox.ts): it reads the Projects of this Machine only, so a Linked machine gets the snapshot
 // of the Project machine through these channels and never polls GitHub itself. Every change of a Project's inbox
 // reaches every client as `prInbox.changed`.
+import { BrowserWindow } from 'electron'
 import { prInboxChanged, prInboxGet, prInboxMarkSeen } from '../../shared/ipc/pr-inbox'
 import { agentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
@@ -54,6 +55,8 @@ export function sharedPrInbox(): PrInbox {
     account: async (root) => (await readGithubAccount({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined })).account,
     repos: async (root) => remoteRepos(await repoFolders(root)),
     onChange: (projectId) => toEveryWindow((client) => emit(client, prInboxChanged, { projectId })),
+    // GitHub's notifications as a trigger (ticket 08): its own poll interval while a worfy window has the focus.
+    notifications: { focused: () => BrowserWindow.getFocusedWindow() !== null },
   })
   return shared
 }
