@@ -4,7 +4,7 @@
 // terminal inside the dialog. The user answers gh there; when gh exits the accounts are read again.
 // The choice goes into the draft through `onChoose`; nothing is written before "Connect". "Edit profile"
 // (EditProfile.tsx, worfy-polish ticket 78) opens the same step over a connected Project's Profile, with
-// its account as `initial`.
+// its account as `initial` and `pickOnly`: there a load changes nothing, only the person's pick does.
 //
 // The sign-in runs in main's pseudo-terminal of its own (`projects.connect.signIn`), not in a
 // Terminal Node: a Project being connected has no Canvas yet.
@@ -38,7 +38,13 @@ export interface GithubAccountProps {
    * so a load keeps it while the accounts list it. Left out: the step's default, as on "Add project".
    */
   initial?: string | null
-  /** The account and the finish for the draft: on every load and every choice. */
+  /**
+   * Only the person's pick goes to `onChoose`, never a load: "Edit profile" changes a written Profile, where a
+   * load that found gh signed out or the account unknown would replace its account and finish unasked. The
+   * highlighted row is then the account as written (none when gh does not list it). Left out: every load too.
+   */
+  pickOnly?: boolean
+  /** The account and the finish for the draft: on every load and every choice (only the choices with `pickOnly`). */
   onChoose: (choice: GithubChoice) => void
   /** True while the accounts are read again, false when they came: "Connect" waits for them. The first read is busy from the start. */
   onBusy: (busy: boolean) => void
@@ -76,7 +82,7 @@ function choiceOf(step: GithubAccountsStep, picked: string | null | undefined): 
   return githubChoice(step, step.status === 'accounts' ? step.selected : null)
 }
 
-export function GithubAccount({ root, machine, machineName, disabled, initial, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
+export function GithubAccount({ root, machine, machineName, disabled, initial, pickOnly = false, onChoose, onBusy, onFirstRun }: GithubAccountProps) {
   /** A Linked machine's folder: its gh is not signed in from this screen. */
   const remote = typeof machine === 'string'
   /** The read the answer belongs to, and the answer; a read whose answer has not come is loading. */
@@ -90,7 +96,7 @@ export function GithubAccount({ root, machine, machineName, disabled, initial, o
   const answered = useEffectEvent((read: number, load: Load) => {
     setAnswer({ read, load })
     onBusy(false)
-    onChoose(load.kind === 'step' ? choiceOf(load.step, picked) : { account: null, finish: 'local-green' })
+    if (!pickOnly) onChoose(load.kind === 'step' ? choiceOf(load.step, picked) : { account: null, finish: 'local-green' })
   })
 
   useEffect(() => {
@@ -105,7 +111,7 @@ export function GithubAccount({ root, machine, machineName, disabled, initial, o
 
   const load: Load | { kind: 'loading' } = answer === null || answer.read !== reads ? { kind: 'loading' } : answer.load
   const step = load.kind === 'step' ? load.step : null
-  const chosen = step === null ? null : choiceOf(step, picked).account
+  const chosen = step === null ? null : pickOnly ? picked : choiceOf(step, picked).account
 
   const pick = (login: string | null): void => {
     if (step === null || disabled) return

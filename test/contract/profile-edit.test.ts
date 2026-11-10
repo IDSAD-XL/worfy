@@ -171,6 +171,14 @@ describe('profileEdit over the real bin/profile-set', () => {
     expect(commits()).toBe(commitsBefore)
   })
 
+  // The unit test's check answers this way too: the form sends a cleared verify or ticket path as "", never null.
+  it('null in verify and in the ticket path passes the check: it means "none", so a cleared field cannot be sent as null', async () => {
+    const module = handlers()
+    const state = await read(module)
+    const values = { ...state.values, 'commands.verify': null, 'tickets.path': null }
+    expect(await call(module, 'profileEdit.check', { root: repo, values })).toEqual([])
+  })
+
   it('a Profile changed since the read: conflict, nothing written; a new read shows the change', async () => {
     const module = handlers()
     const stale = await read(module)

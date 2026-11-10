@@ -785,6 +785,47 @@ run "$SET" -C "$T/r/demo" --field language.team --expect "$fp_lang" --set '{"lan
 check "language as a string: exit 1" [ $? -eq 1 ]
 check "language as a string: the reason names it" grep -qF "language: is a string in the profile" "$T/err"
 check "language as a string: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-lang"
+
+# The rules bin/profile reads a profile by: a value it would call a broken profile is not written.
+cp "$PJ" "$T/pj-before-rules"
+before_commits="$(commits)"
+for broken_value in \
+    'workflow.ci|{"workflow.ci":"batch"}|workflow.ci "batch" needs workflow.ci_batch_run' \
+    'workflow.e2e_lock|{"workflow.e2e_lock":"rel/lock"}|workflow.e2e_lock is an absolute path or null' \
+    'cross_machine_gate|{"cross_machine_gate":{"role":"serve","label":"needs-pc","checks_section":"Checks"}}|cross_machine_gate: role "serve" needs check'; do
+    f="${broken_value%%|*}"
+    rest="${broken_value#*|}"
+    value="${rest%%|*}"
+    why="${rest#*|}"
+    fp_rule="$(run "$SET" -C "$T/r/demo" --field "$f" --read | json_get fingerprint)"
+    run "$SET" -C "$T/r/demo" --field "$f" --check "$value" >"$T/out" 2>"$T/err"
+    check "bin/profile rules: --check of $f refuses ($why): exit 1" [ $? -eq 1 ]
+    check "bin/profile rules: --check of $f: stdout names $f" [ "$(at_of "$T/out" errors/0/path)" = "\"$f\"" ]
+    run "$SET" -C "$T/r/demo" --field "$f" --expect "$fp_rule" --set "$value" >"$T/out" 2>"$T/err"
+    check "bin/profile rules: --set of $f refuses: exit 1" [ $? -eq 1 ]
+    check "bin/profile rules: --set of $f: stderr gives bin/profile's reason" grep -qF -- "$why" "$T/err"
+    check "bin/profile rules: --set of $f: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-rules"
+done
+check "bin/profile rules: no commit" [ "$(commits)" -eq "$before_commits" ]
+run "$PROFILE" -C "$T/r/demo" --json >/dev/null 2>"$T/err"
+check "bin/profile rules: bin/profile still reads the profile" [ $? -eq 0 ]
+# Allowed together; a --reset that leaves "batch" without its command is refused like a --set.
+CI2=(--field workflow.ci --field workflow.ci_batch_run)
+fp_ci="$(run "$SET" -C "$T/r/demo" "${CI2[@]}" --read | json_get fingerprint)"
+out="$(run "$SET" -C "$T/r/demo" "${CI2[@]}" --expect "$fp_ci" --set '{"workflow.ci":"batch","workflow.ci_batch_run":"gh workflow run ci.yml --ref $ref"}' 2>"$T/err")"
+check "bin/profile rules: ci batch with its command: exit 0" [ $? -eq 0 ]
+check "bin/profile rules: ci batch with its command: bin/profile reads it" [ "$(run "$PROFILE" -C "$T/r/demo" --field workflow.ci)" = batch ]
+cp "$PJ" "$T/pj-before-reset"
+fp_run="$(run "$SET" -C "$T/r/demo" --field workflow.ci_batch_run --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field workflow.ci_batch_run --expect "$fp_run" --reset >"$T/out" 2>"$T/err"
+check "bin/profile rules: --reset of ci_batch_run under batch: exit 1" [ $? -eq 1 ]
+check "bin/profile rules: --reset refused: profile.json is unchanged" cmp -s "$PJ" "$T/pj-before-reset"
+fp_ci="$(run "$SET" -C "$T/r/demo" "${CI2[@]}" --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" "${CI2[@]}" --expect "$fp_ci" --reset >/dev/null 2>"$T/err"
+check "bin/profile rules: --reset of both: exit 0" [ $? -eq 0 ]
+fp_lock="$(run "$SET" -C "$T/r/demo" --field workflow.e2e_lock --read | json_get fingerprint)"
+run "$SET" -C "$T/r/demo" --field workflow.e2e_lock --expect "$fp_lock" --set '{"workflow.e2e_lock":"~/locks/e2e"}' >/dev/null 2>"$T/err"
+check "bin/profile rules: e2e_lock under ~/ is written" [ "$(at_of "$PJ" workflow/e2e_lock)" = '"~/locks/e2e"' ]
 check "fields: no lock folder left" [ ! -e "$LOCKDIR" ]
 
 # --- a Harness home inside another git repository gets no commit -----------------------------------------

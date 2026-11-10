@@ -100,8 +100,11 @@ export const profileEditWriteResultSchema = z.discriminatedUnion('status', [
 ])
 export type ProfileEditWriteResult = z.output<typeof profileEditWriteResultSchema>
 
-/** Writes the fields: Save of "Edit profile". `expected` is the fingerprint `profileEdit.read` gave. */
-export const profileEditWrite = invokeChannel('profileEdit.write', valuesInput.extend({ expected: pipelineFingerprintSchema }), profileEditWriteResultSchema, 'project', 'write')
+/**
+ * Writes the fields: Save of "Edit profile". `expected` is the fingerprint `profileEdit.read` gave. `local`, as
+ * `pipeline.write`: a Linked machine never writes this Machine's Profile, whose commands its gate runs.
+ */
+export const profileEditWrite = invokeChannel('profileEdit.write', valuesInput.extend({ expected: pipelineFingerprintSchema }), profileEditWriteResultSchema, 'local')
 
 /** The message of a refused write whose fields changed since the read. */
 export const PROFILE_CHANGED = 'The profile changed since you opened it. The form shows it as it is now; make your change again.'

@@ -146,6 +146,17 @@ describe('the initial marks', () => {
     expect(read?.use).toBe('read')
   })
 
+  // "Edit profile" (worfy-polish ticket 78) as the Pipeline editor: a Linked machine with full access reads a
+  // Profile and its check, and never writes it — its commands are the ones the gate runs on this Machine.
+  it('Edit profile: profileEdit.write is `local`, profileEdit.read and profileEdit.check are `project` and `read`', () => {
+    expect(marked('local')).toContain('profileEdit.write')
+    for (const name of ['profileEdit.read', 'profileEdit.check']) {
+      const channel = channels.find((each) => each.name === name)
+      expect(channel?.access, name).toBe('project')
+      expect(channel?.use, name).toBe('read')
+    }
+  })
+
   it('projects.browse is `project`: the folders of a Linked machine, only while access is on (worfy-link ticket 11)', () => {
     expect(marked('project')).toContain('projects.browse')
   })
@@ -329,8 +340,6 @@ describe('the read-or-write mark of `project` channels', () => {
     'claudeHome.hideSubagents',
     'claudeHome.showSubagents',
     'ecoMode.set',
-    // "Edit profile" writes the Profile through bin/profile-set --set (worfy-polish ticket 78).
-    'profileEdit.write',
     // Writes an image file into the Project's data folder (worfy-canvas ticket 23).
     'canvasImage.add',
     'layout.apply',

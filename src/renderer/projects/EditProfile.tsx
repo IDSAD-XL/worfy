@@ -7,7 +7,8 @@
 // again. worfy never writes `profile.json` itself (ADR-0002, ADR-0005, ADR-0073).
 //
 // The GitHub account changes through the "GitHub account" step of "Add project" (GithubAccount.tsx),
-// which checks the push access of each account and sets the finish it allows. `mode` and the Workflow
+// which checks the push access of each account and sets the finish it allows; only the person's pick there
+// changes the form, never the load of the accounts, and Save waits while they load. `mode` and the Workflow
 // folder are shown, not edited: they change by moving the workflow files (ticket 81); the name holds the
 // Profile's folder and stays.
 //
@@ -19,7 +20,7 @@ import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { PROFILE_CHANGED, PROFILE_COMMANDS, PROFILE_EDIT_FIELDS, type ProfileEditIssue, type ProfileEditRead, type ProfileEditValues } from '../../shared/ipc/profile-edit'
 import type { GithubChoice } from '../../shared/ipc/projects'
-import { invoke, invokeOn } from '../ipc'
+import { invoke, invokeOn, windowMachine } from '../ipc'
 import { GithubAccount } from './GithubAccount'
 import { fieldStyles, issuesAt, text } from './profile-fields'
 import { ListField, SelectField, TextField } from './ProfileFields'
@@ -28,7 +29,7 @@ export interface EditProfileProps {
   project: { name: string; path: string }
   /** The Machine of the Project, as ProjectSettingsProps.machine: the calls go there. */
   machine?: string | null
-  /** The Project is shared read-only by its Linked machine: the form shows, Save is off; the reason. */
+  /** The Project is shared read-only by its Linked machine: the form shows, without Save; the reason. */
   readOnly: string | null
   onClose: () => void
   /** Written: `warning` is why the change was not committed in the Harness home's git (the write stays). */
@@ -71,9 +72,21 @@ const CHECK_DELAY_MS = 350
 const FIXED_NOTE = 'Changed by moving the workflow files'
 
 const FIELD_SET = new Set<string>(PROFILE_EDIT_FIELDS)
+/**
+ * The Profile of a Linked machine's Project is read from here and written only on that machine, as its Pipeline is
+ * (`profileEdit.write` is a `local` channel): its commands are the ones the gate runs there.
+ */
+const LINKED_NOTE = 'This profile belongs to a Project of a Linked machine: edit it in worfy on that machine.'
+/**
+ * The text fields the Harness requires a text in: cleared, they are sent as `""`, which it refuses at the field.
+ * As null they would pass its check and be written: commands.verify null is "no check", tickets.path null "no tickets".
+ */
+const TEXT_REQUIRED = new Set(['commands.verify', 'tickets.path'])
 
 export function EditProfile({ project, machine, readOnly, onClose, onSaved }: EditProfileProps) {
   const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
+  /** Why the form is only shown, without Save: the Project is shared read-only, or it is of a Linked machine; null — editable. */
+  const viewOnly = readOnly ?? ((machine === undefined ? windowMachine() : machine) === null ? null : LINKED_NOTE)
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   /** Bumped to read the Profile again (after a refused fingerprint). */
   const [reads, setReads] = useState(0)
@@ -83,6 +96,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
   const [saving, setSaving] = useState(false)
   /** The "GitHub account" step is open, and its accounts are being read. */
   const [changingAccount, setChangingAccount] = useState(false)
+  /** The account step's read of the accounts runs: true from the moment the step opens until they came. */
   const [readingAccounts, setReadingAccounts] = useState(false)
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const titleId = useId()
@@ -113,7 +127,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
 
   const read = load.kind === 'form' ? load.read : null
   const edited = read !== null && JSON.stringify(values) !== JSON.stringify(read.values)
-  const locked = saving || readOnly !== null
+  const locked = saving || viewOnly !== null
 
   const check = async (next: ProfileEditValues): Promise<void> => {
     const seq = ++checkSeq.current
@@ -135,6 +149,16 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
   }
 
   const chooseAccount = (choice: GithubChoice): void => edit({ 'github.account': choice.account, 'workflow.finish': choice.finish })
+  // The step reads the accounts as it opens: Save waits from the first moment, not from its first answer.
+  const openAccountStep = (): void => {
+    setReadingAccounts(true)
+    setChangingAccount(true)
+  }
+  // A closed step's read is dropped unanswered, so its wait ends with it.
+  const closeAccountStep = (): void => {
+    setChangingAccount(false)
+    setReadingAccounts(false)
+  }
 
   const save = async (): Promise<void> => {
     if (read === null || !edited || checking || readingAccounts || locked || issues.length > 0) return
@@ -153,7 +177,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
         return
       case 'conflict':
         // The form shows the Profile as it is now; the edits made over the old one are dropped.
-        setChangingAccount(false)
+        closeAccountStep()
         setReads((count) => count + 1)
         setMessage({ error: true, text: PROFILE_CHANGED })
         return
@@ -167,10 +191,31 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
   }
 
   const field = (name: string, label: string, hint?: string): ReactNode => (
-    <TextField key={name} path={name} label={label} hint={hint} value={values[name]} issues={issues} disabled={locked} onChange={(value) => edit({ [name]: value })} />
+    <TextField
+      key={name}
+      path={name}
+      label={label}
+      hint={hint}
+      value={values[name]}
+      issues={issues}
+      disabled={locked}
+      emptyAs={TEXT_REQUIRED.has(name) ? '' : null}
+      onChange={(value) => edit({ [name]: value })}
+    />
   )
   const listField = (name: string, label: string, hint?: string): ReactNode => (
-    <ListField key={name} path={name} label={label} hint={hint} value={values[name]} issues={issues} disabled={locked} separator=", " onChange={(value) => edit({ [name]: value })} />
+    <ListField
+      key={name}
+      path={name}
+      label={label}
+      hint={hint}
+      value={values[name]}
+      issues={issues}
+      disabled={locked}
+      separator=", "
+      emptyAs={read === null || read.values[name] === null || read.values[name] === undefined ? null : []}
+      onChange={(value) => edit({ [name]: value })}
+    />
   )
   const choice = (name: string, label: string, options: readonly string[], empty?: string): ReactNode => (
     <SelectField key={name} path={name} label={label} value={values[name]} issues={issues} disabled={locked} options={options} empty={empty} onChange={(value) => edit({ [name]: value })} />
@@ -237,7 +282,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
               {typeof account === 'string' ? account : 'No account'}
             </span>
             {changingAccount || locked ? null : (
-              <button type="button" className="w-action" onClick={() => setChangingAccount(true)}>
+              <button type="button" className="w-action" onClick={openAccountStep}>
                 Change account…
               </button>
             )}
@@ -253,6 +298,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
               machine={machine}
               disabled={locked}
               initial={typeof account === 'string' ? account : null}
+              pickOnly
               onChoose={chooseAccount}
               onBusy={setReadingAccounts}
               onFirstRun={() => setMessage({ error: true, text: 'gh is not installed on this machine: the first-run checks of worfy say how to install it.' })}
@@ -314,11 +360,11 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
     )
   }
 
-  const canSave = read !== null && edited && !checking && !saving && !readingAccounts && readOnly === null && issues.length === 0
+  const canSave = read !== null && edited && !checking && !saving && !readingAccounts && viewOnly === null && issues.length === 0
   const footerText =
-    readOnly !== null ? (
+    viewOnly !== null ? (
       <span className="w-read-only-note" style={styles.footerMessage} data-testid="edit-profile-read-only">
-        {readOnly}
+        {viewOnly}
       </span>
     ) : message !== null ? (
       <span role={message.error ? 'alert' : 'status'} style={message.error ? styles.footerError : styles.footerMessage} data-testid="edit-profile-message">
@@ -365,11 +411,13 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
         <div style={styles.footer}>
           {footerText}
           <button type="button" className="w-action" aria-disabled={saving ? 'true' : undefined} onClick={() => !saving && onClose()}>
-            Cancel
+            {viewOnly === null ? 'Cancel' : 'Close'}
           </button>
-          <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+          {viewOnly === null ? (
+            <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={() => void save()}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>,

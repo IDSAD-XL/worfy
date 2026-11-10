@@ -267,14 +267,17 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   three languages, the attribution and the four worktree fields. The name, `mode` and the Workflow folder show as text: the
   mode and the folder are "Changed by moving the workflow files". The Gate registry entries and `rules.md` are not in the
   form. Every edit goes to the Harness, which checks it by the rules of the draft schema
-  (`harness/profiles/draft.schema.json`); a refusal shows under its field and turns off Save. An empty `verify`, a ticket
-  path without `NN` and an unknown finish are refused this way. Save writes the fields through `harness/bin/profile-set`,
+  (`harness/profiles/draft.schema.json`); a refusal shows under its field and turns off Save. A cleared `verify` or ticket
+  path is sent as an empty text, not as "none", so it is refused this way, as a ticket path without `NN` and an unknown
+  finish are. Save writes the fields through `harness/bin/profile-set`,
   with a commit in the Harness home's git, and only while the Profile still has what the form read. If it changed in
   between, Save is refused with "The profile changed since you opened it", and the form shows the Profile as it is now.
   "Change account…" opens the GitHub account step of "Add project": it lists the accounts gh knows with their push
-  access, keeps the Profile's account picked while gh lists it, and sets the finish of the account picked. An empty list
-  field, never set, stays absent; a list field once written is not removed from here. A Linked machine shared read-only
-  sees the form without Save.
+  access and marks the Profile's account while gh lists it. Loading the list changes nothing; only an account picked
+  there sets the account and its finish, and Save waits while the accounts load. A list field the Profile does not have
+  stays absent when left empty; one it has, emptied, is written as an empty list, which for the MCP servers and the
+  skills allowed means "none". A Project of a Linked machine, or one shared read-only, shows the form without Save: a
+  Profile is written only on its own machine.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
@@ -378,7 +381,8 @@ it is refused.
 - `src/renderer/projects/EditProfile.tsx`: "Edit profile". `src/renderer/projects/ProfileFields.tsx` and
   `src/renderer/projects/profile-fields.ts`: the fields it shares with the Review step of "Add project".
   `src/main/ipc/profile-edit.ts`, `src/shared/ipc/profile-edit.ts`: `profileEdit.read`, `profileEdit.check` and
-  `profileEdit.write`, `project` channels over `bin/profile-set --field`; the write needs full access.
+  `profileEdit.write`, over `bin/profile-set --field`: the read and the check are `project` read channels, the write is
+  `local`, as `pipeline.write`, so a Linked machine reads a Profile and never writes it.
 - `src/renderer/palette/commands.ts`: "Switch to project". `src/renderer/pipeline/open.ts`,
   `src/renderer/canvas/overlays/NotificationTarget.tsx`: the other routes to `openProject`.
 

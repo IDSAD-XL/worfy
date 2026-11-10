@@ -335,7 +335,7 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | Script | What it does |
 |---|---|
 | `profile` | Prints the Profile of a folder, whole or one field |
-| `profile-set` | Writes the Pipeline, or with `--field` other fields of a Profile, checked by the draft schema (not `name`, `mode`, `schema`, `workflow.folder`). `--check` only checks |
+| `profile-set` | Writes the Pipeline, or with `--field` other fields of a Profile, checked by the draft schema and by the rules `bin/profile` reads a Profile by (not `name`, `mode`, `schema`, `workflow.folder`). `--check` only checks |
 | `project-connect` | Writes or removes the Profile and registry entries of a Project |
 | `ticket` | The one writer of a Ticket's status lines. Also writes the marks |
 | `epic-status` | The Stage line of an Epic, or every Ticket as JSON |

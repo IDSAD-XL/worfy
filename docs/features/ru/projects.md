@@ -212,12 +212,16 @@ Project Machine этого окна. Строка секции Pipeline или n
   `parallel`, линзы ревью и тикета, MCP servers, разрешённые skills, GitHub account, папка ADR, метка статуса ADR, feature
   pages, glossary, файл состояния, три языка, attribution и четыре поля worktree. Имя, `mode` и Workflow folder видны текстом:
   mode и папка — «Changed by moving the workflow files». Записей Gate registry и `rules.md` в форме нет. Каждую правку Harness
-  проверяет правилами схемы черновика (`harness/profiles/draft.schema.json`); отказ виден под его полем и выключает Save. Так
-  отклоняются пустой `verify`, путь тикета без `NN` и неизвестный finish. Save пишет поля через `harness/bin/profile-set`, с
+  проверяет правилами схемы черновика (`harness/profiles/draft.schema.json`); отказ виден под его полем и выключает Save.
+  Очищенные `verify` и путь тикета уходят пустым текстом, а не «нет значения», поэтому они отклоняются так же, как путь тикета
+  без `NN` и неизвестный finish. Save пишет поля через `harness/bin/profile-set`, с
   commit-ом в git папки Harness, и только пока Profile такой, каким форма его прочла. Если он изменился, Save отказывает с
   «The profile changed since you opened it», и форма показывает Profile, каким он стал. «Change account…» открывает шаг GitHub
-  account из «Add project»: аккаунты gh с правом push, аккаунт Profile-а остаётся выбранным, пока gh его знает, finish — по
-  выбранному аккаунту. Linked machine с доступом только на чтение видит форму без Save.
+  account из «Add project»: аккаунты gh с правом push, аккаунт Profile-а отмечен, пока gh его знает. Загрузка списка ничего не
+  меняет: аккаунт и его finish задаёт только выбор в списке, а Save ждёт, пока аккаунты загружаются. Поле-список, которого в
+  Profile нет, оставленное пустым, так и остаётся без значения; поле, которое есть, после очистки пишется пустым списком, а для
+  MCP servers и разрешённых skills это «ни одного». Project Linked machine и Project с доступом только на чтение показывают
+  форму без Save: Profile пишется только на своей машине.
 - «Process gate queue» есть только тогда, когда роль Project-а в межмашинной очереди Gate — `serve`. Пункт отправляет шаблон
   Orchestrator-у Project-а.
 - «Remove from list» действует сразу, без вопроса. Project уходит из списка. Если он был активным, активным становится первый из

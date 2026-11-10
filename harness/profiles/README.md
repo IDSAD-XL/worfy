@@ -232,7 +232,7 @@ the way the project really runs them.
 After the connection a field is changed through `bin/profile-set --field <name>` (worfy's "Edit profile"
 form calls it): any field except `name`, `mode`, `schema`, `workflow.folder` and `workflow.pipeline`
 (written by `profile-set` without `--field`), checked by the rules of `profiles/draft.schema.json` before
-it is written, with the same `--expect <fingerprint>` and a commit in the git repository of the Harness
+it is written, and the profile it leaves by the rules `bin/profile` reads it by (`lib/profile-rules.cjs`), with the same `--expect <fingerprint>` and a commit in the git repository of the Harness
 home. The header of `bin/profile-set` holds the details.
 
 Secrets are not written into the profile: no environment variable values, no passwords, no

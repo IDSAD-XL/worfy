@@ -25,7 +25,10 @@
 //   Pipeline has the calls above. A field the schema closes (agents.orchestrator) is a usage error.
 //   A value is checked by the draft schema's rules for that field (profiles/draft.schema.json, through
 //   lib/draft-schema.cjs, the checker bin/project-connect uses); a field the schema has no rules for takes
-//   any JSON value. null leaves an absent field absent; on a field present in the file it removes the
+//   any JSON value. The profile the change leaves is then checked by the rules bin/profile reads the gate,
+//   CI and cross-machine fields by (lib/profile-rules.cjs): workflow.ci "batch" without
+//   workflow.ci_batch_run, a relative workflow.e2e_lock or a cross_machine_gate without its fields is not
+//   written (--set, --check), and neither is a --reset that leaves one. null leaves an absent field absent; on a field present in the file it removes the
 //   field, unless the schema requires it in its object: then null is written, and checked like a value.
 //   The objects on the way to a field are made when absent or null; one of another type (an old string
 //   form) is a problem, exit 1. A refused value prints { ok: false, errors: [{ path, message }] } on
@@ -63,6 +66,8 @@ const { randomBytes } = require("node:crypto")
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 const { pipelineProblem, pipelineField, resolvePipeline, pipelineFingerprint } = require("../lib/pipeline.cjs")
 const { loadDraftSchema, validate, fieldSchema } = require("../lib/draft-schema.cjs")
+// The rules bin/profile reads the gate, CI and cross-machine fields by: a value it would call a broken profile is not written.
+const { profileProblems } = require("../lib/profile-rules.cjs")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
 const USAGE = `usage: profile-set [-C <dir>] [--field <name>]... (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset | --field <name>... --check <json|->)
@@ -279,6 +284,12 @@ function apply(profile, f, v) {
     if (effect === "remove") delete at[last]
     else at[last] = v
 }
+/** The problems bin/profile would refuse `profile` for after the fields of `value` are set; the profile is not changed. */
+function resultProblems(profile, value) {
+    const result = structuredClone(profile)
+    for (const f of fields) apply(result, f, value[f])
+    return profileProblems(result)
+}
 const nameOf = (profile) => (typeof profile.name === "string" && profile.name ? profile.name : path.basename(dir))
 
 if (mode === "read" && fields.length > 0) {
@@ -321,8 +332,11 @@ if (mode === "set" || mode === "check") {
 }
 // --check: the value against the file as it is now, without the lock; nothing is written.
 if (mode === "check") {
-    const problems = fileProblems(readProfile().profile, value)
+    const { profile } = readProfile()
+    const problems = fileProblems(profile, value)
     if (problems.length > 0) refuse(problems)
+    const broken = resultProblems(profile, value)
+    if (broken.length > 0) refuse(broken)
     out(JSON.stringify({ ok: true }))
     process.exit(0)
 }
@@ -513,6 +527,8 @@ if (fields.length > 0 && mode === "set") {
     // Checked again against the file under the lock: it may have changed since a --check.
     const problems = fileProblems(profile, value)
     if (problems.length > 0) refuse(problems)
+    const broken = resultProblems(profile, value)
+    if (broken.length > 0) refuse(broken)
     for (const f of fields) apply(profile, f, value[f])
 } else if (fields.length > 0) {
     // --reset: each field removed, required or not.
@@ -520,6 +536,9 @@ if (fields.length > 0 && mode === "set") {
         const { holder, last } = holderOf(profile, f)
         if (holder !== undefined) delete holder[last]
     }
+    // A removed workflow.ci_batch_run under workflow.ci "batch" is a profile bin/profile refuses.
+    const broken = profileProblems(profile)
+    if (broken.length > 0) refuse(broken)
 } else if (mode === "set") {
     if (profile.workflow === null || typeof profile.workflow !== "object" || Array.isArray(profile.workflow)) profile.workflow = {}
     profile.workflow.pipeline = value

@@ -57,8 +57,11 @@ interface InputProps<V> {
 
 const inputStyle = (invalid: boolean): CSSProperties => (invalid ? { ...fieldStyles.input, ...fieldStyles.invalid } : fieldStyles.input)
 
-/** A text field; an empty one is null. */
-export function TextField({ path, label, value, issues, disabled, hint, onChange }: InputProps<string | null>) {
+/**
+ * A text field; an empty one is null, or `""` with `emptyAs=""`: a field the Harness requires a text in
+ * (commands.verify, tickets.path), where null would mean "none" and pass its check, while `""` is refused at the field.
+ */
+export function TextField({ path, label, value, issues, disabled, hint, emptyAs = null, onChange }: InputProps<string | null> & { emptyAs?: '' | null }) {
   return (
     <Field label={label} path={path} issues={issues} hint={hint}>
       {({ id, invalid, describedBy }) => (
@@ -72,15 +75,19 @@ export function TextField({ path, label, value, issues, disabled, hint, onChange
           aria-invalid={invalid ? 'true' : undefined}
           aria-describedby={describedBy}
           disabled={disabled}
-          onChange={(event) => onChange(event.target.value === '' ? null : event.target.value)}
+          onChange={(event) => onChange(event.target.value === '' ? emptyAs : event.target.value)}
         />
       )}
     </Field>
   )
 }
 
-/** A list of words separated by `separator` (", " or " "); the input keeps what is typed, the value is the words. */
-export function ListField({ path, label, value, issues, disabled, hint, separator, onChange }: InputProps<string[]> & { separator: ', ' | ' ' }) {
+/**
+ * A list of words separated by `separator` (", " or " "); the input keeps what is typed, the value is the words.
+ * An empty input is `[]`, or null with `emptyAs={null}`: a field the Profile did not have stays absent, since
+ * `[]` in skills.allowed or mcp.allowed means "none" and absent means "all".
+ */
+export function ListField({ path, label, value, issues, disabled, hint, separator, emptyAs = [], onChange }: InputProps<string[] | null> & { separator: ', ' | ' '; emptyAs?: [] | null }) {
   return (
     <Field label={label} path={path} issues={issues} hint={hint}>
       {({ id, invalid, describedBy }) => (
@@ -94,7 +101,10 @@ export function ListField({ path, label, value, issues, disabled, hint, separato
           aria-invalid={invalid ? 'true' : undefined}
           aria-describedby={describedBy}
           disabled={disabled}
-          onChange={(event) => onChange(words(event.target.value, separator === ' ' ? /\s+/ : /,/))}
+          onChange={(event) => {
+            const value = words(event.target.value, separator === ' ' ? /\s+/ : /,/)
+            onChange(value.length === 0 ? emptyAs : value)
+          }}
         />
       )}
     </Field>
