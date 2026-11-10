@@ -9,4 +9,7 @@ What each Stage means is in skill `/worfy:epic-wave`, section 0; for this loop:
   With no `check` Stage a platform PR still waits for the other platform's verdict (step 9).
 - `human-review` — step 9 waits for the review decision `APPROVED`; `awaiting-merge` — no step 9:
   people merge, and the ticket stays `claimed` with its PR open until they do.
+- `release` — a ticket over several repositories: the consumer's PR waits until each `Release:` line
+  is out (a tag in the library's remote, or a published version); the team makes the release, and the
+  consumer's red CI before it is expected (step 9).
 - `deploy` — step 11 closes the ticket only after its merge commit is deployed.

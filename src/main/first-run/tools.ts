@@ -55,8 +55,9 @@ export function windowsProgram(name: string, env: Env, exists?: FileExists): { f
 /**
  * How a tool starts. Off Windows by its name, which the PATH of `env` resolves. On Windows by the
  * full path windowsProgram finds; a `.cmd` through cmd.exe of %SystemRoot%, because Node refuses to
- * start a `.cmd` or `.bat` itself (EINVAL, the fix of CVE-2024-27980). The arguments the checks pass
- * are constant words (`--version`, `auth status`), so the line cmd.exe gets needs no escaping. The
+ * start a `.cmd` or `.bat` itself (EINVAL, the fix of CVE-2024-27980). The arguments go to cmd.exe
+ * without escaping, so a caller passes only constant words (`--version`, `auth status`) or text it has
+ * checked against a strict pattern (the refs of src/main/workflow/release.ts). The
  * path itself is quoted but cmd.exe still expands `%NAME%` in it: a folder named with `%` would be
  * read as another one (none of the usual install folders is).
  */

@@ -10,6 +10,11 @@
 // cmd.exe runs, and cmd.exe reads its command line, so a ref goes there only after it matches a strict pattern.
 // An answer other than `released` is kept for `intervalMs` (the remote and the registry are on the network, and the
 // Stages are computed every minute); `released` is kept for good.
+//
+// The Stages never wait for the network (`peek`): a remote that drops packets holds `git ls-remote` for 20 s and
+// `npm view` for 30 s. `peek` gives the last answer at once, or null before the first one, and asks in the
+// background, every line at the same time; an answer that changes what was known calls back, and the caller
+// computes the Stages again.
 import type { ReleaseFact } from '../../shared/workflow/pipeline'
 import type { TicketRelease } from '../../shared/workflow/types'
 import { runTool, type Env, type ToolRun } from '../first-run/tools'
@@ -50,13 +55,22 @@ const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_IN
 
 /** A tag worfy passes to git: letters, digits and `._/+-`, not starting with a sign. */
 const TAG = /^[A-Za-z0-9][A-Za-z0-9._/+-]*$/u
-/** `<name>@<version>` of npm: a name of lower case letters (with a scope or without), a version of letters, digits and `.+-`. */
-const PACKAGE = /^((?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*)@([0-9A-Za-z][0-9A-Za-z.+-]*)$/u
+/** `<name>@<version>` of npm: a name of lower case letters, with a scope or without. */
+const PACKAGE = /^((?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*)@(.+)$/u
+/**
+ * A plain semver version, a pre-release allowed: what `npm view <name>@<version> version` prints back as it is. A
+ * `v`, build metadata (`+b1`) or a tag (`latest`) come back normalised or as another version, so such a line would
+ * wait for good.
+ */
+const PLAIN_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u
 
-/** The name and the version of a `package` line's ref; null when it is not `<name>@<version>` worfy passes to npm. */
-export function packageOf(ref: string): { name: string; version: string } | null {
+/** The name and the version of a `package` line's ref, or why worfy does not pass it to npm. */
+export function packageOf(ref: string): { name: string; version: string } | { reason: string } {
   const found = PACKAGE.exec(ref)
-  return found ? { name: found[1]!, version: found[2]! } : null
+  if (!found) return { reason: `${ref} is not <name>@<version> worfy passes to npm` }
+  const version = found[2]!
+  if (!PLAIN_VERSION.test(version)) return { reason: `${version} is not a plain version such as 1.4.0 or 1.4.0-rc.1, so npm view would never print it back` }
+  return { name: found[1]!, version }
 }
 
 const defaultRun: ReleaseToolRunner = (name, args, cwd, env, timeoutMs) => runTool(name, args, env, timeoutMs, { cwd })
@@ -67,6 +81,8 @@ const lastLine = (text: string): string =>
     .map((line) => line.trim())
     .filter((line) => line !== '')
     .at(-1) ?? ''
+
+const keyOf = (release: TicketRelease, places: ReleasePlaces): string => [release.kind, release.ref, places.library ?? '', places.consumer ?? ''].join('\n')
 
 const notChecked = (reason: string): ReleaseCheck => ({ state: 'not checked', reason })
 
@@ -79,6 +95,8 @@ export class ReleaseReader {
   private readonly intervalMs: number
   private readonly now: () => number
   private readonly known = new Map<string, { check: ReleaseCheck; at: number }>()
+  /** The questions on their way, by key, with whom to call back when the answer changes what was known. */
+  private readonly asking = new Map<string, { answer: Promise<void>; callbacks: Set<() => void> }>()
 
   constructor(private readonly options: ReleaseReaderOptions) {
     this.run = options.run ?? defaultRun
@@ -86,14 +104,44 @@ export class ReleaseReader {
     this.now = options.now ?? Date.now
   }
 
-  /** What is known of `release`: asked again when the last answer is older than the interval, unless it was `released`. */
-  async check(release: TicketRelease, places: ReleasePlaces): Promise<ReleaseCheck> {
-    const key = [release.kind, release.ref, places.library ?? '', places.consumer ?? ''].join('\n')
+  /**
+   * The last answer about `release` at once, null before the first one. When there is none, or it is older than the
+   * interval and not `released`, the line is asked about in the background (once, however many ask); `onAnswer` is
+   * called when that answer differs from the last one.
+   */
+  peek(release: TicketRelease, places: ReleasePlaces, onAnswer?: () => void): ReleaseCheck | null {
+    const key = keyOf(release, places)
     const kept = this.known.get(key)
     if (kept !== undefined && (kept.check.state === 'released' || this.now() - kept.at < this.intervalMs)) return kept.check
-    const check = await this.ask(release, places)
-    this.known.set(key, { check, at: this.now() })
-    return check
+    let asking = this.asking.get(key)
+    if (asking === undefined) {
+      const callbacks = new Set<() => void>()
+      const answer = this.ask(release, places)
+        .catch((error: unknown) => notChecked(error instanceof Error ? error.message : String(error)))
+        .then((check) => {
+          const before = this.known.get(key)?.check
+          this.known.set(key, { check, at: this.now() })
+          this.asking.delete(key)
+          if (before?.state !== check.state || before.reason !== check.reason) for (const callback of callbacks) callback()
+        })
+      asking = { answer, callbacks }
+      this.asking.set(key, asking)
+    }
+    if (onAnswer !== undefined) asking.callbacks.add(onAnswer)
+    return kept?.check ?? null
+  }
+
+  /** What is known of `release`, waiting for the answer when it has to be asked (peek). */
+  async check(release: TicketRelease, places: ReleasePlaces): Promise<ReleaseCheck> {
+    this.peek(release, places)
+    await this.idle()
+    // The answer just kept, without asking again: with an interval of 0 a second peek would ask once more.
+    return this.known.get(keyOf(release, places))?.check ?? notChecked('no answer')
+  }
+
+  /** Resolves once no question is on its way. */
+  async idle(): Promise<void> {
+    while (this.asking.size > 0) await Promise.all([...this.asking.values()].map((asking) => asking.answer))
   }
 
   private async ask(release: TicketRelease, places: ReleasePlaces): Promise<ReleaseCheck> {
@@ -123,7 +171,7 @@ export class ReleaseReader {
 
   private async published(ref: string, consumer: string | null): Promise<ReleaseCheck> {
     const found = packageOf(ref)
-    if (found === null) return notChecked(`${ref} is not <name>@<version> worfy passes to npm`)
+    if ('reason' in found) return notChecked(found.reason)
     if (consumer === null) return notChecked('no checkout of a consumer to run npm view in')
     const run = await this.run('npm', ['view', `${found.name}@${found.version}`, 'version'], consumer, await this.options.env(), NPM_TIMEOUT_MS)
     if (run.code !== 0) return notChecked(failure('npm view', run))

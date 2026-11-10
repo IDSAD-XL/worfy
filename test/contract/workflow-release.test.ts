@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { TrackedPull } from '../../src/main/github/prs'
 import { markFilePath } from '../../src/main/workflow/marks'
 import type { PipelineProfile } from '../../src/main/workflow/profile'
-import { packageOf, ReleaseReader, type ReleaseCheck, type ReleasePlaces } from '../../src/main/workflow/release'
-import { StageReader, type StageSources } from '../../src/main/workflow/stages'
+import { packageOf, ReleaseReader, type ReleaseCheck, type ReleasePlaces, type ReleaseToolRunner } from '../../src/main/workflow/release'
+import { StageHub, StageReader, type StageSources } from '../../src/main/workflow/stages'
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
 import { STAGE_KINDS, type PipelineStage } from '../../src/shared/workflow/pipeline'
 import type { Ticket, TicketRelease, WorkflowModel } from '../../src/shared/workflow/types'
@@ -38,8 +38,14 @@ const MULTI: PipelineStage[] = [
   { kind: 'done' },
 ]
 
+/**
+ * git for the test's own setup, with the machine's git configuration left out (an empty global file, no system file):
+ * a `tag.gpgSign` or a hook path there must not break a tag or a push here.
+ */
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim()
+  const own = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')))
+  const env = { ...own, GIT_CONFIG_GLOBAL: join(dir, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+  return execFileSync('git', args, { cwd, encoding: 'utf8', env }).trim()
 }
 
 /** Every file under `dir` with its size, mtime and content hash, `.git` included. */
@@ -70,6 +76,7 @@ beforeEach(() => {
   mkdirSync(bin)
   calls = join(dir, 'npm-calls.log')
   writeFileSync(calls, '')
+  writeFileSync(join(dir, 'gitconfig'), '')
   stubVars = { RELEASE_STUB_PUBLISHED: '', RELEASE_STUB_CODE: '0' }
   // The stand-in npm first on the PATH, git from the PATH of the tests. On Windows a `npm.cmd`, as npm leaves one there.
   if (WINDOWS) writeFileSync(join(bin, 'npm.cmd'), `@"${NODE}" "${join(STUBS, 'npm.mjs')}" %*\r\n`)
@@ -85,6 +92,14 @@ const env = (): Promise<Record<string, string | undefined>> => {
   const pathKey = Object.keys(process.env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH'
   const rest = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.toUpperCase() !== 'PATH'))
   return Promise.resolve({ ...rest, [pathKey]: [bin, process.env[pathKey] ?? ''].join(delimiter), RELEASE_STUB_CALLS: calls, ...stubVars })
+}
+/** Resolves once `ready` holds, polling every 10 ms; rejects after 10 s. */
+async function waitFor(ready: () => boolean): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error('the condition did not hold within 10 s')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
 const npmCalls = (): string[] => readFileSync(calls, 'utf8').split('\n').filter((line) => line !== '')
 
@@ -177,10 +192,74 @@ describe('the release reader', () => {
     for (const ref of ['lots', '@acme/lots@1.4.0 & calc', 'Lots@1.4.0', '@acme/lots@']) {
       expect((await reader.check({ ...packageLine, ref }, { library: null, consumer: app })).state).toBe('not checked')
     }
+    // npm prints a tag, a `v` and build metadata back as another text, so such a line would wait for good.
+    for (const version of ['latest', 'v1.4.0', '1.4.0+b1', '1.4']) {
+      expect(await reader.check({ ...packageLine, ref: `@acme/lots@${version}` }, { library: null, consumer: app })).toEqual({
+        state: 'not checked',
+        reason: `${version} is not a plain version such as 1.4.0 or 1.4.0-rc.1, so npm view would never print it back`,
+      })
+    }
     expect((await reader.check(packageLine, { library: null, consumer: null })).state).toBe('not checked')
     expect(await reader.check({ ...packageLine, kind: 'github-release' }, { library: null, consumer: app })).toEqual({ state: 'not checked', reason: 'worfy knows the kinds tag and package, not github-release' })
     expect(npmCalls()).toEqual([])
     expect(packageOf(PACKAGE)).toEqual({ name: '@acme/lots', version: '1.4.0' })
+    expect(packageOf('lots@1.4.0-rc.1')).toEqual({ name: 'lots', version: '1.4.0-rc.1' })
+  })
+
+  it('git runs with at most 20 s, npm with 30 s; git without the variables that point it elsewhere and without a prompt', async () => {
+    const lib = repoAt(join(dir, 'lib'))
+    const runs: { name: string; args: readonly string[]; timeoutMs: number; env: Record<string, string | undefined> }[] = []
+    const run: ReleaseToolRunner = (name, args, _cwd, given, timeoutMs) => {
+      runs.push({ name, args, timeoutMs, env: { ...given } })
+      const stdout = args.includes('--show-toplevel') ? `${lib}\n` : ''
+      return Promise.resolve({ code: 0, stdout, stderr: '', missing: false })
+    }
+    const withGitVars = () => env().then((given) => ({ ...given, GIT_DIR: join(dir, 'elsewhere'), GIT_WORK_TREE: dir, GIT_COMMON_DIR: dir, GIT_INDEX_FILE: join(dir, 'index') }))
+    const reader = new ReleaseReader({ env: withGitVars, run, intervalMs: 0 })
+    expect(await reader.check(tagLine, { library: lib, consumer: null })).toEqual({ state: 'waiting', reason: null })
+    expect(await reader.check(packageLine, { library: null, consumer: lib })).toEqual({ state: 'waiting', reason: null })
+
+    const lsRemote = runs.find((each) => each.args.includes('ls-remote'))!
+    expect(lsRemote.timeoutMs).toBe(20_000)
+    expect(lsRemote.env).toMatchObject({ GIT_TERMINAL_PROMPT: '0' })
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE']) expect(lsRemote.env).not.toHaveProperty(name)
+    const npm = runs.find((each) => each.name === 'npm')!
+    expect(npm.timeoutMs).toBe(30_000)
+  })
+
+  it('peek: the last answer at once, null before the first; every line asked at the same time; a changed answer calls back', async () => {
+    const lib = repoAt(join(dir, 'lib'))
+    const started: string[] = []
+    const answers: (() => void)[] = []
+    const run: ReleaseToolRunner = (name, args) => {
+      if (args.includes('--show-toplevel')) return Promise.resolve({ code: 0, stdout: `${lib}\n`, stderr: '', missing: false })
+      started.push(String(args.at(-1)))
+      // Held until the test lets it go, as a remote that drops packets holds ls-remote.
+      return new Promise((resolve) => answers.push(() => resolve({ code: 0, stdout: '', stderr: '', missing: false })))
+    }
+    let now = 0
+    const reader = new ReleaseReader({ env, run, intervalMs: 1000, now: () => now })
+    let calledBack = 0
+    const second: TicketRelease = { ...tagLine, ref: 'lib-v1.5.0' }
+    expect(reader.peek(tagLine, { library: lib, consumer: null }, () => (calledBack += 1))).toBeNull()
+    expect(reader.peek(second, { library: lib, consumer: null }, () => (calledBack += 1))).toBeNull()
+    // Asked again while on its way: still one question.
+    expect(reader.peek(tagLine, { library: lib, consumer: null })).toBeNull()
+    await waitFor(() => started.length === 2)
+    // Both are on their way before either answers.
+    expect([...started].sort()).toEqual([`refs/tags/${TAG}`, 'refs/tags/lib-v1.5.0'])
+    for (const answer of answers.splice(0)) answer()
+    await reader.idle()
+    expect(calledBack).toBe(2)
+    expect(reader.peek(tagLine, { library: lib, consumer: null })).toEqual({ state: 'waiting', reason: null })
+
+    // After the interval: the last answer at once while the line is asked again; the same answer calls nobody back.
+    now = 1000
+    expect(reader.peek(tagLine, { library: lib, consumer: null }, () => (calledBack += 1))).toEqual({ state: 'waiting', reason: null })
+    await waitFor(() => answers.length === 1)
+    answers.splice(0)[0]!()
+    await reader.idle()
+    expect(calledBack).toBe(2)
   })
 
   it('an answer other than released is asked again after the interval; released is kept', async () => {
@@ -224,8 +303,8 @@ describe('the Stage release in main (StageReader)', () => {
     repos,
   })
 
-  /** Ticket 05: claimed, two Repo: lines (lib first), one Branch: line, the Release: lines given. */
-  const claimed = (releases: TicketRelease[]): Ticket => ({
+  /** Ticket `num` with two Repo: lines (lib first unless `repos` says otherwise), one Branch: line, the Release: lines given. */
+  const claimed = (releases: TicketRelease[], extra: Partial<Ticket> = {}): Ticket => ({
     epic: 'demo',
     num: 5,
     slug: 'withdraw',
@@ -244,6 +323,7 @@ describe('the Stage release in main (StageReader)', () => {
     repos: ['lib', 'app'],
     prs: [],
     releases,
+    ...extra,
   })
 
   /** Both heads reviewed (`success`) in the marks file of the Harness home. */
@@ -293,26 +373,45 @@ describe('the Stage release in main (StageReader)', () => {
       ...(release === undefined ? {} : { release }),
     })
   const modelOf = (root: string, tickets: Ticket[]): WorkflowModel => ({ root, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets, error: null, branchErrors: [] })
-  const read = (reader: StageReader, ws: Workspace, releases: TicketRelease[]): Promise<PipelineSnapshot> => reader.read(ws.root, modelOf(ws.root, [claimed(releases)]))
-  const ticket = (snapshot: PipelineSnapshot): PipelineTicket => {
-    const found = snapshot.tickets.find((each) => each.num === 5)
-    if (!found) throw new Error(`no Ticket 5 in ${JSON.stringify(snapshot.tickets)}`)
+  const read = (reader: StageReader, ws: Workspace, releases: TicketRelease[], extra: Partial<Ticket> = {}): Promise<PipelineSnapshot> => reader.read(ws.root, modelOf(ws.root, [claimed(releases, extra)]))
+  const ticket = (snapshot: PipelineSnapshot, num = 5): PipelineTicket => {
+    const found = snapshot.tickets.find((each) => each.num === num)
+    if (!found) throw new Error(`no Ticket ${num} in ${JSON.stringify(snapshot.tickets)}`)
     return found
+  }
+
+  /** A release reader on a clock the test moves: `later()` lets the next read ask again. */
+  const releaseOf = () => {
+    let now = 0
+    const reader = new ReleaseReader({ env, intervalMs: 1000, now: () => now })
+    return { reader, later: () => (now += 1000) }
+  }
+  /** The snapshot once every answer the read asked for is in: read, wait for the release reader, read again. */
+  const settled = async (reader: StageReader, release: ReleaseReader, ws: Workspace, releases: TicketRelease[], extra: Partial<Ticket> = {}): Promise<PipelineSnapshot> => {
+    await read(reader, ws, releases, extra)
+    await release.idle()
+    return read(reader, ws, releases, extra)
   }
 
   it('Release: lib tag — no tag in the remote: the Ticket is on release, waiting for it; the tag appears: the Stage is passed', async () => {
     const ws = workspace()
     reviewBoth(ws)
-    const reader = readerOver(ws, libMergedAppOpen(ws, 'success'), new ReleaseReader({ env, intervalMs: 0 }))
+    const release = releaseOf()
+    const reader = readerOver(ws, libMergedAppOpen(ws, 'success'), release.reader)
     const appBefore = treeState(ws.app)
 
-    const waiting = await read(reader, ws, [tagLine])
+    // The first read does not wait for git: the line is not checked yet, with no reason to show.
+    const first = await read(reader, ws, [tagLine])
+    expect(ticket(first)).toMatchObject({ stage: 'release', release: [{ ...tagLine, state: 'not checked' }] })
+    expect(first.error).toBeNull()
+    const waiting = await settled(reader, release.reader, ws, [tagLine])
     expect(ticket(waiting)).toMatchObject({ stage: 'release', waits: 'team', merged: { count: 1, of: 2 }, release: [{ ...tagLine, state: 'waiting' }] })
     expect(waiting.error).toBeNull()
 
     git(ws.lib, 'tag', TAG)
     git(ws.lib, 'push', '-q', 'origin', TAG)
-    const after = ticket(await read(reader, ws, [tagLine]))
+    release.later()
+    const after = ticket(await settled(reader, release.reader, ws, [tagLine]))
     expect(after).toMatchObject({ stage: 'human-review', release: [{ ...tagLine, state: 'released' }] })
     expect(after.passed).toContain('release')
     // The consumer's checkout is only read (ADR-0005).
@@ -322,18 +421,21 @@ describe('the Stage release in main (StageReader)', () => {
   it('Release: lib package — npm view without the version holds the Stage, with it passes; a registry error is release not checked', async () => {
     const ws = workspace()
     reviewBoth(ws)
-    const reader = readerOver(ws, libMergedAppOpen(ws, 'success'), new ReleaseReader({ env, intervalMs: 0 }))
+    const release = releaseOf()
+    const reader = readerOver(ws, libMergedAppOpen(ws, 'success'), release.reader)
 
-    expect(ticket(await read(reader, ws, [packageLine]))).toMatchObject({ stage: 'release', release: [{ ...packageLine, state: 'waiting' }] })
+    expect(ticket(await settled(reader, release.reader, ws, [packageLine]))).toMatchObject({ stage: 'release', release: [{ ...packageLine, state: 'waiting' }] })
     // npm ran in the consumer's checkout, app, not in the library's.
     expect(npmCalls()).toEqual([`npm view ${PACKAGE} version cwd=${ws.app}`])
 
     stubVars.RELEASE_STUB_PUBLISHED = PACKAGE
-    expect(ticket(await read(reader, ws, [packageLine]))).toMatchObject({ stage: 'human-review', release: [{ ...packageLine, state: 'released' }] })
+    release.later()
+    expect(ticket(await settled(reader, release.reader, ws, [packageLine]))).toMatchObject({ stage: 'human-review', release: [{ ...packageLine, state: 'released' }] })
 
-    const failing = readerOver(ws, libMergedAppOpen(ws, 'success'), new ReleaseReader({ env, intervalMs: 0 }))
+    const failingRelease = releaseOf()
+    const failing = readerOver(ws, libMergedAppOpen(ws, 'success'), failingRelease.reader)
     stubVars.RELEASE_STUB_CODE = '1'
-    const unchecked = await read(failing, ws, [packageLine])
+    const unchecked = await settled(failing, failingRelease.reader, ws, [packageLine])
     expect(ticket(unchecked)).toMatchObject({ stage: 'release', release: [{ ...packageLine, state: 'not checked' }] })
     expect(unchecked.error).toContain(`the release ${PACKAGE} of lib was not checked: npm view exited 1`)
   })
@@ -341,32 +443,118 @@ describe('the Stage release in main (StageReader)', () => {
   it('red CI of the consumer before the release does not paint the Ticket; after the release it does', async () => {
     const ws = workspace()
     reviewBoth(ws)
-    const reader = readerOver(ws, libMergedAppOpen(ws, 'failure'), new ReleaseReader({ env, intervalMs: 0 }))
-    expect(ticket(await read(reader, ws, [tagLine]))).toMatchObject({ stage: 'release', sub: null })
+    const release = releaseOf()
+    const reader = readerOver(ws, libMergedAppOpen(ws, 'failure'), release.reader)
+    expect(ticket(await settled(reader, release.reader, ws, [tagLine]))).toMatchObject({ stage: 'release', sub: null })
 
     git(ws.lib, 'tag', TAG)
     git(ws.lib, 'push', '-q', 'origin', TAG)
-    expect(ticket(await read(reader, ws, [tagLine]))).toMatchObject({ stage: 'ci', sub: 'failing' })
+    release.later()
+    expect(ticket(await settled(reader, release.reader, ws, [tagLine]))).toMatchObject({ stage: 'ci', sub: 'failing' })
   })
 
-  it('a Ticket without Release: lines passes release at once; a Profile without release has no such Stage and asks nothing', async () => {
+  it('both PRs open, app listed first: the library goes on past release on its own facts, the Ticket waits on release because of app', async () => {
+    const ws = workspace()
+    reviewBoth(ws)
+    const release = releaseOf()
+    const open = (lib: 'success' | 'failure') =>
+      new Map([
+        [ws.lib, [tracked(41, ws.head(ws.lib), 'OPEN', [check(lib)])]],
+        [ws.app, [tracked(118, ws.head(ws.app), 'OPEN', [check('success')])]],
+      ])
+    const extra = { repos: ['app', 'lib'] }
+
+    // The library's own red CI is red: lib does not wait for its own release, so its CI is judged.
+    const red = await settled(readerOver(ws, open('failure'), release.reader), release.reader, ws, [tagLine, packageLine], extra)
+    expect(ticket(red)).toMatchObject({ stage: 'ci', sub: 'failing', merged: { count: 0, of: 2 } })
+    // Green: lib is past release (on Human review), app waits on it, and the Ticket with it.
+    const green = await settled(readerOver(ws, open('success'), release.reader), release.reader, ws, [tagLine, packageLine], extra)
+    expect(ticket(green)).toMatchObject({ stage: 'release', sub: null, release: [{ ...tagLine, state: 'waiting' }, { ...packageLine, state: 'waiting' }] })
+    // The tag is asked about in lib's checkout, the package in app's, whatever the order of the Repo: lines.
+    expect(npmCalls()).toEqual([`npm view ${PACKAGE} version cwd=${ws.app}`])
+  })
+
+  it('a Ticket without Release: lines passes release at once; open and done Tickets and a Profile without release ask nothing', async () => {
     const ws = workspace()
     reviewBoth(ws)
     const asks: string[] = []
-    const counting = { check: (line: TicketRelease): Promise<ReleaseCheck> => (asks.push(line.ref), Promise.resolve({ state: 'waiting', reason: null })) }
+    const counting = { peek: (line: TicketRelease): ReleaseCheck => (asks.push(line.ref), { state: 'waiting', reason: null }) }
+    const others = [claimed([tagLine], { num: 6, state: 'open', statusRaw: 'open', statusAt: null }), claimed([tagLine, packageLine], { num: 7, state: 'done', statusRaw: 'done 2026-10-18', statusAt: '2026-10-18' })]
 
-    const none = ticket(await read(readerOver(ws, libMergedAppOpen(ws, 'success'), counting), ws, []))
+    const snapshot = await readerOver(ws, libMergedAppOpen(ws, 'success'), counting).read(ws.root, modelOf(ws.root, [claimed([]), ...others]))
+    const none = ticket(snapshot)
     expect(none).toMatchObject({ stage: 'human-review' })
     expect(none.passed).toContain('release')
     expect(none.release).toBeUndefined()
+    // An open Ticket is Queued and a done one Done whatever their Release: lines say, and nothing is asked about them.
+    expect(ticket(snapshot, 6)).toMatchObject({ stage: 'queued' })
+    expect(ticket(snapshot, 7)).toMatchObject({ stage: 'done' })
+    expect(asks).toEqual([])
 
     const without = MULTI.filter((stage) => stage.kind !== 'release')
-    const snapshot = await read(readerOver(ws, libMergedAppOpen(ws, 'failure'), counting, profileOf(ws, without)), ws, [tagLine])
-    expect(snapshot.pipeline.map((column) => column.id)).not.toContain('release')
+    const plain = await read(readerOver(ws, libMergedAppOpen(ws, 'failure'), counting, profileOf(ws, without)), ws, [tagLine])
+    expect(plain.pipeline.map((column) => column.id)).not.toContain('release')
     // Without the Stage the Release: line changes nothing: red CI is red, and nothing is asked about the release.
-    expect(ticket(snapshot)).toMatchObject({ stage: 'ci', sub: 'failing' })
-    expect(ticket(snapshot).release).toBeUndefined()
+    expect(ticket(plain)).toMatchObject({ stage: 'ci', sub: 'failing' })
+    expect(ticket(plain).release).toBeUndefined()
     expect(asks).toEqual([])
+  })
+
+  it('a Ticket of one repository does not wait for its own release line', async () => {
+    const ws = workspace()
+    reviewBoth(ws)
+    const release = releaseOf()
+    const libOpen = new Map([[ws.lib, [tracked(41, ws.head(ws.lib), 'OPEN', [check('success')])]]])
+    const own = await settled(readerOver(ws, libOpen, release.reader), release.reader, ws, [tagLine], { repo: 'lib', repos: ['lib'] })
+    // lib's PR is open and green: past release, not held there by its own line.
+    expect(ticket(own)).toMatchObject({ stage: 'human-review', release: [{ ...tagLine, state: 'waiting' }] })
+    const other = await settled(readerOver(ws, libMergedAppOpen(ws, 'success'), release.reader), release.reader, ws, [tagLine], { repo: 'app', repos: ['app'] })
+    expect(ticket(other)).toMatchObject({ stage: 'release', release: [{ ...tagLine, state: 'waiting' }] })
+  })
+
+  it('a release reader that never answers holds nothing: the snapshot comes at once with the line not checked', async () => {
+    const ws = workspace()
+    reviewBoth(ws)
+    const silent = { peek: (): ReleaseCheck | null => null }
+    const snapshot = await read(readerOver(ws, libMergedAppOpen(ws, 'success'), silent), ws, [tagLine, packageLine])
+    expect(ticket(snapshot)).toMatchObject({ stage: 'release', release: [{ ...tagLine, state: 'not checked' }, { ...packageLine, state: 'not checked' }] })
+    expect(snapshot.error).toBeNull()
+  })
+
+  it('an answer that changes what was known computes the Stages again and sends the new snapshot', async () => {
+    const ws = workspace()
+    reviewBoth(ws)
+    let answer: ReleaseCheck | null = null
+    let callBack: (() => void) | undefined
+    const release = {
+      peek: (_line: TicketRelease, _places: ReleasePlaces, onAnswer?: () => void): ReleaseCheck | null => {
+        callBack = onAnswer
+        return answer
+      },
+    }
+    const model = modelOf(ws.root, [claimed([tagLine])])
+    const pulls = libMergedAppOpen(ws, 'success')
+    const hub = new StageHub({
+      workflow: { open: () => Promise.resolve(model), close: () => Promise.resolve(true), model: () => Promise.resolve(model) },
+      prs: { read: (folder) => Promise.resolve({ gh: { available: true, error: null, intervalMs: 1 }, pulls: pulls.get(folder) ?? [] }) },
+      profile: () => Promise.resolve({ ok: true, profile: profileOf(ws) }),
+      deployments: { environment: () => Promise.resolve([]), deployMarks: () => Promise.resolve([]) } as unknown as StageSources['deployments'],
+      harnessHome: ws.harnessHome,
+      release,
+      // No tick of the interval within the test: only the answer recomputes.
+      intervalMs: 3_600_000,
+    })
+    const sent: PipelineSnapshot[] = []
+    try {
+      const first = await hub.open(ws.root, { id: 'test', send: (snapshot) => sent.push(snapshot) })
+      expect(ticket(first)).toMatchObject({ stage: 'release', release: [{ ...tagLine, state: 'not checked' }] })
+      answer = { state: 'released', reason: null }
+      callBack!()
+      await waitFor(() => sent.length > 0)
+      expect(ticket(sent.at(-1)!)).toMatchObject({ stage: 'human-review', release: [{ ...tagLine, state: 'released' }] })
+    } finally {
+      await hub.closeAll()
+    }
   })
 
   it('a repository folder that is not the top level of its repository: its PRs are not read, and the snapshot says why', async () => {

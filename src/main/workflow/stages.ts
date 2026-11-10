@@ -12,7 +12,8 @@
 // - the Deployments and deploy marks (src/main/github/deployments.ts), only for Tickets on Deploy;
 // - the e2e lock of the Profile (`workflow.e2e_lock`): whether its folder is there, and its holder.json;
 // - the releases a Ticket's `Release:` lines wait for (src/main/workflow/release.ts), only when the Pipeline has the
-//   Stage `release` (ADR-0104, items 5, 6).
+//   Stage `release` (ADR-0104, items 5, 6); never waited for: the last answer, or `not checked` before the first, and
+//   an answer that changes what was known computes the Stages again.
 // The Stages are computed again on every change of the workflow model and on every tick of the PR
 // interval (the tracker runs gh only when its interval has passed); subscribers get the whole snapshot
 // when anything in it changed. Only Tickets in work (`claimed`, `blocked`) get PR, git and marks facts:
@@ -69,7 +70,7 @@ export interface StageSources {
   profile: (root: string) => Promise<{ ok: true; profile: PipelineProfile } | { ok: false; reason: string }>
   deployments: Pick<DeploymentReader, 'environment' | 'deployMarks'>
   /** The tags and published versions of the `Release:` lines (ReleaseReader); without it every line is not checked. */
-  release?: Pick<ReleaseReader, 'check'>
+  release?: Pick<ReleaseReader, 'peek'>
   /** The Harness home: its `runs/<project>/marks/` keeps the marks files (marksInFile). */
   harnessHome: string
   git?: GitRunner
@@ -133,7 +134,11 @@ export class StageReader {
   private marks: SilentMarks | null = null
   private marksKey = ''
 
-  constructor(private readonly sources: StageSources) {
+  /** `onRelease`: called when an answer about a release changes what was known, so the Stages are computed again. */
+  constructor(
+    private readonly sources: StageSources,
+    private readonly onRelease?: () => void,
+  ) {
     this.git = sources.git ?? gitRunner
   }
 
@@ -240,8 +245,10 @@ export class StageReader {
       // A Ticket over several repositories gets the facts of each; one of a single repository keeps them as before.
       if (read.length > 1) facts.repos = read.map((each) => each.facts)
       else if (read[0] !== undefined && read[0].path !== null) Object.assign(facts, { headSha: read[0].facts.headSha, pr: read[0].facts.pr, marks: read[0].facts.marks })
+      // The one repository of a Ticket of one does not wait for its own release either.
+      if (read.length === 1 && read[0]!.name !== '') facts.repo = read[0]!.name
       const lines = releaseStage && inWork(ticket) ? repoFactsOf(ticket).releases : []
-      if (lines.length > 0) facts.releases = await this.releasesOf(lines, where, pathOf, problems)
+      if (lines.length > 0) facts.releases = this.releasesOf(lines, where, pathOf, problems)
       let stage = stageOf(facts, pipeline)
       const deploy = pipeline[stage.index]
       if (deploy?.kind === 'deploy') {
@@ -265,15 +272,17 @@ export class StageReader {
   /**
    * What is known of each `Release:` line: a tag is asked about in the checkout of the library's repository, a package
    * in the checkout of the first repository of the Ticket that is not the library's (a consumer). A line not checked
-   * puts its reason among the problems of the snapshot.
+   * puts its reason among the problems of the snapshot. Never waits: the reader's last answer, `not checked` before
+   * its first (the answer calls `onRelease`).
    */
-  private async releasesOf(lines: readonly TicketRelease[], where: readonly { name: string; path: string | null }[], pathOf: (name: string) => string | null, problems: string[]): Promise<ReleaseFact[]> {
+  private releasesOf(lines: readonly TicketRelease[], where: readonly { name: string; path: string | null }[], pathOf: (name: string) => string | null, problems: string[]): ReleaseFact[] {
     const facts: ReleaseFact[] = []
     for (const line of lines) {
       const places = { library: pathOf(line.repo), consumer: where.find((each) => each.name !== line.repo && each.path !== null)?.path ?? null }
-      const seen = this.sources.release === undefined ? { state: 'not checked' as const, reason: 'worfy has no release reader here' } : await this.sources.release.check(line, places)
-      if (seen.state === 'not checked') problems.push(`the release ${line.ref} of ${line.repo} was not checked: ${seen.reason ?? 'no reason given'}`)
-      facts.push({ repo: line.repo, kind: line.kind, ref: line.ref, state: seen.state })
+      const seen = this.sources.release === undefined ? { state: 'not checked' as const, reason: 'worfy has no release reader here' } : this.sources.release.peek(line, places, this.onRelease)
+      // Before the first answer the line is not checked, with no reason to show yet.
+      if (seen !== null && seen.state === 'not checked') problems.push(`the release ${line.ref} of ${line.repo} was not checked: ${seen.reason ?? 'no reason given'}`)
+      facts.push({ repo: line.repo, kind: line.kind, ref: line.ref, state: seen?.state ?? 'not checked' })
     }
     return facts
   }
@@ -387,7 +396,7 @@ class ProjectStages {
     private readonly sources: StageSources,
     private readonly watchId: string,
   ) {
-    this.reader = new StageReader(sources)
+    this.reader = new StageReader(sources, () => void this.refresh())
   }
 
   async start(): Promise<void> {

@@ -250,7 +250,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 The time on a Stage is counted from the latest known fact: the status time, or the time of the mark, check or merge that
 passed the last Stage. With no known time a Ticket is not judged. The clock on screen ticks once a minute.
 
-**Settings → Pipeline** edits the Pipeline of the active Project within the catalogue: 11 kinds, with no conditions of the
+**Settings → Pipeline** edits the Pipeline of the active Project within the catalogue: 12 kinds, with no conditions of the
 user's own. Queued stays first and Done last. A Stage in between can be moved, removed or added, and Checks can repeat under
 different names. Fields:
 
@@ -319,9 +319,12 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   `npm view <name>@<version> version` prints the version; it runs in the checkout of the Ticket's first other repository,
   the consumer, so that checkout's `.npmrc` and registry settings apply. Both run with the login shell's environment. A
   remote or registry that does not answer, a folder that is not the top level of its repository, and a ref that is not a
-  plain tag name or `<name>@<version>` give "not checked", never released, and a line in the snapshot's reasons. An answer
-  is asked again after 5 minutes, a release once seen is kept. Each repository waits only for the lines of the other
-  repositories, so the library goes on to its review and merge while the consumer waits. While a repository waits, its CI
+  plain tag name or `<name>@<version>` with a plain version (`1.4.0`, `1.4.0-rc.1`; not `latest`, `v1.4.0` or
+  `1.4.0+b1`) give "not checked", never released, and a line in the snapshot's reasons. The Stages never wait for these
+  commands: all lines are asked at the same time in the background, a read takes the last answer, or "not checked" before
+  the first, and an answer that changes what was known computes the Stages again. An answer is asked again after 5
+  minutes, a release once seen is kept. Each repository waits only for the lines of the other repositories, a Ticket of one
+  repository not for its own, so the library goes on to its review and merge while the consumer waits. While a repository waits, its CI
   is not judged: the consumer's red CI before the release does not mark the Ticket `failing`; after the release red CI is
   red again. The Ticket's Stage carries `release`, each line with `released`, `waiting` or `not checked`, for the board. A
   Project without Release in its Pipeline sees no such Stage, its `Release:` lines change nothing, and nothing is asked.

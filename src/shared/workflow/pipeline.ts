@@ -200,6 +200,8 @@ export interface StageFacts {
    * `release` Stage. Absent or empty: nothing to wait for.
    */
   releases?: readonly ReleaseFact[]
+  /** The repository of a Ticket whose facts come from one repository (its `Repo:` line): it does not wait for its own release. */
+  repo?: string | null
 }
 
 // ── the Stage ────────────────────────────────────────────────────────────────
@@ -279,7 +281,7 @@ export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): 
   /** The lines a repository waits for: those not met, of the other repositories (the library does not wait for its own release). */
   const awaited = (repo: string | null) => releases.filter((release) => release.state !== 'released' && release.repo !== repo)
   const repos = facts.repos ?? []
-  if (repos.length === 0) return { ...stageOfOne(facts, pipeline, awaited(null)), ...own }
+  if (repos.length === 0) return { ...stageOfOne(facts, pipeline, awaited(facts.repo ?? null)), ...own }
   const each = repos.map((repo) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline, awaited(repo.repo)))
   const index = Math.min(...each.map((stage) => stage.index))
   const behind = each.filter((stage) => stage.index === index)

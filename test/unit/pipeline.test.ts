@@ -529,6 +529,10 @@ describe('stageOf: the Stage release', () => {
     const one = (pull: PullFacts, releases: ReleaseFact[]) => facts({ mode: 'silent', headSha: APP, marks: [mark('review', 'success', APP)], pr: pull, releases })
     expect(stageOf(one(pr({ headSha: APP, checks: [red] }), [tag('waiting')]), WITH_RELEASE)).toMatchObject({ stage: 'release', sub: null })
     expect(stageOf(one(merged({ headSha: APP }), [tag('waiting')]), WITH_RELEASE)).toMatchObject({ stage: 'done' })
+    // The Ticket's one repository is the library: it does not wait for its own line.
+    const lib = facts({ mode: 'silent', headSha: LIB, marks: [mark('review', 'success', LIB)], pr: pr({ headSha: LIB, checks: [green] }), releases: [tag('waiting')] })
+    expect(stageOf({ ...lib, repo: 'lib' }, WITH_RELEASE)).toMatchObject({ stage: 'human-review', release: [tag('waiting')] })
+    expect(stageOf({ ...lib, repo: 'app' }, WITH_RELEASE)).toMatchObject({ stage: 'release' })
   })
 
   it('stuck: 24 h by default as a Stage of the team, the Profile\'s stuck_after when set', () => {

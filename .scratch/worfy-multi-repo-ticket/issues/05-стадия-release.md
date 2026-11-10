@@ -88,6 +88,11 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
   ответили, папка не top level своего репозитория, ref вне строгого шаблона — `not checked` и строка в причинах snapshot-а.
   Ответ кроме `released` спрашивается снова через 5 минут, `released` хранится. Без `release` в Pipeline ничего не
   спрашивается.
+- Ревью, раунд 1: стадии не ждут проверок release. `ReleaseReader.peek` сразу даёт последний ответ (до первого —
+  `not checked` без причины) и спрашивает в фоне, все строки одновременно; ответ, который изменил известное, заново
+  считает стадии Project-а. Ticket одного репозитория не ждёт свою же строку. Версия пакета — только простая semver
+  (`1.4.0`, `1.4.0-rc.1`); `latest`, `v1.4.0`, `1.4.0+b1` — `not checked` с причиной. `release` назван в
+  `harness/skills/ship-ticket/pipeline-stages.md` и в разделе 0 `harness/skills/epic-wave/SKILL.md`.
 - Из ревью Ticket-а 04: в Project-е над несколькими репозиториями `gh pr list` не запускается в папке, которая не top
   level своего репозитория; snapshot пишет «… is not the top level of its repository, its PRs are not read». Порядок
   `releases` в `repoFactsOf` на Ticket-е с двумя release уже проверял `test/contract/workflow-reader.test.ts` (Ticket 04).
