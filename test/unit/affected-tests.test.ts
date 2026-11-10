@@ -611,10 +611,16 @@ describe('scripts/affected-tests.table.json of this repository', () => {
     all: { paths: string[] }[]
     links: Link[]
   }
-  // The rows a run builds, in-process: the same call scripts/affected-tests.mjs makes.
+  // The rows a run builds: the generator's command prints generate(REPO) as JSON (the test "prints the rows
+  // as JSON when run as a command" holds it to the in-process call), started with node, as CI starts
+  // scripts/affected-tests.mjs. Not in-process: under Electron's Node of `pnpm test` the TypeScript parse of
+  // every test source took 4–8 s alone and ran past this hook's 30 s limit under a full suite, where node
+  // takes about 1 s alone (worfy-polish ticket 87).
   let generated: Generated[] = []
   beforeAll(() => {
-    generated = generate(REPO)
+    const run = spawnSync(scriptNode(), [GENERATOR], { cwd: REPO, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+    expect(run.status, run.stderr).toBe(0)
+    generated = JSON.parse(run.stdout) as Generated[]
   })
   const under = (path: string, named: string): boolean => path === named || path.startsWith(`${named}/`)
   /** What the rows select for `path`, as scripts/affected-tests.mjs reads them (without the graph). */
