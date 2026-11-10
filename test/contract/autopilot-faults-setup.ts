@@ -274,7 +274,17 @@ function codexTurnTexts(log: string): string[] {
 
 export function faultRun(options: FaultRunOptions = {}) {
   const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-autopilot-faults-')))
-  cleanups.push(() => removeTestTree(scratch))
+  // The PR reads the run started that have not ended yet. A Force stop or the quit does not wait for them
+  // (Autopilot's endRead drops the answer, pollPrs never awaited it), so their gh stand-in may still be
+  // starting when the run has stopped, and its first act is a line in gh/calls.jsonl. Removing the
+  // folder under it failed with ENOTEMPTY (worfy-polish ticket 90). A read settles only once each of
+  // its gh processes has exited (ghRunner answers on the process's close), so the folder goes after
+  // the last of them.
+  const prReads = new Set<Promise<unknown>>()
+  cleanups.push(async () => {
+    while (prReads.size > 0) await Promise.allSettled([...prReads])
+    removeTestTree(scratch)
+  })
   const repo = join(scratch, 'repo')
   const dataRoot = join(scratch, 'data-root')
   const env = { WORFY_DATA_DIR: dataRoot }
@@ -424,6 +434,8 @@ export function faultRun(options: FaultRunOptions = {}) {
   // GitHub: the run's own PrTracker over the gh stand-in.
   let gh: GhWorld | null = null
   let prs: PrTracker | null = null
+  /** The tracker as the run reads it: each read is kept in prReads until it settles. */
+  let prReader: Pick<PrTracker, 'read'> | null = null
   const prOptions = options.prs === false ? null : (options.prs ?? {})
   if (prOptions !== null) {
     const world = ghWorld(join(scratch, 'gh'), { accounts: prOptions.accounts ?? [] })
@@ -431,12 +443,22 @@ export function faultRun(options: FaultRunOptions = {}) {
     if (prOptions.pulls !== undefined) writeFileSync(join(world.dir, 'prs.json'), JSON.stringify(prOptions.pulls))
     // The developer's own gh tokens stay out, as in gh-world.ts.
     const ghEnv = { ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...world.env }
-    prs = new PrTracker({
+    const tracker = new PrTracker({
       run: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve(ghEnv), timeoutMs: prOptions.timeoutMs ?? ms(15_000) }),
       now: () => clock.now,
       ...(prOptions.baseIntervalMs === undefined ? {} : { baseIntervalMs: prOptions.baseIntervalMs }),
       ...(prOptions.maxIntervalMs === undefined ? {} : { maxIntervalMs: prOptions.maxIntervalMs }),
     })
+    prs = tracker
+    prReader = {
+      read: (root, branches) => {
+        const read = tracker.read(root, branches)
+        prReads.add(read)
+        const settled = (): void => void prReads.delete(read)
+        read.then(settled, settled)
+        return read
+      },
+    }
   }
 
   const states: AutopilotState[] = []
@@ -484,10 +506,10 @@ export function faultRun(options: FaultRunOptions = {}) {
       : {}),
     ...(options.backgroundStallMs === undefined ? {} : { backgroundStallMs: options.backgroundStallMs }),
     ...(options.tasksGraceMs === undefined ? {} : { tasksGraceMs: options.tasksGraceMs }),
-    ...(prs === null || prOptions === null
+    ...(prReader === null || prOptions === null
       ? {}
       : {
-          prs,
+          prs: prReader,
           prsClock: clock,
           ...(prOptions.everyMs === undefined ? {} : { prsEveryMs: prOptions.everyMs }),
           ...(prOptions.endReadMs === undefined ? {} : { endReadMs: prOptions.endReadMs }),
