@@ -555,6 +555,27 @@ function sideState(root, base, message, files, named) {
     }
 }
 
+/** Whether `p` is a symlink (a dangling one included). */
+function isLink(p) {
+    try {
+        return fs.lstatSync(p).isSymbolicLink()
+    } catch {
+        return false
+    }
+}
+
+/** Whether `a` and `b` are the same entry: both symlinks with the same target (never followed), or files with the same bytes. */
+function sameEntry(a, b) {
+    try {
+        const sa = fs.lstatSync(a)
+        const sb = fs.lstatSync(b)
+        if (sa.isSymbolicLink() || sb.isSymbolicLink()) return sa.isSymbolicLink() && sb.isSymbolicLink() && fs.readlinkSync(a) === fs.readlinkSync(b)
+        return sa.isFile() && sb.isFile() && sa.size === sb.size && fs.readFileSync(a).equals(fs.readFileSync(b))
+    } catch {
+        return false
+    }
+}
+
 /** Up to five names, and how many more. */
 const shown = (list) => `${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`
 
@@ -636,27 +657,16 @@ function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
         const foreign = entries.filter((e) => !(to.at === "before" && (e.xy === "??" || e.xy === "A ") && listed.has(e.file))).map((e) => e.file)
         if (foreign.length > 0) problems.push(`${plan.target} has changes since ${named} (${shown(foreign)}): commit, move or remove them by hand, then move again`)
     }
-    // The copies on the side the files came to, before its commit, still hold what the move wrote: the blob each
-    // file had at the commit the move started from. A copy edited since is a person's change too.
-    if (problems.length === 0 && to.at === "before" && marker.fromHead !== null) {
-        const present = files.filter((f) => fs.existsSync(path.join(plan.target, ...f.split("/"))))
-        if (present.length > 0) {
-            const tree = gitIn(plan.source, ["ls-tree", "-r", "-z", marker.fromHead, "--", ...marker.rels], "")
-            const blob = new Map()
-            for (const line of tree.stdout.split("\0").filter(Boolean)) {
-                const tab = line.indexOf("\t")
-                blob.set(line.slice(tab + 1), line.slice(0, tab).split(" ")[2])
-            }
-            const hashed = targetGit
-                ? gitIn(plan.target, ["hash-object", "--stdin-paths"], present.join("\n") + "\n")
-                : spawnSync(GIT, ["hash-object", "--stdin-paths"], { cwd: plan.target, input: present.join("\n") + "\n", encoding: "utf8", windowsHide: true, env: gitEnv(), maxBuffer: 1 << 26 })
-            if (hashed.status !== 0 || hashed.error) problems.push(`git hash-object in ${plan.target} failed: ${said(hashed)}`)
-            else {
-                const sums = hashed.stdout.split("\n").filter(Boolean)
-                const edited = present.filter((f, i) => blob.get(f) !== sums[i])
-                if (edited.length > 0) problems.push(`${plan.target} has files changed since ${named} (${shown(edited)}): keep a copy of them elsewhere and restore them, then move again`)
-            }
-        }
+    // The copies on the side the files came to, before its commit, still hold what the move wrote: the bytes of
+    // the file they were copied from, which is still on the side the files left (its commit comes after this one).
+    // Compared byte for byte here, not through git: a symlink, or a file whose bytes on disk are not what git
+    // stores (eol=crlf, a filter), would never match git's view of the copy. A copy edited since is a person's change.
+    if (problems.length === 0 && to.at === "before") {
+        const edited = files.filter((f) => {
+            const copy = path.join(plan.target, ...f.split("/"))
+            return fs.existsSync(copy) || isLink(copy) ? !sameEntry(path.join(plan.source, ...f.split("/")), copy) : false
+        })
+        if (edited.length > 0) problems.push(`${plan.target} has files changed since ${named} (${shown(edited)}): keep a copy of them elsewhere and restore them, then move again`)
     }
     if (problems.length > 0) return { rolledBack: false, problems }
     alive()

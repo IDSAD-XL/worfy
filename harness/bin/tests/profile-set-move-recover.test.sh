@@ -59,6 +59,11 @@ printf '# spec\n' >"$R/plans/epic-a/spec.md"
 printf '# state\nline two\n' >"$R/HANDOFF.md"
 printf '# 0001 — a decision\n' >"$R/docs/adr/0001-a.md"
 printf 'not really a png\n' >"$R/docs/adr/d.png"
+# A file whose bytes on disk are not what git stores (eol=crlf: CRLF on disk, LF in the blob), and a symlink: a copy
+# of each holds the bytes of the original, which git's view of the copy (hash-object) does not match.
+printf 'docs/adr/crlf.md text eol=crlf\n' >"$R/.gitattributes"
+printf '# crlf\r\nline two\r\n' >"$R/docs/adr/crlf.md"
+ln -s 0001-a.md "$R/docs/adr/link.md"
 printf 'code\n' >"$R/src/a.txt"
 g -C "$R" add -A
 g -C "$R" commit -q -m init
@@ -214,6 +219,43 @@ for at in copy to-commit from-commit profile; do
     back_to_full "killed at $at"
 done
 check "the spec folder outside tickets.root moved back too" present "$R/plans/epic-a/spec.md"
+
+# Copies whose bytes git would write otherwise (a symlink, an eol=crlf file) are the move's own copies: a kill
+# before their commit is rolled back. One changed byte (CRLF made LF) is a person's change and refuses.
+kill_at_plain() {
+    PROFILE_SET_MOVE_KILL_AT="$1" run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
+    check "killed at $1 with a symlink and an eol=crlf file: exit 137" [ $? -eq 137 ]
+}
+kill_at_plain to-commit
+check "the copies: the eol=crlf file has its CRLF bytes" cmp -s "$R/docs/adr/crlf.md" "$WF/docs/adr/crlf.md"
+if [ -L "$R/docs/adr/link.md" ]; then check "the copies: the symlink copied as a symlink" [ -L "$WF/docs/adr/link.md" ]; fi
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+check "a symlink and an eol=crlf file in the copies: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "a symlink and an eol=crlf file"
+kill_at_plain to-commit
+printf '# crlf\nline two\r\n' >"$WF/docs/adr/crlf.md"
+run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
+check "one byte of a copy changed: the next move exits 1" [ $? -eq 1 ]
+check "one byte of a copy changed: the reason names it" grep -q "docs/adr/crlf.md" "$T/err"
+check "one byte of a copy changed: the marker kept" present "$MARKER"
+cp "$R/docs/adr/crlf.md" "$WF/docs/adr/crlf.md"
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+check "the byte put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "the byte put back by hand"
+# The symlink of a copy replaced by a file with its target's bytes: not the move's copy (links are never followed).
+if [ -L "$R/docs/adr/link.md" ]; then
+    kill_at_plain to-commit
+    rm -f "$WF/docs/adr/link.md"
+    cp "$R/docs/adr/0001-a.md" "$WF/docs/adr/link.md"
+    run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
+    check "a symlink of a copy made a plain file: the next move exits 1" [ $? -eq 1 ]
+    check "a symlink of a copy made a plain file: the reason names it" grep -q "docs/adr/link.md" "$T/err"
+    rm -f "$WF/docs/adr/link.md"
+    ln -s 0001-a.md "$WF/docs/adr/link.md"
+    out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+    check "the symlink put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+    back_to_full "the symlink put back by hand"
+fi
 
 # Killed once the profile was written: the next move only closes it.
 FP="$(fp)"
