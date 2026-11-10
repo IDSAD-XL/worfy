@@ -5,7 +5,9 @@
 // (repo, N) and, before it has a number in the Ticket, by (repo, branch); a click opens the Pull requests view on that
 // PR. A Ticket whose PR the snapshot does not hold looks as before, and its card keeps its height (ticket-card.ts).
 // Every owner, login and text is invented; nothing here reaches main or GitHub.
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { PrInboxGroup, PrInboxRow, PrInboxSnapshot, PrInboxThread } from '../../src/shared/ipc/pr-inbox'
@@ -103,6 +105,7 @@ beforeEach(() => {
     invoke: (channel: string) => {
       invoked.push(channel)
       if (channel === 'prInbox.get') return Promise.resolve({ ok: true, value: inbox })
+      if (channel === 'projects.list') return Promise.resolve({ ok: true, value: { projects: [{ id: PROJECT, name: 'shop', path: ROOT }], activeId: PROJECT, revision: 1 } })
       if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: { root: ROOT, epics: [], tickets, error: null, branchErrors: [] } satisfies WorkflowModel })
       return Promise.resolve({ ok: false, error: `no ${channel} in this test` })
     },
@@ -242,5 +245,21 @@ describe('the room of the badge on the card (ticket-card.ts)', () => {
     expect(after.get(8)).toBe(before.get(8))
     // Keyed by the Epic too: the same number in another Epic gets no room.
     expect(cardHeights(layoutTickets, columns, { reviewChips: { 'other/7': 2 } }).get(7)).toBe(before.get(7))
+  })
+})
+
+describe('the Epic node source lays the card out with the badge’s room (sources/epics.ts)', () => {
+  it('a Ticket whose PR waits gets a line per chip once the inbox answers; the others keep their height', async () => {
+    tickets = [ticket(7, { pr: 118 }), ticket(8)]
+    inbox = snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: WAITING, reviewDecision: 'CHANGES_REQUESTED' })] })
+    const { default: source } = await import('../../src/renderer/canvas/sources/epics')
+    const { cardHeights, epicColumns } = await import('../../src/renderer/canvas/epic-layout')
+    const { REVIEW_LINE } = await import('../../src/renderer/canvas/ticket-card')
+    const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
+    const { result } = renderHook(() => source.useNodes({ projectId: PROJECT, layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } } } as Parameters<typeof source.useNodes>[0]), { wrapper })
+    const heightOf = (num: number) => result.current.find((node) => node.type === 'ticket' && node.id.endsWith(`/${num}`))?.height
+    const plain = cardHeights(tickets, epicColumns(tickets))
+    await vi.waitFor(() => expect(heightOf(7)).toBe(plain.get(7)! + 2 * REVIEW_LINE))
+    expect(heightOf(8)).toBe(plain.get(8))
   })
 })
