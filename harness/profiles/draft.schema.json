@@ -121,7 +121,7 @@
                 "additionalProperties": false,
                 "required": ["kind"],
                 "properties": {
-                  "kind": { "enum": ["queued", "implementing", "ci", "agent-review", "human-review", "check", "gate-merge", "awaiting-merge", "deploy", "closing", "done"] },
+                  "kind": { "enum": ["queued", "implementing", "ci", "agent-review", "human-review", "check", "release", "gate-merge", "awaiting-merge", "deploy", "closing", "done"] },
                   "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "check only, and required there: the mark check/<name> the Stage waits for." },
                   "label": { "type": "string", "minLength": 1, "description": "The name of the Stage on the board, instead of the kind's own." },
                   "stuck_after": { "type": "string", "pattern": "^[1-9][0-9]*[hm]$", "description": "How long a ticket may stay on the Stage before it counts as stuck: \"<number>h\" or \"<number>m\"." },

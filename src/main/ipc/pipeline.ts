@@ -19,6 +19,7 @@ import { insideProjects, realInsideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { HARNESS_SCRIPT_TIMEOUT_MS, HarnessScriptStartError, readPipelineProfile, runHarnessScript, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
+import { ReleaseReader } from '../workflow/release'
 import { StageHub, type StageSources, type StageSubscriber } from '../workflow/stages'
 import { sharedPrTracker } from './checks'
 import { defineHandler, emit, type HandlerModule } from './index'
@@ -39,6 +40,8 @@ export const stageHub = new StageHub({
   profile: pipelineProfileSource(claudeHome(), harnessScriptEnv),
   deployments: new DeploymentReader({ gh: (root, args) => sharedPrTracker().gh(root, args) }),
   harnessHome: harnessHomes(claudeHome()).harnessHome,
+  // git ls-remote and npm view with the login shell's environment, as the Harness scripts get it: its PATH and npm settings.
+  release: new ReleaseReader({ env: () => harnessScriptEnv() }),
 })
 
 /**

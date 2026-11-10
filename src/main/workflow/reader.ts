@@ -490,7 +490,7 @@ export async function ticketBranches(
  * Whether `folder` is the top level of a git work tree (`rev-parse --show-toplevel`), compared by their real paths:
  * git gives the real one, with `/` on Windows too. False outside git and when either path does not resolve.
  */
-async function isTopLevel(folder: string, run: (cwd: string, args: string[]) => Promise<string>): Promise<boolean> {
+export async function isTopLevel(folder: string, run: (cwd: string, args: string[]) => Promise<string>): Promise<boolean> {
   try {
     const top = (await run(folder, ['rev-parse', '--show-toplevel'])).trim()
     return top !== '' && (await realpath(top)) === (await realpath(folder))

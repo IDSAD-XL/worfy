@@ -1,0 +1,13 @@
+#!/bin/sh
+# npm for the release check (test/contract/workflow-release.test.ts): only shell built-ins. Logs its arguments and the
+# folder it ran in to $RELEASE_STUB_CALLS. `npm view <name>@<version> version` prints the version when
+# "<name>@<version>" is in $RELEASE_STUB_PUBLISHED (space separated) and nothing otherwise, as npm does for a version
+# that is not there; with $RELEASE_STUB_CODE not 0 it fails as npm does when the registry does not answer.
+printf 'npm %s cwd=%s\n' "$*" "$(pwd)" >>"$RELEASE_STUB_CALLS"
+if [ "${RELEASE_STUB_CODE:-0}" -ne 0 ]; then
+  printf 'npm error code ENOTFOUND\nnpm error network request to https://registry.example/ failed\n' >&2
+  exit "$RELEASE_STUB_CODE"
+fi
+case " $RELEASE_STUB_PUBLISHED " in
+  *" $2 "*) printf '%s\n' "${2##*@}" ;;
+esac

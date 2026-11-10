@@ -94,6 +94,8 @@ set -o pipefail; "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field _resolved
   its review decision is `APPROVED` (`gh pr view <N> --json reviewDecision`); with `awaiting-merge`
   it never merges: people do. Such a ticket stays `claimed` with its PR open, the wave goes on without
   it, and its report row says whom it waits for (section 5): it is not `blocked`.
+- `release` — a ticket over several repositories waits until each of its `Release:` lines is out: the
+  team makes the release, the orchestrator only notices it (`/worfy:ship-ticket`, step 9).
 - `gate-merge` — the merge by the orchestrator, section 4 (`F workflow.merge`, `F workflow.merge_gate`).
 - `deploy` — after the merge the ticket is not closed (`ticket done`) until its merge commit is
   deployed (section 4, "Deploy before close").

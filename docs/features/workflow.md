@@ -218,6 +218,7 @@ stands on Queued whatever else is true: only a Ticket `claimed` or `blocked` is 
 | Agent review | The last mark `review` on the head commit is `success` |
 | Human review | GitHub's review decision on the open PR is `APPROVED` |
 | Check `<name>` | The last mark `check/<name>` on the head commit is `success` or `skipped` |
+| Release | Every `Release:` line of the Ticket is met: the tag is in the remote of the library's repository, or the version is published. A Ticket without such lines passes at once (see below) |
 | Gate & merge, Awaiting merge | Only the merge, or status `done` |
 | Deploy | The merge commit is in a deployed commit: a GitHub Deployment of the Stage's environment or, without an environment, in Full mode only, a commit with the status `deploy` |
 | Closing | Only status `done` passes it |
@@ -233,7 +234,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 | Rework | On Implementing with a `failure` mark on the head commit | `Rework` | `↺` |
 | `failing` | On CI with a failed check | A caption | In the tooltip |
 | `gate running`, `waiting for gate`, `gate busy` | On Gate & merge while the e2e lock of the Profile is held: for this PR, for others, or with no readable holder | A caption | In the tooltip |
-| Waits | The `Waits:` line, else `team` on Human review and Awaiting merge, else `agent`. None on Done | `Waits: <who>` | `<who>` |
+| Waits | The `Waits:` line, else `team` on Human review, Release and Awaiting merge, else `agent`. None on Done | `Waits: <who>` | `<who>` |
 | Stuck | The time on the Stage reached its threshold | A frame, and `stuck: on CI for 3 h` in the tooltip | The same |
 
 **Thresholds of stuck.**
@@ -241,7 +242,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 | Ticket | Threshold |
 |---|---|
 | The Stage has `stuck_after` | That value |
-| On Human review or Awaiting merge, or `Waits:` is `owner` or `team` | 24 hours |
+| On Human review, Release or Awaiting merge, or `Waits:` is `owner` or `team` | 24 hours |
 | On Implementing, CI, Agent review or Gate & merge | 2 hours |
 | Queued, a Check, Deploy or Closing | None |
 | Done | Never, also with `stuck_after` |
@@ -249,7 +250,7 @@ A mark counts only on the head commit, so a new push makes earlier verdicts stop
 The time on a Stage is counted from the latest known fact: the status time, or the time of the mark, check or merge that
 passed the last Stage. With no known time a Ticket is not judged. The clock on screen ticks once a minute.
 
-**Settings → Pipeline** edits the Pipeline of the active Project within the catalogue: 11 kinds, with no conditions of the
+**Settings → Pipeline** edits the Pipeline of the active Project within the catalogue: 12 kinds, with no conditions of the
 user's own. Queued stays first and Done last. A Stage in between can be moved, removed or added, and Checks can repeat under
 different names. Fields:
 
@@ -309,7 +310,24 @@ list, because it notified of it itself. A click on a Linked machine's note opens
   of every branch, a new head of any branch takes the verdict off the whole Ticket, red CI of any PR is red CI of the Ticket,
   and with one PR merged the Ticket stands where the other PR stands. Its Stage then carries `merged`: how many of its
   repositories have their PR merged, of how many. A Ticket of one repository has no `merged`. A repository whose folder is not
-  the top level of its own git repository gives no branch heads, so git never reports a parent repository's branches.
+  the top level of its own git repository gives no branch heads and no PRs, so neither git nor `gh` reports a parent
+  repository's branches or PRs; the snapshot says "<folder> is not the top level of its repository, its PRs are not read".
+- **Release.** A Project over several repositories may put the Stage Release in its Pipeline
+  ([ADR-0104](../adr/0104-one-ticket-several-repositories.md), items 5 and 6). worfy makes no release, it only notices one,
+  for each `Release:` line of a Ticket in work. `Release: <repo> tag <tag>` is met when `git ls-remote --tags origin
+  refs/tags/<tag>` in the checkout of that repository lists the tag. `Release: <repo> package <name>@<version>` is met when
+  `npm view <name>@<version> version` prints the version; it runs in the checkout of the Ticket's first other repository,
+  the consumer, so that checkout's `.npmrc` and registry settings apply. Both run with the login shell's environment. A
+  remote or registry that does not answer, a folder that is not the top level of its repository, and a ref that is not a
+  plain tag name or `<name>@<version>` with a plain version (`1.4.0`, `1.4.0-rc.1`; not `latest`, `v1.4.0` or
+  `1.4.0+b1`) give "not checked", never released, and a line in the snapshot's reasons. The Stages never wait for these
+  commands: all lines are asked at the same time in the background, a read takes the last answer, or "not checked" before
+  the first, and an answer that changes what was known computes the Stages again. An answer is asked again after 5
+  minutes, a release once seen is kept. Each repository waits only for the lines of the other repositories, a Ticket of one
+  repository not for its own, so the library goes on to its review and merge while the consumer waits. While a repository waits, its CI
+  is not judged: the consumer's red CI before the release does not mark the Ticket `failing`; after the release red CI is
+  red again. The Ticket's Stage carries `release`, each line with `released`, `waiting` or `not checked`, for the board. A
+  Project without Release in its Pipeline sees no such Stage, its `Release:` lines change nothing, and nothing is asked.
 - **A Profile that cannot be read** gives the default Pipeline and a reason in the snapshot.
 - **The editor never writes the Profile itself.** It goes through the Harness's `bin/profile-set` with the fingerprint of what
   it read ([ADR-0073](../adr/0073-profile-set-writes-the-pipeline.md)). The rules of a Pipeline exist in the Harness and in
@@ -326,6 +344,7 @@ client gets snapshots with the root as it sent it.
 |---|---|
 | The catalogue, the schema, `stageOf`, stuck | `src/shared/workflow/pipeline.ts` |
 | Collecting the facts; `StageReader`, `StageHub` | `src/main/workflow/stages.ts` |
+| Whether a release has come | `src/main/workflow/release.ts` |
 | Reading the marks | `src/main/workflow/marks.ts` |
 | The PR tracker; Deployments | `src/main/github/prs.ts`, `src/main/github/deployments.ts` |
 | The Profile's Pipeline | `src/main/workflow/profile.ts` |
@@ -348,6 +367,7 @@ them while nothing changes.
 - `test/e2e/pipeline.spec.ts`: the board, a claim moving a card and the sidebar row, in the app.
 - `test/contract/workflow-stages.test.ts`: the facts from a real git repository in Full and Silent mode, the lock and the channels.
 - `test/unit/pipeline.test.ts`: `stageOf`, the catalogue and stuck.
+- `test/contract/workflow-release.test.ts`: the release reader against real git and a stub `npm`, and the Stage Release in main.
 - `test/contract/pipeline-rules-agree.test.ts`: the two copies of the rules give one verdict.
 - `test/unit/pipeline-board.test.tsx`, `test/unit/ticket-stepper.test.tsx`, `test/unit/settings-pipeline.test.tsx`: the views.
 - `test/unit/notify.test.ts`: the notes of waits and whom they reach.
