@@ -647,8 +647,13 @@ shows. Details — agent `worfy:reviewer`. A UI ticket without screenshots is a 
 finding, not "not verified": a screenshot can be automated, and the exception for manual GUI checks
 does not cover it.
 
-The verifier's answer starts with its verdict, in the form that lens gives it. Every verdict is
-recorded so the round count survives a session break:
+The verifier's answer starts with its verdict, in the form that lens gives it. Save the answer to a
+file in the scratchpad and run `"${CLAUDE_PLUGIN_ROOT}/bin/verdict" <file>`: it prints the answer
+from its verdict line on, a sentence the model wrote above that line dropped. The verifier's verdict
+is the one `bin/verdict` prints; what you record still follows the sort of the findings into groups
+above. Exit code 1 — no line of the answer starts with `VERIFIED` or
+`REJECTED`, so it has no verdict: record nothing and ask the verifier for its verdict, never guess
+one. Every verdict is recorded so the round count survives a session break:
 
 ```bash
 gh pr comment <N> --body "VERIFIED"            # or "REJECTED: <list>"

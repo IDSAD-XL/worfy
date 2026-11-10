@@ -10,7 +10,8 @@
 //   the cause (a rejecting verifier). A new `Agent` call under the same name — a restart after a
 //   `session-error` — is the next attempt of that name the same way.
 // - How it ended: `failed` for a failed task-notification or a call that errs, `stopped` for one
-//   that was killed, `rejected` for a verifier whose report starts with REJECTED.
+//   that was killed, `rejected` for a verifier whose report gives REJECTED (its first line that starts with
+//   VERIFIED or REJECTED, a lead-in before it dropped: src/shared/workflow/verdict.mjs).
 // - The Ticket: the agent's name (`impl-NN`, `verify-NN`), else `ticket NN` in its description,
 //   else the branch `<epic>/<NN>`, the path `.scratch/<epic>/issues/<NN>-…` or `ticket NN` in its
 //   prompt — when the Run has that Ticket. In a Run over a queue of Epics the Epic of a branch or a path
@@ -39,6 +40,7 @@ import type { SpanOutcome, TurnFact, WorkFact } from './facts'
 import { agentSubkind } from './spans'
 import { parseTranscriptRecord, type TranscriptEntry } from '../transcript/parse'
 import { AGENT_TOOLS, readSubagentMeta, summaryLine } from '../transcript/subagents'
+import { findVerdict } from '../workflow/verdict.mjs'
 
 type Iso = string
 type Json = Record<string, unknown>
@@ -77,7 +79,6 @@ const AGENT_NAME_TICKET = /^(?:impl|implementer|verify|verifier|review|reviewer)
 const DESCRIPTION_TICKET = /\bticket\s+0*(\d{1,5})\b/iu
 const WAVE_TICKETS = /\btickets?\s+(\d{1,5}(?:\s*,\s*\d{1,5})*)\s+of\s+epic\s+([A-Za-z0-9._-]+)/iu
 const AGENT_MESSAGE = /<agent-message from="([^"]{1,200})">/u
-const VERDICT = /^(VERIFIED|REJECTED)\b/u
 /** How much of a prompt is kept to look for its Ticket. */
 const PROMPT_MAX = 20_000
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
@@ -668,11 +669,11 @@ export class TranscriptParse {
         }
         let verdict: string | undefined
         if (verifier && report !== null && end !== null) {
-          const first = summaryLine(report) ?? ''
-          verdict = VERDICT.exec(first)?.[1]
-          if (verdict === 'REJECTED' && outcome === undefined) {
+          const found = findVerdict(report)
+          verdict = found?.verdict
+          if (found !== null && found.verdict === 'REJECTED' && outcome === undefined) {
             outcome = 'rejected'
-            reason = first
+            reason = summaryLine(found.text) ?? found.line
           }
         }
         const moved = until.findLast((record) => record.cwd !== undefined)?.cwd

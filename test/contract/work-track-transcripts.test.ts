@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inspect } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { CODEX_ARCHIVED_SESSION, fileLines, readProjectTranscripts, TranscriptCache, type CanvasSession, type ProjectTranscriptsInput } from '../../src/main/work-track/transcripts'
+import { CODEX_ARCHIVED_SESSION, fileLines, NamesOnly, readProjectTranscripts, TranscriptCache, type CanvasSession, type ProjectTranscriptsInput } from '../../src/main/work-track/transcripts'
 import type { HistoryPart, HistorySession } from '../../src/main/vendors/history'
 import type { TranscriptEntry } from '../../src/shared/transcript/parse'
 import { removeTestTree } from '../remove'
@@ -258,5 +258,26 @@ describe('the threads of Codex', () => {
     const read = await readProjectTranscripts(WEEK, { env: { WORFY_CLAUDE_HOME: claude }, cache: new TranscriptCache(), platform: 'linux', codex: history })
     expect(read.facts.some((fact) => fact.session === A)).toBe(true)
     expect(read.gaps).toEqual([{ source: 'codex', start: midnight(3, 2), end: '2026-03-06T12:00:00.000Z', why: expect.stringContaining('did not answer') }])
+  })
+})
+
+// A verifier's report is cut to its verdict word, read as every verdict is (src/shared/workflow/verdict.mjs,
+// worfy-polish 91): the first line that starts with VERIFIED or REJECTED, a lead-in before it dropped.
+describe('the verdict a cut-down transcript keeps', () => {
+  const resultOf = (answer: string): unknown => {
+    const names = new NamesOnly()
+    names.record(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_v', name: 'Agent', input: { name: 'verify-05' } }] } }))
+    const kept = names.record(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_v', content: answer }] } }))
+    return (kept?.message as { content: { content: unknown }[] }).content[0]?.content
+  }
+  const notificationOf = (answer: string): unknown =>
+    new NamesOnly().record(JSON.stringify({ type: 'user', content: `<task-notification><task-id>t1</task-id><status>completed</status><result>${answer}</result></task-notification>` }))?.content
+
+  it('a lead-in, then REJECTED: the word stays; a word inside a sentence or no verdict line: nothing', () => {
+    expect(resultOf('This confirms a clear discrepancy.\n\nREJECTED: node --test exits 1')).toBe('REJECTED')
+    expect(resultOf('Every claim was VERIFIED by re-running it.')).toBe('')
+    expect(resultOf('VERIFIED')).toBe('VERIFIED')
+    expect(notificationOf('Checked.\nVERIFIED\nRan: node --test')).toBe('<task-notification><task-id>t1</task-id><status>completed</status><result>VERIFIED</result></task-notification>')
+    expect(notificationOf('Nothing was REJECTED.')).toBe('<task-notification><task-id>t1</task-id><status>completed</status></task-notification>')
   })
 })

@@ -175,9 +175,13 @@ describe('narrowOf (worfy-harness ticket 20)', () => {
     expect(narrowOf([started, { body: '  NARROW: REJECTED: src/a.ts:1 still open\n- details' }, { body: 'thanks' }])).toEqual({ outcome: 'rejected', text: 'NARROW: REJECTED: src/a.ts:1 still open', at: null })
   })
 
-  it('is null without a NARROW: comment, and takes the prefix only at the start of the first line', () => {
+  // A narrow verdict is read as every verdict is (src/shared/workflow/verdict.mjs, worfy-polish 91): the first line
+  // that starts with one, a lead-in before it dropped; an opening (`NARROW: <findings>`) is the first line only.
+  it('is null without a NARROW: comment, and takes the prefix only at the start of a line', () => {
     expect(narrowOf([{ body: 'REJECTED: 1 finding' }, { body: 'VERIFIED' }])).toBeNull()
-    expect(narrowOf([{ body: 'see NARROW: VERIFIED' }, { body: 'notes\nNARROW: REJECTED' }, { body: 'NARROWED: x' }])).toBeNull()
+    expect(narrowOf([{ body: 'see NARROW: VERIFIED' }, { body: 'notes\nNARROW: [med] x' }, { body: 'NARROWED: x' }])).toBeNull()
+    expect(narrowOf([{ body: 'notes\nNARROW: REJECTED' }])).toEqual({ outcome: 'rejected', text: 'NARROW: REJECTED', at: null })
+    expect(narrowOf([{ body: 'NARROW: [med] x\nVERIFIED' }])).toEqual({ outcome: 'started', text: 'NARROW: [med] x', at: null })
     expect(narrowOf([])).toBeNull()
     expect(narrowOf(null)).toBeNull()
   })

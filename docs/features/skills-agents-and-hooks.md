@@ -178,6 +178,9 @@ seem underestimated or the change looks harmful. It asks `qmd` first whether the
 lenses have written rules:
 
 - **Implementer's report**: the first characters of the answer are `VERIFIED`, or `REJECTED: <the unconfirmed claims>`.
+  Whoever reads, saves or posts a verdict still takes the first line that starts with `VERIFIED` or `REJECTED`, with or
+  without bold or a heading mark in front, and drops a sentence above it and that markup (`bin/verdict`, and the same rule
+  in the app); an answer without such a line has no verdict. The eval grader stays strict: it passes only a bare line.
 - **Simplification**: what can be deleted, reused or made simpler. A suggestion with nothing to point at is not
   reported.
 - **documentation**: whether the diff changes behaviour that a page from `docs.feature_pages` describes, without editing

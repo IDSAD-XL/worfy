@@ -20,6 +20,7 @@
 // Codex starts for a Claude Session. worfy writes nothing into CODEX_HOME (ADR-0005).
 import { existsSync } from 'node:fs'
 import { flattenSubagents, summaryLine, type SubagentInfo, type SubagentStatus } from '../../../shared/transcript/subagents'
+import { findVerdict } from '../../../shared/workflow/verdict.mjs'
 import { appCodexStarter, CODEX_ASK_TIMEOUT_MS, codexHomeOf, withCodex, type CodexAsk, type StartCodex } from './account'
 import { THREAD_PAGE, THREAD_PAGES } from './history'
 import type { CollabAgentStatus } from './protocol/ts/v2/CollabAgentStatus'
@@ -120,8 +121,6 @@ const itemsOf = (thread: Thread): ThreadItem[] => (thread.turns ?? []).flatMap((
 /** The last turn of the thread was interrupted: a Subagent it left running was cut off with it. */
 const lastTurnInterrupted = (thread: Thread): boolean => thread.turns?.at(-1)?.status === 'interrupted'
 
-const verdictOf = (summary: string | null): SubagentInfo['verdict'] => (/\b(VERIFIED|REJECTED)\b/.exec(summary ?? '')?.[1] as SubagentInfo['verdict'] | undefined) ?? null
-
 const byStart = (a: SubagentInfo, b: SubagentInfo): number =>
   (a.startedAt ?? Number.POSITIVE_INFINITY) - (b.startedAt ?? Number.POSITIVE_INFINITY) || a.id.localeCompare(b.id)
 
@@ -159,7 +158,10 @@ export function codexSubagentTree(root: Thread, threads: readonly Thread[], item
     else if (status === 'running' && cutOff && parentOf(thread) === root.id) status = 'interrupted'
     const startedAt = known?.startedAt ?? thread.createdAt * 1000
     const endedAt = status === 'running' ? null : (known?.status === status ? known.endedAt : null) ?? thread.updatedAt * 1000
-    const summary = summaryLine(known?.message ?? null)
+    // A reviewer's verdict is its first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs):
+    // a lead-in before it is dropped from the summary too.
+    const found = findVerdict(known?.message ?? null)
+    const summary = summaryLine(found?.text ?? known?.message ?? null)
     infos.set(childId, {
       id: `agent:${childId}`,
       agentId: childId,
@@ -175,7 +177,7 @@ export function codexSubagentTree(root: Thread, threads: readonly Thread[], item
       startedAt,
       durationMs: endedAt === null ? null : Math.max(0, endedAt - startedAt),
       summary,
-      verdict: verdictOf(summary),
+      verdict: found?.verdict ?? null,
       depth: 1,
       transcript: false,
       children: [],

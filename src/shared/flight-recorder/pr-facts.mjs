@@ -3,6 +3,7 @@
 // scripts/critical-path.mjs, which runs without a build and cannot import TypeScript, and by the app, which
 // imports this file from TypeScript (types in pr-facts.d.mts). Plain JavaScript without Node modules: it reads gh's
 // JSON and returns values; the caller runs gh.
+import { findVerdict } from '../workflow/verdict.mjs'
 import { time } from './journal-walk.mjs'
 
 /** The fields scripts/critical-path.mjs asks `gh pr view` / `gh pr list --json` for. */
@@ -94,7 +95,6 @@ export function headMarks(pr) {
     .map((check) => ({ name: check.context ?? check.name ?? 'status', state: check.state ?? null, at: time(check.startedAt) ?? time(check.createdAt) }))
 }
 
-const VERDICT = /^\s*(NARROW:\s*)?(VERIFIED|REJECTED)\b/
 const NARROW = /^\s*NARROW:/
 
 /** gh's `authorAssociation` of the people who may write in the repository: the Gate writes as one of them. */
@@ -116,15 +116,18 @@ function byGate(comment, account) {
  * The Gate's comments on the PR in order: a verdict (`VERIFIED`, `REJECTED`, either after `NARROW:`) and the
  * opening of a narrow fix round (`NARROW: …` without a verdict; one per Ticket, harness/skills/epic-wave/SKILL.md).
  * { at, verdict, narrow }: verdict null for an opening, at null for a comment without a time. Only the comments
- * `byGate` lets through count.
+ * `byGate` lets through count. A comment that starts with `NARROW:` and no verdict word is an opening; any other
+ * comment's verdict is its first line that starts with one (findVerdict, ../workflow/verdict.mjs: a lead-in before
+ * it does not hide it).
  */
 export function verdictComments(pr, account) {
   const comments = (Array.isArray(pr.comments) ? pr.comments : []).filter((c) => typeof c?.body === 'string' && byGate(c, account))
   const found = []
   for (const comment of comments) {
-    const verdict = VERDICT.exec(comment.body)
-    if (verdict !== null) found.push({ at: time(comment.createdAt), verdict: verdict[2], narrow: verdict[1] !== undefined })
-    else if (NARROW.test(comment.body)) found.push({ at: time(comment.createdAt), verdict: null, narrow: true })
+    const verdict = findVerdict(comment.body)
+    const opening = NARROW.test(comment.body) && findVerdict(comment.body.trimStart().split('\n')[0]) === null
+    if (opening) found.push({ at: time(comment.createdAt), verdict: null, narrow: true })
+    else if (verdict !== null) found.push({ at: time(comment.createdAt), verdict: verdict.verdict, narrow: verdict.narrow })
   }
   return found
 }

@@ -35,6 +35,7 @@ import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
 import type { CheckFact } from '../../shared/workflow/pipeline'
+import { findVerdict } from '../../shared/workflow/verdict.mjs'
 import { programStart, windowsProgramPath } from '../program'
 
 export const BASE_INTERVAL_MS = 60_000
@@ -256,7 +257,7 @@ export function ciOf(rollup: readonly z.infer<typeof checkSchema>[] | null | und
   return running ? 'running' : 'passing'
 }
 
-const NARROW = /^NARROW:(.*)$/u
+const NARROW = /^NARROW:/u
 
 /** The first line kept to NARROW_TEXT_MAX UTF-16 units, without half of a surrogate pair at the cut. */
 function clipLine(line: string): string {
@@ -268,20 +269,20 @@ function clipLine(line: string): string {
 
 /**
  * Every state of the narrow fix rounds of a PR, oldest first (worfy-harness ticket 20, ADR-0046):
- * each comment whose first line starts with `NARROW:` — `NARROW: VERIFIED` is `verified`,
- * `NARROW: REJECTED…` is `rejected`, anything else (`NARROW: <findings>`) is `started` — with that
- * first line and the comment's `createdAt`. worfy reads only the prefix the /epic-wave skill writes
- * its verdicts with; the findings are not parsed.
+ * a comment whose first line starts with `NARROW:` and no verdict word (`NARROW: <findings>`) is
+ * `started`; any other comment whose verdict line (findVerdict, src/shared/workflow/verdict.mjs: its
+ * first line that starts with a verdict word, a lead-in before it dropped) is the narrow round's —
+ * `NARROW: VERIFIED` is `verified`, `NARROW: REJECTED…` is `rejected` — with that line and the
+ * comment's `createdAt`. worfy reads only the prefix the /epic-wave skill writes its verdicts with;
+ * the findings are not parsed.
  */
 export function narrowRoundsOf(comments: readonly { body: string; createdAt?: string | undefined }[] | null | undefined): NarrowState[] {
   const states: NarrowState[] = []
   for (const comment of comments ?? []) {
     const line = firstLine(comment.body)
-    const match = NARROW.exec(line)
-    if (!match) continue
-    const rest = match[1]!.trim()
-    const outcome = /^VERIFIED\b/u.test(rest) ? 'verified' : /^REJECTED\b/u.test(rest) ? 'rejected' : 'started'
-    states.push({ outcome, text: clipLine(line), at: comment.createdAt ?? null })
+    const verdict = findVerdict(comment.body)
+    if (NARROW.test(line) && findVerdict(line) === null) states.push({ outcome: 'started', text: clipLine(line), at: comment.createdAt ?? null })
+    else if (verdict?.narrow === true) states.push({ outcome: verdict.verdict === 'VERIFIED' ? 'verified' : 'rejected', text: clipLine(verdict.line.trim()), at: comment.createdAt ?? null })
   }
   return states
 }
