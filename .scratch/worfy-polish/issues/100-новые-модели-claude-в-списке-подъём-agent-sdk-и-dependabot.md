@@ -37,8 +37,8 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
 - [ ] `test/fixtures/sdk-messages/` сняты заново на Claude Code 2.1.322, `manifest.json` — `node scripts/sdk-compat.mjs
       manifest`; `background-tasks.jsonl` снимается сценарием `sdk-probe.ts`, а не потерянным одноразовым скриптом;
       личные слова владельца не попадают в fixtures (`node scripts/check-personal.mjs` exit 0).
-- [ ] `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts` зелёные
-      на новом снятии.
+- [ ] `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts`,
+      `test/contract/limits.test.ts`, `test/unit/claude-events.test.ts` зелёные на новом снятии; весь `pnpm test` exit 0.
 - [ ] `.github/dependabot.yml` есть; Dependabot PR идёт через тот же `ci.yml` (`pull_request`, без secrets).
 - [ ] e2e spec-и Session, model picker, Terminal AI, limits, narrator — exit 0.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
@@ -52,7 +52,8 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
   `~/.claude/hooks/gate-resolve.mjs` исчез с переходом на plugin), личные слова → `<personal>`.
 - `scripts/spikes/harness-plugin/probe.ts` — личные слова → `<personal>`.
 - `scripts/sdk-compat.mjs` — `model_usage_since_last_result` как запись по модели.
-- `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts`.
+- `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts`,
+  `test/contract/limits.test.ts`, `test/unit/claude-events.test.ts` и его запись `test/fixtures/sdk-events/claude.json`.
 - `src/main/agent/fake-query.ts`, `src/main/vendors/claude/options.ts` — комментарии с версией SDK.
 - `docs/lessons/agents.md` — номер строки проверки урока.
 
