@@ -92,8 +92,11 @@ test('New Product Session from the palette opens its Session view, and its Node 
 
 test('a Product Session saved before a restart opens with Resume in its Session view and resumes as a Product Session', async () => {
   // What Claude Code keeps of the Session: its transcript, in the folder of the cwd it ran in (registry.ts, projectDirName).
+  // Its records are a minute old, not a fixed date: the automatic archive takes a finished Session idle
+  // past 24 h off the Canvas at start (ADR-0076, src/main/layout/archive.ts), and a fixed date ages into it.
+  const at = new Date(Date.now() - 60_000).toISOString()
   const record = (extra: Record<string, unknown>) =>
-    JSON.stringify({ isSidechain: false, timestamp: '2026-11-09T08:00:00.000Z', cwd: projectPath, sessionId: SAVED, entrypoint: 'sdk-ts', gitBranch: 'main', ...extra })
+    JSON.stringify({ isSidechain: false, timestamp: at, cwd: projectPath, sessionId: SAVED, entrypoint: 'sdk-ts', gitBranch: 'main', ...extra })
   const transcripts = join(claudeHome, 'projects', projectPath.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-'))
   mkdirSync(transcripts, { recursive: true })
   writeFileSync(
