@@ -274,7 +274,7 @@ function codexTurnTexts(log: string): string[] {
 
 export function faultRun(options: FaultRunOptions = {}) {
   const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-autopilot-faults-')))
-  // The PR reads the run started and has not seen end. A Force stop or the quit does not wait for them
+  // The PR reads the run started that have not ended yet. A Force stop or the quit does not wait for them
   // (Autopilot's endRead drops the answer, pollPrs never awaited it), so their gh stand-in may still be
   // starting when the run has stopped, and its first act is a line in gh/calls.jsonl. Removing the
   // folder under it failed with ENOTEMPTY (worfy-polish ticket 90). A read settles only once each of
