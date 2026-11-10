@@ -1,7 +1,13 @@
 // The draft replies of a PR in the Pull requests view (worfy-pr-inbox ticket 05, src/renderer/pr-inbox/DraftThread.tsx):
 // - DraftThread: Send is off on an empty text;
 // - PrDrafts over a fake main: the drafts of the file, an edit kept on blur, Discard; Send carries the text shown;
-//   Send all opens a dialog with every text, Cancel sends nothing, Send all in the dialog sends them in one call.
+//   Send all opens a dialog with every text, Cancel sends nothing, Send all in the dialog sends them in one call, and
+//   sends what the dialog showed although a read of the file brought other texts meanwhile;
+// - a save on blur never holds Send: the click that blurred the field still sends;
+// - the typed text stays with its thread (a conversation reply: with its text) when the Session's new drafts move the
+//   replies in the file;
+// - Ask the Session to rewrite is off for a reply the user changed; a post the file does not record and a refusal of
+//   the whole call show under the reply, and a read of the file does not wipe them.
 // Nothing reaches main's Send without a click: every test that does not press Send checks no `prInbox.send` went.
 // main is a fake preload bridge; owners, repositories, logins and texts are invented.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -82,6 +88,16 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
+/** main's file changes, and the view reads it again, as on its poll or the window's focus. */
+async function reread(items: PrReplyItem[]): Promise<void> {
+  main.drafts = draftsOf(items)
+  const before = main.calls.filter((call) => call.channel === 'prInbox.drafts').length
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'))
+  })
+  await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.drafts').length).toBeGreaterThan(before))
+}
+
 const sends = (): unknown[] => main.calls.filter((call) => call.channel === 'prInbox.send').map((call) => call.input)
 
 async function drafts(items: PrReplyItem[], readOnly: string | null = null): Promise<void> {
@@ -102,6 +118,11 @@ const draftAt = (index: number): HTMLElement => {
 }
 const field = (index: number): HTMLTextAreaElement => within(draftAt(index)).getByTestId('pr-draft-field') as HTMLTextAreaElement
 const sendButton = (index: number): HTMLButtonElement => within(draftAt(index)).getByTestId('pr-draft-send') as HTMLButtonElement
+const ofThread = (thread: string): HTMLElement => {
+  const found = screen.getAllByTestId('pr-draft').find((each) => each.dataset.thread === thread)
+  if (!found) throw new Error(`no draft of ${thread}`)
+  return found
+}
 
 describe('DraftThread', () => {
   it('Send is off on an empty text or one of spaces, on with a text', async () => {
@@ -142,13 +163,13 @@ describe('the drafts of a PR', () => {
     expect(field(0).value).toBe('Draft 0')
     fireEvent.change(field(0), { target: { value: 'Three tries: the server drops the first.' } })
     fireEvent.blur(field(0))
-    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.saveDraft').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: API, number: 118, item: { index: 0, kind: 'thread', threadId: 'T0' }, body: 'Three tries: the server drops the first.' }]))
+    await waitFor(() => expect(main.calls.filter((call) => call.channel === 'prInbox.saveDraft').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: API, number: 118, item: { index: 0, kind: 'thread', threadId: 'T0', base: 'Draft 0' }, body: 'Three tries: the server drops the first.' }]))
     // A blur without a change saves nothing.
     fireEvent.blur(field(1))
     fireEvent.click(within(draftAt(1)).getByTestId('pr-draft-discard'))
     await waitFor(() => expect(screen.getAllByTestId('pr-draft').map((each) => each.dataset.index)).toEqual(['0']))
     expect(main.calls.filter((call) => call.channel === 'prInbox.saveDraft')).toHaveLength(1)
-    expect(main.calls.filter((call) => call.channel === 'prInbox.discard').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: API, number: 118, item: { index: 1, kind: 'conversation', threadId: null } }])
+    expect(main.calls.filter((call) => call.channel === 'prInbox.discard').map((call) => call.input)).toEqual([{ projectId: PROJECT, repo: API, number: 118, item: { index: 1, kind: 'conversation', threadId: null, base: 'Draft 1' }, body: 'Draft 1' }])
     expect(sends()).toEqual([])
   })
 
@@ -157,7 +178,7 @@ describe('the drafts of a PR', () => {
     fireEvent.change(field(0), { target: { value: 'Edited text\nwith a second line' } })
     fireEvent.click(sendButton(0))
     await waitFor(() => expect(within(draftAt(0)).queryByTestId('pr-draft-sent')).not.toBeNull())
-    expect(sends()).toEqual([{ projectId: PROJECT, repo: API, number: 118, items: [{ index: 0, kind: 'thread', threadId: 'T0', body: 'Edited text\nwith a second line' }] }])
+    expect(sends()).toEqual([{ projectId: PROJECT, repo: API, number: 118, items: [{ index: 0, kind: 'thread', threadId: 'T0', base: 'Draft 0', body: 'Edited text\nwith a second line' }] }])
     // The other reply is still a draft.
     expect(field(1).value).toBe('Draft 1')
   })
@@ -189,8 +210,8 @@ describe('the drafts of a PR', () => {
       repo: API,
       number: 118,
       items: [
-        { index: 0, kind: 'thread', threadId: 'T0', body: 'Draft 0' },
-        { index: 1, kind: 'conversation', threadId: null, body: 'Typed, not saved yet' },
+        { index: 0, kind: 'thread', threadId: 'T0', base: 'Draft 0', body: 'Draft 0' },
+        { index: 1, kind: 'conversation', threadId: null, base: 'Draft 1', body: 'Typed, not saved yet' },
       ],
     })
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -228,5 +249,104 @@ describe('the drafts of a PR', () => {
     fireEvent.click(sendButton(0))
     await waitFor(() => expect(screen.getByTestId('pr-draft-result').textContent).toBe(reason))
     expect(screen.getByTestId('pr-draft').dataset.state).toBe('draft')
+  })
+
+  it('a save on blur does not hold Send: the click that blurred the field sends the text, once', async () => {
+    await drafts([item(0)])
+    fireEvent.change(field(0), { target: { value: 'Typed and sent at once' } })
+    // The click on Send blurs the field first: the save starts, and the click must still reach Send.
+    fireEvent.blur(field(0))
+    fireEvent.click(sendButton(0))
+    await waitFor(() => expect(sends()).toHaveLength(1))
+    expect(sends()[0]).toMatchObject({ items: [{ index: 0, threadId: 'T0', base: 'Draft 0', body: 'Typed and sent at once' }] })
+  })
+
+  it('the typed text stays with its thread when a new read moves the replies in the file, and Send names that thread', async () => {
+    await drafts([item(0), item(1)])
+    fireEvent.change(field(1), { target: { value: 'Text meant for thread T1' } })
+    // The Session wrote the drafts again: T1 first now, T0 second.
+    await reread([item(0, { threadId: 'T1', body: 'Draft 1' }), item(1, { threadId: 'T0', body: 'Draft 0' })])
+    expect((within(ofThread('T1')).getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe('Text meant for thread T1')
+    expect((within(ofThread('T0')).getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe('Draft 0')
+    fireEvent.click(within(ofThread('T1')).getByTestId('pr-draft-send'))
+    await waitFor(() => expect(sends()).toHaveLength(1))
+    expect(sends()[0]).toMatchObject({ items: [{ index: 0, kind: 'thread', threadId: 'T1', base: 'Draft 1', body: 'Text meant for thread T1' }] })
+  })
+
+  it('a reply in the conversation keeps its typed text by the text it was typed over, not by its place', async () => {
+    const conversation = (index: number, body: string, over: Partial<PrReplyItem> = {}) => item(index, { kind: 'conversation', threadId: null, replyTo: null, body, ...over })
+    await drafts([conversation(0, 'Alpha'), conversation(1, 'Beta', { edited: true })])
+    fireEvent.change(field(0), { target: { value: 'Alpha, typed' } })
+    // The edited reply is kept first; a new one is appended after it.
+    await reread([conversation(0, 'Beta', { edited: true }), conversation(1, 'Alpha')])
+    expect(field(0).value).toBe('Beta')
+    expect(field(1).value).toBe('Alpha, typed')
+  })
+
+  it('Ask the Session to rewrite is off, with the reason, for a reply the user edited or is typing in', async () => {
+    await drafts([item(0, { edited: true }), item(1)])
+    const rewrite = (index: number): HTMLButtonElement => within(draftAt(index)).getByTestId('pr-draft-rewrite') as HTMLButtonElement
+    expect(rewrite(0).disabled).toBe(true)
+    expect(rewrite(0).title).toMatch(/^You changed this reply: the Session keeps your text/u)
+    expect(rewrite(1).title).toMatch(/^No Session of Draft replies runs/u)
+    fireEvent.change(field(1), { target: { value: 'Draft 1, changed' } })
+    expect(rewrite(1).disabled).toBe(true)
+    expect(rewrite(1).title).toMatch(/^You changed this reply/u)
+  })
+
+  it('Send all sends what its dialog showed, though a read of the file brought another text meanwhile', async () => {
+    await drafts([item(0), item(1)])
+    fireEvent.click(screen.getByTestId('pr-drafts-send-all'))
+    expect(within(screen.getByRole('dialog')).getAllByTestId('pr-send-all-text').map((each) => each.textContent)).toEqual(['Draft 0', 'Draft 1'])
+    await reread([item(0), item(1, { body: 'Rewritten by the Session' })])
+    expect(within(screen.getByRole('dialog')).getAllByTestId('pr-send-all-text').map((each) => each.textContent)).toEqual(['Draft 0', 'Draft 1'])
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByTestId('pr-send-all-confirm'))
+    })
+    await waitFor(() => expect(sends()).toHaveLength(1))
+    expect(sends()[0]).toMatchObject({
+      items: [
+        { index: 0, base: 'Draft 0', body: 'Draft 0' },
+        { index: 1, base: 'Draft 1', body: 'Draft 1' },
+      ],
+    })
+  })
+
+  it('a post the draft file does not record shows under the reply, and Send stays off', async () => {
+    await drafts([item(0)])
+    const reason = 'Posted, but the draft file does not say so: the reply is not in the draft file any more'
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
+    const invoke = bridge.invoke
+    bridge.invoke = ((channel: string, input: unknown) => {
+      if (channel !== 'prInbox.send') return invoke(channel as never, input as never)
+      main.calls.push({ channel, input })
+      return Promise.resolve({ ok: true, value: { results: [{ index: 0, outcome: 'sent', reason, sentUrl: 'https://github.com/example-org/api/pull/118#discussion_r9001' }], drafts: main.drafts } })
+    }) as WorfyBridge['invoke']
+    fireEvent.click(sendButton(0))
+    await waitFor(() => expect(within(draftAt(0)).getByTestId('pr-draft-result').textContent).toBe(reason))
+    expect(sendButton(0).disabled).toBe(true)
+    expect(sendButton(0).title).toBe('Posted already: https://github.com/example-org/api/pull/118#discussion_r9001')
+    await reread([item(0)])
+    expect(within(draftAt(0)).getByTestId('pr-draft-result').textContent).toBe(reason)
+    expect(sends()).toHaveLength(1)
+  })
+
+  it('a refusal of the whole Send shows under the reply, and a read of the file does not wipe it', async () => {
+    await drafts([item(0)])
+    const error = "prInbox.send failed: Not sent: the Project's Profile names no GitHub account (github.account)"
+    const bridge = (globalThis as { worfy?: WorfyBridge }).worfy!
+    const invoke = bridge.invoke
+    bridge.invoke = ((channel: string, input: unknown) => {
+      if (channel !== 'prInbox.send') return invoke(channel as never, input as never)
+      main.calls.push({ channel, input })
+      return Promise.resolve({ ok: false, error })
+    }) as WorfyBridge['invoke']
+    fireEvent.click(sendButton(0))
+    await waitFor(() => expect(within(draftAt(0)).getByTestId('pr-draft-result').textContent).toBe(error))
+    await reread([item(0)])
+    expect(within(draftAt(0)).getByTestId('pr-draft-result').textContent).toBe(error)
+    expect(screen.queryByTestId('pr-drafts-error')).toBeNull()
+    // Not posted: Send stays on for another try.
+    expect(sendButton(0).disabled).toBe(false)
   })
 })

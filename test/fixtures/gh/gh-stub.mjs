@@ -60,7 +60,8 @@
 //     (`id`, `html_url`, `body`, `user.login`). With `status` the call fails with that HTTP status, as gh does, and
 //     posts nothing — unless `landed` is true: then the reply is posted although gh fails (an answer lost on the way).
 //     The two GraphQL reads before a Send, the comments of a thread (`node(id: $thread)`, the thread found through
-//     `threads`) and of a PR's conversation, are answered from posted.json, with `viewer` the same login.
+//     `threads`, with `first` its first comment, the databaseId there) and of a PR's conversation, are answered from
+//     posted.json, with `viewer` the same login.
 //
 // Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
 // a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
@@ -208,7 +209,8 @@ function graphql() {
   if (query.includes('node(id: $thread)')) {
     const replyTo = read('replies.json', {}).threads?.[vars.thread]
     const nodes = replyTo === undefined ? null : posted().filter((each) => each.replyTo === replyTo)
-    process.stdout.write(JSON.stringify({ data: { viewer: { login: stubLogin() }, node: nodes === null ? null : { comments: { nodes: nodes.map(commentNode) } } } }))
+    const first = { nodes: [{ databaseId: replyTo }] }
+    process.stdout.write(JSON.stringify({ data: { viewer: { login: stubLogin() }, node: nodes === null ? null : { first, comments: { nodes: nodes.map(commentNode) } } } }))
     return
   }
   if (query.includes('pullRequest(number: $number)')) {

@@ -361,7 +361,9 @@ function harnessForWeb(): string {
   const profileDir = join(harnessHome, 'projects', 'web')
   for (const dir of [join(harnessHome, 'gate'), profileDir, home, join(claudeHome, 'bin')]) mkdirSync(dir, { recursive: true })
   writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'web', match: join(scratch, 'web'), profile: 'web' }] }))
-  writeFileSync(join(profileDir, 'profile.json'), `${JSON.stringify({ schema: 2, name: 'web', mode: 'full' }, null, 2)}\n`)
+  // The account replies go from: without one Send refuses.
+  writeFileSync(join(profileDir, 'profile.json'), `${JSON.stringify({ schema: 2, name: 'web', mode: 'full', github: { account: ME } }, null, 2)}\n`)
+  writeFileSync(join(ghDir, 'tokens.json'), JSON.stringify({ [ME]: 'tok-me' }))
   const env = { HARNESS_HOME: harnessHome, HOME: home, USERPROFILE: home }
   for (const [name, script] of [
     ['profile', PROFILE],

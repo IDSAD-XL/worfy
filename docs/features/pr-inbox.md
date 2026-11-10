@@ -2,8 +2,9 @@
 
 The **PR inbox** of a Project: the user's open pull requests (PRs) and the review requests to the user in the
 Project's repositories, grouped by whose move it is, with the review threads and their last comments. The UI calls it
-**Pull requests**. It reads GitHub. The one thing it ever posts is a reply the user drafted, edited and sent with a
-click on **Send**; nothing in it resolves, requests, reviews or marks anything there
+**Pull requests**. It reads GitHub. The one thing it ever posts is a reply a Session drafted with skill `pr-reply`,
+which the user may edit, and which goes only on the user's click on **Send**; nothing in it resolves, requests,
+reviews or marks anything there
 ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)). Terms are explained in [Concepts](concepts.md); the PR
 and CI badges of a Ticket are on [Gate and GitHub](gate-and-github.md).
 
@@ -82,27 +83,40 @@ shown here". A plan for a code change, when the skill wrote one, shows under the
 - **Discard**: the reply will not be sent, and it leaves the view.
 - **Ask the Session to rewrite** sends a message to the Session that **Draft replies** started for this PR in this
   window, asking it to rewrite that one reply. Inactive when no such Session is known; when it has closed, the line
-  under the replies says so.
+  under the replies says so. Inactive too for a reply the user has changed (`Edited`, or a text typed in the field),
+  with the tooltip "You changed this reply: the Session keeps your text when it drafts again, so it cannot rewrite
+  it": the skill keeps an edited reply as it is while its thread waits, so a rewrite would change nothing.
 
 An edit is kept in the draft file when the field loses the focus, so the skill keeps the user's text when it runs
-again. A sent reply shows `Sent`, its text and **View on GitHub**. A reply that was not sent shows why under it.
+again. A text typed and not yet kept stays with its thread when the Session writes new drafts and the replies move in
+the file; a reply in the conversation keeps it by the text it was typed over. A sent reply shows `Sent`, its text and
+**View on GitHub**. A reply that was not sent shows why under it, and so does a refusal of the whole Send (no
+account, for one); the next read of the file does not wipe it. A reply GitHub took although the draft file could not
+record it shows "Posted, but the draft file does not say so: …", and its Send is inactive.
 
 **Send all** shows when a PR has two drafts or more. It opens a dialog "Send N replies to owner/repo#N?" with every
-text exactly as it goes and its place, and the buttons **Send all** and **Cancel**. Cancel, Escape or a click outside
-sends nothing. It is inactive while a reply is empty.
+text exactly as it goes and its place, and the buttons **Send all** and **Cancel**. The dialog keeps the texts it
+opened with: a read of the file while it is open changes neither what it shows nor what goes. Cancel, Escape or a
+click outside sends nothing. It is inactive while a reply is empty.
 
-**What Send does.** Main saves the text shown into the draft file, reads the file again and takes that text as it is.
-It checks it again with `review-draft-lint --reply`: traces of the workflow (Ticket and ADR numbers, Epic names,
-workflow paths), AI authorship lines, personal data, and the length. A finding, or a check that could not run, and
-nothing is posted: the reply stays a draft and shows "Not sent: review-draft-lint found …". Then main asks GitHub
-whether the Project's account has posted this very text in that thread already; if so, the reply is only marked sent.
-Otherwise it posts once, with the Project's GitHub account, the text as the body without a byte added: a reply in a
-review thread under its first comment, or a comment in the PR's conversation. The draft file then says `sent` and the
-comment's URL.
+**What Send does.** The view names the reply by its thread (in the conversation: by the text it last read), never by
+its place in the file alone; when the file holds neither that text nor the text shown, Send is refused with "The
+drafts changed meanwhile … look at them again". Main saves the text shown into the draft file, reads the file again
+and takes that text as it is. It checks it again with `review-draft-lint --reply`: traces of the workflow (Ticket and
+ADR numbers, Epic names, workflow paths), AI authorship lines, personal data, and the length. A finding, or a check
+that could not run, and nothing is posted: the reply stays a draft and shows "Not sent: review-draft-lint found …".
+The account is the one the Profile names in `github.account`; a Profile without it gets "Not sent: the Project's
+Profile names no GitHub account (github.account) …", and nothing is posted — never as the gh login of the machine.
+A reply in a review thread goes only under the thread's first comment as GitHub has it; a draft that names another
+comment is refused. Then the reply is marked in the file as being sent, and main posts it once, the text as the body
+without a byte added: a reply in a review thread under its first comment, or a comment in the PR's conversation. The
+draft file then says `sent` and the comment's URL.
 
 - **A failure.** When GitHub or the network fails, the reply stays a draft with "GitHub did not confirm the reply:
-  <reason>". worfy never posts it again by itself. Send again checks GitHub first, so a reply whose answer was lost is
-  not posted twice.
+  <reason>". worfy never posts it again by itself. Send again of such a reply — or of one still marked as being sent,
+  after worfy stopped in the middle — first asks GitHub whether the account has posted this very text there; if so,
+  the reply is only marked sent, so a reply whose answer was lost is not posted twice. A first Send never asks: a
+  "Thanks!" the account wrote under the same thread before is posted again.
 - **Send all** posts one reply after another, at most 80 a minute, GitHub's limit. The first failure of GitHub stops
   the rest; a reply the check refuses does not.
 - A reply sent already is never sent again, and is neither edited nor discarded.
@@ -157,9 +171,10 @@ replies**, and the channels of drafts and Send are refused to a Linked machine a
   time, or turned on again) wait for each other in one queue.
 - Drafts and Send: the four channels `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard` and `prInbox.send` are
   `local`, so the link adapter refuses them to a Linked machine before any handler runs. Main writes into a draft file
-  only the user's text (`edited`), a discard, the reason a Send failed, and the sent mark, through a temporary file
-  and a rename, and only while the file is still what it read: a Session that wrote new drafts meanwhile is not
-  overwritten. One change of a file at a time, so two clicks on Send post once
+  only the user's text (`edited`), a discard, the mark of a Send in flight and the reason a Send failed (both in
+  `error`), and the sent mark, through a temporary file and a rename, and only while the file is still what it read —
+  its text, and right before the rename its inode, size and modification time: a Session that wrote new drafts
+  meanwhile is not overwritten. One change of a file at a time, so two clicks on Send post once
   ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md), points 2–6).
 - Every entry that opens the view goes through one function. With a PR it leaves an ask; the view takes it once the
   snapshot is there, then clears it, so coming back to the view does not open that row again.

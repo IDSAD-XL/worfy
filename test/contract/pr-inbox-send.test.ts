@@ -8,14 +8,13 @@
 // - a sent reply is not sent again; a repository that is not the Project's is refused before gh;
 // - a Linked machine, at any access level, is refused every drafts channel before the handler.
 // Nothing reaches GitHub or a model: owners, repositories, logins and texts are invented.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrInbox } from '../../src/main/github/inbox'
-import { draftFilePath, POSTS_PER_MINUTE, PrReplySender, type LintRun, type PrReplySenderOptions } from '../../src/main/github/pr-reply-send'
-import { accountAuth } from '../../src/main/github/prs'
+import { draftFilePath, IN_FLIGHT, NO_ACCOUNT, POSTS_PER_MINUTE, PrReplySender, UNCONFIRMED, type LintRun, type PrReplySenderOptions } from '../../src/main/github/pr-reply-send'
 import { appUrlMatcher, registerIpc, type IpcMainLike, type ModuleLoader } from '../../src/main/ipc/index'
 import { prInboxHandlers, type PrReplyDraftsAccess } from '../../src/main/ipc/pr-inbox'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
@@ -133,7 +132,7 @@ async function setup(items: Record<string, unknown>[], options: { replies?: Reco
   writeFileSync(file, `${JSON.stringify({ schema: 1, repo: API, pr: PR, headOid: HEAD, items }, null, 2)}\n`)
   const sender = new PrReplySender({
     run: gh.run,
-    auth: accountAuth({ account: async () => ME, run: gh.run }),
+    account: async () => ME,
     profileDir: async () => ({ dir: profileDir, reason: null }),
     repos: async () => [API],
     lint: lintRunner(base),
@@ -164,7 +163,9 @@ const posted = (gh: GhWorld): { repo: string; pr: number; replyTo: number | null
   existsSync(join(gh.dir, 'posted.json')) ? JSON.parse(readFileSync(join(gh.dir, 'posted.json'), 'utf8')) : []
 
 const pull = { projectId: PROJECT, repo: API, number: PR }
-const threadRef = { index: 0, kind: 'thread', threadId: THREAD }
+/** The reply in the thread as the view names it: its place when read, its kind and thread, and the text it read. */
+const threadRef = (base = 'The server drops one try.') => ({ index: 0, kind: 'thread', threadId: THREAD, base })
+const conversationRef = (index: number, base: string) => ({ index, kind: 'conversation', threadId: null, base })
 
 type SendAnswer = { results: PrReplySendResult[]; drafts: PrReplyDrafts }
 
@@ -177,9 +178,9 @@ describe('Send', () => {
   it('posts once: one POST …/replies whose body is byte for byte the text saved from the field; the draft file says sent with the URL', async () => {
     const s = await setup([threadItem('The server drops one try.'), conversationItem('Thanks, merged the docs.')])
     // The user edits the field; the edit is saved, then Send carries the text shown.
-    ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef, body: TYPED }))
+    ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: TYPED }))
     expect(writes(s.gh)).toEqual([])
-    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: TYPED }] }))
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: TYPED }] }))
 
     const posts = writes(s.gh)
     expect(posts).toEqual([['api', '--method', 'POST', `repos/${API}/pulls/${PR}/comments/${REPLY_TO}/replies`, '-f', `body=${TYPED}`]])
@@ -205,8 +206,8 @@ describe('Send', () => {
       await s.call<SendAnswer>('prInbox.send', {
         ...pull,
         items: [
-          { index: 1, kind: 'conversation', threadId: null, body: 'The docs follow in a second change.' },
-          { ...threadRef, body: 'The server drops one try.' },
+          { ...conversationRef(1, 'The docs follow in a second change.'), body: 'The docs follow in a second change.' },
+          { ...threadRef(), body: 'The server drops one try.' },
         ],
       }),
     )
@@ -227,8 +228,8 @@ describe('no write without Send', () => {
       [0, 'thread', 'draft'],
       [1, 'conversation', 'draft'],
     ])
-    ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef, body: 'Three tries: the server drops the first.' }))
-    const after = prReplyDraftsSchema.parse(ok(await s.call('prInbox.discard', { ...pull, item: { index: 1, kind: 'conversation', threadId: null } })))
+    ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: 'Three tries: the server drops the first.' }))
+    const after = prReplyDraftsSchema.parse(ok(await s.call('prInbox.discard', { ...pull, item: conversationRef(1, 'Thanks.'), body: 'Thanks.' })))
     expect(after.items.map((item) => [item.state, item.edited])).toEqual([
       ['draft', true],
       ['discarded', false],
@@ -273,7 +274,7 @@ describe('no write without Send', () => {
   it('a save or a discard of a reply the Session moved meanwhile is refused, and the file stays', async () => {
     const s = await setup([conversationItem('Thanks.')])
     const before = readFileSync(s.file, 'utf8')
-    const refused = await s.call('prInbox.saveDraft', { ...pull, item: threadRef, body: 'x' })
+    const refused = await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: 'x' })
     expect(refused.ok).toBe(false)
     expect(readFileSync(s.file, 'utf8')).toBe(before)
     expect(writes(s.gh)).toEqual([])
@@ -284,7 +285,7 @@ describe('the check before Send', () => {
   it('a trace of the workflow in the edited text: review-draft-lint finds it, nothing is posted, the draft keeps the reason', async () => {
     const s = await setup([threadItem('The server drops one try.')])
     const traced = 'Done in .scratch/demo-epic/issues/07, see HANDOFF.md'
-    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: traced }] }))
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: traced }] }))
     expect(answer.results).toHaveLength(1)
     expect(answer.results[0]).toMatchObject({ outcome: 'refused', sentUrl: null })
     expect(answer.results[0]!.reason).toMatch(/^Not sent: review-draft-lint found .*\.scratch/u)
@@ -298,15 +299,15 @@ describe('the check before Send', () => {
   it('an AI authorship line or an empty text is refused too; a lint that cannot run refuses, never posts', async () => {
     const s = await setup([threadItem('ok')])
     for (const body of ['Fixed.\n\nCo-Authored-By: Claude <noreply@anthropic.com>', '   ']) {
-      const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body }] }))
+      const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body }] }))
       expect(answer.results[0]!.outcome, body).toBe('refused')
     }
     const broken = await setup([threadItem('Fine as it is.')], { over: { lint: async (): Promise<LintRun> => ({ code: 2, stdout: '', stderr: 'review-draft-lint: lint.json broken\n' }) } })
-    const answer = ok(await broken.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'Fine as it is.' }] }))
+    const answer = ok(await broken.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Fine as it is.'), body: 'Fine as it is.' }] }))
     expect(answer.results[0]).toMatchObject({ outcome: 'refused', reason: 'Not sent: review-draft-lint gave exit 2: review-draft-lint: lint.json broken' })
     // A lint that exits 0 without saying it checked the reply is no check either.
     const silent = await setup([threadItem('Fine as it is.')], { over: { lint: async (): Promise<LintRun> => ({ code: 0, stdout: '', stderr: '' }) } })
-    expect(ok(await silent.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'Fine as it is.' }] })).results[0]!.outcome).toBe('refused')
+    expect(ok(await silent.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Fine as it is.'), body: 'Fine as it is.' }] })).results[0]!.outcome).toBe('refused')
     for (const each of [s, broken, silent]) expect(writes(each.gh)).toEqual([])
   })
 })
@@ -319,8 +320,8 @@ describe('failures and a second Send', () => {
       await s.call<SendAnswer>('prInbox.send', {
         ...pull,
         items: [
-          { ...threadRef, body: 'The server drops one try.' },
-          { index: 1, kind: 'conversation', threadId: null, body: 'Thanks.' },
+          { ...threadRef(), body: 'The server drops one try.' },
+          { ...conversationRef(1, 'Thanks.'), body: 'Thanks.' },
         ],
       }),
     )
@@ -332,7 +333,7 @@ describe('failures and a second Send', () => {
 
     // GitHub answers again; the reply is there already: marked sent, not posted twice.
     writeFileSync(join(s.gh.dir, 'replies.json'), JSON.stringify({ threads: { [THREAD]: REPLY_TO } }))
-    const second = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] }))
+    const second = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
     expect(second.results).toEqual([{ index: 0, outcome: 'already-sent', reason: 'It was on GitHub already: marked sent, not posted again', sentUrl: `https://github.com/${API}/pull/${PR}#discussion_r9001` }])
     expect(writes(s.gh)).toHaveLength(1)
     expect(posted(s.gh)).toHaveLength(1)
@@ -341,10 +342,10 @@ describe('failures and a second Send', () => {
 
   it('GitHub 500 and nothing landed: Send again posts it, once', async () => {
     const s = await setup([threadItem('The server drops one try.')], { replies: { status: 500 } })
-    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] })).results[0]!.outcome).toBe('failed')
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] })).results[0]!.outcome).toBe('failed')
     expect(posted(s.gh)).toEqual([])
     writeFileSync(join(s.gh.dir, 'replies.json'), JSON.stringify({ threads: { [THREAD]: REPLY_TO } }))
-    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] })).results[0]!.outcome).toBe('sent')
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] })).results[0]!.outcome).toBe('sent')
     expect(writes(s.gh)).toHaveLength(2)
     expect(posted(s.gh)).toHaveLength(1)
   })
@@ -352,26 +353,26 @@ describe('failures and a second Send', () => {
   it('the same text from another account in the thread is not this reply: it is posted', async () => {
     const s = await setup([threadItem('Same words.')])
     writeFileSync(join(s.gh.dir, 'posted.json'), JSON.stringify([{ repo: API, pr: PR, replyTo: REPLY_TO, login: ANA, body: 'Same words.', url: 'https://github.com/x' }]))
-    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'Same words.' }] })).results[0]!.outcome).toBe('sent')
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Same words.'), body: 'Same words.' }] })).results[0]!.outcome).toBe('sent')
     expect(writes(s.gh)).toHaveLength(1)
   })
 
   it('Send of a reply sent already is refused: no second POST; a discarded one is refused too', async () => {
     const s = await setup([threadItem('The server drops one try.'), conversationItem('Thanks.', { state: 'discarded' })])
-    ok(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] }))
-    const again = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] }))
+    ok(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    const again = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
     expect(again.results[0]).toMatchObject({ outcome: 'refused', reason: `Sent already: https://github.com/${API}/pull/${PR}#discussion_r9001` })
-    const discarded = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ index: 1, kind: 'conversation', threadId: null, body: 'Thanks.' }] }))
+    const discarded = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...conversationRef(1, 'Thanks.'), body: 'Thanks.' }] }))
     expect(discarded.results[0]).toMatchObject({ outcome: 'refused', reason: 'This reply is discarded' })
     expect(writes(s.gh)).toHaveLength(1)
     // A sent reply is neither edited nor discarded afterwards.
-    expect((await s.call('prInbox.saveDraft', { ...pull, item: threadRef, body: 'later' })).ok).toBe(false)
-    expect((await s.call('prInbox.discard', { ...pull, item: threadRef })).ok).toBe(false)
+    expect((await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: 'later' })).ok).toBe(false)
+    expect((await s.call('prInbox.discard', { ...pull, item: threadRef(), body: 'The server drops one try.' })).ok).toBe(false)
   })
 
   it('two Sends of one reply at once: one POST', async () => {
     const s = await setup([threadItem('The server drops one try.')])
-    const input = { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] }
+    const input = { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }
     const both = await Promise.all([s.call<SendAnswer>('prInbox.send', input), s.call<SendAnswer>('prInbox.send', input)])
     expect(both.map((result) => ok(result).results[0]!.outcome).sort()).toEqual(['refused', 'sent'])
     expect(writes(s.gh)).toHaveLength(1)
@@ -379,9 +380,9 @@ describe('failures and a second Send', () => {
 
   it('a repository that is not the Project\'s, or a Project without a Profile folder: refused before any gh call', async () => {
     const s = await setup([threadItem('ok')], { over: { repos: async () => ['demo-org/other'] } })
-    expect(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'ok' }] })).toEqual({ ok: false, error: `prInbox.send failed: ${API} is not a repository of this Project: nothing is sent` })
+    expect(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body: 'ok' }] })).toEqual({ ok: false, error: `prInbox.send failed: ${API} is not a repository of this Project: nothing is sent` })
     const none = await setup([threadItem('ok')], { over: { profileDir: async () => ({ dir: null, reason: 'the folder is in no registered project' }) } })
-    expect((await none.call('prInbox.send', { ...pull, items: [{ ...threadRef, body: 'ok' }] })).ok).toBe(false)
+    expect((await none.call('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body: 'ok' }] })).ok).toBe(false)
     expect(prReplyDraftsSchema.parse(ok(await none.call('prInbox.drafts', pull))).problem).toBe('The Project has no Profile folder, where drafts live: the folder is in no registered project')
     expect(s.gh.calls()).toEqual([])
     expect(none.gh.calls()).toEqual([])
@@ -403,16 +404,16 @@ describe('the pace of Send all', () => {
         },
         // A stand-in in memory: 81 processes would only slow the test.
         run: async (args) => {
-          if (args[1] === 'graphql') return JSON.stringify({ data: { viewer: { login: ME }, repository: { pullRequest: { comments: { nodes: [] } } } } })
+          if (args[0] === 'auth') return 'tok-me\n'
+          if (args[1] === 'graphql') throw new Error('a first Send of a reply in the conversation reads nothing')
           posts.push(now)
           now += 10
           return JSON.stringify({ html_url: `https://github.com/${API}/pull/${PR}#issuecomment-${posts.length}` })
         },
-        auth: async () => ({ GH_TOKEN: 'tok-me' }),
         lint: async (): Promise<LintRun> => ({ code: 0, stdout: 'review-draft-lint: clean (1 replies)\n', stderr: '' }),
       },
     })
-    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: items.map((item, index) => ({ index, kind: 'conversation', threadId: null, body: item.body })) }))
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: items.map((item, index) => ({ ...conversationRef(index, item.body), body: item.body })) }))
     expect(answer.results.every((result) => result.outcome === 'sent')).toBe(true)
     expect(posts).toHaveLength(POSTS_PER_MINUTE + 1)
     expect(waits).toEqual([60_000 - POSTS_PER_MINUTE * 10])
@@ -439,14 +440,161 @@ describe('a Linked machine', () => {
     peer.setAccess(level)
     const before = readFileSync(s.file, 'utf8')
     for (const [channel, input] of [
-      ['prInbox.send', { ...pull, items: [{ ...threadRef, body: 'The server drops one try.' }] }],
+      ['prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }],
       ['prInbox.drafts', pull],
-      ['prInbox.saveDraft', { ...pull, item: threadRef, body: 'x' }],
-      ['prInbox.discard', { ...pull, item: threadRef }],
+      ['prInbox.saveDraft', { ...pull, item: threadRef(), body: 'x' }],
+      ['prInbox.discard', { ...pull, item: threadRef(), body: 'The server drops one try.' }],
     ] as const)
       expect(await adapter.call(peer, channel, input, 'Beta')).toEqual({ ok: false, error: `${channel}: not open to Linked machines` })
     for (const each of Object.values(spy)) expect(each).not.toHaveBeenCalled()
     expect(readFileSync(s.file, 'utf8')).toBe(before)
     expect(s.gh.calls()).toEqual([])
+  })
+})
+
+describe('a second Send only looks on GitHub first', () => {
+  /** Comments of this account on GitHub already: in the thread, and in the conversation. */
+  const before = (gh: GhWorld, body: string, login = ME): void =>
+    writeFileSync(
+      join(gh.dir, 'posted.json'),
+      JSON.stringify([
+        { repo: API, pr: PR, replyTo: REPLY_TO, login, body, url: `https://github.com/${API}/pull/${PR}#discussion_r42` },
+        { repo: API, pr: PR, replyTo: null, login, body, url: `https://github.com/${API}/pull/${PR}#issuecomment-43` },
+      ]),
+    )
+
+  it('a first Send of a «Thanks!» this account posted before, in the thread and in the conversation: posted, not marked sent with the old link', async () => {
+    const s = await setup([threadItem('Thanks!'), conversationItem('Thanks!')])
+    before(s.gh, 'Thanks!')
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Thanks!'), body: 'Thanks!' }, { ...conversationRef(1, 'Thanks!'), body: 'Thanks!' }] }))
+    expect(answer.results.map((result) => result.outcome)).toEqual(['sent', 'sent'])
+    expect(writes(s.gh)).toHaveLength(2)
+    expect(s.draft().items.map((item) => item.sentUrl)).toEqual([`https://github.com/${API}/pull/${PR}#discussion_r9003`, `https://github.com/${API}/pull/${PR}#issuecomment-9004`])
+  })
+
+  it('the mark is in the file before the POST, and gone after it', async () => {
+    const seen: unknown[] = []
+    const watched: Setup = await setup([conversationItem('Noted.')], {
+      over: {
+        // The file as it is when the POST goes out.
+        run: async (args, cwd, env) => {
+          if (args[2] === 'POST') seen.push(watched.draft().items[0]!.error)
+          return watched.gh.run(args, cwd, env)
+        },
+      },
+    })
+    expect(ok(await watched.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...conversationRef(0, 'Noted.'), body: 'Noted.' }] })).results[0]!.outcome).toBe('sent')
+    expect(seen).toEqual([IN_FLIGHT])
+    expect(watched.draft().items[0]!.error).toBeNull()
+  })
+
+  it('worfy stopped after the mark (a crash, an answer lost): the next Send finds the text of this account and only marks it; without it there, posts', async () => {
+    const s = await setup([threadItem('Thanks!', { error: IN_FLIGHT }), conversationItem('Thanks!', { error: IN_FLIGHT })])
+    before(s.gh, 'Thanks!')
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Thanks!'), body: 'Thanks!' }, { ...conversationRef(1, 'Thanks!'), body: 'Thanks!' }] }))
+    expect(answer.results.map((result) => [result.outcome, result.sentUrl])).toEqual([
+      ['already-sent', `https://github.com/${API}/pull/${PR}#discussion_r42`],
+      ['already-sent', `https://github.com/${API}/pull/${PR}#issuecomment-43`],
+    ])
+    expect(writes(s.gh)).toEqual([])
+    const fresh = await setup([threadItem('Thanks!', { error: IN_FLIGHT })])
+    expect(ok(await fresh.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Thanks!'), body: 'Thanks!' }] })).results[0]!.outcome).toBe('sent')
+    expect(writes(fresh.gh)).toHaveLength(1)
+  })
+
+  it.each([
+    ['CRLF line ends', 'Two lines:\nfirst, second.', 'Two lines:\r\nfirst, second.'],
+    ['trailing white space', 'Done.\n', 'Done.'],
+  ])('GitHub gives the text back with %s: still the same reply, only marked', async (_, body, onGitHub) => {
+    const s = await setup([threadItem(body, { error: `${UNCONFIRMED}: gh: Server Error (HTTP 502)` })])
+    before(s.gh, onGitHub)
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(body), body }] })).results[0]!.outcome).toBe('already-sent')
+    expect(writes(s.gh)).toEqual([])
+  })
+
+  it('a refusal of a reply whose Send GitHub did not confirm keeps the mark: the Send after it still looks first', async () => {
+    let clean = false
+    const s = await setup([threadItem('Thanks!', { error: IN_FLIGHT })], {
+      over: { lint: async (): Promise<LintRun> => (clean ? { code: 0, stdout: 'review-draft-lint: clean (1 replies)\n', stderr: '' } : { code: 1, stdout: 'items[0]: too long\n', stderr: '' }) },
+    })
+    before(s.gh, 'Thanks!')
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Thanks!'), body: 'Thanks!' }] })).results[0]!.outcome).toBe('refused')
+    expect(s.draft().items[0]!.error).toContain(UNCONFIRMED)
+    clean = true
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef('Thanks!'), body: 'Thanks!' }] })).results[0]!.outcome).toBe('already-sent')
+    expect(writes(s.gh)).toEqual([])
+  })
+})
+
+describe('which reply, and where it goes', () => {
+  const T0 = 'PRRT_demo0'
+  const T1 = 'PRRT_demo1b'
+
+  it('text the view typed for thread T1 sent under T0: refused, nothing posted, the file stays', async () => {
+    const s = await setup([threadItem('Draft zero', { threadId: T0, replyTo: 500 }), threadItem('Draft one', { threadId: T1, replyTo: 501 })], { replies: { threads: { [T0]: 500, [T1]: 501 } } })
+    const file = readFileSync(s.file, 'utf8')
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ index: 1, kind: 'thread', threadId: T0, base: 'Draft one', body: 'Text meant for thread T1' }] }))
+    expect(answer.results[0]).toMatchObject({ outcome: 'refused', reason: 'The drafts changed meanwhile (the Session wrote new ones): look at them again' })
+    expect(writes(s.gh)).toEqual([])
+    expect(readFileSync(s.file, 'utf8')).toBe(file)
+  })
+
+  it('the Session moved the replies: the one with the text the view read is sent, the other edited reply at its old place is untouched', async () => {
+    // The view read [Alpha, Beta]; the Session kept the edited Beta first and appended Alpha.
+    const s = await setup([conversationItem('Beta, edited by the user', { edited: true }), conversationItem('Alpha')])
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...conversationRef(0, 'Alpha'), body: 'Alpha, typed' }] }))
+    expect(answer.results[0]!.outcome).toBe('sent')
+    expect(posted(s.gh).map((each) => each.body)).toEqual(['Alpha, typed'])
+    expect(s.draft().items).toEqual([conversationItem('Beta, edited by the user', { edited: true }), conversationItem('Alpha, typed', { edited: true, state: 'sent', sentUrl: `https://github.com/${API}/pull/${PR}#issuecomment-9001`, error: null })])
+  })
+
+  it('a reply whose own text and the text read are both gone from the file: refused, the other reply not overwritten', async () => {
+    const s = await setup([conversationItem('Beta, edited by the user', { edited: true }), conversationItem('Gamma')])
+    const file = readFileSync(s.file, 'utf8')
+    for (const [channel, input] of [
+      ['prInbox.saveDraft', { ...pull, item: conversationRef(0, 'Alpha'), body: 'Alpha, typed' }],
+      ['prInbox.discard', { ...pull, item: conversationRef(0, 'Alpha'), body: 'Alpha, typed' }],
+    ] as const)
+      expect((await s.call(channel, input)).ok, channel).toBe(false)
+    expect(ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...conversationRef(0, 'Alpha'), body: 'Alpha, typed' }] })).results[0]!.outcome).toBe('refused')
+    expect(readFileSync(s.file, 'utf8')).toBe(file)
+    expect(writes(s.gh)).toEqual([])
+  })
+
+  it('a draft whose replyTo is not the first comment of its thread on GitHub: refused before the POST', async () => {
+    const s = await setup([threadItem('The server drops one try.')], { replies: { threads: { [THREAD]: 9999 } } })
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    expect(answer.results[0]).toMatchObject({ outcome: 'refused', reason: `Not sent: the draft answers comment ${REPLY_TO}, but the thread on GitHub starts with comment 9999` })
+    expect(writes(s.gh)).toEqual([])
+    expect(s.draft().items[0]!.error).toBe(answer.results[0]!.reason)
+  })
+
+  it('a Profile that names no GitHub account: Send refused before any gh call, with what to set', async () => {
+    const s = await setup([threadItem('ok')], { over: { account: async () => null } })
+    expect(await s.call('prInbox.send', { ...pull, items: [{ ...threadRef('ok'), body: 'ok' }] })).toEqual({ ok: false, error: `prInbox.send failed: ${NO_ACCOUNT}` })
+    expect(NO_ACCOUNT).toMatch(/github\.account/u)
+    expect(s.gh.calls()).toEqual([])
+  })
+})
+
+describe('a Session writing the file', () => {
+  it('a write of pr-reply-draft between the last read and the rename is not lost: the change is made again over it', async () => {
+    let wrote = false
+    const s = await setup([threadItem('The server drops one try.')], {
+      over: {
+        beforeRename: async (file) => {
+          if (wrote) return
+          wrote = true
+          // As pr-reply-draft writes: a temporary file and a rename, a new reply appended.
+          const content = JSON.parse(readFileSync(file, 'utf8')) as { items: unknown[] }
+          content.items.push(conversationItem('Appended by the Session'))
+          writeFileSync(`${file}.session.tmp`, `${JSON.stringify(content, null, 2)}\n`)
+          renameSync(`${file}.session.tmp`, file)
+        },
+      },
+    })
+    ok(await s.call('prInbox.saveDraft', { ...pull, item: threadRef(), body: 'Three tries.' }))
+    expect(wrote).toBe(true)
+    expect(s.draft().items).toEqual([threadItem('Three tries.', { edited: true }), conversationItem('Appended by the Session')])
   })
 })

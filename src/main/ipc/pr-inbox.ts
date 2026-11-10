@@ -17,7 +17,7 @@ import { PrInboxDigest } from '../github/inbox-digest'
 import { PrReplySender } from '../github/pr-reply-send'
 import type { PrInboxSource } from '../notify'
 import { appSettingsStore } from '../settings/store'
-import { accountAuth, ghRunner, type GhRunner } from '../github/prs'
+import { ghRunner, type GhRunner } from '../github/prs'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { harnessScriptEnv } from '../harness/script-env'
 import { prInboxSetting } from '../projects/pr-inbox-state'
@@ -49,7 +49,7 @@ export function prInboxHandlers(
     defineHandler(prInboxMarkSeen, async ({ projectId, repo, number }) => inbox().markSeen(projectId, repo, number)),
     defineHandler(prInboxDrafts, ({ projectId, repo, number }) => drafts.sender().drafts(drafts.root(projectId), repo, number)),
     defineHandler(prInboxSaveDraft, ({ projectId, repo, number, item, body }) => drafts.sender().save(drafts.root(projectId), repo, number, item, body)),
-    defineHandler(prInboxDiscard, ({ projectId, repo, number, item }) => drafts.sender().discard(drafts.root(projectId), repo, number, item)),
+    defineHandler(prInboxDiscard, ({ projectId, repo, number, item, body }) => drafts.sender().discard(drafts.root(projectId), repo, number, item, body)),
     defineHandler(prInboxSend, ({ projectId, repo, number, items }) => drafts.sender().send(drafts.root(projectId), repo, number, items)),
   ]
 }
@@ -102,7 +102,7 @@ export function sharedPrInbox(): PrInbox {
 }
 
 /**
- * The app's drafts and Send: gh of appGh as the Project's account (accountAuth), the Profile folder from bin/profile,
+ * The app's drafts and Send: gh of appGh as the account the Project's Profile names (none: nothing is sent), the Profile folder from bin/profile,
  * and review-draft-lint of the Harness on the machine, started as every Harness script is.
  */
 export function sharedPrReplySender(): PrReplySender {
@@ -110,7 +110,7 @@ export function sharedPrReplySender(): PrReplySender {
   const run = appGh()
   sharedSender = new PrReplySender({
     run,
-    auth: accountAuth({ account: projectAccount, run }),
+    account: projectAccount,
     // The reason for no folder goes to the view with the drafts, not to the log on each look.
     profileDir: async (root) => readProfileFolder({ root, claudeHome: claudeHome(), env: await harnessScriptEnv(), log: () => undefined }),
     repos: async (root) => remoteRepos(await repoFolders(root)),

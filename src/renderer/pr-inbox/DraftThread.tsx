@@ -1,6 +1,9 @@
 // The drafts of replies of one PR in the Pull requests view (worfy-pr-inbox ticket 05, ADR-0105). Skill pr-reply
 // writes them into a file on this machine; main reads it (`prInbox.drafts`). Under a thread: its draft in a field
-// the user edits, and Send, Discard and Ask the Session to rewrite. Send all opens a dialog with every text first.
+// the user edits, and Send, Discard and Ask the Session to rewrite (off for a reply the user changed: the skill keeps
+// the user's text). Send all opens a dialog with every text first; what it shows is what goes, whatever a read of the
+// file brings meanwhile. The view keeps the typed text and what a call said by the reply's thread (in the
+// conversation: by its text), never by its place in the file, which shifts when the Session writes the drafts again.
 //
 // Nothing here reaches GitHub by itself. The one way there is `prInbox.send`, called only from a click on Send or on
 // Send all in the dialog, with the text shown in the field; main saves it, checks it again with review-draft-lint
@@ -47,27 +50,67 @@ function rewriteMessage(repo: string, number: number, place: string): string {
 
 // ── the drafts of one PR ─────────────────────────────────────────────────────
 
-const refOf = (item: PrReplyItem): PrReplyRef => ({ index: item.index, kind: item.kind, threadId: item.threadId })
-
 /** A shape check of an answer: a renderer has no zod, and a fake main may answer anything. */
 const isDrafts = (value: unknown): value is PrReplyDrafts => typeof value === 'object' && value !== null && Array.isArray((value as { items?: unknown }).items)
+
+/**
+ * Something the view keeps of one reply between reads of the file — the text typed, what a Send said. Not by the
+ * reply's place in the file: a Session that writes the drafts again keeps the edited ones first and appends the
+ * others, so places shift. A reply in a review thread is its thread's; one in the conversation is the one holding one
+ * of `texts`.
+ */
+interface Note {
+  kind: PrReplyItem['kind']
+  threadId: string | null
+  /** The place the reply had when the note was made: of two that fit, this one. */
+  index: number
+  texts: readonly string[]
+}
+
+/** The reply of `items` a note is of; undefined when the file has it no more. */
+function holder(note: Note, items: readonly PrReplyItem[]): PrReplyItem | undefined {
+  const same = items.filter((item) => item.kind === note.kind && item.threadId === note.threadId)
+  const texted = same.filter((item) => note.texts.includes(item.body))
+  // A thread's draft the Session rewrote while the user typed is still that thread's draft.
+  const pool = texted.length > 0 || note.kind === 'conversation' ? texted : same.filter((item) => item.state === 'draft')
+  return pool.find((item) => item.index === note.index) ?? pool.find((item) => item.state === 'draft') ?? pool[0]
+}
+
+/** The text the user typed into a reply's field, over `base`, the draft's text it was typed over. */
+interface Typed {
+  kind: PrReplyItem['kind']
+  threadId: string | null
+  index: number
+  base: string
+  text: string
+}
+
+const typedNote = (typed: Typed): Note => ({ ...typed, texts: [typed.base, typed.text] })
+
+/** What the last call about a reply said (a Send, or a refused save or discard), with the texts it was about. */
+interface Said extends Note {
+  result: PrReplySendResult
+}
+
+/** One reply as the view sends it: which one, the text it last read (`base`) and the text shown. */
+const refOf = (item: PrReplyItem): PrReplyRef => ({ index: item.index, kind: item.kind, threadId: item.threadId, base: item.body })
 
 interface PrReplyDraftsState {
   /** Undefined until main answered. */
   drafts: PrReplyDrafts | undefined
-  /** Why the drafts could not be read or changed. */
+  /** Why the drafts could not be read. */
   error: string | null
-  /** The text in each reply's field, by its index: the draft's own until the user types. */
+  /** The text in a reply's field: the draft's own until the user types. */
   textOf: (item: PrReplyItem) => string
   setText: (item: PrReplyItem, text: string) => void
-  /** A call to main runs: the buttons wait. */
+  /** A Send or a Discard runs: the buttons wait. */
   busy: boolean
-  /** What the last Send said of each reply, by its index. */
-  results: Readonly<Record<number, PrReplySendResult>>
+  /** What the last call about the reply said; null when none did in this view. */
+  resultOf: (item: PrReplyItem) => PrReplySendResult | null
   save: (item: PrReplyItem) => void
   discard: (item: PrReplyItem) => void
-  /** Send of these replies, each with the text of its field: only on a click (Send, or Send all in its dialog). */
-  send: (items: readonly PrReplyItem[]) => void
+  /** Send of these replies, each with the text given: only on a click (Send, or Send all in its dialog). */
+  send: (replies: readonly { item: PrReplyItem; text: string }[]) => void
   /** The Session "Draft replies" started for this PR, while it lives in this window; null otherwise. */
   session: string | null
 }
@@ -79,12 +122,13 @@ interface PrReplyDraftsState {
 function usePrReplyDrafts(projectId: string, repo: string, number: number): PrReplyDraftsState {
   const [drafts, setDrafts] = useState<PrReplyDrafts | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
-  const [typed, setTyped] = useState<Readonly<Record<number, string>>>({})
+  const [typed, setTyped] = useState<readonly Typed[]>([])
   const [busy, setBusy] = useState(false)
-  const [results, setResults] = useState<Readonly<Record<number, PrReplySendResult>>>({})
+  const [said, setSaid] = useState<readonly Said[]>([])
   const session = useDraftSessions((store) => store.byPr[prKey(projectId, repo, number)] ?? null)
   const live = useRef(true)
   const pull = { projectId, repo, number }
+  const items = drafts?.items ?? []
 
   const take = useCallback((value: unknown): void => {
     if (!live.current) return
@@ -116,26 +160,41 @@ function usePrReplyDrafts(projectId: string, repo: string, number: number): PrRe
     }
   }, [load])
 
-  const textOf = (item: PrReplyItem): string => typed[item.index] ?? item.body
+  const typedOf = (item: PrReplyItem): Typed | undefined => typed.find((each) => holder(typedNote(each), items) === item)
+  const textOf = (item: PrReplyItem): string => typedOf(item)?.text ?? item.body
+
   /**
-   * The fields whose text main now holds show the draft's own text again, so a later read shows what the file holds;
-   * a field the user typed in meanwhile keeps the newer text.
+   * Main now holds `text` as the reply's text: a field whose text that is shows the draft's own again, so a later read
+   * shows what the file holds; a field the user typed in meanwhile keeps the newer text, over `text`.
    */
-  const forget = (kept: readonly { index: number; body: string }[]): void =>
-    setTyped((current) => {
-      const next = { ...current }
-      for (const { index, body } of kept) if (next[index] === body) delete next[index]
-      return next
+  const kept = (item: PrReplyItem, text: string): void =>
+    setTyped((current) =>
+      current.flatMap((each) => {
+        if (holder(typedNote(each), items) !== item) return [each]
+        return each.text === text ? [] : [{ ...each, base: text }]
+      }),
+    )
+
+  /** What a call said of these replies, under each of them, over what an earlier one said. */
+  const note = (about: readonly { item: PrReplyItem; text: string; result: PrReplySendResult }[]): void =>
+    setSaid((current) => {
+      const fresh = about.map(({ item, text, result }): Said => ({ kind: item.kind, threadId: item.threadId, index: item.index, texts: [item.body, text], result }))
+      const replaced = (old: Said): boolean => fresh.some((each) => each.kind === old.kind && each.threadId === old.threadId && (old.kind === 'thread' || each.texts.some((text) => old.texts.includes(text))))
+      return [...current.filter((old) => !replaced(old)), ...fresh]
     })
 
+  /** A whole call refused: its reason under each reply it was about, where a new read of the file does not wipe it. */
+  const refused = (about: readonly { item: PrReplyItem; text: string }[], reason: string): void =>
+    note(about.map(({ item, text }) => ({ item, text, result: { index: item.index, outcome: 'refused', reason, sentUrl: null } })))
+
   /** A call to main; `blocking` ones (Send, Discard) hold the buttons until it answers. A save never does: it runs on a blur, and the click that caused the blur must still reach its button. */
-  const run = (call: () => Promise<{ ok: true; value: unknown } | { ok: false; error: string }>, after: (value: unknown) => void, blocking: boolean): void => {
+  const run = (call: () => Promise<{ ok: true; value: unknown } | { ok: false; error: string }>, about: readonly { item: PrReplyItem; text: string }[], after: (value: unknown) => void, blocking: boolean): void => {
     if (blocking) setBusy(true)
     void call().then((result) => {
       if (!live.current) return
       if (blocking) setBusy(false)
       if (!result.ok) {
-        setError(readableReason(result.error))
+        refused(about, readableReason(result.error))
         return
       }
       after(result.value)
@@ -146,44 +205,54 @@ function usePrReplyDrafts(projectId: string, repo: string, number: number): PrRe
     drafts,
     error,
     textOf,
-    setText: (item, text) => setTyped((current) => ({ ...current, [item.index]: text })),
+    setText: (item, text) =>
+      setTyped((current) => {
+        const mine = typedOf(item)
+        return mine === undefined ? [...current, { kind: item.kind, threadId: item.threadId, index: item.index, base: item.body, text }] : current.map((each) => (each === mine ? { ...each, text } : each))
+      }),
     busy,
-    results,
+    resultOf: (item) => said.find((each) => holder(each, items) === item)?.result ?? null,
     session,
     save: (item) => {
       const body = textOf(item)
       if (body === item.body) return
       run(
         () => invoke('prInbox.saveDraft', { ...pull, item: refOf(item), body }),
+        [{ item, text: body }],
         (value) => {
-          forget([{ index: item.index, body }])
+          kept(item, body)
           take(value)
         },
         false,
       )
     },
-    discard: (item) =>
+    discard: (item) => {
+      const body = textOf(item)
       run(
-        () => invoke('prInbox.discard', { ...pull, item: refOf(item) }),
+        () => invoke('prInbox.discard', { ...pull, item: refOf(item), body }),
+        [{ item, text: body }],
         (value) => {
-          forget([{ index: item.index, body: textOf(item) }])
+          kept(item, body)
           take(value)
         },
         true,
-      ),
-    send: (items) => {
-      if (items.length === 0) return
-      const sent = items.map((item) => ({ ...refOf(item), body: textOf(item) }))
+      )
+    },
+    send: (replies) => {
+      if (replies.length === 0) return
       run(
-        () => invoke('prInbox.send', { ...pull, items: sent }),
+        () => invoke('prInbox.send', { ...pull, items: replies.map(({ item, text }) => ({ ...refOf(item), body: text })) }),
+        replies,
         (value) => {
           const answer = value as { results?: PrReplySendResult[]; drafts?: unknown }
-          setResults((current) => {
-            const next = { ...current }
-            for (const each of answer.results ?? []) next[each.index] = each
-            return next
-          })
-          forget(sent)
+          // The results come in the order of the replies sent.
+          note(
+            replies.flatMap(({ item, text }, at) => {
+              const result = answer.results?.[at]
+              return result === undefined ? [] : [{ item, text, result }]
+            }),
+          )
+          for (const { item, text } of replies) kept(item, text)
           take(answer.drafts)
         },
         true,
@@ -202,7 +271,7 @@ export interface DraftThreadProps {
   comments?: readonly PrInboxComment[]
   text: string
   busy: boolean
-  /** What the last Send said of it; null when it was not sent in this view. */
+  /** What the last call about it said (a Send, a refused save or discard); null when none did in this view. */
   result: PrReplySendResult | null
   /** Why Send, Discard and Ask are off (the read-only hint); null when they are on. */
   disabled: string | null
@@ -231,11 +300,17 @@ const draftStyles = {
 
 const LABEL_TEXT: Readonly<Record<string, string>> = { 'needs code change': 'Needs code change', 'needs answer': 'Needs answer', FYI: 'FYI', 'resolved by push': 'Resolved by push' }
 
-/** The line under a reply: what the last Send said, or why the one before did not post it. */
+/** The line under a reply: what the last call said — a post the draft file does not record too — or why the Send before did not post it. */
 function resultLine(item: PrReplyItem, result: PrReplySendResult | null): { text: string; error: boolean } | null {
-  if (result !== null && result.outcome !== 'sent' && result.reason !== null) return { text: result.reason, error: result.outcome !== 'already-sent' }
+  if (result !== null && result.reason !== null) return { text: result.reason, error: result.outcome !== 'already-sent' }
   if (item.state === 'draft' && item.error !== null) return { text: item.error, error: true }
   return null
+}
+
+/** Why Send is off for a reply that is on GitHub already, though the draft file does not say so; null otherwise. */
+function postedOff(result: PrReplySendResult | null): string | null {
+  if (result === null || (result.outcome !== 'sent' && result.outcome !== 'already-sent')) return null
+  return `Posted already${result.sentUrl !== null ? `: ${result.sentUrl}` : ''}`
 }
 
 /** A draft reply under its thread: the field, and Send, Discard, Ask the Session to rewrite; a sent one, its link. */
@@ -243,8 +318,9 @@ export function DraftThread({ item, place, comments = [], text, busy, result, di
   const fieldId = useId()
   const line = resultLine(item, result)
   const empty = text.trim() === ''
+  const posted = postedOff(result)
   return (
-    <div style={draftStyles.box} data-testid="pr-draft" data-index={item.index} data-state={item.state} data-kind={item.kind}>
+    <div style={draftStyles.box} data-testid="pr-draft" data-index={item.index} data-state={item.state} data-kind={item.kind} data-thread={item.threadId ?? undefined}>
       <div style={draftStyles.head}>
         <label htmlFor={fieldId} style={draftStyles.title}>
           Draft reply
@@ -311,8 +387,8 @@ export function DraftThread({ item, place, comments = [], text, busy, result, di
               type="button"
               className="w-pr-inbox-button"
               data-testid="pr-draft-send"
-              disabled={busy || empty || disabled !== null}
-              title={disabled ?? (empty ? 'The reply is empty' : 'Post this text as it is, once, from the account of the Project')}
+              disabled={busy || empty || disabled !== null || posted !== null}
+              title={disabled ?? posted ?? (empty ? 'The reply is empty' : 'Post this text as it is, once, from the account of the Project')}
               onClick={onSend}
             >
               {busy ? 'Sending…' : 'Send'}
@@ -472,12 +548,18 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
       threads.find((thread) => thread.id === item.threadId),
     )
   const state = usePrReplyDrafts(projectId, repo, number)
-  const [confirming, setConfirming] = useState(false)
+  /** The replies of Send all and their texts, as they were when its dialog opened; null while it is closed. */
+  const [confirming, setConfirming] = useState<readonly { item: PrReplyItem; place: string; text: string }[] | null>(null)
   const [asked, setAsked] = useState<string | null>(null)
   const items = (state.drafts?.items ?? []).filter((item) => item.state !== 'discarded')
   const pending = items.filter((item) => item.state === 'draft')
   const disabled = readOnly
-  const rewriteOff = state.session === null ? 'No Session of Draft replies runs for this pull request in this window' : null
+  /** Why "Ask the Session to rewrite" is off for this reply; null when it is on. */
+  const rewriteOff = (item: PrReplyItem): string | null => {
+    // pr-reply-draft keeps an edited draft as it is while its thread waits: a rewrite would change nothing.
+    if (item.edited || state.textOf(item) !== item.body) return 'You changed this reply: the Session keeps your text when it drafts again, so it cannot rewrite it'
+    return state.session === null ? 'No Session of Draft replies runs for this pull request in this window' : null
+  }
 
   const askRewrite = (item: PrReplyItem): void => {
     void liveSession(state.session).then((off) => {
@@ -498,12 +580,12 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
       place={place(item)}
       text={state.textOf(item)}
       busy={state.busy}
-      result={state.results[item.index] ?? null}
+      result={state.resultOf(item)}
       disabled={disabled}
-      rewriteOff={rewriteOff}
+      rewriteOff={rewriteOff(item)}
       onText={(text) => state.setText(item, text)}
       onSave={() => state.save(item)}
-      onSend={() => state.send([item])}
+      onSend={() => state.send([{ item, text: state.textOf(item) }])}
       onDiscard={() => state.discard(item)}
       onAskRewrite={() => askRewrite(item)}
     />
@@ -538,22 +620,23 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
               data-testid="pr-drafts-send-all"
               disabled={state.busy || disabled !== null || anyEmpty}
               title={disabled ?? (anyEmpty ? 'A reply is empty: write it or discard it' : `Show the ${pending.length} replies before they are sent`)}
-              onClick={() => setConfirming(true)}
+              onClick={() => setConfirming(pending.map((item) => ({ item, place: place(item), text: state.textOf(item) })))}
             >
               Send all…
             </button>
           ) : null}
         </div>
       ) : null}
-      {confirming ? (
+      {confirming !== null ? (
         <SendAllDialog
           repo={repo}
           number={number}
-          replies={pending.map((item) => ({ place: place(item), text: state.textOf(item) }))}
-          onCancel={() => setConfirming(false)}
+          replies={confirming}
+          onCancel={() => setConfirming(null)}
           onSend={() => {
-            setConfirming(false)
-            state.send(pending)
+            setConfirming(null)
+            // What the dialog showed, not what a read since then brought.
+            state.send(confirming)
           }}
         />
       ) : null}

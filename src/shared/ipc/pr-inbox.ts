@@ -145,7 +145,7 @@ const repoSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/
 
 /** One reply of a draft file, with its place in the file's `items`. */
 export const prReplyItemSchema = z.object({
-  /** The place of the reply in the file's `items`: what a save, a discard and a send name, with `kind` and `threadId`. */
+  /** The place of the reply in the file's `items` when it was read; a save, a discard and a send name the reply by `kind`, `threadId` and its text. */
   index: z.number().int().nonnegative(),
   kind: z.enum(['thread', 'conversation']),
   /** The review thread's node id; null for a reply in the conversation. */
@@ -158,7 +158,7 @@ export const prReplyItemSchema = z.object({
   fixPlan: z.string().nullable(),
   state: z.enum(PR_REPLY_STATES),
   sentUrl: z.string().nullable(),
-  /** Why the last Send did not post it; null when none failed. */
+  /** Why the last Send did not post it, or the mark of a Send in flight (one that stays: worfy stopped mid-post); null when none failed. */
   error: z.string().nullable(),
   /** The user changed the text: skill pr-reply keeps it as it is when it runs again. */
   edited: z.boolean(),
@@ -179,20 +179,26 @@ export type PrReplyDrafts = z.infer<typeof prReplyDraftsSchema>
 
 const pullInput = projectInput.extend({ repo: repoSchema, number: z.number().int().positive() })
 
-/** Which reply: its place in the file, and its kind and thread, so a file the skill rewrote meanwhile is not mistaken. */
-export const prReplyRefSchema = z.object({ index: z.number().int().nonnegative(), kind: z.enum(['thread', 'conversation']), threadId: z.string().min(1).nullable() })
-export type PrReplyRef = z.infer<typeof prReplyRefSchema>
-
 const bodySchema = z.string().max(PR_REPLY_MAX_CHARS)
+
+/**
+ * Which reply: its kind and thread, and `base`, the text the view last read of it; `index`, its place in the file then,
+ * only orders the candidates. A Session that rewrote the file meanwhile moves replies: main takes the reply of that
+ * kind and thread whose text is `base` or the text shown, and refuses when there is none.
+ */
+export const prReplyRefSchema = z.object({ index: z.number().int().nonnegative(), kind: z.enum(['thread', 'conversation']), threadId: z.string().min(1).nullable(), base: bodySchema })
+export type PrReplyRef = z.infer<typeof prReplyRefSchema>
 
 /** What became of one reply of a Send. */
 export const prReplySendResultSchema = z.object({
   index: z.number().int().nonnegative(),
   /**
-   * `sent` — posted now; `already-sent` — the text of this account was on GitHub already (a Send whose answer was
-   * lost), the reply is only marked sent; `refused` — not posted, and nothing was sent to GitHub: a lint finding,
-   * a reply sent or discarded before, a file that changed; `failed` — GitHub or the network failed, the reply stays a
-   * draft with the reason; `skipped` — not tried, since an earlier reply of the same Send failed.
+   * `sent` — posted now (with a reason when the draft file could not record it); `already-sent` — the text of this
+   * account was on GitHub already (a Send whose answer was lost; asked only when an earlier Send was not confirmed),
+   * the reply is only marked sent; `refused` — not posted, and nothing was sent to GitHub: a lint finding, a reply
+   * sent or discarded before, a file that changed, a thread whose first comment is not the one the draft answers;
+   * `failed` — GitHub or the network failed, the reply stays a draft with the reason; `skipped` — not tried, since an
+   * earlier reply of the same Send failed.
    */
   outcome: z.enum(['sent', 'already-sent', 'refused', 'failed', 'skipped']),
   reason: z.string().nullable(),
@@ -206,8 +212,8 @@ export const prInboxDrafts = invokeChannel('prInbox.drafts', pullInput, prReplyD
 /** The user's text of one reply into the draft file, as it is; the reply is marked `edited`. Never reaches GitHub. */
 export const prInboxSaveDraft = invokeChannel('prInbox.saveDraft', pullInput.extend({ item: prReplyRefSchema, body: bodySchema }), prReplyDraftsSchema, 'local')
 
-/** The reply will not be sent: `discarded` in the draft file. Never reaches GitHub. */
-export const prInboxDiscard = invokeChannel('prInbox.discard', pullInput.extend({ item: prReplyRefSchema }), prReplyDraftsSchema, 'local')
+/** The reply will not be sent: `discarded` in the draft file. `body` is the text shown, which a save on blur may have put there. Never reaches GitHub. */
+export const prInboxDiscard = invokeChannel('prInbox.discard', pullInput.extend({ item: prReplyRefSchema, body: bodySchema }), prReplyDraftsSchema, 'local')
 
 /**
  * Send, on the user's click: each reply with the text shown in its field, one after another — Send on one reply,
