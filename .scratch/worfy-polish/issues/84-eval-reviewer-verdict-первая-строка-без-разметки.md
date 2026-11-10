@@ -31,12 +31,12 @@ Eval case `harness/evals/reviewer-verdict` запускает одного аг�
 ## Готово, когда
 
 - [ ] «Итог»: кто добавляет разметку (reviewer или основная сессия), со ссылкой на transcript run-а.
-  - evidence: commit pass · worfy-polish 84: round 2 result from the kept eval trace · - - · 302e08e3d
+  - evidence: commit pass · worfy-polish 84: round 2 result from the kept eval trace · - - · 12d703a11
 - [ ] Платный `node scripts/eval-harness.mjs --case reviewer-verdict` — case проходит 3 из 3 run-ов, grader
       `rejected-first` зелёный в каждом; команда, exit code, балл и цена — в «Итог».
 - [ ] Платный `eval --changed origin/main` по остальным case-ам, которые покрывает `reviewer.md`, — на пороге или выше.
 - [ ] `node harness/bin/start-context` — exit 0 (reviewer в пороге).
-  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 12 188 tokens, 2 812 below the threshold) · mac - · bed7a8682
+  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 12 188 tokens, 2 812 below the threshold) · mac - · a635d13f3
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
