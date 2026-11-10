@@ -3,7 +3,7 @@
 // section shows (`scope`), its count and its buttons, a notice and an overlay outside the body. The
 // panel shows one section at a time, so a section no longer collapses (Sidebar.tsx, sidebar-scope.ts).
 // jsdom lays nothing out: the heights are checked against the built app (test/e2e/sidebar-sections.spec.ts).
-import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -116,25 +116,10 @@ describe('SidebarSection', () => {
     expect(screen.getByTestId('sidebar-scope-label').textContent).toBe('alpha')
   })
 
-  it('a current section names the open Project, and under «All» with two Projects says it shows that one only', async () => {
-    await mount({ scope: 'current' })
-    expect((await screen.findByTestId('sidebar-scope-label')).textContent).toBe('alpha')
-    expect(screen.getByTestId('sidebar-scope-note').textContent).toBe('alpha only: this list does not show other Projects.')
-    const { setSidebarScope } = await import('../../src/renderer/shell/sidebar-scope')
-    act(() => setSidebarScope('project'))
-    expect(screen.getByTestId('sidebar-scope-label').textContent).toBe('alpha')
-    expect(screen.queryByTestId('sidebar-scope-note')).toBeNull()
-  })
-
-  it('a current section under «All» with a single Project needs no note', async () => {
-    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
-      invoke: (channel) => Promise.resolve(channel === 'projects.list' ? { ok: true, value: { ...TWO, projects: TWO.projects.slice(0, 1) } } : { ok: false, error: 'no' }),
-      on: () => 1,
-      off: () => undefined,
-    }
-    await mount({ scope: 'current' })
-    expect((await screen.findByTestId('sidebar-scope-label')).textContent).toBe('alpha')
-    expect(screen.queryByTestId('sidebar-scope-note')).toBeNull()
+  it('no section says it shows the open Project alone: Sessions and ADR follow the switcher too (worfy-polish ticket 99)', async () => {
+    await mount({ scope: 'filtered' })
+    expect((await screen.findByTestId('sidebar-scope-label')).textContent).toBe('All Projects')
+    expect(document.body.textContent).not.toContain('only: this list does not show other Projects')
   })
 })
 
@@ -235,6 +220,8 @@ describe('Sessions, Epics and ADR with no Project open, and the badge of Session
   const LIST = { projects: [{ id: PROJECT_ID, name: 'demo', path: '/projects/demo', branch: 'main' }], activeId: PROJECT_ID, revision: 1 }
   const NONE = { projects: [], activeId: null, revision: 1 }
   const LIVE = [1, 2].map((pid) => ({ pid, sessionId: `live-${pid}`, cwd: '/projects/demo', status: 'idle' }))
+  // One of the two is busy in the live state of the Projects (projectPulse.get).
+  const PULSE = { projects: [{ projectId: PROJECT_ID, live: [LIVE[0], { ...LIVE[1], status: 'busy' }], busy: 1, prNeedYou: null, waits: null }] }
 
   function preload(list: unknown): void {
     ;(globalThis as { worfy?: WorfyBridge }).worfy = {
@@ -250,7 +237,9 @@ describe('Sessions, Epics and ADR with no Project open, and the badge of Session
                   ? { views: [] }
                   : channel === 'layout.get'
                     ? { layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, revision: 1 }
-                    : undefined
+                    : channel === 'projectPulse.get'
+                      ? PULSE
+                      : undefined
         return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
       },
       on: () => 1,
@@ -273,7 +262,7 @@ describe('Sessions, Epics and ADR with no Project open, and the badge of Session
     expect(within(section).getByTestId('sidebar-no-project').textContent).toBe(line)
   })
 
-  it('counts the live Sessions on the rail in the neutral tone: live is not busy', async () => {
+  it('counts the busy Sessions on the rail in the tone of work, as the prototype does: live alone is not counted', async () => {
     preload(LIST)
     const projects = await import('../../src/renderer/projects/useProjects')
     projects.acceptProjectsState(LIST)
@@ -282,6 +271,6 @@ describe('Sessions, Epics and ADR with no Project open, and the badge of Session
     render(<SessionsSection />)
     await screen.findAllByTestId('sidebar-session')
     const { result } = renderHook(() => scope.useRailBadge('SessionsSection'))
-    expect(result.current).toEqual({ tone: 'muted', count: 2, label: '2 live' })
+    await waitFor(() => expect(result.current).toEqual({ tone: 'working', count: 1, label: '1 busy' }))
   })
 })

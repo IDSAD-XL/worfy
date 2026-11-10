@@ -50,6 +50,12 @@ const project = z.object({ projectId: z.string().min(1) })
  */
 export const docsOpen = invokeChannel('docs.open', project, docsStateSchema, 'project', 'read')
 
+/**
+ * The Project's ADRs read once, with no watcher and no subscription (worfy-polish ticket 99): the ADRs of
+ * the other Projects the sidebar lists under «All Projects». The open Project's stay with `docs.open`.
+ */
+export const docsAdrs = invokeChannel('docs.adrs', project, z.object({ adrs: z.array(adrEntrySchema) }), 'project', 'read')
+
 /** Stops `docs.changed` for this Project in the calling window. `closed` is false if it was not open. */
 export const docsClose = invokeChannel('docs.close', project, z.object({ closed: z.boolean() }), 'project', 'read')
 
@@ -74,6 +80,7 @@ export const docsChanged = eventChannel('docs.changed', docsStateSchema, 'projec
 declare module './channels' {
   interface IpcContract {
     'docs.open': typeof docsOpen
+    'docs.adrs': typeof docsAdrs
     'docs.close': typeof docsClose
     'docs.read': typeof docsRead
     'docs.changed': typeof docsChanged

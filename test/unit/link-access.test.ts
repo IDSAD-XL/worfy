@@ -226,6 +226,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'claudeHome.transcript',
     // Find in the part of a transcript a view has not read yet (worfy-ui ticket 26): reading, as the transcript itself.
     'claudeHome.transcriptFind',
+    // The ADRs of a Project read once, with no watcher (worfy-polish ticket 99): reading, as docs.read.
+    'docs.adrs',
     'docs.close',
     // Opening the watcher of a Project's docs lets main sync the HANDOFF Node with the file, as it
     // does for its own active Project: the caller changes nothing.
@@ -258,6 +260,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'profileEdit.check',
     'profileEdit.read',
     'projects.list',
+    // The live state of every Project (worfy-polish ticket 99): the registry of live Sessions, the PR inbox and the Stages as main last read them.
+    'projectPulse.get',
     // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
     'projects.reviewer.get',
     'projects.settings.defaults',

@@ -5,9 +5,10 @@
 //   Machine show them all — and one Project. Choosing one Project in it opens that Project (as a row of
 //   the Projects section does), and the sections then show it alone; while the switcher stays on one
 //   Project it follows the open one. So the saved answer is `all` or `project`, never an id.
-// - The sections that hold data for every Project in the renderer (Pipeline, Pull requests, Epics) are
-//   filtered by it (projectsInScope). The others (Sessions, ADR) show the open Project in either answer
-//   and say so in their header while «All» is chosen (SidebarSection, `scope="current"`).
+// - The sections of the Projects' work (Pipeline, Pull requests, Epics, Sessions, ADR) are filtered by it
+//   (projectsInScope): under «All» each shows the open Project first, then the others, each under its
+//   name. Sessions and ADR read the other Projects without a watcher of each (worfy-polish ticket 99):
+//   the live state of all Projects in one answer of main (projectPulse.get), the ADRs once (docs.adrs).
 // - Both choices are kept in this window's localStorage, which lives in userData — worfy's data folder
 //   (ADR-0005) — as the drafts of the chat fields are (session/drafts.ts). A window keeps its own
 //   choice while it is open; a new window and a restart start from the last choice made in any window.

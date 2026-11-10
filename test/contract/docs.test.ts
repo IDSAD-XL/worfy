@@ -329,6 +329,37 @@ describe('docs.open', () => {
   })
 })
 
+// The ADRs of a Project the window has not open (worfy-polish ticket 99): read once, with no watcher, so the
+// sidebar under «All Projects» lists them without a watcher per Project in each window.
+describe('docs.adrs', () => {
+  it('answers the ADRs by number, as docs.open does, and nothing else', async () => {
+    const answer = await value<{ adrs: DocsState['adrs'] }>('docs.adrs', { projectId: PROJECT_ID })
+    expect(Object.keys(answer)).toStrictEqual(['adrs'])
+    const version = expect.stringMatching(/^[0-9a-f]{16}$/) as unknown
+    expect(answer.adrs).toStrictEqual([
+      { path: 'docs/adr/0001-clean-room.md', number: '0001', title: 'worfy — чистая реализация', status: 'принят', version },
+      { path: 'docs/adr/0002-ipc.md', number: '0002', title: 'Каналы IPC', status: 'заменён 0099', version },
+    ])
+  })
+
+  it('subscribes the window to nothing: an edit after it sends no docs.changed', async () => {
+    await value('docs.adrs', { projectId: PROJECT_ID })
+    writeFileSync(join(repo, 'docs', 'adr', '0003-new.md'), '# Новое\n\nДата: 2026-11-10. Статус: принят.\n')
+    // Longer than docs.open takes to report an edit (its test waits a second at most).
+    await new Promise((resolve) => setTimeout(resolve, ms(1500)))
+    expect(sender.sent).toStrictEqual([])
+    // Nothing to close either: the window was never subscribed.
+    expect(await value('docs.close', { projectId: PROJECT_ID })).toStrictEqual({ closed: false })
+    // A second read sees the new ADR.
+    expect((await value<{ adrs: DocsState['adrs'] }>('docs.adrs', { projectId: PROJECT_ID })).adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002', '0003'])
+  })
+
+  it('refuses a Project it does not know', async () => {
+    const result = await call('docs.adrs', { projectId: 'gone-00000009' })
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe('the HANDOFF Node', () => {
   it('is created locked when HANDOFF.md exists, hidden when it goes, shown when it comes back', async () => {
     await value('docs.open', { projectId: PROJECT_ID })
@@ -558,6 +589,7 @@ describe('read-only', () => {
     const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
     for (const adr of state.adrs) await value('docs.read', { projectId: PROJECT_ID, path: adr.path })
     await value('docs.read', { projectId: PROJECT_ID, path: 'HANDOFF.md' })
+    await value('docs.adrs', { projectId: PROJECT_ID })
     await docsModule.docsHub.closeAll()
     expect(snapshot(repo)).toStrictEqual(before)
     expect(git(repo, 'status', '--porcelain')).toBe(status)

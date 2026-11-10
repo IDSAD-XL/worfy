@@ -9,13 +9,11 @@ export interface SidebarSectionProps {
   /** The text of the heading, and the name of the region. */
   title: string
   /**
-   * Which Projects the section shows, said next to the heading (worfy-polish ticket 94, sidebar-scope.ts):
-   * - `filtered` — the section follows the Project switcher: «All Projects», or the name of the one;
-   * - `current` — it shows the open Project in either answer: its name, and while «All» is chosen
-   *   with more than one Project a line that says the list is of the open Project alone.
-   * Without it (Projects, Machines) nothing is said.
+   * Which Projects the section shows, said next to the heading (worfy-polish tickets 94 and 99,
+   * sidebar-scope.ts): `filtered` — the section follows the Project switcher, «All Projects» or the
+   * name of the one. Without it (Projects, Machines) nothing is said.
    */
-  scope?: 'filtered' | 'current'
+  scope?: 'filtered'
   /** Shown right after the heading: a count. */
   meta?: ReactNode
   /** Shown at the right edge of the header: the section's own buttons. */
@@ -34,30 +32,16 @@ export interface SidebarSectionProps {
   children?: ReactNode
 }
 
-function ScopeLabel({ kind }: { kind: 'filtered' | 'current' }) {
+function ScopeLabel() {
   const state = useProjects()
   const scope = useSidebarScope((store) => store.scope)
   const active = activeProject(state)
   const one = scope === 'project' && active !== undefined
-  const text = kind === 'filtered' && !one ? ALL_PROJECTS : active?.name
-  if (text === undefined) return null
+  const text = one ? active.name : ALL_PROJECTS
   return (
     <span className="w-sidebar-section__scope" data-testid="sidebar-scope-label" title={text}>
       {text}
     </span>
-  )
-}
-
-/** The line of a `current` section while «All» is chosen and the Machine has more than one Project. */
-function ScopeNote() {
-  const state = useProjects()
-  const scope = useSidebarScope((store) => store.scope)
-  const active = activeProject(state)
-  if (scope !== 'all' || active === undefined || (state?.projects.length ?? 0) < 2) return null
-  return (
-    <p className="w-sidebar-section__scope-note" data-testid="sidebar-scope-note">
-      {active.name} only: this list does not show other Projects.
-    </p>
   )
 }
 
@@ -77,11 +61,10 @@ export function SidebarSection({ id, title, scope, meta, trailing, actions, noti
         <h2 id={headingId} className="w-sidebar-section__heading">
           {title}
         </h2>
-        {scope !== undefined ? <ScopeLabel kind={scope} /> : null}
+        {scope !== undefined ? <ScopeLabel /> : null}
         {meta !== undefined && meta !== null ? <span className="w-sidebar-section__meta">{meta}</span> : null}
         {trailing !== undefined && trailing !== null ? <span className="w-sidebar-section__trailing">{trailing}</span> : null}
       </div>
-      {scope === 'current' ? <ScopeNote /> : null}
       {actions !== undefined && actions !== null ? <div className="w-sidebar-section__actions">{actions}</div> : null}
       <div className="w-sidebar-section__notice">{notice}</div>
       {/* No height of its own: a popover placed against the section starts here, under the header and the actions. */}

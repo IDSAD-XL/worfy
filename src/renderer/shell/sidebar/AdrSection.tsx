@@ -1,19 +1,25 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { ADR_DIR, type AdrEntry } from '../../../shared/ipc/docs'
+import type { ProjectView } from '../../../shared/ipc/projects'
 import { useDocs, useDocText } from '../../docs/useDocs'
-import { markAdrHandled, useCanvasRequests } from '../../find/canvas-requests'
-import { invoke } from '../../ipc'
+import { markAdrHandled, openAdr, useCanvasRequests } from '../../find/canvas-requests'
+import { invoke, readableReason, windowMachine } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { Markdown } from '../../markdown/Markdown'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { activeProject, openProject, useProjects } from '../../projects/useProjects'
 import { showRevealed } from '../../toast/revealed'
-import { showSidebarSection } from '../sidebar-scope'
+import { projectsInScope, showSidebarSection, useSidebarScope } from '../sidebar-scope'
 import { NoProjectSection, SidebarSection } from '../SidebarSection'
 
 /**
- * The ADRs of the open Project (docs/adr/NNNN-*.md), after its Epics (design F) — under «All» of the
- * Project switcher too, which its header says (`scope="current"`, worfy-polish ticket 94).
+ * The ADRs (docs/adr/NNNN-*.md) of the Projects the Project switcher shows (worfy-polish ticket 99,
+ * sidebar-scope.ts), after the Epics (design F): the open Project's, kept current by its watcher in main
+ * (`docs.open`, docs/useDocs.ts), or — under «All» with more than one Project — the open Project's first
+ * and then those of every other Project of the window's Machine that has ADRs, each under its name. The
+ * other Projects' ADRs are read once (`docs.adrs`, no watcher) each time the section comes into the panel.
+ * A click on an ADR of another Project opens that Project first, then the ADR, as "Go to" of the command
+ * palette does (find/canvas-requests.ts, openAdr).
  */
 export const order = 40
 export const railTitle = 'ADR'
@@ -30,6 +36,8 @@ export function RailIcon() {
 const styles = {
   count: { fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
+  // The name of a Project above its ADRs, as in the Epics section.
+  project: { padding: '6px 8px 2px', fontSize: 'var(--text-11)', lineHeight: '14px', fontWeight: 600, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   message: { margin: '2px 8px 4px', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)', overflowWrap: 'anywhere' },
   row: {
     display: 'flex',
@@ -164,10 +172,69 @@ function AdrPanel({ projectId, adr, onClose }: AdrPanelProps) {
   )
 }
 
+/** One ADR row; `projectId` marks a row of another Project. */
+function AdrRow({ adr, current, projectId, onOpen }: { adr: AdrEntry; current: boolean; projectId?: string; onOpen: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        className="w-row"
+        style={styles.row}
+        data-testid="sidebar-adr"
+        data-path={adr.path}
+        data-project={projectId}
+        title={adr.status === null ? adr.title : `${adr.title} — ${adr.status}`}
+        aria-current={current ? 'true' : undefined}
+        onClick={onOpen}
+      >
+        <span className="w-mono" style={styles.number}>
+          {adr.number}
+        </span>
+        <span style={styles.title}>{adr.title}</span>
+        {adr.status !== null ? <span style={styles.status}>{adr.status}</span> : null}
+      </button>
+    </li>
+  )
+}
+
+/**
+ * The ADRs of `projects`, each read once through `docs.adrs` while `shown` — again each time it turns true
+ * and whenever the list of Projects changes meanwhile. A Project whose ADRs could not be read is left out:
+ * the open Project's section is where its errors are said.
+ */
+function useOtherAdrs(projects: readonly ProjectView[], shown: boolean): ReadonlyMap<string, readonly AdrEntry[]> {
+  const [read, setRead] = useState<ReadonlyMap<string, readonly AdrEntry[]>>(new Map())
+  const ids = projects.map((project) => project.id).join('\n')
+  useEffect(() => {
+    if (!shown || ids === '') return
+    let live = true
+    const wanted = ids.split('\n')
+    void Promise.all(
+      wanted.map(async (projectId) => {
+        const result = await invoke('docs.adrs', { projectId })
+        if (!result.ok) console.error(`docs.adrs ${projectId} failed:`, result.error)
+        return [projectId, result.ok ? result.value.adrs : []] as const
+      }),
+    ).then((pairs) => {
+      if (live) setRead(new Map(pairs))
+    })
+    return () => {
+      live = false
+    }
+  }, [ids, shown])
+  return read
+}
+
 export default function AdrSection() {
-  const project = activeProject(useProjects())
+  const projectsState = useProjects()
+  const project = activeProject(projectsState)
+  const scope = useSidebarScope((store) => store.scope)
+  const inPanel = useSidebarScope((store) => store.section === 'AdrSection')
   const { state, error } = useDocs(project?.id)
   const [open, setOpen] = useState<{ projectId: string; path: string } | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const others = project === undefined ? [] : projectsInScope(projectsState?.projects ?? [], scope, project.id).filter((each) => each.id !== project.id)
+  const otherAdrs = useOtherAdrs(others, inPanel)
   // "Go to" an ADR in the command palette (ticket 31) opens it here, as a click on its row does.
   // A request not carried out yet; one made before the Projects are read waits for them, and one
   // for another Project is dropped.
@@ -190,7 +257,21 @@ export default function AdrSection() {
 
   const adrs = state?.adrs ?? []
   // A panel of another Project, or of an ADR that is gone, is not shown.
-  const openAdr = open?.projectId === project.id ? adrs.find((adr) => adr.path === open.path) : undefined
+  const openAdrEntry = open?.projectId === project.id ? adrs.find((adr) => adr.path === open.path) : undefined
+  const named = others.length > 0
+  const elsewhere = others.flatMap((other) => {
+    const list = otherAdrs.get(other.id) ?? []
+    return list.length > 0 ? [{ project: other, adrs: list }] : []
+  })
+
+  // An ADR of another Project: that Project opens, then the ADR, as the palette's "Go to" opens it.
+  const openElsewhere = (other: ProjectView, path: string) => {
+    setFailure(null)
+    void openProject(windowMachine(), other.id).then((refused) => {
+      if (refused === undefined) openAdr(other.id, path)
+      else setFailure(`${other.name} could not be opened: ${readableReason(refused)}`)
+    })
+  }
 
   let body
   if (error !== undefined) body = <p style={styles.message}>The ADRs could not be read: {error}</p>
@@ -200,43 +281,47 @@ export default function AdrSection() {
     body = (
       <ul style={styles.list}>
         {adrs.map((adr) => (
-          <li key={adr.path}>
-            <button
-              type="button"
-              className="w-row"
-              style={styles.row}
-              data-testid="sidebar-adr"
-              data-path={adr.path}
-              title={adr.status === null ? adr.title : `${adr.title} — ${adr.status}`}
-              aria-current={openAdr?.path === adr.path ? 'true' : undefined}
-              onClick={() => setOpen({ projectId: project.id, path: adr.path })}
-            >
-              <span className="w-mono" style={styles.number}>
-                {adr.number}
-              </span>
-              <span style={styles.title}>{adr.title}</span>
-              {adr.status !== null ? <span style={styles.status}>{adr.status}</span> : null}
-            </button>
-          </li>
+          <AdrRow key={adr.path} adr={adr} current={openAdrEntry?.path === adr.path} onOpen={() => setOpen({ projectId: project.id, path: adr.path })} />
         ))}
       </ul>
     )
+  const count = adrs.length + elsewhere.reduce((sum, each) => sum + each.adrs.length, 0)
 
   return (
     <SidebarSection
       id="AdrSection"
       title="ADR"
-      scope="current"
+      scope="filtered"
       trailing={
         state !== undefined ? (
           <span className="w-mono" style={styles.count} data-testid="adr-count">
-            {adrs.length}
+            {count}
           </span>
         ) : null
       }
-      overlay={openAdr !== undefined ? <AdrPanel projectId={project.id} adr={openAdr} onClose={() => setOpen(null)} /> : null}
+      notice={failure === null ? null : <p style={styles.message} role="alert">{failure}</p>}
+      overlay={openAdrEntry !== undefined ? <AdrPanel projectId={project.id} adr={openAdrEntry} onClose={() => setOpen(null)} /> : null}
     >
-      {body}
+      <div data-testid="sidebar-adr-project" data-project={project.id}>
+        {named ? (
+          <div style={styles.project} title={project.path}>
+            {project.name}
+          </div>
+        ) : null}
+        {body}
+      </div>
+      {elsewhere.map((each) => (
+        <div key={each.project.id} data-testid="sidebar-adr-project" data-project={each.project.id}>
+          <div style={styles.project} title={each.project.path}>
+            {each.project.name}
+          </div>
+          <ul style={styles.list}>
+            {each.adrs.map((adr) => (
+              <AdrRow key={adr.path} adr={adr} current={false} projectId={each.project.id} onOpen={() => openElsewhere(each.project, adr.path)} />
+            ))}
+          </ul>
+        </div>
+      ))}
     </SidebarSection>
   )
 }

@@ -1,11 +1,11 @@
 import { app } from 'electron'
 import { isAbsolute, relative, sep } from 'node:path'
-import { docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
+import { docsAdrs, docsChanged, docsClose, docsOpen, docsRead, HANDOFF_HEIGHT, HANDOFF_KIND, HANDOFF_WIDTH } from '../../shared/ipc/docs'
 import { productChanged } from '../../shared/ipc/product'
 import type { LayoutNode } from '../../shared/layout/types'
 import { productFolder } from '../../shared/product/paths'
 import { ClientHolders, clientOf, type Client } from '../clients'
-import { DocsHub, readDoc, type DocsRoot, type DocsSubscriber } from '../docs/watch'
+import { DocsHub, readDoc, readDocs, type DocsRoot, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
@@ -176,6 +176,11 @@ export default [
   defineHandler(docsClose, async ({ projectId }, { event }) => {
     const client = clientOf(event)
     return { closed: client === undefined ? false : await docsHub.close(projectId, client.id) }
+  }),
+  // Read once, no watcher (worfy-polish ticket 99): the ADRs of a Project the window has not open.
+  defineHandler(docsAdrs, async ({ projectId }) => {
+    const { root, adrStatusLabel } = await docsSource(projectStore().get(projectId).path)
+    return { adrs: (await readDocs(root, adrStatusLabel === undefined ? {} : { adrStatusLabel })).adrs }
   }),
   defineHandler(docsRead, async ({ projectId, path }) => readDoc(await docsRoot(projectStore().get(projectId).path), path)),
 ] satisfies HandlerModule

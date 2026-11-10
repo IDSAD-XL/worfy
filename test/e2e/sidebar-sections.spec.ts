@@ -26,6 +26,8 @@ const SECTIONS = ['ProjectsSection', 'SessionsSection', 'PullRequestsSection', '
 /** The common row, and the two-line row of Epics. */
 const ROW = 28
 const EPIC_ROW = 48
+/** A Project's card in the Projects section once its live state is in: two lines (worfy-polish ticket 99, ProjectsSection.tsx). */
+const CARD_ROW = 44
 /** The header of a section. */
 const HEADER = 32
 /** The padding under the list, inside the body of a section (var(--space-2)). */
@@ -415,13 +417,15 @@ test('under an error of "Add project" a list of 8 Projects keeps the rest of the
     const { window } = launched
     const { app } = launched
     await listsShown(window, 8)
+    // Each row is a card of two lines once the live state of the Projects is in.
+    await expect(window.getByTestId('project-pulse')).toHaveCount(8)
     await setWindowSize(launched, 'smallest')
-    // The smallest window. Without a message the list has the panel under the header, and its 8 rows fit.
+    // The smallest window. Without a message the list has the panel under the header, and its 8 cards fit.
     const quietColumn = await measure(window)
     expectFills(quietColumn, 'ProjectsSection', 'without a message')
     const quiet = sectionOf(quietColumn, 'ProjectsSection')
     expect(quiet.content).toBe(quiet.body)
-    expect(quiet.body).toBeGreaterThanOrEqual(8 * ROW)
+    expect(quiet.body).toBeGreaterThanOrEqual(8 * CARD_ROW)
     expect(Math.round(quiet.body)).toBe(Math.round(quiet.bottom - quiet.top - HEADER))
 
     // A short error: the folder picker, replaced in main, fails. No system dialog opens.
@@ -450,7 +454,7 @@ test('under an error of "Add project" a list of 8 Projects keeps the rest of the
     expectFills(small, 'ProjectsSection', 'a long message')
     const squeezed = sectionOf(small, 'ProjectsSection')
     expect(Math.round(squeezed.body)).toBe(Math.round(quiet.body - 3 * ROW))
-    expect(squeezed.content).toBeGreaterThanOrEqual(8 * ROW)
+    expect(squeezed.content).toBeGreaterThanOrEqual(8 * CARD_ROW)
     const bodyBox = (await projects.locator('.w-sidebar-section__body').boundingBox())!
     const firstRow = (await window.getByTestId('project-row').first().boundingBox())!
     expect(firstRow.y).toBe(bodyBox.y)
@@ -484,8 +488,8 @@ test('a long list fills the panel and scrolls by itself, not the panel, in the s
     const { window } = launched
     await listsShown(window, 3)
 
-    // The rows of the lists are the rows on screen.
-    expect(await height(window.getByTestId('project-row').first())).toBe(ROW)
+    // The rows of the lists are the rows on screen; a Project's row is a card of two lines with its live state.
+    await expect.poll(() => height(window.getByTestId('project-row').first())).toBe(CARD_ROW)
     await showSidebarSection(window, 'Epics')
     expect(await height(window.getByTestId('sidebar-epic').first())).toBe(EPIC_ROW)
     await showSidebarSection(window, 'ADR')
