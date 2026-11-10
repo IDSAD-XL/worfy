@@ -51,11 +51,14 @@ export const stageHub = new StageHub({
  */
 export type ProfileSetRunner = (args: readonly string[], stdin?: string) => Promise<ProfileRun>
 
-/** The app's `bin/profile-set`: the Harness found on the machine, with the Harness scripts' environment of the app. */
-export function profileSetRunner(home: string, env: HarnessScriptEnvSource): ProfileSetRunner {
+/**
+ * The app's `bin/profile-set`: the Harness found on the machine, with the Harness scripts' environment of the app.
+ * `timeoutMs`: how long a run may take; a move of the workflow files (`--move`) copies and commits them.
+ */
+export function profileSetRunner(home: string, env: HarnessScriptEnvSource, timeoutMs = HARNESS_SCRIPT_TIMEOUT_MS): ProfileSetRunner {
   return async (args, stdin) => {
     const harness = locateHarness(harnessHomes(home))
-    return runHarnessScript(join(harness.binDir, 'profile-set'), args, scriptEnv(harness, await env()), { stdin, timeoutMs: HARNESS_SCRIPT_TIMEOUT_MS })
+    return runHarnessScript(join(harness.binDir, 'profile-set'), args, scriptEnv(harness, await env()), { stdin, timeoutMs })
   }
 }
 

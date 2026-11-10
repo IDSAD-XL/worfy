@@ -9,8 +9,9 @@
 // The GitHub account changes through the "GitHub account" step of "Add project" (GithubAccount.tsx),
 // which checks the push access of each account and sets the finish it allows; only the person's pick there
 // changes the form, never the load of the accounts, and Save waits while they load. `mode` and the Workflow
-// folder are shown, not edited: they change by moving the workflow files (ticket 81); the name holds the
-// Profile's folder and stays.
+// folder are shown, not edited: they change by moving the workflow files, the action beside them
+// (MoveWorkflow.tsx, `profileEdit.move`, ticket 81), after which the form reads the Profile again; the name
+// holds the Profile's folder and stays.
 //
 // The look follows the "Add project" dialog: a dialog over Project settings on a backdrop, header,
 // scrolling body, footer with the shared action buttons; colours only from the token roles.
@@ -18,10 +19,19 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode 
 import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
-import { PROFILE_CHANGED, PROFILE_COMMANDS, PROFILE_EDIT_FIELDS, type ProfileEditIssue, type ProfileEditRead, type ProfileEditValues } from '../../shared/ipc/profile-edit'
+import {
+  PROFILE_CHANGED,
+  PROFILE_COMMANDS,
+  PROFILE_EDIT_FIELDS,
+  type ProfileEditIssue,
+  type ProfileEditRead,
+  type ProfileEditValues,
+  type ProfileMode,
+} from '../../shared/ipc/profile-edit'
 import type { GithubChoice } from '../../shared/ipc/projects'
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { GithubAccount } from './GithubAccount'
+import { MoveWorkflow } from './MoveWorkflow'
 import { fieldStyles, issuesAt, text } from './profile-fields'
 import { ListField, SelectField, TextField } from './ProfileFields'
 
@@ -94,6 +104,8 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
   const [issues, setIssues] = useState<ProfileEditIssue[]>([])
   const [checking, setChecking] = useState(false)
   const [saving, setSaving] = useState(false)
+  /** A move of the workflow files runs. */
+  const [moving, setMoving] = useState(false)
   /** The "GitHub account" step is open, and its accounts are being read. */
   const [changingAccount, setChangingAccount] = useState(false)
   /** The account step's read of the accounts runs: true from the moment the step opens until they came. */
@@ -127,7 +139,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
 
   const read = load.kind === 'form' ? load.read : null
   const edited = read !== null && JSON.stringify(values) !== JSON.stringify(read.values)
-  const locked = saving || viewOnly !== null
+  const locked = saving || moving || viewOnly !== null
 
   const check = async (next: ProfileEditValues): Promise<void> => {
     const seq = ++checkSeq.current
@@ -187,6 +199,37 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
       case 'invalid':
         setIssues(answer.issues)
         setMessage({ error: true, text: answer.issues.some((issue) => FIELD_SET.has(fieldOf(issue.path))) ? 'The Harness refused a value: see the field.' : answer.reason })
+    }
+  }
+
+  const move = async (to: ProfileMode, folder: string | null): Promise<void> => {
+    if (read === null || locked || edited) return
+    setMoving(true)
+    setMessage(null)
+    const result = await call('profileEdit.move', { root: project.path, to, folder, expected: read.fixedFingerprint })
+    setMoving(false)
+    if (!result.ok) {
+      setMessage({ error: true, text: failureReason('profileEdit.move', result.error) })
+      return
+    }
+    const answer = result.value
+    switch (answer.status) {
+      case 'moved': {
+        const files = answer.files === 1 ? '1 file' : `${answer.files} files`
+        const where = answer.mode === 'silent' ? 'Moved to Silent mode' : 'Moved to Full mode'
+        setMessage({ error: false, text: `${where}: ${files}, committed in the repository and in the Workflow folder.${answer.warning ? ` The profile change is not in the Harness history: ${answer.warning}` : ''}` })
+        setReads((count) => count + 1)
+        return
+      }
+      case 'conflict':
+        setReads((count) => count + 1)
+        setMessage({ error: true, text: PROFILE_CHANGED })
+        return
+      case 'busy':
+        setMessage({ error: true, text: 'Another change of this profile is being written. Move again in a moment.' })
+        return
+      case 'refused':
+        setMessage({ error: true, text: `Not moved: ${answer.reason}` })
     }
   }
 
@@ -273,6 +316,14 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
             {field('title', 'Title')}
             {fixed('mode', 'Mode', mode || 'full')}
             {fixed('workflow.folder', 'Workflow folder', typeof folder === 'string' ? folder : mode === 'silent' ? 'the default folder of the Harness' : 'none: the files live in the repository')}
+            {viewOnly === null ? (
+              <MoveWorkflow
+                mode={mode === 'silent' ? 'silent' : 'full'}
+                moving={moving}
+                blocked={edited ? 'Save or cancel your edits first: the move reads the profile again.' : null}
+                onMove={move}
+              />
+            ) : null}
           </>,
         )}
         <section style={fieldStyles.section} aria-label="GitHub account">
@@ -372,7 +423,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
       </span>
     ) : (
       <span role="status" style={styles.footerMessage}>
-        {checking ? 'Checking with the Harness…' : saving ? 'Saving…' : read !== null && !edited ? 'No changes yet.' : ''}
+        {checking ? 'Checking with the Harness…' : saving ? 'Saving…' : moving ? 'Moving the workflow files…' : read !== null && !edited ? 'No changes yet.' : ''}
       </span>
     )
 
@@ -380,7 +431,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
     <div
       style={styles.backdrop}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose()
+        if (event.target === event.currentTarget && !saving && !moving) onClose()
       }}
     >
       <div
@@ -395,7 +446,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
           if (event.key === 'Escape') {
             // Project settings under it stays open.
             event.stopPropagation()
-            if (!saving) onClose()
+            if (!saving && !moving) onClose()
           }
         }}
       >
@@ -410,7 +461,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
         <div style={styles.body}>{body}</div>
         <div style={styles.footer}>
           {footerText}
-          <button type="button" className="w-action" aria-disabled={saving ? 'true' : undefined} onClick={() => !saving && onClose()}>
+          <button type="button" className="w-action" aria-disabled={saving || moving ? 'true' : undefined} onClick={() => !saving && !moving && onClose()}>
             {viewOnly === null ? 'Cancel' : 'Close'}
           </button>
           {viewOnly === null ? (

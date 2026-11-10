@@ -11,6 +11,9 @@
 //   profile-set [-C <dir>] --expect <fingerprint> --set <json | ->
 //                                                          writes the Pipeline (JSON; `-` — read it from stdin)
 //   profile-set [-C <dir>] --expect <fingerprint> --reset  removes the field: the default Pipeline from then on
+//   profile-set [-C <dir>] --expect <fingerprint> --move <full|silent> [--folder <absolute path>]
+//                                                          moves the project's workflow files to the other mode and
+//                                                          only then writes mode and workflow.folder (below)
 //
 //   With one or more `--field <name>` the same three act on those fields instead, and a fourth only checks:
 //   --read prints { name, path, fields: { <name>: value | null }, fingerprint }; --set takes a JSON object
@@ -47,6 +50,20 @@
 // A commit that cannot be made — no repository there, git missing, the commit refused — does not undo
 // the write: the commit is the history, not a condition. It is reported as a warning.
 //
+// --move is the one write of mode and workflow.folder: they say where the workflow files are, so they change
+// only together with the files (lib/workflow-move.cjs holds the plan, the checks and the rollback). The
+// fingerprint is of those two fields, as `--field mode --field workflow.folder --read` prints it. Before
+// anything is written it refuses (exit 1, the reasons as { ok: false, errors }): the project already in that
+// mode, Full mode for a project of several repositories, uncommitted changes or no branch in the
+// repository or in the Workflow folder, a file already at its new place, an open PR of a ticket's branch (or
+// gh unable to tell; $PROFILE_SET_GH names the gh to start, for the tests). Then the tracked workflow files
+// are copied to the other side and committed there, removed with `git rm` on this side and committed, and the
+// profile gets mode and workflow.folder (Silent mode: --folder, by default <profile folder>/workflow, made with
+// `git init` when absent; Full mode: null). A failure on the way — the profile not written included — puts
+// both sides back as they were, and the profile stays as it was. The output on 0 adds
+// moved: { mode, folder, paths, files }. PROFILE_SET_MOVE_FAIL_AT (tests only): copy | to-commit |
+// from-commit | profile — fail as that step starts.
+//
 // Exit codes: 0 — written (or nothing to change, or --read, or --check found nothing); 1 — the Pipeline or
 // a field breaks a rule or is not JSON, the profile cannot be read or written: nothing written, the reason
 // in stderr; 2 — usage
@@ -71,6 +88,7 @@ const { profileProblems } = require("../lib/profile-rules.cjs")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
 const USAGE = `usage: profile-set [-C <dir>] [--field <name>]... (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset | --field <name>... --check <json|->)
+       profile-set [-C <dir>] --expect <fingerprint> --move <full|silent> [--folder <absolute path>]
 exit: 0 written, read or checked, 1 invalid value or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the value changed since it was read, 6 another write held the lock (try again)`
 
 const out = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n")
@@ -90,6 +108,9 @@ let mode = null
 let given = null
 let expect
 let target = process.cwd()
+// --move: the mode the workflow files move to, and the Workflow folder of Silent mode (null — the default one).
+let moveTo = null
+let moveFolder = null
 // The fields of --field, in the order given; empty — workflow.pipeline, as without the option.
 const fields = []
 // Read, never written here: the profile's folder name, the mode and the Workflow folder (moved with the
@@ -109,6 +130,15 @@ for (let i = 0; i < argv.length; i++) {
         case "--read":
         case "--reset":
             setMode(a.slice(2))
+            break
+        case "--move":
+            setMode("move")
+            moveTo = argv[++i]
+            if (moveTo !== "full" && moveTo !== "silent") usage("--move takes full or silent")
+            break
+        case "--folder":
+            moveFolder = argv[++i]
+            if (!moveFolder) usage("--folder needs the absolute path of the Workflow folder")
             break
         case "--set":
         case "--check":
@@ -140,7 +170,14 @@ for (let i = 0; i < argv.length; i++) {
             usage(`unknown argument: ${a}`)
     }
 }
-if (!mode) usage("say what to do: --read, --set, --reset or --check")
+if (!mode) usage("say what to do: --read, --set, --reset, --check or --move")
+if (moveFolder !== null && mode !== "move") usage("--folder goes with --move")
+if (mode === "move") {
+    if (fields.length > 0) usage("--move writes mode and workflow.folder, and no --field")
+    if (moveTo === "full" && moveFolder !== null) usage("--folder goes with --move silent: Full mode has no Workflow folder")
+    if (moveFolder !== null && !path.isAbsolute(moveFolder)) usage(`--folder takes an absolute path, not ${moveFolder}`)
+    fields.push("mode", "workflow.folder")
+}
 // What is written, in messages: the Pipeline, or the fields of --field.
 const WHAT = fields.length === 0 ? "the Pipeline" : fields.join(", ")
 if (mode === "check" && fields.length === 0) usage("--check goes with --field")
@@ -149,13 +186,13 @@ if (mode !== "read" && mode !== "check" && expect === undefined) usage(`--${mode
 for (const f of fields) {
     const other = fields.find((g) => g !== f && within(f, g))
     if (other !== undefined) usage(`--field ${f} lies inside --field ${other}: name one of them`)
-    if (mode === "read") continue
+    if (mode === "read" || mode === "move") continue
     const fixed = READ_ONLY.find((r) => within(r, f))
     if (fixed !== undefined) usage(`--field ${f}: ${fixed} is read, never written by --field${fixed === "workflow.pipeline" ? " (write the Pipeline without --field)" : ""}`)
 }
 // The draft schema, for the rules of the fields; only a write or a check of fields reads it.
 let schema = null
-if (fields.length > 0 && mode !== "read") {
+if (fields.length > 0 && mode !== "read" && mode !== "move") {
     try {
         schema = loadDraftSchema().properties.profile
     } catch (e) {
@@ -514,6 +551,47 @@ while (!locked) {
     locked = true
 }
 
+// --- the move of the workflow files (--move), under the lock ------------------------------
+/**
+ * Plans and runs the move over `profile` (read under the lock), then sets mode and workflow.folder in it;
+ * refuses (exit 1) before any write when the plan has problems. Returns the report and the undo of the files.
+ */
+function moveFiles() {
+    const { planMove, runMove, undoMove } = require("../lib/workflow-move.cjs")
+    const shown = spawnSync(process.execPath, [path.join(BIN, "profile"), "-C", target, "--json"], { encoding: "utf8", windowsHide: true })
+    let resolved = null
+    try {
+        resolved = shown.status === 0 ? JSON.parse(shown.stdout)._resolved : null
+    } catch {}
+    if (!isObject(resolved)) die(1, `bin/profile --json could not be read (exit ${shown.status}): ${(shown.stderr || "").trim().split("\n")[0]} — nothing moved`)
+    const { problems, plan } = planMove({ profile, resolved, to: moveTo, folder: moveFolder, profileDir: dir, gh: process.env.PROFILE_SET_GH || "gh" })
+    if (problems.length > 0) refuse(problems.map((message) => ({ path: "", message: `${message} — nothing moved` })))
+    let state
+    try {
+        state = runMove(plan, { failAt: process.env.PROFILE_SET_MOVE_FAIL_AT || "" })
+    } catch (e) {
+        refuse([{ path: "", message: e.message }])
+    }
+    const result = structuredClone(profile)
+    result.mode = moveTo
+    if (!isObject(result.workflow)) result.workflow = {}
+    result.workflow.folder = moveTo === "silent" ? plan.workflow : null
+    const broken = profileProblems(result)
+    if (broken.length > 0) {
+        const left = undoMove(state)
+        refuse(broken.map((b) => ({ ...b, message: `${b.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` })))
+    }
+    profile.mode = result.mode
+    profile.workflow = result.workflow
+    const report = {
+        mode: moveTo,
+        folder: result.workflow.folder,
+        paths: plan.moves.map((m) => m.rel),
+        files: plan.moves.reduce((n, m) => n + m.files.length, 0),
+    }
+    return { report, undo: () => undoMove(state) }
+}
+
 // --- compare-and-write, under the lock --------------------------------------------------
 const { text: before, profile, fingerprint: currentFingerprint } = readProfile()
 const name = nameOf(profile)
@@ -523,7 +601,9 @@ if (expected !== currentFingerprint) {
     die(5, `${fields.length === 0 ? "workflow.pipeline" : WHAT} of ${pjPath} changed since it was read — not written; read it again`)
 }
 
-if (fields.length > 0 && mode === "set") {
+let moved = null
+if (mode === "move") moved = moveFiles()
+else if (fields.length > 0 && mode === "set") {
     // Checked again against the file under the lock: it may have changed since a --check.
     const problems = fileProblems(profile, value)
     if (problems.length > 0) refuse(problems)
@@ -552,11 +632,15 @@ if (after === before) {
     process.exit(0)
 }
 try {
+    if (moved !== null && process.env.PROFILE_SET_MOVE_FAIL_AT === "profile") throw new Error("failed at profile (PROFILE_SET_MOVE_FAIL_AT)")
     const tmp = `${pjPath}.tmp-${process.pid}`
     fs.writeFileSync(tmp, after)
     fs.renameSync(tmp, pjPath)
 } catch (e) {
-    die(1, `cannot write ${pjPath}: ${e.message} — not written`)
+    if (moved === null) die(1, `cannot write ${pjPath}: ${e.message} — not written`)
+    // The files moved, the profile did not: the files go back, so the profile and the files agree again.
+    const left = moved.undo()
+    refuse([{ path: "", message: `cannot write ${pjPath}: ${e.message}; the move was rolled back${left.length ? `, except: ${left.join("; ")}` : ""}` }])
 }
 
 // --- the commit: history, not a condition ---------------------------------------------
@@ -585,7 +669,9 @@ function commit() {
     const email = run(["-C", home, "config", "user.email"])
     if (email.status !== 0 || email.stdout.trim() === "") args.push("-c", "user.name=Harness", "-c", "user.email=harness@localhost")
     const message =
-        fields.length > 0
+        moved !== null
+            ? `Move ${name} to ${moveTo === "silent" ? "Silent" : "Full"} mode`
+            : fields.length > 0
             ? `${mode === "set" ? "Set" : "Reset"} ${WHAT} of ${name}`
             : mode === "set"
               ? `Set the Pipeline of ${name}`
@@ -600,4 +686,4 @@ function commit() {
 const problem = commit()
 const warning = problem === null ? null : `${problem}; the write stays`
 if (warning !== null) err(`profile-set: warning: ${warning}`)
-out(JSON.stringify({ written: true, fingerprint, warning }))
+out(JSON.stringify(moved === null ? { written: true, fingerprint, warning } : { written: true, fingerprint, warning, moved: moved.report }))

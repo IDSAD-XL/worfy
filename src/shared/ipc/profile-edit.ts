@@ -6,8 +6,9 @@
 // it is written, and once more by the write; a refusal names the field. The write goes ahead only while
 // the Profile still has the fields the form read (the fingerprint of `read`).
 //
-// `mode` and `workflow.folder` are read and shown, never written: they change by moving the workflow files
-// (worfy-polish ticket 81). `name` holds the Profile's folder and stays as it is.
+// `mode` and `workflow.folder` are read and shown, never written by the form: they change only by moving the
+// workflow files, `move` (worfy-polish ticket 81, `bin/profile-set --move`). `name` holds the Profile's folder
+// and stays as it is.
 //
 // The channels are `project`, as `ecoMode`: a window that shows a Linked machine edits the Profile of that
 // Machine's Project, and `bin/profile-set` runs on the Machine the Project lives on. Reading and checking
@@ -74,6 +75,8 @@ export const profileEditReadSchema = z.discriminatedUnion('available', [
     values: profileEditValuesSchema,
     /** `mode` and `workflow.folder`, shown without an edit. */
     fixed: profileEditValuesSchema,
+    /** The fingerprint of `mode` and `workflow.folder` together: what `move` takes. */
+    fixedFingerprint: pipelineFingerprintSchema,
     /** The fingerprint of the fields of PROFILE_EDIT_FIELDS together. */
     fingerprint: pipelineFingerprintSchema,
   }),
@@ -106,6 +109,36 @@ export type ProfileEditWriteResult = z.output<typeof profileEditWriteResultSchem
  */
 export const profileEditWrite = invokeChannel('profileEdit.write', valuesInput.extend({ expected: pipelineFingerprintSchema }), profileEditWriteResultSchema, 'local')
 
+/** The modes a Project's workflow files can move to. */
+export const profileModeSchema = z.enum(['full', 'silent'])
+export type ProfileMode = z.output<typeof profileModeSchema>
+
+export const profileMoveResultSchema = z.discriminatedUnion('status', [
+  /** Moved: the files committed on both sides, `mode` and `workflow.folder` written. `warning`: why the Profile change was not committed in the Harness home's git. */
+  z.object({ status: z.literal('moved'), mode: profileModeSchema, folder: z.string().nullable(), files: z.number().int().nonnegative(), warning: z.string().nullable() }),
+  /** `mode` and `workflow.folder` are not the ones read: nothing moved; the form reads them again. */
+  z.object({ status: z.literal('conflict') }),
+  /** Another write of the same Profile held its lock for the whole wait: nothing moved, try again. */
+  z.object({ status: z.literal('busy') }),
+  /** Refused before anything was written, or failed and rolled back: `reason` says why; the Project stays in its mode. */
+  z.object({ status: z.literal('refused'), reason: z.string() }),
+])
+export type ProfileMoveResult = z.output<typeof profileMoveResultSchema>
+
+/**
+ * Moves the Project's workflow files to the other mode (`bin/profile-set --move`): Full to Silent mode puts the
+ * tickets, specs, ADRs and the state file in the Workflow folder (`folder`, null — the default one beside the
+ * Profile), Silent to Full mode brings them back into the repository (`folder` null). `expected` is the
+ * `fixedFingerprint` of `profileEdit.read`. Refused while a Session of the Project is at work. `local`, as
+ * `profileEdit.write`.
+ */
+export const profileEditMove = invokeChannel(
+  'profileEdit.move',
+  z.object({ root: absolutePathSchema, to: profileModeSchema, folder: absolutePathSchema.nullable(), expected: pipelineFingerprintSchema }),
+  profileMoveResultSchema,
+  'local',
+)
+
 /** The message of a refused write whose fields changed since the read. */
 export const PROFILE_CHANGED = 'The profile changed since you opened it. The form shows it as it is now; make your change again.'
 
@@ -114,5 +147,6 @@ declare module './channels' {
     'profileEdit.read': typeof profileEditRead
     'profileEdit.check': typeof profileEditCheck
     'profileEdit.write': typeof profileEditWrite
+    'profileEdit.move': typeof profileEditMove
   }
 }
