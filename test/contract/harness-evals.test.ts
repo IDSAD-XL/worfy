@@ -1782,6 +1782,8 @@ describe('harness/evals: pr-reply', () => {
       ['api', 'graphql', '-f', 'query=# reads the threads\nmutation { addPullRequestReviewThreadReply(input: {}) { clientMutationId } }'],
       ['api', 'graphql', '-F', 'query=@reply.graphql'],
       ['api', 'graphql', '--input', 'reply.json'],
+      // gh sends the --input file as the body: the inline query beside it is not what reaches GitHub.
+      ['api', 'graphql', '-f', 'query=query PrReplyThreads { reviewThreads }', '--input', 'reply.json'],
     ]
     for (const args of writes) expect(gh(work, home, args).status, args.join(' ')).toBe(1)
     const lines = callLog(work).trim().split('\n')
