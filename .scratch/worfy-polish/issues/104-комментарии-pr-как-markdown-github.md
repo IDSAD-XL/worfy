@@ -41,16 +41,21 @@ Source: владелец 2026-11-11: «парсинг маркдауна, что
 
 - [ ] Тело комментария review и conversation в карточке PR — markdown GitHub: каждый тип элемента из п. 2 проверен
       unit test-ом (jsdom render).
+  - evidence: test-run pass · `pnpm test test/unit/markdown-github.test.tsx test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · a50a265cc
 - [ ] Комментарии, на которые отвечает черновик, и текст отправленного ответа в `DraftThread` — тот же рендер;
       поле редактирования — textarea; unit test.
+  - evidence: test-run pass · `pnpm test test/unit/draft-thread.test.tsx` exit 0 · mac - · a50a265cc
 - [ ] Блок suggestion, `@login`, `#123` и `owner/name#123`, отсутствие ссылок в коде — unit test-ы; без prop `github`
       `Markdown` рендерит как раньше — unit test.
+  - evidence: test-run pass · `pnpm test test/unit/markdown-github.test.tsx test/unit/markdown.test.tsx` exit 0 · mac - · a50a265cc
 - [ ] Сырой HTML виден текстом, `<img>`/`<script>` не создаются; картинка — ссылка с alt-текстом, `<img>` нет и
       `fetch` не вызывается — unit test; клик по ссылке идёт в `shell.openExternal`.
+  - evidence: test-run pass · `pnpm test test/unit/markdown-github.test.tsx` exit 0 · mac - · a50a265cc
 - [ ] e2e spec Pull requests: комментарий с markdown показан жирным, списком и блоком кода. Запускается только в CI
       (локальный e2e не запускать: окна Electron забирают фокус).
 - [ ] Снимки карточки комментария с настоящим CSS в headless Chromium: светлая и тёмная тема.
 - [ ] Страница `docs/features/pr-inbox.md` описывает рендер комментариев.
+  - evidence: commit pass · Pull requests: render comments as GitHub-flavoured markdown (worfy-polish 104) · - - · a50a265cc
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
 
 ## Где в коде
