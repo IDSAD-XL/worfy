@@ -1,0 +1,58 @@
+# 103 — Pull requests: Ticket chip не закрывает «#N» в строке списка
+
+Type: bug
+Status: claimed 2026-11-10T21:45Z
+Branch: worfy-polish/103
+Blocked by: —
+Source: владелец 2026-11-10, снимок экрана (бриф Orchestrator-а).
+
+## Что происходит
+
+В списке view Pull requests вторая строка PR — `repo#N`, Ticket chip (`<epic> <NN>`) и текст CI. Когда имя Epic-а
+в Ticket chip длинное, chip рисуется поверх «#N»: владелец видел chip «<длинное имя Epic-а> 21», под которым
+пропал номер PR «#8…».
+
+Причина — в `pr-inbox.css`: у `.w-pr-inbox-item__ref` стоит `min-width: 0`, поэтому вся пара `repo#N` сжимается
+уже своего содержимого, а Ticket chip и текст CI — `flex: none` и не сжимаются никогда. Обрезки у `__ref` нет:
+«#N», который не сжимается, вылезает из своей рамки и уходит под chip, нарисованный следом.
+
+## Что делаем
+
+1. «#N» не сжимается, не прячется и ничем не перекрывается: самое узкое, до чего сжимается `repo#N`, — сам «#N».
+2. Когда места не хватает, первым уступает имя репозитория (обрезка с многоточием, как сейчас), потом текст
+   Ticket chip — тоже с многоточием. Полное `<epic> <NN> — <заголовок Ticket-а>` — в tooltip chip-а.
+3. Текст CI остаётся целым. Если строка уже, чем «#N» + рамка chip-а + текст CI (при колонке списка 340 px такого
+   не бывает), вторая строка обрезается по своему краю и не лезет на колонку возраста справа: ничто ничего не
+   перекрывает.
+4. Заголовок выбранного PR (`.w-pr-inbox-pane__meta`) переносит элементы на новую строку, наложения там нет; там
+   Ticket chip длиннее строки тоже обрезается многоточием, а не вылезает за правый край. Секция Pull requests в
+   sidebar строк PR не показывает (только группы и счётчики) — там править нечего.
+
+## Готово, когда
+
+- [ ] «#N» в строке списка остаётся целым при длинном имени репозитория и длинном Ticket chip одновременно;
+      порядок уступок: имя репозитория → текст Ticket chip; текст CI целый; обе темы.
+- [ ] Tooltip Ticket chip — `<epic> <NN> — <заголовок>`; unit test.
+  - evidence: test-run pass · `pnpm test test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
+- [ ] Правила стилей (минимальная ширина `repo#N` = «#N», сжимаемый chip с многоточием, обрезка второй строки)
+      проверены unit test-ом по таблице стилей (jsdom раскладку не считает).
+  - evidence: test-run pass · `pnpm test test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
+- [ ] e2e spec Pull requests: случай с длинным Ticket chip при 1280 px — «#N», текст CI и chip не перекрывают
+      друг друга, chip обрезан, «#N» целый. Запускается только в CI (локальный e2e не запускать: окна Electron
+      забирают фокус).
+- [ ] Снимки строки с настоящим CSS в headless Chromium: светлая и тёмная тема, узкая и широкая строка.
+- [ ] Страница `docs/features/pr-inbox.md` описывает обрезку Ticket chip.
+  - evidence: commit pass · PR list: the Ticket chip never covers #N (worfy-polish 103) · - - · 57c871d4e34da6beeac339158263cbef796ecaf8
+- [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 57c871d4e34da6beeac339158263cbef796ecaf8
+
+## Где в коде
+
+- `src/renderer/pr-inbox/pr-inbox.css` — `.w-pr-inbox-item__sub`, `.w-pr-inbox-item__ref`, `.w-pr-inbox-ticket`.
+- `src/renderer/pr-inbox/PrInboxView.tsx` — `TicketChip` (tooltip).
+- `test/unit/pr-inbox-view.test.tsx`, `test/e2e/pr-inbox.spec.ts`.
+- `docs/features/pr-inbox.md`.
+
+## Вне скоупа
+
+- Раскладка карточки PR вне строки заголовка и раскладка sidebar.

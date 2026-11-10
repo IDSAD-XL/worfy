@@ -16,6 +16,8 @@
 // here reaches GitHub: of the `prInbox` channels the view sends only `prInbox.get`, `prInbox.markSeen` and, for the
 // selected PR, `prInbox.drafts`; `prInbox.send` only from a click on Send or on Send all in its dialog (ADR-0105; the
 // rest of Send is in test/unit/draft-thread.test.tsx).
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -312,6 +314,33 @@ describe('the view of a snapshot', () => {
     expect(ref.getAttribute('title')).toBe(`${API}#118`)
   })
 
+  it('the second line of a row gives way in order — the repository name, then the Epic name of the chip — and #N is never covered (jsdom lays nothing out: the sheet is read)', () => {
+    const sheet = readFileSync(join(import.meta.dirname, '../../src/renderer/pr-inbox/pr-inbox.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    const body = (selector: string) => {
+      const at = sheet.indexOf(`\n${selector} {`)
+      expect(at, selector).toBeGreaterThanOrEqual(0)
+      return sheet.slice(at, sheet.indexOf('}', at))
+    }
+    // name#N never shrinks below #N (its name column adds nothing to its min-content width) and grows only into the
+    // room the chip and the CI text leave at their full size: no flex basis.
+    const ref = body('.w-pr-inbox-item__ref')
+    expect(ref).toMatch(/display\s*:\s*grid/u)
+    expect(ref).toMatch(/grid-template-columns\s*:\s*minmax\(0,\s*auto\)\s+auto/u)
+    expect(ref).toMatch(/flex\s*:\s*1 1 0\b/u)
+    expect(ref).toMatch(/min-width\s*:\s*min-content/u)
+    expect(ref).toMatch(/max-width\s*:\s*max-content/u)
+    // The chip shrinks, its Epic name cut with an ellipsis, its number whole; the CI text never shrinks.
+    const chip = body('.w-pr-inbox-ticket')
+    expect(chip).toMatch(/min-width\s*:\s*0/u)
+    expect(chip).toMatch(/overflow\s*:\s*hidden/u)
+    expect(chip).not.toMatch(/flex\s*:\s*none/u)
+    expect(body('.w-pr-inbox-ticket__epic')).toMatch(/text-overflow\s*:\s*ellipsis/u)
+    expect(body('.w-pr-inbox-ticket__number')).toMatch(/flex\s*:\s*none/u)
+    expect(sheet).not.toMatch(/\.w-pr-inbox-item__sub \.w-chip/u)
+    // The last resort of a too narrow row: the line is cut at its own edge, never drawn under the age.
+    expect(body('.w-pr-inbox-item__sub')).toMatch(/overflow\s*:\s*hidden/u)
+  })
+
   it('a row of the list has its title, name#N, Ticket chip, CI, open threads, a new mark and its age', async () => {
     await body(snapshotOf('web-00000001'))
     const answer = rowOf(API, 118)
@@ -321,8 +350,11 @@ describe('the view of a snapshot', () => {
     // The name of the repository; the whole owner/name#N is the tooltip.
     expect(text(answer, 'pr-inbox-ref')).toBe('api#118')
     expect(within(answer).getByTestId('pr-inbox-ref').getAttribute('title')).toBe(`${API}#118`)
-    // The Ticket by its branch demo/07.
+    // The Ticket by its branch demo/07; the Epic's name is its own part, cut by the stylesheet; the whole ref and the
+    // Ticket's title are the tooltip.
     expect(text(answer, 'pr-inbox-ticket')).toBe('demo 07')
+    expect(text(answer, 'pr-inbox-ticket-epic')).toBe('demo')
+    expect(within(answer).getByTestId('pr-inbox-ticket').getAttribute('title')).toBe('demo 07 — Upload retries')
     expect(within(answer).getByTestId('pr-inbox-ci').getAttribute('data-ci')).toBe('passing')
     expect(within(answer).getByRole('img', { name: 'CI passing' })).toBeTruthy()
     // A passing CI is a dot alone.

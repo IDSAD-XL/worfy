@@ -263,14 +263,25 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  /* The last resort of a row narrower than #N, the chip's frame and the CI text together: the line is cut at its own
+     edge and never runs under the age beside it. */
+  overflow: hidden;
   font-size: var(--text-11);
   line-height: 16px;
   color: var(--text-muted);
 }
-/* name#N: only the repository name gives way, cut with an ellipsis; #N, the Ticket chip and the CI text stay whole. */
+/* name#N, then the Ticket chip, then the CI text. When the line runs short, the repository name gives way first, then
+   the chip's text, both cut with an ellipsis; #N and the CI text stay whole, and nothing is drawn over anything.
+   The order is strict, not shared out: name#N has no flex basis, so it never shrinks — it only grows, up to its whole
+   text, into the room the chip and the CI text leave at their full size. Once there is no such room it is #N alone,
+   and only then the chip shrinks. A grid, not a flex box: its first column (minmax(0, auto)) adds nothing to its
+   min-content width, so name#N can be as narrow as #N and no narrower. */
 .w-pr-inbox-item__ref {
-  display: flex;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto;
+  flex: 1 1 0;
+  min-width: min-content;
+  max-width: max-content;
   font-size: var(--text-11);
   white-space: nowrap;
 }
@@ -279,10 +290,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.w-pr-inbox-item__number {
-  flex: none;
-}
-.w-pr-inbox-item__sub .w-chip,
 .w-pr-inbox-item__sub .w-pr-inbox-ci-text,
 .w-pr-inbox-item__sub > .w-pr-inbox-ci {
   flex: none;
@@ -299,12 +306,30 @@
   align-items: center;
   gap: 6px;
 }
+/* `<epic> <NN>`: a long chip gives way in a row and in the pane's header — the Epic's name is cut with an ellipsis, the
+   number stays whole, as #N does beside it; the tooltip has the whole `<epic> <NN> — title`. 14 px is the line its
+   16 px box leaves inside the 1 px border. */
 .w-pr-inbox-ticket {
+  gap: 0;
+  min-width: 0;
+  max-width: 100%;
   height: 16px;
   padding: 0 5px;
+  overflow: hidden;
+  line-height: 14px;
   font-size: var(--text-11);
   border-color: color-mix(in srgb, var(--span-ticket) 45%, transparent);
   color: var(--span-ticket);
+}
+.w-pr-inbox-ticket__epic {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ` 07`: `pre` keeps the space before the number, which a flex item would drop at its start. */
+.w-pr-inbox-ticket__number {
+  flex: none;
+  white-space: pre;
 }
 
 /* The age of a PR, coloured by how long it has waited (ageHeat). */
