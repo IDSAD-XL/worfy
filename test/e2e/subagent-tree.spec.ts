@@ -291,7 +291,8 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
     await expect(view).toHaveAttribute('data-agent-id', 'a5000000000000286')
     await expect(view.getByTestId('session-read-only')).toHaveText('Read-only: Subagent transcript')
-    await expect(view.getByTestId('transcript-text').locator('strong')).toHaveText('REJECTED')
+    // The answer opens with a lead-in (worfy-polish 91): its bold words still render as bold.
+    await expect(view.getByTestId('transcript-text').locator('strong')).toHaveText('the test')
     await expect(view.getByRole('textbox')).toHaveCount(0)
     await window.screenshot({ path: test.info().outputPath('subagent-transcript.png') })
 

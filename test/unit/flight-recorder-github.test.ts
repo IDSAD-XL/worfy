@@ -330,6 +330,28 @@ describe('verdictComments of pr-facts.mjs: who speaks for the Gate', () => {
     expect(verdictComments(comments).map((item) => new Date(item.at ?? 0).toISOString().slice(11, 16))).toEqual(['11:00', '11:30', '11:40', '11:50'])
     expect(verdicts(github([{ ...one, authorAssociation: 'NONE' }])).gate).toBeNull()
   })
+
+  // The verdict of a comment is its first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs,
+  // worfy-polish 91): a lead-in before it is dropped, a word inside a sentence is no verdict.
+  it('reads the verdict after a lead-in; a word inside a sentence or behind a label is none; a NARROW: opening stays one', () => {
+    const at = (time: string) => ({ createdAt: T(time) })
+    const read = verdictComments(
+      github([
+        { ...at('11:00'), body: 'This confirms a clear discrepancy.\n\nREJECTED: node --test exits 1' },
+        { ...at('11:10'), body: 'Every claim was VERIFIED by re-running it.' },
+        { ...at('11:20'), body: 'Verdict: VERIFIED' },
+        { ...at('11:30'), body: 'The narrow fix is in.\nNARROW: VERIFIED' },
+        { ...at('11:40'), body: 'NARROW: [med] src/a.ts:3\nVERIFIED once fixed' },
+        { ...at('11:50'), body: 'Round 2.\nVERIFIED' },
+      ]),
+    )
+    expect(read.map(({ at: time, verdict, narrow }) => [new Date(time ?? 0).toISOString().slice(11, 16), verdict, narrow])).toEqual([
+      ['11:00', 'REJECTED', false],
+      ['11:30', 'VERIFIED', true],
+      ['11:40', null, true],
+      ['11:50', 'VERIFIED', false],
+    ])
+  })
 })
 
 describe('GitHub did not answer', () => {

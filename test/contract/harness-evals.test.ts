@@ -387,8 +387,10 @@ describe('harness/evals: the cases', () => {
   // The reviewer's lens "implementer's report" (agents/reviewer.md) starts the answer with
   // `REJECTED: <the unconfirmed claims>`, and one verdict only: VERIFIED never shares that line. The
   // grader reads the saved answer the way `claude plugin eval` runs a regex grader: new RegExp(pattern,
-  // flags) on the text as it is, no trim, so with no `m` flag `^` is the start of the answer.
-  it('reviewer-verdict: the rejected-first grader takes one REJECTED: verdict and refuses a missing colon or a second verdict', () => {
+  // flags) on the text as it is, no trim, so with no `m` flag `^` is the start of the answer. Lines
+  // before the first line that starts with a verdict word are a lead-in and are skipped (worfy-polish
+  // 91; the grader and the rule of harness/lib/verdict.cjs are compared in verdict-rules-agree.test.ts).
+  it('reviewer-verdict: the rejected-first grader takes one REJECTED: verdict after a lead-in and refuses a missing colon or a second verdict', () => {
     const grader = frontMatter(join(EVALS, 'reviewer-verdict', 'graders', 'rejected-first.md'))
     const pattern = new RegExp(field(grader, 'pattern') ?? '<none>', field(grader, 'flags') ?? '')
     const grade = (answer: string): boolean => pattern.test(answer)
@@ -396,7 +398,12 @@ describe('harness/evals: the cases', () => {
     expect(grade(`REJECTED: ${claim}`)).toBe(true)
     expect(grade(`REJECTED: ${claim}\nRan: node --test, exit code 1.\nThe other claims: VERIFIED by re-reading.`)).toBe(true)
     expect(grade(`REJECTED: ${claim}\r\nRan: node --test, exit code 1.\r\n`)).toBe(true)
-    expect(grade(`Ran: node --test.\nREJECTED: ${claim}`)).toBe(false)
+    expect(grade(`Ran: node --test.\nREJECTED: ${claim}`)).toBe(true)
+    expect(grade(`This confirms a clear discrepancy.\n\nREJECTED: ${claim}`)).toBe(true)
+    expect(grade(`Ran: node --test, every claim VERIFIED.\nREJECTED: ${claim}`)).toBe(true)
+    expect(grade(`Ran: node --test.\nVERIFIED\nREJECTED: ${claim}`)).toBe(false)
+    expect(grade(`Ran: node --test.\nVERIFIED/REJECTED: REJECTED: ${claim}`)).toBe(false)
+    expect(grade(`Ran: node --test.\nThe report is not right.`)).toBe(false)
     expect(grade(`REJECTED — ${claim}`)).toBe(false)
     expect(grade(`REJECTED ${claim}`)).toBe(false)
     expect(grade(`REJECTED: ${claim}; VERIFIED: the rest`)).toBe(false)

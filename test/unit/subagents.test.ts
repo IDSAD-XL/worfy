@@ -229,7 +229,9 @@ describe('buildSubagentTree on live events', () => {
     ])
   })
 
-  it('reads the verdict of a `worfy:reviewer` answering in English, bold, with a tail after the word', () => {
+  // The verdict is the first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs, worfy-polish
+  // 91): a lead-in before it is dropped, markup in front of the word is no verdict (ticket worfy-polish 84 forbids it).
+  it('reads the verdict of a `worfy:reviewer` from its first verdict line, after a lead-in, with a tail after the word', () => {
     const verdictOf = (answer: string) => {
       const signals = live([
         [1000, call('toolu_r', { subagent_type: 'worfy:reviewer', name: 'verify-10' })],
@@ -239,9 +241,13 @@ describe('buildSubagentTree on live events', () => {
       const [reviewer] = flattenSubagents(buildSubagentTree({ signals, files: [] }))
       return { subagentType: reviewer?.subagentType, verdict: reviewer?.verdict }
     }
-    expect(verdictOf('**VERIFIED** (round 2, head abc1234)\nAll three lenses clean.')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'VERIFIED' })
+    expect(verdictOf('VERIFIED (round 2, head abc1234)\nAll three lenses clean.')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'VERIFIED' })
     expect(verdictOf('REJECTED: 2 findings\n- src/a.ts:1 — x\n- src/b.ts:2 — y')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
-    expect(verdictOf('## REJECTED — round 1\n')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
+    expect(verdictOf('This confirms a clear discrepancy.\n\nREJECTED: node --test exits 1')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
+    expect(verdictOf('Ran node --test: exit 0.\nEvery claim was VERIFIED by re-running it.')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
+    expect(verdictOf('Checked the claims.')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
+    expect(verdictOf('**VERIFIED** (round 2)')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
+    expect(verdictOf('## REJECTED — round 1\n')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
   })
 
   it('shows a call whose Subagent has no id yet, and keeps one node when the files name it', () => {

@@ -246,7 +246,7 @@ describe('the subkind and the Ticket of an agent', () => {
 
   it('a verifier that answers REJECTED is rejected with its verdict, VERIFIED stays ok', () => {
     const own = new Map([
-      ['v5', { meta: null, lines: [agentLine(T('10:09'), '**REJECTED**: the stage name is cut')] }],
+      ['v5', { meta: null, lines: [agentLine(T('10:09'), 'Checked the stage names.\nREJECTED: the stage name is cut')] }],
       ['v7', { meta: null, lines: [agentLine(T('10:19'), 'VERIFIED; debt: one comment')] }],
     ])
     const { work } = facts(

@@ -199,7 +199,7 @@ describe('codexSubagentTree', () => {
       prompt: null,
       model: null,
       reasoningEffort: null,
-      agentsStates: { [ADA]: { status: 'completed', message: '**VERIFIED** the tests pass\nmore' }, [BO]: { status: 'errored', message: 'The command failed.' } },
+      agentsStates: { [ADA]: { status: 'completed', message: 'Ran the tests.\nVERIFIED the tests pass\nmore' }, [BO]: { status: 'errored', message: 'The command failed.' } },
       startedAtMs: (T0 + 3) * 1000,
       completedAtMs: (T0 + 9) * 1000,
     } as ThreadItem

@@ -39,10 +39,11 @@ import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { WorkFact as RecorderFact, TurnFact } from '../../shared/flight-recorder/facts'
 import { SubagentParse, TranscriptParse } from '../../shared/flight-recorder/from-transcript'
-import { AGENT_TOOLS, summaryLine } from '../../shared/transcript/subagents'
+import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { Period, SessionInfo, SourceGap, WorkFact, WorkSource } from '../../shared/work-track/facts'
 import { periodBounds } from '../../shared/work-track/lanes'
+import { findVerdict } from '../../shared/workflow/verdict.mjs'
 import { isInsidePath, projectDirName } from '../claude-home/registry'
 import { claudeHome } from '../storage/paths'
 import type { HistoryPart } from '../vendors/history'
@@ -69,7 +70,6 @@ const DAY_MS = 24 * 60 * 60_000
 const SESSION_FILE = /^([A-Za-z0-9_-]{1,128})\.jsonl$/u
 const AGENT_FILE = /^agent-([A-Za-z0-9_-]{1,128})\.jsonl$/u
 const SEND_TOOL = 'SendMessage'
-const VERDICT = /^(VERIFIED|REJECTED)\b/u
 const LAUNCHED = /^\s*Async agent launched/iu
 
 /** A Session that has a Node on the Canvas. */
@@ -123,8 +123,8 @@ function tagOf(text: string, name: string): string {
   return value === undefined ? '' : `<${name}>${value}</${name}>`
 }
 
-/** A verifier's verdict, the one word of a report the facts take. */
-const verdictOf = (text: string): string => VERDICT.exec(summaryLine(text) ?? '')?.[1] ?? ''
+/** A verifier's verdict, the one word of a report the facts take: from its first line that starts with VERIFIED or REJECTED. */
+const verdictOf = (text: string): string => findVerdict(text)?.verdict ?? ''
 
 /**
  * A text of a record as the facts need it: a task-notification keeps the id, the call and the status

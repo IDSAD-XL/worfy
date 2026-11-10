@@ -1,0 +1,27 @@
+{
+  "about": "A reviewer's answer and the verdict read from it: the first line that starts (after spaces or tabs) with the whole word VERIFIED or REJECTED (not followed by a letter, a digit, `_` or `/`), optionally after `NARROW:`. `text` is the answer from that line on, its leading spaces dropped; `line` is the first line of `text`. `verdict: null` means no verdict. The Harness reader (harness/lib/verdict.cjs), the worfy app's copy (src/shared/workflow/verdict.mjs) and the grader rejected-first of the eval case reviewer-verdict must agree on every case.",
+  "cases": [
+    { "name": "a bare REJECTED first line", "answer": "REJECTED: node --test exits 1, the report says 0\n- src/sum.mjs:3: [high] sum subtracts", "verdict": "REJECTED", "narrow": false, "text": "REJECTED: node --test exits 1, the report says 0\n- src/sum.mjs:3: [high] sum subtracts", "line": "REJECTED: node --test exits 1, the report says 0" },
+    { "name": "a bare VERIFIED", "answer": "VERIFIED", "verdict": "VERIFIED", "narrow": false, "text": "VERIFIED", "line": "VERIFIED" },
+    { "name": "a lead-in sentence, then REJECTED on the next line (an eval run of reviewer-verdict)", "answer": "This confirms the commit under review itself introduced the regression (not a pre-existing bug): `sum` was `a + b` before this commit and is `a - b` after it.\n\nREJECTED: node --test exits 1, the report says 0\n\n- `src/sum.mjs:3`: [high] the commit changes `sum(a, b)` to `return a - b`\n\nWhat held: `double(2) returns 4`, VERIFIED by `test/alpha.test.mjs:6`.", "verdict": "REJECTED", "narrow": false, "text": "REJECTED: node --test exits 1, the report says 0\n\n- `src/sum.mjs:3`: [high] the commit changes `sum(a, b)` to `return a - b`\n\nWhat held: `double(2) returns 4`, VERIFIED by `test/alpha.test.mjs:6`.", "line": "REJECTED: node --test exits 1, the report says 0" },
+    { "name": "a lead-in remark, then VERIFIED", "answer": "Confirms: the ticket's trail lists only src/alpha.mjs.\nVERIFIED\nRan: node --test, exit 0.", "verdict": "VERIFIED", "narrow": false, "text": "VERIFIED\nRan: node --test, exit 0.", "line": "VERIFIED" },
+    { "name": "no line starts with a verdict word", "answer": "I ran node --test and it exits 1.\nThe report says 0.", "verdict": null },
+    { "name": "VERIFIED inside a sentence later in the text is no verdict", "answer": "Ran node --test: exit 0.\nEvery claim was VERIFIED by re-running it.", "verdict": null },
+    { "name": "REJECTED inside a sentence, a later line starts with VERIFIED", "answer": "Nothing here is REJECTED.\nVERIFIED", "verdict": "VERIFIED", "narrow": false, "text": "VERIFIED", "line": "VERIFIED" },
+    { "name": "the first verdict line wins over a later one", "answer": "VERIFIED: the claims hold\nREJECTED: a later line", "verdict": "VERIFIED", "narrow": false, "text": "VERIFIED: the claims hold\nREJECTED: a later line", "line": "VERIFIED: the claims hold" },
+    { "name": "a label in front is no verdict line", "answer": "Verdict: REJECTED: node --test exits 1", "verdict": null },
+    { "name": "bold around the word is no verdict line (the reviewer agent writes the verdict bare)", "answer": "**REJECTED — node --test exits 1**", "verdict": null },
+    { "name": "the label VERIFIED/REJECTED: in front is no verdict line (an eval run of reviewer-verdict)", "answer": "Confirms: the trail section only lists `src/alpha.mjs`.\n\nVERIFIED/REJECTED: REJECTED: `node --test` exits 1, the report says 0", "verdict": null },
+    { "name": "a heading mark in front is no verdict line", "answer": "## REJECTED: node --test exits 1", "verdict": null },
+    { "name": "a longer word is not the verdict word", "answer": "VERIFIEDX: no\nREJECTED_LIST: no\nUNVERIFIED claims", "verdict": null },
+    { "name": "lowercase is not the verdict word", "answer": "verified\nRejected: no", "verdict": null },
+    { "name": "REJECTED with a dash is still the REJECTED line", "answer": "REJECTED — node --test exits 1", "verdict": "REJECTED", "narrow": false, "text": "REJECTED — node --test exits 1", "line": "REJECTED — node --test exits 1" },
+    { "name": "spaces in front of the word are dropped", "answer": "Lead-in.\n   REJECTED: x", "verdict": "REJECTED", "narrow": false, "text": "REJECTED: x", "line": "REJECTED: x" },
+    { "name": "CRLF line ends", "answer": "Lead-in.\r\nREJECTED: x\r\nRan: node --test, exit 1.\r\n", "verdict": "REJECTED", "narrow": false, "text": "REJECTED: x\r\nRan: node --test, exit 1.\r\n", "line": "REJECTED: x" },
+    { "name": "the narrow round's verdict", "answer": "NARROW: VERIFIED", "verdict": "VERIFIED", "narrow": true, "text": "NARROW: VERIFIED", "line": "NARROW: VERIFIED" },
+    { "name": "the narrow round's REJECTED after a lead-in", "answer": "The narrow fix is in.\nNARROW: REJECTED: the test still fails", "verdict": "REJECTED", "narrow": true, "text": "NARROW: REJECTED: the test still fails", "line": "NARROW: REJECTED: the test still fails" },
+    { "name": "the opening of a narrow round carries no verdict", "answer": "NARROW: src/a.ts:3 off by one", "verdict": null },
+    { "name": "MAX-REVIEW in front is no verdict line", "answer": "MAX-REVIEW: REJECTED: two findings\nConsider: one", "verdict": null },
+    { "name": "an empty answer", "answer": "", "verdict": null }
+  ]
+}

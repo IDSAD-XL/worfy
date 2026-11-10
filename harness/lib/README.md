@@ -13,6 +13,10 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   `bin/profile` prints and `hooks/session-start.mjs` mixes in with their English forms for one release.
 - `code-fence.cjs` — the code blocks of a ticket file: `bin/ticket`, the writer of the header, and
   `bin/epic-status`, its reader, skip the same lines as code (`bin/TICKETS.md`, "Header").
+- `verdict.cjs` — the verdict of a reviewer's answer: the first line that starts with `VERIFIED` or `REJECTED` (also
+  after `NARROW:`), the lead-in above it dropped, no verdict without such a line. `bin/verdict` prints an answer by it;
+  the worfy app keeps a copy (`src/shared/workflow/verdict.mjs`) held to it by the shared fixtures
+  `bin/tests/fixtures/verdict/cases.json`.
 - `evidence.cjs` — the Evidence lines of a ticket's "done" section, their grammar and the state of an item, read and written by `bin/ticket` (`bin/TICKETS.md`, "Evidence").
 - `privacy.cjs` — the privacy rules (home folder paths with a user name, host names, Tailscale addresses,
   UUIDs, email addresses, tokens, the personal deny list) and the masking of what they find:

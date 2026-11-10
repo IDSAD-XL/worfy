@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+// verdict — prints a reviewer's answer from its verdict line on, the lead-in before it dropped.
+//
+//   verdict [<file> | -]
+//
+// The answer is read from <file>, or from stdin with no argument or `-`. Its verdict is the first line
+// that starts, after spaces or tabs, with the whole word VERIFIED or REJECTED, optionally after
+// `NARROW:` (lib/verdict.cjs has the rule; the worfy app reads verdicts by a copy of it). A reviewer
+// agent sometimes opens its last message with a sentence about what it checked and puts the verdict
+// on the next line; whoever saves or posts the verdict runs the answer through this script first, so
+// the saved text starts with the verdict whatever the model wrote before it. An answer without such a
+// line has no verdict: nothing is printed, and the caller asks the reviewer again rather than guessing.
+//
+// Output: the answer from the verdict line on, as it is (its line ends kept), with a line end at the
+// end if it had none.
+//
+// Exit codes: 0 — the verdict is found and printed; 1 — no line carries a verdict (the reason on
+// stderr); 2 — usage error (more than one argument, a file that cannot be read).
+"use strict"
+
+const fs = require("fs")
+const path = require("path")
+const { findVerdict } = require(path.join(__dirname, "..", "lib", "verdict.cjs"))
+
+const args = process.argv.slice(2)
+const USAGE = "usage: verdict [<file> | -]\n"
+if (args.length > 1) {
+    process.stderr.write(USAGE)
+    process.exit(2)
+}
+if (args[0] === "-h" || args[0] === "--help") {
+    process.stdout.write(USAGE)
+    process.exit(0)
+}
+const source = args.length === 0 || args[0] === "-" ? 0 : args[0]
+let answer
+try {
+    answer = fs.readFileSync(source, "utf8")
+} catch (err) {
+    process.stderr.write(`verdict: cannot read ${source === 0 ? "stdin" : source}: ${err.code || err.message}\n`)
+    process.exit(2)
+}
+const found = findVerdict(answer)
+if (found === null) {
+    process.stderr.write("verdict: no line starts with VERIFIED or REJECTED — the answer has no verdict\n")
+    process.exit(1)
+}
+process.stdout.write(found.text.endsWith("\n") ? found.text : `${found.text}\n`)

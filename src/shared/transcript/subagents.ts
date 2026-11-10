@@ -22,6 +22,7 @@
 import { z } from 'zod'
 import type { AgentEvent } from '../agent/events'
 import { lastPathSegment } from '../paths'
+import { findVerdict } from '../workflow/verdict.mjs'
 import { parseTranscriptRecord, type TranscriptEntry } from './parse'
 
 /** Names of the tool that starts a Subagent: `Agent` since 2.1.222; `Task` in older versions. */
@@ -148,7 +149,7 @@ export interface SubagentInfo {
   startedAt: number | null
   /** Null while it runs or when a time is missing. */
   durationMs: number | null
-  /** First line of its final answer (a reviewer's starts with VERIFIED or REJECTED). */
+  /** First line of its final answer; for a reviewer, its verdict line (VERIFIED or REJECTED), any lead-in before it dropped. */
   summary: string | null
   verdict: 'VERIFIED' | 'REJECTED' | null
   /** 1 for a Subagent of the Session, 2 for one of its Subagents, … */
@@ -419,10 +420,6 @@ export function summaryLine(text: string | null | undefined): string | null {
   return null
 }
 
-function verdictOf(summary: string | null): SubagentInfo['verdict'] {
-  const match = summary === null ? null : /\b(VERIFIED|REJECTED)\b/.exec(summary)
-  return (match?.[1] as SubagentInfo['verdict'] | undefined) ?? null
-}
 
 type Signal<K extends SubagentSignal['kind']> = Extract<SubagentSignal, { kind: K }>
 
@@ -590,7 +587,10 @@ function describe(record: Gathered, state: SessionState): Omit<SubagentInfo, 'pa
     result?.isError ? result.text : null,
     finished?.summary,
   )
-  const summary = summaryLine(answer)
+  // A reviewer's verdict is its first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs):
+  // a lead-in before it is dropped from the summary too.
+  const found = findVerdict(answer)
+  const summary = summaryLine(found?.text ?? answer)
   const startedAt = firstOf(call?.at, started?.at, file?.firstAt)
   const endedAt = status === 'running' ? null : firstOf(finished?.at, background ? null : result?.at, file?.lastAt)
   return {
@@ -606,7 +606,7 @@ function describe(record: Gathered, state: SessionState): Omit<SubagentInfo, 'pa
     startedAt,
     durationMs: startedAt !== null && endedAt !== null ? Math.max(0, endedAt - startedAt) : null,
     summary,
-    verdict: verdictOf(summary),
+    verdict: found?.verdict ?? null,
     transcript: file?.transcript === true,
   }
 }
