@@ -2,7 +2,9 @@
 
 The **PR inbox** of a Project: the user's open pull requests (PRs) and the review requests to the user in the
 Project's repositories, grouped by whose move it is, with the review threads and their last comments. The UI calls it
-**Pull requests**. It only reads GitHub; nothing in it posts, resolves or marks anything there
+**Pull requests**. It reads GitHub. The one thing it ever posts is a reply a Session drafted with skill `pr-reply`,
+which the user may edit, and which goes only on the user's click on **Send**; nothing in it resolves, requests,
+reviews or marks anything there
 ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)). Terms are explained in [Concepts](concepts.md); the PR
 and CI badges of a Ticket are on [Gate and GitHub](gate-and-github.md).
 
@@ -57,10 +59,71 @@ only of a team the user is in.
   GitHub, which shows that code line, `Outdated` when the code moved on, and its last three comments with the author and
   their age. A deleted account is `ghost`, as on GitHub;
 - **Conversation**: the last comments of the PR's conversation tab, when it has any;
+- **Draft replies**: a new Session that drafts replies to the open threads (below);
 - **Mark seen**, active while the row has new comments.
 
 Opening a row and **Mark seen** both record that the user has looked: "N new since you looked" goes. Closing a row
 records nothing. Links open in the system's browser, never in the window.
+
+### Draft replies and Send
+
+**Draft replies** on an open row starts a new Session Node of the Project on Claude Code, with a person, whose first
+message is the Project's "Draft replies" template filled in with the PR (`/worfy:pr-reply owner/repo#N` by default).
+The skill reads the PR, its diff and its open threads, and writes a draft reply for each thread that waits for an
+answer into a file on this machine, in the Profile folder (`state/pr-inbox/drafts/`). It posts nothing. The row says
+"A Session drafts the replies: they appear under their threads", or why the Session did not start.
+
+**A draft under its thread.** An open row reads its drafts when it opens, every 5 seconds while it stays open, and when
+the window gets the focus. Each draft reply shows under its thread, or under **Conversation** for a reply in the PR's
+conversation: its label (Needs code change, Needs answer, FYI, Resolved by push), `Edited` once the user changed it,
+and the text in a field the user edits. A reply whose thread the row does not list shows under "Replies to threads not
+shown here". A plan for a code change, when the skill wrote one, shows under the field; it is never posted. Buttons:
+
+- **Send** posts the text in the field, once. It is inactive while the field is empty.
+- **Discard**: the reply will not be sent, and it leaves the view.
+- **Ask the Session to rewrite** sends a message to the Session that **Draft replies** started for this PR in this
+  window, asking it to rewrite that one reply. Inactive when no such Session is known; when it has closed, the line
+  under the replies says so. Inactive too for a reply the user has changed (`Edited`, or a text typed in the field),
+  with the tooltip "You changed this reply: the Session keeps your text when it drafts again, so it cannot rewrite
+  it": the skill keeps an edited reply as it is while its thread waits, so a rewrite would change nothing.
+
+An edit is kept in the draft file when the field loses the focus, so the skill keeps the user's text when it runs
+again. A text typed and not yet kept stays with its thread when the Session writes new drafts and the replies move in
+the file; a reply in the conversation keeps it by the text it was typed over. A sent reply shows `Sent`, its text and
+**View on GitHub**. A reply that was not sent shows why under it, and so does a refusal of the whole Send (no
+account, for one); the next read of the file does not wipe it. A reply GitHub took although the draft file could not
+record it shows "Posted, but the draft file does not say so: …", and its Send is inactive.
+
+**Send all** shows when a PR has two drafts or more. It opens a dialog "Send N replies to owner/repo#N?" with every
+text exactly as it goes and its place, and the buttons **Send all** and **Cancel**. The dialog keeps the texts it
+opened with: a read of the file while it is open changes neither what it shows nor what goes. Cancel, Escape or a
+click outside sends nothing. It is inactive while a reply is empty.
+
+**What Send does.** The view names the reply by its thread (in the conversation: by the text it last read), never by
+its place in the file alone; when the file holds neither that text nor the text shown, Send is refused with "The
+drafts changed meanwhile … look at them again". Main saves the text shown into the draft file, reads the file again
+and takes that text as it is. It checks it again with `review-draft-lint --reply`: traces of the workflow (Ticket and
+ADR numbers, Epic names, workflow paths), AI authorship lines, personal data, and the length. A finding, or a check
+that could not run, and nothing is posted: the reply stays a draft and shows "Not sent: review-draft-lint found …".
+The account is the one the Profile names in `github.account`; a Profile without it gets "Not sent: the Project's
+Profile names no GitHub account (github.account) …", and nothing is posted — never as the gh login of the machine.
+A reply in a review thread goes only under the thread's first comment as GitHub has it; a draft that names another
+comment is refused. Then the reply is marked in the file as being sent, and main posts it once, the text as the body
+without a byte added: a reply in a review thread under its first comment, or a comment in the PR's conversation. The
+draft file then says `sent` and the comment's URL.
+
+- **A failure.** When GitHub or the network fails, the reply stays a draft with "GitHub did not confirm the reply:
+  <reason>". worfy never posts it again by itself. Send again of such a reply — or of one still marked as being sent,
+  after worfy stopped in the middle — first asks GitHub whether the account has posted this very text there; if so,
+  the reply is only marked sent, so a reply whose answer was lost is not posted twice. A first Send never asks: a
+  "Thanks!" the account wrote under the same thread before is posted again.
+- **Send all** posts one reply after another, at most 80 a minute, GitHub's limit. The first failure of GitHub stops
+  the rest; a reply the check refuses does not.
+- A reply sent already is never sent again, and is neither edited nor discarded.
+- A token without "Pull requests: write" (a fine-grained token) gets GitHub's refusal, shown under the reply.
+
+**What worfy never does on GitHub**: resolve a thread, request a review, submit a review or leave a pending one, mark
+a notification read, push, or post anything without the click on **Send** or **Send all** in its dialog.
 
 **The status line** under the heading:
 
@@ -92,6 +155,9 @@ A window on a Linked machine shows the inbox of that Machine's Project, as that 
 itself. With Read only access the rows open, but nothing is marked seen, **Mark seen** is inactive with the read-only
 hint, and the switch of Project settings is inactive. Links open on the Machine where they are clicked.
 
+Drafts and Send stay on the machine of the Project: a window on a Linked machine shows neither the drafts nor **Draft
+replies**, and the channels of drafts and Send are refused to a Linked machine at any access level.
+
 ### How it works
 
 - Main reads GitHub, by Project, with the Project's GitHub account, only the Project's repositories: a search every 5
@@ -103,6 +169,13 @@ hint, and the switch of Project settings is inactive. Links open on the Machine 
   the inbox changed, and when the Project's settings change, so the switch shows at once.
 - Main reads one Project at a time: the timer's reads and the read a request asks for (a Project shown for the first
   time, or turned on again) wait for each other in one queue.
+- Drafts and Send: the four channels `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard` and `prInbox.send` are
+  `local`, so the link adapter refuses them to a Linked machine before any handler runs. Main writes into a draft file
+  only the user's text (`edited`), a discard, the mark of a Send in flight and the reason a Send failed (both in
+  `error`), and the sent mark, through a temporary file and a rename, and only while the file is still what it read —
+  its text, and right before the rename its inode, size and modification time: a Session that wrote new drafts
+  meanwhile is not overwritten. One change of a file at a time, so two clicks on Send post once
+  ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md), points 2–6).
 - Every entry that opens the view goes through one function. With a PR it leaves an ask; the view takes it once the
   snapshot is there, then clears it, so coming back to the view does not open that row again.
 
@@ -117,9 +190,12 @@ hint, and the switch of Project settings is inactive. Links open on the Machine 
 | The tab and the view in the shell | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx` |
 | The palette row | `src/renderer/palette/commands.ts` |
 | The switch | `src/renderer/shell/ProjectSettings.tsx`; the `prInbox` field of `src/shared/projects/action-templates.ts` |
-| The channels `prInbox.get`, `prInbox.markSeen`, `prInbox.changed` | `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts` |
+| The channels `prInbox.get`, `prInbox.markSeen`, `prInbox.changed`, `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard`, `prInbox.send` | `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts` |
+| Draft replies under their threads, Send, Send all and its dialog, Draft replies | `src/renderer/pr-inbox/DraftThread.tsx`, `src/renderer/pr-inbox/PrInboxView.tsx` |
+| The draft file, the check again and the one POST | `src/main/github/pr-reply-send.ts` |
 | The reader and the groups | `src/main/github/inbox.ts`, `src/main/github/inbox-groups.ts` |
 | What the user has seen; the switch as main reads it | `src/main/projects/pr-inbox-state.ts` |
 
 Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts`; the reader
-in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`.
+in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; drafts and Send in
+`test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`.

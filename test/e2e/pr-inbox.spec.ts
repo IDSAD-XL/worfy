@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
@@ -15,8 +15,14 @@ import { ms } from '../time-scale'
 // - a row opens to its threads, and "N new since you looked" goes;
 // - openPrInboxOf with a PR of the other Project selects that Project and opens its view on the PR;
 // - the switch of Project settings: off, main runs no gh for the Project; on again, it reads;
-// - the stub's log holds no write of any kind after all of it: the view only reads (ADR-0105).
+// - the stub's log holds no write of any kind after all of it: the view only reads (ADR-0105);
+// - a draft reply (worfy-pr-inbox ticket 05): shown under its thread, nothing posted without a click; edited and sent,
+//   one POST whose body is the edited text (the Profile folder and review-draft-lint are the repository's own scripts
+//   over a temporary Harness home, through stand-ins in the temporary Claude home).
 // Every name, login and text is invented.
+
+const PROFILE = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'profile')
+const REVIEW_DRAFT_LINT = join(import.meta.dirname, '..', '..', 'harness', 'bin', 'review-draft-lint')
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -339,6 +345,84 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
     await window.waitForTimeout(TICK_AND_MARGIN_MS)
     expect(graphqlCalls()).toHaveLength(before)
     expectNoWrite()
+  } finally {
+    await launched.close()
+  }
+})
+
+/**
+ * A Harness home where `web` is a registered Project with a Profile folder, and stand-ins of `profile` and
+ * `review-draft-lint` in the Claude home (the old layout, src/main/harness/locate.ts) that run the repository's own
+ * scripts over it: nothing of the machine's own Harness is read or written. Returns the Profile folder.
+ */
+function harnessForWeb(): string {
+  const harnessHome = join(scratch, 'harness-home')
+  const home = join(scratch, 'home')
+  const profileDir = join(harnessHome, 'projects', 'web')
+  for (const dir of [join(harnessHome, 'gate'), profileDir, home, join(claudeHome, 'bin')]) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'web', match: join(scratch, 'web'), profile: 'web' }] }))
+  // The account replies go from: without one Send refuses.
+  writeFileSync(join(profileDir, 'profile.json'), `${JSON.stringify({ schema: 2, name: 'web', mode: 'full', github: { account: ME } }, null, 2)}\n`)
+  writeFileSync(join(ghDir, 'tokens.json'), JSON.stringify({ [ME]: 'tok-me' }))
+  const env = { HARNESS_HOME: harnessHome, HOME: home, USERPROFILE: home }
+  for (const [name, script] of [
+    ['profile', PROFILE],
+    ['review-draft-lint', REVIEW_DRAFT_LINT],
+  ] as const)
+    writeFileSync(
+      join(claudeHome, 'bin', name),
+      [
+        "const { spawnSync } = require('node:child_process')",
+        `const env = { ...process.env, ...${JSON.stringify(env)} }`,
+        'for (const name of ["CLAUDE_GATE_CONFIG", "CLAUDE_GATE_RESOLVE", "CLAUDE_PROFILES_DIR", "CLAUDE_PROFILE_BIN", "CLAUDE_TICKET_BIN", "EVAL_HARNESS_HOME"]) delete env[name]',
+        `const run = spawnSync(process.execPath, [${JSON.stringify(script)}, ...process.argv.slice(2)], { stdio: 'inherit', env })`,
+        'process.exit(run.status ?? 1)',
+        '',
+      ].join('\n'),
+    )
+  return profileDir
+}
+
+test('a draft reply under its thread: nothing is posted without a click; edited and sent, one POST with the edited text', async () => {
+  const profileDir = harnessForWeb()
+  const draftFile = join(profileDir, 'state', 'pr-inbox', 'drafts', 'example-org-web-118.json')
+  mkdirSync(dirname(draftFile), { recursive: true })
+  const drafted = 'Three tries: the server drops the first one.'
+  writeFileSync(
+    draftFile,
+    JSON.stringify({ schema: 1, repo: WEB_REPO, pr: 118, headOid: 'abc1234', items: [{ kind: 'thread', threadId: 'T1', replyTo: 11, label: 'needs answer', body: drafted, fixPlan: null, state: 'draft', sentUrl: null }] }),
+  )
+  // The stub may take the reply to thread T1, whose first comment is C11.
+  writeFileSync(join(ghDir, 'replies.json'), JSON.stringify({ threads: { T1: 11 } }))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const views = window.getByRole('group', { name: 'View', exact: true })
+    await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
+    await views.getByRole('button', { name: 'Pull requests' }).click()
+    const answer = prRow(window, WEB_REPO, 118)
+    await answer.getByRole('button', { name: /Retry the upload/u }).click()
+    const draft = answer.getByTestId('pr-inbox-thread').getByTestId('pr-draft')
+    await expect(draft.getByTestId('pr-draft-field')).toHaveValue(drafted, { timeout: ms(15_000) })
+    await expect(answer.getByTestId('pr-inbox-draft-replies')).toBeEnabled()
+    const shots = await snapshotThemes(window, 'pr-inbox-draft')
+    console.log(`pull requests draft: ${shots.light} ${shots.dark}`)
+    // The view open, the thread open and the draft read again: not one write.
+    await window.waitForTimeout(ms(6_000))
+    expectNoWrite()
+
+    const edited = 'Three tries: the server drops the first one.\nI will say so in a comment above the loop.'
+    await draft.getByTestId('pr-draft-field').fill(edited)
+    expectNoWrite()
+    await draft.getByTestId('pr-draft-send').click()
+    await expect(draft.getByTestId('pr-draft-sent')).toBeVisible({ timeout: ms(30_000) })
+    await expect(draft.getByTestId('pr-draft-sent')).toContainText('View on GitHub')
+
+    const posts = ghCalls().filter((args) => args[0] === 'api' && args.includes('POST'))
+    expect(posts).toEqual([['api', '--method', 'POST', `repos/${WEB_REPO}/pulls/118/comments/11/replies`, '-f', `body=${edited}`]])
+    expect(JSON.parse(readFileSync(join(ghDir, 'posted.json'), 'utf8'))).toEqual([{ repo: WEB_REPO, pr: 118, replyTo: 11, login: ME, body: edited, url: `https://github.com/${WEB_REPO}/pull/118#discussion_r9001` }])
+    const file = JSON.parse(readFileSync(draftFile, 'utf8')) as { items: Record<string, unknown>[] }
+    expect(file.items[0]).toMatchObject({ state: 'sent', body: edited, edited: true, sentUrl: `https://github.com/${WEB_REPO}/pull/118#discussion_r9001` })
   } finally {
     await launched.close()
   }

@@ -2,10 +2,14 @@
 // PRs and the review requests to the user in the Project's repositories — in five groups by whose move it
 // is, as main computes them (src/main/github/inbox-groups.ts). A row opens to the review threads with their
 // last comments and a link to the code line on GitHub. Opening a row and "Mark seen" tell main the user has
-// seen the PR (`prInbox.markSeen`); nothing here writes to GitHub (ADR-0105). Links open in the system's
-// browser (`shell.openExternal`).
+// seen the PR (`prInbox.markSeen`). Links open in the system's browser (`shell.openExternal`).
+//
+// An open row also has "Draft replies" (a Session with skill pr-reply, `actions.prReply`) and, under each thread,
+// its draft reply (DraftThread.tsx, worfy-pr-inbox ticket 05): the only way to GitHub from this view is Send on a
+// draft, on the user's click (ADR-0105).
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { PR_INBOX_GROUP_TITLES, type PrInboxComment, type PrInboxGroup, type PrInboxRow, type PrInboxSnapshot, type PrInboxThread } from '../../shared/ipc/pr-inbox'
+import type { PrReplyItem } from '../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { Ticket } from '../../shared/workflow/types'
 import { invoke, readableReason } from '../ipc'
@@ -14,6 +18,7 @@ import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
 import { useWorkflow } from '../workflow/useWorkflow'
+import { DraftRepliesButton, PrDrafts } from './DraftThread'
 import {
   ageOf,
   ageText,
@@ -68,7 +73,7 @@ function Comment({ comment, now }: { comment: PrInboxComment; now: number }) {
   )
 }
 
-function Thread({ thread, now }: { thread: PrInboxThread; now: number }) {
+function Thread({ thread, now, draft }: { thread: PrInboxThread; now: number; draft?: ReactNode }) {
   const first = thread.comments[0]
   const place = thread.path === null ? 'Conversation' : thread.line === null ? thread.path : `${thread.path}:${thread.line}`
   return (
@@ -90,11 +95,55 @@ function Thread({ thread, now }: { thread: PrInboxThread; now: number }) {
           <Comment key={comment.id} comment={comment} now={now} />
         ))}
       </ul>
+      {draft}
     </li>
   )
 }
 
+/** The threads and the conversation of an open row; with `render`, each draft reply under its thread or the conversation, and the drafts of threads it does not list below them. */
+function RowThreads({ row, now, render, drafts = [] }: { row: PrInboxRow; now: number; render?: (item: PrReplyItem) => ReactNode; drafts?: readonly PrReplyItem[] }) {
+  // Open threads first, each kind in GitHub's order.
+  const threadList = [...row.threads.filter((thread) => !thread.isResolved), ...row.threads.filter((thread) => thread.isResolved)]
+  const draftsOf = (threadId: string | null): ReactNode => (render === undefined ? null : drafts.filter((item) => item.threadId === threadId && (threadId !== null || item.kind === 'conversation')).map(render))
+  const listed = new Set(row.threads.map((thread) => thread.id))
+  const elsewhere = drafts.filter((item) => item.kind === 'thread' && (item.threadId === null || !listed.has(item.threadId)))
+  const conversationDrafts = draftsOf(null)
+  const hasConversationDrafts = drafts.some((item) => item.kind === 'conversation')
+  return (
+    <>
+      {threadList.length > 0 ? (
+        <ul className="w-pr-inbox-threads" aria-label="Review threads">
+          {threadList.map((thread) => (
+            <Thread key={thread.id} thread={thread} now={now} draft={draftsOf(thread.id)} />
+          ))}
+        </ul>
+      ) : (
+        <p className="w-pr-inbox__message">No review threads.</p>
+      )}
+      {row.comments.length > 0 || hasConversationDrafts ? (
+        <section className="w-pr-inbox-conversation" aria-label="Conversation">
+          <h4 className="w-pr-inbox-conversation__title">Conversation</h4>
+          <ul className="w-pr-inbox-comments">
+            {row.comments.map((comment) => (
+              <Comment key={comment.id} comment={comment} now={now} />
+            ))}
+          </ul>
+          {conversationDrafts}
+        </section>
+      ) : null}
+      {render !== undefined && elsewhere.length > 0 ? (
+        <section className="w-pr-inbox-conversation" aria-label="Other draft replies">
+          <h4 className="w-pr-inbox-conversation__title">Replies to threads not shown here</h4>
+          {elsewhere.map(render)}
+        </section>
+      ) : null}
+    </>
+  )
+}
+
 export interface PrRowProps {
+  /** The Project the row is of: its drafts of replies are read by it. */
+  projectId: string
   group: PrInboxGroup
   row: PrInboxRow
   ticket: Ticket | undefined
@@ -107,14 +156,12 @@ export interface PrRowProps {
 }
 
 /** One PR: a line to open it, and, open, its threads, the conversation's last comments and the links. */
-export function PrRow({ group, row, ticket, now, expanded, readOnly, onToggle, onMarkSeen }: PrRowProps) {
+export function PrRow({ projectId, group, row, ticket, now, expanded, readOnly, onToggle, onMarkSeen }: PrRowProps) {
   const review = reviewText(row.reviewDecision)
   const threads = threadsText(row.unresolvedThreads)
   const fresh = newText(row.newSinceSeen)
   const age = ageOf(group, row)
   const bodyId = `pr-inbox-body-${rowKey(row)}`
-  // Open threads first, each kind in GitHub's order.
-  const threadList = [...row.threads.filter((thread) => !thread.isResolved), ...row.threads.filter((thread) => thread.isResolved)]
   return (
     <li className="w-pr-inbox-row" data-testid="pr-inbox-row" data-repo={row.repo} data-number={row.number} data-expanded={expanded ? 'true' : undefined}>
       <button type="button" className="w-pr-inbox-row__head" aria-expanded={expanded} aria-controls={expanded ? bodyId : undefined} onClick={onToggle}>
@@ -169,29 +216,14 @@ export function PrRow({ group, row, ticket, now, expanded, readOnly, onToggle, o
               {row.headRefName}
             </span>
             <span style={{ flex: 1 }} />
+            <DraftRepliesButton projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} />
             <button type="button" className="w-pr-inbox-button" disabled={row.newSinceSeen === 0 || readOnly !== null} title={readOnly ?? undefined} onClick={onMarkSeen}>
               Mark seen
             </button>
           </div>
-          {threadList.length > 0 ? (
-            <ul className="w-pr-inbox-threads" aria-label="Review threads">
-              {threadList.map((thread) => (
-                <Thread key={thread.id} thread={thread} now={now} />
-              ))}
-            </ul>
-          ) : (
-            <p className="w-pr-inbox__message">No review threads.</p>
-          )}
-          {row.comments.length > 0 ? (
-            <section className="w-pr-inbox-conversation" aria-label="Conversation">
-              <h4 className="w-pr-inbox-conversation__title">Conversation</h4>
-              <ul className="w-pr-inbox-comments">
-                {row.comments.map((comment) => (
-                  <Comment key={comment.id} comment={comment} now={now} />
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          <PrDrafts projectId={projectId} repo={row.repo} number={row.number} readOnly={readOnly} threads={row.threads}>
+            {(render, drafts) => <RowThreads row={row} now={now} render={render ?? undefined} drafts={drafts} />}
+          </PrDrafts>
         </div>
       ) : null}
     </li>
@@ -269,6 +301,7 @@ export function PrInboxBody({ name, snapshot, tickets, now, expanded, focusedGro
                   {rows.map((row) => (
                     <PrRow
                       key={rowKey(row)}
+                      projectId={snapshot.projectId}
                       group={group}
                       row={row}
                       ticket={ticketOfRow(row, tickets)}
