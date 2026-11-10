@@ -148,6 +148,16 @@ describe('PrInboxNotices: a new review request', () => {
     expect(shown.map((each) => each.note.pr.number)).toEqual([6])
   })
 
+  it('a reader turned off and on again starts from its next read, as a first read', () => {
+    const { shown, read } = notices()
+    read(snapshot({}))
+    read(snapshot({}, { enabled: false }))
+    read(snapshot({ 'needs-review': [asked(5)] }))
+    expect(shown).toHaveLength(0)
+    read(snapshot({ 'needs-review': [asked(5), asked(6)] }))
+    expect(shown.map((each) => each.note.pr.number)).toEqual([6])
+  })
+
   it('two Projects are counted apart', () => {
     const { shown, read } = notices()
     read(snapshot({}))
@@ -257,8 +267,8 @@ describe('PrInboxDigest: the morning digest', () => {
   })
 
   it('a PR two Projects both read is counted once', () => {
-    const twice = [snapshot({ ready: [row(12)] }), snapshot({ ready: [row(12)] }, { projectId: 'ops-0000000o' })]
-    expect(digestCounts(twice, NOW).ready).toBe(1)
+    const twice = [snapshot({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }), snapshot({ ready: [row(12)], 'needs-review': [row(5, { author: ANA })] }, { projectId: 'ops-0000000o' })]
+    expect(digestCounts(twice, NOW)).toMatchObject({ ready: 1, reviews: 1 })
   })
 
   function digest(snapshots: PrInboxSnapshot[], on = true) {
