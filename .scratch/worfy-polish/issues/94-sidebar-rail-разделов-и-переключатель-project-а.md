@@ -50,6 +50,7 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
       переключатель; перевод `ru` не обязателен (`rules.md`, раздел «Язык»).
   - evidence: commit pass · Sidebar round 3: wordmark strip and a full-width Project switcher (worfy-polish 94) · - - · 62c69717e
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» и один Project, fixture Project-ы.
+  - evidence: owner-check pass · owner looked at the ten round-3 screenshots (both themes: Epics All and one Project, Sessions, Projects with a long name, open switcher menu) in Card «Sidebar polish 94» on 2026-11-10 and answered «принимаю» · mac dev · db33dd3d0c1b0da5322dfeead5595b8ca8f79472
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 02c63b910
 
