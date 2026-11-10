@@ -53,7 +53,9 @@ export function RailIcon() {
 }
 
 const styles = {
-  count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
+  // The margin keeps room for a second digit before History: «All Projects» next to the heading gives way first
+  // (sidebar-section.css, __scope) and would otherwise take every free pixel of the header.
+  count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginRight: 6 },
   action: {
     flex: 'none',
     padding: '0 2px',

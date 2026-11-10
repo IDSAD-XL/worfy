@@ -30,6 +30,11 @@ const EPIC_ROW = 48
 const CARD_ROW = 44
 /** The header of a section. */
 const HEADER = 32
+/**
+ * The name of a Project above its rows under «All Projects» while the switcher shows more than one Project
+ * (worfy-polish tickets 94 and 99: Epics, ADR, Sessions): padding 6 + 2 and a line of 14 px.
+ */
+const GROUP_NAME = 22
 /** The padding under the list, inside the body of a section (var(--space-2)). */
 const BODY_PAD = 8
 /** A window that fits the owner's screen. The smallest window worfy allows is set by smallestWindow. */
@@ -420,12 +425,13 @@ test('under an error of "Add project" a list of 8 Projects keeps the rest of the
     // Each row is a card of two lines once the live state of the Projects is in.
     await expect(window.getByTestId('project-pulse')).toHaveCount(8)
     await setWindowSize(launched, 'smallest')
-    // The smallest window. Without a message the list has the panel under the header, and its 8 cards fit.
+    // The smallest window. Without a message the list has the panel under the header. Its 8 cards of two lines
+    // (44 px each since ticket 99, 28 px rows before) are higher than that panel, so the list scrolls by itself.
     const quietColumn = await measure(window)
     expectFills(quietColumn, 'ProjectsSection', 'without a message')
     const quiet = sectionOf(quietColumn, 'ProjectsSection')
-    expect(quiet.content).toBe(quiet.body)
-    expect(quiet.body).toBeGreaterThanOrEqual(8 * CARD_ROW)
+    expect(quiet.content).toBe(8 * CARD_ROW + BODY_PAD)
+    expect(quiet.body).toBeLessThan(quiet.content)
     expect(Math.round(quiet.body)).toBe(Math.round(quiet.bottom - quiet.top - HEADER))
 
     // A short error: the folder picker, replaced in main, fails. No system dialog opens.
@@ -506,7 +512,10 @@ test('a long list fills the panel and scrolls by itself, not the panel, in the s
     const smallAdr = await measure(window)
     expectFills(smallAdr, 'AdrSection', 'ADR in the smallest window')
     const adr = sectionOf(smallAdr, 'AdrSection')
-    expect(adr.content).toBe(ADRS.length * ROW + BODY_PAD)
+    // Under «All Projects» with 3 Projects the open one's ADRs are under its name (ticket 99), as its Epics are;
+    // the other two have no ADR, so no group of theirs.
+    await expect(window.getByTestId('sidebar-adr-project')).toHaveCount(1)
+    expect(adr.content).toBe(GROUP_NAME + ADRS.length * ROW + BODY_PAD)
     expect(adr.body).toBeLessThan(adr.content)
     await showSidebarSection(window, 'Epics')
     const smallEpics = await measure(window)
