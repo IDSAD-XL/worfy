@@ -33,17 +33,24 @@ Board показывает факты по репозиториям из Ticket-
 
 - [ ] Unit test: карточка Ticket-а с двумя PR — две строки PR с репозиториями, «1/2 merged» после merge-а одного.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 3bda7855a15bb66c6b45fbd81648c2f70ff06c56
+  - evidence: test-run pass · `pnpm test` exit 0 (pipeline-board, review round 1) · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 - [ ] Unit test: стадия `release` — «waits for release <version>».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 3bda7855a15bb66c6b45fbd81648c2f70ff06c56
+  - evidence: test-run pass · `pnpm test` exit 0 (pipeline-board, review round 1) · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 - [ ] Unit test: chip Ticket Node называет оба репозитория; badge-и проверок спрашивают оба репозитория.
   - evidence: test-run pass · `pnpm test` exit 0 (ticket-card, checks-badges, github-prs) · mac - · dac571a50d9a29252a701c1e1a353bcef704dd03
+  - evidence: test-run pass · `pnpm test` exit 0 (ticket-card, epic-card-repos, checks-badges, canvas-actions, github-prs) · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 - [ ] Test: Ticket с одним PR — карточка, chip и badge-и как до правки.
   - evidence: test-run pass · `pnpm test` exit 0 (pipeline-board, ticket-card, checks-badges) · mac - · dac571a50d9a29252a701c1e1a353bcef704dd03
+  - evidence: test-run pass · `pnpm test` exit 0 (pipeline-board, ticket-card, checks-badges, canvas-actions) · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 - [ ] `docs/features/projects.md` и перевод описывают карточку.
   - evidence: commit pass · One card for a Ticket over several repositories on the board and the Canvas (worfy-multi-repo-ticket 06) · - - · dac571a50d9a29252a701c1e1a353bcef704dd03
+  - evidence: commit pass · Review round 1 of worfy-multi-repo-ticket 06: room, whole flags, Open PR per repository · - - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · dac571a50d9a29252a701c1e1a353bcef704dd03
   - evidence: gate pass · `gate fast` exit 0 · mac - · dac571a50d9a29252a701c1e1a353bcef704dd03
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c4643e498a6319bef7c978a935995fdbdf86eaf3
 
 ## Тесты
 
