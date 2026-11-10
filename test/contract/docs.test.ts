@@ -529,6 +529,13 @@ describe('the ADR status label the Profile names (docs.adr_status_label)', () =>
     expect(state.adrs.find((adr) => adr.number === '0001')).toMatchObject({ status: 'принят' })
   })
 
+  it('docs.adrs reads the status after the Profile\'s label too (worfy-polish ticket 99)', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-fr.md'), '# Décision\n\nDate : 2026-10-20. Statut : acceptée.\nStatus: not this one\n')
+    profileWith({ adr_dir: 'docs/adr', adr_status_label: 'Statut' })
+    const { adrs } = await value<{ adrs: DocsState['adrs'] }>('docs.adrs', { projectId: PROJECT_ID })
+    expect(adrs.find((adr) => adr.number === '0003')).toMatchObject({ title: 'Décision', status: 'acceptée' })
+  })
+
   it('keeps the Profile\'s label on every read after an edit', async () => {
     const adr = join(repo, 'docs', 'adr', '0003-fr.md')
     writeFileSync(adr, '# Décision\n\nStatut : acceptée.\n')
