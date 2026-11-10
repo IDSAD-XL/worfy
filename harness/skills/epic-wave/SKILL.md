@@ -649,8 +649,9 @@ does not cover it.
 
 The verifier's answer starts with its verdict, in the form that lens gives it. Save the answer to a
 file in the scratchpad and run `"${CLAUDE_PLUGIN_ROOT}/bin/verdict" <file>`: it prints the answer
-from its verdict line on, a sentence the model wrote above that line dropped, and the verdict you
-record is the one it prints. Exit code 1 — no line of the answer starts with `VERIFIED` or
+from its verdict line on, a sentence the model wrote above that line dropped. The verifier's verdict
+is the one `bin/verdict` prints; what you record still follows the sort of the findings into groups
+above. Exit code 1 — no line of the answer starts with `VERIFIED` or
 `REJECTED`, so it has no verdict: record nothing and ask the verifier for its verdict, never guess
 one. Every verdict is recorded so the round count survives a session break:
 

@@ -230,7 +230,8 @@ describe('buildSubagentTree on live events', () => {
   })
 
   // The verdict is the first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs, worfy-polish
-  // 91): a lead-in before it is dropped, and bold or a heading mark in front of the word still counts.
+  // 91): a lead-in before it is dropped, bold, a heading mark or a backtick in front of the word still counts, a word
+  // in the middle of the line or inside a fenced code block does not.
   it('reads the verdict of a `worfy:reviewer` answering in English, bold, after a lead-in, with a tail after the word', () => {
     const verdictOf = (answer: string) => {
       const signals = live([
@@ -246,6 +247,9 @@ describe('buildSubagentTree on live events', () => {
     expect(verdictOf('## REJECTED — round 1\n')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
     expect(verdictOf('This confirms a clear discrepancy.\n\nREJECTED: node --test exits 1')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
     expect(verdictOf('Checked the claims.\n**VERIFIED**')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'VERIFIED' })
+    expect(verdictOf('`VERIFIED; debt: one comment`')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'VERIFIED' })
+    expect(verdictOf('Round 1 said:\n```\nREJECTED: old\n```\n`REJECTED: src/a.ts:16 off by one`')).toEqual({ subagentType: 'worfy:reviewer', verdict: 'REJECTED' })
+    expect(verdictOf('Round 2: REJECTED — the word inside the line')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
     expect(verdictOf('Ran node --test: exit 0.\nEvery claim was VERIFIED by re-running it.')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
     expect(verdictOf('Verdict: VERIFIED/REJECTED: REJECTED')).toEqual({ subagentType: 'worfy:reviewer', verdict: null })
   })

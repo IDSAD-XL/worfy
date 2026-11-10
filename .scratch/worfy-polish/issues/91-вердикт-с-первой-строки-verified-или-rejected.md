@@ -30,27 +30,32 @@ introduced the regression…»), а `REJECTED: …` стоит на следую
 угадывается.
 
 Решение Orchestrator-а 2026-11-10 (до ревью PR #1781): читатели терпимы к разметке, grader строгий. Reviewer по тикету
-84 пишет вердикт голым, и grader это проверяет; но старые transcript-ы и ответы не по форме читаются как раньше — chip
-Subagent-а и outcome во Flight Recorder не пропадают.
+84 пишет вердикт голым, и grader это проверяет; но старые transcript-ы и ответы не по форме с вердиктом в начале
+строки (жирным, с heading mark, в backtick-ах) читаются как раньше — их chip Subagent-а и outcome во Flight Recorder не
+пропадают. Слово в середине первой строки («Вердикт: REJECTED…», «Round 2: REJECTED…») по правилу владельца больше не
+вердикт — это в «Итог», removed.
 
 - Одно правило — функция «найти вердикт» в двух копиях, как правила Evidence и Pipeline: в Harness —
   `harness/lib/verdict.cjs`, в worfy — `src/shared/workflow/verdict.mjs`. Обе читают общие fixture-ы Harness-а, и
   contract test держит их вместе.
 - Строка вердикта: в начале строки (после пробелов) слово `VERIFIED` или `REJECTED` целиком, по желанию после
-  heading mark и emphasis (`## `, `**`, `__`, `*`, `_`) и после `NARROW:` (вердикт узкого раунда в PR comment-е). Текст
-  вердикта начинается со слова: разметка перед ним и закрывающая emphasis сразу после слова (или после слова и
-  двоеточия, или в конце строки) убираются, так что `startswith("REJECTED")` в skill-ах видит его. Не вердикт: слово
-  внутри предложения, за меткой (`Verdict: REJECTED`), слово, к которому приклеены буква, цифра, `_` или `/`
-  (`VERIFIED/REJECTED:`).
+  heading mark и emphasis или backtick-а (`## `, `**`, `__`, `*`, `_`, `` ` ``) и после `NARROW:` (вердикт узкого
+  раунда в PR comment-е). Текст вердикта начинается со слова: разметка перед ним и закрывающая пара сразу после слова
+  (или после слова и двоеточия, или в конце строки) убираются, так что `startswith("REJECTED")` в skill-ах видит его.
+  BOM в начале ответа пропускается. Не вердикт: слово внутри предложения, за меткой (`Verdict: REJECTED`), цитата и
+  пункт списка (`> `, `- `, `* `, `1. `), слово, к которому приклеены буква или цифра (и не ASCII), `_` или `/`
+  (`VERIFIED/REJECTED:`), и любая строка fenced code block-а (правило `harness/lib/code-fence.cjs`).
 - Новый script `bin/verdict <файл>` (или stdin): печатает ответ с найденной строки, exit 0; без вердикта — exit 1 и
   причина в stderr. Skill `epic-wave` (раздел 3) велит записывать вердикт verifier-а через него. `ship-ticket` правки не
   требует: там вердикт составляет сама сессия по группам находок, а не берёт из одного ответа.
 - Все читатели в worfy — через функцию: Flight Recorder, work-track, Subagent-ы Claude Code и Codex, PR comment-ы
   Gate-а (`verdictComments`) и вердикты узкого раунда (`narrowRoundsOf`).
-- Grader `rejected-first` case-а `reviewer-verdict` строже читателей: пропускает строки, которые не начинаются с
-  голого слова вердикта, и требует голый `REJECTED:` без `VERIFIED`. В каждом общем fixture-е записано, что скажет
-  grader; contract test сверяет его и проверяет: если grader пропустил ответ, читатели видят тот же голый `REJECTED:`.
-  `**REJECTED**` читатели читают как REJECTED, grader — не пропускает.
+- Grader `rejected-first` case-а `reviewer-verdict` строже читателей: находит строку вердикта так же, как они
+  (с разметкой перед словом, без строк fenced code block-а), пропускает только вводную до неё и требует, чтобы эта
+  строка была голым `REJECTED:` без `VERIFIED`. В каждом общем fixture-е записано, что скажет grader; contract test
+  сверяет его и проверяет: если grader пропустил ответ, читатели видят тот же голый `REJECTED:`. `**REJECTED**`
+  читатели читают как REJECTED, grader — не пропускает; `**VERIFIED**`, а ниже голый `REJECTED: x` — читатели видят
+  VERIFIED, grader тоже не пропускает.
 - Это правка script-ов Harness-а — платформенный PR.
 
 ## Готово, когда
@@ -113,14 +118,24 @@ Subagent-а и outcome во Flight Recorder не пропадают.
 ## Итог
 
 - Правило вердикта — `harness/lib/verdict.cjs` и копия `src/shared/workflow/verdict.mjs`, общие fixture-ы
-  `harness/bin/tests/fixtures/verdict/cases.json` (35 случаев, у каждого — ожидание grader-а). Script `bin/verdict`;
+  `harness/bin/tests/fixtures/verdict/cases.json` (49 случаев, у каждого — ожидание grader-а). Script `bin/verdict`;
   skill `epic-wave` записывает вердикт verifier-а через него.
 - Через правило идут все читатели worfy: Flight Recorder, work-track, Subagent-ы Claude Code и Codex (chip и summary
   со строки вердикта), PR comment-ы Gate-а, состояния узкого раунда.
 - Grader `rejected-first` на сохранённых ответах eval-а PR #1757: два run-а с вводной фразой (r3-run2, r2-run3)
   теперь проходят, run с меткой `VERIFIED/REJECTED:` (r2-run1) по-прежнему не проходит.
-- Что изменилось в поведении (removed): строка `VERIFIED/REJECTED: …` раньше читалась как VERIFIED — теперь это не
-  вердикт; Codex Subagent больше не находит слово в середине первой строки; PR comment с `NARROW: REJECTED` после
-  вводной теперь состояние узкого раунда `rejected`; summary Subagent-а с вердиктом начинается со строки вердикта, а не с
-  вводной фразы. Вердикт с разметкой (`**REJECTED**`, `## REJECTED`) читается, как и раньше.
+- Что изменилось в поведении (removed):
+  - Subagent-ы Claude Code: старый `verdictOf` (origin/main `src/shared/transcript/subagents.ts:244-247`) находил слово
+    в любом месте первой строки. Теперь слово должно начинать строку, и такие ответы теряют chip: по подсчёту ревью
+    раунда 1 это около 33 из 6220 настоящих ответов reviewer-ов («Вердикт: REJECTED…», «Round 2: REJECTED…»). Это прямо
+    следует из правила владельца: слово внутри строки — не вердикт.
+  - Subagent-ы Codex: то же — слово в середине первой строки больше не вердикт.
+  - Строка `VERIFIED/REJECTED: …` раньше читалась как VERIFIED — теперь это не вердикт.
+  - Строка вердикта внутри fenced code block-а больше не считается (раньше читалась, если блок открывал ответ).
+  - PR comment с `NARROW: REJECTED` после вводной теперь состояние узкого раунда `rejected`.
+  - Summary Subagent-а с вердиктом начинается со строки вердикта, а не с вводной фразы.
+  - Вердикт с разметкой в начале строки (`**REJECTED**`, `## REJECTED`, `` `REJECTED: …` ``) читается, как и раньше.
+- Grader `rejected-first` (раунд 2): ищет строку вердикта так же, как читатели (с разметкой, без fenced code), и
+  пропускает только вводную до неё; эта строка должна быть голым `REJECTED:`. `**VERIFIED**`, а под ним голый
+  `REJECTED: x` — читатели видят VERIFIED, grader не пропускает.
 - Платный eval `reviewer-verdict` — за Orchestrator-ом; `--dry-run` — exit 0.

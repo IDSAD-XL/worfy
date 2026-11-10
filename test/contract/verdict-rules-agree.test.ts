@@ -3,8 +3,8 @@
 // read the Harness's shared fixtures here and must give the same answer (worfy-polish 91; the owner's decision of
 // 2026-11-10: the verdict is the first line that starts with VERIFIED or REJECTED, a lead-in before it is dropped,
 // and an answer without such a line has no verdict). The readers are lenient about markdown in front of the word; the
-// grader rejected-first of the eval case reviewer-verdict is strict and passes only a bare `REJECTED:` line, so each
-// fixture also says what the grader makes of it.
+// grader rejected-first of the eval case reviewer-verdict finds the same line but passes it only when it is a bare
+// `REJECTED:`, so each fixture also says what the grader makes of it.
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -61,8 +61,10 @@ describe('the verdict of a reviewer answer, in the Harness and in worfy', () => 
     }
   })
 
-  // The grader is the strict side: it passes a bare `REJECTED:` line with no VERIFIED on it, and skips the lines before
-  // it. When it passes, the readers read the same REJECTED; markup the readers forgive fails it.
+  // The grader is the strict side. It finds the verdict line as the readers do (markup in front of the word included,
+  // fenced code skipped) and skips only the lead-in before it; that line must then be a bare `REJECTED:` with no
+  // VERIFIED on it. When it passes, the readers read the same REJECTED; a marked-up verdict line fails it, even with a
+  // bare `REJECTED:` below.
   it('the rejected-first grader of reviewer-verdict gives what each fixture says, and passes only what the readers read as a bare REJECTED:', () => {
     const pattern = grader()
     for (const c of cases) {
@@ -75,11 +77,19 @@ describe('the verdict of a reviewer answer, in the Harness and in worfy', () => 
 
   it('the split: a bold or heading-marked REJECTED reads as REJECTED and fails the grader', () => {
     const pattern = grader()
-    for (const answer of ['**REJECTED**', '**REJECTED:** node --test exits 1', '## REJECTED: node --test exits 1', 'Lead-in.\n*REJECTED*: x']) {
+    for (const answer of ['**REJECTED**', '**REJECTED:** node --test exits 1', '## REJECTED: node --test exits 1', 'Lead-in.\n*REJECTED*: x', '`REJECTED: src/a.ts:16`']) {
       expect(findVerdict(answer)?.verdict, answer).toBe('REJECTED')
       expect(harness.findVerdict(answer)?.verdict, answer).toBe('REJECTED')
       expect(pattern.test(answer), answer).toBe(false)
     }
     expect(cases.some((c) => c.verdict === 'REJECTED' && !c.grader && /^\s*(?:#|\*|_)/.test(c.answer))).toBe(true)
+  })
+
+  it('a marked-up VERIFIED above a bare REJECTED: the readers read VERIFIED, and the grader does not skip it as a lead-in', () => {
+    const answer = '**VERIFIED**\nREJECTED: x'
+    expect(findVerdict(answer)?.verdict).toBe('VERIFIED')
+    expect(harness.findVerdict(answer)?.verdict).toBe('VERIFIED')
+    expect(grader().test(answer)).toBe(false)
+    expect(grader().test('Lead-in.\nREJECTED: x')).toBe(true)
   })
 })
