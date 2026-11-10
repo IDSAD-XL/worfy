@@ -318,9 +318,9 @@ describe('the notifications trigger', () => {
     expect(await at(inbox, gh, 0)).toBe(1)
     expect(await at(inbox, gh, MINUTE)).toBe(1)
     expect(await at(inbox, gh, 9 * MINUTE)).toBe(1)
-    gh.notify({ lastModified: L0, notifications: [], rate: { limit: 5000, remaining: 500, reset } })
+    // The next reset is still ahead: exactly 10 % left is not below the floor, so no pause.
+    gh.notify({ lastModified: L0, notifications: [], rate: { limit: 5000, remaining: 500, reset: reset + 20 * 60 } })
     expect(await at(inbox, gh, 10 * MINUTE)).toBe(2)
-    // Exactly 10 % left is not below the floor.
     expect(await at(inbox, gh, 11 * MINUTE)).toBe(3)
   })
 
@@ -410,7 +410,9 @@ describe('reading the answer of gh api -i', () => {
   })
 
   it('notifiedPulls: only PR threads of the given repositories newer than the cursor; none without a cursor', () => {
-    const threads = [thread(API, 'PullRequest', 1, '2026-11-10T09:00:30Z'), thread('Demo-Org/API', 'PullRequest', 4, '2026-11-10T09:00:30Z'), thread(API, 'PullRequest', 2, '2026-11-10T08:00:00Z')]
+    // The type decides, not the address; another repository is never named.
+    const issueAtPullAddress = { ...thread(API, 'Issue', 5, '2026-11-10T09:00:30Z'), subject: { title: 'Odd', url: `https://api.github.com/repos/${API}/pulls/5`, type: 'Issue' } }
+    const threads = [thread(API, 'PullRequest', 1, '2026-11-10T09:00:30Z'), thread('Demo-Org/API', 'PullRequest', 4, '2026-11-10T09:00:30Z'), thread(API, 'PullRequest', 2, '2026-11-10T08:00:00Z'), issueAtPullAddress, thread(OTHER, 'PullRequest', 6, '2026-11-10T09:00:30Z')]
     expect(notifiedPulls(threads, [API], L0)).toEqual([
       { repo: API, number: 1 },
       { repo: API, number: 4 },
