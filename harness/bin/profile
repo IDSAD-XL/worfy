@@ -35,6 +35,8 @@ const { execFileSync } = require("node:child_process")
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 // The rules of the Pipeline (workflow.pipeline), one copy for this reader and the writer bin/profile-set.
 const { resolvePipeline } = require("../lib/pipeline.cjs")
+// The rules of the gate, CI and cross-machine fields, one copy for this reader and bin/profile-set.
+const { profileProblems, expandHome } = require("../lib/profile-rules.cjs")
 const { englishPlaceholders, englishHeadings } = require("../lib/old-words.cjs")
 
 // os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
@@ -403,55 +405,26 @@ function commonParent() {
     for (const r of profileEntries.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
     return ws === path.dirname(ws) ? null : ws
 }
-const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p)
-
 // The gate before a merge: workflow.merge_gate is "each" (gate full on every PR after a rebase),
 // "wave" (one gate full for the set of a wave's ready PRs, bin/wave-gate) or null / absent (none required);
-// workflow.e2e_lock is the path of the e2e lock directory or null / absent (no lock). Any other value is a broken
-// profile: a guessed one would decide whether a PR is merged without its gate, or two e2e runs share the screen.
-// `~/` in e2e_lock is expanded; a relative path would depend on the directory a script runs from.
-const MERGE_GATES = ["each", "wave"]
-const CI_MODES = ["pr", "batch"]
-if (profile.workflow !== null && typeof profile.workflow === "object") {
-    const wf = profile.workflow
-    if (wf.merge_gate !== undefined && wf.merge_gate !== null && !MERGE_GATES.includes(wf.merge_gate))
-        die(1, `${pjPath}: workflow.merge_gate is "each", "wave" or null, got ${JSON.stringify(wf.merge_gate)} — broken profile`)
-    if (wf.e2e_lock !== undefined && wf.e2e_lock !== null) {
-        const lock = typeof wf.e2e_lock === "string" ? expandHome(wf.e2e_lock.trim()) : ""
-        if (!lock || !path.isAbsolute(lock)) die(1, `${pjPath}: workflow.e2e_lock is an absolute path or null, got ${JSON.stringify(wf.e2e_lock)} — broken profile`)
-        wf.e2e_lock = lock
-    }
-    // Where GitHub CI runs: workflow.ci is "pr" (on every PR head — the default, absent or
-    // null resolves to it) or "batch" (once on the main branch per wave, with workflow.ci_batch_run, a command
-    // where $ref is the branch). A guessed value would decide whether a PR is merged without its CI run.
-    if (wf.ci === undefined || wf.ci === null) wf.ci = "pr"
-    else if (!CI_MODES.includes(wf.ci)) die(1, `${pjPath}: workflow.ci is "pr", "batch" or null, got ${JSON.stringify(wf.ci)} — broken profile`)
-    if (wf.ci_batch_run !== undefined && wf.ci_batch_run !== null && typeof wf.ci_batch_run !== "string")
-        die(1, `${pjPath}: workflow.ci_batch_run is a command string or null, got ${JSON.stringify(wf.ci_batch_run)} — broken profile`)
-    if (wf.ci === "batch" && !(typeof wf.ci_batch_run === "string" && wf.ci_batch_run.trim()))
-        die(1, `${pjPath}: workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch — broken profile`)
-}
-
+// workflow.e2e_lock is the path of the e2e lock directory or null / absent (no lock). Where GitHub CI runs:
+// workflow.ci is "pr" (on every PR head — the default, absent or null resolves to it) or "batch" (once on the
+// main branch per wave, with workflow.ci_batch_run, a command where $ref is the branch).
 // The cross-machine gate: a project on two machines, one of which cannot run the other's gate
 // full. cross_machine_gate is {label, role, exempt?, check?, checks_section} or null / absent (one machine — the
 // skills skip the step). role "request" labels its PRs with shared code and does not merge them; "serve" checks,
 // reports on and merges the labelled PRs, with check. exempt paths are as gh prints PR files: "/" separated, a
-// trailing "/" is a folder; no quote or backslash, so a skill can read the printed list line by line. A guessed
-// role would either merge a PR without the other machine's gate or leave it with nobody to merge it.
-const CMG_ROLES = ["request", "serve"]
-if (profile.cross_machine_gate !== undefined && profile.cross_machine_gate !== null) {
-    const g = profile.cross_machine_gate
-    const broken = (msg) => die(1, `${pjPath}: cross_machine_gate${msg} — broken profile`)
-    const text = (v) => typeof v === "string" && v.trim() !== ""
-    if (typeof g !== "object" || Array.isArray(g)) broken(` is an object {label, role, exempt?, check?, checks_section} or null, got ${JSON.stringify(g)}`)
-    if (!CMG_ROLES.includes(g.role)) broken(`.role is "request" or "serve", got ${g.role === undefined ? "no role" : JSON.stringify(g.role)}`)
-    if (!text(g.label)) broken(`.label is the name of the GitHub label, got ${g.label === undefined ? "no label" : JSON.stringify(g.label)}`)
-    if (!text(g.checks_section))
-        broken(`.checks_section is the heading of the PR description section with the commands for the serve machine, got ${g.checks_section === undefined ? "no checks_section" : JSON.stringify(g.checks_section)}`)
-    if (g.exempt !== undefined && g.exempt !== null && !(Array.isArray(g.exempt) && g.exempt.every((p) => text(p) && !/["\\]/.test(p))))
-        broken(`.exempt is a list of paths ("/" separated, no quote or backslash), got ${JSON.stringify(g.exempt)}`)
-    if (g.check !== undefined && g.check !== null && !text(g.check)) broken(`.check is a command string or null, got ${JSON.stringify(g.check)}`)
-    if (g.role === "serve" && !text(g.check)) broken(`: role "serve" needs check, the command that checks a labelled PR's branch on this machine`)
+// trailing "/" is a folder; no quote or backslash, so a skill can read the printed list line by line.
+// Any other value of these fields is a broken profile: a guessed one would decide whether a PR is merged
+// without its gate or CI run, two e2e runs share the screen, or a PR is left with nobody to merge it.
+// The rules live in lib/profile-rules.cjs, shared with bin/profile-set, which writes single fields.
+const firstProblem = profileProblems(profile)[0]
+if (firstProblem !== undefined) die(1, `${pjPath}: ${firstProblem.message} — broken profile`)
+if (profile.workflow !== null && typeof profile.workflow === "object") {
+    const wf = profile.workflow
+    // `~/` in e2e_lock is expanded; a relative path would depend on the directory a script runs from.
+    if (wf.e2e_lock !== undefined && wf.e2e_lock !== null) wf.e2e_lock = expandHome(wf.e2e_lock.trim())
+    if (wf.ci === undefined || wf.ci === null) wf.ci = "pr"
 }
 
 // The Pipeline of the project: its rules live in lib/pipeline.cjs, shared with bin/profile-set, which writes

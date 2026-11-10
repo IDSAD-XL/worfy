@@ -4,6 +4,11 @@ Modules and data that several scripts of `bin/` share. A script reaches them as 
 the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 
 - `pipeline.cjs` — the rules of a project's Pipeline, read by `bin/profile` and written by `bin/profile-set`.
+- `draft-schema.cjs` — the checker of `profiles/draft.schema.json`: `bin/project-connect` checks a whole draft
+  with it, `bin/profile-set` one field of a profile, so both accept the same values.
+- `profile-rules.cjs` — the rules `bin/profile` reads `workflow.merge_gate`, `workflow.e2e_lock`, `workflow.ci`,
+  `workflow.ci_batch_run` and `cross_machine_gate` by; `bin/profile-set` checks the profile a write leaves with
+  them, so it never writes one `bin/profile` calls broken.
 - `old-words.cjs` — the old Russian placeholders of profile values and headings of `rules.md`, which
   `bin/profile` prints and `hooks/session-start.mjs` mixes in with their English forms for one release.
 - `code-fence.cjs` — the code blocks of a ticket file: `bin/ticket`, the writer of the header, and

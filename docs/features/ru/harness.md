@@ -225,7 +225,7 @@ Plugin `worfy` приходит из marketplace `worfy-harness`, а его skil
 | Скрипт | Что делает |
 |---|---|
 | `profile` | Печатает Profile папки, целиком или одно поле |
-| `profile-set` | Пишет Pipeline или `workflow.agents` и `agents`. Больше ничего |
+| `profile-set` | Пишет Pipeline или с `--field` другие поля Profile-а, проверенные схемой черновика и правилами, по которым Profile читает `bin/profile` (кроме `name`, `mode`, `schema`, `workflow.folder`). `--check` только проверяет |
 | `project-connect` | Пишет или удаляет Profile и записи registry для Project-а |
 | `ticket` | Единственный автор строк статуса Ticket-а. Также пишет отметки |
 | `epic-status` | Строка Stage для Epic-а, или все Ticket-ы как JSON |

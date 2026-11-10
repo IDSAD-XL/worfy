@@ -146,6 +146,17 @@ describe('the initial marks', () => {
     expect(read?.use).toBe('read')
   })
 
+  // "Edit profile" (worfy-polish ticket 78) as the Pipeline editor: a Linked machine with full access reads a
+  // Profile and its check, and never writes it — its commands are the ones the gate runs on this Machine.
+  it('Edit profile: profileEdit.write is `local`, profileEdit.read and profileEdit.check are `project` and `read`', () => {
+    expect(marked('local')).toContain('profileEdit.write')
+    for (const name of ['profileEdit.read', 'profileEdit.check']) {
+      const channel = channels.find((each) => each.name === name)
+      expect(channel?.access, name).toBe('project')
+      expect(channel?.use, name).toBe('read')
+    }
+  })
+
   it('projects.browse is `project`: the folders of a Linked machine, only while access is on (worfy-link ticket 11)', () => {
     expect(marked('project')).toContain('projects.browse')
   })
@@ -243,6 +254,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'product.share',
     // The PR inbox of a Project as main last read it (worfy-pr-inbox ticket 02): read-only gh, as checks.get.
     'prInbox.get',
+    // "Edit profile" (worfy-polish ticket 78): the Profile's fields through bin/profile-set --read and --check, which write nothing.
+    'profileEdit.check',
+    'profileEdit.read',
     'projects.list',
     // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
     'projects.reviewer.get',

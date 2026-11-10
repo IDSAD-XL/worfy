@@ -53,3 +53,14 @@
 - **(c) worfy пишет `profile.json` сам.** Отвергнуто: противоречит ADR-0002 (состояние workflow worfy
   меняет только инструментами Harness) и ADR-0005 (запись worfy вне `Application Support` — только
   регистрация в конфиге Gate); без commit-а в git папки Harness правку не видно в истории Profile-а.
+
+## Amendments
+
+- **2026-11-10, `worfy-polish` 78 (форма «Edit profile» в Project settings).** `bin/profile-set --field` пишет любое
+  поле Profile-а, кроме `name`, `mode`, `schema`, `workflow.folder`, `workflow.pipeline` и объекта `workflow`
+  целиком: их он только читает. Значение проверяется правилами схемы черновика (`harness/profiles/draft.schema.json`
+  через `harness/lib/draft-schema.cjs`, тот же код, что у `bin/project-connect --schema-only`), а Profile, который
+  получится, — правилами, по которым его читает `bin/profile` (`harness/lib/profile-rules.cjs`: `workflow.ci`
+  `"batch"` без `workflow.ci_batch_run`, относительный `workflow.e2e_lock`, неполный `cross_machine_gate`); то, что
+  `bin/profile` счёл бы сломанным Profile-ом, не пишется. `--check` только проверяет и ничего не пишет. `--expect`
+  берёт один fingerprint всех названных полей вместе — тот, что напечатал `--read` с теми же `--field`.

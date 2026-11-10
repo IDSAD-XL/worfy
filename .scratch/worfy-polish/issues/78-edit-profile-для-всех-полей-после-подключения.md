@@ -1,7 +1,7 @@
 # 78 — «Edit profile»: все поля Profile-а после подключения Project-а
 
 Type: task
-Status: open
+Status: claimed 2026-11-09T22:36Z
 Blocked by: —
 Source: просьба владельца 2026-11-09: после подключения Project-а поменять его Profile можно только руками в
 `profile.json`. Строки перечитаны по main `964061f9a`.
@@ -56,12 +56,36 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
 ## Готово, когда
 
 - [ ] «Edit profile» открывает форму с текущими значениями всех полей из списка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Правильная правка записана через `profile-set`; `bin/profile` печатает новое значение; commit в git Harness-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Значение против схемы (пустая команда `verify`, `tickets.path` без `NN`, неизвестный `workflow.finish`) отклонено
   с причиной у поля; `profile.json` не изменился.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/project-connect.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] Чужой fingerprint — отказ, форма перечитана.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/profile-edit.test.ts` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] `mode` и `workflow.folder` в форме не правятся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 1c466158679c31d70e2b63125ef6aa96f6c5b794
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/edit-profile.test.tsx` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set.test.sh` exit 0 · mac - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 - [ ] `docs/features/projects.md` (и перевод в `docs/features/ru/`) описывает «Edit profile».
+  - evidence: commit pass · Edit profile: every Profile field after the connection (worfy-polish 78) · - - · 00780e604
+  - evidence: commit pass · Edit profile: review round 1 of worfy-polish 78 · - - · 424a1201b35e1b8cd78e149907e32072d5f5d9fe
 
 ## Тесты
 
@@ -89,3 +113,71 @@ schema, skills, stack, tickets, title, workflow, worktree). `project-connect --s
   вопрос.
 - Записи registry Gate (`gate[i].root`, `match`): их меняет `project-connect`, не `profile-set`.
 - Правка `rules.md` после подключения.
+
+## Итог
+
+- В «Project settings…» — раздел «Profile» с кнопкой «Edit profile…» (`src/renderer/shell/ProjectSettings.tsx`). Она
+  открывает форму поверх диалога (`src/renderer/projects/EditProfile.tsx`): поля шага Review (title, команды, ветка
+  тикета, finish, линзы ревью, MCP servers, три языка, attribution, GitHub account) и поля, которых там нет:
+  `tickets.path`, `tickets.spec`, `tickets.trail_section`, `tickets.done_section`, `skills.allowed`,
+  `review.ticket_lenses`, `docs.adr_dir`, `docs.adr_status_label`, `docs.feature_pages`, `docs.context.path`,
+  `docs.handoff.path`, `parallel`, `worktree.*`. Список — `PROFILE_EDIT_FIELDS` в `src/shared/ipc/profile-edit.ts`.
+  `mode` и Workflow folder — текстом с пометкой «Changed by moving the workflow files»; `name` — текстом.
+- Поля вынесены из `ConnectProject.tsx`, а не скопированы: компоненты — `src/renderer/projects/ProfileFields.tsx`,
+  стили и чтение/запись пути — `src/renderer/projects/profile-fields.ts`. Шаг Review работает на них же.
+- Каналы `profileEdit.read`, `profileEdit.check`, `profileEdit.write` (`src/main/ipc/profile-edit.ts`): чтение и
+  проверка — `project` `read`, запись — `local`, как `pipeline.write` (ревью, раунд 1): Linked machine Profile читает и
+  не пишет, форма Project-а Linked machine — без Save. Все три — только запуск `bin/profile-set --field <поле>…`;
+  main передаёт ровно поля `PROFILE_EDIT_FIELDS`, лишние ключи окна (`mode`, `name`) отбрасываются.
+- `harness/bin/profile-set --field` принимает любое поле Profile-а через точку, кроме `name`, `mode`, `schema`,
+  `workflow.folder`, `workflow.pipeline` и объекта, который их содержит (`workflow`); их можно только `--read`.
+  Значение проверяется правилами `draft.schema.json` для этого поля общим кодом `harness/lib/draft-schema.cjs` (им же
+  теперь проверяет черновик `bin/project-connect`). Новый режим `--check` — та же проверка без записи. Отказ — exit 1,
+  `{ ok: false, errors: [{ path, message }] }` в stdout и по строке на ошибку в stderr; форма показывает его у поля.
+  `--expect <fingerprint>` и commit в git Harness home — как раньше.
+- Смысл `null` для новых полей: отсутствующее поле остаётся отсутствующим; присутствующее удаляется, если схема не
+  требует его в своём объекте, иначе пишется `null` и проверяется схемой. Объект на пути (`docs: null`) создаётся;
+  объект другого типа (старая строковая форма `language: "ru"`) — отказ «change it by hand first».
+- В `draft.schema.json` добавлены правила, которых требовали примеры тикета: `commands.verify` — `minLength: 1`
+  (пустая строка — «must not be empty»), `tickets.path` — `pattern: "NN"`. Неизвестный `workflow.finish` отказывал и
+  раньше (enum). Валидатор теперь понимает `pattern` и не принимает ключи прототипа (`toString`) за поля схемы.
+- Чужой fingerprint: отказ «The profile changed since you opened it. …», форма перечитывает Profile и показывает его
+  текущим (правки поверх старого снимка сброшены).
+- «Change account…» открывает тот же шаг `GithubAccount.tsx` с новым prop `initial` — аккаунт Profile-а остаётся
+  выбранным, пока gh его знает; выбор задаёт `github.account` и `workflow.finish` по праву push.
+- Документы: `docs/features/projects.md` и перевод `docs/features/ru/projects.md`; строка `profile-set` в
+  `docs/features/harness.md` и `docs/features/ru/harness.md`; `harness/profiles/README.md`, `harness/lib/README.md`.
+- Тесты: `harness/bin/tests/profile-set.test.sh` (новые поля: запись, отказ схемой и в `--set`, и в `--check`, чужой
+  fingerprint, отказ на `mode`/`name`/`schema`/`workflow.folder`/`workflow.pipeline`/`workflow`, смысл `null`,
+  вложенные имена, закрытое схемой поле, `__proto__`, строковый `language`); `harness/bin/tests/project-connect.test.sh`
+  (пустой `verify`, путь без `NN`); `test/unit/edit-profile.test.tsx` (jsdom: значения, отказ у поля, fingerprint,
+  аккаунт, Esc, старый Harness); `test/contract/profile-edit.test.ts` (настоящий `bin/profile-set` во временном
+  Harness home и stub скрипта: worfy сам `profile.json` не пишет); `test/e2e/edit-profile.spec.ts`.
+- Решено без владельца: `workflow.pipeline` через `--field` не пишется (у него свой вызов); `schema` тоже закрыт;
+  `language.*` и `attribution` можно вернуть к умолчанию пунктом «default»; поле-список, которого в Profile не было,
+  при пустом вводе остаётся без значения (`null`), а записанное и очищенное пишется `[]` («ни одного»).
+- ADR-0073 (пункт 1: «узкий: только `workflow.pipeline`») этим тикетом расширен на любое поле, кроме перечисленных;
+  строка в «Amendments» ADR-0073 добавлена по вердикту ревью.
+- Раунд 1 ревью (PR #1759), исправлено:
+  - очищенные `commands.verify` и `tickets.path` уходят `""`, а не `null` (`null` — «нет проверки», схема его
+    пропускает), и Harness отказывает у поля; stub проверки в unit-test-е отвечает как `profile-set --check`, а
+    contract-test фиксирует, что настоящий скрипт `null` пропускает;
+  - `profile-set` проверяет Profile, который получится после записи, правилами `bin/profile` (новый общий
+    `harness/lib/profile-rules.cjs`, им же теперь пользуется `bin/profile`): `workflow.ci: "batch"` без
+    `ci_batch_run`, относительный `workflow.e2e_lock`, неполный `cross_machine_gate` не пишутся — ни `--set`, ни
+    `--check`, ни `--reset`, который оставил бы такой Profile;
+  - шаг аккаунта в Edit profile применяет только выбор человека (prop `pickOnly` в `GithubAccount.tsx`), отмечен
+    аккаунт как записан; Save ждёт с момента открытия шага; после конфликта шаг закрыт;
+  - тесты: Save во время записи, Escape и mousedown во время записи, вид только для чтения и Project Linked machine
+    без Save, загрузка аккаунтов, конфликт с открытым шагом.
+  - mutation testing раунда — снова в отдельной копии под /tmp: 24 mutant-а (8 в Harness: проверка правил
+    `bin/profile` в `--check`, `--set`, `--reset`, три правила `profile-rules.cjs`, отказ и раскрытие `~/` в
+    `bin/profile`; 16 в окне и доступе канала) — все убиты. Два mutant-а `bin/profile` сначала были пущены против
+    `profile.test.sh` и выжили: эти правила проверяет `profile-schema2.test.sh`, против него оба убиты.
+- Mutation testing в отдельной копии под /tmp (`git worktree add --detach` + `pnpm install --frozen-lockfile`):
+  31 mutant, по одному на новый test — все убиты (Escape-test усилен после выжившего mutant-а: без
+  `stopPropagation` клавиша доходила до `document`).
+- `test/e2e/edit-profile.spec.ts` локально не прогнан: экран Mac был заблокирован (`IOConsoleLocked`) всё время работы —
+  e2e: deferred to gate full: screen locked. Его гоняет CI (`ci-ok`). Снимков диалога в тёмной теме поэтому нет.
+- Полный `pnpm test` под нагрузкой один раз упал на timeout-е `beforeAll` `test/unit/affected-tests.test.ts` (30 s);
+  отдельно — зелёный (113 s), в gate fast — зелёный.
