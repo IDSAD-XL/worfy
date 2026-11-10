@@ -48,7 +48,9 @@ beforeEach(() => {
   } as unknown as WorfyBridge
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // The module of this test writes what it still holds now: its timer must not write into the next test's storage.
+  ;(await import('../../src/renderer/session/drafts')).flushDrafts()
   vi.useRealTimers()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
