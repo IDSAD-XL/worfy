@@ -43,22 +43,22 @@ Source: [spec.md](../spec.md), «Как работает» → «Guard на `gh 
 
 - [ ] Test: `gh api --method POST repos/o/r/pulls/7/comments/11/replies -f body='…<epic>/03…'` в Silent project —
       отказ; тот же чистый текст — проходит.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Test: неявный `POST` (`gh api repos/o/r/issues/7/comments -f body=…` без `--method`) проверяется так же.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Test: `gh api --method POST repos/o/r/pulls/7/reviews --input payload.json` — следы в `comments[].body` дают
       отказ; нечитаемый `--input` — отказ с причиной.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Test: `gh api graphql -f query='mutation { addPullRequestReviewThreadReply(…body: "…ADR-0042…") … }'` — отказ.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Test: `gh api repos/o/r/pulls/7/comments` (GET) и `gh api graphql -f query='query { … }'` — `silent-check` не
       вызывается.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Test: Full project с attribution on — `gh api` записи проходят, как и `gh pr comment` сегодня.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] `bash harness/hooks/tests/guard-silent.test.sh` — exit 0 на Mac.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 5bff56c685008c9f470fb6e5a062d7697cb699a7
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 89fc90b724520e4490ba1ef98bc40d74576e5b1b
 - [ ] Тот же test на Windows (Git Bash) — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.
