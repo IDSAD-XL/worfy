@@ -299,6 +299,17 @@ describe('the notifications trigger', () => {
     expect(await at(inbox, gh, 10 * MINUTE)).toBe(2)
   })
 
+  it('a 403 of the secondary rate limit (Retry-After) is a pause for that many seconds, not off', async () => {
+    const gh = world()
+    gh.notify({ status: 403, message: 'You have exceeded a secondary rate limit.', retryAfter: 600 })
+    const inbox = reader(gh, [project('p1', [API])])
+    expect(await at(inbox, gh, 0)).toBe(1)
+    expect(inbox.snapshot('p1').notice).toBeNull()
+    gh.notify({ lastModified: L0, notifications: [] })
+    expect(await at(inbox, gh, 9 * MINUTE)).toBe(1)
+    expect(await at(inbox, gh, 10 * MINUTE)).toBe(2)
+  })
+
   it('less than 10 % of the REST rate limit left: no poll until X-Ratelimit-Reset, focused or not', async () => {
     const gh = world()
     const reset = (START + 10 * MINUTE) / 1000
