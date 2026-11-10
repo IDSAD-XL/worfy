@@ -43,8 +43,17 @@
 //     of more PRs than `detailsMax` fails with HTTP 504, as GitHub times out on a heavy page. `rateLimit` goes
 //     into every answer.
 //   - graphql-503: a number; that many `api graphql` calls fail with HTTP 503 first, one less each time.
+//   - notifications.json: what `api -i notifications?participating=true [-H "If-Modified-Since: <date>"]` answers
+//     (worfy-pr-inbox ticket 08), `{"lastModified"?, "pollInterval"? (60), "rate"?: {"limit", "remaining", "reset"},
+//     "status"?, "message"?, "retryAfter"?, "notifications"?: [<GitHub's notification threads>], "body"?: <a raw body
+//     printed in place of `notifications`>}`. Without `status`:
+//     304 when If-Modified-Since equals `lastModified`, else 200 with `notifications` as the body. Printed as gh
+//     prints `-i`: status line, headers, blank line, body; above 299 gh's line on stderr and exit 1, a 304 too
+//     (`gh: HTTP 304`), as gh exits on any status above 299.
 //
-// Never a write: a `--method`/`-X` other than GET, or a GraphQL `mutation`, exits 2 (after its line in the log).
+// Never a write: a `--method`/`-X` other than GET (`--method=PATCH` and `-XPATCH` too), a GraphQL `mutation`, or, on
+// a REST call, a field or an input (`-f`, `-F`, `--field`, `--raw-field`, `--input`, which make gh send a POST)
+// exits 2 (after its line in the log).
 //
 // Understood (worfy-week ticket 01, worfy-harness ticket 25): `pr list` with --limit (default 30, as
 // gh), --head <branch> (the exact branch, as gh) and --search "head:<branch>" (by prefix, as
@@ -119,10 +128,12 @@ if (args.length === 1 && args[0] === '--version') {
   const token = elsewhere ? undefined : read('tokens.json', {})[login]
   if (token === undefined) fail(`no oauth token found for ${host} account ${login}`)
   process.stdout.write(`${token}\n`)
-} else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some((arg) => /\bmutation\b/.test(arg)))) {
+} else if (args[0] === 'api' && (/^(GET)?$/i.test(option('--method') ?? option('-X') ?? '') === false || args.some(writeArg) || args.some((arg) => /\bmutation\b/.test(arg)))) {
   fail(`gh stub: a write is never expected: ${args.join(' ')}`, 2)
 } else if (args[0] === 'api' && args[1] === 'graphql' && inboxQuery()) {
   graphql()
+} else if (args[0] === 'api' && args.includes('-i') && args.some((arg) => /^notifications(\?|$)/.test(arg))) {
+  notifications()
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
   const tokens = read('tokens.json', {})
@@ -201,6 +212,48 @@ function graphql() {
     return
   }
   fail(`gh stub: unsupported GraphQL query: ${query.slice(0, 80)}`, 2)
+}
+
+/**
+ * `api -i notifications…`: GitHub's notifications of the user, answered from notifications.json, printed as gh 2.x
+ * prints an answer with `-i` (pkg/cmd/api/api.go): the status line, the headers as `Name: value\r\n`, a blank
+ * `\r\n`, then the body. A status above 299 then prints `gh: <message> (HTTP <status>)`, or `gh: HTTP <status>`
+ * when the body has no message, to stderr and exits 1 — a 304 too.
+ */
+function notifications() {
+  const reasons = { 200: 'OK', 304: 'Not Modified', 401: 'Unauthorized', 403: 'Forbidden', 429: 'Too Many Requests', 500: 'Internal Server Error', 502: 'Bad Gateway' }
+  const world = read('notifications.json', {})
+  const header = args.find((arg, i) => args[i - 1] === '-H' && /^If-Modified-Since:/i.test(arg))
+  const since = header?.slice(header.indexOf(':') + 1).trim()
+  const status = world.status ?? (since !== undefined && world.lastModified !== undefined && since === world.lastModified ? 304 : 200)
+  const rate = world.rate ?? { limit: 5000, remaining: 4990, reset: 4102444800 }
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'X-Poll-Interval': String(world.pollInterval ?? 60),
+    'X-Ratelimit-Limit': String(rate.limit),
+    'X-Ratelimit-Remaining': String(rate.remaining),
+    'X-Ratelimit-Reset': String(rate.reset),
+  }
+  if (world.lastModified !== undefined) headers['Last-Modified'] = world.lastModified
+  if (world.retryAfter !== undefined) headers['Retry-After'] = String(world.retryAfter)
+  process.stdout.write(`HTTP/2.0 ${status} ${reasons[status] ?? 'Unknown'}\n`)
+  for (const name of Object.keys(headers).sort()) process.stdout.write(`${name}: ${headers[name]}\r\n`)
+  process.stdout.write('\r\n')
+  if (status === 200) {
+    process.stdout.write(world.body ?? JSON.stringify(world.notifications ?? []))
+    return
+  }
+  const message = status === 304 ? undefined : (world.message ?? (status === 403 ? 'Resource not accessible by personal access token' : status >= 500 ? 'Server Error' : undefined))
+  if (message !== undefined) process.stdout.write(JSON.stringify({ message, documentation_url: 'https://docs.github.com/rest', status: String(status) }))
+  // Exit code 1 without process.exit, so stdout, which may be written later on a pipe, is not cut off.
+  process.stderr.write(message === undefined ? `gh: HTTP ${status}\n` : `gh: ${message} (HTTP ${status})\n`)
+  process.exitCode = 1
+}
+
+/** Whether `arg` of an `api` call asks gh to write: another method in one argument, or a field or input of a REST call. */
+function writeArg(arg) {
+  if (/^(?:--method=|-X)(?!GET$)./i.test(arg)) return true
+  return args[1] !== 'graphql' && /^(?:-f|-F|--field|--raw-field|--input)(?:=|$)/.test(arg)
 }
 
 /** Whether an `api graphql` call is one of the PR inbox's two queries; any other GraphQL is not understood. */
