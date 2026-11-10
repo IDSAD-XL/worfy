@@ -28,13 +28,13 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { CanUseTool, Options, PermissionUpdate, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
+import { personalLast, scrubPersonal } from './personal-scrub.mjs'
 
 type Scenario = 'init' | 'controls' | 'stop-hook' | 'no-login' | 'permissions' | 'bypass' | 'background-tasks'
 const ALL: Scenario[] = ['init', 'controls', 'stop-hook', 'no-login', 'permissions', 'bypass', 'background-tasks']
@@ -84,20 +84,17 @@ function cleanEnv(extra: Record<string, string> = {}): Record<string, string | u
 // --- sanitizing ------------------------------------------------------------------------------
 
 const user = home.split('/').pop() ?? ''
-// The owner's personal words (the deny list of the repository's personal-string guard, kept only
-// outside the repository): each becomes <personal>, wherever it stands — a skill or command name, its
-// description. Without the list nothing is replaced, and `pnpm lint` still finds what is left.
-const DENY = (createRequire(import.meta.url)('../../harness/lib/privacy.cjs') as { personal: (dir: string) => { deny: string[] } }).personal(
-  process.env.HARNESS_HOME ?? join(home, '.claude', 'worfy-harness'),
-).deny
-const scrubPersonal = (s: string): string => DENY.reduce((out, word) => out.replace(new RegExp(word.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<personal>'), s)
 const uuidMap = new Map<string, string>()
 const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
 
+// The system's temporary folders and the one Claude Code keeps per project under them
+// (/private/tmp/claude-<uid>/<project folder>/, background task output): `<tmp>`, like the probe's own.
+const TEMP_ROOTS = [...new Set([realpathSync(tmpdir()), tmpdir()])]
+const CLAUDE_TEMP = /(?:\/private)?\/tmp\/claude-\d+\/[^/\s"]+/g
+const scrubTemp = (s: string): string => TEMP_ROOTS.reduce((out, root) => out.split(root).join('<tmp>'), s.replace(CLAUDE_TEMP, '<tmp>'))
+
 function scrubString(s: string): string {
-  let out = s
-    .split(scratch)
-    .join('<tmp>')
+  let out = scrubTemp(s.split(scratch).join('<tmp>'))
     .split(cwd)
     .join('<repo>')
     .split(home)
@@ -197,7 +194,8 @@ function sanitize(value: unknown, key = ''): unknown {
     if (objects && key === 'plugins')
       return (value as { name?: unknown; source?: unknown }[]).slice(0, 2).map((v) => ({ ...(sanitize(v) as object), name: pluginName(v) }))
     // The user's skills, commands and agents: a few entries show the shape.
-    if (LISTS.has(key) && value.length > 6) return [...value.slice(0, 5).map((v) => sanitize(v)), `<${value.length - 5} more>`]
+    if (LISTS.has(key) && value.length > 6) return personalLast([...value.slice(0, 5).map((v) => sanitize(v)), `<${value.length - 5} more>`])
+    if (LISTS.has(key)) return personalLast(value.map((v) => sanitize(v)))
     return value.map((v) => sanitize(v))
   }
   if (value && typeof value === 'object') {
@@ -781,11 +779,11 @@ function rescrub(dir: string): void {
   })
   for (const { values } of parsed) for (const v of values) registerInventory(v)
   const deep = (v: unknown, key = ''): unknown => {
-    if (typeof v === 'string') return scrubPersonal(scrubInventory(v))
+    if (typeof v === 'string') return scrubPersonal(scrubTemp(scrubInventory(v)))
     if (Array.isArray(v)) {
       // Earlier files numbered plugin names by position; take the name from `source` instead.
       if (key === 'plugins') return v.map((p) => (p && typeof p === 'object' ? { ...(deep(p) as object), name: pluginName(p as { source?: unknown }) } : deep(p)))
-      return v.map((x) => deep(x))
+      return LISTS.has(key) ? personalLast(v.map((x) => deep(x))) : v.map((x) => deep(x))
     }
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, k)]))
     return v

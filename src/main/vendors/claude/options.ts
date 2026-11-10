@@ -149,7 +149,7 @@ const EXIT_AFTER_STDERR = 'worfy-exit-after-stderr-drained'
 
 /**
  * Starts Claude Code exactly as the SDK's own spawn does (ProcessTransport.spawnLocalProcess, SDK
- * 0.3.289): the command, arguments, folder, environment and abort signal the SDK hands over, three
+ * 0.3.289 and 0.3.322): the command, arguments, folder, environment and abort signal the SDK hands over, three
  * pipes, `windowsHide`; stderr decoded as UTF-8 into `stderr`; and the exit reported to the SDK only
  * once stderr has closed, 200 ms after the exit at most, so an exit error carries the whole stderr
  * tail. `spawned` gets the process itself, whose own `exit` comes at the real exit (ADR-0064).

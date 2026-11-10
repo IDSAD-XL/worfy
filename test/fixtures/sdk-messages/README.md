@@ -36,8 +36,10 @@ tools обрезаны до пяти элементов и строки «<N mor
 пользователя заменены на `server-N`, `tool-N`, `plugin-N` везде, где встречаются: поле `name`,
 имена tools `mcp__<сервер>__<tool>`, пути `~/.claude/plugins/cache/<marketplace>/<плагин>/`,
 ссылки `<плагин>@<marketplace>` (плагины marketplace `builtin` входят в Claude Code и остаются как
-есть); слова личного списка владельца (deny list guard-а `scripts/check-personal.mjs`, читается из
-`~/.claude/worfy-harness/user/privacy.json`) — `<personal>` в любом месте строки; строки длиннее 600 символов обрезаны. Partial-событий (`stream_event`) — не больше 12
+есть); имя skill-а или команды со словом личного списка владельца (deny list guard-а `scripts/check-personal.mjs`,
+читается из `~/.claude/worfy-harness/user/privacy.json`) — `skill-N` целиком, текст с таким словом (описание
+skill-а) — `<personal text>` целиком, а такие записи стоят в конце своего списка (`scripts/spikes/personal-scrub.mjs`);
+временные папки системы и папка Claude Code `/private/tmp/claude-<uid>/<проект>` — `<tmp>`; строки длиннее 600 символов обрезаны. Partial-событий (`stream_event`) — не больше 12
 на файл. Поля `t` (время) и `turn` здесь нет: это только сообщения SDK.
 
 Пересоздать: `pnpm exec electron scripts/spikes/sdk-probe.ts --fixtures test/fixtures/sdk-messages`

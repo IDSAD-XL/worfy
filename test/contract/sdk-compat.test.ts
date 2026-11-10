@@ -85,6 +85,8 @@ interface Exception {
   kind: string
   path?: string
   type?: string
+  /** Only that key path itself, not what is under it. */
+  exact?: true
   reason: string
 }
 
@@ -123,19 +125,31 @@ const EXCEPTIONS: readonly Exception[] = [
     type: typeof ('toolu_example' satisfies SDKAssistantMessage['parent_tool_use_id']),
     reason: 'the messages of a Subagent carry the tool use that started it; no capture ran a Subagent',
   },
-  {
-    kind: 'rate_limit_event',
-    path: `rate_limit_info.unifiedWindows.${'five_hour' satisfies NonNullable<SDKRateLimitInfo['rateLimitType']>}`,
-    reason:
-      'the account of the 2026-11-10 capture (Claude Code 2.1.322) has no five-hour window, the 2026-10-05 one (2.1.289) had it; the Limits scenarios keep playing it for plans that have one (worfy-polish 100)',
-  },
+  // The account of the 2026-11-10 capture (Claude Code 2.1.322) has no five-hour window, the
+  // 2026-10-05 one (2.1.289) had it as { utilization, resetsAt }; the Limits scenarios keep playing
+  // it for plans that have one (worfy-polish 100). Each key of that shape by itself, with its type.
+  ...(
+    [
+      ['', 'object'],
+      ['.utilization', 'number'],
+      ['.resetsAt', 'number'],
+    ] as const
+  ).map(
+    ([key, type]): Exception => ({
+      kind: 'rate_limit_event',
+      path: `rate_limit_info.unifiedWindows.${'five_hour' satisfies NonNullable<SDKRateLimitInfo['rateLimitType']>}${key}`,
+      type,
+      exact: true,
+      reason: 'the five-hour window of the 2026-10-05 capture, which the 2026-11-10 capture has not got (worfy-polish 100)',
+    }),
+  ),
 ]
 
 const covers = (exception: Exception, kind: string, path?: string, type?: string): boolean => {
   if (exception.kind !== kind) return false
   if (exception.path === undefined) return true
   if (path === undefined) return false
-  const under = path === exception.path || path.startsWith(`${exception.path}.`) || path.startsWith(`${exception.path}[`)
+  const under = path === exception.path || (exception.exact !== true && (path.startsWith(`${exception.path}.`) || path.startsWith(`${exception.path}[`)))
   if (!under) return false
   return exception.type === undefined || exception.type === type
 }
@@ -168,7 +182,7 @@ function inventedShapes(played: readonly Played[], captures: Record<string, Shap
     for (const [path, types] of Object.entries(shapeOf(message))) {
       const knownTypes = known[path]
       if (knownTypes === undefined) {
-        if (!excused(kind, path)) invented.push(`${where}: ${kind} ${path} — no captured ${kind} has this key`)
+        if (!types.every((type) => excused(kind, path, type))) invented.push(`${where}: ${kind} ${path} — no captured ${kind} has this key`)
         continue
       }
       for (const type of types) {
