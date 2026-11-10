@@ -40,17 +40,23 @@ Windows verdict до merge (ADR-0056). Глубина ревью — `high`.
 - [ ] Contract test: строка `Release: lib tag lib-v1.4.0`, tag-а в remote нет — Ticket на `release`; tag появился —
       стадия пройдена (stub `git`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] Contract test: `Release: lib package <name>@<version>` — `npm view` без версии держит стадию, с версией —
       проходит; ошибка registry — «release not checked» (stub `npm`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] Contract test: красный CI потребителя до release Ticket не красит; после release — красит.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] Test: Ticket без `Release:` проходит стадию сразу; Profile без `release` в `workflow.pipeline` — стадии нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts` exit 0 · mac - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] `CONTEXT.md` и `harness/profiles/README.md` описывают стадию `release`.
   - evidence: commit pass · The Stage release: a Ticket waits for the tag or the published version of its Release: lines (worfy-multi-repo-ticket 05) · - - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: commit pass · Release checks never hold the Stages; review round 1 of worfy-multi-repo-ticket 05 · - - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный (Linux, macOS и Windows job-ы).
   - evidence: gate pass · `gate fast` exit 0 · mac - · 51550aa1194fbdfddd73e1702934d932754cbe17
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a8cdc84cf5da9adb64217e938df0b34cbb87b684
 - [ ] Contract test `workflow-release` на Windows — exit 0.
   - needs: windows
 
