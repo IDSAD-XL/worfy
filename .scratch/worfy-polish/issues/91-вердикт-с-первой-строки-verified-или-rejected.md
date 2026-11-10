@@ -65,23 +65,30 @@ introduced the regression…»), а `REJECTED: …` стоит на следую
       дают один ответ.
   - evidence: test-run pass · `pnpm test test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
   - evidence: test-run pass · `pnpm test test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
+  - evidence: test-run pass · `pnpm test test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] `harness/bin/tests/verdict.test.sh` — exit 0: script печатает ответ со строки вердикта, без вердикта — exit 1.
   - evidence: test-run pass · `bash harness/bin/tests/verdict.test.sh` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
   - evidence: test-run pass · `bash harness/bin/tests/verdict.test.sh` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
+  - evidence: test-run pass · `bash harness/bin/tests/verdict.test.sh` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] Grader `rejected-first` принимает ответ из trace-а `r3-run2-failed` и по-прежнему не принимает `**REJECTED — …**`,
       `REJECTED —` без двоеточия и `VERIFIED` на одной строке с `REJECTED`.
   - evidence: test-run pass · `pnpm test test/contract/harness-evals.test.ts test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
   - evidence: test-run pass · `pnpm test test/contract/harness-evals.test.ts test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals.test.ts test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] Читатели worfy берут вердикт после вводной фразы: test-ы Flight Recorder, Subagent-ов Claude Code и Codex,
       PR comment-ов.
   - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts test/unit/flight-recorder-transcript.test.ts test/unit/flight-recorder-github.test.ts test/contract/claude-home-subagents.test.ts test/contract/codex-subagents.test.ts test/contract/github-prs.test.ts test/contract/work-track-transcripts.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
   - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts test/unit/flight-recorder-transcript.test.ts test/unit/flight-recorder-github.test.ts test/contract/claude-home-subagents.test.ts test/contract/codex-subagents.test.ts test/contract/github-prs.test.ts test/contract/work-track-transcripts.test.ts` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
   - evidence: test-run pass · `pnpm test:e2e test/e2e/subagent-tree.spec.ts` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
+  - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts test/unit/flight-recorder-transcript.test.ts test/unit/flight-recorder-github.test.ts test/contract/claude-home-subagents.test.ts test/contract/codex-subagents.test.ts test/contract/github-prs.test.ts test/contract/work-track-transcripts.test.ts` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/subagent-tree.spec.ts` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] `node scripts/eval-harness.mjs --case reviewer-verdict --dry-run` — exit 0 (платный run делает Orchestrator).
   - evidence: test-run pass · `node scripts/eval-harness.mjs --case reviewer-verdict --dry-run` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --case reviewer-verdict --dry-run` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] gate fast — exit 0, `[gate] green`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
   - evidence: gate pass · `gate fast` exit 0 · mac - · 313617900cef7b0cd2b7d5523d99b59032e565d2
+  - evidence: gate pass · `gate fast` exit 0 · mac - · da09c53df92edad13383b990b2860851a851eded
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
