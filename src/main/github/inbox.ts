@@ -303,7 +303,8 @@ export class PrInbox {
    * Reads the Project now if it was never read, as the first `prInbox.get` asks, or if it was off and its switch is
    * on again (worfy-pr-inbox ticket 03): the view then fills at once, not at the next tick. In the queue of the
    * ticks, so N Projects opened at start search one after another and the second sees a rate-limit pause of the
-   * first. A Project off for want of a repository on GitHub is looked at again only when its time has come.
+   * first. A Project off for want of a repository on GitHub is looked at again only when its time has come
+   * (pollIfDue), and a Project whose switch is off answers at once, without waiting behind another's read.
    */
   async ensureRead(projectId: string): Promise<void> {
     const project = this.projectOf(projectId)
@@ -314,15 +315,13 @@ export class PrInbox {
       return state === undefined || (!state.enabled && this.options.enabled(project))
     }
     if (!due()) return
-    await this.serial(async () => {
-      // A tick in front of this one may have read the Project already.
-      if (due()) await this.pollIfDue(project)
-    })
+    // A tick in front of this one may have read the Project already: pollIfDue then finds it not due.
+    await this.serial(() => this.pollIfDue(project))
   }
 
   /** Runs `work` after every read queued before it; a failed one does not stop the queue. */
   private serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(work, work)
+    const next = this.queue.then(work)
     this.queue = next.catch(() => undefined)
     return next
   }

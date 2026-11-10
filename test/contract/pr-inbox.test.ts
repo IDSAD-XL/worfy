@@ -461,6 +461,26 @@ describe('one read at a time', () => {
     for (const id of ['a', 'b', 'c']) expect(inbox.snapshot(id).readAt).not.toBeNull()
   })
 
+  it('a Project whose switch is off answers at once, without waiting behind the read of another', async () => {
+    const gh = world([stubPull(API, 1)])
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const run: PrInboxOptions['run'] = async (args, cwd) => {
+      await held
+      return gh.run(args, cwd)
+    }
+    const inbox = reader(gh, [project('a', [API]), project('off', [API], { actionTemplates: {}, prInbox: false })], { run })
+    await inbox.ensureRead('off')
+    const reading = inbox.ensureRead('a')
+    const answer = await Promise.race([inbox.ensureRead('off').then(() => 'answered'), new Promise((resolve) => setTimeout(() => resolve('waiting'), 50))])
+    expect(answer).toBe('answered')
+    release()
+    await reading
+    expect(inbox.snapshot('a').readAt).not.toBeNull()
+  })
+
   it('a failed read does not stop the queue: the next one runs', async () => {
     const gh = world([stubPull(API, 1)])
     let first = true
