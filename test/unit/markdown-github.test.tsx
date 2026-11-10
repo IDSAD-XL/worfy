@@ -194,6 +194,13 @@ describe('Markdown with `github`: nothing runs and nothing is fetched', () => {
     expect(body.textContent).toBe('The change')
   })
 
+  it('keeps an HTML block that holds text between two comments: only a block of comments alone is hidden', () => {
+    const body = comment(['<!-- a --> visible <!-- b -->', '', '<!-- one -->', '<!-- two -->', '', 'after'].join('\n'))
+    expect(body.textContent).toContain('visible')
+    expect(body.textContent).not.toContain('one')
+    expect(body.textContent).toContain('after')
+  })
+
   it('shows an image as a link with its alt text and fetches nothing; a click opens the address in the browser', () => {
     const body = comment('Before: ![login screen](https://example.com/shot.png)')
     expect(body.querySelector('img, [src]')).toBeNull()

@@ -167,6 +167,11 @@ describe('DraftThread', () => {
     expect((screen.getByTestId('pr-draft-field') as HTMLTextAreaElement).value).toBe(sentBody)
   })
 
+  it("through PrDrafts, a #N in a sent reply links into the PR's repository", async () => {
+    await drafts([item(0, { state: 'sent', body: 'Moved to #7', sentUrl: `https://github.com/${API}/pull/118#r0` })])
+    expect(within(draftAt(0)).getByText('#7').getAttribute('href')).toBe(`https://github.com/${API}/issues/7`)
+  })
+
   it('the read-only hint turns Send, Discard and Ask off', async () => {
     await drafts([item(0)], 'Linked machines can only view the Projects of Alpha')
     for (const id of ['pr-draft-send', 'pr-draft-discard', 'pr-draft-rewrite']) expect((within(draftAt(0)).getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true)

@@ -35,7 +35,8 @@ const UNTOUCHED = new Set(['link', 'linkReference', 'inlineCode', 'code', 'html'
  */
 const TOKEN = /(?<![\w@/#.-])(?:([A-Za-z0-9][\w.-]*\/[\w.-]+)?#([1-9]\d{0,9})(?![\w-])|@([A-Za-z0-9](?:-?[A-Za-z0-9]){0,38})(?:\/([A-Za-z0-9][\w-]*))?(?![\w-]))/g
 
-const HTML_COMMENT = /^\s*<!--[\s\S]*?-->\s*$/
+/** An HTML node that is nothing but comments: no comment's inside crosses its `-->`, so `<!-- a --> b <!-- c -->` keeps b. */
+const HTML_COMMENT = /^\s*(?:<!--(?:(?!-->)[\s\S])*-->\s*)+$/
 
 function link(url: string, text: string, className: string): MdNode {
   return { type: 'link', url, children: [{ type: 'text', value: text }], data: { hProperties: { className: [className] } } }
