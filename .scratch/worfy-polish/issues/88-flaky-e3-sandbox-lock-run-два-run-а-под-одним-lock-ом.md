@@ -46,11 +46,16 @@ stand-in-ов test-а.
 ## Готово, когда
 
 - [x] Причина названа одной последовательностью шагов двух run-ов; она и счёт падений до исправления — в «Итог».
+  - evidence: test-run pass · `bash loop.sh e3-sandbox.sh@origin/main 25 8` (bash copy of the test) on Ubuntu 26.04, uutils mkdir 0.8.0 exit 0: 12 of 200 rounds both runs under the lock · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
 - [x] `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"` 200 раз подряд под
       нагрузкой — 0 падений; команда и счёт — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "abandoned lock"` 200 times, 4 loops + 12 yes, macOS exit 0: 0 of 200 failed · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
 - [x] С `lock_run` без паузы после `rmdir` брошенного lock-а test красный (mutation-проверка, результат — в «Итог»).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts -t "lock"` with no pause after rmdir (mutant) exit 1: abandoned lock test red 3 of 3 · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
 - [x] Пределы времени test-а не изменены.
+  - evidence: commit pass · Take the e2e lock with a bare mkdir(2): uutils mkdir let two lock-run calls hold it (worfy-polish 88) · - - · aab8b44e9dabcba825f4e906f50673ed007c1410
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · aab8b44e9dabcba825f4e906f50673ed007c1410
 
 ## Где в коде
 
