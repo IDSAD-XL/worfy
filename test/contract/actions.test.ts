@@ -3,12 +3,15 @@
 // launcher gets only what the contract describes, a wrong type never reaches it, and the renderer
 // gets only the contract's keys back.
 import type { IpcMainInvokeEvent } from 'electron'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, type LaunchDeps } from '../../src/main/actions/launch'
+import type { AutopilotDeps } from '../../src/main/autopilot/run'
 import { actionsHandlers } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
+import { createLinkIpc, LinkPeer, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
-import { defaultActionTemplates } from '../../src/shared/projects/action-templates'
+import type { AccessLevel } from '../../src/shared/ipc/link'
+import { defaultActionTemplates, type HarnessKind } from '../../src/shared/projects/action-templates'
 import { failureReason, handlerFailure, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 
@@ -30,6 +33,10 @@ async function register(options: { devServerUrl?: string } = {}) {
     gateQueue: async (projectId: string) => {
       calls.push(['gateQueue', projectId])
       return { sessionId: 'o1', text: '/worfy:gate-queue', delivery: 'sent' as const, extra: 1 }
+    },
+    prReply: (...args: [string, string, number]) => {
+      calls.push(['prReply', ...args])
+      return { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118', cwd: '/secret' }
     },
     launched: (projectId: string) => {
       calls.push(['launched', projectId])
@@ -234,5 +241,157 @@ describe('actions.gateQueue (worfy-windows ticket 17)', () => {
     expect(result.ok).toBe(false)
     expect(failureReason('actions.gateQueue', (result as { error: string }).error)).toBe(reason)
     expect(sent).toEqual([])
+  })
+})
+
+describe('actions.prReply (worfy-pr-inbox ticket 04)', () => {
+  it('passes only the Project, the repository and the number, and answers only the contract keys', async () => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.prReply', { projectId: 'p', repo: 'example-org/app', pr: 118, text: '/rm -rf' })
+    expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' } })
+    expect(calls).toStrictEqual([['prReply', 'p', 'example-org/app', 118]])
+  })
+
+  it.each([
+    { projectId: 'p', repo: 'app', pr: 118 },
+    { projectId: 'p', repo: 'example-org/app; rm -rf ~', pr: 118 },
+    { projectId: 'p', repo: 'example-org/app\n/worfy:ship-ticket', pr: 118 },
+    { projectId: 'p', repo: 'example-org/a/b', pr: 118 },
+    { projectId: 'p', repo: '-org/app', pr: 118 },
+    { projectId: 'p', repo: 'example-org/app', pr: 0 },
+    { projectId: 'p', repo: 'example-org/app', pr: 1.5 },
+    { projectId: 'p', repo: 'example-org/app', pr: '118' },
+    { projectId: '', repo: 'example-org/app', pr: 118 },
+    { repo: 'example-org/app', pr: 118 },
+  ])('refuses %j before the launcher runs', async (input) => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.prReply', input)
+    expect(!result.ok && result.error).toMatch(/actions\.prReply: invalid input/)
+    expect(calls).toEqual([])
+  })
+
+  /** The real launcher behind the channel: what it creates and sends, or why not. */
+  async function withLauncher(harness: HarnessKind, template?: string) {
+    const created: unknown[][] = []
+    const sent: string[] = []
+    const opened: string[] = []
+    const deps: LaunchDeps = {
+      projectRoot: (projectId) => {
+        if (projectId !== 'p') throw new Error(`no Project ${projectId}`)
+        return '/repo'
+      },
+      settings: () => ({ actionTemplates: { ...defaultActionTemplates(harness), ...(template === undefined ? {} : { prReply: template }) } }),
+      branch: async () => 'main',
+      workflow: async (root) => ({ root, epics: [], tickets: [], error: null, branchErrors: [] }),
+      sessions: {
+        create: (projectId, near, vendor) => {
+          created.push([projectId, near, vendor])
+          return { projectId, nodeId: 'node-9', vendor, sessionId: 'starting-node-9', sdkSessionId: null, state: 'starting', error: null, cwd: '/repo', model: null, version: 1 }
+        },
+      },
+      orchestrators: {
+        open: async (projectId) => {
+          opened.push(projectId)
+          throw new Error('the Orchestrator is not for Draft replies')
+        },
+      },
+      registry: { get: () => ({ send: (text: string) => (sent.push(text), 'sent' as const), sdkId: null, state: 'idle' as const }) },
+      bindings: { setLaunch: () => { throw new Error('Draft replies binds nothing') } },
+    }
+    const launcher = new ActionLauncher(deps)
+    // Autopilot running in the Project changes nothing: Draft replies is a Session of its own, with a person.
+    launcher.attachAutopilot({ running: () => true })
+    const handlers = new Map<string, Listener>()
+    await registerIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
+      { modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
+    )
+    const listener = handlers.get(`${IPC_CHANNEL_PREFIX}actions.prReply`)!
+    const call = async (input: unknown) => (await listener({ senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return { call, created, sent, opened }
+  }
+
+  it('starts a new Session Node of the Project on Claude Code, whose first message is the template filled in', async () => {
+    const { call, created, sent, opened } = await withLauncher('plugin')
+    const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 118 })
+    expect(result).toStrictEqual({ ok: true, value: { nodeId: 'node-9', sessionId: 'starting-node-9', text: '/worfy:pr-reply example-org/app#118' } })
+    expect(created).toStrictEqual([['p', undefined, 'claude']])
+    expect(sent).toStrictEqual(['/worfy:pr-reply example-org/app#118'])
+    expect(opened).toEqual([])
+  })
+
+  it('fills the Project\'s own template, {repo} and {pr} wherever they stand', async () => {
+    const { call, sent } = await withLauncher('plugin', '  Draft replies for PR {pr} of {repo} (/worfy:pr-reply {repo}#{pr})  ')
+    const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 7 })
+    expect(result.ok).toBe(true)
+    expect(sent).toStrictEqual(['Draft replies for PR 7 of example-org/app (/worfy:pr-reply example-org/app#7)'])
+  })
+
+  it.each([
+    ['the old Harness without the plugin: an empty template', 'legacy' as const, undefined, 'Set the Draft replies template in Project settings'],
+    ['a blank template', 'plugin' as const, '   ', 'Set the Draft replies template in Project settings'],
+    ['a template with a placeholder Draft replies has no value for', 'plugin' as const, '/worfy:pr-reply {repo}#{pr} {epic}', '{epic} has no value in Draft replies'],
+  ])('%s: refused with the reason, no Session', async (_name, harness, template, reason) => {
+    const { call, created, sent } = await withLauncher(harness, template)
+    const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 118 })
+    expect(result.ok).toBe(false)
+    expect(failureReason('actions.prReply', (result as { error: string }).error)).toBe(reason)
+    expect(created).toEqual([])
+    expect(sent).toEqual([])
+  })
+
+  it('refuses a Project that is not in the list', async () => {
+    const { call, created } = await withLauncher('plugin')
+    const result = await call({ projectId: 'q', repo: 'example-org/app', pr: 118 })
+    expect(failureReason('actions.prReply', (result as { error: string }).error)).toBe('no Project q')
+    expect(created).toEqual([])
+  })
+
+  // Autopilot drives the Project's Orchestrator only, through ActionLauncher.autopilotWave and the two calls beside
+  // it; it is given no way to start Draft replies (the test above: the Orchestrator is never opened for it).
+  it('is not among the calls Autopilot has', () => {
+    expectTypeOf<AutopilotDeps['waves']>().not.toHaveProperty('prReply')
+    expectTypeOf<keyof AutopilotDeps['waves']>().toEqualTypeOf<'autopilotWave' | 'autopilotRefusal' | 'autopilotGateQueue'>()
+  })
+
+  describe('from a Linked machine', () => {
+    const peers: LinkPeer[] = []
+    afterEach(() => {
+      for (const peer of peers.splice(0)) peer.close()
+    })
+
+    async function linked(level: AccessLevel) {
+      const calls: unknown[][] = []
+      const launcher = {
+        shipTicket: async () => { throw new Error('not here') },
+        runWave: async () => { throw new Error('not here') },
+        gateQueue: async () => { throw new Error('not here') },
+        launched: () => { throw new Error('not here') },
+        prReply: (...args: [string, string, number]) => {
+          calls.push(args)
+          return { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' }
+        },
+      }
+      const adapter = await createLinkIpc({ modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isLinked: () => true })
+      const peer = new LinkPeer({ machineId: 'mac', describe: () => 'mac', push: () => undefined, local: () => ({ id: 'here', name: 'Studio', protocol: 1, build: 'test' }), warn: () => undefined })
+      peer.setAccess(level)
+      peers.push(peer)
+      return { calls, call: (input: unknown) => adapter.call(peer, 'actions.prReply', input, 'Studio') }
+    }
+
+    it('with read-only access is refused before the launcher runs', async () => {
+      const { call, calls } = await linked('read')
+      const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 118 })
+      expect(result.ok).toBe(false)
+      expect(!result.ok && result.error).toContain(readOnlyRefusal('Studio'))
+      expect(calls).toEqual([])
+    })
+
+    it('with full access starts it, as a window of this machine does', async () => {
+      const { call, calls } = await linked('all')
+      const result = await call({ projectId: 'p', repo: 'example-org/app', pr: 118 })
+      expect(result).toStrictEqual({ ok: true, value: { nodeId: 'n2', sessionId: 'pending-2', text: '/worfy:pr-reply example-org/app#118' } })
+      expect(calls).toStrictEqual([['p', 'example-org/app', 118]])
+    })
   })
 })

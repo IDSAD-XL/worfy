@@ -205,7 +205,7 @@ afterEach(() => {
 })
 
 describe('harness/evals: the cases', () => {
-  it('holds exactly the nineteen cases', () => {
+  it('holds exactly the twenty cases', () => {
     const found = existsSync(EVALS)
       ? readdirSync(EVALS, { withFileTypes: true })
           .filter((entry) => entry.isDirectory() && existsSync(join(EVALS, entry.name, 'prompt.md')))
@@ -1666,5 +1666,165 @@ describe('a child process sees the temporary home', () => {
     for (const known of readOnlyGit) expect(calls.filter((call) => known.test(call)), String(known)).toHaveLength(1)
     const own = calls.filter((call) => !readOnlyGit.some((known) => known.test(call)))
     expect(own.filter((call) => !/[{,]\s*env\s*[:,}]/.test(call) || /\benv\s*:\s*process\.env\b|\.\.\.process\.env\b/.test(call))).toEqual([])
+  })
+})
+
+// worfy-pr-inbox ticket 04: the case of /worfy:pr-reply on the invented pull request octo-org/ledger#7
+// (harness/evals/pr-reply-fixture/). GitHub is the stand-in gh.mjs of the fixture; these tests start it with this Node,
+// as the human-review-setup tests above do. No test here starts claude.
+describe('harness/evals: pr-reply', () => {
+  const NAME = 'pr-reply-three-threads'
+  const SKILL = join(HARNESS, 'skills', 'pr-reply', 'SKILL.md')
+  const grader = (file: string): string => frontMatter(join(EVALS, NAME, 'graders', file))
+  const pattern = (file: string): RegExp => new RegExp(field(grader(file), 'pattern') ?? '<none>', field(grader(file), 'flags') ?? '')
+  /** The `input_match` of a grader as `claude plugin eval` builds it: no flags. */
+  const inputMatch = (file: string): RegExp => new RegExp(field(grader(file), 'input_match') ?? '<none>')
+  /** The input of a Bash call as a tool_used grader reads it: the JSON of the tool input. */
+  const bash = (command: string): string => JSON.stringify({ command, description: 'a step of the skill' })
+  const gh = (work: string, home: string, args: string[]): SpawnSyncReturns<string> =>
+    spawnSync(scriptNode(), [join(work, '.git', 'eval-gh', 'gh.mjs'), ...args], { cwd: work, env: harnessEnv(home), encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  const callLog = (work: string): string => (existsSync(join(work, 'gh-calls.log')) ? readFileSync(join(work, 'gh-calls.log'), 'utf8') : '')
+  const git = (work: string, home: string, ...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: work, env: harnessEnv(home), encoding: 'utf8' })
+
+  /** The reads of step 2 of the skill, for octo-org/ledger#7, as argument lists without the shell. */
+  function stepTwoReads(): string[][] {
+    const skill = readFileSync(SKILL, 'utf8')
+    const block = /## 2\. Read, only read\s+```bash\n([\s\S]*?)```/.exec(skill)?.[1] ?? ''
+    const lines = block.trim().split('\n').map((line) => line.replace(/; echo "EXIT=\$\?"$/, '').replaceAll('<N>', '7').replaceAll('<owner>', 'octo-org').replaceAll('<repo>', 'ledger'))
+    expect(lines).toHaveLength(3)
+    return lines.map((line) => {
+      const query = /-f query='([^']*)'/.exec(line)
+      const words = line.replace(/-f query='[^']*'/, '').trim().split(/\s+/)
+      expect(words[0]).toBe('gh')
+      return [...words.slice(1), ...(query === null ? [] : ['-f', `query=${query[1]}`])]
+    })
+  }
+
+  interface Thread {
+    id: string
+    isResolved: boolean
+    comments: { nodes: { author: { login: string } }[] }
+  }
+
+  it('the fixture: pull request #7 has its head commit beside main, the working tree is untouched, and the stand-in answers the reads of step 2', () => {
+    const { work, home } = caseFixtureToChange(NAME)
+    const answers = stepTwoReads().map((args) => gh(work, home, args))
+    for (const answer of answers) expect(answer.status, answer.stderr).toBe(0)
+    const view = JSON.parse(answers[0]!.stdout) as { headRefOid: string; author: { login: string } }
+    expect(git(work, home, 'cat-file', '-e', `${view.headRefOid}^{commit}`).status).toBe(0)
+    expect(git(work, home, 'rev-parse', 'refs/pull/7/head').stdout.trim()).toBe(view.headRefOid)
+    expect(git(work, home, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.trim()).toBe('main')
+    expect(git(work, home, 'rev-parse', 'main').stdout.trim()).not.toBe(view.headRefOid)
+    expect(git(work, home, 'status', '--porcelain').stdout).toBe('')
+    expect(git(work, home, 'show', `${view.headRefOid}:src/sum.mjs`).stdout).toContain('see demo/02 for why')
+    expect(git(work, home, 'show', 'main:src/sum.mjs').stdout).not.toContain('sumAll')
+    expect(answers[1]!.stdout).toContain('+export function sumAll(list) {')
+    // Step 3 of the skill over the answer: a thread waits when it is not resolved and its last comment is not the viewer's.
+    const { data } = JSON.parse(answers[2]!.stdout) as { data: { viewer: { login: string }; repository: { pullRequest: { reviewThreads: { nodes: Thread[] } } } } }
+    expect(view.author.login).toBe(data.viewer.login)
+    const waiting = data.repository.pullRequest.reviewThreads.nodes.filter((thread) => !thread.isResolved && thread.comments.nodes.at(-1)?.author.login !== data.viewer.login)
+    expect(waiting.map((thread) => thread.id)).toEqual(['PRRT_evalA1', 'PRRT_evalA2', 'PRRT_evalA3'])
+    expect(callLog(work)).toBe('answered pr view 7\nanswered pr diff 7\nanswered PrReplyThreads\n')
+    expect(callLog(work)).toMatch(pattern('threads-read.md'))
+    expect(callLog(work)).not.toMatch(pattern('no-github-write.md'))
+    // git of the run may not use https: a fetch of the head commit fails at once instead of reaching GitHub.
+    expect(git(work, home, 'remote', 'get-url', 'origin').stdout.trim()).toBe('https://github.com/octo-org/ledger.git')
+    expect(git(work, home, 'config', '--get', 'protocol.https.allow').stdout.trim()).toBe('never')
+  })
+
+  it('the stand-in refuses every write and logs it as WRITE; the command grader catches them and lets the reads of the skill through', () => {
+    const { work, home } = caseFixtureToChange(NAME)
+    const writes = [
+      ['pr', 'comment', '7', '--body', 'a remark'],
+      ['pr', 'review', '7', '--comment', '--body', 'x'],
+      ['api', 'repos/octo-org/ledger/pulls/7/comments/9101/replies', '-f', 'body=x'],
+      ['api', '-X', 'POST', 'repos/octo-org/ledger/issues/7/comments', '--input', 'reply.json'],
+      ['api', 'graphql', '-f', 'query=mutation { resolveReviewThread(input: {threadId: "PRRT_evalA1"}) { clientMutationId } }'],
+    ]
+    for (const args of writes) expect(gh(work, home, args).status, args.join(' ')).toBe(1)
+    expect(gh(work, home, ['pr', 'view', '8', '--repo', 'octo-org/ledger']).status).toBe(1)
+    expect(gh(work, home, ['pr', 'view', '7', '--repo', 'octo-org/other']).status).toBe(1)
+    expect(gh(work, home, ['api', 'graphql', '-f', 'query=query { viewer { login } }']).status).toBe(1)
+    const lines = callLog(work).trim().split('\n')
+    expect(lines.filter((line) => line.startsWith('WRITE '))).toHaveLength(writes.length)
+    expect(lines.filter((line) => line.startsWith('REFUSED '))).toHaveLength(1)
+    expect(callLog(work)).toMatch(pattern('no-github-write.md'))
+    const command = inputMatch('no-github-write-command.md')
+    for (const text of [
+      'gh pr comment 7 --body x',
+      'gh pr review 7 --approve',
+      'gh api --method POST repos/o/r/pulls/7/comments/1/replies --input r.json',
+      'gh api -X PATCH repos/o/r/pulls/7',
+      `gh api graphql -f query='mutation { resolveReviewThread(input: {}) { clientMutationId } }'`,
+    ])
+      expect(bash(text), text).toMatch(command)
+    const skill = readFileSync(SKILL, 'utf8')
+    const reads = /## 2\. Read, only read\s+```bash\n([\s\S]*?)```/.exec(skill)?.[1]?.trim().split('\n') ?? []
+    expect(reads).toHaveLength(3)
+    for (const text of reads) expect(bash(text), text).not.toMatch(command)
+  })
+
+  it('the graders of the draft: a draft as the skill writes it passes them, and review-draft-lint --reply in the fixture refuses the ticket the code comment names', () => {
+    const { work, home } = caseFixtureToChange(NAME)
+    const item = (threadId: string, replyTo: number, label: string, body: string, fixPlan: string | null = null): object => ({ kind: 'thread', threadId, replyTo, label, body, fixPlan, state: 'draft', sentUrl: null })
+    const draft = (items: object[]): string =>
+      `${JSON.stringify({ schema: 1, repo: 'octo-org/ledger', pr: 7, headOid: git(work, home, 'rev-parse', 'refs/pull/7/head').stdout.trim(), items }, null, 2)}\n`
+    const good = [
+      item('PRRT_evalA1', 9101, 'needs code change', "Right, sumAll([]) gives undefined. I'll start the total at 0 so an empty list sums to 0.", 'src/sum.mjs: start total at 0 and loop from index 0; add a test for [].'),
+      item('PRRT_evalA2', 9102, 'needs answer', 'No strong reason; reduce reads well here too. I can switch to list.reduce(sum, 0), which also fixes the empty list.'),
+      item('PRRT_evalA3', 9103, 'resolved by push', 'Renamed: the head commit exports it as sumAll.'),
+    ]
+    const text = draft(good)
+    for (const file of ['thread-A1.md', 'thread-A2.md', 'thread-A3.md', 'code-change-label.md', 'fix-plan.md']) expect(text, file).toMatch(pattern(file))
+    for (const file of ['no-resolved-thread.md', 'no-answered-thread.md', 'no-ticket-trace.md']) expect(text, file).not.toMatch(pattern(file))
+    expect(draft([...good, item('PRRT_evalA4', 9104, 'FYI', 'Thanks.')])).toMatch(pattern('no-resolved-thread.md'))
+    expect(draft([...good, item('PRRT_evalA5', 9106, 'FYI', 'Thanks.')])).toMatch(pattern('no-answered-thread.md'))
+    expect(draft([item('PRRT_evalA1', 9101, 'needs answer', 'Fine.', null)])).not.toMatch(pattern('fix-plan.md'))
+    expect(draft([item('PRRT_evalA1', 9101, 'needs answer', 'Fine.', null)])).not.toMatch(pattern('code-change-label.md'))
+    const traced = draft([item('PRRT_evalA2', 9102, 'needs answer', 'A loop: see demo/02 for why.')])
+    expect(traced).toMatch(pattern('no-ticket-trace.md'))
+
+    mkdirSync(join(work, 'built'))
+    writeFileSync(join(work, 'built', 'draft.json'), text)
+    const clean = harness(home, work, 'review-draft-lint', ['--reply', join(work, 'built', 'draft.json')])
+    expect(clean.status, clean.stdout + clean.stderr).toBe(0)
+    expect(`${clean.stdout}EXIT=0\n`).toMatch(pattern('lint-passes.md'))
+    writeFileSync(join(work, 'built', 'traced.json'), traced)
+    const found = harness(home, work, 'review-draft-lint', ['--reply', join(work, 'built', 'traced.json')])
+    expect(found.status, found.stdout + found.stderr).toBe(1)
+    expect(found.stdout).toBe('items[0]: epic/NN "demo/02"\n')
+    expect(`${found.stdout}EXIT=1\n`).not.toMatch(pattern('lint-passes.md'))
+  })
+
+  it('the graders of the commands match the lint and git commands the skill prescribes, and not the prompt\'s own lint run', () => {
+    const skill = readFileSync(SKILL, 'utf8')
+    const root = '/home/someone/.claude/plugins/worfy'
+    const profileDir = '/home/someone/.claude/worfy-harness/projects/demo'
+    const lint = /^"\$\{CLAUDE_PLUGIN_ROOT\}\/bin\/review-draft-lint" --reply "<draft file>"; echo "EXIT=\$\?"$/m
+    expect(skill).toMatch(lint)
+    expect(skill).toContain('`<_resolved.dir>/state/pr-inbox/drafts/<owner>-<repo>-<N>.json`')
+    const run = `"${root}/bin/review-draft-lint" --reply "${profileDir}/state/pr-inbox/drafts/octo-org-ledger-7.json"; echo "EXIT=$?"`
+    expect(bash(run)).toMatch(inputMatch('lint-run.md'))
+    expect(bash(`"${root}/bin/review-draft-lint" --reply "C:\\Users\\someone\\.claude\\worfy-harness\\projects\\demo\\state\\pr-inbox\\drafts\\octo-org-ledger-7.json"`)).toMatch(inputMatch('lint-run.md'))
+    expect(bash('review-draft-lint --reply built/draft.json > built/lint.txt; echo "EXIT=$?" >> built/lint.txt')).not.toMatch(inputMatch('lint-run.md'))
+    const gitLines = skill.split('\n').filter((line) => /^git -C|`git -C/.test(line)).map((line) => line.replace(/^.*`(git -C[^`]*)`.*$/, '$1'))
+    expect(gitLines.length).toBeGreaterThanOrEqual(3)
+    const branch = inputMatch('no-branch-switch.md')
+    for (const line of gitLines) expect(bash(line.replaceAll('<checkout>', '/work').replaceAll('<headRefOid>', 'abc123')), line).not.toMatch(branch)
+    for (const text of ['git checkout sum-all', 'git -C /work switch sum-all', 'git push origin HEAD', 'git commit -am x', 'git stash'])
+      expect(bash(text), text).toMatch(branch)
+  })
+
+  it('SKILL.md forbids every publication, names the draft file and the lint step, and stops at the draft without a person', () => {
+    const skill = readFileSync(SKILL, 'utf8')
+    expect(field(frontMatter(SKILL), 'name')).toBe('pr-reply')
+    expect(skill).toContain('**Nothing is posted.** This skill never writes to GitHub, in any session, with or without a person')
+    for (const forbidden of ['`gh pr comment`', '`gh pr review`', 'GraphQL `mutation`', 'no resolving of a thread', 'no `git push`', '`git checkout`', '`git switch`'])
+      expect(skill, forbidden).toContain(forbidden)
+    expect(skill).toContain('In a\nsession with no person to answer (an unattended run), the result is the same: the draft file, and nothing else.')
+    expect(skill).toContain('The draft file is `<_resolved.dir>/state/pr-inbox/drafts/<owner>-<repo>-<N>.json`')
+    expect(skill).toContain('Exit 1: rewrite or shorten each item it names and run it again, until\nexit 0.')
+    expect(skill).toContain('A review thread** waits when `isResolved` is false and its last comment is not the viewer\'s.')
+    for (const label of ['**needs code change**', '**needs answer**', '**FYI**', '**resolved by push**']) expect(skill, label).toContain(label)
   })
 })

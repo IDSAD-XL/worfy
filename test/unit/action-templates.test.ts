@@ -18,8 +18,8 @@ import {
   unknownPlaceholders,
 } from '../../src/shared/projects/action-templates'
 
-const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' }
-const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue' }
+const LEGACY = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '' }
+const PLUGIN = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue', prReply: '/worfy:pr-reply {repo}#{pr}' }
 
 describe('action templates', () => {
   it('gives a new Project the default templates of the Harness found: the bare skill names with the old Harness', () => {
@@ -49,7 +49,7 @@ describe('action templates', () => {
   it('reads a saved Run wave template equal to the old default as the new default, and leaves every other template alone (ticket 30)', () => {
     expect(LEGACY_RUN_WAVE_TEMPLATE).toBe('/epic-wave волна {wave} эпика {epic}')
     const old = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: LEGACY_RUN_WAVE_TEMPLATE, gateQueue: '' } }
-    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' } })
+    expect(migrateProjectSettings(old, 'legacy')).toStrictEqual({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '', prReply: '' } })
     // The argument is not changed in place.
     expect(old.actionTemplates.runWave).toBe(LEGACY_RUN_WAVE_TEMPLATE)
     for (const own of ['/epic-wave волна {wave} эпика {epic} ', '/epic-wave wave {wave} of {epic}', '', '/epic-wave Ticket-ы {tickets} эпика {epic}']) {
@@ -65,10 +65,11 @@ describe('action templates', () => {
       shipTicket: [LEGACY.shipTicket, PLUGIN.shipTicket],
       runWave: [LEGACY.runWave, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN.runWave],
       gateQueue: [PLUGIN.gateQueue],
+      prReply: [PLUGIN.prReply],
     }
     for (const action of ACTIONS) {
       for (const saved of earlier[action]) {
-        const settings = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', [action]: saved } }
+        const settings = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: 'my queue', prReply: 'my replies {repo}#{pr}', [action]: saved } }
         const read = migrateProjectSettings(settings, harness)
         expect(read.actionTemplates[action]).toBe(defaults[action])
         // The other actions keep the owner's own templates.
@@ -77,7 +78,7 @@ describe('action templates', () => {
         expect(settings.actionTemplates[action]).toBe(saved)
       }
     }
-    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '' } }
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '', prReply: '' } }
     expect(migrateProjectSettings(own, harness)).toBe(own)
     const current = defaultProjectSettings(harness)
     expect(migrateProjectSettings(current, harness)).toBe(current)
@@ -112,7 +113,7 @@ describe('action templates', () => {
   it.each(HARNESS_KINDS)('reads saved settings without gateQueue with the default of the Harness found (%s), and keeps the rest', (harness) => {
     const saved = savedProjectSettingsSchema.parse({ actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}' }, terminalShell: 'git-bash' })
     expect(migrateProjectSettings(saved, harness)).toStrictEqual({
-      actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: defaultActionTemplates(harness).gateQueue },
+      actionTemplates: { shipTicket: 'my ship {NN}', runWave: 'my wave {tickets}', gateQueue: defaultActionTemplates(harness).gateQueue, prReply: defaultActionTemplates(harness).prReply },
       terminalShell: 'git-bash',
     })
     // What is saved has the field: settings without it are refused.
@@ -137,7 +138,7 @@ describe('action templates', () => {
   })
 
   it('accepts every known placeholder', () => {
-    const template = '{epic} {NN} {wave} {slug} {branch} {tickets}'
+    const template = '{epic} {NN} {wave} {slug} {branch} {tickets} {repo} {pr}'
     expect(unknownPlaceholders(template)).toEqual([])
     expect(actionTemplateSchema.safeParse(template).success).toBe(true)
   })
@@ -165,9 +166,27 @@ describe('action templates', () => {
   })
 
   it('refuses settings with a bad template and drops undeclared keys from good ones', () => {
-    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '' } }).success).toBe(false)
+    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '{foo}', runWave: '', gateQueue: '', prReply: '' } }).success).toBe(false)
     expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '' } }).success).toBe(false)
-    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', extra: 'x' }, other: 1 })
-    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' } })
+    const parsed = projectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '', extra: 'x' }, other: 1 })
+    expect(parsed).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } })
+  })
+
+  it('has Draft replies among the actions: /worfy:pr-reply {repo}#{pr} with the plugin and with no Harness, empty with the old Harness (worfy-pr-inbox ticket 04)', () => {
+    expect(ACTIONS).toContain('prReply')
+    expect(ACTION_LABELS.prReply).toBe('Draft replies')
+    expect(defaultActionTemplates('plugin').prReply).toBe('/worfy:pr-reply {repo}#{pr}')
+    expect(defaultActionTemplates('none').prReply).toBe('/worfy:pr-reply {repo}#{pr}')
+    expect(defaultActionTemplates('legacy').prReply).toBe('')
+    expect(unknownPlaceholders(defaultActionTemplates('plugin').prReply)).toEqual([])
+    expect(emptyTemplateHint('prReply')).toBe('Set the Draft replies template in Project settings')
+    // What is saved has the field; a file saved before it reads with the default of the Harness found.
+    expect(projectSettingsSchema.safeParse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' } }).success).toBe(false)
+    const saved = savedProjectSettingsSchema.parse({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' } })
+    expect(migrateProjectSettings(saved, 'plugin').actionTemplates.prReply).toBe('/worfy:pr-reply {repo}#{pr}')
+    expect(migrateProjectSettings(saved, 'legacy').actionTemplates.prReply).toBe('')
+    // An empty template and a near miss of the default are the owner's own.
+    for (const own of ['', '/worfy:pr-reply {repo}#{pr} ', '/pr-reply {repo}#{pr}'])
+      expect(migrateProjectSettings({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: own } }, 'plugin').actionTemplates.prReply).toBe(own)
   })
 })

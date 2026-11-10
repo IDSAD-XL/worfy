@@ -237,9 +237,11 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
 
 **The context menu of a row.**
 
-- "Project settings…" holds the message templates of "Ship ticket", "Run wave" and "Process gate queue", with the
-  placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}` and `{tickets}`. An unknown placeholder shows an error under
-  the field and turns off Save. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
+- "Project settings…" holds the message templates of "Ship ticket", "Run wave", "Process gate queue" and "Draft replies",
+  with the placeholders `{epic}`, `{NN}`, `{wave}`, `{slug}`, `{branch}`, `{tickets}`, `{repo}` and `{pr}`. An unknown
+  placeholder shows an error under the field and turns off Save. "Draft replies" (`/worfy:pr-reply {repo}#{pr}` with the
+  plugin, empty with the old Harness) is the first message of a new Session on Claude Code for one pull request,
+  `{repo}` its `owner/name` and `{pr}` its number; a placeholder it has no value for, or an empty template, refuses it. "Reset to default" puts in the defaults of the Harness found on the Machine now. On Windows
   the dialog also has the [Terminal shell](terminal.md). "Default vendor" (`defaultVendor` in the settings) is the Vendor
   "New session" lists first and a [Session](sessions.md) started without a pick runs on: None (Claude Code), Claude Code or
   Codex. "None" clears a saved one, and Claude Code is then the default. A value this build does not know reads as absent.

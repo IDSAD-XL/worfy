@@ -36,8 +36,9 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
 
 /**
  * Saves the settings; a template with an unknown placeholder throws and nothing is written. Settings
- * without `gateQueue` (a Linked machine on a build from before "Process gate queue") keep the saved
- * one, or the default when none is saved. Settings without `defaultVendor` keep the saved one (a
+ * without `gateQueue` (a Linked machine on a build from before "Process gate queue") or without `prReply`
+ * (one from before "Draft replies", worfy-pr-inbox ticket 04) keep the saved template, or the default
+ * when none is saved. Settings without `defaultVendor` keep the saved one (a
  * Linked machine on a build from before the field), and `defaultVendor: null` clears it: "Default
  * vendor" set back to none in Project settings (worfy-multi-vendor ticket 24). Settings without
  * `humanReview` keep the saved one: "Save" of Project settings does not send it. Settings without
@@ -50,6 +51,7 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
   let saved: ProjectSettings | undefined
   const read = (): ProjectSettings => (saved ??= readProjectSettings(projectDataDir, harness))
   const gateQueue = settings.actionTemplates.gateQueue ?? read().actionTemplates.gateQueue
+  const prReply = settings.actionTemplates.prReply ?? read().actionTemplates.prReply
   const { defaultVendor: asked, humanReview: review, prInbox: askedInbox, ...rest } = settings
   const defaultVendor = asked === null ? undefined : (asked ?? read().defaultVendor)
   const humanReview = review ?? read().humanReview
@@ -62,7 +64,7 @@ export function writeProjectSettings(projectDataDir: string, settings: ProjectSe
     ...(humanReview === undefined ? {} : { humanReview }),
     ...(productWriteFolders === undefined ? {} : { productWriteFolders }),
     ...(prInbox === undefined ? {} : { prInbox }),
-    actionTemplates: { ...settings.actionTemplates, gateQueue },
+    actionTemplates: { ...settings.actionTemplates, gateQueue, prReply },
   })
   return readProjectSettings(projectDataDir, harness)
 }

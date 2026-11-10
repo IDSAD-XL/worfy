@@ -2,6 +2,7 @@
 // review-draft-lint — checks a review draft before a person sees it, and the rules of a generated review skill.
 //
 //   review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+//   review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
 //   review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 //
 // A draft is { payload, tiers, body_tier }: payload — the body of the GitHub request
@@ -21,6 +22,16 @@
 //   - a word of lint.json forbidden, matched case-insensitively as a whole word.
 // Every value is printed with the personal data in it masked, in the error lines of exit 2 too. A UTF-8 byte order
 // mark at the start of a file is dropped.
+//
+// --reply <draft.json>: the draft of replies skill pr-reply writes to <Profile folder>/state/pr-inbox/drafts/,
+// which worfy posts only on the user's click, after checking it again: { schema: 1, repo: "<owner>/<name>", pr, headOid, items: [{ kind, threadId, replyTo, label, body,
+// fixPlan, state, sentUrl, error? }] }. kind `thread` — a reply in a review thread, with threadId and replyTo (the
+// databaseId of the thread's first comment); kind `conversation` — a comment in the conversation of the pull
+// request, without them (absent or null). label: needs code change, needs answer, FYI, resolved by push. state:
+// draft, sent, discarded; error — why the last send failed, or null. Only the bodies of the items in `draft` are
+// checked: a sent reply is published, a discarded one never will be. The same rules as a review, a finding named
+// `items[<i>]`, an empty body is one, and one length for every reply: the largest max_chars of --rules, or of the
+// template's lint.json (skills/human-review-setup/template/) without it. A file of the wrong shape — exit 2.
 //
 // --skill <folder>: every rule of <folder>/SKILL.md — a list item under a `## ` heading, outside code blocks —
 // ends with one or more references `[R<n>]`, and <folder>/research.md has a section `## R<n> — <title>` for
@@ -50,6 +61,7 @@ const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
 
 const USAGE = `usage: review-draft-lint <draft.json> --rules <lint.json> [-C <project dir>]
+       review-draft-lint --reply <draft.json> [--rules <lint.json>] [-C <project dir>]
        review-draft-lint --skill <folder> [--prs <prs.jsonl>] [--known <file>]...
 exit: 0 clean, 1 findings, 2 usage error or broken input`
 
@@ -69,6 +81,7 @@ let dir = process.cwd()
 let draftFile = null
 let rulesFile = null
 let skillDir = null
+let replyFile = null
 let prsFile = null
 const knownFiles = []
 const argv = process.argv.slice(2)
@@ -82,6 +95,7 @@ for (let i = 0; i < argv.length; i++) {
     if (a === "-C") dir = path.resolve(next())
     else if (a === "--rules") rulesFile = next()
     else if (a === "--skill") skillDir = next()
+    else if (a === "--reply") replyFile = next()
     else if (a === "--prs") prsFile = next()
     else if (a === "--known") knownFiles.push(next())
     else if (a === "-h" || a === "--help") {
@@ -190,7 +204,7 @@ function linksNotInHistory(files) {
 }
 
 if (skillDir !== null) {
-    if (draftFile !== null || rulesFile !== null) die(2, `--skill takes no draft and no --rules\n${USAGE}`)
+    if (draftFile !== null || rulesFile !== null || replyFile !== null) die(2, `--skill takes no draft and no --rules\n${USAGE}`)
     const skill = readText(path.join(skillDir, "SKILL.md"), "the skill")
     const research = readText(path.join(skillDir, "research.md"), "the research")
     const examplesFile = path.join(skillDir, "voice-examples.md")
@@ -243,16 +257,19 @@ if (skillDir !== null) {
 }
 
 // --- the draft and lint.json --------------------------------------------------------
-if (draftFile === null) die(2, `no draft named\n${USAGE}`)
-if (rulesFile === null) die(2, `no --rules named\n${USAGE}`)
+if (replyFile !== null && draftFile !== null) die(2, `--reply takes its draft as its value: extra argument ${draftFile}\n${USAGE}`)
+if (replyFile === null && draftFile === null) die(2, `no draft named\n${USAGE}`)
+if (replyFile === null && rulesFile === null) die(2, `no --rules named\n${USAGE}`)
 try {
     if (!fs.statSync(dir).isDirectory()) die(2, `not a directory: ${dir}`)
 } catch {
     die(2, `no such directory: ${dir}`)
 }
 
-const lint = readJson(rulesFile, "lint.json")
-const bad = (msg) => die(2, `lint.json ${rulesFile}: ${msg}`)
+// A reply without --rules is held to the template's lint.json: its largest tier is the one length of a reply.
+const lintFile = rulesFile === null ? path.join(TEMPLATE, "lint.json") : rulesFile
+const lint = readJson(lintFile, "lint.json")
+const bad = (msg) => die(2, `lint.json ${lintFile}: ${msg}`)
 if (!isObject(lint)) bad("not an object")
 for (const k of Object.keys(lint)) if (!["schema", "tiers", "forbidden"].includes(k)) bad(`unknown field "${k}"`)
 if (lint.schema !== 1) bad(`schema must be 1, got ${JSON.stringify(lint.schema)}`)
@@ -265,36 +282,83 @@ for (const [tier, t] of Object.entries(lint.tiers)) {
 const forbidden = lint.forbidden === undefined ? [] : lint.forbidden
 if (!Array.isArray(forbidden) || !forbidden.every((w) => typeof w === "string" && w.trim() !== "")) bad(`"forbidden" must be a list of words`)
 
-const draft = readJson(draftFile, "the draft")
-const badDraft = (msg) => die(2, `the draft ${draftFile}: ${msg}`)
-if (!isObject(draft)) badDraft("not an object")
-for (const k of Object.keys(draft)) if (!["payload", "tiers", "body_tier"].includes(k)) badDraft(`unknown field "${k}"`)
-const payload = draft.payload
-if (!isObject(payload)) badDraft(`"payload" must be an object`)
-if (payload.body !== undefined && typeof payload.body !== "string") badDraft(`payload.body must be text`)
-const comments = payload.comments === undefined ? [] : payload.comments
-if (!Array.isArray(comments)) badDraft(`payload.comments must be a list`)
-comments.forEach((c, i) => {
-    if (!isObject(c) || typeof c.body !== "string") badDraft(`payload.comments[${i}] must be an object with a text body`)
-})
-const tiers = draft.tiers === undefined ? [] : draft.tiers
-if (!Array.isArray(tiers) || tiers.length !== comments.length)
-    badDraft(`"tiers" must be a list with one tier for each of the ${comments.length} comments of payload.comments`)
-const tierOf = (tier, where) => {
-    if (typeof tier !== "string" || !Object.hasOwn(lint.tiers, tier))
-        badDraft(`tier ${JSON.stringify(tier)} of ${where} is not in the tiers of lint.json (${Object.keys(lint.tiers).join(", ")})`)
-    return tier
+// --- the draft of replies -------------------------------------------------------------------
+const REPLY_LABELS = ["needs code change", "needs answer", "FYI", "resolved by push"]
+const REPLY_STATES = ["draft", "sent", "discarded"]
+const REPLY_FIELDS = ["kind", "threadId", "replyTo", "label", "body", "fixPlan", "state", "sentUrl", "error"]
+const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/
+const isCount = (v) => Number.isInteger(v) && v > 0
+const isTextOrNull = (v) => v === undefined || v === null || typeof v === "string"
+
+function replyTexts() {
+    const draft = readJson(replyFile, "the draft of replies")
+    const badDraft = (msg) => die(2, `the draft of replies ${replyFile}: ${msg}`)
+    if (!isObject(draft)) badDraft("not an object")
+    for (const k of Object.keys(draft)) if (!["schema", "repo", "pr", "headOid", "items"].includes(k)) badDraft(`unknown field "${k}"`)
+    if (draft.schema !== 1) badDraft(`schema must be 1, got ${JSON.stringify(draft.schema)}`)
+    if (typeof draft.repo !== "string" || !REPO.test(draft.repo)) badDraft(`"repo" must be <owner>/<name>, got ${JSON.stringify(draft.repo)}`)
+    if (!isCount(draft.pr)) badDraft(`"pr" must be a positive whole number, got ${JSON.stringify(draft.pr)}`)
+    if (typeof draft.headOid !== "string" || !/^[0-9a-f]{7,64}$/i.test(draft.headOid)) badDraft(`"headOid" must be the sha of the head commit, got ${JSON.stringify(draft.headOid)}`)
+    if (!Array.isArray(draft.items)) badDraft(`"items" must be a list`)
+    const max = Math.max(...Object.values(lint.tiers).map((t) => t.max_chars))
+    const texts = []
+    draft.items.forEach((item, i) => {
+        const badItem = (msg) => badDraft(`items[${i}] ${msg}`)
+        if (!isObject(item)) badItem("must be an object")
+        for (const k of Object.keys(item)) if (!REPLY_FIELDS.includes(k)) badItem(`has an unknown field "${k}"`)
+        if (item.kind === "thread") {
+            if (typeof item.threadId !== "string" || item.threadId === "") badItem(`of kind thread needs "threadId", the id of the review thread`)
+            if (!isCount(item.replyTo)) badItem(`of kind thread needs "replyTo", the databaseId of the thread's first comment`)
+        } else if (item.kind === "conversation") {
+            if ((item.threadId ?? null) !== null || (item.replyTo ?? null) !== null) badItem(`of kind conversation takes no "threadId" and no "replyTo"`)
+        } else badItem(`"kind" must be thread or conversation, got ${JSON.stringify(item.kind)}`)
+        if (!REPLY_LABELS.includes(item.label)) badItem(`"label" must be one of ${REPLY_LABELS.join(", ")}; got ${JSON.stringify(item.label)}`)
+        if (typeof item.body !== "string") badItem(`"body" must be text`)
+        if (!REPLY_STATES.includes(item.state)) badItem(`"state" must be one of ${REPLY_STATES.join(", ")}; got ${JSON.stringify(item.state)}`)
+        for (const k of ["fixPlan", "sentUrl", "error"]) if (!isTextOrNull(item[k])) badItem(`"${k}" must be text or null`)
+        if (item.state === "draft") texts.push([`items[${i}]`, item.body, max, "a reply", true])
+    })
+    return texts
 }
-const texts = [] // [where, text, tier]
-const body = payload.body || ""
-if (body.trim() !== "") {
-    if (draft.body_tier === undefined) badDraft(`"body_tier" is needed: payload.body is not empty`)
-    texts.push(["body", body, tierOf(draft.body_tier, "the body")])
+
+// --- the draft of a review --------------------------------------------------------------------
+function reviewTexts() {
+    const draft = readJson(draftFile, "the draft")
+    const badDraft = (msg) => die(2, `the draft ${draftFile}: ${msg}`)
+    if (!isObject(draft)) badDraft("not an object")
+    for (const k of Object.keys(draft)) if (!["payload", "tiers", "body_tier"].includes(k)) badDraft(`unknown field "${k}"`)
+    const payload = draft.payload
+    if (!isObject(payload)) badDraft(`"payload" must be an object`)
+    if (payload.body !== undefined && typeof payload.body !== "string") badDraft(`payload.body must be text`)
+    const comments = payload.comments === undefined ? [] : payload.comments
+    if (!Array.isArray(comments)) badDraft(`payload.comments must be a list`)
+    comments.forEach((c, i) => {
+        if (!isObject(c) || typeof c.body !== "string") badDraft(`payload.comments[${i}] must be an object with a text body`)
+    })
+    const tiers = draft.tiers === undefined ? [] : draft.tiers
+    if (!Array.isArray(tiers) || tiers.length !== comments.length)
+        badDraft(`"tiers" must be a list with one tier for each of the ${comments.length} comments of payload.comments`)
+    const tierOf = (tier, where) => {
+        if (typeof tier !== "string" || !Object.hasOwn(lint.tiers, tier))
+            badDraft(`tier ${JSON.stringify(tier)} of ${where} is not in the tiers of lint.json (${Object.keys(lint.tiers).join(", ")})`)
+        return tier
+    }
+    const of = (tier) => [lint.tiers[tier].max_chars, `tier ${tier}`, false]
+    const texts = []
+    const body = payload.body || ""
+    if (body.trim() !== "") {
+        if (draft.body_tier === undefined) badDraft(`"body_tier" is needed: payload.body is not empty`)
+        texts.push(["body", body, ...of(tierOf(draft.body_tier, "the body"))])
+    }
+    comments.forEach((c, i) => {
+        const at = typeof c.path === "string" ? ` ${c.path}${c.line !== undefined ? `:${c.line}` : ""}` : ""
+        texts.push([`comments[${i}]${at}`, c.body, ...of(tierOf(tiers[i], `comments[${i}]`))])
+    })
+    return texts
 }
-comments.forEach((c, i) => {
-    const at = typeof c.path === "string" ? ` ${c.path}${c.line !== undefined ? `:${c.line}` : ""}` : ""
-    texts.push([`comments[${i}]${at}`, c.body, tierOf(tiers[i], `comments[${i}]`)])
-})
+
+// [where, text, max_chars, what the limit is, whether an empty text is a finding]
+const texts = replyFile === null ? reviewTexts() : replyTexts()
 
 // --- the project: epic names and the Workflow folder -----------------------------------
 // A sibling script runs with the node running this one: Windows does not start an extensionless file by its #! line.
@@ -327,13 +391,16 @@ const rules = [...traces.traceRules({ epics, ticketWords, workflowFolder }), ...
 // --- search ------------------------------------------------------------------------------
 const words = forbidden.map((w) => [w, new RegExp(`(?<![\\p{L}\\p{N}_])${w.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "giu")])
 const found = []
-for (const [where, text, tier] of texts) {
+for (const [where, text, max, limit, needsText] of texts) {
+    if (needsText && text.trim() === "") {
+        found.push(`${where}: empty body`)
+        continue
+    }
     const length = [...text].length
-    const max = lint.tiers[tier].max_chars
-    if (length > max) found.push(`${where}: length ${length} chars, over ${max} of tier ${tier}`)
+    if (length > max) found.push(`${where}: length ${length} chars, over ${max} of ${limit}`)
     for (const line of text.split(/\r?\n/)) for (const f of traces.scan(line, rules)) found.push(`${where}: ${f.kind} "${show(f.text)}"`)
     for (const f of privacy.findings(text, options))
         found.push(`${where}: personal data ${f.rule} "${privacy.mask(text.slice(f.index, f.index + f.length))}"`)
     for (const [w, re] of words) if (text.search(re) !== -1) found.push(`${where}: forbidden "${show(w)}"`)
 }
-finish(found, `${texts.length} texts`)
+finish(found, `${texts.length} ${replyFile === null ? "texts" : "replies"}`)

@@ -1,5 +1,5 @@
-// "Ship ticket", "Run wave" (ticket 23) and "Process gate queue" (worfy-windows ticket 17); the
-// contract is in src/shared/ipc/actions.ts.
+// "Ship ticket", "Run wave" (ticket 23), "Process gate queue" (worfy-windows ticket 17) and "Draft
+// replies" (worfy-pr-inbox ticket 04); the contract is in src/shared/ipc/actions.ts.
 //
 // worfy starts the work with the same skills as the terminal and does not know what they do
 // (ADR 0002): the text comes from the Project's action template (`<Project data folder>/settings.json`,
@@ -36,20 +36,27 @@
 //   skill (TEAM_REVIEWER_COMMAND). No template and no Binding: the Session is about the Project, not
 //   a Ticket or an Epic; the skill asks the user before it reads anything. "Update" (ticket 10) is the
 //   same Session with TEAM_REVIEWER_REFRESH_COMMAND.
+// - Draft replies (worfy-pr-inbox ticket 04, ADR-0105): a new Session Node in the Project's root, as "Ship ticket"
+//   makes one and on Claude Code alike, whose first message is the "Draft replies" template filled in with one pull
+//   request ({repo}, {pr}). No Binding: the Session is about a pull request, not a Ticket. It is a Session with a
+//   person and never Autopilot's: Autopilot drives only the Orchestrator, and its calls here (autopilotWave,
+//   autopilotRefusal, autopilotGateQueue) do not include this one; a run of Autopilot in the Project does not stop
+//   it. The skill writes drafts into files on this machine and posts nothing; worfy posts a reply only on the user's
+//   click (ticket 05 of that Epic).
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
 // `<Project data folder>/bindings.json` (src/main/layout/bindings.ts), so it outlives a restart.
 // The Ticket's status is changed by the agent and the `ticket` script inside the skill, never here;
 // worfy sees the change through its watch on `.scratch` (ticket 10).
-import { emptyTemplateHint, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
+import { emptyTemplateHint, prReplyState, runWaveState, shipTicketState, ticketNumber } from '../../shared/actions/render-template'
 import type { SkippedTicket } from '../../shared/workflow/waves'
 import type { BindingTarget } from '../../shared/binding/resolve'
 import type { LaunchesSnapshot } from '../../shared/ipc/actions'
 import type { BindingAgent } from '../../shared/ipc/bindings'
 import type { OrchestratorView } from '../../shared/ipc/orchestrator'
 import type { SessionNodeView } from '../../shared/ipc/sessions'
-import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_REFRESH_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
+import { AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PR_REPLY_VENDOR, SHIP_TICKET_VENDOR, TEAM_REVIEWER_COMMAND, TEAM_REVIEWER_REFRESH_COMMAND, TEAM_REVIEWER_VENDOR, type ProjectSettings } from '../../shared/projects/action-templates'
 import type { VendorId } from '../../shared/vendors/vendor'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { Session } from '../agent/session'
@@ -229,6 +236,20 @@ export class ActionLauncher {
     const view = this.deps.sessions.create(projectId, undefined, TEAM_REVIEWER_VENDOR)
     this.deps.registry.get(view.sessionId).send(text)
     return { nodeId: view.nodeId, sessionId: view.sessionId, text }
+  }
+
+  /**
+   * "Draft replies" on the pull request `repo`#`pr`: a new Session Node of the Project on Claude Code whose first
+   * message is the Project's template filled in. Throws, with the reason, for a Project that is not in the list, an
+   * empty template or one that does not render; then nothing is created.
+   */
+  prReply(projectId: string, repo: string, pr: number): ShipTicketResult {
+    this.deps.projectRoot(projectId)
+    const state = prReplyState({ template: this.deps.settings(projectId).actionTemplates.prReply, repo, pr })
+    if (!state.enabled) throw new Error(state.reason)
+    const view = this.deps.sessions.create(projectId, undefined, PR_REPLY_VENDOR)
+    this.deps.registry.get(view.sessionId).send(state.text)
+    return { nodeId: view.nodeId, sessionId: view.sessionId, text: state.text }
   }
 
   /** The Project's Tickets that have a live Session launched by "Ship ticket". */

@@ -153,7 +153,7 @@ describe('the Vendor picker of New session', () => {
 })
 
 describe('Default vendor in Project settings', () => {
-  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '' }
+  const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '' }
   const PROJECT = { id: 'demo-00000001', name: 'demo' }
   const field = (): HTMLElement => screen.getByTestId('project-settings-vendor')
   const choose = (label: string): void => {

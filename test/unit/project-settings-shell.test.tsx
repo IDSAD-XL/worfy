@@ -31,7 +31,7 @@ vi.mock('../../src/renderer/projects/useProjects', () => ({
   useReadOnly: (machine: string | null) => main.readOnly[machine ?? ''] ?? null,
 }))
 
-const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '' }
+const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '', gateQueue: '', prReply: '' }
 const WINDOWS_SHELLS = [
   { id: 'powershell', label: 'PowerShell (pwsh)', found: true },
   { id: 'git-bash', label: 'Git Bash', found: true },
@@ -171,7 +171,7 @@ describe('the shell of the Terminals in Project settings', () => {
   })
 
   it('Reset to default puts the default templates back and leaves the chosen shell as it is', async () => {
-    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { shipTicket: 'my own {epic}', runWave: 'mine', gateQueue: '' }, terminalShell: 'git-bash' } }
+    main.answers['projects.settings.get'] = { ok: true, value: { actionTemplates: { shipTicket: 'my own {epic}', runWave: 'mine', gateQueue: '', prReply: '' }, terminalShell: 'git-bash' } }
     main.answers['projects.settings.defaults'] = { ok: true, value: { actionTemplates: TEMPLATES } }
     await open()
     await act(async () => {

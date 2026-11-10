@@ -11,6 +11,8 @@
 //   {slug}    the slug of the Ticket's file name
 //   {branch}  the branch checked out in the Project's root
 //   {tickets} the Tickets of the ready Wave, two digits at least, by number: `11, 23, 25, 27`
+//   {repo}    the repository of the pull request of "Draft replies", `owner/name` (worfy-pr-inbox ticket 04)
+//   {pr}      the number of that pull request
 //
 // A placeholder the action has no value for (`{NN}` in "Run wave") fails the render rather than
 // turning into an empty string: the agent would get a command with a hole in it.
@@ -140,6 +142,17 @@ export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly B
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('shipTicket') }
   const rendered = renderTemplate(template, ticketValues(ticket, branch), 'shipTicket')
   return rendered.ok ? { enabled: true, text: rendered.text } : { enabled: false, reason: rendered.error }
+}
+
+/**
+ * "Draft replies" (worfy-pr-inbox ticket 04): the Project's template with {repo} and {pr} of one pull request, trimmed;
+ * refused when the template is empty (the old Harness has no skill for it) or names a placeholder without a value.
+ */
+export function prReplyState(input: { template: string; repo: string; pr: number }): ActionState {
+  const { template, repo, pr } = input
+  if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('prReply') }
+  const rendered = renderTemplate(template, { repo, pr: String(pr) }, 'prReply')
+  return rendered.ok ? { enabled: true, text: rendered.text.trim() } : { enabled: false, reason: rendered.error }
 }
 
 /**

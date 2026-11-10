@@ -346,7 +346,7 @@ Session and Subagent (see [Hooks](skills-agents-and-hooks.md#hooks)).
 | `wave-brief` | The short summary of an Epic's Waves that a new Orchestrator reads first. Read-only |
 | `decision-log` | Adds one row to the log of a Wave: its start and end markers, and each decision made without a person |
 | `silent-check` | Looks for traces of the workflow in a text or a diff, see [Full mode and Silent mode](projects.md) |
-| `review-draft-lint` | Checks a review draft before a person sees it: the length of each comment by its tier, traces of the workflow in any mode, AI authorship lines, personal data and the project's forbidden words. With `--skill`, checks that every rule of a generated review skill points at a section of its `research.md` |
+| `review-draft-lint` | Checks a review draft before a person sees it: the length of each comment by its tier, traces of the workflow in any mode, AI authorship lines, personal data and the project's forbidden words. With `--skill`, checks that every rule of a generated review skill points at a section of its `research.md`. With `--reply`, checks the draft of replies of skill `pr-reply`: the same rules for each reply still in draft, named `items[<i>]`, an empty reply, one length limit for every reply (the largest tier of `--rules`, else of the template's `lint.json`), and exit 2 for a file of the wrong shape |
 | `shortcut-ledger` | Lists the `shortcut:` comments of a work tree, one row each |
 | `code-map` | The code map of a repository, kept next to the Profile, with a commit for each folder |
 | `worktree-lock` | The advisory lock on a working tree, see [Hooks](skills-agents-and-hooks.md#hooks) |
