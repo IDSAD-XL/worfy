@@ -174,3 +174,114 @@
   background: var(--surface-raised);
   font-weight: 600;
 }
+
+/*
+ * A comment of a pull request read as GitHub shows it (prop `github`, worfy-polish ticket 104): headings sized for a
+ * comment rather than a page, a wide table scrolls inside the card, mentions and issue references stand out, an image
+ * is a link to it, and a ```suggestion block is a labelled suggested change with its lines as added lines of a diff.
+ */
+.w-md--github h1,
+.w-md--github h2 {
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-15);
+}
+
+.w-md--github h2 {
+  font-size: var(--text-13);
+}
+
+.w-md--github h3 {
+  font-size: var(--text-13);
+}
+
+.w-md--github h4,
+.w-md--github h5,
+.w-md--github h6 {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.w-md--github table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.w-md--github li > p {
+  margin-bottom: var(--space-1);
+}
+
+.w-md--github ul ul,
+.w-md--github ul ol,
+.w-md--github ol ul,
+.w-md--github ol ol {
+  margin-bottom: 0;
+}
+
+.w-md a.w-md__mention,
+.w-md a.w-md__ref {
+  font-weight: 600;
+  text-decoration-line: none;
+}
+
+.w-md a.w-md__mention:hover,
+.w-md a.w-md__mention:focus-visible,
+.w-md a.w-md__ref:hover,
+.w-md a.w-md__ref:focus-visible {
+  text-decoration-line: underline;
+}
+
+.w-md a.w-md__image-link {
+  display: inline-block;
+  padding: 0 var(--space-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-chip);
+  font-size: var(--text-12);
+  font-weight: 400;
+  text-decoration-line: none;
+}
+
+.w-md__suggestion {
+  margin: 0 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  overflow: hidden;
+}
+
+.w-md__suggestion-label {
+  padding: 3px var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.w-md__suggestion-empty {
+  padding: 3px var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+/* Three classes: wins over the margins a container gives every `pre` of the text (pr-inbox.css). */
+.w-md .w-md__suggestion .w-md__suggestion-code {
+  margin: 0;
+  padding: var(--space-1) 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--ready-bg);
+}
+
+.w-md__suggestion-line {
+  display: block;
+  padding: 0 var(--space-2);
+}
+
+.w-md__suggestion-line::before {
+  content: '+';
+  display: inline-block;
+  width: 14px;
+  color: var(--ready-text);
+  user-select: none;
+}

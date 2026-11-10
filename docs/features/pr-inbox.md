@@ -91,6 +91,16 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
   their age. A deleted account is `ghost`, as on GitHub;
 - **Conversation**: the last comments of the PR's conversation tab, when it has any.
 
+A comment reads as it does on GitHub: its body is GitHub-flavoured markdown — bold, italic, strikethrough, inline code,
+lists (nested and numbered), quotes, code blocks (without syntax colours), tables, task lists (read-only), headings
+sized for a comment, and horizontal rules; a single newline is a line break, as in a GitHub comment. A ```` ```suggestion ````
+block shows under the label "Suggested change", its lines as added lines; an empty one says "Delete the lines". `@login`
+and `@org/team` are links to the person or the team on GitHub, `#123` a link to that issue or PR of the PR's repository
+and `owner/name#123` of that one; in code they stay text. An HTML comment `<!-- … -->` is hidden, as on GitHub. Any other
+HTML is shown as text and never runs: GitHub's `<details>` or `<sub>` read as their tags. An image is not loaded: it
+shows as a link with its alt text, which opens the image in the browser. The same reading applies to the comments a
+draft reply answers and to the text of a sent reply; a draft's field holds its text as written.
+
 Selecting a PR — a click, **↑** or **↓**, or an entry that names it — and **Mark seen** record that the user has looked:
 "N new since you looked" goes. The PR the view selects by itself, and the first PR of a group a sidebar row asked
 for, record nothing. Links open in the system's browser, never in the window.

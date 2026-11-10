@@ -110,6 +110,9 @@ function stubPull(
 const WEB_REPO = 'example-org/web'
 const OPS_REPO = 'example-org/ops'
 
+/** A review comment in GitHub markdown: bold, a list, inline code, a code block and a reference (worfy-polish ticket 104). */
+const C12_BODY = ['A **comment** would help, see #40:', '', '- above the loop', '- in `retryUpload()` too', '', '```ts', 'const tries = 3', '```'].join('\n')
+
 /** web: a review asked of my team, my PR owing an answer with two new comments, one with red CI; ops: one review asked of me. */
 const PULLS: StubPull[] = [
   stubPull(WEB_REPO, 41, 'Add the export button', { author: ANA, requested: [{ team: 'web-team' }], reviewDecision: 'REVIEW_REQUIRED', ci: 'PENDING', size: [96, 310], merge: 'BLOCKED' }),
@@ -125,7 +128,7 @@ const PULLS: StubPull[] = [
         path: 'src/upload.ts',
         line: 12,
         viewerCanReply: true,
-        comments: { nodes: [comment('C11', ANA, 5, 'Why three tries here?', WEB_REPO, 118), comment('C12', ANA, 4, 'A comment would help', WEB_REPO, 118)] },
+        comments: { nodes: [comment('C11', ANA, 5, 'Why three tries here?', WEB_REPO, 118), comment('C12', ANA, 4, C12_BODY, WEB_REPO, 118)] },
       },
     ],
   }),
@@ -249,6 +252,13 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
     await expect(pane(window).getByTestId('pr-inbox-thread-link')).toHaveText('src/upload.ts:12')
     await expect(pane(window).getByTestId('pr-inbox-comment')).toHaveCount(2)
     await expect(pane(window).getByTestId('pr-inbox-comment').first()).toContainText('Why three tries here?')
+    // The second comment reads as GitHub markdown: no raw `**`, a list, a code block, #40 a link (worfy-polish ticket 104).
+    const marked = pane(window).getByTestId('pr-inbox-comment-body').nth(1)
+    await expect(marked.locator('strong')).toHaveText('comment')
+    await expect(marked.locator('li')).toHaveText(['above the loop', 'in retryUpload() too'])
+    await expect(marked.locator('pre code')).toHaveText('const tries = 3')
+    await expect(marked.getByRole('link', { name: '#40' })).toHaveAttribute('href', `https://github.com/${WEB_REPO}/issues/40`)
+    await expect(marked).not.toContainText('**')
     await expect(pane(window).getByTestId('pr-inbox-next-step-title')).toHaveText('Answer 1 open thread')
     await expect(pane(window).getByTestId('pr-inbox-size')).toHaveText('+184−22')
     await expect(pane(window).getByTestId('pr-inbox-merge')).toHaveText('Blocked')

@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import type { PrInboxComment, PrReplyDrafts, PrReplyItem, PrReplyRef, PrReplySendResult } from '../../shared/ipc/pr-inbox'
 import { hasPreloadBridge, invoke, readableReason, windowMachine } from '../ipc'
+import { CommentBody } from './CommentBody'
 
 /** How often the drafts of an open PR are read again: the Session writes them while the user looks. */
 const DRAFTS_POLL_MS = 5_000
@@ -269,6 +270,8 @@ export interface DraftThreadProps {
   place: string
   /** The comments it answers, when they are not shown above it already; none by default. */
   comments?: readonly PrInboxComment[]
+  /** The PR's repository, `owner/name`: a `#N` in a comment or a sent reply links into it (CommentBody.tsx). */
+  repo?: string | null
   text: string
   busy: boolean
   /** What the last call about it said (a Send, a refused save or discard); null when none did in this view. */
@@ -303,7 +306,7 @@ const draftStyles = {
   actions: { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' },
   note: { margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   error: { margin: 0, color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
-  sentText: { display: 'block', marginTop: 'var(--space-1)', whiteSpace: 'pre-wrap', color: 'var(--text)' },
+  sentText: { marginTop: 'var(--space-1)', color: 'var(--text)' },
   bar: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'var(--space-2)' },
 } satisfies Record<string, CSSProperties>
 
@@ -323,7 +326,7 @@ function postedOff(result: PrReplySendResult | null): string | null {
 }
 
 /** A draft reply under its thread: the field, and Send, Discard, Ask the Session to rewrite; a sent one, its link. */
-export function DraftThread({ item, place, comments = [], text, busy, result, disabled, rewriteOff, onText, onSave, onSend, onDiscard, onAskRewrite }: DraftThreadProps) {
+export function DraftThread({ item, place, comments = [], repo = null, text, busy, result, disabled, rewriteOff, onText, onSave, onSend, onDiscard, onAskRewrite }: DraftThreadProps) {
   const fieldId = useId()
   const line = resultLine(item, result)
   const empty = text.trim() === ''
@@ -349,13 +352,13 @@ export function DraftThread({ item, place, comments = [], text, busy, result, di
               <span className="w-pr-inbox-comment__meta">
                 <span className="w-pr-inbox-comment__author">{comment.author ?? 'ghost'}</span>
               </span>
-              <p className="w-pr-inbox-comment__body">{comment.body}</p>
+              <CommentBody body={comment.body} repo={repo} />
             </li>
           ))}
         </ul>
       ) : null}
       {item.state === 'sent' ? (
-        <p style={draftStyles.note} data-testid="pr-draft-sent">
+        <div style={draftStyles.note} data-testid="pr-draft-sent">
           Sent
           {item.sentUrl !== null ? (
             <>
@@ -372,8 +375,11 @@ export function DraftThread({ item, place, comments = [], text, busy, result, di
               </a>
             </>
           ) : null}
-          <span style={draftStyles.sentText}>{item.body}</span>
-        </p>
+          {/* The sent text reads as GitHub shows it; the field above a draft stays the text as written. */}
+          <div style={draftStyles.sentText} data-testid="pr-draft-sent-text">
+            <CommentBody body={item.body} repo={repo} />
+          </div>
+        </div>
       ) : (
         <>
           <textarea
@@ -596,6 +602,7 @@ function ThisMachineDrafts({ projectId, repo, number, readOnly, threads, childre
       key={`draft-${item.index}`}
       item={item}
       place={place(item)}
+      repo={repo}
       text={state.textOf(item)}
       busy={state.busy}
       result={state.resultOf(item)}
