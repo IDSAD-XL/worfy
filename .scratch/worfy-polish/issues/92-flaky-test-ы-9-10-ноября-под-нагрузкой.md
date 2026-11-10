@@ -41,10 +41,15 @@ Source: Orchestrator 2026-11-10. Решение владельца: один Tic
 
 - [ ] Для каждого из пунктов 1–8 в «Итог» — причина с file:line и исправление, или что найдено и почему причина не
       названа.
+  - evidence: commit pass · Fix six causes of flaky tests under load; scale eight e2e limits (worfy-polish 92) · - - · 86c92d1f212284449639b15a3e81ce9d288de664
 - [ ] Исправленные воспроизведены до правки (нагрузка CPU, задержка, параллельные копии) и проходят после: счёт в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs` and `bash` of each fixed test with an injected delay: red before on origin/main, green after (counts in Итог) exit 0 · mac - · 86c92d1f212284449639b15a3e81ce9d288de664
 - [ ] Пункт 9: все восемь пределов через `ms()`; затронутые e2e spec-и прогнаны под замком e2e.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/card-runtime.spec.ts test/e2e/external-session.spec.ts test/e2e/handoff.spec.ts test/e2e/linked-cards.spec.ts test/e2e/subagent-tree.spec.ts test/e2e/edges.spec.ts` exit 0 (16 passed) · mac - · 86c92d1f212284449639b15a3e81ce9d288de664
 - [ ] Все затронутые test-файлы и shell test-ы — exit 0; `plugin-neutral.test.sh` — exit 0.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs` of the four touched vitest files and test-timeout-scale.test.ts exit 0; rules-hooks, gate-verdict-signals, plugin-neutral .test.sh exit 0 · mac - · 86c92d1f212284449639b15a3e81ce9d288de664
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 86c92d1f212284449639b15a3e81ce9d288de664
 
 ## Где в коде
 
