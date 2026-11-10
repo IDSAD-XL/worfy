@@ -59,13 +59,16 @@
 }
 /* In a window narrower than 1400 px the View switch shows its icons alone, so the switch, the toolbar
    items and the search field stay whole next to a long Project name; each segment keeps its name as
-   aria-label and tooltip (SegmentedControl). Other segmented controls keep their labels. */
+   aria-label and tooltip (SegmentedControl). Other segmented controls keep their labels. Each icon
+   segment is 6 px of padding on each side: five segments (Pull requests, worfy-pr-inbox ticket 03)
+   then take no more room than four did at 10 px, so the Project name keeps its width at 1280 px next
+   to two Vendors' Limits (test/e2e/limits-vendors.spec.ts). */
 @media (max-width: 1400px) {
   .w-toolbar .w-segmented__label {
     display: none;
   }
   .w-toolbar .w-segmented__item {
-    padding: 0 10px;
+    padding: 0 6px;
   }
 }
 /* In a window up to 1100 px wide (worfy-polish ticket 48) the toolbar keeps every item in its place

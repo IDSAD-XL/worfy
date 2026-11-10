@@ -44,6 +44,7 @@
 // Project's newest Run (flight-recorder/open.ts).
 // "New Product Session" (worfy-product-session ticket 06) is an entry of its own beside "New
 // session": a Session of kind `product` on Claude Code, opened in the Session view at once.
+// "Pull requests" (worfy-pr-inbox ticket 03) opens the PR inbox of the active Project (pr-inbox/open.ts).
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -69,6 +70,7 @@ import { openGuide, useGuide } from '../guide/store'
 import { invoke, windowMachine } from '../ipc'
 import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
+import { openPrInboxOf } from '../pr-inbox/open'
 import { openProject } from '../projects/useProjects'
 import { openOrchestrator, openSession, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
@@ -437,6 +439,16 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
         void openRunHistory(projectId)
         return undefined
       },
+    })
+    // The Pull requests view of the active Project (worfy-pr-inbox ticket 03); it only reads GitHub, so a
+    // read-only screen has it too.
+    commands.push({
+      id: 'view:pull-requests',
+      group: 'View',
+      title: 'Pull requests',
+      detail: view === 'pull-requests' ? 'shown now' : 'Open PRs and review requests',
+      keys: ['pull requests', 'prs', 'pr inbox', 'review requests', 'reviews', 'github'],
+      run: () => openPrInboxOf(projectId, projectId),
     })
     const tags = [...new Set(layoutNodes.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b))
     for (const tag of tags) {

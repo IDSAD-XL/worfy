@@ -15,6 +15,7 @@ import { UNNAMED_VENDOR, VENDOR_IDS, vendorLabel, type VendorId } from '../../sh
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
+import { SettingSwitch } from '../settings/controls'
 import { PrimaryButton } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
@@ -58,6 +59,8 @@ const styles = {
   subtitle: { margin: '0 0 var(--space-4)', color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   field: { display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' },
   label: { fontWeight: 600 },
+  // A label with its switch at the row's end, as in Settings; the dialog's bold label and spacing.
+  toggle: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' },
   input: {
     height: 'var(--row-height)',
     padding: '0 var(--space-2)',
@@ -119,6 +122,9 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  * on a Product Session's question adds them; a removal is sent with Save, and only then, so a Save of
  * the other fields never touches the list.
  *
+ * "Read pull requests from GitHub" (worfy-pr-inbox ticket 03, spec decision Q10): the `prInbox` field, on by
+ * default. Off, main runs no gh for the Project's PR inbox; it is sent with Save, and only when changed here.
+ *
  * "Edit profile…" (worfy-polish ticket 78) opens the fields of the Project's Profile over this window
  * (EditProfile.tsx): they are the Harness's, written by its `bin/profile-set` on their own Save, not with
  * the settings of this window.
@@ -134,6 +140,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   // «Product Session may also write here» as loaded, and as left after the removals in the dialog.
   const [loadedFolders, setLoadedFolders] = useState<readonly string[]>([])
   const [folders, setFolders] = useState<readonly string[]>([])
+  // "Read pull requests from GitHub" as loaded, and as switched in the dialog: absent in settings.json reads as on.
+  const [loadedInbox, setLoadedInbox] = useState(true)
+  const [inbox, setInbox] = useState(true)
   // The fields as loaded: "Build" of the team reviewer closes the window only when none was edited since.
   const [loadedFields, setLoadedFields] = useState<string>()
   const [shells, setShells] = useState<ShellOptions>([])
@@ -168,7 +177,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         setVendor(result.value.defaultVendor ?? 'none')
         setLoadedFolders(result.value.productWriteFolders ?? [])
         setFolders(result.value.productWriteFolders ?? [])
-        setLoadedFields(fieldsKey(result.value.actionTemplates, result.value.terminalShell, result.value.defaultVendor ?? 'none', result.value.productWriteFolders ?? []))
+        setLoadedInbox(result.value.prInbox ?? true)
+        setInbox(result.value.prInbox ?? true)
+        setLoadedFields(fieldsKey(result.value.actionTemplates, result.value.terminalShell, result.value.defaultVendor ?? 'none', result.value.productWriteFolders ?? [], result.value.prInbox ?? true))
       } else setFailure(result.error)
     })
     // No answer, or a failure, leaves the list empty: the field is not shown.
@@ -181,7 +192,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   }, [project.id, machine])
 
   const loaded = templates !== undefined
-  const edited = templates !== undefined && loadedFields !== undefined && fieldsKey(templates, terminalShell, vendor, folders) !== loadedFields
+  const edited = templates !== undefined && loadedFields !== undefined && fieldsKey(templates, terminalShell, vendor, folders, inbox) !== loadedFields
   useEffect(() => {
     if (loaded) firstField.current?.focus()
   }, [loaded])
@@ -203,6 +214,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
       ...(terminalShell === undefined ? {} : { terminalShell }),
       ...(defaultVendor === undefined ? {} : { defaultVendor }),
       ...(productWriteFoldersRemoved.length === 0 ? {} : { productWriteFoldersRemoved }),
+      // Only a change: a save that leaves the switch alone keeps what settings.json says.
+      ...(inbox === loadedInbox ? {} : { prInbox: inbox }),
     }
     const result = await call('projects.settings.set', { id: project.id, settings })
     setSaving(false)
@@ -341,6 +354,18 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           </section>
         ) : null}
 
+        {templates ? (
+          <section style={styles.field} aria-label="Pull requests" data-testid="project-settings-pr-inbox">
+            <div style={styles.toggle}>
+              <span style={styles.label}>Read pull requests from GitHub</span>
+              <SettingSwitch label="Read pull requests from GitHub" checked={inbox} onChange={setInbox} disabled={readOnly !== null} title={readOnly ?? undefined} testId="project-settings-pr-inbox-switch" />
+            </div>
+            <span style={styles.hint}>
+              The Pull requests view and its sidebar section: the open PRs and review requests of the Project&apos;s repositories, searched every 5 minutes. Off, worfy runs no gh for them.
+            </span>
+          </section>
+        ) : null}
+
         {project.path === undefined ? null : (
           <section style={styles.field} aria-label="Profile" data-testid="project-settings-profile">
             <span style={styles.label}>Profile</span>
@@ -418,8 +443,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
 }
 
 /** The editable fields of the dialog as one string, to tell whether any was edited since the load. */
-function fieldsKey(templates: ActionTemplates, terminalShell: TerminalShellSetting | undefined, vendor: VendorChoice, folders: readonly string[]): string {
-  return JSON.stringify([templates, terminalShell ?? null, vendor, folders])
+function fieldsKey(templates: ActionTemplates, terminalShell: TerminalShellSetting | undefined, vendor: VendorChoice, folders: readonly string[], inbox: boolean): string {
+  return JSON.stringify([templates, terminalShell ?? null, vendor, folders, inbox])
 }
 
 /** A date as `YYYY-MM-DD` in the local time of the window. */

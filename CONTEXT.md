@@ -132,6 +132,10 @@ _Avoid_: простой, пауза, idle
 Вид одного Run-а Autopilot-а: шкала его Wave-ов, Ticket-ов, агентов, CI и gate, ожиданий и блокировок; считается при открытии из источников. Половина вкладки Runs рядом с Work track.
 _Avoid_: журнал (как имя вида), trace
 
+**PR inbox**:
+Вид «Pull requests» Project-а: открытые PR пользователя и запросы ревью у него по репозиториям Project-а, сгруппированные по тому, чей ход (Needs my review, Needs my answer, Needs a fix, Ready, Waiting on others), нити ревью и черновики ответов. Читает GitHub из main и ничего не публикует без щелчка Send ([ADR-0105](docs/adr/0105-pr-reply-only-on-the-users-click.md)). Подпись в UI — «Pull requests».
+_Avoid_: inbox (без PR), входящие, dashboard
+
 **Flight Recorder**:
 Часть worfy, которая собирает факты Run-а из журнала Autopilot-а, транскриптов, GitHub и логов gate (у Project-а без PR — из файла отметок и git) и строит Run history; своего хранилища нет.
 _Avoid_: бортовой самописец, logger

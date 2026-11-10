@@ -38,6 +38,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Vendors](vendors.md) | Vendor: Claude Code and Codex, the driver of each |
 | [Transcripts and usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate and GitHub](gate-and-github.md) | Gate, Gate full, Failure records, PR and CI badges |
+| [Pull requests](pr-inbox.md) | PR inbox: the user's open PRs and review requests of a Project, review threads, the sidebar section |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
 | [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme |

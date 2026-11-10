@@ -5,6 +5,7 @@ import { setFocusSlot } from '../focus/focus-state'
 import { GettingStartedPanel } from '../getting-started/GettingStartedPanel'
 import { GuideHost } from '../guide/GuideHost'
 import { MachineDialogs } from '../machines/MachineDialogs'
+import { PullRequestsView } from '../pr-inbox/PrInboxView'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
@@ -63,7 +64,7 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
 }
 
 /** The name of the main area for each view, as its tab in the toolbar says it (Run history has no tab). */
-const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline', history: 'Run history' }
+const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline', history: 'Run history', 'pull-requests': 'Pull requests' }
 
 /** The window of design F: sidebar, unified toolbar and the main area under it. */
 export function AppShell({ project, canvas, session, pipeline, history, view: controlledView, onViewChange }: AppShellProps) {
@@ -107,6 +108,10 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
           </div>
           <div className="w-shell__view" data-view="history" hidden={view !== 'history'}>
             {history}
+          </div>
+          {/* The PR inbox of the active Project (worfy-pr-inbox ticket 03): the view finds the Project itself. */}
+          <div className="w-shell__view" data-view="pull-requests" hidden={view !== 'pull-requests'}>
+            <PullRequestsView />
           </div>
         </main>
       </div>

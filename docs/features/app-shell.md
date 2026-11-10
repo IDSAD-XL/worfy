@@ -4,6 +4,12 @@ What surrounds the Canvas in every window, on every Project. Six Features: the *
 **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
+The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
+[Workflow](workflow.md)), **Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)) and **Pull
+requests** (see [Pull requests](pr-inbox.md)). In a narrow window the tabs show their icons alone, the name is the
+tooltip. Runs and Pull requests are inactive without a Project. Every view stays mounted while another one is shown,
+so switching back finds it as it was.
+
 ## Command palette
 
 ### Behaviour
@@ -23,7 +29,7 @@ next typing or pick. While a command runs, another pick does nothing.
 | Group | Rows |
 |---|---|
 | Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; First-run checks; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
 | Manual check | Each unchecked manual check of a Ticket. These rows appear only after typing |

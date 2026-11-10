@@ -1,7 +1,7 @@
 # 03 — Вид «Pull requests», раздел sidebar, Command palette, переключатель в Project settings, термин PR inbox
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T01:26Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–3; «Как работает» → «Вид и sidebar (Ticket 03; Q1, Q7)»;
 «Ticket-ы», «Волны» (Wave 2); решения Q1, Q7, Q10;
@@ -49,20 +49,30 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 ## Готово, когда
 
 - [ ] Unit test: снимок из fixture-а — пять групп в порядке spec-а, строки со всеми полями, «via team».
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 5ce963663105a41c5c20f38fc60fb42726ad628b
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
 - [ ] Unit test: строка состояния — время следующего поиска, строка ошибки, `notice` из снимка.
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 5ce963663105a41c5c20f38fc60fb42726ad628b
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-view.test.tsx test/contract/pr-inbox.test.ts` exit 0 · mac - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
 - [ ] E2e test: toolbar → Pull requests открывает вид; sidebar показывает счётчики; Command palette открывает вид.
 - [ ] Unit test: `openPrInboxOf` с PR — вид открыт, строка этого PR раскрыта; PR нет в снимке — строка «This pull
       request is not in the inbox»; другой Project — сначала выбор Project-а.
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-open.test.tsx test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · 5ce963663105a41c5c20f38fc60fb42726ad628b
+  - evidence: test-run pass · `pnpm vitest run test/unit/pr-inbox-open.test.tsx test/unit/pr-inbox-view.test.tsx` exit 0 · mac - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
 - [ ] E2e test: `openPrInboxOf` с PR из другого Project-а окна открывает его вид на этом PR.
 - [ ] E2e test: раскрытие строки показывает нити; «N new since you looked» гаснет после открытия.
 - [ ] E2e test: переключатель Project settings выключает чтение — журнал stub-а gh пуст после выключения.
 - [ ] E2e test: с открытым видом и раскрытой нитью журнал stub-а gh не содержит ни одной записи.
 - [ ] `CONTEXT.md` — термин PR inbox; `docs/features/pr-inbox.md` описывает вид.
+  - evidence: commit pass · Pull requests view, sidebar section and opening one PR (worfy-pr-inbox 03) · - - · 5ce963663105a41c5c20f38fc60fb42726ad628b
+  - evidence: commit pass · CONTEXT.md PR inbox; docs/features/pr-inbox.md updated in review round 1 (worfy-pr-inbox 03) · - - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
 - [ ] Снимок вида на fixture-проекте в `.scratch/worfy-pr-inbox/evidence/03-pull-requests-view.png` (выдуманные
       данные).
 - [ ] Владелец в Mac Stable открыл вид на командном проекте: группы и счётчики совпадают с GitHub.
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5ce963663105a41c5c20f38fc60fb42726ad628b
+  - evidence: gate pass · `gate fast` exit 0, [gate] green (fast): lint typecheck test · mac - · aed9d345f10e03bb02c1dd0a40beb3c7e455d5ff
 
 ## Тесты
 
@@ -88,3 +98,12 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 - `test/unit/pr-inbox-view.test.tsx` (новый)
 - `test/unit/pr-inbox-open.test.ts` (новый)
 - `test/e2e/pr-inbox.spec.ts` (новый)
+
+## Результат
+
+- Снимок `.scratch/worfy-pr-inbox/evidence/03-pull-requests-view.png` не сделан: экран Mac был заблокирован в обоих
+  раундах (2026-11-10, `IOConsoleLocked = Yes`), пункт оставлен открытым. E2e (`test/e2e/pr-inbox.spec.ts`,
+  `test/e2e/limits-vendors.spec.ts`) локально не запускались — их запускает CI.
+- Раунд ревью 1: место в toolbar при 1280 px (иконки View switch с отступом 6 px), Ticket chip учитывает репозиторий
+  строки `PR:`, включённый снова Project читается сразу, чтения в main идут одной очередью, tooltip у обрезанного
+  заголовка, проверка e2e на запись ловит REST с телом без GET.
