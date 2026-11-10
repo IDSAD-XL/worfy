@@ -47,11 +47,15 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
 
 - [ ] IPC с состоянием каждого Project-а: contract test-ы на ответ и на событие изменения; в main нет watcher-а на Project
       на каждое окно.
+  - evidence: test-run pass · `pnpm test test/contract/project-pulse.test.ts test/contract/docs.test.ts test/contract/workflow-stages.test.ts` exit 0 (in `pnpm test` exit 0) · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 - [ ] Sessions и ADR в «All» показывают все Project-ы по группам; клик по чужому Project-у открывает его; unit test-ы.
+  - evidence: test-run pass · `pnpm test test/unit/sidebar-all-projects.test.tsx test/unit/sidebar-section.test.tsx test/unit/adr-section.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 - [ ] Карточки Projects и badge busy по прототипу; e2e на двух fixture Project-ах.
 - [ ] `docs/features/app-shell.md` (раздел Sidebar) и `docs/features/sessions.md` описывают новое поведение.
+  - evidence: commit pass · Sidebar «All Projects»: Sessions, ADR and live Project cards (worfy-polish 99) · - - · b5be304e827b486322a296ed62a6e078cc17dca3
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» с двумя Project-ами в Sessions, ADR и Projects; fixture Project-ы.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 
 ## Где в коде
 
