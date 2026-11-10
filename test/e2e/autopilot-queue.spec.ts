@@ -81,9 +81,30 @@ async function headerInView(window: Page, epic: string): Promise<Locator> {
   return header
 }
 
+/**
+ * "⋯" of the frame, inside the window: at 1400 px the frame of the Epic on the right may stand past the window's edge
+ * (by the width of the sidebar, 264 px since worfy-polish ticket 94), and a click there opens nothing. The sidebar's
+ * row of the Epic centres its frame then.
+ */
+async function moreOf(frame: Locator): Promise<Locator> {
+  const more = frame.getByTestId('action-autopilot-more')
+  const window = frame.page()
+  if (!(await more.evaluate((button, wanted) => {
+    const box = button.getBoundingClientRect()
+    const { innerWidth, innerHeight } = globalThis as unknown as { innerWidth: number; innerHeight: number }
+    return box.left >= 0 && box.top >= 0 && box.right <= innerWidth - wanted && box.bottom <= innerHeight
+  }, 8))) {
+    const epic = await frame.getAttribute('data-epic')
+    await showSidebarSection(window, 'Epics')
+    await window.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`).click()
+  }
+  await expect(more).toBeInViewport(WHOLLY_IN_VIEW)
+  return more
+}
+
 /** Chooses `item` in "⋯" of the frame. */
 async function choose(frame: Locator, item: string): Promise<void> {
-  await frame.getByTestId('action-autopilot-more').click()
+  await (await moreOf(frame)).click()
   const entry = frame.page().getByRole('menuitem', { name: item })
   await expect(entry).toHaveAttribute('aria-disabled', 'false')
   await entry.click()
@@ -91,8 +112,7 @@ async function choose(frame: Locator, item: string): Promise<void> {
 
 /** The items of "⋯" of the frame, read with the menu open, then closed again. */
 async function menuOf(frame: Locator): Promise<string[]> {
-  const more = frame.getByTestId('action-autopilot-more')
-  await more.click()
+  await (await moreOf(frame)).click()
   const items = frame.page().getByRole('menuitem')
   await expect(items.first()).toBeVisible()
   const labels = await items.allTextContents()
