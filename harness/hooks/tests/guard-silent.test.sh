@@ -195,6 +195,22 @@ got="$(guard_win "$POST /c/no-such-dir/review.json")"
 [[ "$got" == deny*'could not be read'* && "$got" =~ C:[/\\]no-such-dir[/\\]review\.json ]] && ok "win32: gh api --input /c/<file> -> read as C:/<file>" \
     || bad "win32: --input /c/<file>: ${got:0:400}"
 
+# Elsewhere /tmp and /c/ are plain paths: the Git Bash mapping is for Windows only. The payloads go into a folder of
+# their own under the real /tmp, removed at the end.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *)
+        RT="$(mktemp -d /tmp/guard-silent.XXXXXX)"
+        cp "$T/review.json" "$RT/review.json" && cp "$T/review-clean.json" "$RT/review-clean.json"
+        expect "not win32: gh api --input /tmp/<file> -> read from /tmp itself, deny with the trace" deny "$R" "$POST $RT/review.json" 'Ticket 05'
+        expect "not win32: gh api --input /tmp/<clean payload> -> allow" allow "$R" "$POST $RT/review-clean.json"
+        rm -rf "$RT"
+        expect "not win32: gh api --input /c/<file> stays /c/" deny "$R" "$POST /c/no-such-dir/review.json" 'could not be read'
+        [[ "$got" == *'/c/no-such-dir/review.json'* && ! "$got" =~ C:[/\\]no-such-dir ]] && ok "not win32: /c/<file> is not read as C:/<file>" \
+            || bad "not win32: /c/<file>: ${got:0:400}"
+        ;;
+esac
+
 # The Team reviewer's posting step, both lines in one command: the payload does not exist when the guard reads it.
 WRITE_THEN_POST="node -e 'require(\"fs\").copyFileSync(process.argv[1], process.argv[2])' \"$T/review.json\" \"$T/payload-9.json\"
 $POST \"$T/payload-9.json\"; echo \"EXIT=\$?\""
