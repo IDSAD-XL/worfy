@@ -36,7 +36,7 @@ Eval case `harness/evals/reviewer-verdict` запускает одного аг�
       `rejected-first` зелёный в каждом; команда, exit code, балл и цена — в «Итог».
 - [ ] Платный `eval --changed origin/main` по остальным case-ам, которые покрывает `reviewer.md`, — на пороге или выше.
 - [ ] `node harness/bin/start-context` — exit 0 (reviewer в пороге).
-  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 12 062 tokens, 2 938 below the threshold) · mac - · 177d2e642
+  - evidence: test-run pass · `node harness/bin/start-context` exit 0 (reviewer 12 188 tokens, 2 812 below the threshold) · mac - · bed7a8682
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
@@ -103,3 +103,26 @@ test был красным: 7 FAIL. После правки reviewer по `node 
 на 2 938 ниже порога (exit 0).
 
 Платный eval после раунда 2 запускает Orchestrator: пункты 2 и 3 «Готово, когда» открыты.
+
+Раунд 2 ревью (вердикт REJECTED): платный `eval --changed origin/main --keep-temp` Orchestrator-а на head
+`67df938ee` стоил 2.21 USD. `reviewer-intended-breakage` 1.00, `reviewer-simplification` 1.00,
+`reviewer-verdict` 0.78: grader `rejected-first` не прошёл в 2 из 3 run-ов. Копии transcript-ов у Orchestrator-а —
+`eval-traces-1757/r2-run1-failed-trace.jsonl` (строка 57, Write в `verdict.md`) и `r2-run3-failed-trace.jsonl`
+(строка 46). Последнее сообщение reviewer-а начинается с комментария к результату последнего вызова tool-а:
+«Confirms: ticket 01's own trail section … only lists …» и «This confirms a clear discrepancy.». Вердикт идёт
+после него. В run-е 1 у вердикта ещё и метка: `VERIFIED/REJECTED: REJECTED: …`. Основная сессия копирует
+сообщение без правок.
+
+Правка раунда 3, `harness/agents/reviewer.md`, линза «implementer's report»:
+- последнее сообщение — это ответ и ничего больше. Замечание о том, что показала последняя команда или
+  последнее чтение файла, пишут в сообщении до последнего вызова tool-а или не пишут вовсе, но никогда
+  перед вердиктом;
+- третья строка `Wrong:` показывает это начало: `This confirms a clear discrepancy.` или `Confirms: …`
+  на строке над вердиктом;
+- в списке запрещённых меток перед вердиктом, кроме `Verdict:`, теперь `VERIFIED/REJECTED:`.
+
+`agents-text.test.sh` закрепляет оба новых предложения, третью строку `Wrong:` и новую метку. До правки
+`reviewer.md` test был красным: 5 FAIL. После правки reviewer по `node harness/bin/start-context` весит
+12 188 tokens, на 2 812 ниже порога (exit 0).
+
+Платный eval после раунда 3 запускает Orchestrator: пункты 2 и 3 «Готово, когда» открыты.
