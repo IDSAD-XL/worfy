@@ -92,7 +92,9 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
 - Чего новое снятие не повторило: «Prompt is too long» и `status: compacting` (у haiku 5.5 окно больше), пятичасового
   окна в `rate_limit_event` (у аккаунта его нет). Test-ы на эти случаи держат сообщения снятия 2026-10-05 у себя,
   сценарии Limits fake SDK играют пятичасовое окно по исключению в `test/contract/sdk-compat.test.ts`.
-- В skill-ах пользователя было личное слово владельца: оба probe теперь пишут слова deny list-а как `<personal>`.
+- В skill-ах пользователя было личное слово владельца. Оба probe (`scripts/spikes/personal-scrub.mjs`) пишут имя с
+  таким словом как `skill-N` целиком, текст с ним — как `<personal text>`, и ставят такие записи в конец списка;
+  временная папка Claude Code `/private/tmp/claude-<uid>/<проект>` — `<tmp>` (правки ревью, `--rescrub` без вызова модели).
 - `.github/dependabot.yml`: npm, daily, только `@anthropic-ai/claude-agent-sdk*` одной группой, cooldown 1 день
   (pnpm 11 не ставит версии моложе суток), не больше 2 открытых PR. Dependabot PR идёт через `ci.yml` как любой PR,
   но его `ci-ok` красный, пока fixtures не сняты заново: `test/contract/sdk-compat.test.ts` так и задуман.
