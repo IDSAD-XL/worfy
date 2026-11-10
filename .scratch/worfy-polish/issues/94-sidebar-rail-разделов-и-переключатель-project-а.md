@@ -51,7 +51,7 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
   - evidence: commit pass · Sidebar round 2: focus on show, switcher after open, empty panels (worfy-polish 94) · - - · acb09c21b
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» и один Project, fixture Project-ы.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · acb09c21b
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a13387dba
 
 ## Где в коде
 
