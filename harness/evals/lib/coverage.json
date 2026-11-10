@@ -2,8 +2,8 @@
   "cases": {
     "epic-wave-tickets": ["skills/epic-wave/SKILL.md"],
     "epic-wave-old-form": ["skills/epic-wave/SKILL.md"],
-    "ship-ticket-local-green": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/pipeline-stages.md", "skills/ship-ticket/step-7-review.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
-    "ship-ticket-pr-green-ci": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/pipeline-stages.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
+    "ship-ticket-local-green": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-2-preflight.md", "skills/ship-ticket/step-2-worktree.md", "skills/ship-ticket/step-5-smallest-change.md", "skills/ship-ticket/pipeline-stages.md", "skills/ship-ticket/step-7-review.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
+    "ship-ticket-pr-green-ci": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-2-preflight.md", "skills/ship-ticket/step-2-worktree.md", "skills/ship-ticket/step-5-smallest-change.md", "skills/ship-ticket/pipeline-stages.md", "skills/ship-ticket/step-8-pr-and-ci.md", "skills/ship-ticket/step-11-close.md"],
     "no-os-screen-capture": ["skills/ship-ticket/SKILL.md", "skills/ship-ticket/step-6-manual-gui-checks.md"],
     "implementer-report": ["agents/implementer.md", "skills/ship-ticket/implementer-report.md", "skills/ship-ticket/implementer-finish.md"],
     "reviewer-verdict": ["skills/epic-wave/SKILL.md", "agents/reviewer.md"],

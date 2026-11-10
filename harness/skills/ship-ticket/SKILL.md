@@ -23,7 +23,8 @@ not profile facts: they are always called from `${CLAUDE_PLUGIN_ROOT}/bin/`. A b
 number, `<slug>`, `<branch>` — the branch, `<ticket-name>` — `<NN>-<slug>`, `<review-target>` — what
 is reviewed, `<file>` — a test file) are part of the profile contract: substitute them as written.
 
-**Step files.** Steps 7 to 11, the review of a PR another session wrote and the parts only some
+**Step files.** Steps 7 to 11, the details of steps 2 and 5 (the preflight's answer, where to work,
+the smallest change), the review of a PR another session wrote and the parts only some
 tickets need (Silent mode, manual GUI checks, the source of step 5) live in files next to this one.
 Each line that starts with `Read` names one and says when to read it: read it then, not before, unless another
 skill sends you there earlier — an agent that never gets there never pays for it. Claude Code spells out the plugin root only in this
@@ -77,6 +78,12 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/silent-mode.md` when `F _resolved
 (`Co-Authored-By: Claude …`, `Generated with [Claude Code]`), even where other instructions add them;
 the guard refuses such commits and PR texts. `on` — as usual.
 
+**GitHub account** — `F github.account`. `GH_TOKEN` of that account is set by the plugin's
+`SessionStart` hook (`hooks/gh-token-env.mjs`) for every Bash command of the session and of its
+agents; do not switch the global account without the owner's permission: other sessions use it.
+If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
+`F github.account` and say so in the report.
+
 **Language.** The report to the user and the briefs to agents are in `F language.reports`.
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
@@ -118,42 +125,11 @@ The preflight is the Harness's own, the same for every project:
 "${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
 ```
 
-The last line of the output is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. What exactly
-the command checks and what each reason means is in `rules.md`. The reason "another live session in
-the worktree" means the command was run from a shared checkout: with `worktrees`, move to your own
-worktree (the `parallel: worktrees` paragraph below) and repeat; with `single` it means another
-session works in the checkout — stop and ask the user.
-Any other reason — stop, do not work around it. Put the line `<base>: <sha> …` (the base is
-`F worktree.base`; in a repository without `origin` — the branch that line names) into every agent's brief as the base — a subagent that read the local `main`
-once reasoned over a stale tree.
-
-If the preflight cannot run here (exit 2: not a git repository, for example the common directory
-above a multi-repository project) — say "preflight cannot run here, running a minimal one" and run:
-`git -C <repo> fetch`, `git -C <repo> status --porcelain`, how far behind `F worktree.base` the
-checkout is, and with `pr-green-ci` also `gh pr list --state open`. Put the line
-`git log -1 --format='%h %s' <base>` into the briefs as the base.
-
-**GitHub account** — `F github.account`. `GH_TOKEN` of that account is set by the plugin's
-`SessionStart` hook (`hooks/gh-token-env.mjs`) for every Bash command of the session and of its
-agents; do not switch the global account without the owner's permission: other sessions use it.
-If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
-`F github.account` and say so in the report.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-preflight.md` right after it: on `BLOCKED` stop, do not work around it; the file holds what the reasons mean, the base line for every brief, and a minimal preflight where it cannot run.
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-silent-branch.md` in Silent mode, before the worktree: it names the branch by the change and records it in the ticket (several `Repo:` lines: one name in each).
 
-**`parallel: worktrees`.** Work from your own worktree from the first minute (`F worktree.implementer`,
-where `<branch>` = `F tickets.branch` (Silent mode: the branch above), `<ticket-name>` = `<NN>-<slug>`, and `<epic>`, `<NN>`, `<slug>`
-in the templates come from the ticket; root `F worktree.root`, base `F worktree.base`): the checkout
-is shared with other sessions, and the last write wins. Right after `git worktree add` —
-`EnterWorktree` with the `path` of that worktree: the PreToolUse check on Edit and Write lets edits
-only into the session's worktree, and the agent was started from the orchestrator's worktree. For
-an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository
-— `F worktree.root` must lie there. A root outside the repository (`<HARNESS_HOME>/worktrees/<project>/`)
-is not supported yet: the plugin registers no `WorktreeCreate` hook, and
-`hooks/worktree-create.sh` is an unprobed draft. Edits that go around it through python or sed in Bash are not a way out.
-**`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
-`F tickets.branch` created from `F worktree.base` (with `local-green` — from the main branch after the
-previous ticket's local merge, step 11; see `/worfy:epic-wave`).
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-2-worktree.md` now, before step 3: with `parallel: worktrees` all work is in your own worktree, entered with `EnterWorktree`; with `single`, in the main checkout.
 
 ## 3. Take numbers before the content
 
@@ -176,26 +152,7 @@ Make sure the test is red, and only then fix. What must be running for the tests
 Along the files listed in the ticket (section `F tickets.trail_section`).
 Going outside that list is a reason to say so, not to widen the change silently.
 
-The change is the smallest one that does the whole ticket. It comes after step 4 — the failing test
-stays first — and it never drops an item of the ticket's list of what "done" means.
-- Before the edit, list every place the change has to reach: callers, tests, fixtures,
-  configuration, exports.
-- For a bug, grep every caller of the function you change and fix the cause once, in the shared
-  code.
-- Then take the first of these options that solves the whole task:
-  1. Nothing: the task does not need this code.
-  2. Code the repository already has — a helper, a component, a pattern; use it the way the code around it does.
-  3. The standard library or a feature of the platform.
-  4. A dependency the project already installs; a new dependency for a few lines is not an option.
-  5. One line that a reader understands at a glance.
-  6. The least new code that works.
-- Never cut, whatever the size of the change: checks of input at a trust boundary, error handling
-  that keeps data from being lost, security, accessibility, anything the ticket asks for.
-- A simplification with a known limit gets a comment in the comment syntax of the language:
-  `shortcut: <limit>, <when to redo>` — what the simple code does not handle, then the condition
-  under which it has to be replaced. A comment without the part after the comma is incomplete:
-  nobody will know when to redo the code. `"${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger"` lists the
-  `shortcut:` comments of a work tree and marks the incomplete ones `no-trigger`.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/step-5-smallest-change.md` before the first edit of the implementation: the change is the smallest one that does the whole ticket, and the file holds the places to list first, the order of options, what is never cut and the `shortcut:` comment.
 
 **Feature pages** — `F docs.feature_pages`. Exit code 4 or `null`: say "feature pages skipped: the
 profile has no `docs.feature_pages`". Set, and the change alters behaviour a page in that folder

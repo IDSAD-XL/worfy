@@ -1,7 +1,7 @@
 # 83 — Стартовый контекст implementer-а: вернуть запас не меньше 1000 token-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T03:06Z
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10: `node harness/bin/start-context --agent implementer` на main `c69ffd43b` —
 14 993 token-а из порога 15 000, запас 7. Строки перечитаны по main `c69ffd43b`.
@@ -37,11 +37,19 @@ texts of this Harness»), краснеет на первой же правке �
 ## Готово, когда
 
 - [ ] `node harness/bin/start-context --agent implementer` — exit 0, implementer не больше 14 000 token-ов; число в «Итог».
+  - evidence: test-run pass · `node harness/bin/start-context --profile <fixture> --agent implementer` exit 0, implementer 13 723 tokens · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
+  - evidence: test-run pass · `node harness/bin/start-context --profile <fixture> --agent implementer` exit 0, implementer 13 910 tokens · mac - · 3d1ed6ec742d4884ab684d0d09bcf031d226201b
 - [ ] Список правил `SKILL.md` и `implementer.md` до правки сверен с текстом после неё: каждое правило есть в
       `SKILL.md`, `implementer.md` или в файле шага, на который они ссылаются; таблица «правило → где теперь» — в «Итог».
+  - evidence: commit pass · Ship-ticket skill: steps 2 and 5 details move into step files, implementer starts at 13 723 tokens (worfy-polish 83) · - - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
+  - evidence: commit pass · Ship-ticket skill: the GitHub account rule back in section 0, precise read conditions (worfy-polish 83, round 2) · - - · 3d1ed6ec742d4884ab684d0d09bcf031d226201b
 - [ ] `bash harness/bin/tests/start-context.test.sh` — exit 0 (разделы 3 и 3a), `THRESHOLD` не изменён.
+  - evidence: test-run pass · `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
+  - evidence: test-run pass · `bash harness/bin/tests/start-context.test.sh` exit 0 · mac - · 3d1ed6ec742d4884ab684d0d09bcf031d226201b
 - [ ] Test-ы Harness-а, которые читают skill `ship-ticket` (`harness/bin/tests/epic-wave-ship-ticket.test.sh` и
       другие, что grep-ом находят `ship-ticket/SKILL.md`), — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` and 11 other texts tests exit 0 · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
+  - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` and 11 other texts tests exit 0 · mac - · 3d1ed6ec742d4884ab684d0d09bcf031d226201b
 - [ ] Платный `eval --changed` — все затронутые case-ы на пороге или выше; команда, exit code и цена — в «Итог».
 - [ ] `ci-ok` на PR зелёный.
 
