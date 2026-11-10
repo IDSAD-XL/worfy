@@ -5,7 +5,7 @@
 // (repo, N) and, before it has a number in the Ticket, by (repo, branch); a click opens the Pull requests view on that
 // PR. A Ticket whose PR the snapshot does not hold looks as before, and its card keeps its height (ticket-card.ts).
 // Every owner, login and text is invented; nothing here reaches main or GitHub.
-import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -94,11 +94,17 @@ const WAITING = [thread([PEER]), thread([PEER, ME, PEER]), thread([null]), threa
 let inbox: PrInboxSnapshot
 let tickets: Ticket[]
 let invoked: string[]
+/** The window's subscriptions to main's events, so a test can send one. */
+let handlers: { channel: string; handler: (payload: unknown) => void }[]
+const emit = (channel: string, payload: unknown) => {
+  for (const each of handlers) if (each.channel === channel) each.handler(payload)
+}
 
 beforeEach(() => {
   vi.resetModules()
   calls.views.length = 0
   invoked = []
+  handlers = []
   tickets = [ticket(7, { pr: 118 }), ticket(8), ticket(9)]
   inbox = snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: WAITING })], 'needs-fix': [], waiting: [row(WEB, 40)] })
   const bridge = {
@@ -109,7 +115,7 @@ beforeEach(() => {
       if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: { root: ROOT, epics: [], tickets, error: null, branchErrors: [] } satisfies WorkflowModel })
       return Promise.resolve({ ok: false, error: `no ${channel} in this test` })
     },
-    on: () => 1,
+    on: (channel: string, handler: (payload: unknown) => void) => handlers.push({ channel, handler }),
     off: () => undefined,
   } as unknown as WorfyBridge
   ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
@@ -261,5 +267,117 @@ describe('the Epic node source lays the card out with the badge’s room (source
     const plain = cardHeights(tickets, epicColumns(tickets))
     await vi.waitFor(() => expect(heightOf(7)).toBe(plain.get(7)! + 2 * REVIEW_LINE))
     expect(heightOf(8)).toBe(plain.get(8))
+  })
+})
+
+describe('whose answer a thread waits for: main\u2019s rule (src/main/github/inbox-groups.ts, owesAnswer)', () => {
+  it('on someone else\u2019s PR only the threads the user wrote in count; on the user\u2019s own PR every unresolved one whose last word is not theirs', async () => {
+    const { waitingThreads } = await load()
+    const threads = [thread([PEER]), thread([PEER, 'Dev-Me', PEER]), thread([PEER, ME]), thread([ME, PEER], true), thread([])]
+    expect(waitingThreads({ author: PEER, threads }, ME)).toBe(1)
+    expect(waitingThreads({ author: 'DEV-ME', threads }, ME)).toBe(2)
+    expect(waitingThreads({ author: null, threads }, ME)).toBe(1)
+  })
+
+  it('without a viewer — before the first search — no thread waits for the user', async () => {
+    const { waitingThreads, reviewChipsOf } = await load()
+    expect(waitingThreads({ author: ME, threads: WAITING }, null)).toBe(0)
+    tickets = [ticket(7, { pr: 118 })]
+    expect(reviewChipsOf({ ...snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: WAITING })] }), viewer: null }, tickets)).toEqual({})
+  })
+
+  it('a review asked of the user on someone else\u2019s PR: the threads of others alone wait for nobody, the badge says nothing of them', async () => {
+    inbox = snapshotOf({ 'needs-review': [row(WEB, 118, { author: PEER, threads: [thread([PEER]), thread(['dev-other', PEER])] })] })
+    const { default: ReviewThreads } = await load()
+    const { container } = render(<ReviewThreads subject={subject(7)} />)
+    await settle()
+    expect(invoked).toContain('prInbox.get')
+    expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('the work is bounded: rows \u00d7 Tickets, once per snapshot and model', () => {
+  /** 950 Tickets, each counting how often whose-PR-is-it reads its `PR:` lines (repoFactsOf reads `prs` once a call). */
+  const counted = (count: number) => {
+    const reads = { n: 0 }
+    const list = Array.from({ length: count }, (_, index) => {
+      const each = ticket(index + 1, { pr: index + 1 })
+      const prs = [{ repo: null, number: index + 1 }]
+      Object.defineProperty(each, 'prs', {
+        get: () => {
+          reads.n += 1
+          return prs
+        },
+        enumerable: true,
+      })
+      return each
+    })
+    return { reads, list }
+  }
+
+  it('reviewChipsOf, answersOf and every badge over one snapshot and model match each row once against the Tickets', async () => {
+    const { reviewChipsOf, reviewsOfTicket } = await load()
+    const { answersOf } = await import('../../src/renderer/pipeline/board')
+    const { reads, list } = counted(950)
+    const rows = Array.from({ length: 30 }, (_, index) => row(WEB, 900 + index, { threads: [thread([PEER])] }))
+    const snapshot = snapshotOf({ 'needs-answer': rows })
+    const model: WorkflowModel = { root: ROOT, epics: [], tickets: list, error: null, branchErrors: [] }
+    const chips = reviewChipsOf(snapshot, list)
+    expect(Object.keys(chips)).toHaveLength(30)
+    // At most one look at each Ticket per row (the PR: lines; the branch reads no PR: line): 30 × 950, not 950 × 30 × 950.
+    expect(reads.n).toBeLessThanOrEqual(30 * 950)
+    const once = reads.n
+    // The same snapshot and model again — a render, the board, every Ticket Node's badge: no new matching.
+    expect(reviewChipsOf(snapshot, list)).toEqual(chips)
+    expect(Object.keys(answersOf(snapshot, model))).toHaveLength(30)
+    for (const each of list) reviewsOfTicket(snapshot, each, list)
+    expect(reads.n).toBe(once)
+    // A new snapshot is matched again, once.
+    reviewChipsOf({ ...snapshot }, list)
+    expect(reads.n).toBe(2 * once)
+  })
+})
+
+describe('a new snapshot that changes no badge (sources/epics.ts)', () => {
+  it('keeps the Ticket Nodes, the same objects, and asks ELK for no new layout; one that changes a badge lays the Epic out again', async () => {
+    tickets = [ticket(7, { pr: 118 }), ticket(8)]
+    inbox = snapshotOf({ 'needs-answer': [row(WEB, 118, { threads: [thread([PEER])] })] })
+    const { default: source } = await import('../../src/renderer/canvas/sources/epics')
+    const { setElkEngine } = await import('../../src/renderer/canvas/elk/client')
+    const graphs: unknown[] = []
+    // An ELK that never answers: the requests are counted, the Canvas keeps its own layout meanwhile.
+    setElkEngine({ layout: (graph) => (graphs.push(graph), new Promise(() => undefined)) })
+    try {
+      const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
+      // One Layout for every render, as the Canvas keeps it while it does not change.
+      const context = { projectId: PROJECT, layout: { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } } } as Parameters<typeof source.useNodes>[0]
+      const { result } = renderHook(() => source.useNodes(context), { wrapper })
+      const ticketNodes = () => result.current.filter((node) => node.type === 'ticket')
+      const { REVIEW_LINE } = await import('../../src/renderer/canvas/ticket-card')
+      const { cardHeights, epicColumns } = await import('../../src/renderer/canvas/epic-layout')
+      await waitFor(() => expect(ticketNodes().find((node) => node.id.endsWith('/7'))?.height).toBe(cardHeights(tickets, epicColumns(tickets)).get(7)! + REVIEW_LINE))
+      await settle()
+      const nodes = result.current
+      const before = ticketNodes()
+      const asked = graphs.length
+      const gets = invoked.filter((channel) => channel === 'prInbox.get').length
+
+      // Main read again: new times, a new comment, the same badges.
+      inbox = { ...snapshotOf({ 'needs-answer': [row(WEB, 118, { updatedAt: '2026-11-10T08:00:00Z', threads: [thread([PEER, ME, PEER])] })] }), readAt: '2026-11-10T08:00:00Z' }
+      act(() => emit('prInbox.changed', { projectId: PROJECT }))
+      await waitFor(() => expect(invoked.filter((channel) => channel === 'prInbox.get').length).toBe(gets + 1))
+      await settle()
+      expect(result.current).toBe(nodes)
+      expect(ticketNodes()).toEqual(before)
+      ticketNodes().forEach((node, index) => expect(node).toBe(before[index]))
+      expect(graphs.length).toBe(asked)
+
+      // A snapshot that adds a chip: a new layout is asked for.
+      inbox = snapshotOf({ 'needs-fix': [row(WEB, 118, { threads: [thread([PEER])], reviewDecision: 'CHANGES_REQUESTED' })] })
+      act(() => emit('prInbox.changed', { projectId: PROJECT }))
+      await waitFor(() => expect(graphs.length).toBeGreaterThan(asked))
+    } finally {
+      setElkEngine(null)
+    }
   })
 })

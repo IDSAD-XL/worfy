@@ -4,7 +4,7 @@ import type { PipelineColumn, PipelineTicket } from '../../shared/ipc/pipeline'
 import type { PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
 import { onStageFor, stuckOf, type ReleaseFact, type RepoPull, type TicketStage } from '../../shared/workflow/pipeline'
 import type { WorkflowModel } from '../../shared/workflow/types'
-import { reviewsOfTicket } from '../canvas/badges/review-threads'
+import { reviewsByTicket } from '../canvas/badges/review-threads'
 import { ticketTitle } from '../canvas/epic-layout'
 
 /** The key of a Ticket in a map of titles. */
@@ -28,16 +28,12 @@ export function answersText(kind: TicketStage['kind'], answers: number): string 
 
 /**
  * The review threads of each Ticket's PRs that wait for the user's answer, by ticketKeyOf, from the Project's PR inbox
- * snapshot (reviewsOfTicket of the review threads badge, so the card and the Ticket Node count alike); only Tickets
- * that have any.
+ * snapshot (reviewsByTicket of the review threads badge, the same map, so the card and the Ticket Node count alike);
+ * only Tickets that have any.
  */
 export function answersOf(inbox: PrInboxSnapshot | undefined, model: WorkflowModel | undefined): Record<string, number> {
   const answers: Record<string, number> = {}
-  const tickets = model?.tickets ?? []
-  for (const ticket of tickets) {
-    const threads = reviewsOfTicket(inbox, ticket, tickets)?.threads ?? 0
-    if (threads > 0) answers[ticketKeyOf(ticket)] = threads
-  }
+  for (const [key, reviews] of reviewsByTicket(inbox, model?.tickets ?? [])) if (reviews.threads > 0) answers[key] = reviews.threads
   return answers
 }
 

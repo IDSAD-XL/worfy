@@ -67,3 +67,17 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
 - `test/unit/pipeline-board.test.tsx`
 - `test/e2e/checks-badges.spec.ts`
 - `docs/features/gate-and-github.md`
+- `src/renderer/canvas/badges/review-threads.ts` (новый) — подсчёт нитей без React: его читают badge, высота карточки и
+  Pipeline board; react-refresh не даёт держать функции в `.tsx` рядом с компонентом
+- `src/renderer/canvas/badges/review-threads.css` (новый)
+- `src/renderer/canvas/ticket-card.ts`
+- `src/renderer/canvas/epic-layout.ts`
+- `src/renderer/canvas/sources/epics.ts`
+- `docs/features/workflow.md` (строка Answers в таблице флагов карточки)
+
+Отступление от «файлы Node-ов не меняются» (round 1, PR #1768). Высота карточки Ticket-а считается заранее из данных
+(`ticket-card.ts`), у `.w-ticket` — `overflow: hidden`, а место под badge-и уже занято самой широкой строкой checks
+(gate, PR, CI, verdict). Новые chip-ы там обрезались бы. Поэтому badge получает место, как chip Evidence: строку
+`REVIEW_LINE` на каждый chip (`ticket-card.ts`), по карточкам из снимка PR inbox (`CardContext.reviewChips` в
+`epic-layout.ts`; `sources/epics.ts` читает снимок и отдаёт число chip-ов одной строкой, так что снимок, который не
+меняет badge-ей, не меняет и layout). Цена: layout Canvas зависит от снимка PR inbox, и смена badge-а перекладывает Epic.

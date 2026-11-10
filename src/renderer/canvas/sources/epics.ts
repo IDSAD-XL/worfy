@@ -746,6 +746,8 @@ function useFocusRequests(projectId: string, nodes: readonly CanvasFlowNode[]): 
   }, [focus, projectId])
 }
 
+const NO_TICKETS: readonly Ticket[] = []
+
 function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {
   const projects = useProjects()
   const root = projects?.projects.find((project) => project.id === projectId)?.path
@@ -768,7 +770,7 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   // The review threads badge's chips per card (badges/ReviewThreads.tsx), as one string: a new inbox snapshot that
   // changes no badge changes no height.
   const { snapshot: inbox } = usePrInbox(projectId)
-  const reviews = JSON.stringify(reviewChipsOf(inbox, model?.tickets ?? []))
+  const reviews = useMemo(() => JSON.stringify(reviewChipsOf(inbox, model?.tickets ?? NO_TICKETS)), [inbox, model])
   const cards = useMemo<CardContext>(
     () => ({
       stages: titles === null ? undefined : (JSON.parse(titles) as string[]),

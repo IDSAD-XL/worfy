@@ -529,8 +529,9 @@ that gh has no sign-in for gives `gh unavailable`, with a tooltip that names it 
 account. An edited Profile counts from the next read that runs gh.
 
 **Review threads.** The chips `N open threads` and `changes requested` come from the Project's PR inbox snapshot, not
-from `checks.get`, and the badge runs no gh of its own. A thread counts when it is unresolved and its last comment is not
-by the user the inbox reads as. A PR belongs to the Ticket by the Ticket's `PR:` lines (repository and number), else by its
+from `checks.get`, and the badge runs no gh of its own. A thread counts by the rule of the group Needs my answer: it is
+unresolved, its last comment is not by the user the inbox reads as, and on someone else's PR the user wrote in it. Before
+the first search, with no user known, no thread counts. A PR belongs to the Ticket by the Ticket's `PR:` lines (repository and number), else by its
 branch (`Branch:` line or `<epic>/<NN>`), the same rule that gives a row of the Pull requests view its Ticket chip. A Ticket
 over several repositories sums the threads of all its PRs ([ADR-0104](../adr/0104-one-ticket-several-repositories.md),
 item 3), and the tooltip lists each PR that waits. A Ticket whose PR the snapshot does not hold, or a Project with the PR

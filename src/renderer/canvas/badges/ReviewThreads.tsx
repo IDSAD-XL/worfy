@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import type { Ticket } from '../../../shared/workflow/types'
 import { openPrInboxOf } from '../../pr-inbox/open'
 import { usePrInbox } from '../../pr-inbox/usePrInbox'
@@ -33,7 +34,9 @@ function tooltipOf(reviews: TicketReviews): string {
 function TicketReviewThreads({ projectId, root, ticket }: { projectId: string; root: string; ticket: Ticket }) {
   const { snapshot } = usePrInbox(projectId)
   const { model } = useWorkflow(root)
-  const reviews = reviewsOfTicket(snapshot, ticket, model?.tickets ?? [ticket])
+  // The model's list, the same for every Ticket Node: the map of whose PRs wait is made once for all of them.
+  const alone = useMemo(() => [ticket], [ticket])
+  const reviews = reviewsOfTicket(snapshot, ticket, model?.tickets ?? alone)
   const labels = reviewLabels(reviews)
   const target = reviews === null ? undefined : firstWaiting(reviews)
   if (reviews === null || labels.length === 0 || target === undefined) return null
