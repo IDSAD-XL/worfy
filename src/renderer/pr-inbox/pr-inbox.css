@@ -1,5 +1,7 @@
 /* The Pull requests view (PrInboxView.tsx) and the rows of the sidebar's Pull requests section
-   (shell/sidebar/PullRequestsSection.tsx). Values come from tokens.css only, so both themes come for free. */
+   (shell/sidebar/PullRequestsSection.tsx). Values come from tokens.css only, so both themes come for free.
+   The view is two panes (worfy-polish 96, prototype B): the list of PRs by group on the left, the selected PR on the
+   right; in a narrow window one above the other. */
 
 .w-shell__content--pull-requests {
   background: var(--bg);
@@ -7,16 +9,27 @@
 
 .w-pr-inbox__frame {
   height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
 }
 
 .w-pr-inbox {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  max-width: 960px;
   padding: var(--space-3) var(--space-4) var(--space-4);
   gap: var(--space-2);
+}
+.w-pr-inbox__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-3);
+  min-width: 0;
 }
 .w-pr-inbox__heading {
   margin: 0;
@@ -32,6 +45,7 @@
   flex-wrap: wrap;
   gap: 4px var(--space-3);
   margin: 0;
+  min-width: 0;
   font-size: var(--text-12);
   line-height: 16px;
   color: var(--text-muted);
@@ -39,6 +53,19 @@
 }
 .w-pr-inbox__status:empty {
   display: none;
+}
+/* The reader is on: a dot before the next search. */
+.w-pr-inbox__next {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.w-pr-inbox__next::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ready-dot);
 }
 .w-pr-inbox__status-error,
 .w-pr-inbox__missing {
@@ -57,116 +84,289 @@
 .w-pr-inbox__message--padded {
   padding: var(--space-4);
 }
+.w-pr-inbox-muted {
+  color: var(--text-muted);
+}
+.w-pr-inbox-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
 
-.w-pr-inbox__groups {
+/* No PR at all: a calm note where the panes would be, not a frame around the whole view. */
+.w-pr-inbox-empty {
+  align-self: center;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* A group: its title and count, then its rows, framed as a column of the Pipeline board. */
-.w-pr-inbox-group {
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  margin-top: 56px;
+  padding: 28px var(--space-4) 26px;
   border: 1px solid var(--border);
   border-radius: var(--radius-node);
-  background: var(--surface-raised);
+  background: var(--surface);
+  text-align: center;
 }
-.w-pr-inbox-group[data-focused='true'] {
-  border-color: var(--accent);
+.w-pr-inbox-empty__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 4px;
+  border-radius: 9px;
+  background: var(--ready-bg);
+  color: var(--ready-text);
 }
-.w-pr-inbox-group__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 28px;
-  padding: 0 var(--space-2);
+.w-pr-inbox-empty__icon .w-pr-inbox-icon {
+  width: 16px;
+  height: 16px;
+}
+.w-pr-inbox-empty__title {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--text);
+}
+.w-pr-inbox-empty__text {
+  margin: 0;
+  max-width: 420px;
+  font-size: var(--text-12);
+  line-height: 17px;
+  color: var(--text-muted);
+}
+
+/* The two panes, framed together. */
+.w-pr-inbox__panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* The colour of "Needs my answer": in the light theme --primary is the blue of "Needs my review" too. */
+.w-pr-inbox {
+  --pr-answer: var(--span-verifier);
+}
+@media (prefers-color-scheme: dark) {
+  .w-pr-inbox {
+    --pr-answer: var(--primary);
+  }
+}
+
+/* ── the list ── */
+.w-pr-inbox-list {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+}
+.w-pr-inbox-group {
+  --group: var(--text-muted);
+}
+.w-pr-inbox-group[data-group="needs-review"] {
+  --group: var(--working-dot);
+}
+.w-pr-inbox-group[data-group="needs-answer"] {
+  --group: var(--pr-answer);
+}
+.w-pr-inbox-group[data-group="needs-fix"] {
+  --group: var(--blocked-ring);
+}
+.w-pr-inbox-group[data-group="ready"] {
+  --group: var(--span-gate);
 }
 .w-pr-inbox-group__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
-  font-size: var(--text-12);
+  padding: 10px var(--space-3) 4px;
+  font-size: var(--text-11);
+  line-height: 16px;
   font-weight: 600;
-  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.w-pr-inbox-group[data-focused="true"] .w-pr-inbox-group__title {
+  color: var(--text);
+}
+.w-pr-inbox-group__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--group);
 }
 .w-pr-inbox-group__count {
-  font-size: var(--text-11);
-  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 .w-pr-inbox-group__rows {
   margin: 0;
-  padding: 0 var(--space-2) var(--space-2);
+  padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
-/* A PR: a card like the Pipeline's, a button over its two lines and, open, its threads under them. */
-.w-pr-inbox-row {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-button);
-  background: var(--surface);
-  box-shadow: var(--shadow-control);
-}
-.w-pr-inbox-row__head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* A PR of the list: avatar, title over its facts, age over its marks. */
+.w-pr-inbox-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
   width: 100%;
-  padding: 6px var(--space-2) 7px;
+  padding: 7px var(--space-3) 7px 10px;
   box-sizing: border-box;
   border: none;
-  border-radius: var(--radius-button);
+  border-left: 2px solid transparent;
   background: transparent;
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: default;
 }
-.w-pr-inbox-row:hover {
-  border-color: var(--border-strong);
+.w-pr-inbox-item:hover {
+  background: var(--hover-veil);
 }
-.w-pr-inbox-row__head:focus-visible {
+.w-pr-inbox-item[aria-current="true"] {
+  border-left-color: var(--primary);
+  background: var(--selected);
+}
+.w-pr-inbox-item:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
-.w-pr-inbox-row__line {
+.w-pr-inbox-item__main {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
-  font-size: var(--text-12);
-  line-height: 16px;
 }
-.w-pr-inbox-row__facts {
-  flex-wrap: wrap;
-  row-gap: 4px;
-}
-.w-pr-inbox-row__title {
-  flex: 1;
-  min-width: 0;
+.w-pr-inbox-item__title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-13);
+  line-height: 18px;
   font-weight: 500;
 }
-.w-pr-inbox-row__age {
-  flex: none;
+.w-pr-inbox-item__sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: var(--text-11);
+  line-height: 16px;
   color: var(--text-muted);
 }
-.w-pr-inbox-row__ref {
+/* name#N: only the repository name gives way, cut with an ellipsis; #N, the Ticket chip and the CI text stay whole. */
+.w-pr-inbox-item__ref {
+  display: flex;
+  min-width: 0;
   font-size: var(--text-11);
-  color: var(--text-secondary);
+  white-space: nowrap;
 }
-.w-pr-inbox-row__count {
-  font-size: var(--text-11);
-  color: var(--text-secondary);
-}
-.w-pr-inbox-row .w-chip {
-  max-width: 100%;
+.w-pr-inbox-item__repo {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.w-pr-inbox-item__number {
+  flex: none;
+}
+.w-pr-inbox-item__sub .w-chip,
+.w-pr-inbox-item__sub .w-pr-inbox-ci-text,
+.w-pr-inbox-item__sub > .w-pr-inbox-ci {
+  flex: none;
+}
+.w-pr-inbox-item__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding-top: 1px;
+}
+.w-pr-inbox-item__marks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.w-pr-inbox-ticket {
+  height: 16px;
+  padding: 0 5px;
+  font-size: var(--text-11);
+  border-color: color-mix(in srgb, var(--span-ticket) 45%, transparent);
+  color: var(--span-ticket);
+}
+
+/* The age of a PR, coloured by how long it has waited (ageHeat). */
+.w-pr-inbox-age {
+  font-size: var(--text-11);
+  line-height: 16px;
   white-space: nowrap;
+  color: var(--text-muted);
+}
+.w-pr-inbox-age[data-heat="1"] {
+  color: var(--text-secondary);
+}
+.w-pr-inbox-age[data-heat="2"] {
+  color: var(--blocked-text);
+}
+.w-pr-inbox-age[data-heat="3"] {
+  color: var(--span-problem);
+}
+.w-pr-inbox-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* Open threads on the user's own PR: someone waits for the user. */
+.w-pr-inbox-bubble[data-mine="true"] {
+  color: var(--blocked-text);
+}
+.w-pr-inbox-newdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--working-dot);
+}
+
+/* Initials of a login on a colour of its own. */
+.w-pr-inbox-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--avatar);
+  color: var(--span-label);
+  font-size: var(--text-11);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.w-pr-inbox-avatar--small {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  font-size: 8px;
+}
+.w-pr-inbox-avatar[data-me="true"] {
+  outline: 1.5px solid var(--primary);
+  outline-offset: 1.5px;
 }
 
 /* The CI of the PR: a dot, its text the tooltip and the accessible name. */
@@ -178,19 +378,28 @@
   border-radius: 50%;
   border: 1.5px solid var(--border-strong);
 }
-.w-pr-inbox-ci[data-ci='passing'] {
+.w-pr-inbox-ci[data-ci="passing"] {
   border-color: var(--ready-dot);
   background: var(--ready-dot);
 }
-.w-pr-inbox-ci[data-ci='failing'] {
+.w-pr-inbox-ci[data-ci="failing"] {
   border-color: var(--blocked-ring);
   background: var(--blocked-ring);
 }
-.w-pr-inbox-ci[data-ci='running'] {
+.w-pr-inbox-ci[data-ci="running"] {
   border-color: var(--working-dot);
 }
+.w-pr-inbox-ci-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.w-pr-inbox-ci-text[data-ci="failing"] {
+  color: var(--blocked-text);
+}
 
-/* A flag of a row or a thread: Draft, via team, new, Resolved, Outdated. */
+/* A flag of a PR or a thread: Draft, via team, new, Resolved, Outdated. */
 .w-pr-inbox-flag {
   display: inline-block;
   flex: none;
@@ -209,28 +418,186 @@
   background: var(--working-bg);
   color: var(--working-text);
 }
+.w-chip.w-pr-inbox-chip--problem {
+  background: color-mix(in srgb, var(--span-problem) 14%, transparent);
+  color: var(--span-problem);
+}
 
-.w-pr-inbox-row__body {
+/* ── the selected PR ── */
+.w-pr-inbox-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.w-pr-inbox-pane__inner {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border-top: 1px solid var(--border);
+  max-width: 920px;
+  padding: var(--space-4) 18px 18px;
 }
-.w-pr-inbox-row__actions {
+.w-pr-inbox-pane__head {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  align-items: flex-start;
+  gap: 10px;
   min-width: 0;
-  font-size: var(--text-12);
 }
-.w-pr-inbox-row__branch {
+.w-pr-inbox-pane__heading {
   min-width: 0;
+}
+.w-pr-inbox-pane__title {
+  margin: 0;
+  font-size: var(--text-15);
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-pane__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-2);
+  margin-top: 6px;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-muted);
+}
+.w-pr-inbox-pane__branch {
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-11);
+}
+
+/* What to do next: one strip in the colour of the PR's group. */
+.w-pr-inbox-next {
+  --tone: var(--text-muted);
+  --tone-text: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 12px;
+  padding: 10px var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, transparent);
+  border-radius: var(--radius-node);
+  background: color-mix(in srgb, var(--tone) 9%, var(--surface));
+}
+.w-pr-inbox-next[data-tone="review"] {
+  --tone: var(--working-dot);
+  --tone-text: var(--working-text);
+}
+.w-pr-inbox-next[data-tone="answer"] {
+  --tone: var(--pr-answer);
+  --tone-text: var(--pr-answer);
+}
+.w-pr-inbox-next[data-tone="fix"] {
+  --tone: var(--blocked-ring);
+  --tone-text: var(--blocked-text);
+}
+.w-pr-inbox-next[data-tone="ready"] {
+  --tone: var(--span-gate);
+  --tone-text: var(--span-gate);
+}
+.w-pr-inbox-next__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tone) 20%, transparent);
+  color: var(--tone-text);
+}
+.w-pr-inbox-next__icon .w-pr-inbox-icon {
+  width: 14px;
+  height: 14px;
+}
+.w-pr-inbox-next__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--text-12);
+  line-height: 17px;
+  color: var(--text-secondary);
+}
+.w-pr-inbox-next__text b {
+  font-size: var(--text-13);
+  font-weight: 600;
+  color: var(--tone-text);
+}
+
+/* CI, Review, Merge and Size: four cells in a row, two in a narrow pane. */
+.w-pr-inbox-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.w-pr-inbox-fact {
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+}
+.w-pr-inbox-fact__name {
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-muted);
+}
+.w-pr-inbox-fact__value {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  margin-top: 2px;
+  font-size: var(--text-12);
+  color: var(--text);
+}
+.w-pr-inbox-fact__value .w-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-pr-inbox-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-11);
+}
+.w-pr-inbox-size__plus {
+  color: var(--span-gate);
+}
+.w-pr-inbox-size__minus {
+  color: var(--span-problem);
+}
+.w-pr-inbox-size__bar {
+  display: inline-flex;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--border);
+}
+.w-pr-inbox-size__add {
+  background: var(--span-gate);
+}
+.w-pr-inbox-size__del {
+  background: var(--span-problem);
+}
+
+.w-pr-inbox-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-12);
 }
 .w-pr-inbox-link {
   color: var(--accent);
@@ -244,27 +611,78 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* The row's actions keep their words on one line in a narrow window (560 px): they do not shrink. */
-.w-pr-inbox-row__actions > .w-pr-inbox-link,
+/* The actions keep their words on one line in a narrow window: they do not shrink. */
 .w-pr-inbox-button {
   flex: none;
   white-space: nowrap;
-}
-.w-pr-inbox-button {
-  height: 22px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-button);
-  background: var(--surface);
-  color: var(--text-secondary);
+  background: var(--surface-raised);
+  color: var(--text);
   font: inherit;
   font-size: var(--text-12);
+}
+.w-pr-inbox-button--primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+.w-pr-inbox-button--primary:disabled {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.w-pr-inbox-button--link {
+  text-decoration: none;
+  cursor: default;
 }
 .w-pr-inbox-button:hover:where(:not(:disabled)) {
   border-color: var(--text-secondary);
 }
 .w-pr-inbox-button:disabled {
   color: var(--text-muted);
+}
+
+/* "Threads 2 open · 1 resolved", and the keys that move to the next PR. */
+.w-pr-inbox-threads-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 14px 0 var(--space-2);
+  font-size: var(--text-11);
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.w-pr-inbox-threads-head__count {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.w-pr-inbox-threads-head__keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.w-pr-inbox-threads-head__keys kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .w-pr-inbox-threads,
@@ -276,23 +694,38 @@
   flex-direction: column;
   gap: var(--space-2);
 }
-.w-pr-inbox-thread {
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-button);
-  background: var(--surface-raised);
+.w-pr-inbox-threads {
+  gap: 10px;
 }
-.w-pr-inbox-thread[data-resolved='true'] {
-  opacity: 0.7;
+.w-pr-inbox-thread {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface);
+  overflow: hidden;
+}
+.w-pr-inbox-thread[data-resolved="true"] {
+  opacity: 0.6;
 }
 .w-pr-inbox-thread__head {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-bottom: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
   font-size: var(--text-12);
   overflow-wrap: anywhere;
+}
+.w-pr-inbox-thread > .w-pr-inbox-comments {
+  padding: var(--space-2) 10px;
+}
+/* A draft reply under its thread sits inside the thread's frame. */
+.w-pr-inbox-thread__draft {
+  padding: 0 10px 10px;
+}
+.w-pr-inbox-thread__draft:empty {
+  display: none;
 }
 .w-pr-inbox-comment__meta {
   display: flex;
@@ -312,11 +745,33 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.w-pr-inbox-conversation {
+  margin-top: 10px;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface);
+}
 .w-pr-inbox-conversation__title {
   margin: 0 0 6px;
   font-size: var(--text-12);
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* A narrow window: the list above the selected PR, each scrolling on its own. */
+@container (max-width: 720px) {
+  .w-pr-inbox__panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(96px, 38%) minmax(0, 1fr);
+  }
+  .w-pr-inbox-list {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .w-pr-inbox-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* The sidebar section: a Project's name, then a row per group that holds a PR, with its count. */

@@ -47,6 +47,8 @@ function row(number: number, over: Partial<PrInboxRow> = {}): PrInboxRow {
     ci: 'passing',
     reviewDecision: null,
     mergeStateStatus: 'CLEAN',
+    additions: null,
+    deletions: null,
     viaTeam: false,
     unresolvedThreads: 0,
     newSinceSeen: 0,

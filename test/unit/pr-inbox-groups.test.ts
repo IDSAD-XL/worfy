@@ -28,6 +28,8 @@ function pull(over: Partial<InboxPull> = {}): InboxPull {
     reviewDecision: 'REVIEW_REQUIRED',
     mergeable: 'MERGEABLE',
     mergeStateStatus: 'BLOCKED',
+    additions: 10,
+    deletions: 2,
     ci: 'passing',
     reviewRequests: [],
     reviews: [],

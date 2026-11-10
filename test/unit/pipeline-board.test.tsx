@@ -878,6 +878,8 @@ describe('«Waits: N answers» on a card on Human review (worfy-pr-inbox ticket 
       ci: 'passing',
       reviewDecision: null,
       mergeStateStatus: 'CLEAN',
+      additions: null,
+      deletions: null,
       viaTeam: false,
       unresolvedThreads: threads.length,
       newSinceSeen: 0,

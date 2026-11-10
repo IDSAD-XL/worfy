@@ -70,6 +70,8 @@ const row = (repo: string, number: number, over: Partial<PrInboxRow> = {}): PrIn
   ci: 'passing',
   reviewDecision: null,
   mergeStateStatus: 'CLEAN',
+  additions: null,
+  deletions: null,
   viaTeam: false,
   unresolvedThreads: (over.threads ?? []).filter((each) => !each.isResolved).length,
   newSinceSeen: 0,

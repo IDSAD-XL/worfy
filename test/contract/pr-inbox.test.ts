@@ -335,6 +335,17 @@ describe('the search of a Project', () => {
     // Ana's last thread comment, not the PR's updatedAt (08:00).
     expect(rows.find((row) => row.number === 2)).toMatchObject({ reviewDecision: null, lastActivityAt: '2026-11-10T07:30:00Z' })
   })
+
+  it('a row: the lines the PR adds and removes, asked in the details query; null when GitHub gives none', async () => {
+    const gh = world([stubPull(API, 1, { pull: { additions: 184, deletions: 22 } }), stubPull(API, 2)])
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    const details = gh.calls().find((args) => args.some((arg) => arg.includes('pullRequest(number: $k0)')))
+    expect(details?.join(' ')).toMatch(/\badditions deletions\b/u)
+    const rows = inbox.snapshot('p1').groups.flatMap((group) => group.rows)
+    expect(rows.find((row) => row.number === 1)).toMatchObject({ additions: 184, deletions: 22 })
+    expect(rows.find((row) => row.number === 2)).toMatchObject({ additions: null, deletions: null })
+  })
 })
 
 describe('the list of Projects', () => {

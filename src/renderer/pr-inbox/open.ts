@@ -11,9 +11,9 @@ import { focusPrInbox, type PullRef } from './usePrInbox'
 
 /**
  * Opens the Pull requests view of a Project of the window's Machine: at once for the active one, after
- * selecting it for another. With `pr` the view expands that PR's row and scrolls it into sight, or says
- * "This pull request is not in the inbox"; with `group` it scrolls to that group. Answers why it could
- * not be opened.
+ * selecting it for another. With `pr` the view selects that PR and scrolls its row into sight, or says
+ * "This pull request is not in the inbox"; with `group` it scrolls to that group and selects its first PR.
+ * Answers why it could not be opened.
  */
 export async function openPrInboxOf(projectId: string, activeId: string | undefined, pr?: PullRef, group?: PrInboxGroup): Promise<string | undefined> {
   if (projectId !== activeId) {
