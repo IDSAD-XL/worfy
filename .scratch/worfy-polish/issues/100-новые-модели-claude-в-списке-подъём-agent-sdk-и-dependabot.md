@@ -32,16 +32,23 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
 ## Готово, когда
 
 - [ ] `package.json` и `pnpm-lock.yaml` на 0.3.322, установленный пакет — Claude Code 2.1.322; `pnpm typecheck` exit 0.
+  - evidence: test-run pass · `pnpm typecheck` exit 0 (installed @anthropic-ai/claude-agent-sdk 0.3.322, claudeCodeVersion 2.1.322) · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] `supportedModels()` бинарника 0.3.322 отдаёт `fable` = «Fable 5.2» (и `claude-fable-5-1`), у 0.3.289 —
       `fable` = «Fable 5.1»; проверено без вызова модели (query без prompt-а).
+  - evidence: test-run pass · `node list.mjs <checkout>` (query without a prompt, supportedModels()) exit 0: fable = Fable 5.2 on 0.3.322, fable = Fable 5.1 on 0.3.289 · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] `test/fixtures/sdk-messages/` сняты заново на Claude Code 2.1.322, `manifest.json` — `node scripts/sdk-compat.mjs
       manifest`; `background-tasks.jsonl` снимается сценарием `sdk-probe.ts`, а не потерянным одноразовым скриптом;
       личные слова владельца не попадают в fixtures (`node scripts/check-personal.mjs` exit 0).
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0; `pnpm test test/contract/sdk-compat.test.ts` exit 0 · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts`,
       `test/contract/limits.test.ts`, `test/unit/claude-events.test.ts` зелёные на новом снятии; весь `pnpm test` exit 0.
+  - evidence: test-run pass · `pnpm test` exit 0 (737 files, 17454 tests passed) · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] `.github/dependabot.yml` есть; Dependabot PR идёт через тот же `ci.yml` (`pull_request`, без secrets).
+  - evidence: commit pass · Raise the Agent SDK to 0.3.322 so the model picker lists Fable 5.2 (worfy-polish 100) · - - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] e2e spec-и Session, model picker, Terminal AI, limits, narrator — exit 0.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/new-session.spec.ts test/e2e/session-view.spec.ts test/e2e/limits.spec.ts test/e2e/limits-vendors.spec.ts test/e2e/terminal-ai-request.spec.ts test/e2e/terminal-ai-suggest.spec.ts test/e2e/product-session.spec.ts test/e2e/first-run.spec.ts test/e2e/settings-health.spec.ts` exit 0 (43 passed) · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 
 ## Где в коде
 
@@ -61,3 +68,28 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
 
 - Свой список моделей в worfy или запрос каталога моделей мимо Claude Code.
 - Другие зависимости в Dependabot.
+
+## Итог
+
+**Что изменилось.**
+- `@anthropic-ai/claude-agent-sdk` 0.3.289 → 0.3.322 (Claude Code 2.1.289 → 2.1.322). `supportedModels()` нового бинарника,
+  спрошенный без prompt-а (без вызова модели): `default`, `opus` (Opus 5.5), `fable` (Fable 5.2), `sonnet` (Sonnet 5.5),
+  `haiku` (Haiku 5.5), `claude-fable-5-1`, `claude-haiku-4-5-20251001`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5`,
+  `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-4-6`. У 0.3.289 `fable` — Fable 5.1, строк
+  `claude-fable-5-1` и Haiku 5.5 нет. Model picker отбрасывает обе строки haiku, как и раньше.
+- Fixtures сняты заново 2026-11-10 на 2.1.322, по подписке. Каким скриптом какой файл:
+  - `scripts/spikes/sdk-probe.ts --fixtures`: `init`, `controls`, `stop-hook`, `no-login`, `permissions`, `bypass`
+    (+ `can-use-tool.json`) и новый сценарий `background-tasks` (`background-tasks.jsonl`; прежний одноразовый скрипт
+    worfy-daily/29 потерян).
+  - `scripts/spikes/harness-plugin/probe.ts <сценарий> --fixtures`: `known` → `plugin-known-*.jsonl` (3),
+    `workflow-hooks` → `plugin-workflow-hooks-user-settings.jsonl`, `env-file` → `plugin-env-file-sdk.jsonl`,
+    `mcp-name` → `plugin-mcp-name-*.jsonl` (9, без вызова модели, в sandbox).
+  - `manifest.json` — `node scripts/sdk-compat.mjs manifest`.
+- Стоимость по `total_cost_usd` в result-ах (по API-ценам; оплачено подпиской): около 0,7 USD на все снятия.
+- Чего новое снятие не повторило: «Prompt is too long» и `status: compacting` (у haiku 5.5 окно больше), пятичасового
+  окна в `rate_limit_event` (у аккаунта его нет). Test-ы на эти случаи держат сообщения снятия 2026-10-05 у себя,
+  сценарии Limits fake SDK играют пятичасовое окно по исключению в `test/contract/sdk-compat.test.ts`.
+- В skill-ах пользователя было личное слово владельца: оба probe теперь пишут слова deny list-а как `<personal>`.
+- `.github/dependabot.yml`: npm, daily, только `@anthropic-ai/claude-agent-sdk*` одной группой, cooldown 1 день
+  (pnpm 11 не ставит версии моложе суток), не больше 2 открытых PR. Dependabot PR идёт через `ci.yml` как любой PR,
+  но его `ci-ok` красный, пока fixtures не сняты заново: `test/contract/sdk-compat.test.ts` так и задуман.
