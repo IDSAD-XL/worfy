@@ -241,6 +241,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'product.topic',
     // The share of accepted advice: every topic's mind-map.json and the critic's reviews are read (worfy-product-session ticket 14).
     'product.share',
+    // The PR inbox of a Project as main last read it (worfy-pr-inbox ticket 02): read-only gh, as checks.get.
+    'prInbox.get',
     'projects.list',
     // The team reviewer of a Project (worfy-human-review ticket 09): meta.json of the Profile's private folder is read.
     'projects.reviewer.get',
@@ -346,6 +348,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'projects.connect.stop',
     'projects.connect.write',
     'projects.hold',
+    // Writes pr-inbox.json into the Project's data folder: what the user has seen (worfy-pr-inbox ticket 02).
+    'prInbox.markSeen',
     'projects.remove',
     // The team reviewer (worfy-human-review ticket 09): Build starts a Session, Delete erases the private
     // folder, Later writes the Project's settings, and so does a due reminder to update it (ticket 10).

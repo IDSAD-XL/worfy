@@ -170,7 +170,8 @@ The subfolder of a Project:
 
 | Name | What it holds | Module |
 |---|---|---|
-| `settings.json` | The action templates and, for Windows, the shell of the Terminals | `src/main/projects/settings.ts` |
+| `settings.json` | The action templates, for Windows the shell of the Terminals, and `prInbox: false` when the PR inbox is off | `src/main/projects/settings.ts` |
+| `pr-inbox.json` | What the user has seen of each PR of the PR inbox: the time, the head commit and the id of the newest comment, never a text | `src/main/projects/pr-inbox-state.ts` |
 | `layout.json` | The Layout | `src/main/layout/store.ts` |
 | `bindings.json` | Manual Bindings | `src/main/layout/bindings.ts` |
 | `session-settings.json` | Model, effort and permission mode by Session Node | `src/main/agent/session-settings.ts` |

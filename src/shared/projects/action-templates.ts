@@ -194,6 +194,11 @@ export const projectSettingsSchema = z.object({
    * in <folder>» and removed in Project settings. Absent until the first one.
    */
   productWriteFolders: z.array(z.string().min(1)).optional(),
+  /**
+   * The PR inbox of the Project (worfy-pr-inbox ticket 02, spec decision Q10): absent or `true` — main reads the
+   * Project's open PRs when one of its repositories is on GitHub; `false` — it never runs gh for the Project.
+   */
+  prInbox: z.boolean().optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
@@ -213,6 +218,8 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
     .optional()
     .catch(undefined),
   productWriteFolders: projectSettingsSchema.shape.productWriteFolders.catch(undefined),
+  // A value that is not a boolean reads as absent: the inbox stays on, as by default.
+  prInbox: z.boolean().optional().catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 

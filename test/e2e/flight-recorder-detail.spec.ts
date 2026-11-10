@@ -89,11 +89,19 @@ function prepareNight() {
     // No token of the developer's shell reaches the stand-in, which logs it.
     GH_TOKEN: '',
   }
-  /** The calls gh got so far, but the keyring's `auth token`. */
+  /**
+   * The PR reads of Run history so far: `pr list --head <branch> --limit 10` (src/main/flight-recorder/github.ts),
+   * the first call «Retry» makes. The PR badges' reads (`--limit 1` or no `--head`) and the PR inbox's
+   * `api graphql` run on their own timers and are not counted.
+   */
   const ghCalls = () =>
     readFileSync(log, 'utf8')
       .split('\n')
-      .filter((line) => line !== '' && (JSON.parse(line) as { args: string[] }).args.join(' ') !== 'auth token').length
+      .filter((line) => {
+        if (line === '') return false
+        const args = (JSON.parse(line) as { args: string[] }).args
+        return args[0] === 'pr' && args[1] === 'list' && args.includes('--head') && args[args.indexOf('--limit') + 1] === '10'
+      }).length
   return { env, heal: () => rm(fail, { force: true }), ghCalls }
 }
 
