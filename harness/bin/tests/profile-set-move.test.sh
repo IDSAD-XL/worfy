@@ -28,10 +28,12 @@ ok() {
 }
 bad() {
     fail=$((fail + 1))
-    echo "FAIL $1"
-    # What the last run said, so a red run on another system can be told without a rerun.
-    [ -s "${T:-}/err" ] && echo "     stderr: $(head -c 400 "$T/err")"
-    [ -n "${R:-}" ] && [ -d "$R" ] && echo "     repository status: $(git -C "$R" status --porcelain | head -5 | tr '\n' ' ')"
+    # On the FAIL line itself: a runner of these tests prints only the FAIL lines and the last 20 lines. The
+    # repository's git status and what the last run said on stderr, so a red run on another system can be told.
+    local status="" said=""
+    [ -n "${R:-}" ] && [ -d "$R" ] && status="$(git -C "$R" status --porcelain --untracked-files=all 2>&1 | head -5 | tr '\n' ' ')"
+    [ -s "${T:-}/err" ] && said="$(head -c 300 "$T/err" | tr '\n' ' ')"
+    echo "FAIL $1 [status: ${status}] [stderr: ${said}]"
     return 0
 }
 check() {
