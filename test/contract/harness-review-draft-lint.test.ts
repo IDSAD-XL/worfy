@@ -259,6 +259,16 @@ describe('review-draft-lint', () => {
     expect(over.stdout).toContain('length 121 chars, over 120 of tier nit')
   })
 
+  // --reply (below) must leave the review mode as it was: the clean line, and a comment with an empty body, which a
+  // review lets through (only a reply's empty body is a finding).
+  it('the review mode still passes an empty comment and says how many texts it read', { timeout: ms(30_000) }, () => {
+    const run = lint([file(draft([['nit', '']], '')), '--rules', file(RULES, 'lint.json')], outside)
+    expect(run.status, run.stdout + run.stderr).toBe(0)
+    expect(run.stdout).toBe('review-draft-lint: clean (1 texts)\n')
+    const two = lint([file(CLEAN), '--rules', file(RULES, 'lint.json'), '-C', repo])
+    expect(two.stdout).toBe('review-draft-lint: clean (3 texts)\n')
+  })
+
   // The draft of replies of /worfy:pr-reply (worfy-pr-inbox ticket 04): `<Profile folder>/state/pr-inbox/drafts/
   // <owner>-<repo>-<N>.json`, one item per reply, the same rules as a review, one length limit for every reply.
   describe('--reply', () => {
