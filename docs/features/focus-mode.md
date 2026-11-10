@@ -28,7 +28,7 @@ in a tile, apart from a Browser's.
 
 **The bar** takes the place of the toolbar and moves the window the same way. From left to right:
 
-- The button that hides and shows the sidebar, the same one as in the toolbar.
+- The button that hides and shows the sidebar, the same one as in the sidebar's strip and in the toolbar.
 - The title, "Focus · 1 node" or "Focus · 3 nodes".
 - The presets: Even, Main + side, Columns, Rows.
 - "Exit focus" with its key, Esc.

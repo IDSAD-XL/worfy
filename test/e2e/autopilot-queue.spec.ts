@@ -6,7 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { EPIC, journals, messages, PROJECT, prepareWorld, releaseTurn, setStatus, type World } from './autopilot-world'
 import { startWindow } from './autopilot-start'
 import { captureScreenshot } from './evidence-capture'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { WHOLLY_IN_VIEW } from './px'
 
 // A run over a queue of Epics in the built app (worfy-autopilot-queue ticket 17) on the fake agent
@@ -74,6 +74,7 @@ const frameOf = (window: Page, epic: string): Locator => window.locator(`[data-t
 
 /** The header of the Epic's frame — its title, its buttons, the line above them and the chips under them — centred by the sidebar, for a screenshot. */
 async function headerInView(window: Page, epic: string): Promise<Locator> {
+  await showSidebarSection(window, 'Epics')
   await window.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`).click()
   const header = frameOf(window, epic).locator('header.w-epic__header')
   await expect(header).toBeInViewport(WHOLLY_IN_VIEW)

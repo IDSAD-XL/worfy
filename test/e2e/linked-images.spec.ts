@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import { expect, test, type Page } from '@playwright/test'
 import { decodePng } from './browser-pixels'
-import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
+import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -136,6 +136,7 @@ test('A shows the image of B from B, undistorted and only to look at; a missing 
     await linkThroughUi(a.window, b.window)
     const bId = await machineIdOf(b.window)
     await setProjectsAccess(b, true)
+    await showSidebarSection(a.window, 'Projects')
 
     // A's own Project has no image: the file of B is in B's data folder only.
     await expect(a.window.getByTestId('image-node')).toHaveCount(0)

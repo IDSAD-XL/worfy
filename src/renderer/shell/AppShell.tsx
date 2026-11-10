@@ -35,9 +35,9 @@ export interface AppShellProps {
 
 /**
  * Keeps the keyboard focus when the sidebar goes away with the focus inside it: the browser would
- * leave it on <body>, where Tab starts from the top of the page. It goes to the button that brings
- * the sidebar back — the one of the focus mode bar while focus mode is on screen (the toolbar is
- * inert or hidden then), else the one of the toolbar.
+ * leave it on <body>, where Tab starts from the top of the page — it is there when the sidebar's own
+ * button hid it. It goes to the button that brings the sidebar back — the one of the focus mode bar
+ * while focus mode is on screen (the toolbar is inert or hidden then), else the one of the toolbar.
  *
  * A class, for getSnapshotBeforeUpdate: the one place React lets a component read the DOM after
  * the render and before the sidebar is taken out of it.
@@ -89,7 +89,8 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
 
   return (
     <div ref={shell} className="w-shell" data-testid="app-shell" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
-      {sidebarVisible ? <Sidebar /> : null}
+      {/* The button that hides it is in its own strip at the top; while it is hidden, the toolbar has the button that shows it. */}
+      {sidebarVisible ? <Sidebar onToggle={toggleSidebar} /> : null}
       {/* Focus mode draws its layer in the main area (focus/focus-state.ts): over the toolbar and the
           view, next to the sidebar. */}
       <div ref={setFocusSlot} className="w-shell__main">

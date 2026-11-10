@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { ms } from '../time-scale'
 
 // The Session view's choice of Session (worfy-polish ticket 44), against the built app: a temporary
@@ -136,6 +136,7 @@ test('the Session picker switches the Session view, a sidebar row opens its Sess
     await expect(picker).toHaveText(/fix-flaky-test/)
 
     // A row of the sidebar, with the Session view shown, opens its Session there: the Canvas stays hidden.
+    await showSidebarSection(window, 'Sessions')
     await window.locator(`[data-testid="sidebar-session"][data-session-id="${SECOND}"]`).click()
     await expect(view).toHaveAttribute('data-session-id', SECOND)
     await expect(view.getByTestId('transcript-prompt').locator('.w-tr__prompt')).toHaveText('Write the release notes')

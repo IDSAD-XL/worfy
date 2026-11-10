@@ -8,10 +8,24 @@ import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { Markdown } from '../../markdown/Markdown'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { showRevealed } from '../../toast/revealed'
+import { showSidebarSection } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
 
-/** The ADRs of the active Project (docs/adr/NNNN-*.md), after its Epics (design F). */
+/**
+ * The ADRs of the open Project (docs/adr/NNNN-*.md), after its Epics (design F) — under «All» of the
+ * Project switcher too, which its header says (`scope="current"`, worfy-polish ticket 94).
+ */
 export const order = 40
+export const railTitle = 'ADR'
+
+export function RailIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 1.8h5.5L12.5 5v9.2H4z" />
+      <path d="M9.3 1.8V5h3.2M6 8.5h4.5M6 11h4.5" />
+    </svg>
+  )
+}
 
 const styles = {
   count: { fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
@@ -159,6 +173,7 @@ export default function AdrSection() {
   // for another Project is dropped.
   const request = useCanvasRequests((state) => (state.adr !== null && state.adr.seq > state.adrHandled ? state.adr : null))
   const pending = project !== undefined ? request : null
+  const projectId = project?.id
   const [taken, setTaken] = useState(0)
   if (pending !== null && pending.seq !== taken) {
     setTaken(pending.seq)
@@ -166,8 +181,11 @@ export default function AdrSection() {
   }
   useEffect(() => {
     // Carried out: a sidebar shown again later must not open it a second time.
-    if (pending !== null) markAdrHandled(pending.seq)
-  }, [pending])
+    if (pending === null) return
+    markAdrHandled(pending.seq)
+    // The panel of the ADR is over the window; the section comes into the sidebar's panel, its row marked.
+    if (pending.projectId === projectId) showSidebarSection('AdrSection')
+  }, [pending, projectId])
   if (!project) return null
 
   const adrs = state?.adrs ?? []
@@ -208,6 +226,7 @@ export default function AdrSection() {
     <SidebarSection
       id="AdrSection"
       title="ADR"
+      scope="current"
       trailing={
         state !== undefined ? (
           <span className="w-mono" style={styles.count} data-testid="adr-count">

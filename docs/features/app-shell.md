@@ -1,7 +1,7 @@
 # App shell
 
-What surrounds the Canvas in every window, on every Project. Six Features: the **Command palette**, **Shortcuts**, the
-**Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
+What surrounds the Canvas in every window, on every Project. Seven Features: the **Sidebar**, the **Command palette**,
+**Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the sixth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
 The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
@@ -9,6 +9,62 @@ The View switch of the toolbar picks what the main area shows: **Canvas**, **Ses
 requests** (see [Pull requests](pr-inbox.md)). In a narrow window the tabs show their icons alone, the name is the
 tooltip. Runs and Pull requests are inactive without a Project. Every view stays mounted while another one is shown,
 so switching back finds it as it was.
+
+## Sidebar
+
+### Behaviour
+
+The column on the left of the window, 264 pixels wide. From the top:
+
+- **The strip**, as high as the toolbar. On macOS the traffic lights sit on its left. Then comes the button that hides the
+  sidebar (⌘B, Ctrl+B on Windows) and, on the right, the **Project switcher**.
+- **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
+  foot Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
+  another section is open: the number of live Sessions, the number of pull requests that need you (review, answer or fix),
+  a dot while a Ticket in work is blocked or waits for someone, and the dot of the Linked machines.
+- **The panel**, next to the rail. It shows one section: its name, which Projects it shows, its own buttons, and its list,
+  which scrolls by itself.
+
+The rail is one Tab stop. ↑ and ↓ walk it and wrap round, Home and End go to its ends, and the section under the focus
+opens at once. The section that is open is remembered for the window.
+
+**The Project switcher** answers "All Projects" or one Project of the window's Machine:
+
+- **All Projects** mixes the Projects in the sections that can: Pipeline, Pull requests and Epics. Epics shows the open
+  Project's Epics first, then those of every other Project that has Epics, each under its name. A click on an Epic of
+  another Project opens that Project and centres the Epic on its Canvas.
+- **One Project** opens that Project, as its row in the Projects section does, and the sections show it alone. While the
+  switcher is on one Project it follows the open one: opening another Project shows that one.
+- Sessions and ADR show the open Project in either answer. Under "All Projects", with more than one Project, the section
+  says so under its header.
+- Projects and Machines are not filtered: Projects is where Projects are opened, added and removed.
+
+The answer is remembered for the window, as the open section is. A new window and a restart start from the last choice
+made in any window. On one Project with no Project open, the sections show every Project.
+
+While the sidebar is hidden, the button that shows it again is at the left of the toolbar. In focus mode the bar of focus
+mode has that button, and the sidebar's strip has none.
+
+### How it works
+
+Each section is a file `src/renderer/shell/sidebar/<Name>Section.tsx` with its order and its rail entry: a title, an icon
+and whether it stands at the foot. Every section stays mounted while another one is shown, so it keeps what it read and its
+badge stays current; the others are only hidden. The switcher's answer and the open section are kept in the window's local
+storage, in worfy's data folder. No setting of the app holds them.
+
+### Implementation
+
+| What | Where |
+|---|---|
+| Strip, rail and panel | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Frame of a section | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
+| Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
+| Answer, open section, badges | `src/renderer/shell/sidebar-scope.ts` |
+| Sections | `src/renderer/shell/sidebar/` |
+| Rail entries of the sections | `src/renderer/shell/registry.ts` |
+
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+`test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
 
@@ -341,8 +397,8 @@ setting stays as it was. Most sections word it "Not saved: …".
 - A value set by hand outside the offered list, within the bounds, shows as it is. This holds for the Browser values and the
   reserve.
 
-The sidebar has two more settings of the same kind and no row in this window: which sections are collapsed, and whether the
-sidebar is shown (separately for the normal view and focus mode).
+The sidebar has two more settings of the same kind and no row in this window: whether the «Older» Epics of a Project are
+folded, and whether the sidebar is shown (separately for the normal view and focus mode).
 
 Settings of a Project, such as its Terminal shell, are not here. They are in "Project settings…": see
 [Projects](projects.md).

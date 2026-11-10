@@ -161,10 +161,12 @@ async function closeSettings(window: Page): Promise<void> {
  */
 async function expectStrips(window: Page, scale: number): Promise<void> {
   const at = `at ${scale * 100} %`
-  const toggle = window.locator('.w-toolbar__icon-button').first()
+  // The button that hides the sidebar is in the sidebar's strip; the one that shows it again, in the toolbar.
+  const hide = window.getByRole('navigation', { name: 'Sidebar' }).getByRole('button', { name: 'Hide sidebar' })
+  const show = window.locator('.w-toolbar').getByRole('button', { name: 'Show sidebar' })
   if ((await window.locator('.w-toolbar').getAttribute('data-sidebar')) === 'visible') {
     expect((await boxOf(window, '.w-sidebar__titlebar')).height * scale, `the strip above the sidebar ${at}`).toBeCloseTo(TOOLBAR_PX, 0)
-    await toggle.click()
+    await hide.click()
   }
   await expect(window.locator('.w-toolbar')).toHaveAttribute('data-sidebar', 'hidden')
 
@@ -256,7 +258,7 @@ async function expectStrips(window: Page, scale: number): Promise<void> {
   await expect(focus).toHaveCount(0)
   // The normal view keeps its own answer: still hidden there.
   await expect(window.locator('.w-toolbar')).toHaveAttribute('data-sidebar', 'hidden')
-  await toggle.click()
+  await show.click()
   await expect(window.locator('.w-toolbar')).toHaveAttribute('data-sidebar', 'visible')
 }
 

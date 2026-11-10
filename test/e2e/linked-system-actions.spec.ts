@@ -17,7 +17,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { ms } from '../time-scale'
@@ -201,6 +201,7 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
     const bName = await linkedName(a.window, bId)
 
     // A opens beta of B.
+    await showSidebarSection(a.window, 'Projects')
     const row = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"] [data-testid="project-row"][data-project-id="${BETA}"]`)
     await row.getByRole('button').click()
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))

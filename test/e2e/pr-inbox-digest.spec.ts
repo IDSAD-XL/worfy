@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 import { ms } from '../time-scale'
 
 // The morning digest of the PR inbox (worfy-pr-inbox ticket 07) against the built app: two Projects, `web` and
@@ -142,6 +142,7 @@ test('the first focus of the day shows one digest toast; the second shows none; 
   const launched: LaunchedApp = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, GH_STUB_DIR: ghDir, GH_STUB_LOG: ghLog } })
   try {
     const { app, window } = launched
+    await showSidebarSection(window, 'Pull requests')
     // Both inboxes read once: the sidebar counts them.
     await expect(sectionRow(window, WEB, 'needs-review')).toBeVisible({ timeout: ms(30_000) })
     await expect(sectionRow(window, OPS, 'needs-review')).toBeVisible({ timeout: ms(30_000) })

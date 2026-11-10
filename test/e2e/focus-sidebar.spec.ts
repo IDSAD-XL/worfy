@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, newSessionOn, openSecondWindow, type LaunchedApp } from './helpers'
+import { canvasReady, expandMachines, launchApp, newSessionOn, openSecondWindow, showSidebarSection, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
@@ -12,8 +12,8 @@ import { ms } from '../time-scale'
 
 // Focus mode next to the sidebar, against the built app: the layer covers the main area of the
 // window and the sidebar keeps working; the palette and the sidebar's menus open above the layer;
-// the sidebar is hidden and shown apart for the normal view and focus mode, by the button of the
-// toolbar, the same button in the focus mode bar and View ▸ Toggle Sidebar, and both answers
+// the sidebar is hidden and shown apart for the normal view and focus mode, by the button of its
+// strip (of the toolbar while it is hidden), the same button in the focus mode bar and View ▸ Toggle Sidebar, and both answers
 // outlive a restart; a request to the main area from the sidebar or the palette ends focus mode.
 // Playwright cannot press menu accelerators, so Cmd/Ctrl+B itself is a manual check: the item is
 // clicked by id (clickMenuItem). Snapshots in both themes: test-results/e2e/snapshots/focus-with-sidebar/.
@@ -161,8 +161,8 @@ async function toggleFor(app: ElectronApplication, index: number): Promise<void>
 
 const sidebarOf = (window: Page): Locator => window.getByRole('navigation', { name: 'Sidebar' })
 const focusOf = (window: Page): Locator => window.getByTestId('focus-mode')
-const region = (window: Page, name: string): Locator => window.getByRole('region', { name, exact: true })
-const heading = (window: Page, name: string): Locator => region(window, name).getByRole('button', { name, exact: true })
+/** The tab of section `name` on the rail of the sidebar (worfy-polish ticket 94). */
+const railTab = (window: Page, name: string): Locator => sidebarOf(window).getByRole('tab', { name, exact: true })
 
 /**
  * Selects the notes on the Canvas and opens focus mode over them with the keys. Leaving focus mode
@@ -221,19 +221,21 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
     await expect(focus).toHaveAttribute('role', 'region')
     await snapshotThemes(window, 'focus-with-sidebar')
 
-    // The sidebar works: a section collapses and expands, and its rows answer.
-    const epics = heading(window, 'Epics')
+    // The sidebar works: a tab of the rail shows its section, and its rows answer.
+    const epics = railTab(window, 'Epics')
     await epics.click()
-    await expect(epics).toHaveAttribute('aria-expanded', 'false')
-    await expect(window.getByTestId('sidebar-epic').first()).toBeHidden()
+    await expect(epics).toHaveAttribute('aria-selected', 'true')
+    await expect(window.getByTestId('sidebar-epic').first()).toBeVisible()
+    await expect(window.getByTestId('project-row').first()).toBeHidden()
     await expect(focus).toBeVisible()
     // The click left the keyboard focus in the sidebar: Esc there is not focus mode's.
     expect(await holdsFocus(sidebar)).toBe(true)
     await window.keyboard.press('Escape')
     await expect(focus).toBeVisible()
-    await epics.click()
-    await expect(epics).toHaveAttribute('aria-expanded', 'true')
-    await expect(window.getByTestId('sidebar-epic').first()).toBeVisible()
+    await railTab(window, 'Projects').click()
+    await expect(railTab(window, 'Projects')).toHaveAttribute('aria-selected', 'true')
+    await expect(window.getByTestId('sidebar-epic').first()).toBeHidden()
+    await expect(window.getByTestId('project-row').first()).toBeVisible()
 
     // The command palette opens above the layer; Esc closes it alone.
     await window.keyboard.press('ControlOrMeta+k')
@@ -259,8 +261,8 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
     await window.keyboard.press('Escape')
     await expect(focus).toHaveCount(0)
     await expect(window.locator('.w-toolbar')).not.toHaveAttribute('inert', '')
-    // Collapsing a section wrote the app settings; whether the sidebar is shown was not touched.
-    await expect.poll(savedVisibility).toEqual({ normal: true, focus: true })
+    // Choosing a section did not touch whether the sidebar is shown: nothing about it is saved yet.
+    expect(savedVisibility()).toBeUndefined()
   } finally {
     await launched.close()
   }
@@ -294,6 +296,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
 
     // History. It closes on Esc only with the focus inside it.
     const history = window.getByTestId('history-popover')
+    await showSidebarSection(window, 'Sessions')
     await enterFocus(window)
     await window.getByTestId('sidebar-history').click()
     await expect(history).toBeVisible()
@@ -334,6 +337,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
 
     // The ADR panel closes on Esc wherever the focus is: the first press is its, the second focus mode's.
     const panel = window.getByTestId('adr-panel')
+    await showSidebarSection(window, 'ADR')
     await again()
     await window.getByTestId('sidebar-adr').first().click()
     await expect(panel).toBeVisible()
@@ -361,6 +365,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     // third — the focus is nowhere by then — leaves focus mode.
     await window.getByTestId('sidebar-adr').first().click()
     await expect(panel).toBeVisible()
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-history').click()
     await history.getByRole('button', { name: 'Close' }).focus()
     await escape()
@@ -376,6 +381,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
 
     // The context menu of a Project takes the focus and closes on Esc; the next press leaves focus mode.
     const menu = window.getByRole('menu', { name: 'Project' })
+    await showSidebarSection(window, 'Projects')
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
     expect(await holdsFocus(menu)).toBe(true)
@@ -426,11 +432,10 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(settings).toHaveCount(0)
 
-    // Link a machine, a modal dialog of the Machines section, which the test expands first.
+    // Link a machine, a modal dialog of the Machines section, which the test shows first.
     const link = window.getByTestId('link-machine-dialog')
     await again()
-    const machines = heading(window, 'Machines')
-    if ((await machines.getAttribute('aria-expanded')) !== 'true') await machines.click()
+    await expandMachines(window)
     await window.getByTestId('link-machine-button').click()
     await expect(link).toBeVisible()
     expect(await onTop(link)).toBe(true)
@@ -558,6 +563,7 @@ test('a request to the main area ends focus mode: an Epic of the sidebar, "Tidy 
     await expect(window.getByTestId('note-node')).toHaveCount(2)
     await expect(window.getByTestId('sidebar-epic')).toHaveCount(EPICS.length)
     await canvasReady(launched)
+    await showSidebarSection(window, 'Epics')
     const focus = focusOf(window)
     const palette = window.getByTestId('command-palette')
     /** Runs the palette's first command for `query`. */
@@ -717,7 +723,7 @@ test('View ▸ Toggle Sidebar works wherever the keyboard focus is — a Termina
 
     // In the sidebar itself, which goes away with the focus inside it: the focus goes to the button
     // that brings the sidebar back, not to nowhere.
-    await heading(window, 'Epics').focus()
+    await railTab(window, 'Epics').focus()
     await toggle()
     await expect(window.getByRole('button', { name: 'Show sidebar' })).toBeFocused()
     await toggle()
@@ -749,7 +755,7 @@ test('View ▸ Toggle Sidebar works wherever the keyboard focus is — a Termina
     await toggle()
     // From the sidebar next to focus mode the focus goes to the button of the focus mode bar: the
     // toolbar's is under the layer. It is in the layer then, so Esc leaves focus mode.
-    await heading(window, 'Epics').focus()
+    await railTab(window, 'Epics').focus()
     await toggle()
     await expect(focus.getByRole('button', { name: 'Show sidebar' })).toBeFocused()
     await toggle()

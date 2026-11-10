@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp } from './helpers'
+import { launchApp, showSidebarSection } from './helpers'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
@@ -116,6 +116,7 @@ test('while the login shell is slow, the Epics section says "Reading epics…", 
   const launched = await launchApp({ env })
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Epics')
     const section = window.getByRole('region', { name: 'Epics' })
     const rows = section.getByTestId('sidebar-epic')
     const reading = section.getByText(READING)

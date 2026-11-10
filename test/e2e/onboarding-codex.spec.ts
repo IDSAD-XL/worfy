@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, closeSettings, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, closeSettings, launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 
 // Onboarding and the sign-in to Codex (worfy-multi-vendor ticket 29), against the built app with both
@@ -148,6 +148,7 @@ test('fake `login`: Getting started → Settings → Vendors → «Sign in to Co
     await app.evaluate(() => {
       process.env.WORFY_CODEX_SCRIPT = 'account-plus'
     })
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'codex')).toBeVisible()
     await expect(option(window, 'codex')).not.toHaveAttribute('aria-disabled', 'true')
@@ -165,6 +166,7 @@ test('fake `signed-out`: no toast, no error dialog; Codex inactive in "New sessi
     await canvasReady(launched, { size: SIZE })
     await recordOutside(app)
 
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'codex')).toHaveAttribute('aria-disabled', 'true')
     await expect(option(window, 'codex')).toHaveAttribute('title', HINT)
@@ -192,6 +194,7 @@ test('a build without Codex: no toast, no error dialog; Codex inactive in "New s
     await expect(panel.getByTestId('getting-started-step')).toHaveCount(6)
     await expect(panel.getByTestId('getting-started-vendor')).toHaveCount(0)
 
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-new-session').click()
     await expect(option(window, 'codex')).toHaveAttribute('aria-disabled', 'true')
     await expect(option(window, 'codex')).toHaveAttribute('title', HINT)

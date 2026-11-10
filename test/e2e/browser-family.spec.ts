@@ -20,7 +20,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { ms } from '../time-scale'
 
@@ -267,6 +267,7 @@ test.describe('on a read-only screen', () => {
 
       const group = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
       await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: ms(20_000) })
+      await showSidebarSection(a.window, 'Projects')
       await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
       await expect(a.window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
       await expect(a.window.getByTestId('canvas-read-only')).toBeVisible()

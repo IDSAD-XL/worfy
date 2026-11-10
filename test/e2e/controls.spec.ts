@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { ms } from '../time-scale'
 
@@ -211,10 +211,10 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await cursorOf(window.locator('.w-note__text')), 'the text of a Note').toBe('text')
 
     // Sidebar and toolbar.
-    await expectControl(window, window.locator('.w-sidebar-section__toggle').first(), 'a sidebar section toggle')
+    await expectControl(window, window.getByRole('tablist', { name: 'Sidebar sections' }).getByRole('tab', { name: 'Epics', exact: true }), 'a tab of the sidebar rail')
     await expectControl(window, window.getByRole('button', { name: 'Add project' }), 'Add project')
     await expectControl(window, window.getByTestId('palette-trigger'), 'the command palette trigger')
-    await expectControl(window, window.getByRole('button', { name: 'Hide sidebar' }), 'the sidebar toggle of the toolbar')
+    await expectControl(window, window.getByRole('button', { name: 'Hide sidebar' }), 'the sidebar toggle of the sidebar strip')
 
     // A Node's header, and the Orchestrator's state beside its buttons, which is only a label.
     const orchestrator = window.getByTestId('orchestrator-node')
@@ -347,6 +347,7 @@ test('the write actions of a read-only screen show not-allowed and no hover', as
     const window = a.window
     const group = window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"]`)
     await expect(group.getByTestId('machine-read-only')).toHaveText('Read only', { timeout: ms(20_000) })
+    await showSidebarSection(window, 'Projects')
     await group.locator(`[data-testid="project-row"][data-project-id="${BETA}"]`).getByRole('button').click()
     await expect(window.getByTestId('canvas')).toHaveAttribute('data-project-id', BETA)
     await expect(window.getByTestId('canvas-read-only')).toBeVisible()

@@ -114,8 +114,9 @@ folder its transcript records, or in the Project root when none is recorded. The
 A read-only Node turns live in place, keeping its id and position, and grows to the minimum live size. An archived Node
 comes back to the Canvas first. A locked Node is refused. Without a Node, a new Node appears.
 
-**Sidebar and history.** The sidebar's Sessions section lists the live Sessions of the Project, with "New session" and the
-history. The history popover lists up to 100 past Sessions, newest first, each with Show and Resume, and its source: worfy,
+**Sidebar and history.** The sidebar's Sessions section lists the live Sessions of the active Project, with "New session"
+and the history; under "All Projects" of the sidebar's Project switcher it says it shows that Project only. Its rail icon
+counts the live Sessions. The history popover lists up to 100 past Sessions, newest first, each with Show and Resume, and its source: worfy,
 desktop or terminal. Show puts a read-only Node on the Canvas, or goes to the Node the Session has. The title is the last
 custom title, then the AI title, then the first prompt.
 

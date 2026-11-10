@@ -104,8 +104,9 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
   const title = project ? `worfy — ${project.name}` : 'worfy'
   return (
     <header className="w-toolbar" data-toast-keep-out="" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
-      {/* Hides and shows the sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. */}
-      <SidebarToggle className="w-toolbar__icon-button" visible={sidebarVisible} onToggle={onToggleSidebar} />
+      {/* Shows the hidden sidebar; View ▸ Toggle Sidebar (Cmd/Ctrl+B) does the same. While the sidebar is
+          shown, the button that hides it is in the sidebar's own strip (Sidebar.tsx, worfy-polish ticket 94). */}
+      {sidebarVisible ? null : <SidebarToggle className="w-toolbar__icon-button" visible={false} onToggle={onToggleSidebar} />}
 
       {/* The title is the one item that gives way: a long Project name ends with an ellipsis
           (the full text is the tooltip), and the controls to its right stay whole. */}

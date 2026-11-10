@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, newSessionOn, openSecondWindow, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, newSessionOn, openSecondWindow, showSidebarSection, type LaunchedApp } from './helpers'
 
 // worfy-link ticket 04 against the built app on the fake agent: a Session belongs to the app, not
 // to the window it was started in (ADR-0053, point 4). Two windows of one worfy are two clients of
@@ -229,6 +229,7 @@ test('a Session resumed in window 1 shows window 2 its past turns, then the live
     await canvasReady(launched, { size: SIZE })
 
     // Resume from the history of window 1.
+    await showSidebarSection(one, 'Sessions')
     await one.getByTestId('sidebar-history').click()
     const row = one.getByTestId('history-popover').locator(`[data-testid="history-session"][data-session-id="${PAST}"]`)
     await row.getByTestId('history-resume').click()

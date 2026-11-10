@@ -14,7 +14,7 @@ import { onThePlane } from '../../src/shared/layout/derived'
 import { evidenceItems } from '../../src/shared/workflow/evidence'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
-import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, ticketCardCuts, type LaunchedApp } from './helpers'
+import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, showSidebarSection, ticketCardCuts, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
@@ -680,6 +680,7 @@ test('the steppers use the F tokens in both themes and always carry a label; the
     await window.emulateMedia({ colorScheme: null })
 
     // The sidebar lists the Epic; a click centers the Canvas on its frame.
+    await showSidebarSection(window, 'Epics')
     const row = window.locator('[data-testid="sidebar-epic"][data-epic="demo"]')
     await expect(row).toContainText('1/5')
     await expect(row).toContainText('1 in work')
@@ -937,6 +938,7 @@ test('long names: the Ticket title, blocked reason and blockers line are whole o
       )
 
       // The sidebar shows the Epic's whole name.
+      await showSidebarSection(window, 'Epics')
       const row = window.locator(`[data-testid="sidebar-epic"][data-epic="${LONG_EPIC}"]`)
       await expect(row).toContainText(LONG_EPIC)
       await expectWhole(row.locator(':scope > .w-mono').first(), 'the Epic name in the sidebar')
@@ -1148,6 +1150,7 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
     const interactiveMs = await interactiveAfter(window, generated!.biggest)
 
     // Center on the biggest Epic through the sidebar, then pan and zoom for 5 s while counting frames.
+    await showSidebarSection(window, 'Epics')
     await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
     // The 250 ms centering is over before the frames are counted.
     await canvasReady({ window })
@@ -1190,6 +1193,7 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
 
     // Hovering a Ticket of the biggest frame lights its chain (worfy-week ticket 05): the time from
     // the pointer's arrival to the frame that shows it is printed, and checked with WORFY_PERF=1.
+    await showSidebarSection(window, 'Epics')
     await window.locator(`[data-testid="sidebar-epic"][data-epic="${generated!.biggest}"]`).click()
     await canvasReady({ window })
     await parkPointer(window)

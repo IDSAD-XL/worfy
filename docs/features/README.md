@@ -41,7 +41,7 @@ the [ADRs](../adr/) and in Tickets, and a page links to them.
 | [Pull requests](pr-inbox.md) | PR inbox: the user's open PRs and review requests of a Project, review threads, the sidebar section |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
-| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme |
+| [App shell](app-shell.md) | Sidebar, Command palette, shortcuts, menu, Settings, theme |
 | [Notifications](notifications.md) | Notifications |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage and diagnostics](storage-and-diagnostics.md) | data folder, diagnostics |

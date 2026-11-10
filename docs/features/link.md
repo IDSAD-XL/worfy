@@ -34,8 +34,8 @@ start, so a Linked machine finds this one where it was. If that port is taken, t
 one is kept from then on. The server listens on every interface. A port that cannot be taken or a key that cannot be
 read never stops worfy. The other parts of the app work, and "Link a machine" shows the reason.
 
-**The Machines section.** "Machines" in the sidebar stands between Projects and Epics and is collapsed until the user
-expands it. It lists the Linked machines, with "Link a machine…" under the list. The switches of the link are in
+**The Machines section.** "Machines" stands at the foot of the sidebar's rail; its icon has the dot of the Linked
+machines. It lists the Linked machines, with "Link a machine…" under the list. The switches of the link are in
 Settings → Machines. Both are described under [Linked machine](#linked-machine).
 
 ### How it works

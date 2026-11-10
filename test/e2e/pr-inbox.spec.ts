@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -219,6 +219,7 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     // The sidebar counts the groups of both Projects once the first search has answered.
     await expect(sectionRow(window, WEB, 'needs-review')).toContainText('Needs my review1', { timeout: ms(30_000) })
     await expect(sectionRow(window, WEB, 'needs-answer')).toContainText('Needs my answer1')
@@ -300,6 +301,7 @@ test('openPrInboxOf with a PR of the other Project selects it and opens its view
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     await launched.app.context().addInitScript(() => {
       ;(globalThis as unknown as { __worfyPrInbox: object }).__worfyPrInbox = {}
     })
@@ -341,6 +343,7 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     const views = window.getByRole('group', { name: 'View', exact: true })
     await views.getByRole('button', { name: 'Pull requests' }).click()
     await expect(view(window).getByTestId('pr-inbox-off')).toBeVisible({ timeout: ms(15_000) })
@@ -354,6 +357,7 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
     // On in Project settings of web: the view asks again on the settings change and main reads web at once, without
     // waiting for the reader's next look (30 s), so the view fills within the usual wait.
     const openSettings = async () => {
+      await showSidebarSection(window, 'Projects')
       await window.getByTestId('project-row').filter({ hasText: 'web' }).click({ button: 'right' })
       await window.getByRole('menuitem', { name: 'Project settings…' }).click()
       return window.getByRole('dialog', { name: 'Project settings' })
@@ -434,6 +438,7 @@ test('a draft reply under its thread in the pane: nothing is posted on selecting
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
     await views.getByRole('button', { name: 'Pull requests' }).click()
@@ -507,6 +512,7 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
     await views.getByRole('button', { name: 'Pull requests' }).click()
@@ -548,6 +554,7 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
     }
 
     // None: docs, from the Project list.
+    await showSidebarSection(window, 'Projects')
     await window.getByTestId('project-row').filter({ hasText: 'docs' }).click()
     await expect(view(window)).toHaveAttribute('data-project', DOCS)
     await expect(view(window).getByTestId('pr-inbox-empty')).toBeVisible({ timeout: ms(45_000) })
@@ -595,6 +602,7 @@ test('a long repository name at 1280 px: the list never scrolls sideways, only t
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Pull requests')
     await window.setViewportSize({ width: 1280, height: 800 })
     const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, BILLING, 'needs-fix')).toBeVisible({ timeout: ms(30_000) })

@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 
@@ -121,6 +121,7 @@ test('the Epic in work first, then by last work; the 8-day-old Epics, closed and
   try {
     const { window } = first
     await setWindowSize(first, SIZE)
+    await showSidebarSection(window, 'Epics')
     await expect(rows(window)).toHaveCount(2)
     expect(await order(window)).toEqual(['in-work', 'fresh'])
     await expect(ageOf(window, 'in-work')).toHaveText('20d')
@@ -144,6 +145,7 @@ test('the Epic in work first, then by last work; the 8-day-old Epics, closed and
   // The fold is kept for this Project in the app settings: a restart over the same data folder opens it as left.
   const second = await launch()
   try {
+    await showSidebarSection(second.window, 'Epics')
     await expect(rows(second.window)).toHaveCount(4)
     await expect(section(second.window).getByTestId('sidebar-epics-older')).toHaveAttribute('aria-expanded', 'true')
   } finally {
@@ -156,6 +158,7 @@ test('with the threshold Never every Epic stays in the list, in the same order, 
   const launched = await launch()
   try {
     const { window } = launched
+    await showSidebarSection(window, 'Epics')
     await expect(rows(window)).toHaveCount(4)
     expect(await order(window)).toEqual(['in-work', 'fresh', 'closed-old', 'open-old'])
     await expect(section(window).getByTestId('sidebar-epics-older')).toHaveCount(0)

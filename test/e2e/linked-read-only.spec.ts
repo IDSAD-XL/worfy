@@ -12,7 +12,7 @@ import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, repoRoot, showSidebarSection, type LaunchedApp } from './helpers'
 import { expectBorderedChipsFit } from './chip-fit'
 import { snapshotThemes } from './snapshots'
 import { catScript, loginProfileWithNode } from '../harness-node'
@@ -143,6 +143,7 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
     await chooseLevel(b.window, settings.getByTestId(`link-machine-access-${aId}`), 'read')
     await closeSettings(b.window)
 
+    await showSidebarSection(a.window, 'Projects')
     // A's sidebar: "Read only" beside Online, with the reason as its tooltip; B's Project is listed.
     const mark = group(a.window, bId).getByTestId('machine-read-only')
     await expect(mark).toHaveText('Read only', { timeout: ms(20_000) })
@@ -169,6 +170,7 @@ test('Read only: A marks B in the sidebar, B\'s Canvas in A only shows — inact
     await expect(term.getByTestId('terminal-node')).toHaveCount(0)
     // The actions of the Epic frame and the sidebar's "New session": inactive, saying why.
     const frame = a.window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+    await showSidebarSection(a.window, 'Sessions')
     for (const action of [frame.getByTestId('action-run-wave'), frame.getByTestId('action-autopilot'), a.window.getByTestId('sidebar-new-session')]) await expectInactive(action)
     // Playwright waits for an aria-disabled button to become enabled; the click is forced, as a person's would land.
     await a.window.getByTestId('sidebar-new-session').click({ force: true })

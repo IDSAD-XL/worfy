@@ -1,102 +1,92 @@
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
+import { useId, type ReactNode } from 'react'
+import { activeProject, useProjects } from '../projects/useProjects'
+import { ALL_PROJECTS, useSidebarScope } from './sidebar-scope'
 import './sidebar-section.css'
 
 export interface SidebarSectionProps {
-  /**
-   * The section's id: the name of its file without the extension (`EpicsSection`), as
-   * ShellExtension.id. It is the key of `sidebar.collapsed` in the app settings.
-   */
+  /** The section's id: the name of its file without the extension (`EpicsSection`), as ShellExtension.id. */
   id: string
   /** The text of the heading, and the name of the region. */
   title: string
   /**
-   * The height of one row of the section's list, in px, when it is not the common row
-   * (`--row-height`). The list is 3 to 15 of these rows high (sidebar-section.css).
+   * Which Projects the section shows, said next to the heading (worfy-polish ticket 94, sidebar-scope.ts):
+   * - `filtered` — the section follows the Project switcher: «All Projects», or the name of the one;
+   * - `current` — it shows the open Project in either answer: its name, and while «All» is chosen
+   *   with more than one Project a line that says the list is of the open Project alone.
+   * Without it (Projects, Machines) nothing is said.
    */
-  rowHeight?: number
-  /** Whether the section is collapsed while the app settings have no key for it. */
-  defaultCollapsed?: boolean
-  /** Shown right after the heading: a count. A click on it does not collapse the section. */
+  scope?: 'filtered' | 'current'
+  /** Shown right after the heading: a count. */
   meta?: ReactNode
-  /** Shown at the right edge of the header: the section's own buttons. They do not collapse it. */
+  /** Shown at the right edge of the header: the section's own buttons. */
   trailing?: ReactNode
-  /** A message about an action of the header, above the list. A collapsed section shows it too. */
+  /**
+   * The section's main buttons, in a row of their own under the header and above the list, outside the
+   * part that scrolls (Sessions: New session, Product Session, as in the sidebar prototype).
+   */
+  actions?: ReactNode
+  /** A message about an action of the header, above the list. */
   notice?: ReactNode
-  /** Popovers, menus and dialogs of the section. They are outside the body, so a collapsed section shows them too. */
+  /** Popovers, menus and dialogs of the section, placed against it under its header. */
   overlay?: ReactNode
   testId?: string
-  /** The body: the list, with whatever belongs under it. It scrolls by itself and is hidden while collapsed. */
+  /** The body: the list, with whatever belongs under it. It takes the height of the panel left and scrolls by itself. */
   children?: ReactNode
 }
 
-const chevron = (collapsed: boolean) => (
-  <svg className="w-sidebar-section__chevron" width="8" height="8" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {/* Right while collapsed, down while expanded. */}
-    <path d={collapsed ? 'M6 4l4 4-4 4' : 'M4 6l4 4 4-4'} />
-  </svg>
-)
+function ScopeLabel({ kind }: { kind: 'filtered' | 'current' }) {
+  const state = useProjects()
+  const scope = useSidebarScope((store) => store.scope)
+  const active = activeProject(state)
+  const one = scope === 'project' && active !== undefined
+  const text = kind === 'filtered' && !one ? ALL_PROJECTS : active?.name
+  if (text === undefined) return null
+  return (
+    <span className="w-sidebar-section__scope" data-testid="sidebar-scope-label" title={text}>
+      {text}
+    </span>
+  )
+}
+
+/** The line of a `current` section while «All» is chosen and the Machine has more than one Project. */
+function ScopeNote() {
+  const state = useProjects()
+  const scope = useSidebarScope((store) => store.scope)
+  const active = activeProject(state)
+  if (scope !== 'all' || active === undefined || (state?.projects.length ?? 0) < 2) return null
+  return (
+    <p className="w-sidebar-section__scope-note" data-testid="sidebar-scope-note">
+      {active.name} only: this list does not show other Projects.
+    </p>
+  )
+}
 
 /**
- * The frame every sidebar section is drawn in: a region named by its heading, the heading a button
- * that collapses and expands the section, and the body under it.
- *
- * Collapsed or not is `sidebar.collapsed[id]` of the app settings: it outlives the window and is
- * the same in every window of this Machine. A collapsed body stays in the DOM with `hidden`.
+ * The frame every sidebar section is drawn in, in the panel of the sidebar (Sidebar.tsx): a region
+ * named by its heading, the header with the Projects it shows, its count and its buttons, and the
+ * body under it, which scrolls.
  */
-export function SidebarSection({ id, title, rowHeight, defaultCollapsed = false, meta, trailing, notice, overlay, testId, children }: SidebarSectionProps) {
+export function SidebarSection({ id, title, scope, meta, trailing, actions, notice, overlay, testId, children }: SidebarSectionProps) {
   const headingId = useId()
-  const bodyId = useId()
-  const saved = useAppSettings((settings) => settings.sidebar.collapsed[id])
-  // What the last click asked for, while its write is on its way to main or was refused. It is shown
-  // at once, and a refusal (app-settings.json cannot be written) does not leave the button dead.
-  const [clicked, setClicked] = useState<boolean | null>(null)
-  const clicks = useRef(0)
-  const collapsed = clicked ?? saved ?? defaultCollapsed
-
-  const toggle = () => {
-    const next = !collapsed
-    const click = ++clicks.current
-    setClicked(next)
-    void setAppSettings({ sidebar: { collapsed: { [id]: next } } }).then((refused) => {
-      // The answer to an earlier click: a later one decides.
-      if (click !== clicks.current) return
-      // Saved: the settings say it now, and a change made in another window is followed again.
-      if (refused === undefined) setClicked(null)
-      else console.error(`appSettings.set failed, the ${title} section stays ${next ? 'collapsed' : 'expanded'} in this window only:`, refused)
-    })
-  }
-
-  const style = rowHeight === undefined ? undefined : ({ '--w-section-row': `${rowHeight}px` } as CSSProperties)
-  // Marked for sidebar-section.css: a section with a notice may not shrink as far as one without.
+  // Marked for sidebar-section.css: a notice takes its own height above the list.
   const hasNotice = notice !== undefined && notice !== null && notice !== false
 
   return (
-    <section
-      className="w-sidebar-section"
-      aria-labelledby={headingId}
-      data-section-id={id}
-      data-collapsed={collapsed ? 'true' : undefined}
-      data-notice={hasNotice ? 'true' : undefined}
-      data-testid={testId}
-      style={style}
-    >
+    <section className="w-sidebar-section" aria-labelledby={headingId} data-section-id={id} data-notice={hasNotice ? 'true' : undefined} data-testid={testId}>
       <div className="w-sidebar-section__header">
         <h2 id={headingId} className="w-sidebar-section__heading">
-          <button type="button" className="w-sidebar-section__toggle" aria-expanded={!collapsed} aria-controls={bodyId} onClick={toggle}>
-            {chevron(collapsed)}
-            {title}
-          </button>
+          {title}
         </h2>
+        {scope !== undefined ? <ScopeLabel kind={scope} /> : null}
         {meta !== undefined && meta !== null ? <span className="w-sidebar-section__meta">{meta}</span> : null}
         {trailing !== undefined && trailing !== null ? <span className="w-sidebar-section__trailing">{trailing}</span> : null}
       </div>
+      {scope === 'current' ? <ScopeNote /> : null}
+      {actions !== undefined && actions !== null ? <div className="w-sidebar-section__actions">{actions}</div> : null}
       <div className="w-sidebar-section__notice">{notice}</div>
-      {/* No height of its own: a popover placed against the section starts here, under the header. */}
+      {/* No height of its own: a popover placed against the section starts here, under the header and the actions. */}
       <div className="w-sidebar-section__overlay">{overlay}</div>
-      <div id={bodyId} className="w-sidebar-section__body" hidden={collapsed}>
-        {children}
-      </div>
+      <div className="w-sidebar-section__body">{children}</div>
     </section>
   )
 }

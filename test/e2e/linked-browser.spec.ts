@@ -14,7 +14,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
 import { ms } from '../time-scale'
 
 test.setTimeout(ms(180_000))
@@ -122,6 +122,7 @@ test('a Browser of B: full access shows its frames and types in its page; read-o
     await closeSettings(b.window)
 
     // A opens beta of B: b1's frame shows the frames of B's page, and A has no page of its own.
+    await showSidebarSection(a.window, 'Projects')
     const betaRow = a.window.locator(`[data-testid="machine-group"][data-machine-id="${bId}"] [data-testid="project-row"][data-project-id="${BETA}"]`)
     await betaRow.getByRole('button').click({ timeout: ms(20_000) })
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))

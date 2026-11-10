@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp } from './helpers'
+import { canvasReady, launchApp, showSidebarSection } from './helpers'
 import { ms } from '../time-scale'
 
 // The turns a Session had before worfy resumed it (worfy-daily ticket 22), against the built app on
@@ -134,6 +134,7 @@ test('a resumed Session Node shows its last answer, and its Session view the tur
     await canvasReady(launched, { size: { width: 1400, height: 900 } })
 
     // Resume from the history: the Node turns live and shows the last answer of the transcript.
+    await showSidebarSection(window, 'Sessions')
     await window.getByTestId('sidebar-history').click()
     const row = window.getByTestId('history-popover').locator(`[data-testid="history-session"][data-session-id="${PAST}"]`)
     await row.getByTestId('history-resume').click()

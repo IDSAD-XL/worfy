@@ -7,10 +7,25 @@ import '../../machines/machines.css'
 import { machineAccessLines, reconnectMachine, useMachines } from '../../machines/useMachines'
 import { useLinked } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
+import { setRailBadge } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
 
-/** Between Projects (10) and Epics (20): the Machines the Projects will be grouped by (worfy-link ticket 09). */
+/**
+ * The Machines the Projects are grouped by (worfy-link ticket 09): at the foot of the rail
+ * (worfy-polish ticket 94), its button with the dot of machines-dot.ts.
+ */
 export const order = 15
+export const railTitle = 'Machines'
+export const railEnd = true
+
+export function RailIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1.8" y="2.5" width="12.4" height="8.5" rx="1.3" />
+      <path d="M5.5 14h5M8 11v3" />
+    </svg>
+  )
+}
 
 const styles = {
   list: { margin: 0, padding: 0, listStyle: 'none' },
@@ -215,8 +230,8 @@ function MachineDetails({ machine, access, onReconnect }: { machine: LinkedMachi
  * menu (worfy-link ticket 37), and "Link a machine…" under the list. With no Linked machine, only
  * the button.
  *
- * Collapsed until the user expands it. Next to the heading, a collapsed section too, a dot says
- * whether a Linked machine is online (machines-dot.ts). The switches of the link are in
+ * Next to the heading and on its rail button, a dot says whether a Linked machine is online, or that
+ * a certificate changed (machines-dot.ts). The switches of the link are in
  * Settings → Machines (src/renderer/settings/MachinesSection.tsx).
  */
 export default function MachinesSection() {
@@ -226,6 +241,12 @@ export default function MachinesSection() {
   const [menu, setMenu] = useState<{ machine: LinkedMachineView; x: number; y: number }>()
   const [error, setError] = useState<string>()
   const dot = machinesDot(state?.linked ?? [])
+  const dotKind = dot?.kind
+  const dotLabel = dot?.label
+  useEffect(() => {
+    setRailBadge('MachinesSection', dotKind === undefined || dotLabel === undefined ? undefined : { tone: dotKind === 'online' ? 'ready' : 'blocked', label: dotLabel })
+    return () => setRailBadge('MachinesSection', undefined)
+  }, [dotKind, dotLabel])
 
   const run = async (work: Promise<string | undefined>): Promise<void> => {
     setError(await work)
@@ -236,7 +257,6 @@ export default function MachinesSection() {
       id="MachinesSection"
       title="Machines"
       testId="machines-section"
-      defaultCollapsed
       // The status colour without a caption: the dot says it in its tooltip and to a screen reader.
       meta={dot ? <span className="w-machines-dot" role="img" aria-label={dot.label} title={dot.label} data-state={dot.kind} data-testid="machines-dot" /> : null}
       notice={

@@ -15,19 +15,33 @@ import { nodeSession, openSession, setView, useNavigation } from '../../session/
 import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
 import { StatusChip } from '../../theme/primitives'
+import { setRailBadge } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
 
 /**
- * The live Sessions of the active Project, wherever they were started (design F, sidebar «Sessions»),
+ * The live Sessions of the open Project — under «All» of the Project switcher too, which its header
+ * says (`scope="current"`, worfy-polish ticket 94) — wherever they were started (design F, sidebar «Sessions»),
  * "New session" (a new live Session Node in the Project's root, ticket 18, on the Vendor picked in
  * session/NewSessionVendor.tsx, worfy-multi-vendor ticket 24) and the Project's history
  * (session/HistoryPopover.tsx). A Session worfy runs — the Orchestrator, a Session Node's — is
  * «worfy», with the name and state its Node shows (worfy-daily ticket 24, claude-home/session-nodes.ts,
  * sessionRow); the others are «terminal» or «desktop» by where Claude Code says they were started.
- * "New Product Session" (worfy-product-session ticket 06) is a row of its own above the list: a
- * Session of kind `product` on Claude Code, with no Vendor picker, opened in the Session view.
+ * "Product Session" (named "New Product Session", worfy-product-session ticket 06) stands beside "New
+ * session" in the row under the header (worfy-polish ticket 94, the prototype's Sessions panel): a
+ * Session of kind `product` on Claude Code, with no Vendor picker, opened in the Session view. Its rail
+ * button counts the live Sessions.
  */
-export const order = 30
+export const order = 12
+export const railTitle = 'Sessions'
+
+export function RailIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="1.8" y="2.5" width="12.4" height="11" rx="1.6" />
+      <path d="M4.5 6l2 2-2 2M8 10h3.5" />
+    </svg>
+  )
+}
 
 const styles = {
   count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
@@ -61,23 +75,25 @@ const styles = {
     fontSize: 'var(--text-13)',
     textAlign: 'left',
   },
-  // An action, not a Session: the row's place and height, in the colour of the header's buttons.
-  entry: {
-    display: 'flex',
-    alignItems: 'center',
-    width: '100%',
-    height: 'var(--row-height)',
-    padding: '0 8px',
+  // The buttons of the actions row, as `.newbtns` of the sidebar prototype: they share the row.
+  newButton: {
+    flex: '1 1 auto',
+    minWidth: 0,
+    height: 26,
+    // The prototype's buttons have no padding of their own; 4 px keep a label off the border.
+    padding: '0 4px',
     boxSizing: 'border-box',
-    border: 0,
+    border: '1px solid var(--border)',
     borderRadius: 'var(--radius-button)',
-    background: 'transparent',
+    background: 'var(--surface)',
     color: 'var(--text-secondary)',
     font: 'inherit',
     fontSize: 'var(--text-12)',
-    textAlign: 'left',
     whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
+  primary: { background: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--primary-text)', fontWeight: 600 },
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   source: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
@@ -107,6 +123,11 @@ function Sessions({ project }: { project: ProjectView }) {
   const [problem, setProblem] = useState<string | null>(null)
   // On a read-only screen (worfy-link ticket 25) "New session" is inactive, saying why.
   const readOnly = useReadOnly()
+  const liveCount = live?.length ?? 0
+  useEffect(() => {
+    setRailBadge('SessionsSection', liveCount > 0 ? { tone: 'working', count: liveCount, label: `${liveCount} live` } : undefined)
+    return () => setRailBadge('SessionsSection', undefined)
+  }, [liveCount])
 
   const newSession = async (vendor: string | undefined) => {
     setVendorOpen(false)
@@ -157,19 +178,32 @@ function Sessions({ project }: { project: ProjectView }) {
     })
   }
 
-  // A row of its own above the list, not a third button of the header: the header has no room left
-  // ("New session" and "History" beside the count), and a Product Session is apart from the
-  // development Sessions the list and "New session" are about.
-  const productEntry = (
-    <button
-      type="button"
-      className="w-row"
-      style={styles.entry}
-      data-testid="sidebar-new-product-session"
-      {...writeAction(readOnly, () => void newProductSession(), "A new Product Session: the Product owner's advisor, on Claude Code")}
-    >
-      New Product Session
-    </button>
+  // The buttons of the prototype's Sessions panel, in a row under the header: "New session", the
+  // primary one, and "Product Session" — a Session apart from the development Sessions of the list.
+  const actions = (
+    <>
+      <button
+        type="button"
+        style={{ ...styles.newButton, ...styles.primary }}
+        data-testid="sidebar-new-session"
+        aria-haspopup="menu"
+        aria-expanded={vendorOpen}
+        // The picker closes on a press outside it: this button toggles it instead.
+        onMouseDown={(event) => event.stopPropagation()}
+        {...writeAction(readOnly, () => setVendorOpen((open) => !open), "A new Session in the Project's root, on the Vendor you pick")}
+      >
+        New session
+      </button>
+      <button
+        type="button"
+        style={styles.newButton}
+        aria-label="New Product Session"
+        data-testid="sidebar-new-product-session"
+        {...writeAction(readOnly, () => void newProductSession(), "A new Product Session: the Product owner's advisor, on Claude Code")}
+      >
+        Product Session
+      </button>
+    </>
   )
 
   let body = null
@@ -212,30 +246,18 @@ function Sessions({ project }: { project: ProjectView }) {
     <SidebarSection
       id="SessionsSection"
       title="Sessions"
+      scope="current"
       meta={
         <span style={styles.count} data-testid="sidebar-sessions-live">
           {live?.length ?? 0} live
         </span>
       }
       trailing={
-        <>
-          <button
-            type="button"
-            style={styles.action}
-            data-testid="sidebar-new-session"
-            aria-haspopup="menu"
-            aria-expanded={vendorOpen}
-            // The picker closes on a press outside it: this button toggles it instead.
-            onMouseDown={(event) => event.stopPropagation()}
-            {...writeAction(readOnly, () => setVendorOpen((open) => !open), "A new Session in the Project's root, on the Vendor you pick")}
-          >
-            New session
-          </button>
-          <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
-            History
-          </button>
-        </>
+        <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
+          History
+        </button>
       }
+      actions={actions}
       notice={
         problem !== null ? (
           <p style={styles.message} role="alert">
@@ -252,7 +274,6 @@ function Sessions({ project }: { project: ProjectView }) {
         </>
       }
     >
-      {productEntry}
       {body}
     </SidebarSection>
   )

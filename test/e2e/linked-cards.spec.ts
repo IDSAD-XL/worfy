@@ -11,7 +11,7 @@ import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Frame, type Page } from '@playwright/test'
-import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
+import { launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, showSidebarSection, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -232,6 +232,7 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     expect(await ownCard.evaluate('location.origin')).toBe(ownOrigin)
     await ownCard.evaluate("localStorage.setItem('who', 'A')")
 
+    await showSidebarSection(a.window, 'Projects')
     // A opens the Project of B: the Card of B, from B, at an address with B's machine label.
     await projectButton(a.window, `[data-machine-id="${bId}"]`).click()
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))
