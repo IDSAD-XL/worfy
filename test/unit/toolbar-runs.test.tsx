@@ -24,7 +24,7 @@ afterEach(() => {
 describe('the Runs tab', () => {
   it('is the fourth tab, after Canvas, Session and Pipeline', () => {
     const tabs = renderToolbar({ project: PROJECT })
-    expect(tabs.getAllByRole('button').map((tab) => tab.getAttribute('aria-label'))).toEqual(['Canvas', 'Session', 'Pipeline', 'Runs'])
+    expect(tabs.getAllByRole('button').map((tab) => tab.getAttribute('aria-label'))).toEqual(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests'])
   })
 
   it('opens the Run history of the active Project, and does not switch the view itself', () => {

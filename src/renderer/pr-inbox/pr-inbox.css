@@ -1,0 +1,358 @@
+/* The Pull requests view (PrInboxView.tsx) and the rows of the sidebar's Pull requests section
+   (shell/sidebar/PullRequestsSection.tsx). Values come from tokens.css only, so both themes come for free. */
+
+.w-shell__content--pull-requests {
+  background: var(--bg);
+}
+
+.w-pr-inbox__frame {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.w-pr-inbox {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-width: 960px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  gap: var(--space-2);
+}
+.w-pr-inbox__heading {
+  margin: 0;
+  font-size: var(--text-15);
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* The next search, why the last read failed and the notice of the snapshot, one after another. */
+.w-pr-inbox__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox__status:empty {
+  display: none;
+}
+.w-pr-inbox__status-error,
+.w-pr-inbox__missing {
+  color: var(--blocked-text);
+}
+.w-pr-inbox__missing {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-pr-inbox__message {
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--text-muted);
+}
+.w-pr-inbox__message--padded {
+  padding: var(--space-4);
+}
+
+.w-pr-inbox__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A group: its title and count, then its rows, framed as a column of the Pipeline board. */
+.w-pr-inbox-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+}
+.w-pr-inbox-group[data-focused='true'] {
+  border-color: var(--accent);
+}
+.w-pr-inbox-group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+}
+.w-pr-inbox-group__title {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.w-pr-inbox-group__count {
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-pr-inbox-group__rows {
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A PR: a card like the Pipeline's, a button over its two lines and, open, its threads under them. */
+.w-pr-inbox-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+}
+.w-pr-inbox-row__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 6px var(--space-2) 7px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.w-pr-inbox-row:hover {
+  border-color: var(--border-strong);
+}
+.w-pr-inbox-row__head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-pr-inbox-row__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-pr-inbox-row__facts {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.w-pr-inbox-row__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-13);
+  font-weight: 500;
+}
+.w-pr-inbox-row__age {
+  flex: none;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-pr-inbox-row__ref {
+  font-size: var(--text-11);
+  color: var(--text-secondary);
+}
+.w-pr-inbox-row__count {
+  font-size: var(--text-11);
+  color: var(--text-secondary);
+}
+.w-pr-inbox-row .w-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The CI of the PR: a dot, its text the tooltip and the accessible name. */
+.w-pr-inbox-ci {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+.w-pr-inbox-ci[data-ci='passing'] {
+  border-color: var(--ready-dot);
+  background: var(--ready-dot);
+}
+.w-pr-inbox-ci[data-ci='failing'] {
+  border-color: var(--blocked-ring);
+  background: var(--blocked-ring);
+}
+.w-pr-inbox-ci[data-ci='running'] {
+  border-color: var(--working-dot);
+}
+
+/* A flag of a row or a thread: Draft, via team, new, Resolved, Outdated. */
+.w-pr-inbox-flag {
+  display: inline-block;
+  flex: none;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: var(--radius-chip);
+  background: var(--done-bg);
+  color: var(--done-text);
+  font-size: var(--text-11);
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.w-pr-inbox-flag--new {
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+
+.w-pr-inbox-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.w-pr-inbox-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-12);
+}
+.w-pr-inbox-row__branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-pr-inbox-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.w-pr-inbox-link:hover {
+  text-decoration: underline;
+}
+.w-pr-inbox-link:focus-visible,
+.w-pr-inbox-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-pr-inbox-button {
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+}
+.w-pr-inbox-button:hover:where(:not(:disabled)) {
+  border-color: var(--text-secondary);
+}
+.w-pr-inbox-button:disabled {
+  color: var(--text-muted);
+}
+
+.w-pr-inbox-threads,
+.w-pr-inbox-comments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.w-pr-inbox-thread {
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+}
+.w-pr-inbox-thread[data-resolved='true'] {
+  opacity: 0.7;
+}
+.w-pr-inbox-thread__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 6px;
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-comment__meta {
+  display: flex;
+  gap: 6px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-pr-inbox-comment__author {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.w-pr-inbox-comment__body {
+  margin: 2px 0 0;
+  font-size: var(--text-12);
+  line-height: 17px;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-conversation__title {
+  margin: 0 0 6px;
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* The sidebar section: a Project's name, then a row per group that holds a PR, with its count. */
+.w-pr-inbox-section__project {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-pr-inbox-section__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-pr-inbox-section__message {
+  margin: 2px 8px 4px;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.w-pr-inbox-section__message--error {
+  color: var(--blocked-text);
+}
+.w-row.w-pr-inbox-section__row {
+  width: 100%;
+}
+.w-pr-inbox-section__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.w-pr-inbox-section__count {
+  flex: none;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}

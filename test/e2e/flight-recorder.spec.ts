@@ -408,7 +408,7 @@ test('the Runs tab of the header opens the Run history of the active Project, th
   try {
     const { window } = launched
     const tabs = window.locator('.w-toolbar [role="group"][aria-label="View"]')
-    await expect(tabs.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs'])
+    await expect(tabs.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests'])
     await expect(tabs.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     const view = window.locator('.w-shell__view[data-view="history"]')
     await expect(view).toBeHidden()

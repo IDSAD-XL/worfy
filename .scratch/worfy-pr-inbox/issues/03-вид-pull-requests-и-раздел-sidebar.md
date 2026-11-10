@@ -1,7 +1,7 @@
 # 03 — Вид «Pull requests», раздел sidebar, Command palette, переключатель в Project settings, термин PR inbox
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T01:26Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 1–3; «Как работает» → «Вид и sidebar (Ticket 03; Q1, Q7)»;
 «Ticket-ы», «Волны» (Wave 2); решения Q1, Q7, Q10;

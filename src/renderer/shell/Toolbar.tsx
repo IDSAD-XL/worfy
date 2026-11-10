@@ -13,8 +13,9 @@ const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: tru
  * The views of the main area. `history` — the Run history of Flight Recorder
  * (flight-recorder/RunHistoryView.tsx) — has the `Runs` tab here, which opens it at the active
  * Project's newest Run (openRunHistory); its other entries open it too, Esc leaves it.
+ * `pull-requests` — the PR inbox of the active Project (pr-inbox/PrInboxView.tsx) — is the fifth tab.
  */
-export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history'
+export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {
@@ -71,6 +72,21 @@ function viewOptions(project: ToolbarProject | undefined): readonly SegmentOptio
       ),
       disabled: project === undefined,
       title: project === undefined ? 'Open a Project to see its Runs' : 'Runs',
+    },
+    {
+      // The PR inbox of the active Project (pr-inbox/PrInboxView.tsx, worfy-pr-inbox ticket 03): a pull request's two branches.
+      value: 'pull-requests',
+      label: 'Pull requests',
+      icon: (
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="4" cy="3.5" r="1.5" />
+          <circle cx="4" cy="12.5" r="1.5" />
+          <circle cx="12" cy="12.5" r="1.5" />
+          <path d="M4 5v6M12 11V6.5a2 2 0 0 0-2-2H7.5M9 3l-1.5 1.5L9 6" />
+        </svg>
+      ),
+      disabled: project === undefined,
+      title: project === undefined ? 'Open a Project to see its pull requests' : 'Pull requests',
     },
   ]
 }
