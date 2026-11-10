@@ -42,21 +42,28 @@ ADR-0105)»; «Решено без владельца»; «Риски» («Пу�
 - [ ] Contract test: Send — журнал stub-а gh содержит ровно один `POST …/replies` с телом, байт в байт равным
       сохранённому тексту поля; файл черновика — `sent` и `sentUrl`.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Contract test: черновики есть, вид открыт, нити раскрыты, `saveDraft` и `discard` вызваны — ни одной записи в
       журнале stub-а без `prInbox.send`.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Contract test: след workflow в правленом тексте — lint находит, публикации нет, черновик `draft` с причиной.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Contract test: ответ GitHub 500 — публикации больше не было, `draft` с причиной; повтор, когда текст уже
       опубликован (stub отдаёт его в нити), — только отметка `sent`, второго POST нет.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Contract test: `prInbox.send` с Linked machine (любой уровень доступа) — отказ до handler-а.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Contract test: повторный Send отправленного черновика — отказ, второго POST нет.
   - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/contract/pr-inbox-send.test.ts` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] Unit test: `DraftThread` — Send неактивен на пустом тексте; Send all открывает диалог со всеми текстами;
       Cancel — ни одного вызова `prInbox.send`.
   - evidence: test-run pass · `pnpm test -- test/unit/draft-thread.test.tsx` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm test -- test/unit/draft-thread.test.tsx` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 - [ ] E2e test: правка черновика и щелчок Send — один POST с правленым текстом в журнале stub-а; без щелчка — ни
       одного.
 - [ ] Владелец в Mac Stable отправил один ответ на настоящем PR командного проекта: на GitHub ровно текст из поля,
@@ -64,9 +71,12 @@ ADR-0105)»; «Решено без владельца»; «Риски» («Пу�
   - needs: mac stable
 - [ ] `docs/features/pr-inbox.md` описывает черновики и Send.
   - evidence: commit pass · Draft replies editor and Send on the user's click: main re-checks and posts exactly the text shown (worfy-pr-inbox 05) · - - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: commit pass · Send rework: a second Send only looks on GitHub first, replies named by thread and text, no Send without github.account · - - · 11b3d8f78
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
   - evidence: gate pass · `gate fast` exit 0 · mac - · b8f9a55a4d296b33b680a1599d91571915cd5191
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 8ad55a863c1726f7c8d457480eb2e8076e99fb33
 
 ## Тесты
 
