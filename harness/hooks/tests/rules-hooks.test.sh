@@ -931,6 +931,14 @@ for who in profile epic-status; do
         || bad "stage-lines: hanging $who: exit $rc after ${took} s (124: the outer limit), out '$(cat "$T/out")', err '$(cat "$T/err")'"
     [ -s "$T/hung.pid" ] && gone "$T/hung.pid" && ok "stage-lines: the hung $who is killed, not left behind" || bad "stage-lines: the hung $who is still running (or never wrote its pid)"
 done
+# CLAUDE_STAGE_STEP_MS shortens the step: with 300 ms the hook gives up on a hanging profile and names that limit.
+# Only what does not depend on how fast node starts is checked: the stand-in may be killed before it writes its pid,
+# and a pid it did write must be gone.
+rm -f "$T/hung.pid"
+stage "$REPO" "${FAKES[@]}" FAKE_PROFILE=hang FAKE_PID="$T/hung.pid" CLAUDE_STAGE_STEP_MS=300
+[ "$rc" -eq 0 ] && [ ! -s "$T/out" ] && [ "$(own_err)" -eq 1 ] && grep -qF 'ran past 300 ms' "$T/err" && { [ ! -s "$T/hung.pid" ] || gone "$T/hung.pid"; } \
+    && ok "stage-lines: CLAUDE_STAGE_STEP_MS=300: the hanging profile is given up after 300 ms, one line naming it, exit 0, nothing left" \
+    || bad "stage-lines: CLAUDE_STAGE_STEP_MS=300: exit $rc, out '$(cat "$T/out")', err '$(cat "$T/err")', hung pids [$(cat "$T/hung.pid" 2>/dev/null | tr '\n' ' ')]"
 # The command of hooks.json, run the way Claude Code runs it, gives the line too.
 cmd="$(hj hooks | grep '^UserPromptSubmit|' | cut -d'|' -f3)"
 (printf '{"hook_event_name":"UserPromptSubmit","cwd":"%s"}' "$(nat "$DEMO")" | env HOME="$T/demo-home" HARNESS_HOME="$DEMO/.git/worfy-harness" \

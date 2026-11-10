@@ -66,6 +66,21 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
     # it (wait0: counted, the run would be green and cached) or with code 1 (wait1: counted, the
     # run would be red). stdin is what a hook gives — a JSON line, then the end — or /dev/null,
     # as the rules tell agents to run the gate.
+    # wait_or_gone <pid> <command…>: polls every 0.05 s until the command succeeds or <pid> is gone (exit 0). A load
+    # only slows the gate, and the wait follows it; a gate still alive after HANG_S seconds of the wall clock hangs
+    # (exit 1), and the caller kills its group with a FAIL line. The gates below run in a process group of their own
+    # (set -m): a kill of this file's group at the runner's file limit does not reach them, so a hang must end here,
+    # well below that limit. HANG_S is six times the 10 s these waits had when a loaded machine outran them.
+    HANG_S=60
+    wait_or_gone() {
+        local pid="$1" end=$((SECONDS + HANG_S))
+        shift
+        until "$@" || ! kill -0 "$pid" 2>/dev/null; do
+            [ "$SECONDS" -lt "$end" ] || return 1
+            sleep 0.05
+        done
+        return 0
+    }
     # stop_group <TERM | INT> <pipe | null> <worktree>: starts the gate in a process group of its
     # own, waits until the script says it started, sends the signal to the group; sets $rc, $out.
     stop_group() {
@@ -83,12 +98,13 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
         fi
         pid=$!
         set +m
-        # Until the script says it started or the gate is gone: no clock, which a loaded machine outruns.
-        until [ -s "$T/started" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.1; done
-        if [ -s "$T/started" ]; then kill -s "$1" -- "-$pid"; else kill -s KILL -- "-$pid"; fi
+        # Until the script says it started or the gate is gone (wait_or_gone).
+        wait_or_gone "$pid" test -s "$T/started" \
+            || bad "stop_group $1 $2: the gate hangs: its script did not start and it did not end within $HANG_S s; its process group is killed"
+        if [ -s "$T/started" ]; then kill -s "$1" -- "-$pid"; else kill -s KILL -- "-$pid" 2>/dev/null; fi
         wait "$pid"; rc=$?
         out="$(cat "$T/stop.out")"
-        [ -s "$T/started" ] || out="the gate ended before its script started; $out"
+        [ -s "$T/started" ] || out="the script did not start; $out"
     }
     for sig in TERM INT; do
         want=143; [ "$sig" = INT ] && want=130
@@ -209,10 +225,10 @@ EOF
         fi
         pid=$!
         set +m
-        # Until the call waits or the gate is gone, however long that takes: the gate either reaches the call or ends.
-        # A cap of 10 s stood here, and under load the gate had not reached the call by then: the group was killed
-        # and the case failed with rc 137.
-        until [ -s "$T/in-slow" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
+        # Until the call waits or the gate is gone (wait_or_gone). A cap of 10 s stood here, and under load the gate had
+        # not reached the call by then: the group was killed and the case failed with rc 137.
+        wait_or_gone "$pid" test -s "$T/in-slow" \
+            || bad "at «${what}» ${action}: the gate hangs: it did not reach the call and did not end within $HANG_S s; its process group is killed"
         child="$(cat "$T/in-slow" 2>/dev/null)"
         if [ -z "$child" ]; then kill -s KILL -- "-$pid" 2>/dev/null
         else
@@ -363,11 +379,17 @@ EOF
     (cd "$U" && PATH="$T/slowgit:$PATH" exec node "$GATE" fast) </dev/null >"$T/stop.out" 2>"$T/err.fifo" &
     pid=$!
     exec 9<"$T/err.fifo"
-    until [ -s "$T/in-slow" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
+    # This gate is in the group of this file, but a hang here gets its FAIL line too, not only the runner's kill.
+    hung=0
+    wait_or_gone "$pid" test -s "$T/in-slow" || hung=1
     perl -e 'use Fcntl; sysopen(my $f, $ARGV[0], O_WRONLY | O_NONBLOCK) or die "$ARGV[0]: $!"; 1 while defined syswrite($f, "z" x 4096)' "$T/err.fifo"
     : >"$T/go"
-    until [ -e "$STATE/verdict-$(tag "$U").json" ] || ! kill -0 "$pid" 2>/dev/null; do sleep 0.05; done
-    kill -s TERM "$pid"
+    [ "$hung" = 1 ] || wait_or_gone "$pid" test -e "$STATE/verdict-$(tag "$U").json" || hung=1
+    if [ "$hung" = 1 ]; then
+        bad "SIGTERM after the verdict is written: the gate hangs: no delayed HEAD read or no verdict file within $HANG_S s; it is killed"
+        kill -s KILL "$pid" 2>/dev/null
+    fi
+    kill -s TERM "$pid" 2>/dev/null
     sleep 0.2
     cat <&9 >/dev/null
     exec 9<&-

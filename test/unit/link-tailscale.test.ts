@@ -195,13 +195,14 @@ describe.skipIf(process.platform === 'win32')('runTailscaleCli', () => {
   }
 
   // The CLI's limit, times the run's multiplier: under the load of the whole suite the stand-in script once took longer
-  // than a bare 5 s to start and answer, and the runner killed it (worfy-polish 92).
+  // than a bare 5 s to start and answer, and the runner killed it (worfy-polish 92). 4 s, below the test's own 5 s, so a
+  // slow CLI still fails with the runner's error, not with vitest's timeout.
   it('passes the arguments as they are, without a shell', async () => {
-    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], ms(5_000), process.env)).toBe('status\n--json\n$(echo no); echo no\n')
+    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], ms(4_000), process.env)).toBe('status\n--json\n$(echo no); echo no\n')
   })
 
   it('runs the CLI with the environment it is given', async () => {
-    expect(await runTailscaleCli(script('printf %s "$WORFY_TAILSCALE_PROBE"'), [], ms(5_000), { ...process.env, WORFY_TAILSCALE_PROBE: 'from the login shell' })).toBe('from the login shell')
+    expect(await runTailscaleCli(script('printf %s "$WORFY_TAILSCALE_PROBE"'), [], ms(4_000), { ...process.env, WORFY_TAILSCALE_PROBE: 'from the login shell' })).toBe('from the login shell')
   })
 
   it('stops a CLI that does not answer in time', async () => {
