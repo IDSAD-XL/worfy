@@ -3,8 +3,8 @@
 //
 //   the head commit  pull request #7 of octo-org/ledger, "Add sumAll over a list": one commit over main on
 //                    refs/pull/7/head, written through a separate index, so the working tree and main stay as they
-//                    are; a skill that reads the code at the head commit finds it without a fetch
-//   the origin       https://github.com/octo-org/ledger, and protocol.https.allow=never, so no git command of the run
+//                    are; a skill that reads the code at the head commit finds it in the repository as it is
+//   the origin       octo-org/ledger on GitHub (REPO_URL below), and protocol.https.allow=never, so no git command of the run
 //                    reaches the network
 //   .git/eval-gh/    the stand-in gh (gh.mjs, and `gh`, a shell wrapper of it) and pull.json, the answers it gives;
 //                    its log goes to gh-calls.log in the project root, which the graders read
@@ -31,6 +31,7 @@ const OWNER = "octo-org"
 const NAME = "ledger"
 const NUMBER = 7
 const AUTHOR = "demo-dev"
+const REPO_URL = `https://github.com/${OWNER}/${NAME}`
 
 function git(args, options = {}) {
     const run = spawnSync("git", args, { encoding: "utf8", ...options })
@@ -64,11 +65,11 @@ fs.rmSync(index)
 const head = git(["commit-tree", tree, "-p", "main", "-m", "Add sumAll over a list"])
 git(["update-ref", `refs/pull/${NUMBER}/head`, head])
 const diff = `${git(["diff", "main", head])}\n`
-git(["remote", "set-url", "origin", `https://github.com/${OWNER}/${NAME}.git`])
+git(["remote", "set-url", "origin", `${REPO_URL}.git`])
 git(["config", "protocol.https.allow", "never"])
 
 // --- the answers of GitHub ----------------------------------------------------------------------------------------
-const url = `https://github.com/${OWNER}/${NAME}/pull/${NUMBER}`
+const url = `${REPO_URL}/pull/${NUMBER}`
 let serial = 9100
 const comment = (login, body, at, bot = false) => {
     serial += 1

@@ -1727,8 +1727,8 @@ describe('harness/evals: pr-reply', () => {
     expect(callLog(work)).toBe('answered pr view 7\nanswered pr diff 7\nanswered PrReplyThreads\n')
     expect(callLog(work)).toMatch(pattern('threads-read.md'))
     expect(callLog(work)).not.toMatch(pattern('no-github-write.md'))
-    // git of the run may not use https: a fetch of the head commit fails at once instead of reaching GitHub.
-    expect(git(work, home, 'remote', 'get-url', 'origin').stdout.trim()).toBe('https://github.com/octo-org/ledger.git')
+    // The run's git may not use https: reading the head commit from the origin fails at once instead of reaching GitHub.
+    expect(git(work, home, 'remote', 'get-url', 'origin').stdout.trim()).toMatch(/^https:\/\/github\.com\/octo-org\/ledger\.git$/)
     expect(git(work, home, 'config', '--get', 'protocol.https.allow').stdout.trim()).toBe('never')
   })
 
