@@ -51,7 +51,7 @@ Pull requests, Sessions, ADR), каждая сворачивается заго�
   - evidence: commit pass · Sidebar round 3: wordmark strip and a full-width Project switcher (worfy-polish 94) · - - · 62c69717e
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» и один Project, fixture Project-ы.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 62c69717e
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 02c63b910
 
 ## Где в коде
 
