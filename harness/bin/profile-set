@@ -66,13 +66,18 @@
 // and removes it once the profile is written or the rollback is whole. A profile-set killed in between
 // leaves it: --read of fields then prints `interrupted: true`, and the next --move rolls that move back
 // first (or closes it, when its profile had been written), but only while both sides are as it left them;
-// otherwise it refuses and names the marker. SIGTERM, SIGINT and SIGHUP wait for the end of a move. The
+// otherwise it refuses and names the marker. A marker that cannot be read is refused with what to do: check
+// both sides, put back by hand what the move left, delete the marker. A SIGTERM, SIGINT or SIGHUP sent to
+// profile-set alone does not stop it between two steps of a move; one sent to its whole process group (a
+// terminal's Ctrl+C, the quit of an app that signals the group) stops the git it runs too, that step fails
+// and the move rolls back as after any failure. The
 // output on 0 adds moved: { mode, folder, paths, files, ignored, recovered, qmd } — `recovered` null,
 // "rolled-back" or "finished"; `qmd` the project's -docs and -tickets collections, which still read the old
 // place. PROFILE_SET_MOVE_FAIL_AT (tests only): copy | to-commit | from-commit | profile — fail as that step
 // starts; PROFILE_SET_MOVE_KILL_AT (tests only): the same steps, and `done` (the profile written, the marker
-// not yet removed) — exit at once, as a kill would, marker left. A move of thousands of files outlasts the
-// lock's stale limit: the lock's owner file is touched as it goes, so no other writer takes it over meanwhile.
+// not yet removed) — exit at once, as a kill would, marker left. A move of thousands of files, or one long
+// git step, outlasts the lock's stale limit: while a move runs, a small node process touches the lock's owner
+// file every few seconds (and ends when profile-set or the lock is gone), so no other writer takes it over.
 //
 // Exit codes: 0 — written (or nothing to change, or --read, or --check found nothing); 1 — the Pipeline or
 // a field breaks a rule or is not JSON, the profile cannot be read or written: nothing written, the reason
@@ -87,7 +92,7 @@
 
 const fs = require("node:fs")
 const path = require("node:path")
-const { spawnSync } = require("node:child_process")
+const { spawn, spawnSync } = require("node:child_process")
 const { randomBytes } = require("node:crypto")
 // The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
@@ -413,7 +418,10 @@ if (mode === "check") {
 // A live lock is waited for up to LOCK_WAIT_MS, then the write gives up with exit 6.
 const LOCK = path.join(dir, ".profile-set.lock")
 const OWNER = path.join(LOCK, "owner")
-const LOCK_STALE_MS = 60_000
+// PROFILE_SET_LOCK_STALE_MS exists for the tests only: a short limit shows the keeper of a move's lock at work.
+const LOCK_STALE_MS = Number(process.env.PROFILE_SET_LOCK_STALE_MS) || 60_000
+// How often the keeper of a move's lock touches its owner file (keepLockFresh): well inside LOCK_STALE_MS.
+const LOCK_KEEP_MS = Math.min(5_000, Math.floor(LOCK_STALE_MS / 4))
 // shortcut: a fixed wait; PROFILE_SET_LOCK_WAIT_MS exists for the tests only, redo when a caller needs its own wait.
 const LOCK_WAIT_MS = Number(process.env.PROFILE_SET_LOCK_WAIT_MS) || 10_000
 // For the tests only: a folder that orders two writers taking over one stale lock by events, not by time.
@@ -581,14 +589,6 @@ function moveFiles() {
     if (problems.length > 0) refuse(problems.map((message) => ({ path: "", message: `${message} — nothing moved` })))
     let state
     try {
-        // A move of thousands of files outlasts LOCK_STALE_MS: the owner file is touched as it goes, so another
-        // writer does not take the lock of a live move for a killed one.
-        const alive = () => {
-            try {
-                const now = new Date()
-                fs.utimesSync(OWNER, now, now)
-            } catch {}
-        }
         state = runMove(plan, { failAt: process.env.PROFILE_SET_MOVE_FAIL_AT || "", killAt: process.env.PROFILE_SET_MOVE_KILL_AT || "", alive })
     } catch (e) {
         refuse([{ path: "", message: e.message }], e.undoProblems || [])
@@ -622,19 +622,53 @@ function moveFiles() {
     return { report, undo: () => undoMove(state), done: () => clearMarker(dir) }
 }
 
+// --- the lock kept fresh during a move ---------------------------------------------------
+/** Touches the lock's owner file now. */
+function alive() {
+    try {
+        const now = new Date()
+        fs.utimesSync(OWNER, now, now)
+    } catch {}
+}
+// A move outlasts LOCK_STALE_MS — thousands of files, gh asked for up to 30 s, one long git add or commit —
+// while this script is blocked in a synchronous call. A separate node process touches the owner file every
+// few seconds meanwhile; it ends when this process is gone or the owner file is (the lock released), and is
+// stopped when this process exits.
+function keepLockFresh() {
+    const keeper = spawn(
+        process.execPath,
+        [
+            "-e",
+            `const fs=require("fs");const [owner,pid]=process.argv.slice(1);setInterval(()=>{try{process.kill(Number(pid),0);const t=new Date();fs.utimesSync(owner,t,t)}catch{process.exit(0)}},${LOCK_KEEP_MS})`,
+            OWNER,
+            String(process.pid),
+        ],
+        { stdio: "ignore", windowsHide: true },
+    )
+    keeper.on("error", () => {})
+    keeper.unref()
+    process.on("exit", () => {
+        try {
+            keeper.kill()
+        } catch {}
+    })
+}
+
 // --- compare-and-write, under the lock --------------------------------------------------
 // A move a killed profile-set left behind is rolled back (or closed, when its profile was written) before
 // anything else: the fingerprint below is then of the profile as it really stands.
 let recovered = null
 if (mode === "move") {
-    // The move is synchronous: with these handlers a SIGTERM, SIGINT or SIGHUP waits for its end instead of
-    // stopping it between its two commits. A kill that cannot be handled leaves the marker (recoverMove).
+    // The move is synchronous: with these handlers a SIGTERM, SIGINT or SIGHUP sent to this process alone is
+    // handled after its end, not between two of its steps. A signal to the whole process group stops the git
+    // it runs too: that step fails and the move rolls back. A kill that cannot be handled leaves the marker.
     for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => {})
-    const { recoverMove, markerPath } = require("../lib/workflow-move.cjs")
+    keepLockFresh()
+    const { recoverMove } = require("../lib/workflow-move.cjs")
     try {
-        recovered = recoverMove(dir, readProfile().profile)
+        recovered = recoverMove(dir, readProfile().profile, { alive })
     } catch (e) {
-        refuse([{ path: "", message: `${markerPath(dir)}: ${e.message} — nothing moved` }])
+        refuse([{ path: "", message: `${e.message} — nothing moved` }])
     }
     if (recovered !== null && recovered.problems?.length > 0) {
         refuse(

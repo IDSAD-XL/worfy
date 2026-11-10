@@ -29,15 +29,19 @@
 //     (profile-set touches its lock with it).
 //   undoMove(state) → problems
 //     Puts both sides back as they were before runMove: the commits taken back, the removed files restored
-//     from the commit before, the copied ones deleted, a Workflow folder the move created removed. The
-//     marker goes when nothing is left. profile-set calls it when the profile cannot be written after the
+//     from the commit before, the copied ones deleted one by one by name (a folder only once it is empty, so
+//     a file anybody else put there stays), the git repository the move made removed. The marker goes when
+//     nothing is left. profile-set calls it when the profile cannot be written after the
 //     files moved, and removes the marker itself after a written profile.
 //   recoverMove(profileDir, profile) → null | { finished } | { rolledBack, problems }
 //     A marker left by a move that was killed (a timeout, the app's quit, a power cut): when the profile
 //     already has the new mode the move had finished and the marker goes; otherwise both sides are put back
-//     from what git says now, but only while each side is as that move left it (its own commit on top, its
-//     own files and nothing else changed). Anything else is a problem that names the marker, and nothing
-//     is touched.
+//     from what git says now, but only while each side is as that move left it: at the commit the marker
+//     recorded or the move's own commit on top of it (changing only the move's files), and in the working
+//     tree nothing but the move's own removals (the side the files left) or its own copies with the content
+//     they had where they came from (the side they came to). Anything else — a person's new file, an edit, a
+//     commit, a reset — is a problem that names the marker, and nothing is touched. A marker that cannot be
+//     read throws an error that says to check both sides and delete it by hand.
 "use strict"
 
 const fs = require("node:fs")
@@ -58,7 +62,9 @@ const LOCAL_REPO_ENV = new Set([
 ])
 const gitEnv = () =>
     Object.fromEntries(Object.entries(process.env).filter(([key]) => !LOCAL_REPO_ENV.has(key) && !/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)))
-const git = (cwd, args) => spawnSync(GIT, ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, env: gitEnv() })
+const git = (cwd, args) => spawnSync(GIT, ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, env: gitEnv(), maxBuffer: 1 << 26 })
+/** git with `input` on stdin: lists of thousands of paths go there, not on a command line Windows caps at 32K characters. */
+const gitIn = (cwd, args, input) => spawnSync(GIT, ["-C", cwd, ...args], { input, encoding: "utf8", windowsHide: true, env: gitEnv(), maxBuffer: 1 << 26 })
 const said = (r) => (r.error ? r.error.message : (r.stderr || r.stdout || `exit ${r.status}`).trim().split("\n")[0])
 const realDir = (p) => {
     try {
@@ -197,7 +203,8 @@ function openPrs(repo, gh) {
         encoding: "utf8",
         windowsHide: true,
         timeout: 30_000,
-        env: { ...process.env, GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" },
+        // gh runs git too: an inherited GIT_DIR would point the check at another repository.
+        env: { ...gitEnv(), GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" },
     })
     if (r.error) return { error: r.error.code === "ENOENT" ? "gh not found" : r.error.message }
     if (r.status !== 0) return { error: said(r) }
@@ -223,6 +230,7 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
     const repo = realDir(repos[0].path)
     let workflow
     let createFolder = false
+    let madeTop = null
     if (to === "silent") {
         if (folder !== null && !path.isAbsolute(folder)) return { problems: [`the Workflow folder must be an absolute path, not ${folder}`], plan: null }
         // Through links: a folder reached through a link into the repository is inside it.
@@ -230,7 +238,12 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
         if (fs.existsSync(workflow)) {
             const entries = fs.readdirSync(workflow)
             if (entries.length === 0) createFolder = "init"
-        } else createFolder = "make"
+        } else {
+            createFolder = "make"
+            // The topmost folder the move makes: an undo removes up to it, once each is empty.
+            const above = nearestExisting(workflow)
+            madeTop = path.join(above, path.relative(above, workflow).split(path.sep)[0])
+        }
         // A folder this move would create must not land in another git work tree, where it would show as
         // untracked files. The default one lies in the Harness home, whose .gitignore leaves it out.
         const byDefault = workflow === resolveThroughLinks(path.join(profileDir, "workflow"))
@@ -292,7 +305,7 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
         if (open.length > 0) problems.push(`tickets have open PRs: ${open.map((pr) => `#${pr.number} (${pr.headRefName})`).join(", ")} — merge or close them first`)
     }
     if (problems.length > 0) return { problems, plan: null }
-    return { problems, plan: { to, repo, workflow, source, target, createFolder, moves, ignored, profileDir } }
+    return { problems, plan: { to, repo, workflow, source, target, createFolder, madeTop, moves, ignored, profileDir } }
 }
 
 /** The identity flags for a commit in `root`: the repository's own, or a stand-in when it has none. */
@@ -329,7 +342,8 @@ function messages(plan) {
 
 /** Runs the plan; a failure undoes what was done and throws. */
 function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
-    const state = { plan, made: false, initialized: false, copied: [], toHead: null, fromHead: null, toCommitted: false, removed: false, fromCommitted: false }
+    const files = plan.moves.flatMap((m) => m.files)
+    const state = { plan, files, made: false, initialized: false, copied: [], toHead: null, fromHead: null, toCommitted: false, removed: false, fromCommitted: false }
     const step = (name, fn) => {
         // A kill (tests only): the process ends here, the marker and what was done so far left as they are.
         if (killAt === name) process.exit(137)
@@ -338,7 +352,7 @@ function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
         fn()
     }
     try {
-        writeMarker(plan, headOf(plan.source), plan.createFolder ? null : headOf(plan.target))
+        writeMarker(plan, files, headOf(plan.source), plan.createFolder ? null : headOf(plan.target))
         if (plan.createFolder === "make") {
             fs.mkdirSync(plan.workflow, { recursive: true })
             state.made = true
@@ -349,22 +363,22 @@ function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
         }
         state.toHead = headOf(plan.target)
         state.fromHead = headOf(plan.source)
-        const all = plan.moves.flatMap((m) => m.files)
         const rels = plan.moves.map((m) => m.rel)
         const text = messages(plan)
         step("copy", () => {
-            for (const rel of rels) state.copied.push(rel)
-            for (const [i, file] of all.entries()) {
+            for (const [i, file] of files.entries()) {
                 if (i % 200 === 199) alive()
                 const from = path.join(plan.source, ...file.split("/"))
                 const to = path.join(plan.target, ...file.split("/"))
+                // Named before it is written: a copy cut short is the move's too, and the undo deletes it by name.
+                state.copied.push(file)
                 fs.mkdirSync(path.dirname(to), { recursive: true })
                 const stat = fs.lstatSync(from)
                 if (stat.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to)
                 else fs.copyFileSync(from, to)
             }
         })
-        if (all.length === 0) return state
+        if (files.length === 0) return state
         step("to-commit", () => {
             // -f: a file the receiving side's .gitignore ignores (plan.ignored) moves with the rest.
             must(git(plan.target, ["add", "-f", "--", ...rels]), "git add of the moved files")
@@ -386,15 +400,32 @@ function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
     }
 }
 
-/** Puts both sides back as they were before runMove; returns what could not be put back. */
+/** Removes the folders from `dir` up to (not including) `top` while they are empty. */
+function pruneEmpty(dir, top) {
+    for (let at = dir; at !== top && inside(at, top); at = path.dirname(at)) {
+        try {
+            fs.rmdirSync(at)
+        } catch {
+            return
+        }
+    }
+}
+
+/**
+ * Puts both sides back as they were before runMove; returns what could not be put back. The side the files came
+ * to loses only the files the move copied, each by its own name: a folder goes only once it is empty, so a file
+ * anybody else put there stays.
+ */
 function undoMove(state) {
     const { plan } = state
     const problems = []
     const tryStep = (what, fn) => {
         try {
             fn()
+            return true
         } catch (e) {
             problems.push(`${what}: ${e.message}`)
+            return false
         }
     }
     const rels = plan.moves.map((m) => m.rel)
@@ -408,19 +439,28 @@ function undoMove(state) {
             must(git(plan.source, ["checkout", state.fromHead, "--", ...rels]), "git checkout of the moved files")
         })
     }
-    // The side the files came to: the commit taken back, the copies deleted.
+    // The side the files came to: the commit taken back, the copies unstaged and deleted one by one.
+    let targetOk = true
     if (state.toCommitted) {
-        tryStep("taking back the commit in " + plan.target, () =>
+        targetOk = tryStep("taking back the commit in " + plan.target, () =>
             must(git(plan.target, state.toHead ? ["reset", "-q", "--soft", state.toHead] : ["update-ref", "-d", "HEAD"]), "git reset --soft"),
         )
     }
-    if (state.made) tryStep("removing " + plan.workflow, () => fs.rmSync(plan.workflow, { recursive: true, force: true }))
-    else {
-        if (state.copied.length > 0) {
-            tryStep("unstaging the copies in " + plan.target, () => must(git(plan.target, ["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ...state.copied]), "git rm --cached"))
-            for (const rel of state.copied) tryStep("deleting " + rel, () => fs.rmSync(path.join(plan.target, ...rel.split("/")), { recursive: true, force: true }))
+    if (targetOk && state.copied.length > 0 && fs.existsSync(path.join(plan.target, ".git"))) {
+        targetOk = tryStep("unstaging the copies in " + plan.target, () =>
+            must(gitIn(plan.target, ["rm", "-q", "--cached", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"], state.copied.join("\0")), "git rm --cached"),
+        )
+    }
+    if (targetOk) {
+        for (const file of state.copied) {
+            const at = path.join(plan.target, ...file.split("/"))
+            if (tryStep("deleting " + file + " in " + plan.target, () => fs.rmSync(at, { force: true }))) pruneEmpty(path.dirname(at), plan.target)
         }
-        if (state.initialized) tryStep("removing the git repository made in " + plan.workflow, () => fs.rmSync(path.join(plan.workflow, ".git"), { recursive: true, force: true }))
+        // A git repository the move made goes with it; the folder too, when the move made it and it is empty now.
+        if (state.initialized && problems.length === 0) {
+            tryStep("removing the git repository made in " + plan.workflow, () => fs.rmSync(path.join(plan.workflow, ".git"), { recursive: true, force: true }))
+            if (state.made && plan.madeTop) pruneEmpty(plan.workflow, path.dirname(plan.madeTop))
+        }
     }
     // The marker stays while something is left, so the next move tries again and names it.
     if (problems.length === 0) clearMarker(plan.profileDir)
@@ -428,7 +468,7 @@ function undoMove(state) {
 }
 
 /** Writes the marker of a move about to start: what recoverMove needs to put both sides back. */
-function writeMarker(plan, fromHead, toHead) {
+function writeMarker(plan, files, fromHead, toHead) {
     const marker = {
         to: plan.to,
         repo: plan.repo,
@@ -436,7 +476,9 @@ function writeMarker(plan, fromHead, toHead) {
         source: plan.source,
         target: plan.target,
         createFolder: plan.createFolder,
+        madeTop: plan.madeTop ?? null,
         rels: plan.moves.map((m) => m.rel),
+        files,
         fromHead,
         toHead,
         messages: messages(plan),
@@ -452,30 +494,104 @@ function clearMarker(profileDir) {
     fs.rmSync(markerPath(profileDir), { force: true })
 }
 
-/** The marker of a move that did not end, or null. A marker that cannot be read is an error. */
+/**
+ * The marker of a move that did not end, or null. A marker that cannot be read (cut short, edited) throws an
+ * error that says what to do: nothing can be put back from it.
+ */
 function readMarker(profileDir) {
     const file = markerPath(profileDir)
     if (!fs.existsSync(file)) return null
-    const marker = JSON.parse(fs.readFileSync(file, "utf8"))
-    if (!isObject(marker) || !Array.isArray(marker.rels)) throw new Error(`${file} is not the marker of a move`)
+    const fail = (why) =>
+        new Error(
+            `the marker ${file} of a move that did not end cannot be read (${why}): check the repository and the Workflow folder, put back by hand what that move left (its commits "Move the workflow files…" and the files it copied), then delete the marker`,
+        )
+    let marker
+    try {
+        marker = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (e) {
+        throw fail(e.message)
+    }
+    const strings = (v) => Array.isArray(v) && v.every((x) => typeof x === "string")
+    const shaOrNull = (v) => v === null || (typeof v === "string" && /^[0-9a-f]{7,64}$/.test(v))
+    const ok =
+        isObject(marker) &&
+        (marker.to === "full" || marker.to === "silent") &&
+        ["repo", "workflow", "source", "target"].every((k) => typeof marker[k] === "string" && path.isAbsolute(marker[k])) &&
+        [false, "make", "init"].includes(marker.createFolder) &&
+        strings(marker.rels) &&
+        strings(marker.files) &&
+        shaOrNull(marker.fromHead) &&
+        shaOrNull(marker.toHead) &&
+        isObject(marker.messages) &&
+        typeof marker.messages.to === "string" &&
+        typeof marker.messages.from === "string"
+    if (!ok) throw fail("it is not the marker of a move")
     return marker
 }
 
 /**
- * How a side stands after a killed move: "before" (still at `base`), "committed" (one commit on top of
- * `base` with the move's own message), or null — it moved on since, and only a person can tell what to keep.
+ * How a side stands after a killed move: { at: "before" } (still at `base`), { at: "committed" } (one commit on
+ * top of `base` with the move's own message, changing only the move's files), or { problem } — it is gone, moved on
+ * or was moved elsewhere since, and only a person can tell what to keep.
  */
-function sideState(root, base, message) {
+function sideState(root, base, message, files, named) {
+    if (!fs.existsSync(root)) return { problem: `${root} is gone since ${named}: put it back by hand, then delete the marker` }
     const head = headOf(root)
-    if (head === base) return "before"
+    if (head === base) return { at: "before" }
     const parent = git(root, ["rev-parse", "-q", "--verify", "HEAD^"])
     const parentSha = parent.status === 0 ? parent.stdout.trim() : null
     const subject = git(root, ["log", "-1", "--format=%s"]).stdout.trim()
-    return parentSha === base && subject === message ? "committed" : null
+    if (head !== null && parentSha === base && subject === message) {
+        const changed = git(root, ["diff-tree", "--root", "-r", "--no-commit-id", "--name-only", "-z", "HEAD"]).stdout.split("\0").filter(Boolean)
+        const listed = new Set(files)
+        const foreign = changed.filter((f) => !listed.has(f))
+        if (foreign.length === 0) return { at: "committed" }
+        return { problem: `the commit "${message}" in ${root} changes files the move did not (${shown(foreign)}): put it back by hand, then delete the marker` }
+    }
+    const since = base !== null && head !== null && git(root, ["merge-base", "--is-ancestor", base, "HEAD"]).status === 0
+    if (since || base === null) return { problem: `${root} has commits since ${named}: put it back by hand, then delete the marker` }
+    return {
+        problem: `${root} is not at the commit ${base.slice(0, 9)} that ${named} recorded (its branch was reset or another one checked out): put it back by hand, then delete the marker`,
+    }
+}
+
+/** Up to five names, and how many more. */
+const shown = (list) => `${list.slice(0, 5).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`
+
+/** The entries of `git status --porcelain -z --untracked-files=all` in `root`: { xy, file }. */
+function statusOf(root) {
+    const r = git(root, ["status", "--porcelain", "-z", "--untracked-files=all"])
+    if (r.status !== 0 || r.error) throw new Error(`git status in ${root} failed: ${said(r)}`)
+    const parts = r.stdout.split("\0")
+    const entries = []
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]
+        if (part === "") continue
+        const xy = part.slice(0, 2)
+        entries.push({ xy, file: part.slice(3) })
+        // A rename or copy is followed by its old name.
+        if (xy[0] === "R" || xy[0] === "C") i += 1
+    }
+    return entries
+}
+
+/** Every file of `root` below it, with "/" between parts, the .git folder left out. */
+function filesUnder(root) {
+    const out = []
+    const walk = (dir, rel) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (rel === "" && entry.name === ".git") continue
+            const name = rel === "" ? entry.name : `${rel}/${entry.name}`
+            if (entry.isDirectory()) walk(path.join(dir, entry.name), name)
+            else out.push(name)
+        }
+    }
+    if (fs.existsSync(root)) walk(root, "")
+    return out
 }
 
 /** Rolls back or closes a move a killed profile-set left behind; see the header. */
-function recoverMove(profileDir, profile) {
+function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
     const marker = readMarker(profileDir)
     if (marker === null) return null
     if (profile.mode === marker.to) {
@@ -489,33 +605,72 @@ function recoverMove(profileDir, profile) {
         source: marker.source,
         target: marker.target,
         createFolder: marker.createFolder,
+        madeTop: marker.madeTop ?? null,
         moves: marker.rels.map((rel) => ({ rel, files: [] })),
         profileDir,
     }
-    const problems = []
+    const files = marker.files
+    const listed = new Set(files)
     const named = `the marker ${markerPath(profileDir)} of a move that did not end`
-    const targetExists = fs.existsSync(plan.target)
-    const fromState = sideState(plan.source, marker.fromHead, marker.messages.from)
-    const toState = targetExists && fs.existsSync(path.join(plan.target, ".git")) ? sideState(plan.target, marker.toHead, marker.messages.to) : "before"
-    if (fromState === null) problems.push(`${plan.source} has commits since ${named}: put it back by hand, then delete the marker`)
-    if (toState === null) problems.push(`${plan.target} has commits since ${named}: put it back by hand, then delete the marker`)
-    // On the side the files left only the move's own deletions may be uncommitted; anything else is a person's change.
-    if (fromState !== null) {
-        const status = git(plan.source, ["status", "--porcelain", "--untracked-files=all"])
-        const foreign = status.stdout.split("\n").filter((line) => line !== "" && !/^(D |\sD|DD) /.test(line))
-        if (status.status !== 0 || foreign.length > 0) problems.push(`${plan.source} has changes since ${named}: commit or remove them by hand first`)
+    const problems = []
+    const targetGit = fs.existsSync(path.join(plan.target, ".git"))
+    const from = sideState(plan.source, marker.fromHead, marker.messages.from, files, named)
+    // A Workflow folder the move made or git-initialized has no repository yet when the move was killed before
+    // `git init`: it stands "before" while nothing is in it.
+    const to = targetGit || !plan.createFolder ? sideState(plan.target, marker.toHead, marker.messages.to, files, named) : { at: "before" }
+    for (const side of [from, to]) if (side.problem) problems.push(side.problem)
+    alive()
+    // The working trees: on each side only what the move itself left may differ from its commit. On the side the
+    // files left: the move's own removals. On the side they came to, before its commit: the move's copies, each
+    // with the content it had where it came from. Anything else is a person's change: nothing is touched.
+    if (from.at) {
+        const entries = statusOf(plan.source)
+        const foreign = entries.filter((e) => !(from.at === "before" && (e.xy === "D " || e.xy === " D") && listed.has(e.file))).map((e) => e.file)
+        if (foreign.length > 0) problems.push(`${plan.source} has changes since ${named} (${shown(foreign)}): commit, move or remove them by hand, then move again`)
+    }
+    if (to.at && plan.createFolder && !targetGit) {
+        const foreign = filesUnder(plan.target).filter((f) => !listed.has(f))
+        if (foreign.length > 0) problems.push(`${plan.target} has files since ${named} (${shown(foreign)}): move or remove them by hand, then move again`)
+    } else if (to.at) {
+        const entries = statusOf(plan.target)
+        const foreign = entries.filter((e) => !(to.at === "before" && (e.xy === "??" || e.xy === "A ") && listed.has(e.file))).map((e) => e.file)
+        if (foreign.length > 0) problems.push(`${plan.target} has changes since ${named} (${shown(foreign)}): commit, move or remove them by hand, then move again`)
+    }
+    // The copies on the side the files came to, before its commit, still hold what the move wrote: the blob each
+    // file had at the commit the move started from. A copy edited since is a person's change too.
+    if (problems.length === 0 && to.at === "before" && marker.fromHead !== null) {
+        const present = files.filter((f) => fs.existsSync(path.join(plan.target, ...f.split("/"))))
+        if (present.length > 0) {
+            const tree = gitIn(plan.source, ["ls-tree", "-r", "-z", marker.fromHead, "--", ...marker.rels], "")
+            const blob = new Map()
+            for (const line of tree.stdout.split("\0").filter(Boolean)) {
+                const tab = line.indexOf("\t")
+                blob.set(line.slice(tab + 1), line.slice(0, tab).split(" ")[2])
+            }
+            const hashed = targetGit
+                ? gitIn(plan.target, ["hash-object", "--stdin-paths"], present.join("\n") + "\n")
+                : spawnSync(GIT, ["hash-object", "--stdin-paths"], { cwd: plan.target, input: present.join("\n") + "\n", encoding: "utf8", windowsHide: true, env: gitEnv(), maxBuffer: 1 << 26 })
+            if (hashed.status !== 0 || hashed.error) problems.push(`git hash-object in ${plan.target} failed: ${said(hashed)}`)
+            else {
+                const sums = hashed.stdout.split("\n").filter(Boolean)
+                const edited = present.filter((f, i) => blob.get(f) !== sums[i])
+                if (edited.length > 0) problems.push(`${plan.target} has files changed since ${named} (${shown(edited)}): keep a copy of them elsewhere and restore them, then move again`)
+            }
+        }
     }
     if (problems.length > 0) return { rolledBack: false, problems }
+    alive()
     const state = {
         plan,
+        files,
         made: plan.createFolder === "make",
         initialized: Boolean(plan.createFolder),
-        copied: plan.createFolder === "make" ? [] : marker.rels,
+        copied: files,
         toHead: marker.toHead,
         fromHead: marker.fromHead,
-        toCommitted: toState === "committed",
-        removed: fromState === "before",
-        fromCommitted: fromState === "committed",
+        toCommitted: to.at === "committed",
+        removed: from.at === "before",
+        fromCommitted: from.at === "committed",
     }
     return { rolledBack: true, problems: undoMove(state) }
 }

@@ -732,17 +732,38 @@ export class DocsHub {
         project.pendingRoot = at
         project.adrStatusLabel = at.adrStatusLabel
       }
-      if (project.held > 0 || this.open_.get(projectId) !== project) return
+      const now = this.open_.get(projectId)
+      if (now !== project) {
+        // The last subscriber left during the hold and a new open started another watch meanwhile, at the root
+        // it was told then: it follows the documents to `at` as well (or the last of its own holds does).
+        if (now === undefined || at === undefined) return
+        if (now.held > 0) {
+          now.pendingRoot = at
+          now.adrStatusLabel = at.adrStatusLabel
+          return
+        }
+        now.adrStatusLabel = at.adrStatusLabel
+        await (await now.watcher.catch(() => null))?.close()
+        if (this.open_.get(projectId) !== now || now.held > 0) return
+        await this.restart(projectId, now, at)
+        return
+      }
+      if (project.held > 0) return
       const root = project.pendingRoot
       project.pendingRoot = undefined
-      const watcher = project.start(project.adrStatusLabel, root)
-      project.watcher = watcher
-      this.follow(projectId, watcher)
-      const fresh = await watcher.catch(() => null)
-      if (fresh === null || project.watcher !== watcher) return
-      const state = { projectId, ...fresh.current }
-      for (const target of project.subscribers.values()) target.send(state)
+      await this.restart(projectId, project, root)
     }
+  }
+
+  /** Starts the watch of `project` anew (at `at`, or where it was) and sends its subscribers the state. */
+  private async restart(projectId: string, project: OpenProject, at: DocsRoot | undefined): Promise<void> {
+    const watcher = project.start(project.adrStatusLabel, at)
+    project.watcher = watcher
+    this.follow(projectId, watcher)
+    const fresh = await watcher.catch(() => null)
+    if (fresh === null || project.watcher !== watcher) return
+    const state = { projectId, ...fresh.current }
+    for (const target of project.subscribers.values()) target.send(state)
   }
 
   /**

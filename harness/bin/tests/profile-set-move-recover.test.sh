@@ -87,7 +87,9 @@ WF="$HH/projects/demo/workflow"
 MARKER="$HH/projects/demo/.move-in-progress.json"
 
 GH="$T/gh-stand-in.mjs"
-printf 'process.stdout.write("[]")\n' >"$GH"
+# It refuses to answer under a GIT_DIR: gh runs git, and an inherited GIT_DIR points it at another repository.
+# With GH_SLEEP_MS it answers that much later, as a slow network would.
+printf 'if (process.env.GIT_DIR) { process.stderr.write("GIT_DIR is set\\n"); process.exit(1) }\nif (process.env.GH_SLEEP_MS) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.GH_SLEEP_MS))\nprocess.stdout.write("[]")\n' >"$GH"
 run() {
     env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR -u EVAL_HARNESS_HOME -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
         HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" PROFILE_SET_GH="$GH" GH_TOKEN=invalid GH_CONFIG_DIR="$T/ghcfg" "$@"
@@ -157,6 +159,26 @@ check "already at the new place: their file untouched" [ "$(cat "$T/pre/HANDOFF.
 check "the refusals: no commit in the repository" [ "$(git -C "$R" rev-parse HEAD)" = "$repo_head" ]
 check "the refusals: still Full mode" [ "$(mode_now)" = full ]
 
+# --- a GIT_DIR inherited from a surrounding git hook --------------------------------------------------------------
+g -C "$R" remote add origin https://example.invalid/demo.git
+# (Its own repository's: one of another repository already stops bin/profile from finding the project.)
+GIT_DIR="$R/.git" PROFILE_SET_MOVE_FAIL_AT=copy run "$SET" -C "$R" --expect "$FP" --move silent >/dev/null 2>"$T/err"
+check "an inherited GIT_DIR: gh asked without it, the move went on to its failure at copy" grep -q "failed at copy" "$T/err"
+check "an inherited GIT_DIR: the repository clean, still Full mode" bash -c "[ -z \"\$(git -C '$R' status --porcelain --untracked-files=all)\" ] && [ \"\$1\" = full ]" _ "$(mode_now)"
+
+# --- the lock of a long move stays fresh ---------------------------------------------------------------------------
+# A move blocked longer than the lock's stale limit (gh slow to answer): another writer meanwhile finds the lock
+# live (exit 6), not stale. With a 2 s limit, the keeper touches the owner file every 0.5 s.
+title_fp="$(run "$SET" -C "$R" --field title --read | json_get fingerprint)"
+PROFILE_SET_LOCK_STALE_MS=2000 GH_SLEEP_MS=7000 PROFILE_SET_MOVE_FAIL_AT=copy run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err-slow" &
+slow=$!
+sleep 4
+PROFILE_SET_LOCK_STALE_MS=2000 PROFILE_SET_LOCK_WAIT_MS=500 run "$SET" -C "$R" --field title --expect "$title_fp" --set '{"title":"Other"}' >/dev/null 2>"$T/err"
+check "a long move: another writer finds its lock live (exit 6)" [ $? -eq 6 ]
+wait "$slow"
+check "a long move: it went on to its failure at copy" grep -q "failed at copy" "$T/err-slow"
+check "a long move: no keeper left on the lock" absent "$HH/projects/demo/.profile-set.lock"
+
 # --- git with the caller's config ----------------------------------------------------------------------------
 # HOME's config asks for CRLF, GIT_CONFIG_GLOBAL (the caller's) does not: a rollback must write what the caller's
 # git reads as unchanged. Dropping GIT_CONFIG_* made git read another config than the caller's (Windows CI).
@@ -217,6 +239,128 @@ g -C "$R" reset -q --hard HEAD~1
 out="$(run "$SET" -C "$R" --expect "$FP" --move silent 2>"$T/err")"
 check "put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
 back_to_full "put back by hand"
+
+# --- a person's change after a kill: refused, the marker kept, nothing touched ------------------------------------
+# kill_at <step> [args…]: a move to Silent mode killed at that step.
+kill_at() {
+    local at="$1"
+    shift
+    PROFILE_SET_MOVE_KILL_AT="$at" run "$SET" -C "$R" --expect "$(fp)" --move silent "$@" >/dev/null 2>"$T/err"
+    check "killed at $at for the next case: exit 137" [ $? -eq 137 ]
+}
+# refused <label> <text the reason names> [args…]: the next move refuses, the marker stays, still Full mode.
+refused() {
+    local label="$1" text="$2"
+    shift 2
+    run "$SET" -C "$R" --expect "$(fp)" --move silent "$@" >"$T/out" 2>"$T/err"
+    check "$label: the next move exits 1" [ $? -eq 1 ]
+    check "$label: the reason names it" grep -qF "$text" "$T/err"
+    check "$label: what is left is on stdout" [ "$(json_get leftover <"$T/out")" != undefined ]
+    check "$label: the marker kept" present "$MARKER"
+    check "$label: still Full mode" [ "$(mode_now)" = full ]
+}
+
+# recover_then_back <label>: the next move rolls the killed one back and moves; then back to Full mode.
+recover_then_back() {
+    out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+    check "$1: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+    back_to_full "$1"
+}
+
+# A Workflow folder of one's own, with a file of its own and a .gitignore.
+mkdir -p "$T/g1"
+g -C "$T/g1" init -q
+printf 'mine\n' >"$T/g1/README.md"
+printf '*.log\n' >"$T/g1/.gitignore"
+g -C "$T/g1" add -A
+g -C "$T/g1" commit -q -m init
+g1_head="$(git -C "$T/g1" rev-parse HEAD)"
+
+# The side the files came to, both sides committed: a person's new ticket file there.
+kill_at profile --folder "$T/g1"
+printf '# 02 — new\n' >"$T/g1/.scratch/epic-a/issues/02-new.md"
+refused "a new file where the files came to" "02-new.md" --folder "$T/g1"
+check "a new file where the files came to: the file kept" present "$T/g1/.scratch/epic-a/issues/02-new.md"
+rm -f "$T/g1/.scratch/epic-a/issues/02-new.md"
+# A file git does not see (ignored there) is not the move's either: the rollback deletes the move's files by name,
+# never a folder whole, so it stays; the new move then finds .scratch there and refuses.
+printf 'notes\n' >"$T/g1/.scratch/notes.log"
+run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" >"$T/out" 2>"$T/err"
+check "an ignored file of a person: the next move rolled back, then refused" grep -q "is already in the Workflow folder" "$T/err"
+check "an ignored file of a person: the marker gone" absent "$MARKER"
+check "an ignored file of a person: it stays" present "$T/g1/.scratch/notes.log" "$T/g1/README.md"
+check "an ignored file of a person: the move's files gone from there" absent "$T/g1/.scratch/epic-a" "$T/g1/HANDOFF.md" "$T/g1/docs"
+check "an ignored file of a person: that side at its own commit, clean" bash -c "[ \"\$(git -C '$T/g1' rev-parse HEAD)\" = '$g1_head' ] && [ -z \"\$(git -C '$T/g1' status --porcelain --untracked-files=all)\" ]"
+check "an ignored file of a person: the files back in the repository, clean" bash -c "[ -e '$R/HANDOFF.md' ] && [ -z \"\$(git -C '$R' status --porcelain --untracked-files=all)\" ]"
+rm -f "$T/g1/.scratch/notes.log"
+rmdir "$T/g1/.scratch"
+
+# The side the files came to, committed there only: a person's edit of a moved file.
+kill_at from-commit --folder "$T/g1"
+printf 'edited\n' >>"$T/g1/HANDOFF.md"
+refused "an edit where the files came to (committed)" "HANDOFF.md" --folder "$T/g1"
+check "an edit where the files came to (committed): the edit kept" grep -q edited "$T/g1/HANDOFF.md"
+g -C "$T/g1" checkout -q -- HANDOFF.md
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" 2>"$T/err")"
+check "the edit undone by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "the edit undone by hand"
+
+# The move's own commit there, amended by a person with another file: not the move's commit any more.
+kill_at from-commit --folder "$T/g1"
+moved_commit="$(git -C "$T/g1" rev-parse HEAD)"
+printf 'extra\n' >"$T/g1/extra.txt"
+g -C "$T/g1" add extra.txt
+g -C "$T/g1" commit -q --amend --no-edit
+refused "the move's commit amended with another file" "changes files the move did not (extra.txt)" --folder "$T/g1"
+g -C "$T/g1" reset -q --hard "$moved_commit"
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent --folder "$T/g1" 2>"$T/err")"
+check "the amend undone by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "the amend undone by hand"
+
+# The side the files came to, before its commit: a person's edit of a copy.
+kill_at to-commit
+printf 'edited\n' >>"$WF/HANDOFF.md"
+refused "an edit of a copy not yet committed" "HANDOFF.md"
+check "an edit of a copy not yet committed: the edit kept" grep -q edited "$WF/HANDOFF.md"
+cp "$R/HANDOFF.md" "$WF/HANDOFF.md"
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+check "the copy put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+back_to_full "the copy put back by hand"
+
+# The side the files left, not yet committed there: a person's edit of another file.
+kill_at to-commit
+printf 'more\n' >>"$R/src/a.txt"
+refused "an edit where the files left (before its commit)" "src/a.txt"
+check "an edit where the files left: the edit kept" grep -q more "$R/src/a.txt"
+g -C "$R" checkout -q -- src/a.txt
+recover_then_back "that edit undone by hand"
+
+# The side the files left, committed there: a person's new file.
+kill_at profile
+printf 'new\n' >"$R/new.txt"
+refused "a new file where the files left (committed)" "new.txt"
+check "a new file where the files left: it stays" present "$R/new.txt"
+rm -f "$R/new.txt"
+recover_then_back "that file removed by hand"
+
+# The repository rewritten under the marker: said as such, not as "commits since".
+kill_at to-commit
+base="$(git -C "$R" rev-parse HEAD)"
+g -C "$R" commit -q --amend --allow-empty -m "rewritten"
+refused "the repository not at the marker's commit" "is not at the commit"
+check "the repository not at the marker's commit: not called commits since" bash -c "! grep -q 'has commits since' '$T/err'"
+g -C "$R" reset -q --hard "$base"
+recover_then_back "the repository put back by hand"
+
+# A marker that cannot be read: refused with what to do.
+printf '{"to":' >"$MARKER"
+run "$SET" -C "$R" --expect "$(fp)" --move silent >"$T/out" 2>"$T/err"
+check "a broken marker: exit 1" [ $? -eq 1 ]
+check "a broken marker: the reason says it cannot be read" grep -q "cannot be read" "$T/err"
+check "a broken marker: and to delete it by hand" grep -q "then delete the marker" "$T/err"
+check "a broken marker: --read prints interrupted" [ "$(run "$SET" -C "$R" --field mode --field workflow.folder --read | json_get interrupted)" = true ]
+rm -f "$MARKER"
+check "no move left under way" absent "$MARKER"
 
 # --- a file the receiving side's .gitignore ignores -------------------------------------------------------------
 mkdir -p "$T/own"

@@ -67,8 +67,13 @@ says the move failed and lists what is left to put right by hand.
 Before it starts, the move writes a marker beside `profile.json` (`.move-in-progress.json`). It is removed once the Profile
 is written or the rollback is whole. When worfy quits or the machine goes down in between, the form says a move was
 stopped half-way. The next move rolls that one back first and then moves (or only removes the marker when the Profile
-had been written). It refuses, naming the marker, when either side got a commit or another change since. worfy's quit
-does not stop a running move: the script waits for its end. worfy gives a move up to 30 minutes.
+had been written). It refuses, keeps the marker and names what it found when either side changed since: a commit, a
+reset, a new file, an edit of a moved file. Only the move's own commits, removals and copies (with the content they
+had where they came from) are put back, and the copies are deleted one by one by name: a folder goes only once it is
+empty, so a file anybody else put there stays. A marker that cannot be read is refused with what to do: check both
+sides, put back by hand what that move left, then delete the marker. A signal to the script alone does not stop it
+between two steps; one sent to its whole process group (Ctrl+C in a terminal, an app that signals the group on quit)
+also stops the git it runs, and the move then rolls back as after any failure. worfy gives a move up to 30 minutes.
 
 worfy's watches of the Project close for the move and open again after it, where the files are now: the Tickets, the
 documents (ADRs, `HANDOFF.md`) and the cached layout of the Project are read again. When the form has unsaved edits the

@@ -98,4 +98,21 @@ describe('DocsHub.hold: the watch closes, the subscribers stay', () => {
     expect(starts).not.toHaveBeenCalled()
     expect(hub.projects).toStrictEqual([])
   })
+
+  it('the last subscriber leaves during a hold and a new open starts at the old root: the release moves that watch to the new root', async () => {
+    const moved = join(root, 'moved')
+    mkdirSync(join(moved, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(moved, 'HANDOFF.md'), '# Handoff\n\nAt the new root.\n')
+    await hub.open('p', root, { id: 1, send: () => undefined })
+    const watchAgain = await hub.hold('p')
+    await hub.close('p', 1)
+    const states: DocsState[] = []
+    const opened = await hub.open('p', root, { id: 2, send: (state) => void states.push(state) })
+    expect(opened.handoff).toBeNull()
+
+    await watchAgain({ root: moved, adrStatusLabel: undefined, productDir: undefined })
+    await until('the state of the new root', () => withHandoff(states).length > 0)
+    writeFileSync(join(moved, 'docs', 'adr', '0001-a.md'), '# 0001 — a\n')
+    await until('a change at the new root', () => states.some((state) => state.adrs.length === 1))
+  })
 })
