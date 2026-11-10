@@ -1,7 +1,8 @@
 # 83 — Стартовый контекст implementer-а: вернуть запас не меньше 1000 token-ов
 
 Type: task
-Status: claimed 2026-11-10T03:06Z
+Status: done 2026-11-10T04:02Z
+PR: #1766
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10: `node harness/bin/start-context --agent implementer` на main `c69ffd43b` —
 14 993 token-а из порога 15 000, запас 7. Строки перечитаны по main `c69ffd43b`.
@@ -51,7 +52,9 @@ texts of this Harness»), краснеет на первой же правке �
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` and 11 other texts tests exit 0 · mac - · 76c443d7895aa4cece0a1d3f79240d6bcf1cd70b
   - evidence: test-run pass · `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` and 11 other texts tests exit 0 · mac - · 3d1ed6ec742d4884ab684d0d09bcf031d226201b
 - [ ] Платный `eval --changed` — все затронутые case-ы на пороге или выше; команда, exit code и цена — в «Итог».
+  - evidence: test-run pass · paid eval via eval-baseline.sh: 4be976b17 ship-ticket-pr-green-ci 2/2 $0.59, ship-ticket-local-green 2/2 $2.43, no-os-screen-capture 2/2 $2.78; 1bcfd2616 ship-ticket-pr-green-ci 2/2 $0.59, ship-ticket-local-green 2/2 $2.28; exit 0 · mac - · 1bcfd2616bbeb04e42d0f14e2eadb862bcfb0f05
 - [ ] `ci-ok` на PR зелёный.
+  - evidence: ci-check pass · ci-ok success on 1bcfd2616, PR #1766 merged d5454179d (land 143) · mac - · 1bcfd2616bbeb04e42d0f14e2eadb862bcfb0f05
 
 ## Где в коде
 

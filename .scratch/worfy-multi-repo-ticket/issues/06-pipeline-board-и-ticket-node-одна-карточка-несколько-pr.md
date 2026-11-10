@@ -1,7 +1,8 @@
 # 06 — Pipeline board и Ticket Node: одна карточка, N PR, «1/2 merged», «waits for release», chip всех репозиториев
 
 Type: task
-Status: claimed 2026-11-10T01:25Z
+Status: done 2026-11-10T03:49Z
+PR: #1763
 Blocked by: 05
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 5; «Как работает» → «epic-status, wave-brief, Pipeline
 board» («Pipeline board и Ticket Node»); «Половина влита (Q4, Q7)»; «Ticket-ы», «Волны» (Wave 4); «Решения владельца
