@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findTailscale, parseTailscaleStatus, readTailscalePeers, runTailscaleCli, TAILSCALE_TIMEOUT_MS } from '../../src/main/link/tailscale'
 import { directStartEnv, launchEnv } from '../e2e/launch-env'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const login = vi.hoisted(() => ({ agentEnv: vi.fn() }))
 vi.mock('../../src/main/agent/env', async (importOriginal) => ({
@@ -193,12 +194,15 @@ describe.skipIf(process.platform === 'win32')('runTailscaleCli', () => {
     return file
   }
 
+  // The CLI's limit, times the run's multiplier: under the load of the whole suite the stand-in script once took longer
+  // than a bare 5 s to start and answer, and the runner killed it (worfy-polish 92). 4 s, below the test's own 5 s, so a
+  // slow CLI still fails with the runner's error, not with vitest's timeout.
   it('passes the arguments as they are, without a shell', async () => {
-    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], 5_000, process.env)).toBe('status\n--json\n$(echo no); echo no\n')
+    expect(await runTailscaleCli(script(`printf '%s\\n' "$@"`), ['status', '--json', '$(echo no); echo no'], ms(4_000), process.env)).toBe('status\n--json\n$(echo no); echo no\n')
   })
 
   it('runs the CLI with the environment it is given', async () => {
-    expect(await runTailscaleCli(script('printf %s "$WORFY_TAILSCALE_PROBE"'), [], 5_000, { ...process.env, WORFY_TAILSCALE_PROBE: 'from the login shell' })).toBe('from the login shell')
+    expect(await runTailscaleCli(script('printf %s "$WORFY_TAILSCALE_PROBE"'), [], ms(4_000), { ...process.env, WORFY_TAILSCALE_PROBE: 'from the login shell' })).toBe('from the login shell')
   })
 
   it('stops a CLI that does not answer in time', async () => {

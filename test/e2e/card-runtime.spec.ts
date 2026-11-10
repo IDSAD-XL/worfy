@@ -122,7 +122,7 @@ test('a Card is shown with its <title>, a file change reloads it within a second
   const started = Date.now()
   await writeFile(join(cardDir('c1'), 'index.html'), cardHtml('Clock v2', 'v2'))
   await expect(content).toHaveText('v2', { timeout: ms(1000) })
-  expect(Date.now() - started).toBeLessThanOrEqual(1000)
+  expect(Date.now() - started).toBeLessThanOrEqual(ms(1000))
   await expect(c1.getByTestId('card-title')).toHaveText('Clock v2')
 
   // A Card created while the app runs appears in its Node too.

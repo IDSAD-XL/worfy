@@ -264,6 +264,9 @@ describe('an input pipe that stays open and sends nothing', () => {
 // blocking (their late-writer cases are in harness/bin/tests/code-map.test.sh and project-connect.test.sh).
 // On a terminal they refuse at once instead of waiting for input nobody sends. python3 with its pty
 // module gives them the terminal; the script kills the command after half the test's limit (exit 98).
+// The script keeps its own descriptor of the terminal open until it has read what the command wrote: macOS drops
+// the output still queued on a pseudo-terminal when the last descriptor of its terminal side closes, and a command
+// that wrote its refusal and exited between two reads under load left the output empty (worfy-polish 92).
 describe.skipIf(WINDOWS)('the scripts of bin/ that read stdin to its end', () => {
   // mode: `all` — stdin, stdout and stderr on the terminal; `stdin` — only stdin, the output on a
   // pipe; `out` — the output on the terminal and stdin a pipe that sends `data` and closes.
@@ -274,7 +277,6 @@ master, slave = pty.openpty()
 tty_in, tty_out = mode in ("all", "stdin"), mode in ("all", "out")
 p = subprocess.Popen(sys.argv[4:], stdin=slave if tty_in else subprocess.PIPE,
     stdout=slave if tty_out else subprocess.PIPE, stderr=slave if tty_out else subprocess.STDOUT)
-os.close(slave)
 if not tty_in:
     p.stdin.write(data)
     p.stdin.close()
@@ -299,6 +301,9 @@ while p.poll() is None:
         sys.stdout.buffer.write(out)
         sys.exit(98)
     read_ready(0.05)
+while master in fds and select.select([master], [], [], 0)[0]:
+    read_ready(0)
+os.close(slave)
 for _ in range(20):
     if not fds:
         break

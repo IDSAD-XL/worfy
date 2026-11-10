@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { SETTLE_READS_MS } from '../../src/main/docs/watch'
+import { ms } from '../time-scale'
 import { launchApp } from './helpers'
 
 // The HANDOFF Node and the sidebar's ADR section against the built app, over a Project in a
@@ -89,7 +90,7 @@ test('the HANDOFF Node renders HANDOFF.md, follows an edit within a second, and 
     await window.waitForTimeout(Math.max(...SETTLE_READS_MS) + 200)
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF.replace('- волна 8', '- волна 8\n- новая строка от агента'))
     const shownAfter = await msUntil(async () => (await node.textContent())?.includes('новая строка от агента') ?? false)
-    expect(shownAfter).toBeLessThanOrEqual(1000)
+    expect(shownAfter).toBeLessThanOrEqual(ms(1000))
 
     // Sidebar: the ADRs of docs/adr/, by number, with the count; README.md is not one.
     const section = window.getByRole('region', { name: 'ADR' })

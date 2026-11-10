@@ -45,6 +45,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   for (const keeper of keepers.splice(0)) keeper.stop()
   for (const link of links.splice(0)) await stopLink(link)
   for (const server of servers.splice(0)) server.close()
@@ -69,6 +70,25 @@ function keepSlowly(machine: BenchMachine): LinkConnections {
 // A .local name built from its label: the guard of personal strings (scripts/check-personal.mjs)
 // reads a *.local name in the source as a real machine, and these are invented.
 const local = (name: string): string => `${name}.local`
+
+/**
+ * Resolves `name` to 127.0.0.1 alone, as a name of the other Machine would resolve; every other name as the system
+ * says. Returns the names looked up through it. A real `localhost` also resolves to ::1, and nothing keeps another
+ * test's server (one listening on `::`, say) off ::1 at the port of B: a dial of `localhost` then reached that server and
+ * failed with ECONNRESET (worfy-polish 92).
+ */
+function resolveOnLoopback(name: string): string[] {
+  const lookup = dns.lookup.bind(dns)
+  const resolved: string[] = []
+  vi.spyOn(dns, 'lookup').mockImplementation(((host: string, options: unknown, callback?: unknown) => {
+    const done = (typeof options === 'function' ? options : callback) as (...args: unknown[]) => void
+    const all = typeof options === 'object' && options !== null && (options as { all?: boolean }).all === true
+    if (host !== name) return lookup(host, (typeof options === 'function' ? {} : options) as dns.LookupOptions, done as never)
+    resolved.push(host)
+    return all ? done(null, [{ address: '127.0.0.1', family: 4 }]) : done(null, '127.0.0.1', 4)
+  }) as never)
+  return resolved
+}
 
 const LOOPBACK: NetworkInterfaceInfo = { address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }
 
@@ -475,11 +495,13 @@ describe('the names of a Linked machine', () => {
     const b = await bench.machine('b')
     await bench.link(a, b)
     await a.service.stop()
-    // The address B had is gone (nothing listens on ::1); its mDNS name points at it now.
+    // The address B had is gone (::1 answers with no B); its mDNS name points at it now.
+    const resolved = resolveOnLoopback('localhost')
     editRecord(a, b, { address: '::1', localName: 'localhost' })
     await bench.restart(a)
 
     await a.service.connect(b.service.machine.id)
+    expect(resolved).toContain('localhost')
     expect(online(a, b)).toBe(true)
     expect(recordOf(a, b)?.address).toBe('127.0.0.1')
     expect(JSON.parse(readFileSync(join(a.dataDir, 'link', 'linked.json'), 'utf8')).machines[0].localName).toBe('localhost')
@@ -490,6 +512,7 @@ describe('the names of a Linked machine', () => {
     const b = await bench.machine('b')
     await bench.link(a, b)
     await a.service.stop()
+    const resolved = resolveOnLoopback('localhost')
     editRecord(a, b, { address: '::1', tailnetName: 'localhost' })
     await bench.restart(a)
 
@@ -498,8 +521,10 @@ describe('the names of a Linked machine', () => {
     expect(String(off)).not.toContain('also tried')
     expect(online(a, b)).toBe(false)
 
+    expect(resolved).toEqual([])
     a.service.settings.set({ tailscale: true })
     await a.service.connect(b.service.machine.id)
+    expect(resolved).toContain('localhost')
     expect(online(a, b)).toBe(true)
     expect(recordOf(a, b)?.address).toBe('127.0.0.1')
   })
@@ -554,16 +579,8 @@ describe('the names of a Linked machine', () => {
     const b = await bench.machine('b')
     await bench.link(a, b)
     const name = worfyHost(b.service.machine.id)
-    // The name resolves to B, as mDNS would answer it; every other name as the system says.
-    const lookup = dns.lookup.bind(dns)
-    const resolved: string[] = []
-    vi.spyOn(dns, 'lookup').mockImplementation(((host: string, options: unknown, callback?: unknown) => {
-      const done = (typeof options === 'function' ? options : callback) as (...args: unknown[]) => void
-      const all = typeof options === 'object' && options !== null && (options as { all?: boolean }).all === true
-      if (host !== name) return lookup(host, (typeof options === 'function' ? {} : options) as dns.LookupOptions, done as never)
-      resolved.push(host)
-      return all ? done(null, [{ address: '127.0.0.1', family: 4 }]) : done(null, '127.0.0.1', 4)
-    }) as never)
+    // The name resolves to B, as mDNS would answer it.
+    const resolved = resolveOnLoopback(name)
     await a.service.stop()
     editRecord(a, b, { address: '::1', localName: name })
     await bench.restart(a)
@@ -614,6 +631,7 @@ describe('link.setAddress', () => {
     await bench.restart(b)
     const newPort = bench.portOf(b)
     holder.server.close()
+    resolveOnLoopback('localhost')
     const info = await a.service.setAddress(id, { host: 'localhost', port: newPort })
     expect(info).toMatchObject({ id, address: 'localhost', port: newPort, fingerprint: before?.fingerprint, connected: true })
     expect(linked).toEqual([])
@@ -648,6 +666,7 @@ describe('link.setAddress', () => {
     const port = bench.portOf(b)
 
     // A second address of B: its name, at the same port (the Host check of the server wants that port).
+    resolveOnLoopback('localhost')
     const info = await a.service.setAddress(bId, { host: 'localhost', port })
     expect(info).toMatchObject({ address: 'localhost', port, connected: true })
     await until(() => connectionsOf(a, b).length === 1 && connectionsOf(b, a).length === 1)
@@ -670,6 +689,7 @@ describe('link.setAddress', () => {
     const { a, b, aId, bId } = await linkedBothWays()
     const oldPort = bench.portOf(b)
 
+    resolveOnLoopback('localhost')
     await a.service.setAddress(bId, { host: 'localhost', port: oldPort })
     await until(() => connectionsOf(a, b).length === 1 && connectionsOf(b, a).length === 1)
 

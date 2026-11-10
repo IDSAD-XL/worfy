@@ -153,7 +153,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     const node = window.locator(`[data-testid="session-node"][data-session-id="${EXTERNAL}"]`)
     await node.waitFor({ state: 'visible', timeout: ms(5000) })
     const appeared = Date.now() - written
-    expect(appeared, `the Session Node appeared ${appeared} ms after the registry file`).toBeLessThanOrEqual(1000)
+    expect(appeared, `the Session Node appeared ${appeared} ms after the registry file`).toBeLessThanOrEqual(ms(1000))
     await expect(node.getByTestId('session-node-title')).toHaveText('fix-flaky-test')
     await expect(node.getByTestId('session-node-read-only')).toHaveText('read-only')
     await expect(node.getByTestId('session-node-source')).toHaveText(`terminal · ${projectPath}`)
