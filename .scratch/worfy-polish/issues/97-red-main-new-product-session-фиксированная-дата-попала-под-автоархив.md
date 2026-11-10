@@ -40,9 +40,12 @@ AutoArchiver запускается при первом чтении Layout-а (
 ## Готово, когда
 
 - [ ] Причина названа с file:line в «Итог».
+  - evidence: commit pass · test: build the restored Product Session's transcript time from now, not a fixed date (worfy-polish 97) · - - · 1390348036f855d165d3f5dce295168dd7b19c8a
 - [ ] `pnpm test:e2e test/e2e/new-product-session.spec.ts` со старой датой — красный на test-е :93, с исправлением —
       зелёный (оба test-а файла).
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/new-product-session.spec.ts` exit 0 (2 passed; with the old fixed date exit 1, test :93 failed) · mac - · 1390348036f855d165d3f5dce295168dd7b19c8a
 - [ ] Другие e2e spec-и проверены на фиксированные даты, которые попадают под тот же порог; список в «Итог».
+  - evidence: commit pass · test: build the restored Product Session's transcript time from now, not a fixed date (worfy-polish 97) · - - · 1390348036f855d165d3f5dce295168dd7b19c8a
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
 
 ## Где в коде
