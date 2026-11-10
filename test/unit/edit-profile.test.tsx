@@ -8,7 +8,7 @@
 // it was asked is recorded; the check answers as bin/profile-set --check does.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PROFILE_EDIT_FIELDS, type ProfileEditRead } from '../../src/shared/ipc/profile-edit'
+import { PROFILE_CHANGED, PROFILE_EDIT_FIELDS, type ProfileEditRead } from '../../src/shared/ipc/profile-edit'
 import { ms } from '../time-scale'
 
 type Answer = { ok: true; value: unknown } | { ok: false; error: string }
@@ -81,7 +81,9 @@ function later(): { answer: () => Promise<Answer>; settle: (value: Answer) => vo
   return { answer: () => promise, settle: (value) => settle(value) }
 }
 const ACCOUNTS = { status: 'accounts', repos: [{ host: 'github.com', slug: 'shop/shop' }], skipped: [] }
-const READ: ProfileEditRead = { available: true, name: 'shop', values: VALUES, fixed: { mode: 'full', 'workflow.folder': null }, fingerprint: FP }
+const FIXED_FP = `sha256:${'c'.repeat(64)}`
+const READ: ProfileEditRead = { available: true, name: 'shop', values: VALUES, fixed: { mode: 'full', 'workflow.folder': null }, fixedFingerprint: FIXED_FP, interrupted: false, severalRepos: false, fingerprint: FP }
+const SILENT_READ: ProfileEditRead = { ...READ, fixed: { mode: 'silent', 'workflow.folder': '/work/shop-workflow' }, fixedFingerprint: `sha256:${'d'.repeat(64)}` }
 
 beforeEach(() => {
   main.calls.length = 0
@@ -390,6 +392,135 @@ describe('Edit profile', () => {
     fireEvent.change(input(form, 'Title'), { target: { value: 'Shop' } })
     await checked(form)
     expect(save(form).disabled).toBe(false)
+  })
+
+  it('Move to Silent mode: the confirmation says what moves, the move sends the fingerprint of mode and folder, and the form reads the Profile again', async () => {
+    main.answers['profileEdit.read'] = [{ ok: true, value: READ }, { ok: true, value: SILENT_READ }]
+    main.answers['profileEdit.move'] = { ok: true, value: { status: 'moved', mode: 'silent', folder: '/work/shop-workflow', files: 12, warning: null, ignored: [], recovered: null, qmd: [] } }
+    const form = await openForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('move out of the repository /repos/shop into the default Workflow folder beside the profile')
+    expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('lessons kept in the repository')
+    fireEvent.change(within(form).getByTestId('move-workflow-folder'), { target: { value: '/work/shop-workflow' } })
+    expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('into the Workflow folder /work/shop-workflow:')
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(calls('profileEdit.move')).toEqual([{ root: '/repos/shop', to: 'silent', folder: '/work/shop-workflow', expected: FIXED_FP }])
+    await waitFor(() => expect(within(form).getByTestId('edit-profile-mode').textContent).toBe('silent'))
+    expect(within(form).getByTestId('edit-profile-message').textContent).toBe('Moved to Silent mode: 12 files, committed in the repository and in the Workflow folder.')
+    expect(within(form).getByTestId('edit-profile-folder').textContent).toBe('/work/shop-workflow')
+    expect(within(form).getByRole('button', { name: 'Move to Full mode…' })).toBeTruthy()
+  })
+
+  it('an empty Workflow folder moves to the default one, and a relative one is refused before main is asked', async () => {
+    main.answers['profileEdit.move'] = { ok: true, value: { status: 'moved', mode: 'silent', folder: '/h/projects/shop/workflow', files: 1, warning: null, ignored: [], recovered: null, qmd: [] } }
+    const form = await openForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    fireEvent.change(within(form).getByTestId('move-workflow-folder'), { target: { value: 'relative/folder' } })
+    expect(within(form).getByText('The Workflow folder must be an absolute path.')).toBeTruthy()
+    expect((within(form).getByRole('button', { name: 'Move files' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(within(form).getByTestId('move-workflow-folder'), { target: { value: '' } })
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(calls('profileEdit.move')).toEqual([{ root: '/repos/shop', to: 'silent', folder: null, expected: FIXED_FP }])
+  })
+
+  it('a refused move shows the reason and leaves the mode as it was', async () => {
+    main.answers['profileEdit.read'] = { ok: true, value: SILENT_READ }
+    main.answers['profileEdit.move'] = { ok: true, value: { status: 'refused', reason: 'the repository has uncommitted changes: commit or stash them first — nothing moved' } }
+    const form = await openForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Full mode…' }))
+    expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('from the Workflow folder /work/shop-workflow back into the repository /repos/shop')
+    expect(within(form).queryByTestId('move-workflow-folder')).toBeNull()
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(calls('profileEdit.move')).toEqual([{ root: '/repos/shop', to: 'full', folder: null, expected: SILENT_READ.available ? SILENT_READ.fixedFingerprint : '' }])
+    expect(within(form).getByTestId('edit-profile-message').textContent).toBe('Not moved: the repository has uncommitted changes: commit or stash them first — nothing moved')
+    expect(within(form).getByTestId('edit-profile-mode').textContent).toBe('silent')
+    expect(calls('profileEdit.read')).toHaveLength(1)
+  })
+
+  it('while main moves the form says so and the button waits; a conflict reads the Profile again, busy asks to move again', async () => {
+    const answer = later()
+    main.answers['profileEdit.move'] = answer.answer as never
+    const form = await openForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    act(() => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(screen.getByText('Moving the workflow files…')).toBeTruthy()
+    expect((within(form).getByRole('button', { name: 'Moving…' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      answer.settle({ ok: true, value: { status: 'conflict' } })
+    })
+    await waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
+    expect(screen.queryByText('Moving the workflow files…')).toBeNull()
+    expect(within(form).getByTestId('edit-profile-message').textContent).toBe(PROFILE_CHANGED)
+
+    main.answers['profileEdit.move'] = { ok: true, value: { status: 'busy' } }
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(within(form).getByTestId('edit-profile-message').textContent).toBe('Another change of this profile is being written. Move again in a moment.')
+    expect(calls('profileEdit.read')).toHaveLength(2)
+  })
+
+  it('a failed move whose rollback left something says what is left, and the form reads the Profile again', async () => {
+    main.answers['profileEdit.move'] = { ok: true, value: { status: 'failed', reason: 'the commit in the Workflow folder failed', left: ['the repository: git reset --keep 1234567'] } }
+    const form = await openForm()
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    expect(within(form).getByTestId('edit-profile-message').textContent).toBe(
+      'The move failed and was not fully rolled back: the commit in the Workflow folder failed. Put right by hand: the repository: git reset --keep 1234567',
+    )
+    await waitFor(() => expect(calls('profileEdit.read')).toHaveLength(2))
+  })
+
+  it('a move names a rolled-back earlier move, the ignored files and the qmd collections that still index the old place', async () => {
+    main.answers['profileEdit.read'] = [{ ok: true, value: { ...READ, interrupted: true } }, { ok: true, value: SILENT_READ }]
+    main.answers['profileEdit.move'] = {
+      ok: true,
+      value: { status: 'moved', mode: 'silent', folder: '/work/shop-workflow', files: 3, warning: null, ignored: ['docs/adr/a.png'], recovered: 'rolled-back', qmd: ['shop-docs', 'shop-tickets'] },
+    }
+    const form = await openForm()
+    expect(within(form).getByTestId('move-workflow-interrupted').textContent).toContain('The next move rolls it back first')
+    fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
+    await act(async () => {
+      fireEvent.click(within(form).getByRole('button', { name: 'Move files' }))
+    })
+    const text = within(form).getByTestId('edit-profile-message').textContent ?? ''
+    expect(text).toContain('A move stopped half-way before was rolled back first.')
+    expect(text).toContain('1 file is ignored by the .gitignore at the new place and committed all the same: docs/adr/a.png.')
+    expect(text).toContain('The qmd collections shop-docs, shop-tickets still index the old place')
+    await waitFor(() => expect(within(form).queryByTestId('move-workflow-interrupted')).toBeNull())
+  })
+
+  it('a Silent Project of several repositories gets no move to Full mode, one of a single repository does', async () => {
+    main.answers['profileEdit.read'] = { ok: true, value: { ...SILENT_READ, severalRepos: true } }
+    const form = await openForm()
+    expect(within(form).queryByRole('button', { name: 'Move to Full mode…' })).toBeNull()
+    expect(within(form).getByTestId('move-workflow').textContent).toContain('A Project of several repositories stays in Silent mode')
+    cleanup()
+    main.answers['profileEdit.read'] = { ok: true, value: SILENT_READ }
+    const single = await openForm()
+    expect(within(single).getByRole('button', { name: 'Move to Full mode…' })).toBeTruthy()
+  })
+
+  it('the move waits while the form has unsaved edits, and a Project of a Linked machine has no move', async () => {
+    const form = await openForm()
+    fireEvent.change(input(form, 'Title'), { target: { value: 'Shop' } })
+    await checked(form)
+    expect((within(form).getByRole('button', { name: 'Move to Silent mode…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(form).getByText('Save or cancel your edits first: the move reads the profile again.')).toBeTruthy()
+    cleanup()
+    const linked = await openForm('m-2')
+    expect(within(linked).queryByTestId('move-workflow')).toBeNull()
   })
 
   it('a Harness without the general --field shows why, and no form', async () => {

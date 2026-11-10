@@ -30,11 +30,63 @@ of the workflow: an Epic name, `<epic>/<NN>`, an ADR or Ticket number, the path 
 `HANDOFF`. A diff's added lines are not checked for a bare Epic name. Each Session of such a Project is told where the
 Workflow folder is.
 
-**Choosing the mode.** The mode is chosen once, in the "Add project" dialog, and Silent mode is the preselected one. The
-dialog opens only for a folder the Harness does not know. worfy has no control that changes the mode of a connected
-Project. The one other place that sets a mode is the move of an old Profile of schema 1 in the Harness migration form: it
-proposes Full mode when the Tickets folder is inside a git repository and Silent mode otherwise, and the user may change
-the proposal.
+**Choosing the mode.** The mode is chosen in the "Add project" dialog, and Silent mode is the preselected one. The
+dialog opens only for a folder the Harness does not know. A connected Project changes its mode only by moving its
+workflow files, the action beside `mode` in "Edit profile" (below). The one other place that sets a mode is the move of
+an old Profile of schema 1 in the Harness migration form: it proposes Full mode when the Tickets folder is inside a git
+repository and Silent mode otherwise, and the user may change the proposal.
+
+**Moving between the modes.** "Move to Silent mode…" (or "Move to Full mode…") under the mode in "Edit profile" opens a
+confirmation that says what moves, from which path to which; for Silent mode it has a Workflow folder field, and empty
+means `<Profile folder>/workflow`, made with `git init` when it does not exist. A Silent Project over several repositories
+gets no "Move to Full mode…": the form says it stays in Silent mode. "Move files" hands the move to
+`harness/bin/profile-set --move`. The workflow files are the paths the Profile names relative to the Workflow folder: the
+Tickets root (with the Epic specs and evidence), the folder of the Ticket and spec templates up to their first
+placeholder when it lies outside that root, the state file, the ADR folder, the glossary and the lessons kept in the
+repository. An absolute path stays where it is. Their tracked files are copied to the other side and committed there, then removed with `git rm`
+and committed on the side they left. Each commit message says where the files went or came from. Only then does the
+Profile get `mode` and `workflow.folder`: Silent mode writes the folder's path, and Full mode writes `null`. The change is
+committed in the Harness home's git.
+The move is refused before anything is written, with the reason in the form's footer, when:
+- the Project is already in that mode;
+- the Project is over several repositories and the move is to Full mode;
+- the repository or the Workflow folder has uncommitted or untracked changes (whatever `status.showUntrackedFiles`
+  says), is no git repository of its own, or has no branch checked out (a detached HEAD);
+- the Workflow folder lies inside the repository, also when a link on its path leads there, or a folder the move would
+  make (or `git init`) lies inside another git repository;
+- a file of the move already exists at its new place;
+- a PR of a Ticket's branch is open, or gh cannot tell. A Ticket's branch is its `Branch:` line or the Profile's
+  branch template for its Epic. A repository without a remote has no PRs to ask about;
+- a Session of the Project in worfy is starting, busy or waiting for a permission (worfy checks this before it calls the
+  script). An idle Session does not stop the move.
+
+A file the receiving side's `.gitignore` ignores moves too (`git add -f`), and the footer names it. A failure half-way
+puts both sides back as they were, and the Profile stays in its mode. When the rollback cannot undo everything, the footer
+says the move failed and lists what is left to put right by hand.
+
+Before it starts, the move writes a marker beside `profile.json` (`.move-in-progress.json`). It is removed once the Profile
+is written or the rollback is whole. When worfy quits or the machine goes down in between, the form says a move was
+stopped half-way. The next move rolls that one back first and then moves (or only removes the marker when the Profile
+had been written). It refuses, keeps the marker and names what it found when either side changed since: a commit, a
+reset, a new file, an edit of a moved file. Only the move's own commits, removals and copies (with the content they
+had where they came from) are put back, and the copies are deleted one by one by name: a folder goes only once it is
+empty, so a file anybody else put there stays. A marker that cannot be read is refused with what to do: check both
+sides, put back by hand what that move left, then delete the marker. A signal to the script alone does not stop it
+between two steps; one sent to its whole process group (Ctrl+C in a terminal, an app that signals the group on quit)
+also stops the git it runs, and the move then rolls back as after any failure. worfy gives a move up to 30 minutes.
+
+worfy's watches of the Project close for the move and open again after it, where the files are now: the Tickets, the
+documents (ADRs, `HANDOFF.md`) and the cached layout of the Project are read again. When the form has unsaved edits the
+button waits for them to be saved or cancelled, because the form reads the Profile again after a move. A Project of a
+Linked machine shows no move.
+
+The qmd collections `<name>-docs` and `<name>-tickets` keep indexing the old place: the footer names them after the move.
+`harness/bin/qmd-collections` changes nothing while the Profile names collections, so they are made again by hand:
+1. `qmd collection remove <name>-docs` and `qmd collection remove <name>-tickets`;
+2. `harness/bin/profile-set -C <repository> --field qmd --read` prints the fingerprint of the Profile's `qmd` field;
+3. `harness/bin/profile-set -C <repository> --field qmd --expect <fingerprint> --reset` removes the field;
+4. `harness/bin/qmd-collections <name>` makes the collections at the new place and names them in the Profile again.
+   `<name>-memory` keeps its path, so it is taken as it is.
 
 **"Add project".** The "+" of the Projects section opens it, and "Connect…" of Getting started asks for the same thing. The
 header names five steps: Folder, Mode, Harness, Draft and Review. The footer says that nothing is written until Connect.
@@ -302,7 +354,8 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   section, done section and branch, the finish, `parallel`, the review and ticket lenses, the MCP servers, the skills
   allowed, the GitHub account, the ADR folder, its status label, the feature pages, the glossary and the state file, the
   three languages, the attribution and the four worktree fields. The name, `mode` and the Workflow folder show as text: the
-  mode and the folder are "Changed by moving the workflow files". The Gate registry entries and `rules.md` are not in the
+  mode and the folder are "Changed by moving the workflow files", and the move button sits under them ("Moving between
+  the modes" above). The Gate registry entries and `rules.md` are not in the
   form. Every edit goes to the Harness, which checks it by the rules of the draft schema
   (`harness/profiles/draft.schema.json`); a refusal shows under its field and turns off Save. A cleared `verify` or ticket
   path is sent as an empty text, not as "none", so it is refused this way, as a ticket path without `NN` and an unknown
@@ -419,7 +472,9 @@ it is refused.
   `src/renderer/projects/profile-fields.ts`: the fields it shares with the Review step of "Add project".
   `src/main/ipc/profile-edit.ts`, `src/shared/ipc/profile-edit.ts`: `profileEdit.read`, `profileEdit.check` and
   `profileEdit.write`, over `bin/profile-set --field`: the read and the check are `project` read channels, the write is
-  `local`, as `pipeline.write`, so a Linked machine reads a Profile and never writes it.
+  `local`, as `pipeline.write`, so a Linked machine reads a Profile and never writes it. `profileEdit.move`, also `local`,
+  checks the Sessions at work and runs `bin/profile-set --move`; `src/renderer/projects/MoveWorkflow.tsx` is its button
+  and confirmation. `harness/lib/workflow-move.cjs`: the plan, the checks, the copy, the commits and the rollback of a move.
 - `src/renderer/palette/commands.ts`: "Switch to project". `src/renderer/pipeline/open.ts`,
   `src/renderer/canvas/overlays/NotificationTarget.tsx`: the other routes to `openProject`.
 
@@ -438,6 +493,9 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
 - `test/unit/edit-profile.test.tsx`: the form's values, a refusal under its field, a refused fingerprint, the account step.
   `test/contract/profile-edit.test.ts`: the channels over the real `bin/profile-set` and over a stand-in of it.
   `test/e2e/edit-profile.spec.ts`: the form in the built app. `harness/bin/tests/profile-set.test.sh`: `--field` of any field.
+  `test/contract/profile-move.test.ts`: `profileEdit.move` over the real `bin/profile-set --move` in both directions, a
+  Session at work, the refusals and the rollback. `harness/bin/tests/profile-set-move.test.sh`: `--move` itself, with
+  each refusal and a failure at every step.
 - `test/contract/projects-remove.test.ts`: "Remove project…" over the real `bin/profile` and `bin/project-connect` in a
   temporary Harness home: what goes, what stays, the refusals, and the same folders connected again; with the real
   Tickets and documents hubs, the removal of a watched Silent Project under a Harness that refuses as Windows does

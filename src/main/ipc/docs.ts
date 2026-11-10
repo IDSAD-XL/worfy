@@ -5,12 +5,12 @@ import { productChanged } from '../../shared/ipc/product'
 import type { LayoutNode } from '../../shared/layout/types'
 import { productFolder } from '../../shared/product/paths'
 import { ClientHolders, clientOf, type Client } from '../clients'
-import { DocsHub, readDoc, type DocsSubscriber } from '../docs/watch'
+import { DocsHub, readDoc, type DocsRoot, type DocsSubscriber } from '../docs/watch'
 import { placeNewNode } from '../layout/place'
 import { layoutStore } from '../layout/store'
 import { projectHolds } from '../projects/holds'
 import { projectStore } from '../projects/store'
-import { projectLayouts } from '../workflow/folder'
+import { projectLayouts, type LayoutCache } from '../workflow/folder'
 import { defineHandler, emit, type HandlerModule } from './index'
 
 // The `docs` channels (src/shared/ipc/docs.ts) and the HANDOFF Node.
@@ -32,9 +32,10 @@ export async function docsRoot(path: string): Promise<string> {
  * Where the Project at `path` keeps its documents, the label of its ADRs' status line (the
  * Profile's), and its Product Session folder (ADR-0101) as segments under that root: `docs/product`
  * in Full mode, `product` in Silent mode. No `productDir` when that folder is not under the root.
+ * `layouts`: the app's cache when absent.
  */
-export async function docsSource(path: string): Promise<{ root: string; adrStatusLabel: string | undefined; productDir: readonly string[] | undefined }> {
-  const layout = await projectLayouts().get(path)
+export async function docsSource(path: string, layouts: Pick<LayoutCache, 'get'> = projectLayouts()): Promise<DocsRoot> {
+  const layout = await layouts.get(path)
   const root = layout.mode === 'silent' ? layout.workflowFolder : path
   const product = relative(root, productFolder({ mode: layout.mode, root: path, workflowFolder: layout.workflowFolder }))
   const inside = product !== '' && !isAbsolute(product) && product.split(sep)[0] !== '..'
