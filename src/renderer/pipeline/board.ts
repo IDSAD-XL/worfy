@@ -1,8 +1,10 @@
 // What the Pipeline board (PipelineBoard.tsx) and the sidebar's Pipeline section
 // (shell/sidebar/PipelineSection.tsx) say alike about a Ticket.
 import type { PipelineColumn, PipelineTicket } from '../../shared/ipc/pipeline'
+import type { PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
 import { onStageFor, stuckOf, type ReleaseFact, type RepoPull, type TicketStage } from '../../shared/workflow/pipeline'
 import type { WorkflowModel } from '../../shared/workflow/types'
+import { reviewsByTicket } from '../canvas/badges/review-threads'
 import { ticketTitle } from '../canvas/epic-layout'
 
 /** The key of a Ticket in a map of titles. */
@@ -13,6 +15,27 @@ export const ticketRef = (ticket: { epic: string; num: number }): string => `${t
 
 /** Who the Ticket waits for, as its `Waits:` line says it: `owner`, `team`, `agent` or a Machine's name. */
 export const waitsText = (waits: string): string => `Waits: ${waits}`
+
+/**
+ * «Waits: 2 answers» on a card on Human review whose PRs hold review threads that wait for the user's answer (the PR
+ * inbox, worfy-pr-inbox ticket 06; summed over the PRs of a Ticket over several repositories); null on any other Stage
+ * and when none waits.
+ */
+export function answersText(kind: TicketStage['kind'], answers: number): string | null {
+  if (kind !== 'human-review' || answers <= 0) return null
+  return `Waits: ${answers} answer${answers === 1 ? '' : 's'}`
+}
+
+/**
+ * The review threads of each Ticket's PRs that wait for the user's answer, by ticketKeyOf, from the Project's PR inbox
+ * snapshot (reviewsByTicket of the review threads badge, the same map, so the card and the Ticket Node count alike);
+ * only Tickets that have any.
+ */
+export function answersOf(inbox: PrInboxSnapshot | undefined, model: WorkflowModel | undefined): Record<string, number> {
+  const answers: Record<string, number> = {}
+  for (const [key, reviews] of reviewsByTicket(inbox, model?.tickets ?? [])) if (reviews.threads > 0) answers[key] = reviews.threads
+  return answers
+}
 
 /** The titles of the model's Tickets without their leading number, by ticketKeyOf. */
 export function titlesOf(model: WorkflowModel | undefined): Record<string, string> {

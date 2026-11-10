@@ -1,7 +1,7 @@
 # 06 — Badge нитей ревью на Ticket Node и строка «Waits: N answers» на карточке Pipeline
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T04:11Z
 Blocked by: 02, 03, `worfy-multi-repo-ticket` 06
 Source: [spec.md](../spec.md), «Что видит пользователь», п. 6; «Как работает» → «Связь с Ticket-ом (Ticket 06)»;
 «Решено без владельца»; «Риски» («Общие файлы с `worfy-multi-repo-ticket`»); «Ticket-ы», «Волны» (Wave 3); решение
@@ -36,12 +36,28 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
 
 - [ ] Unit test: Ticket с PR, у которого 3 нерешённые нити и `CHANGES_REQUESTED`, — «3 open threads» и «changes
       requested»; без нитей — badge нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · bc2eb2394c0ae753b25381be4f1d7da2750e5b36
 - [ ] Unit test: Ticket из двух репозиториев — сумма нитей обоих PR; PR находится и по (repo, branch) до номера.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · bc2eb2394c0ae753b25381be4f1d7da2750e5b36
 - [ ] Unit test: карточка Pipeline в `human-review` — «Waits: 2 answers»; в других стадиях строки нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/pipeline-board.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] Test: Ticket без PR в снимке — Node и карточка как до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/review-threads-badge.test.tsx` exit 0 · mac - · bc2eb2394c0ae753b25381be4f1d7da2750e5b36
 - [ ] E2e test: щелчок по badge открывает вид Pull requests на этом PR; журнал stub-а gh без записей.
 - [ ] `docs/features/gate-and-github.md` описывает badge и строку.
+  - evidence: commit pass · Review threads badge on the Ticket Node and Waits: N answers on the Pipeline card (worfy-pr-inbox 06) · - - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: commit pass · Review threads: one memoized PR-to-Ticket map, main's rule for whose answer a thread waits, trail of the ticket · - - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6aeab913a8ae800b916058b99eb8c9f054afc176
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 49582d9b9ac84a8c8ac786ab23ebbd26f18f895a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · bc2eb2394c0ae753b25381be4f1d7da2750e5b36
 
 ## Тесты
 
@@ -61,3 +77,17 @@ Ticket Node и Pipeline board. Третий пункт строки `Blocked by:
 - `test/unit/pipeline-board.test.tsx`
 - `test/e2e/checks-badges.spec.ts`
 - `docs/features/gate-and-github.md`
+- `src/renderer/canvas/badges/review-threads.ts` (новый) — подсчёт нитей без React: его читают badge, высота карточки и
+  Pipeline board; react-refresh не даёт держать функции в `.tsx` рядом с компонентом
+- `src/renderer/canvas/badges/review-threads.css` (новый)
+- `src/renderer/canvas/ticket-card.ts`
+- `src/renderer/canvas/epic-layout.ts`
+- `src/renderer/canvas/sources/epics.ts`
+- `docs/features/workflow.md` (строка Answers в таблице флагов карточки)
+
+Отступление от «файлы Node-ов не меняются» (round 1, PR #1768). Высота карточки Ticket-а считается заранее из данных
+(`ticket-card.ts`), у `.w-ticket` — `overflow: hidden`, а место под badge-и уже занято самой широкой строкой checks
+(gate, PR, CI, verdict). Новые chip-ы там обрезались бы. Поэтому badge получает место, как chip Evidence: строку
+`REVIEW_LINE` на каждый chip (`ticket-card.ts`), по карточкам из снимка PR inbox (`CardContext.reviewChips` в
+`epic-layout.ts`; `sources/epics.ts` читает снимок и отдаёт число chip-ов одной строкой, так что снимок, который не
+меняет badge-ей, не меняет и layout). Цена: layout Canvas зависит от снимка PR inbox, и смена badge-а перекладывает Epic.

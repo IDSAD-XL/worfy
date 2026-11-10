@@ -35,7 +35,9 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } 
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { useProjects } from '../../projects/useProjects'
 import { usePipeline } from '../../pipeline/usePipeline'
+import { usePrInbox } from '../../pr-inbox/usePrInbox'
 import { useWorkflow } from '../../workflow/useWorkflow'
+import { reviewChipsOf } from '../badges/review-threads'
 import { useProjectRepos } from '../badges/use-checks'
 import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
 import { setArrangement, useArrangementUpkeep } from '../arrangement-record'
@@ -422,7 +424,7 @@ function frameLayout(
 }
 
 /** The card context as one string, to tell a new one from the same. */
-const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null, cards?.repoNames ?? null])
+const cardsKey = (cards: CardContext | undefined): string => JSON.stringify([cards?.stages ?? null, cards?.severalRepos ?? null, cards?.repoNames ?? null, cards?.reviewChips ?? null])
 
 /** Per Project and Epic, the last computed frame, so an Epic that did not change keeps its objects. */
 const cache = new Map<string, EpicEntry>()
@@ -744,6 +746,8 @@ function useFocusRequests(projectId: string, nodes: readonly CanvasFlowNode[]): 
   }, [focus, projectId])
 }
 
+const NO_TICKETS: readonly Ticket[] = []
+
 function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {
   const projects = useProjects()
   const root = projects?.projects.find((project) => project.id === projectId)?.path
@@ -763,9 +767,18 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   const severalRepos = repos === undefined ? undefined : repos.repos.length >= 2
   // The names as one string: a new answer naming the same repositories changes nothing. A Ticket over several of them has a checks row for each.
   const names = repos === undefined ? null : JSON.stringify(repos.repos.map((repo) => repo.name))
+  // The review threads badge's chips per card (badges/ReviewThreads.tsx), as one string: a new inbox snapshot that
+  // changes no badge changes no height.
+  const { snapshot: inbox } = usePrInbox(projectId)
+  const reviews = useMemo(() => JSON.stringify(reviewChipsOf(inbox, model?.tickets ?? NO_TICKETS)), [inbox, model])
   const cards = useMemo<CardContext>(
-    () => ({ stages: titles === null ? undefined : (JSON.parse(titles) as string[]), severalRepos, repoNames: names === null ? undefined : (JSON.parse(names) as string[]) }),
-    [titles, severalRepos, names],
+    () => ({
+      stages: titles === null ? undefined : (JSON.parse(titles) as string[]),
+      severalRepos,
+      repoNames: names === null ? undefined : (JSON.parse(names) as string[]),
+      reviewChips: JSON.parse(reviews) as Record<string, number>,
+    }),
+    [titles, severalRepos, names, reviews],
   )
   const nodes = useMemo(
     () => buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, cards),

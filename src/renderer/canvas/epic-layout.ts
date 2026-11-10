@@ -127,7 +127,7 @@ export interface EpicLayoutInput {
   cards?: CardContext | undefined
 }
 
-/** What a card's height depends on beyond its Ticket: the Project's Stages and repositories. */
+/** What a card's height depends on beyond its Ticket: the Project's Stages and repositories, and the PR inbox's review threads. */
 export interface CardContext {
   /** The names of the Project's Stages, in order (the Pipeline snapshot); the default Pipeline's while unknown. */
   stages?: readonly string[] | undefined
@@ -139,6 +139,11 @@ export interface CardContext {
   severalRepos?: boolean | undefined
   /** The names of the Project's repositories (`useProjectRepos`), for the checks rows a card draws; undefined until main answered. */
   repoNames?: readonly string[] | undefined
+  /**
+   * How many chips the review threads badge draws on a card, by `<epic>/<num>` (`reviewChipsOf` of
+   * badges/ReviewThreads.tsx, from the PR inbox snapshot); a Ticket it does not name draws none.
+   */
+  reviewChips?: Readonly<Record<string, number>> | undefined
 }
 
 export const routeKey = (blocker: number, blocked: number): string => `${blocker}->${blocked}`
@@ -261,6 +266,7 @@ export function cardHeights(tickets: readonly LayoutTicket[], columns: EpicColum
       meta: blockersLine(t, columns.attention.get(t.num) ?? null, waitingOnOf(t, byNum)),
       stages: cards.stages,
       evidence: (t.evidence?.length ?? 0) > 0,
+      reviewChips: cards.reviewChips?.[`${t.epic}/${t.num}`],
     })
     heights.set(t.num, height)
   }
