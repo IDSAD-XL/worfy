@@ -40,15 +40,18 @@ Source: владелец 2026-11-10 (бриф Orchestrator-а): «Список �
       manifest`; `background-tasks.jsonl` снимается сценарием `sdk-probe.ts`, а не потерянным одноразовым скриптом;
       личные слова владельца не попадают в fixtures (`node scripts/check-personal.mjs` exit 0).
   - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0; `pnpm test test/contract/sdk-compat.test.ts` exit 0 · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
+  - evidence: test-run pass · `node scripts/check-personal.mjs` exit 0 after the rescrub (skill-N, <personal text>, <tmp>) · mac - · 5b27c9984ea4a9d16193651ee97b9db53f88b1e9
 - [ ] `test/contract/sdk-compat.test.ts`, `test/contract/agent-events.test.ts`, `test/unit/agent-options.test.ts`,
       `test/contract/limits.test.ts`, `test/unit/claude-events.test.ts` зелёные на новом снятии; весь `pnpm test` exit 0.
   - evidence: test-run pass · `pnpm test` exit 0 (737 files, 17454 tests passed) · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
+  - evidence: test-run pass · `pnpm test test/contract/sdk-compat.test.ts test/unit/agent-options.test.ts test/unit/claude-events.test.ts test/contract/agent-events.test.ts test/contract/limits.test.ts` exit 0 (187 passed) · mac - · 5b27c9984ea4a9d16193651ee97b9db53f88b1e9
 - [ ] `.github/dependabot.yml` есть; Dependabot PR идёт через тот же `ci.yml` (`pull_request`, без secrets).
   - evidence: commit pass · Raise the Agent SDK to 0.3.322 so the model picker lists Fable 5.2 (worfy-polish 100) · - - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] e2e spec-и Session, model picker, Terminal AI, limits, narrator — exit 0.
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-controls.spec.ts test/e2e/new-session.spec.ts test/e2e/session-view.spec.ts test/e2e/limits.spec.ts test/e2e/limits-vendors.spec.ts test/e2e/terminal-ai-request.spec.ts test/e2e/terminal-ai-suggest.spec.ts test/e2e/product-session.spec.ts test/e2e/first-run.spec.ts test/e2e/settings-health.spec.ts` exit 0 (43 passed) · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ac5d22bf076d1c0c920973b03c13e3c6019e1488
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5b27c9984ea4a9d16193651ee97b9db53f88b1e9
 
 ## Где в коде
 
