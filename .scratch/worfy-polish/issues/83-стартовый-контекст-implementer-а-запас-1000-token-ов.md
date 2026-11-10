@@ -1,7 +1,7 @@
 # 83 — Стартовый контекст implementer-а: вернуть запас не меньше 1000 token-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-10T03:06Z
 Blocked by: —
 Source: находка Orchestrator-а 2026-11-10: `node harness/bin/start-context --agent implementer` на main `c69ffd43b` —
 14 993 token-а из порога 15 000, запас 7. Строки перечитаны по main `c69ffd43b`.
