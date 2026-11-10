@@ -21,7 +21,7 @@ export type ShortcutGroup = (typeof SHORTCUT_GROUPS)[number]
  * Where an entry acts. Two entries of one place never share keys, and no entry shares the keys of an
  * `app` one, which acts everywhere in the window.
  */
-export type ShortcutScope = 'app' | 'canvas' | 'focus mode' | 'find bar' | 'session view' | 'composer' | 'slash menu' | 'terminal'
+export type ShortcutScope = 'app' | 'canvas' | 'focus mode' | 'find bar' | 'session view' | 'composer' | 'slash menu' | 'comment' | 'terminal'
 
 export interface ShortcutKeys {
   /** ⌘ on macOS, Ctrl elsewhere. */
@@ -106,6 +106,9 @@ export const SHORTCUTS = {
   interrupt: { id: 'session.interrupt', title: 'Interrupt the turn', group: 'Session', scope: 'composer', keys: { key: 'Escape', name: 'Esc' } },
   history: { id: 'session.history', title: 'Earlier and later messages', group: 'Session', scope: 'composer', keys: { key: 'ArrowUp', also: ['ArrowDown'], name: '↑↓' } },
   slashSelect: { id: 'session.slash-select', title: 'Choose the slash command', group: 'Session', scope: 'slash menu', keys: { key: 'Enter' } },
+  // Comments on quotes of an answer (worfy-polish ticket 102): with text of an agent's message selected, and in the comment's box.
+  quoteComment: { id: 'session.quote-comment', title: 'Comment on the text selected in an answer', group: 'Session', scope: 'session view', keys: primary('M', { shift: true }) },
+  quoteSave: { id: 'session.quote-save', title: 'Save the comment', group: 'Session', scope: 'comment', keys: primary('Enter', { macKey: '↩' }) },
 
   // Terminal. On Windows Ctrl+I is Tab of the shell: the entry is macOS's alone.
   terminalRequest: { id: 'terminal.request', title: 'Command request (zsh with Terminal AI)', group: 'Terminal', scope: 'terminal', keys: primary('I'), platforms: ['mac'] },
