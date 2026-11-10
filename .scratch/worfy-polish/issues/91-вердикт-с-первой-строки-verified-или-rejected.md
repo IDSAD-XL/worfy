@@ -48,13 +48,19 @@ introduced the regression…»), а `REJECTED: …` стоит на следую
 - [ ] Unit/contract test-ы функции на общих fixture-ах: вводная фраза и `REJECTED` строкой ниже — `REJECTED`, текст
       без вводной; нет строки с вердиктом — нет вердикта; `VERIFIED` внутри предложения ниже — не вердикт; обе копии
       дают один ответ.
+  - evidence: test-run pass · `pnpm test test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] `harness/bin/tests/verdict.test.sh` — exit 0: script печатает ответ со строки вердикта, без вердикта — exit 1.
+  - evidence: test-run pass · `bash harness/bin/tests/verdict.test.sh` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] Grader `rejected-first` принимает ответ из trace-а `r3-run2-failed` и по-прежнему не принимает `**REJECTED — …**`,
       `REJECTED —` без двоеточия и `VERIFIED` на одной строке с `REJECTED`.
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals.test.ts test/contract/verdict-rules-agree.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] Читатели worfy берут вердикт после вводной фразы: test-ы Flight Recorder, Subagent-ов Claude Code и Codex,
       PR comment-ов.
+  - evidence: test-run pass · `pnpm test test/unit/subagents.test.ts test/unit/flight-recorder-transcript.test.ts test/unit/flight-recorder-github.test.ts test/contract/claude-home-subagents.test.ts test/contract/codex-subagents.test.ts test/contract/github-prs.test.ts test/contract/work-track-transcripts.test.ts` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] `node scripts/eval-harness.mjs --case reviewer-verdict --dry-run` — exit 0 (платный run делает Orchestrator).
+  - evidence: test-run pass · `node scripts/eval-harness.mjs --case reviewer-verdict --dry-run` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] gate fast — exit 0, `[gate] green`.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ad06fde2a0215b309da31d05bfc40e7e8b30fc76
 - [ ] `ci-ok` на PR зелёный.
 
 ## Где в коде
