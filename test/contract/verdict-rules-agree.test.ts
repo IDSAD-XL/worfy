@@ -1,9 +1,10 @@
 // The rule that finds a reviewer's verdict in its answer exists twice: in the Harness (harness/lib/verdict.cjs, used
-// by `bin/verdict`) and in worfy (src/shared/workflow/verdict.mjs, used by every reader of a verdict in the app). The
-// grader rejected-first of the eval case reviewer-verdict says the same thing as a regular expression. All three read
-// the Harness's shared fixtures here and must give the same answer (worfy-polish 91; the owner's decision of
+// by `bin/verdict`) and in worfy (src/shared/workflow/verdict.mjs, used by every reader of a verdict in the app). Both
+// read the Harness's shared fixtures here and must give the same answer (worfy-polish 91; the owner's decision of
 // 2026-11-10: the verdict is the first line that starts with VERIFIED or REJECTED, a lead-in before it is dropped,
-// and an answer without such a line has no verdict).
+// and an answer without such a line has no verdict). The readers are lenient about markdown in front of the word; the
+// grader rejected-first of the eval case reviewer-verdict is strict and passes only a bare `REJECTED:` line, so each
+// fixture also says what the grader makes of it.
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -17,6 +18,7 @@ interface VerdictCase {
   narrow?: boolean
   text?: string
   line?: string
+  grader: boolean
 }
 
 interface HarnessVerdictRules {
@@ -59,14 +61,25 @@ describe('the verdict of a reviewer answer, in the Harness and in worfy', () => 
     }
   })
 
-  // The grader passes when the verdict the rule reads is a plain `REJECTED:` with no VERIFIED on its line: the lead-in
-  // is dropped as the rule drops it, and the format the reviewer agent owes (ticket worfy-polish 84) still holds.
-  it('the rejected-first grader of reviewer-verdict agrees with the rule on every fixture', () => {
+  // The grader is the strict side: it passes a bare `REJECTED:` line with no VERIFIED on it, and skips the lines before
+  // it. When it passes, the readers read the same REJECTED; markup the readers forgive fails it.
+  it('the rejected-first grader of reviewer-verdict gives what each fixture says, and passes only what the readers read as a bare REJECTED:', () => {
     const pattern = grader()
     for (const c of cases) {
+      expect(pattern.test(c.answer), c.name).toBe(c.grader)
+      if (!c.grader) continue
       const read = findVerdict(c.answer)
-      const want = read !== null && read.verdict === 'REJECTED' && !read.narrow && /^REJECTED:(?!.*VERIFIED)/.test(read.line)
-      expect(pattern.test(c.answer), c.name).toBe(want)
+      expect(read !== null && read.verdict === 'REJECTED' && !read.narrow && /^REJECTED:(?!.*VERIFIED)/.test(read.line), c.name).toBe(true)
     }
+  })
+
+  it('the split: a bold or heading-marked REJECTED reads as REJECTED and fails the grader', () => {
+    const pattern = grader()
+    for (const answer of ['**REJECTED**', '**REJECTED:** node --test exits 1', '## REJECTED: node --test exits 1', 'Lead-in.\n*REJECTED*: x']) {
+      expect(findVerdict(answer)?.verdict, answer).toBe('REJECTED')
+      expect(harness.findVerdict(answer)?.verdict, answer).toBe('REJECTED')
+      expect(pattern.test(answer), answer).toBe(false)
+    }
+    expect(cases.some((c) => c.verdict === 'REJECTED' && !c.grader && /^\s*(?:#|\*|_)/.test(c.answer))).toBe(true)
   })
 })

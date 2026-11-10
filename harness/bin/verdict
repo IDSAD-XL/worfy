@@ -5,7 +5,8 @@
 //
 // The answer is read from <file>, or from stdin with no argument or `-`. Its verdict is the first line
 // that starts, after spaces or tabs, with the whole word VERIFIED or REJECTED, optionally after
-// `NARROW:` (lib/verdict.cjs has the rule; the worfy app reads verdicts by a copy of it). A reviewer
+// `NARROW:`, a heading mark or emphasis (lib/verdict.cjs has the rule; the worfy app reads verdicts by a
+// copy of it). The markup in front of the word is dropped, so the output starts with the word. A reviewer
 // agent sometimes opens its last message with a sentence about what it checked and puts the verdict
 // on the next line; whoever saves or posts the verdict runs the answer through this script first, so
 // the saved text starts with the verdict whatever the model wrote before it. An answer without such a

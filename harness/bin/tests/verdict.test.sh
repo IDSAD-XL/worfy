@@ -6,6 +6,7 @@
 #     exit code 0; no verdict prints nothing, exit code 1 with the reason on stderr;
 #   - a lead-in sentence, then REJECTED on the next line: the output starts with REJECTED;
 #   - VERIFIED inside a sentence later in the text is no verdict;
+#   - a heading mark and bold in front of the word are dropped: the output starts with the word;
 #   - stdin with no argument and with `-`; a file with CRLF line ends keeps them;
 #   - usage and exit codes: two arguments and a missing file are exit code 2, --help is exit code 0.
 # Run: bash harness/bin/tests/verdict.test.sh; exit code 0 means everything passed.
@@ -77,6 +78,11 @@ run "$T/lead-in.md"
 printf '%s\n' "Ran node --test: exit 0." "Every claim was VERIFIED by re-running it." >"$T/sentence.md"
 run "$T/sentence.md"
 [ "$rc" = 1 ] && [ ! -s "$T/out" ] && ok "VERIFIED inside a sentence later in the text: no verdict, exit code 1" || bad "VERIFIED inside a sentence: rc=$rc out=[$(cat "$T/out")]"
+
+printf '%s\n' "Checked the claims." "## **REJECTED**: node --test exits 1" "- src/sum.mjs:3" >"$T/markup.md"
+run "$T/markup.md"
+[ "$rc" = 0 ] && [ "$(head -n 1 "$T/out")" = "REJECTED: node --test exits 1" ] \
+    && ok "a heading mark and bold in front of the word: the output starts with REJECTED" || bad "markup in front of the word: rc=$rc out=[$(cat "$T/out")]"
 
 # --- 3. stdin and line ends ------------------------------------------------------------------------
 "$V" <"$T/lead-in.md" >"$T/out" 2>"$T/err"; rc=$?

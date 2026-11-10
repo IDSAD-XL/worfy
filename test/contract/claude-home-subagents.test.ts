@@ -564,7 +564,7 @@ describe('claudeHome.subagentTranscript', () => {
     const answer = value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: AGENTS, sessionId: S7, agentId: 'a5000000000000286' }))
     expect(answer.found).toBe(true)
     expect(answer.events.map((event) => event.type)).toEqual(['notice', 'text'])
-    expect(answer.events[1]).toMatchObject({ type: 'text', text: 'Checked **the test** against the fix.\n\nREJECTED\n\nSynthetic finding: the test does not fail without the fix.' })
+    expect(answer.events[1]).toMatchObject({ type: 'text', text: '**REJECTED**\n\nSynthetic finding: the test does not fail without the fix.' })
     // Each event carries the time of its record, so the rows show when they were written (ticket 14).
     expect(answer.events.map((event) => event.at)).toEqual([Date.parse('2026-06-01T10:00:11.000Z'), Date.parse('2026-06-01T10:00:59.000Z')])
   })

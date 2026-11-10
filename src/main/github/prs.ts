@@ -281,7 +281,7 @@ export function narrowRoundsOf(comments: readonly { body: string; createdAt?: st
   for (const comment of comments ?? []) {
     const line = firstLine(comment.body)
     const verdict = findVerdict(comment.body)
-    if (NARROW.test(line) && verdict?.line.trim() !== line) states.push({ outcome: 'started', text: clipLine(line), at: comment.createdAt ?? null })
+    if (NARROW.test(line) && findVerdict(line) === null) states.push({ outcome: 'started', text: clipLine(line), at: comment.createdAt ?? null })
     else if (verdict?.narrow === true) states.push({ outcome: verdict.verdict === 'VERIFIED' ? 'verified' : 'rejected', text: clipLine(verdict.line.trim()), at: comment.createdAt ?? null })
   }
   return states

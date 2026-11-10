@@ -125,7 +125,7 @@ export function verdictComments(pr, account) {
   const found = []
   for (const comment of comments) {
     const verdict = findVerdict(comment.body)
-    const opening = NARROW.test(comment.body) && (verdict === null || comment.body.trimStart() !== verdict.text)
+    const opening = NARROW.test(comment.body) && findVerdict(comment.body.trimStart().split('\n')[0]) === null
     if (opening) found.push({ at: time(comment.createdAt), verdict: null, narrow: true })
     else if (verdict !== null) found.push({ at: time(comment.createdAt), verdict: verdict.verdict, narrow: verdict.narrow })
   }

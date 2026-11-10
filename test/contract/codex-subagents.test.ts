@@ -199,7 +199,7 @@ describe('codexSubagentTree', () => {
       prompt: null,
       model: null,
       reasoningEffort: null,
-      agentsStates: { [ADA]: { status: 'completed', message: 'Ran the tests.\nVERIFIED the tests pass\nmore' }, [BO]: { status: 'errored', message: 'The command failed.' } },
+      agentsStates: { [ADA]: { status: 'completed', message: '**VERIFIED** the tests pass\nmore' }, [BO]: { status: 'errored', message: 'The command failed.' } },
       startedAtMs: (T0 + 3) * 1000,
       completedAtMs: (T0 + 9) * 1000,
     } as ThreadItem
@@ -207,6 +207,33 @@ describe('codexSubagentTree', () => {
     expect(tree.map(({ name, status, summary, verdict }) => [name, status, summary, verdict])).toEqual([
       ['Ada', 'done', 'VERIFIED the tests pass', 'VERIFIED'],
       ['Bo', 'error', 'The command failed.', null],
+    ])
+  })
+
+  // A reviewer's verdict is its first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs,
+  // worfy-polish 91): a lead-in before it is dropped from the summary too; a word inside a sentence is no verdict.
+  it('reads the verdict of an answer after a lead-in, and none from a word inside a sentence', () => {
+    const answers = (ada: string, bo: string): unknown[][] => {
+      const wait = {
+        type: 'collabAgentToolCall',
+        id: 'call_wait',
+        tool: 'wait',
+        status: 'completed',
+        senderThreadId: SESSION,
+        receiverThreadIds: [ADA, BO],
+        prompt: null,
+        model: null,
+        reasoningEffort: null,
+        agentsStates: { [ADA]: { status: 'completed', message: ada }, [BO]: { status: 'completed', message: bo } },
+        startedAtMs: (T0 + 3) * 1000,
+        completedAtMs: (T0 + 9) * 1000,
+      } as ThreadItem
+      const tree = codexSubagentTree(withTurn(root, [activity(1, 'started', ADA, T0 + 1), activity(2, 'started', BO, T0 + 2), wait]), [spawned(ADA, SESSION, 'Ada'), spawned(BO, SESSION, 'Bo')], new Map())
+      return tree.map(({ name, summary, verdict }) => [name, summary, verdict])
+    }
+    expect(answers('This confirms a clear discrepancy.\n\nREJECTED: node --test exits 1', 'Every claim was VERIFIED by re-running it.')).toEqual([
+      ['Ada', 'REJECTED: node --test exits 1', 'REJECTED'],
+      ['Bo', 'Every claim was VERIFIED by re-running it.', null],
     ])
   })
 

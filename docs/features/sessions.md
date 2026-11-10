@@ -334,8 +334,9 @@ threads, with no transcript to open. They show the same way, but their statuses 
 
 **On the Canvas.** Each Subagent is a Node of 260 by 84 pixels to the right of its parent, and the Subagents it started are to
 the right of it. It shows the name, type, model, status with the time it has run, and the first line of its final answer. A
-reviewer's verdict shows as a chip: the first line of its answer that starts with VERIFIED or REJECTED. A sentence above that
-line is skipped, in the chip and in the first line shown; a word inside a sentence or behind markup is no verdict. A parent's done and interrupted Subagents fold into one "N done" row under
+reviewer's verdict shows as a chip: the first line of its answer that starts with VERIFIED or REJECTED, bold or a heading mark in
+front of the word included. A sentence above that line is skipped, in the chip and in the first line shown; a word inside a
+sentence or behind a label is no verdict. A parent's done and interrupted Subagents fold into one "N done" row under
 the running ones. A click opens the row, and that choice is not saved. These Nodes are not saved in the Layout and cannot be
 moved by hand. They move with the Session's Node. A Subagent's Node dragged onto a Ticket or an Epic frame binds it, and the
 Node goes back to its place.

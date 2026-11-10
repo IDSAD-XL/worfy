@@ -332,7 +332,7 @@ describe('verdictComments of pr-facts.mjs: who speaks for the Gate', () => {
   })
 
   // The verdict of a comment is its first line that starts with VERIFIED or REJECTED (src/shared/workflow/verdict.mjs,
-  // worfy-polish 91): a lead-in before it is dropped, a word inside a sentence is no verdict.
+  // worfy-polish 91): a lead-in before it is dropped, bold in front of the word counts, a word inside a sentence is no verdict.
   it('reads the verdict after a lead-in; a word inside a sentence or behind a label is none; a NARROW: opening stays one', () => {
     const at = (time: string) => ({ createdAt: T(time) })
     const read = verdictComments(
@@ -343,6 +343,7 @@ describe('verdictComments of pr-facts.mjs: who speaks for the Gate', () => {
         { ...at('11:30'), body: 'The narrow fix is in.\nNARROW: VERIFIED' },
         { ...at('11:40'), body: 'NARROW: [med] src/a.ts:3\nVERIFIED once fixed' },
         { ...at('11:50'), body: 'Round 2.\nVERIFIED' },
+        { ...at('11:55'), body: '**REJECTED**: a bold verdict' },
       ]),
     )
     expect(read.map(({ at: time, verdict, narrow }) => [new Date(time ?? 0).toISOString().slice(11, 16), verdict, narrow])).toEqual([
@@ -350,6 +351,7 @@ describe('verdictComments of pr-facts.mjs: who speaks for the Gate', () => {
       ['11:30', 'VERIFIED', true],
       ['11:40', null, true],
       ['11:50', 'VERIFIED', false],
+      ['11:55', 'REJECTED', false],
     ])
   })
 })

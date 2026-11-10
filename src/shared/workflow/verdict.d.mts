@@ -2,11 +2,11 @@
 
 export interface FoundVerdict {
   verdict: 'VERIFIED' | 'REJECTED'
-  /** The verdict line starts with `NARROW:`: the narrow round's verdict. */
+  /** The verdict line has `NARROW:` before the word: the narrow round's verdict. */
   narrow: boolean
-  /** The answer from the verdict line on, the lead-in before it dropped. */
+  /** The verdict line and the rest of the answer after it: the lead-in before it and the markup in front of the word dropped. */
   text: string
-  /** The verdict line itself, without its line end. */
+  /** The verdict line from the word on, its markup dropped, without its line end. */
   line: string
 }
 
