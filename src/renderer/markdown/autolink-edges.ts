@@ -21,15 +21,24 @@ const CLOSING = new Set(['»', '”', '’', '›', '…'])
 const TRAILING = new Set(['.', ',', ':', ';', '!', '?', '"', "'"])
 const OPENING_OF: Record<string, string> = { '»': '«', '›': '‹', '”': '“', '’': '‘' }
 
-/** The length of the address without the closing marks and punctuation at its end. */
+const count = (text: string, char: string): number => text.split(char).length - 1
+
+/** Whether the `)` that ends `text` has no `(` of its own in it, as remark-gfm reads parentheses. */
+const unpaired = (text: string): boolean => count(text, ')') > count(text, '(')
+
+/**
+ * The length of the address without the closing marks and punctuation at its end. Once a closing mark
+ * is off, an unpaired `)` goes too: `«(см. https://x.y/a)»` links to `https://x.y/a`.
+ */
 function keptLength(text: string): number {
   let end = text.length
   let closed = false
   while (end > 0) {
-    const last = text.charAt(end - 1)
+    const kept = text.slice(0, end)
+    const last = kept.charAt(end - 1)
     const opening = OPENING_OF[last]
-    if (CLOSING.has(last) && (opening === undefined || !text.slice(0, end).includes(opening))) closed = true
-    else if (!(closed && TRAILING.has(last))) break
+    if (CLOSING.has(last) && (opening === undefined || !kept.includes(opening))) closed = true
+    else if (!(closed && (TRAILING.has(last) || (last === ')' && unpaired(kept))))) break
     end -= 1
   }
   return end

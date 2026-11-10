@@ -54,22 +54,30 @@ describe('a bare address in prose', () => {
     ['“https://x.y/a”', 'https://x.y/a', '“https://x.y/a”'],
     ['see https://x.y/a…', 'https://x.y/a', 'see https://x.y/a…'],
     ['«www.example.com»', 'http://www.example.com', '«www.example.com»'],
+    ['«(см. https://x.y/a)»', 'https://x.y/a', '«(см. https://x.y/a)»'],
+    ['«см. https://x.y/(a)»', 'https://x.y/(a)', '«см. https://x.y/(a)»'],
   ])('keeps the closing quote outside: %s', (text, href, shown) => {
-    const { container } = render(<Markdown text={text} />)
-    const all = [...container.querySelectorAll('a')]
-    expect(all.map((link) => link.getAttribute('href'))).toEqual([href])
-    expect(container.textContent).toBe(shown)
+    // Both renderer paths: `breaks` is the one of the Session view (Transcript.tsx), without it HANDOFF and ADRs.
+    for (const breaks of [false, true]) {
+      const { container, unmount } = render(<Markdown text={text} breaks={breaks} />)
+      const all = [...container.querySelectorAll('a')]
+      expect(all.map((link) => link.getAttribute('href')), `breaks: ${breaks}`).toEqual([href])
+      expect(container.textContent, `breaks: ${breaks}`).toBe(shown)
+      unmount()
+    }
   })
 
   it('keeps a guillemet that is part of the address, when the address opens one too', () => {
     expect(links('https://x.y/«a»')).toEqual([{ href: 'https://x.y/%C2%ABa%C2%BB', text: 'https://x.y/«a»' }])
   })
 
-  it('leaves a link written as [text](url) alone, even when its address ends in a guillemet', () => {
+  it('leaves a link written as [text](url) or <url> alone, even when its address ends in a guillemet', () => {
     expect(links('[spec](https://x.y/a») and <https://x.y/b>')).toEqual([
       { href: 'https://x.y/a%C2%BB', text: 'spec' },
       { href: 'https://x.y/b', text: 'https://x.y/b' },
     ])
+    // The author put the guillemet inside the angle brackets: it stays part of the address.
+    expect(links('see <https://x.y/a»> here')).toEqual([{ href: 'https://x.y/a%C2%BB', text: 'https://x.y/a»' }])
   })
 
   it('an http:// address and a www. one are links too', () => {
