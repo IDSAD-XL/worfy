@@ -28,7 +28,7 @@ const unpaired = (text: string): boolean => count(text, ')') > count(text, '(')
 
 /**
  * The length of the address without the closing marks and punctuation at its end. Once a closing mark
- * is off, an unpaired `)` goes too: `«(см. https://x.y/a)»` links to `https://x.y/a`.
+ * is off, an unpaired `)` goes too: `«(see https://x.y/a)»` links to `https://x.y/a`.
  */
 function keptLength(text: string): number {
   let end = text.length
