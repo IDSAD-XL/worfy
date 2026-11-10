@@ -49,13 +49,19 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
 
 - [ ] Contract test: `review-draft-lint --reply` — чистый черновик exit 0; `<epic>/<NN>`, `ADR-<4 цифры>`, подпись
       ИИ, личные данные — exit 1 с `items[<i>]`.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-review-draft-lint.test.ts, describe --reply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
 - [ ] Contract test: режим review `review-draft-lint` — те же выходы, что до правки.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-review-draft-lint.test.ts, review mode tests unchanged plus the empty-comment pin) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
 - [ ] Contract test: `actions.prReply` запускает Session с текстом шаблона; Autopilot и Linked machine с Read only
       получают отказ.
+  - evidence: test-run pass · `pnpm test` (test/contract/actions.test.ts, describe actions.prReply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
 - [ ] Eval `pr-reply-*` (dry run, затем платный под пределом из правил): черновики в файле, журнал stub-а gh — только
       чтение.
 - [ ] Тексты `SKILL.md`: запрет публикации, путь черновика, шаг lint.
+  - evidence: test-run pass · `pnpm test` (test/contract/harness-evals.test.ts, describe harness/evals: pr-reply) exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f5f4554e0c1c3b2cf418c413eb8fa6c29aec7d20
 - [ ] `test/contract/harness-review-draft-lint.test.ts` на Windows — exit 0.
   - needs: windows
 - [ ] `ci-ok` на PR зелёный.
