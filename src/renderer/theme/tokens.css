@@ -31,6 +31,10 @@
   --row-height: 28px;
   --toolbar-height: 52px;
   --sidebar-width: 264px;
+  /* Room on the left for the macOS traffic lights (src/main/window-frame.ts puts them at x 20; on
+     macOS 26 they end at about 80 px), with 12 px clear after them. Pixels of the window: every use
+     divides it by --interface-scale, because the traffic lights do not scale with the interface. */
+  --traffic-lights-room: 92px;
 
   /* Colour: light (palette E) */
   --bg: #f7f7f9;

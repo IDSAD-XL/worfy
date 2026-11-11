@@ -21,7 +21,7 @@ const ACTUAL = 'view.scale.actual'
 
 /** The toolbar and the room left of it for the window buttons of macOS, in pixels of the window. */
 const TOOLBAR_PX = 52
-const TRAFFIC_LIGHTS_PX = 80
+const TRAFFIC_LIGHTS_PX = 92
 const mac = process.platform === 'darwin'
 
 /** The page's DOM, typed for this file: the e2e typecheck has no DOM library. */
@@ -153,7 +153,7 @@ async function closeSettings(window: Page): Promise<void> {
 
 /**
  * The strips under the window buttons at `scale`: the toolbar, the strip above the sidebar and the
- * focus mode bar are 52 px of the window high; the toolbar and the focus mode bar leave 80 px of
+ * focus mode bar are 52 px of the window high; the toolbar and the focus mode bar leave 92 px of
  * the window on their left (macOS) only without the sidebar — with it the window buttons are over
  * the sidebar, and the bar starts at the sidebar's edge; the palette opens right under the toolbar.
  * The sidebar is shown or hidden apart for the normal view and focus mode, so each is checked with
@@ -173,7 +173,7 @@ async function expectStrips(window: Page, scale: number): Promise<void> {
   const toolbar = await boxOf(window, '.w-toolbar')
   expect(toolbar.height * scale, `the toolbar ${at}`).toBeCloseTo(TOOLBAR_PX, 0)
   if (mac) {
-    // The first button starts where the room for the window buttons ends: not to the left of 80 px of the window.
+    // The first button starts where the room for the window buttons ends: not to the left of 92 px of the window.
     const first = await boxOf(window, '.w-toolbar__icon-button')
     expect(first.left * scale, `the first toolbar button ${at}`).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS_PX - 0.5)
     expect(first.left * scale, `the first toolbar button ${at}`).toBeLessThan(TRAFFIC_LIGHTS_PX + 1)

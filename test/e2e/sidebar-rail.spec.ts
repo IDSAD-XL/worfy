@@ -240,8 +240,8 @@ test('the top as the owner chose: the wordmark after the traffic lights, the but
     const hide = await box(sidebar(window).getByRole('button', { name: 'Hide sidebar' }))
     const pill = await box(switcher(window))
     await expect(sidebar(window).getByTestId('sidebar-wordmark')).toHaveText('worfy')
-    // Row 1: 80 px for the traffic lights (macOS), the wordmark, the button 8 px from the right edge.
-    if (process.platform === 'darwin') expect(wordmark.x - nav.x).toBeCloseTo(80, 0)
+    // Row 1: 92 px for the traffic lights (macOS), the wordmark, the button 8 px from the right edge.
+    if (process.platform === 'darwin') expect(wordmark.x - nav.x).toBeCloseTo(92, 0)
     expect(nav.x + nav.width - 1 - (hide.x + hide.width)).toBeCloseTo(8, 0)
     expect(hide.y + hide.height).toBeLessThanOrEqual(strip.y + strip.height)
     // Row 2: the switcher under the strip, as wide as the sidebar less its padding; the long name whole, the chevron at the end.
