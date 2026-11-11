@@ -65,15 +65,18 @@ https://security.ubuntu.com/ubuntu/pool/main/z/zsh/zsh_5.9-8ubuntu3_amd64v3.deb 
       exit 1; `brew install` под тем же `timeout`; без аргумента — exit 2. Contract test `test/contract/ci-install-zsh.test.ts`.
   - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0 · mac - · 83fc58a11f23e8cd6554e8b13e989c603adbe082
   - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0; 5 mutants of the script each fail it · mac - · 4b195ee758d91fdc9dde21de057c7882b3509114
+  - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0; 4 mutants (3 have_zsh drops, brew without timeout) each fail it · mac - · 81646689ee69c14c441767838be12c06424c5b41
 - [ ] `ci.yml`: в `linux-tests` четыре шага в этом порядке, старой однострочной установки нет — тот же test; на ci.yml
       из `origin/main` он красный.
   - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts` exit 0; with ci.yml of origin/main exit 1 (1 failed, 9 passed) · mac - · 83fc58a11f23e8cd6554e8b13e989c603adbe082
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/ci-install-zsh.test.ts` on a CRLF copy of ci.yml exit 0; with the old split exit 1 · mac - · 81646689ee69c14c441767838be12c06424c5b41
 - [ ] `ci-workflow.test.ts` считает только cache Electron-а, второй `actions/cache` в job-е его не ломает.
   - evidence: test-run pass · `pnpm test test/contract/ci-workflow.test.ts` exit 0 · mac - · 83fc58a11f23e8cd6554e8b13e989c603adbe082
 - [ ] YAML обоих workflow-файлов разбирается (js-yaml из `node_modules`).
   - evidence: test-run pass · `node -e` js-yaml load of ci.yml and windows-tests.yml exit 0 · mac - · 83fc58a11f23e8cd6554e8b13e989c603adbe082
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; на PR `linux-tests` проходят шаг «Install zsh».
   - evidence: gate pass · `gate fast` exit 0; Install zsh green in all 4 linux-tests shards of run 43044480444 · mac - · 4b195ee758d91fdc9dde21de057c7882b3509114
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 81646689ee69c14c441767838be12c06424c5b41
 
 ## Где в коде
 
