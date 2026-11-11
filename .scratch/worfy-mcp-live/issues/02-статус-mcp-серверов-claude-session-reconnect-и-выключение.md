@@ -43,14 +43,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 - [ ] Unit test `test/unit/mcp-status-row.test.ts`: каждый `source` SDK сводится к своему источнику, незнакомый — к
       user config; у failed есть `reconnect`; `turn-off` и `turn-on` эта строка ещё не даёт. Красный до правки — в
       «Итог».
+  - evidence: test-run pass · `vitest run test/unit/mcp-status-row.test.ts` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
 - [ ] Contract test `test/contract/claude-mcp-status.test.ts` над fake query: событие `mcp` после init и после хода;
       неудачный `mcpServerStatus` — «нет данных», ход идёт; `agent.mcpAction` `reconnect` зовёт `reconnectMcpServer`;
       `turn-off`, `turn-on` и неизвестное действие отклоняются, Session не меняется; `toggleMcpServer` не зовётся
       никогда.
+  - evidence: test-run pass · `vitest run test/contract/claude-mcp-status.test.ts` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
 - [ ] Contract test: строки статуса не попадают в Journal и в диагностическую выгрузку; `config` нет в событии `mcp`.
+  - evidence: test-run pass · `vitest run test/contract/claude-mcp-status.test.ts` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
 - [ ] `test/contract/sdk-compat.test.ts` держит форму `mcpServerStatus` и `reconnectMcpServer` в SDK 0.3.322.
+  - evidence: test-run pass · `vitest run test/contract/sdk-compat.test.ts` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/agent/` зелёные; lint, typecheck и
       gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
 
 ## Где в коде
 
@@ -75,3 +81,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 - UI: Ticket 04.
 - Строки «не разрешён», query инвентаря, Allow и вход OAuth: Ticket 05.
 - Codex: Ticket 06.
+
+## Итог
+
+- Красный до правки: `vitest run test/unit/mcp-status-row.test.ts` — exit 1, модуля `src/shared/agent/mcp-status.ts` нет
+  (импорт не находится); `vitest run test/contract/claude-mcp-status.test.ts` — 13 из 13 красные: fake query не знает
+  директиву `mcp` (Session в `error`), каналов `agent.mcp` и `agent.mcpAction` нет («no handler for agent.mcp»).
+- Строка сервера — `src/shared/agent/mcp-status.ts`; ответ SDK в строки сводит `mcpServerRowsOf` в
+  `src/shared/vendors/claude/events.ts`, там же `initMcpServers` хранит `mcp_servers` из `system/init`: это статус для
+  query без `mcpServerStatus`. `config`, `scope` и `serverInfo` ответа SDK дальше driver-а не идут.
+- `QueryHandle` получил `mcpServerStatus` и `reconnectMcpServer`; `toggleMcpServer` в нём нет, fake его записывает, и
+  test-ы проверяют, что вызова нет.
+- Действие, которого driver не делает (`turn-off`, `turn-on`, `allow`, `sign-in`, `restart`), отклоняется ошибкой
+  «The MCP action … is not available for this Session» без имени сервера; отказ самого Claude Code (например «Server not
+  found») возвращается в ответе `agent.mcpAction` полем `error` и в лог не пишется.
+- Вне списка «Где в коде» правлены: `src/main/agent/session.ts` (Session спрашивает строки по запросу и после действия,
+  шлёт только изменения), `test/unit/link-access.test.ts` (метки read/write новых каналов),
+  `test/fixtures/agent-scripts/mcp-status.jsonl` (сценарий fake agent-а).
