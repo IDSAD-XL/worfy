@@ -21,7 +21,9 @@ mirror+file:/etc/apt/apt-mirrors.txt/dists/resolute/InRelease  Temporary failure
 `apt-get install` по спискам из образа ещё 2 мин пытался взять пакеты и вышел с кодом 100: «E: Failed to fetch
 https://security.ubuntu.com/ubuntu/pool/main/z/zsh/zsh_5.9-8ubuntu3_amd64v3.deb  Temporary failure resolving
 'security.ubuntu.com'». apt называет только последний источник списка зеркал, а он не resolve-ился; остальные зеркала
-списка не ответили тоже: иначе `InRelease` скачался бы с них.
+списка не ответили тоже: иначе `InRelease` скачался бы с них. Run 43044480444 этого PR-а напечатал список:
+`http://azure.archive.ubuntu.com/ubuntu/` (priority 1), `https://archive.ubuntu.com/ubuntu/` (2),
+`https://security.ubuntu.com/ubuntu/` (3).
 
 Значит, посылка брифа «Azure mirror доступен, нет только security.ubuntu.com» по log-у не подтверждается. Переписать
 записи `security.ubuntu.com` на зеркало архива не помогло бы: отдельных записей `security.ubuntu.com` нет, все suite
@@ -77,9 +79,15 @@ https://security.ubuntu.com/ubuntu/pool/main/z/zsh/zsh_5.9-8ubuntu3_amd64v3.deb 
 - `test/contract/ci-install-zsh.test.ts` (новый).
 - `test/contract/ci-workflow.test.ts` (проверка cache Electron-а).
 
+## Итог
+
+Run 43044480444 (PR #1798, 15:04–15:08Z), все четыре shard-а `linux-tests`: cache пуст («Cache not found for input keys:
+zsh-debs-Linux-X64-ubuntu-26.04»), `apt-get update` остановлен пределом 180 с, Homebrew есть в образе и поставил zsh
+5.9.2 за ~20 с (`::warning::zsh came from Homebrew (/usr/local/bin/zsh), not from apt`), shell test-ы Harness в shard-ах
+прошли. Шаг «Install zsh» занял ~3 мин 25 с против ~5 мин 20 с красного шага в run 43032607379. После этого run-а warning
+называет, какая команда apt упала и как (предел времени — exit 124 — или код выхода).
+
 ## Вне скоупа
 
-- Что лежит в `/etc/apt/apt-mirrors.txt` runner-а `ubuntu-26.04`, по log-у не видно; скрипт печатает этот файл, когда apt
-  не дал zsh, — следующий такой сбой покажет список.
-- Есть ли Homebrew в образе `ubuntu-26.04`, отсюда не проверить: без него путь 4 пропускается с сообщением, и шаг
-  красный, как раньше, только когда пуст ещё и cache.
+- Пока зеркала недоступны, cache не наполняется: путь 3 его не скачал. Первый run с работающим apt (на `main` — для всех
+  PR) сохранит пакеты; до тех пор каждый run платит ~3 мин предела apt и берёт zsh из Homebrew.

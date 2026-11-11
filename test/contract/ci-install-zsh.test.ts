@@ -57,7 +57,8 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     shellStub(join(bin, 'apt-get'), [
       'echo "apt-get $*" >>"$CALLS"',
       'case " $* " in',
-      '  *" update "*) exit 0 ;;',
+      // timeout exits 124 when it stops the command it runs; APT=slow stands for an update stopped so.
+      '  *" update "*) [ "$APT" = slow ] && exit 124; exit 0 ;;',
       '  *" download "*) [ "$APT" = ok ] || { echo "E: Failed to fetch zsh_5.9.deb" >&2; exit 100; }',
       '    : >zsh_5.9-8ubuntu3_amd64.deb; : >zsh-common_5.9-8ubuntu3_all.deb; exit 0 ;;',
       `  *" install "*) [ "$APT" = ok ] || exit 100; ${install}; exit 0 ;;`,
@@ -148,13 +149,21 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     const result = run({ APT: 'fail', brew: where })
     expect(result.status, result.err).toBe(0)
     expect(result.err).toContain('E: Failed to fetch')
-    expect(result.out).toContain('::warning title=Install zsh::apt gave no zsh')
+    expect(result.out).toContain("::warning title=Install zsh::apt-get download failed (exit 100, apt's errors above); trying Homebrew")
     expect(result.out).toContain(`::warning title=Install zsh::zsh came from Homebrew (${join(bin, 'zsh')}), not from apt`)
     expect(result.calls).toContain('brew install zsh')
     expect(existsSync(join(bin, 'zsh'))).toBe(true)
     // A failed download leaves nothing in the folder the cache would save, and no save is asked for.
     expect(readdirSync(debs)).toEqual([])
     expect(result.output).toBe('')
+  })
+
+  it('says so when apt-get update ran past its time limit, and goes on to Homebrew', () => {
+    const result = run({ APT: 'slow', brew: 'path' })
+    expect(result.status, result.err).toBe(0)
+    expect(result.out).toContain('::warning title=Install zsh::apt-get update ran past 180 s and was stopped; trying Homebrew')
+    expect(result.calls).not.toContain('download')
+    expect(result.calls).toContain('brew install zsh')
   })
 
   it('exits 1 when apt fails and the image has no Homebrew: a real failure stays red', () => {

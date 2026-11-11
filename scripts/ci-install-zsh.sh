@@ -62,20 +62,36 @@ fi
 # 3. apt. A failed index of apt-get update is only a warning to apt; the download that follows is what
 # fails when the packages are out of reach. The packages are downloaded into a new folder and replace
 # those of the cached one only whole, so a broken download never reaches the cache.
+# Which apt command failed and how is named in the warning: in run 43044480444 apt-get update ran past
+# the time limit, and timeout stopped it before apt printed any of its warnings (exit 124).
 fresh=$(mktemp -d "${TMPDIR:-/tmp}/ci-install-zsh.XXXXXX") || exit 1
-if timeout "$limit" sudo apt-get "${retries[@]}" -qq update &&
-  (cd "$fresh" && timeout "$limit" apt-get "${retries[@]}" -qq download zsh zsh-common); then
+failed=
+code=0
+timeout "$limit" sudo apt-get "${retries[@]}" -qq update || { code=$?; failed="apt-get update"; }
+if [ -z "$failed" ]; then
+  (cd "$fresh" && timeout "$limit" apt-get "${retries[@]}" -qq download zsh zsh-common) || { code=$?; failed="apt-get download"; }
+fi
+if [ -z "$failed" ]; then
   rm -f "$debs"/*.deb && mv "$fresh"/*.deb "$debs"/ || exit 1
-  if timeout "$limit" sudo apt-get "${retries[@]}" -y -qq install "$debs"/*.deb && have_zsh; then
+  timeout "$limit" sudo apt-get "${retries[@]}" -y -qq install "$debs"/*.deb || { code=$?; failed="apt-get install"; }
+fi
+if [ -z "$failed" ]; then
+  if have_zsh; then
     if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "debs=true" >>"$GITHUB_OUTPUT"; fi
     exit 0
   fi
+  failed="apt-get install"
+  code="0 but no zsh on PATH"
 fi
 if [ -r /etc/apt/apt-mirrors.txt ]; then
   say "the apt mirror list of this runner:"
   cat /etc/apt/apt-mirrors.txt
 fi
-warn "apt gave no zsh (see its errors above); trying Homebrew"
+if [ "$code" = 124 ]; then
+  warn "$failed ran past $limit s and was stopped; trying Homebrew"
+else
+  warn "$failed failed (exit $code, apt's errors above); trying Homebrew"
+fi
 
 # 4. Homebrew.
 # The image keeps Homebrew off PATH, in BREW_DIR.
