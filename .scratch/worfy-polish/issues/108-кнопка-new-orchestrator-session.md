@@ -2,6 +2,7 @@
 
 Type: polish
 Status: claimed 2026-11-11T15:49Z
+PR: #1799
 Branch: worfy-polish/108
 Blocked by: —
 Source: решение владельца 2026-11-11 (бриф Orchestrator-а): кнопку «New conversation» на Node Orchestrator-а
