@@ -124,6 +124,9 @@ expect_none "address outside 100.64/10, and the network itself" "ip 100.""128.1.
 expect_none "localhost" "http://localhost:3000 .env.local ~/.local/share"
 expect_none "hosts with an example label" "pc.example.ts.net other.example.local"
 expect_rule "the machine's short host name" "from $OWN_HOST today" host "{\"hostname\":\"$OWN_HOST.lan\"}"
+expect_none "a host name that is a common word" 'platform mac, built on a Mac' '{"hostname":"Mac.lo''cal"}'
+expect_none "a host name that is a model name" 'the MacBook-Pro answers' '{"hostname":"MacBook-Pro-2.lo''cal"}'
+expect_rule "a Windows default host name of six characters" "on DESK""TOP-AB12C3" host "{\"hostname\":\"DESK""TOP-AB12C3\"}"
 expect_rule "a word of the deny list" "said ${DENY_WORD}s" deny "{\"deny\":[\"$DENY_WORD\"]}"
 printf '{"deny":["%s"]}\n' "$DENY_WORD" >"$HARNESS_HOME/user/privacy.json"
 got="$(lib_op "$HARNESS_HOME" personal)"
@@ -216,6 +219,15 @@ mkdir -p "$T/own-host"; printf 'line one\nbuilt on %s today\n' "$FAKE_HOSTNAME" 
 (cd "$T/own-host" && node "$CHECK" notes.md) >"$T/out-own-host.txt" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -qF "notes.md:2: host: " "$T/out-own-host.txt" && ! grep -qF "$FAKE_HOSTNAME" "$T/out-own-host.txt" \
     && ok "the machine's host name in a file -> host finding, masked" || bad "own host name: exit $rc: $(head -c 600 "$T/out-own-host.txt")"
+# A host name that is a common word is no secret: the platform field of an evidence line is not a finding.
+mkdir -p "$T/common-host"; printf 'evidence: test-run pass · `pnpm test` exit 0 · mac - · 0123abc\nbuilt on a Mac\n' >"$T/common-host/notes.md"
+(cd "$T/common-host" && FAKE_HOSTNAME="Mac" node "$CHECK" notes.md) >"$T/out-common-host.txt" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "a common-word host name -> no finding for the word" || bad "common-word host: exit $rc: $(head -c 600 "$T/out-common-host.txt")"
+# A short owner's name before a model suffix is a secret: Bob-iMac is found, and not printed whole.
+printf 'built on Bob-iMac today\n' >"$T/common-host/short.md"
+(cd "$T/common-host" && FAKE_HOSTNAME="Bob-iMac.lo""cal" node "$CHECK" short.md) >"$T/out-short-host.txt" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -qF "short.md:1: host: " "$T/out-short-host.txt" && ! grep -qF "Bob-iMac" "$T/out-short-host.txt" \
+    && ok "a short name before a model suffix -> host finding, masked" || bad "short owner name: exit $rc: $(head -c 600 "$T/out-short-host.txt")"
 node "$CHECK" --bogus >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "unknown option -> exit 2" || bad "unknown option: exit $rc"
 node "$CHECK" "$T/files/missing.md" >/dev/null 2>&1; rc=$?

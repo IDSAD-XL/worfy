@@ -178,7 +178,7 @@ function holdsFolder(text, dir) {
 export function leakRules(text, ctx) {
     const s = String(text)
     const rules = findLeaks(s, { hostname: ctx.hostname, deny: ctx.deny }).map((f) => f.rule)
-    if (typeof ctx.hostname === "string" && ctx.hostname.length >= 3 && ctx.hostname.toLowerCase() !== "localhost" && wordIn(ctx.hostname, s)) rules.push("host name of this computer")
+    if (privacy.hostNeedles(ctx.hostname).some((needle) => wordIn(needle, s))) rules.push("host name of this computer")
     if (ctx.user && wordIn(ctx.user, s)) rules.push("user name of this computer")
     for (const f of ctx.folders ?? []) if (holdsFolder(s, f.dir)) rules.push(f.rule)
     return [...new Set(rules)]

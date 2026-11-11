@@ -1,7 +1,7 @@
 // The format of the failure records of the gate (harness/hooks/gate-failures.mjs): the run file and its
 // checks, the id of a test, the scrubbing of text and the first line of an error.
 import { describe, expect, it } from 'vitest'
-import { byTest, findLeaks, firstLine, parseRunFile, scrub, scrubRecord, testId, type FailureRecord, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
+import { byTest, checkComputerName, findLeaks, firstLine, parseRunFile, scrub, scrubRecord, testId, type FailureRecord, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
 
 const COMPUTER = { id: '0a1b2c3d', name: 'mac', platform: 'darwin' }
 
@@ -235,6 +235,26 @@ describe('scrub', () => {
   it('replaces the host name and the user name as words', () => {
     expect(scrub(`connect to ${HOST}.local failed for ${USER}`, CTX)).toBe('connect to <host>.local failed for <user>')
     expect(scrub('JDOES-LAPTOP refused', CTX)).toBe('<host> refused')
+  })
+
+  it('leaves a host name that is a common word as it is, and accepts it as a computer name', () => {
+    const ctx = { ...CTX, host: 'Mac.lan' }
+    expect(scrub('skipped on mac: no display', ctx)).toBe('skipped on mac: no display')
+    expect(checkComputerName('Mac', { host: 'Mac.lan' })).toBeNull()
+    expect(checkComputerName(HOST, { host: HOST })).not.toBeNull()
+  })
+
+  it('replaces a short owner name before a model suffix, and refuses it as a computer name', () => {
+    const host = 'Bob-iMac.lan'
+    expect(scrub('connect to Bob-iMac and bob-imac failed', { host })).toBe('connect to <host> and <host> failed')
+    expect(checkComputerName('Bob-iMac', { host })).not.toBeNull()
+    expect(checkComputerName('bob-pc', { host: 'bob-pc' })).not.toBeNull()
+  })
+
+  it('replaces the full domain name of the host even when its first label is common', () => {
+    const host = 'dev01.acme-internal.example'
+    expect(scrub(`resolve ${host} failed on dev01`, { host })).toBe('resolve <host> failed on dev01')
+    expect(checkComputerName(host, { host })).not.toBeNull()
   })
 
   it.each([
