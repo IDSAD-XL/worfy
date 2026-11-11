@@ -15,7 +15,7 @@ const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'ci-install-zsh.sh')
 const CI = join(REPO, '.github', 'workflows', 'ci.yml')
 // The real tools the script and the stubs need; everything else is left off PATH, zsh above all.
-const TOOLS = ['cat', 'chmod', 'ln', 'mkdir', 'mktemp', 'mv', 'readlink', 'rm']
+const TOOLS = ['cat', 'chmod', 'grep', 'ln', 'mkdir', 'mktemp', 'mv', 'readlink', 'rm', 'tee']
 
 /**
  * The lines of the linux-tests job of ci.yml, up to the next job. Git for Windows may check ci.yml out
@@ -47,6 +47,7 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     mkdirSync(join(root, 'tmp'))
     mkdirSync(join(root, 'no-brew'))
     writeFileSync(calls, '')
+    writeFileSync(join(root, 'shells'), '/bin/sh\n')
     writeFileSync(output, '')
     bash = execFileSync('/bin/sh', ['-c', 'command -v bash'], { encoding: 'utf8' }).trim()
     for (const tool of TOOLS) {
@@ -95,6 +96,7 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
         CALLS: calls,
         GITHUB_OUTPUT: output,
         ZSH_LINK: join(bin, 'zsh'),
+        SHELLS: join(root, 'shells'),
         BREW_DIR: env.brew === 'dir' ? root : join(root, 'no-brew'),
         APT: env.APT ?? 'ok',
         DPKG: env.DPKG ?? 'ok',
@@ -176,6 +178,21 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     expect(result.out).not.toContain('zsh came from Homebrew')
   })
 
+  it('links the zsh of Homebrew where apt puts it, /usr/bin/zsh: the Terminal tests start /bin/zsh and run with PATH /usr/bin:/bin:/usr/sbin:/sbin', () => {
+    // The default link cannot be written by a test; its value is read from the script. Ubuntu's /bin
+    // is a link to /usr/bin, so /usr/bin/zsh is /bin/zsh there (worfy-polish 109).
+    expect(readFileSync(SCRIPT, 'utf8')).toMatch(/^link=\$\{ZSH_LINK:-\/usr\/bin\/zsh\}$/m)
+    expect(readFileSync(SCRIPT, 'utf8')).toMatch(/^shells=\$\{SHELLS:-\/etc\/shells\}$/m)
+  })
+
+  it('does not add the link to the list of login shells a second time', () => {
+    writeFileSync(join(root, 'shells'), `/bin/sh\n${join(bin, 'zsh')}\n`)
+    const result = run({ APT: 'fail', brew: 'path' })
+    expect(result.status, result.err).toBe(0)
+    expect(readFileSync(join(root, 'shells'), 'utf8')).toBe(`/bin/sh\n${join(bin, 'zsh')}\n`)
+    expect(result.calls).not.toContain('tee')
+  })
+
   it.for(['path', 'dir'] as const)('takes zsh from Homebrew (brew found by %s) when apt reaches no mirror, with a warning in the run', (where) => {
     const result = run({ APT: 'fail', brew: where })
     expect(result.status, result.err).toBe(0)
@@ -186,6 +203,9 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     // brew install has the time limit of the apt commands.
     expect(result.calls).toContain(`timeout 180 ${where === 'path' ? join(bin, 'brew') : join(root, 'brew')} install zsh`)
     expect(existsSync(join(bin, 'zsh'))).toBe(true)
+    // The link is named in the list of login shells, through sudo.
+    expect(readFileSync(join(root, 'shells'), 'utf8')).toBe(`/bin/sh\n${join(bin, 'zsh')}\n`)
+    expect(result.calls).toContain(`sudo tee -a ${join(root, 'shells')}`)
     // A failed download leaves nothing in the folder the cache would save, and no save is asked for.
     expect(readdirSync(debs)).toEqual([])
     expect(result.output).toBe('')

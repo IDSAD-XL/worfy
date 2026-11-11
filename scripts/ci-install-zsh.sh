@@ -12,16 +12,23 @@
 # 3. apt downloads the packages into the folder and installs them, retrying each download 3 times
 #    (Acquire::Retries), each apt command under a time limit. On success it prints debs=true to
 #    GITHUB_OUTPUT, so the next step saves the folder to the cache.
-# 4. Homebrew, when the image has it, installs zsh from its bottles on ghcr.io, and zsh is linked into
-#    /usr/local/bin; brew install has the same time limit. In run 43032607379 (2026-11-11) every source of the runner's apt mirror list
+# 4. Homebrew, when the image has it, installs zsh from its bottles on ghcr.io (brew install has the
+#    same time limit), and zsh is linked where apt puts it, /usr/bin/zsh, and named in /etc/shells
+#    when that file lacks it. Ubuntu's /bin is a link to /usr/bin, so /bin/zsh exists then too: worfy
+#    starts /bin/zsh when SHELL is unset (src/main/terminal/pty.ts), and the Terminal tests run their
+#    shells with PATH /usr/bin:/bin:/usr/sbin:/sbin (SYSTEM_PATH of src/main/agent/env.ts). A link in
+#    /usr/local/bin, the first place tried, left both without a zsh (worfy-polish 109). Homebrew's
+#    zsh reads its startup files under Homebrew's etc/, not /etc/zsh; the tests need none of
+#    Ubuntu's. In run 43032607379 (2026-11-11) every source of the runner's apt mirror list
 #    (mirror+file:/etc/apt/apt-mirrors.txt) failed for some five minutes, and apt named the last one:
 #    security.ubuntu.com did not resolve. With no packages in the cache, this is the one way left that
 #    does not go through the Ubuntu archive.
 # A way that fails after an earlier one was tried leaves a ::warning:: in the run, and when none gives
 # zsh the script exits 1 with apt's own errors above: the step stays red on a real failure.
 #
-# Three variables exist for the test (test/contract/ci-install-zsh.test.ts): ZSH_LINK, where step 4
-# links zsh (/usr/local/bin/zsh); BREW_DIR, where step 4 looks for brew when PATH has none (the bin
+# Four variables exist for the test (test/contract/ci-install-zsh.test.ts): ZSH_LINK, where step 4
+# links zsh (/usr/bin/zsh); SHELLS, the list of login shells step 4 adds that link to (/etc/shells);
+# BREW_DIR, where step 4 looks for brew when PATH has none (the bin
 # folder of Homebrew's fixed Linux prefix, below); APT_TIME_LIMIT, the seconds each apt command and
 # brew install may take (180; a healthy runner needs some 20 for each).
 set -uo pipefail
@@ -31,7 +38,8 @@ if [ $# -ne 1 ] || [ -z "$1" ]; then
   exit 2
 fi
 debs=$1
-link=${ZSH_LINK:-/usr/local/bin/zsh}
+link=${ZSH_LINK:-/usr/bin/zsh}
+shells=${SHELLS:-/etc/shells}
 brew_dir=${BREW_DIR:-/home/linuxbrew/.linuxbrew/bin}
 limit=${APT_TIME_LIMIT:-180}
 retries=(-o Acquire::Retries=3)
@@ -103,6 +111,9 @@ if [ -z "$brew" ]; then
 fi
 if HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1 timeout "$limit" "$brew" install zsh; then
   if prefix=$("$brew" --prefix zsh) && sudo ln -sf "$prefix/bin/zsh" "$link" && have_zsh; then
+    if ! grep -qxF "$link" "$shells" 2>/dev/null; then
+      echo "$link" | sudo tee -a "$shells" >/dev/null || warn "could not add $link to $shells"
+    fi
     warn "zsh came from Homebrew ($link), not from apt"
     exit 0
   fi
