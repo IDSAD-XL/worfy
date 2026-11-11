@@ -45,11 +45,15 @@ Session уходит из `busy` только по `result` (`src/main/agent/ses
 
 - [ ] Contract test на fake app-server: `turn/completed` со статусом `inProgress` — Session получает `result`
       (до правки — нет, test красный).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/codex-session.test.ts` exit 0 (red before the fix: no result) · mac - · de96916aca4aebd721cae937964df6f29d96671e
 - [ ] Unit test на живой записи `codex-messages/turn-failed.jsonl`: один `result` с текстом ошибки Codex и видом
       `modelNotFound`, `turnFailureKind` — как на origin/main (`other`); `systemError` ничего не даёт.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/codex-items.test.ts test/contract/codex-session.test.ts` exit 0 · mac - · de96916aca4aebd721cae937964df6f29d96671e
 - [ ] Unit test-ы: hook Stop идёт — событие `hook` с outcome `running`; законченный молчащий hook строку убирает,
       сказавший что-то — остаётся; конец хода и `state` `error`/`closed`/`idle` строку убирают.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/codex-items.test.ts test/unit/transcript-hooks.test.tsx` exit 0 · mac - · de96916aca4aebd721cae937964df6f29d96671e
 - [ ] Все unit и contract test-ы `src/main/vendors/codex` и `src/main/agent`, `pnpm typecheck`, `pnpm lint` — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · de96916aca4aebd721cae937964df6f29d96671e
 
 ## Где в коде
 
