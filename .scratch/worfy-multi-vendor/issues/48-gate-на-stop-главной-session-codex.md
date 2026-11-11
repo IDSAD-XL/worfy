@@ -35,13 +35,18 @@ gate запускается, как до этого Ticket-а.
       (verdict-файла нет), red marker прошлого run-а по-прежнему держит ход; Codex `Stop` в linked worktree — gate
       запускается; Codex `SubagentStop` в main checkout — gate запускается; Claude Code — как было. Красный до
       исправления.
+  - evidence: test-run pass · `pnpm test test/contract/harness-codex-hooks.test.ts` exit 0 (red before the fix: 3 of 25 failed) · mac - · d279cd4c4
 - [ ] Shell test `harness/hooks/tests/stop-codex-checkout.test.sh` на те же случаи — exit 0.
+  - evidence: test-run pass · `bash harness/hooks/tests/stop-codex-checkout.test.sh` exit 0 (on the old hooks: 4 of 7 failed) · mac - · d279cd4c4
 - [ ] Test-ы, которые гоняли Codex `Stop` с gate в main checkout (parity suite, случаи stdin в
       `harness-codex-hooks.test.ts`), идут в linked worktree.
+  - evidence: test-run pass · `pnpm test test/contract/codex-parity.test.ts test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · d279cd4c4
 - [ ] Комментарий в начале `stop.mjs`, `docs/features/gate-and-github.md`, `docs/features/harness.md`,
       `docs/features/skills-agents-and-hooks.md`, `harness/README.md` говорят новое правило; ADR-0094 — датированная
       поправка в `## Amendments`.
+  - evidence: commit pass · Harness: no gate run on a Codex Stop in the main checkout (worfy-multi-vendor 48) · - - · d279cd4c4
 - [ ] Touched unit, contract и shell test-ы, `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d279cd4c4
 
 ## Где в коде
 
