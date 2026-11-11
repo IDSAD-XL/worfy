@@ -31,6 +31,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] (manual) Product Session на project-a: хотя бы один раунд идей и один разбор критика; снимок не публикуется.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-11 Q6: pilot on another project passed, close it («5-7 да») · mac stable · 94d475ba337105cf63740d85ae368bf4a923a00d
 - [ ] Доля принятых советов на project-a — N из M в «Итог», без содержания проекта.
 - [ ] (manual) Один план разобран без критика (baseline) и с критиком; в «Итог» — что критик нашёл сверх baseline и
       расход токенов обоих разборов, без содержания проекта.
@@ -39,6 +40,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
       принятых советов.
 - [ ] (manual) Владелец говорит, полезен ли советник на project-a, — его слова в «Итог» без подробностей проекта.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-11 Q6: pilot on another project passed («5-7 да»); words in Итог · mac stable · 94d475ba337105cf63740d85ae368bf4a923a00d
 
 ## Тесты
 

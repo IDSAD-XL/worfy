@@ -52,9 +52,11 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
 - [ ] Sessions и ADR в «All» показывают все Project-ы по группам; клик по чужому Project-у открывает его; unit test-ы.
   - evidence: test-run pass · `pnpm test test/unit/sidebar-all-projects.test.tsx test/unit/sidebar-section.test.tsx test/unit/adr-section.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 - [ ] Карточки Projects и badge busy по прототипу; e2e на двух fixture Project-ах.
+  - evidence: ci-check pass · CI e2e on PR #1790 (macos-e2e 2/2, windows-e2e 4/4 success) · ci - · 6a09b531c14617ee05aa8f5d15f371b1e59409ab
 - [ ] `docs/features/app-shell.md` (раздел Sidebar) и `docs/features/sessions.md` описывают новое поведение.
   - evidence: commit pass · Sidebar «All Projects»: Sessions, ADR and live Project cards (worfy-polish 99) · - - · b5be304e827b486322a296ed62a6e078cc17dca3
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» с двумя Project-ами в Sessions, ADR и Projects; fixture Project-ы.
+  - evidence: screenshot pass · agent check of 6 dev-build screenshots (dark and light: Sessions, ADR, Projects in All) kept outside the repo, Card card-9616b749; owner accepted an agent check (owner decision 2026-11-11 Q3) · mac dev · 6a09b531c14617ee05aa8f5d15f371b1e59409ab
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 
