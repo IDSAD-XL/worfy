@@ -3,7 +3,8 @@
 // app-server (test/fixtures/codex-app-server/hook-runner.mjs, ticket 44), which follows the matchers,
 // the input fields, the timeouts and the output rules of the pinned Codex:
 //   - Stop and SubagentStop run the gate and block with a reason while it is red, and do not block when
-//     it is green;
+//     it is green; a Stop in the main checkout, not in a linked worktree, runs no gate and is held only by
+//     the red marker a run left (ticket 48);
 //   - PreToolUse denies apply_patch to worfy-reviewer and worfy-scout by agent_type and lets
 //     worfy-implementer and the main agent edit; a reviewer's shell command goes through the same rules
 //     as under Claude Code; an agent of the Harness opens no interactive shell (write_stdin passes no hook);
@@ -59,17 +60,27 @@ beforeAll(async () => {
 
 afterAll(() => removeTestTree(root))
 
-/** A project registered in a gate registry of its own; `mode('bad')` turns its one gate script red. */
+/**
+ * A project registered in a gate registry of its own; `mode('bad')` turns its one gate script red.
+ * `main` is its main checkout, where a Session such as the Orchestrator works; `work` is a linked
+ * worktree of it, where an implementer works. On Codex the gate runs on a Stop in `work` and not on a
+ * Stop in `main` (ticket 48).
+ */
 function project() {
   const dir = realpathSync.native(mkdtempSync(join(root, 'case-')))
+  const main = join(dir, 'main')
   const work = join(dir, 'project')
-  mkdirSync(work)
-  writeFileSync(join(work, 'package.json'), '{ "name": "fixture", "scripts": { "check": "true" } }\n')
-  const git = (...args: string[]) => execFileSync('git', ['-C', work, ...args], { stdio: 'ignore' })
+  mkdirSync(main)
+  writeFileSync(join(main, 'package.json'), '{ "name": "fixture", "scripts": { "check": "true" } }\n')
+  const git = (...args: string[]) => execFileSync('git', ['-C', main, ...args], { stdio: 'ignore' })
   git('init', '-q', '-b', 'main')
+  // The linked worktree gets its files from a checkout: keep them as written, also where
+  // core.autocrlf=true (the Windows runner).
+  git('config', 'core.autocrlf', 'false')
   git('add', 'package.json')
   git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  git('worktree', 'add', '-q', '--detach', work)
   // The package manager the gate runs as `<pm> run check`: a file of the test that passes or fails by
   // the mode file next to it. A .cmd on Windows, where node starts no script without an interpreter.
   const pm = join(dir, WINDOWS ? 'fakepm.cmd' : 'fakepm')
@@ -84,13 +95,13 @@ function project() {
   const mode = (value: 'ok' | 'bad' | 'envbad') => writeFileSync(join(dir, 'mode'), `${value}\n`)
   mode('ok')
   const state = join(dir, 'state')
-  writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [{ key: 'c', match: work, pm, root: { fast: ['check'] }, workspace: {} }] }))
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [{ key: 'c', match: main, pm, root: { fast: ['check'] }, workspace: {} }] }))
   // The variables reach the hooks: the engine starts each with process.env.
   vi.stubEnv('CLAUDE_GATE_CONFIG', join(dir, 'config.json'))
   vi.stubEnv('CLAUDE_GATE_STATE', state)
   vi.stubEnv('HARNESS_HOME', join(dir, 'harness-home'))
   vi.stubEnv('GATE_SCOPE', 'all')
-  return { dir, work, state, mode }
+  return { dir, main, work, state, mode }
 }
 
 beforeEach(() => {
@@ -350,7 +361,97 @@ sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
   }, RUN_MS)
 })
 
+// Owner decision 2026-11-11 (ticket 48): the gate on the Stop of the main Session in the main checkout cost
+// up to 900 s at the end of every turn that changed the tree, and the Session seemed to hang after its answer.
+describe('the main checkout on Codex: Stop runs no gate there, SubagentStop and a linked worktree still do', () => {
+  const verdicts = (state: string) => readdirNames(state).filter((name) => name.startsWith('verdict-'))
+
+  it('runs no gate on a Stop in the main checkout and lets the turn end while no red marker is left', async () => {
+    const { main, state, mode } = project()
+    mode('bad')
+    const stop = await stopOf('Stop', main)
+    expect(stop.block).toBeUndefined()
+    expect(stop.runs.map((run) => [run.status, run.entries])).toEqual([['completed', []]])
+    expect(verdicts(state), 'no gate run').toEqual([])
+  }, RUN_MS)
+
+  it('runs the gate on a SubagentStop in the main checkout, and its red marker holds the next Stop there without a run of its own', async () => {
+    const { main, state, mode } = project()
+    mode('bad')
+    const sub = await stopOf('SubagentStop', main)
+    expect(sub.block).toMatch(/^The quality gate is red \(failed at .+\)\. Run `node ".+gate\.mjs" fast/)
+    expect(verdicts(state), 'the SubagentStop ran the gate').toHaveLength(1)
+    // The work is fixed, but the Stop runs no gate: the red marker of the last run still holds the turn.
+    mode('ok')
+    const stop = await stopOf('Stop', main)
+    expect(stop.block).toMatch(/^The quality gate is red \(failed at .+\)\. Run `node ".+gate\.mjs" fast/)
+    expect(stop.runs.map((run) => run.status)).toEqual(['blocked'])
+    // A gate run the agent starts itself turns it green, and the next Stop lets the turn end.
+    expect(spawnSync(scriptNode(), [join(plugin, 'hooks', 'gate.mjs'), 'fast'], { cwd: main, input: '', env: process.env }).status).toBe(0)
+    expect((await stopOf('Stop', main, { stopHookActive: true })).block).toBeUndefined()
+  }, RUN_MS)
+
+  it('runs the gate on a Stop in a linked worktree: a red one holds the turn, a green one lets it end', async () => {
+    const { work, state, mode } = project()
+    mode('bad')
+    expect((await stopOf('Stop', work)).block).toMatch(/^The quality gate is red/)
+    expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'red', key: 'c' })
+    mode('ok')
+    expect((await stopOf('Stop', work, { stopHookActive: true })).block).toBeUndefined()
+    expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', key: 'c' })
+  }, RUN_MS)
+
+  // From a subfolder git prints a relative common directory unless asked for absolute paths, and the
+  // main checkout would then read as a linked worktree.
+  it('tells the main checkout from a linked worktree from their roots and their subfolders, and gives null outside git', async () => {
+    const { dir, main, work } = project()
+    const { isLinkedWorktree } = (await import(pathToFileURL(join(plugin, 'hooks', 'gate-paths.mjs')).href)) as { isLinkedWorktree: (worktree: string) => boolean | null }
+    mkdirSync(join(main, 'src', 'deep'), { recursive: true })
+    mkdirSync(join(work, 'src', 'deep'), { recursive: true })
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    expect([main, join(main, 'src', 'deep'), work, join(work, 'src', 'deep'), outside].map(isLinkedWorktree)).toEqual([false, false, true, true, null])
+  })
+
+  // A git that cannot tell a linked worktree from the main checkout (here a stand-in, EVAL_GIT of
+  // eval-env.cjs, that fails only the one call isLinkedWorktree makes) leaves the old rule: the gate runs.
+  // Not on Windows: a stand-in there would be a .cmd, Node refuses to start a .cmd without a shell (EINVAL),
+  // and the hooks spawn EVAL_GIT without one; every git call would fail, and the hook would end before the gate.
+  it.skipIf(WINDOWS)('runs the gate on a Stop in the main checkout when git cannot tell it from a linked worktree', async () => {
+    const { dir, main, state, mode } = project()
+    const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+    const stand = join(dir, 'git-no-common-dir')
+    writeFileSync(stand, `#!/bin/sh\ncase " $* " in *" --git-dir --git-common-dir "*) exit 128 ;; esac\nexec "${real}" "$@"\n`)
+    chmodSync(stand, 0o755)
+    vi.stubEnv('EVAL_GIT', stand)
+    mode('bad')
+    expect((await stopOf('Stop', main)).block).toMatch(/^The quality gate is red \(failed at .+\)\. Run `node /)
+    expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'red', key: 'c' })
+  }, RUN_MS)
+
+  it('runs no gate on a Stop from a subfolder of the main checkout either', async () => {
+    const { main, state, mode } = project()
+    mode('bad')
+    const sub = join(main, 'src')
+    mkdirSync(sub)
+    expect((await stopOf('Stop', sub)).block).toBeUndefined()
+    expect(verdicts(state)).toEqual([])
+  }, RUN_MS)
+})
+
 describe('Claude Code: the Stop hook stays as it was', () => {
+  it('runs no gate on a Stop of Claude Code in the main checkout either, and holds it on the red marker a gate run left', async () => {
+    const { main, state, mode } = project()
+    mode('bad')
+    const input = { session_id: 'claude-4', transcript_path: join(main, 'claude-4.jsonl'), cwd: main, hook_event_name: 'Stop', stop_hook_active: false }
+    expect(claudeStop(main, input)).toMatchObject({ status: 0, stdout: '', stderr: '' })
+    expect(readdirNames(state).filter((name) => name.startsWith('verdict-'))).toEqual([])
+    expect((await stopOf('SubagentStop', main)).block).toMatch(/^The quality gate is red/)
+    const held = claudeStop(main, input)
+    expect(held.status).toBe(2)
+    expect(held.stderr).toMatch(/^The quality gate is red/)
+  }, RUN_MS)
+
   it('runs no gate on a Stop of Claude Code and does not hold it when no gate run left a red marker', () => {
     const { work, state, mode } = project()
     mode('bad')

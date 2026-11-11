@@ -81,6 +81,18 @@ export function repositoryRoot(worktree) {
     return worktree
 }
 
+// Whether `worktree` is a linked worktree of its repository (`git worktree add`), not its main
+// checkout: a linked worktree has a git directory of its own, <common>/worktrees/<name>, while the
+// main checkout's git directory is the common one. null when git does not answer. Both paths come
+// from one git call with --path-format=absolute, so they share one spelling on every system (C:/…
+// on Windows) and are compared as strings, from any subfolder.
+export function isLinkedWorktree(worktree) {
+    const lines = gitLine(worktree, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"])
+    const [own, common] = (lines ?? "").split("\n").map((line) => line.replace(/\r$/, ""))
+    if (!own || !common) return null
+    return own !== common
+}
+
 // True when `target` is `base` or lies under it. On Windows both `\` and `/` separate folders
 // and letter case does not tell two names apart (NTFS keeps the case and ignores it), so
 // C:\Work\repo and c:/work/repo/src match. Elsewhere `\` is an ordinary character of a

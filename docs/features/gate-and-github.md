@@ -16,7 +16,9 @@ agents and hooks run it, and worfy reads the result.
 
 **Who runs it.** The hooks `TaskCompleted` and `TeammateIdle` of the Harness plugin run profile `fast`, with a limit of
 900 seconds. Codex has neither event: in a Codex Session the hooks `Stop` and `SubagentStop` run profile `fast` in a
-registered Project, with the same limit. The skills and the implementer agent run it by hand with stdin closed. Without a profile the argument is
+registered Project, with the same limit. The one exception is a `Stop` in the Project's main checkout, not in a linked
+worktree: the main Session works there (the Orchestrator, for one), not an implementer, so its `Stop` runs no Gate and
+its turn ends with its answer instead of waiting up to 900 seconds. A `SubagentStop` there still runs it. The skills and the implementer agent run it by hand with stdin closed. Without a profile the argument is
 `fast`. A profile is `fast`, `full` or any other key that an entry of the registry has under `root` or `workspace`. The
 scripts behind each profile are set per Project (see Gate full). `--help` and `-h` print the usage and exit with 0.
 
@@ -84,8 +86,8 @@ cached, so a red script always runs again.
   a binary file, a lock file and a generated file get no warning. The warning changes nothing else, and a cache hit prints it
   again.
 
-**Holding a turn.** Under Claude Code the hook `Stop` runs no checks; on Codex it runs profile `fast` first, as above, and
-`SubagentStop` holds a Subagent the same way, with a count of its own. While the last run in the worktree is red, it holds
+**Holding a turn.** Under Claude Code the hook `Stop` runs no checks; on Codex it runs profile `fast` first, as above
+(except in the main checkout), and `SubagentStop` holds a Subagent the same way, with a count of its own. While the last run in the worktree is red, it holds
 the end of the turn and tells the model to run the Gate and fix what it points to; a `worfy-reviewer` or `worfy-scout` on
 Codex is told to report the red Gate instead, since it edits no file. It does this at most 2 times per session and worktree, and
 a green run resets the count. After that it lets the turn end and says once that the Gate is still red. An unverified state

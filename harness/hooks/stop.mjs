@@ -23,9 +23,14 @@
 // itself. Codex has no TaskCompleted or TeammateIdle, the events that run the gate under Claude Code,
 // so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with
 // the hook input on stdin (the gate's green cache keeps a turn that changed nothing cheap), then
-// holds the turn on its red marker as below: neither the agent nor a Subagent finishes with a red gate. Codex reads the block
-// the same way (exit 2, the reason on stderr). Its Stop output takes no hookSpecificOutput, so a
-// message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
+// holds the turn on its red marker as below: neither the agent nor a Subagent finishes with a red gate.
+// One exception: a Stop in the main checkout of the repository, not in a linked worktree (gate-paths.mjs
+// isLinkedWorktree), runs no gate. There the main Session works — the Orchestrator, say — not an
+// implementer, and the run cost up to 900 s at the end of each of its turns that changed the tree, so the
+// Session seemed to hang after its answer. Its Stop is still held on the red marker a run left; a
+// SubagentStop in the main checkout and a Stop in a linked worktree run the gate as before, and a git
+// that cannot tell the two apart runs it too. Codex reads the block the same way (exit 2, the reason
+// on stderr). Its Stop output takes no hookSpecificOutput, so a message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
 // as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
 // SubagentStop is no gate point and the hook does nothing on it; the Stop hook stays cheap there.
 // A Subagent of Codex counts its blocks and hears each note on its own (by agent_id), so it does not
@@ -35,15 +40,15 @@
 // For tests: CLAUDE_GATE_STATE (the state folder), CLAUDE_GATE_RESOLVE (the resolver),
 // CLAUDE_GATE_CONFIG (read by the resolver), CLAUDE_STOP_STDIN_WAIT_MS (a shorter wait for the input).
 // Tests: hooks/tests/gate-notverified.test.sh, gate-unregistered.test.sh, bin/tests/harness-home.test.sh;
-// on Codex inputs and on the reading of stdin
-// test/contract/harness-codex-hooks.test.ts.
+// the gate on Codex in the main checkout and in a linked worktree hooks/tests/stop-codex-checkout.test.sh;
+// on Codex inputs and on the reading of stdin test/contract/harness-codex-hooks.test.ts.
 
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { codexAgent, isCodexInput, READ_ONLY_AGENTS } from "./codex-input.mjs"
-import { gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
+import { gateStateDir, isLinkedWorktree, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 import { FIRST_BYTE_MS, firstByteWait, readStdin } from "./hook-stdin.mjs"
 
 const MAX_BLOCKS = 2
@@ -128,7 +133,8 @@ function main(input) {
         payload = JSON.parse(input)
     } catch {}
     const codex = isCodexInput(payload)
-    if (field(payload, "hook_event_name") === "SubagentStop" && !codex) return 0
+    const event = field(payload, "hook_event_name")
+    if (event === "SubagentStop" && !codex) return 0
 
     const repo = worktreeRoot()
     if (!repo) return 0
@@ -177,7 +183,9 @@ function main(input) {
     let key = String(which.stdout ?? "").replace(/\n+$/, "").split("\t")[0]
     // On Codex, the gate of a registered project runs here; a folder outside the registry gets no run
     // and no "not verified" turn, as under Claude Code, where the gate runs on TaskCompleted only.
-    if (codex && resolved && key) runGate(here, input)
+    // Not on the Stop of the main Session in the main checkout (see the header): only a linked
+    // worktree, or a git that could not tell, runs it on Stop.
+    if (codex && resolved && key && (event !== "Stop" || isLinkedWorktree(repo) !== false)) runGate(here, input)
 
     // Gate markers without a project key (code 3: not registered, the registry cannot be read,
     // no node). Take only our own: of this tree and this session. A marker without a session
