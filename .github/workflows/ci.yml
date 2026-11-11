@@ -238,8 +238,34 @@ jobs:
         run: node scripts/affected-tests.mjs "$BASE" HEAD --github-output
       # The shell tests of the Harness (test/contract/harness-scripts-<n>.test.ts) run the fenced blocks
       # of the skills under zsh too; the Ubuntu image has bash, git, jq and node but no zsh.
+      # scripts/ci-install-zsh.sh installs it from the packages kept in actions/cache, else downloads
+      # them with apt (3 retries per fetch), else takes zsh from Homebrew, and fails when none of these
+      # gives zsh (worfy-polish 107). In run 43032607379 apt reached none of the runner's mirrors for
+      # minutes and every shard went red here; with the packages cached, a run needs no apt mirror.
+      # The key is the Ubuntu release, not the weekly image: a new image would send the first run of
+      # each week to the mirrors again, and the tests need a zsh, not the newest one. The save runs
+      # only when apt downloaded the packages (the script's output debs=true): a cache hit, a zsh
+      # already on PATH and a zsh from Homebrew save nothing.
+      - name: Read the Ubuntu release
+        id: ubuntu
+        run: . /etc/os-release && echo "release=$VERSION_ID" >>"$GITHUB_OUTPUT"
+      - name: Restore the zsh packages
+        id: zsh-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: zsh-debs-${{ runner.os }}-${{ runner.arch }}-ubuntu-${{ steps.ubuntu.outputs.release }}
       - name: Install zsh
-        run: command -v zsh || { sudo apt-get update -qq && sudo apt-get install -y -qq zsh; }
+        id: zsh
+        env:
+          DEBS: ${{ runner.temp }}/zsh-debs
+        run: bash scripts/ci-install-zsh.sh "$DEBS"
+      - name: Save the zsh packages
+        if: steps.zsh-cache.outputs.cache-hit != 'true' && steps.zsh.outputs.debs == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/zsh-debs
+          key: ${{ steps.zsh-cache.outputs.cache-primary-key }}
       # vitest gives each shard a fixed part of the test files. Inside a shard the files run in a
       # random order (ADR-0036), so a test that passes only after or before another file turns red
       # here; the log names the seed ("Running tests with seed …") and
