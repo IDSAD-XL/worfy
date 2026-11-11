@@ -17,9 +17,12 @@ const CI = join(REPO, '.github', 'workflows', 'ci.yml')
 // The real tools the script and the stubs need; everything else is left off PATH, zsh above all.
 const TOOLS = ['cat', 'chmod', 'ln', 'mkdir', 'mktemp', 'mv', 'readlink', 'rm']
 
-/** The lines of the linux-tests job of ci.yml, up to the next job. */
+/**
+ * The lines of the linux-tests job of ci.yml, up to the next job. Git for Windows may check ci.yml out
+ * with CRLF (it is not in .gitattributes), so the lines are split on either end.
+ */
 function linuxTests(): string[] {
-  const lines = readFileSync(CI, 'utf8').split('\n')
+  const lines = readFileSync(CI, 'utf8').split(/\r?\n/)
   const start = lines.indexOf('  linux-tests:')
   const end = lines.findIndex((line, i) => i > start && /^ {2}[a-z][\w-]*:$/.test(line))
   return lines.slice(start, end === -1 ? undefined : end)
@@ -51,9 +54,11 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     }
     // The zsh that an install puts in place: a link to it in bin is zsh on PATH.
     shellStub(join(root, 'zsh'), ['echo "zsh 5.9 (stub)"'])
-    const install = `ln -sf "${join(root, 'zsh')}" "${join(bin, 'zsh')}"`
+    // NOZSH=<stub> makes that stub exit 0 and put no zsh in place, as an install that "worked" but
+    // left no zsh on PATH.
+    const install = (stub: string) => `[ "$NOZSH" = ${stub} ] || ln -sf "${join(root, 'zsh')}" "${join(bin, 'zsh')}"`
     shellStub(join(bin, 'sudo'), ['echo "sudo $*" >>"$CALLS"', 'exec "$@"'])
-    shellStub(join(bin, 'timeout'), ['shift', 'exec "$@"'])
+    shellStub(join(bin, 'timeout'), ['echo "timeout $*" >>"$CALLS"', 'shift', 'exec "$@"'])
     shellStub(join(bin, 'apt-get'), [
       'echo "apt-get $*" >>"$CALLS"',
       'case " $* " in',
@@ -61,15 +66,16 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
       '  *" update "*) [ "$APT" = slow ] && exit 124; exit 0 ;;',
       '  *" download "*) [ "$APT" = ok ] || { echo "E: Failed to fetch zsh_5.9.deb" >&2; exit 100; }',
       '    : >zsh_5.9-8ubuntu3_amd64.deb; : >zsh-common_5.9-8ubuntu3_all.deb; exit 0 ;;',
-      `  *" install "*) [ "$APT" = ok ] || exit 100; ${install}; exit 0 ;;`,
+      `  *" install "*) [ "$APT" = ok ] || exit 100; ${install('apt')}; exit 0 ;;`,
       'esac',
       'exit 64',
     ])
-    shellStub(join(bin, 'dpkg'), ['echo "dpkg $*" >>"$CALLS"', `[ "$DPKG" = ok ] || exit 1`, install])
+    shellStub(join(bin, 'dpkg'), ['echo "dpkg $*" >>"$CALLS"', `[ "$DPKG" = ok ] || exit 1`, install('dpkg')])
     shellStub(join(root, 'brew'), [
       'echo "brew $*" >>"$CALLS"',
       `[ "$1" = --prefix ] && { echo "${join(root, 'cellar')}"; exit 0; }`,
       '[ "$BREW" = ok ] || exit 1',
+      '[ "$NOZSH" = brew ] && exit 0',
       `mkdir -p "${join(root, 'cellar', 'bin')}"`,
       `ln -sf "${join(root, 'zsh')}" "${join(root, 'cellar', 'bin', 'zsh')}"`,
     ])
@@ -79,7 +85,7 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     removeTestTree(root)
   })
 
-  function run(env: { APT?: string; DPKG?: string; BREW?: string; brew?: 'path' | 'dir' | 'none' } = {}) {
+  function run(env: { APT?: string; DPKG?: string; BREW?: string; NOZSH?: 'dpkg' | 'apt' | 'brew'; brew?: 'path' | 'dir' | 'none' } = {}) {
     if (env.brew === 'path') symlinkSync(join(root, 'brew'), join(bin, 'brew'))
     const result = spawnSync(bash, [SCRIPT, debs], {
       encoding: 'utf8',
@@ -93,6 +99,7 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
         APT: env.APT ?? 'ok',
         DPKG: env.DPKG ?? 'ok',
         BREW: env.BREW ?? 'ok',
+        NOZSH: env.NOZSH ?? '',
       },
     })
     return { status: result.status, out: result.stdout, err: result.stderr, calls: readFileSync(calls, 'utf8'), output: readFileSync(output, 'utf8') }
@@ -145,6 +152,30 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     expect(result.output).toBe('debs=true\n')
   })
 
+  it('goes on to apt when dpkg exits 0 on the cached packages but no zsh is on PATH', () => {
+    cache()
+    const result = run({ NOZSH: 'dpkg' })
+    expect(result.status, result.err).toBe(0)
+    expect(result.out).toContain('::warning title=Install zsh::the cached packages')
+    expect(result.calls).toContain('apt-get -o Acquire::Retries=3 -qq download zsh zsh-common')
+    expect(result.output).toBe('debs=true\n')
+  })
+
+  it('goes on to Homebrew when apt-get install exits 0 but no zsh is on PATH, and asks for no save', () => {
+    const result = run({ NOZSH: 'apt', brew: 'path' })
+    expect(result.status, result.err).toBe(0)
+    expect(result.out).toContain('::warning title=Install zsh::apt-get install failed (exit 0 but no zsh on PATH')
+    expect(result.calls).toContain('brew install zsh')
+    expect(result.output).toBe('')
+  })
+
+  it('exits 1 when brew install exits 0 but no zsh is on PATH', () => {
+    const result = run({ APT: 'fail', NOZSH: 'brew', brew: 'path' })
+    expect(result.status).toBe(1)
+    expect(result.err).toContain('no zsh: neither apt nor Homebrew installed it')
+    expect(result.out).not.toContain('zsh came from Homebrew')
+  })
+
   it.for(['path', 'dir'] as const)('takes zsh from Homebrew (brew found by %s) when apt reaches no mirror, with a warning in the run', (where) => {
     const result = run({ APT: 'fail', brew: where })
     expect(result.status, result.err).toBe(0)
@@ -152,6 +183,8 @@ describe.skipIf(process.platform === 'win32')('scripts/ci-install-zsh.sh: zsh fo
     expect(result.out).toContain("::warning title=Install zsh::apt-get download failed (exit 100, apt's errors above); trying Homebrew")
     expect(result.out).toContain(`::warning title=Install zsh::zsh came from Homebrew (${join(bin, 'zsh')}), not from apt`)
     expect(result.calls).toContain('brew install zsh')
+    // brew install has the time limit of the apt commands.
+    expect(result.calls).toContain(`timeout 180 ${where === 'path' ? join(bin, 'brew') : join(root, 'brew')} install zsh`)
     expect(existsSync(join(bin, 'zsh'))).toBe(true)
     // A failed download leaves nothing in the folder the cache would save, and no save is asked for.
     expect(readdirSync(debs)).toEqual([])
