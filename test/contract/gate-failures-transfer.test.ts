@@ -13,10 +13,10 @@ import type { RerunRecord, RunRecord } from '../../harness/hooks/gate-failures.m
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 
-// The host name of this computer is a secret only when privacy.cjs keeps it (distinctiveHost): a host named
-// with a common word (a platform name) is not searched for, so the cases below check it only then.
-const { distinctiveHost } = createRequire(import.meta.url)('../../harness/lib/privacy.cjs') as { distinctiveHost: (hostname: string) => string }
-const secretHost = distinctiveHost(hostname()) !== ''
+// The host name of this computer is searched for only when privacy.cjs gives a needle for it (hostNeedles): a
+// bare host name that is a common word (a platform name) is not, so the cases below check it only then.
+const { hostNeedles } = createRequire(import.meta.url)('../../harness/lib/privacy.cjs') as { hostNeedles: (hostname: string) => string[] }
+const secretHost = hostNeedles(hostname()).length > 0
 
 const CLI = join(process.cwd(), 'harness', 'bin', 'gate-failures')
 const FIXTURES = join(process.cwd(), 'test', 'fixtures', 'gate-failures', 'transfer')

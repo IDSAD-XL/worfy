@@ -244,6 +244,19 @@ describe('scrub', () => {
     expect(checkComputerName(HOST, { host: HOST })).not.toBeNull()
   })
 
+  it('replaces a short owner name before a model suffix, and refuses it as a computer name', () => {
+    const host = 'Bob-iMac.lan'
+    expect(scrub('connect to Bob-iMac and bob-imac failed', { host })).toBe('connect to <host> and <host> failed')
+    expect(checkComputerName('Bob-iMac', { host })).not.toBeNull()
+    expect(checkComputerName('bob-pc', { host: 'bob-pc' })).not.toBeNull()
+  })
+
+  it('replaces the full domain name of the host even when its first label is common', () => {
+    const host = 'dev01.acme-internal.example'
+    expect(scrub(`resolve ${host} failed on dev01`, { host })).toBe('resolve <host> failed on dev01')
+    expect(checkComputerName(host, { host })).not.toBeNull()
+  })
+
   it.each([
     ['a UUID', 'session 3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f ended', '3f2a9c1e-7b4d-4e8a-9c2f-1a2b3c4d5e6f'],
     ['an email', `mail ${EMAIL} bounced`, EMAIL],

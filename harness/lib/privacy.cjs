@@ -16,8 +16,8 @@
 //                       The finding is the name, not the whole path.
 //         host          a machine name: *.local, *.ts.net (Tailscale MagicDNS), DESKTOP- and seven
 //                       letters or digits, *-MacBook*, *s-Mac*, *-PC, and options.hostname (its
-//                       first label, matched case-insensitively as a whole word) when
-//                       distinctiveHost() keeps it.
+//                       needles of hostNeedles(): the full name and the first label it keeps,
+//                       each matched case-insensitively as a whole word).
 //         tailscale-ip  an IPv4 address in 100.64.0.0/10, the Tailscale network (a network written as
 //                       CIDR, 100.64.0.0/10, is not an address).
 //         uuid          a UUID of any version.
@@ -41,10 +41,18 @@
 //       needle, flags ordinary text (a host named like the platform field of an evidence line). The
 //       label is judged by the name left after a model suffix (-MacBook-Pro, -MacBook-Air, -MacBook,
 //       -iMac, -Mac-mini, -Mac-Studio, -Mac-Pro, -Mac, -PC, and a number after it: -2) and after a
-//       machine number of one or two digits (server1, mac-02); it is common when that name is empty
-//       (the label is a model name), shorter than four letters or digits, or a word of COMMON_HOSTS
-//       (written without - _ or spaces). Anything else — DESKTOP-ABC123 of Windows too — is kept.
-//       findings() and every caller that searches text for the host name judge it here.
+//       machine number of one or two digits (server1, mac-02). That name is no secret when it is a
+//       word of COMMON_HOSTS (written without - _ or spaces), all digits, or too short: under three
+//       characters for a bare name, under two before a model suffix, where any owner's name counts
+//       (Bob-iMac; a possessive keeps its s: "als" before -MacBook-Pro is the name).
+//       A label that is only a model name (MacBook-Pro) is no secret either. Anything else is kept,
+//       DESKTOP-ABC123 of Windows too.
+//
+//   hostNeedles(hostname) -> string[]
+//       What to search text for as the host name: the full name when it has more than one label
+//       (dev01.corp.example names a domain even when its first label is common; not localhost.*),
+//       and the first label when distinctiveHost() keeps it. findings() and every caller that searches
+//       text for the host name take the needles here.
 //
 //   personal(harnessHome) -> { deny: string[] }
 //       The personal list <harnessHome>/user/privacy.json, {"deny": ["…"]}: names the patterns above
@@ -132,17 +140,28 @@ const COMMON_HOSTS = new Set([
     "mini", "air", "pro", "studio", "linux", "ubuntu", "debian", "fedora", "arch", "windows", "win", "wsl", "pc",
     "desktop", "laptop", "notebook", "computer", "workstation", "server", "host", "localhost", "local", "machine", "box",
     "home", "work", "office", "dev", "devbox", "build", "runner", "test", "vm", "docker", "container",
-    "raspberrypi", "pi", "thinkpad", "surface", "dell", "asus", "acer", "lenovo", "hp", "nuc",
+    "my", "new", "old", "main", "raspberrypi", "pi", "thinkpad", "surface", "dell", "asus", "acer", "lenovo", "hp", "nuc",
 ])
 // A model suffix of a host name (-MacBook-Pro), with the number macOS adds to a taken name (-2).
 const MODEL_SUFFIX = /(?:^|[-_ ])(?:MacBook(?:[-_ ]?(?:Pro|Air))?|iMac(?:[-_ ]?Pro)?|Mac(?:[-_ ]?(?:mini|Studio|Pro))?|PC)(?:[-_ ]?\d+)?$/i
-const MIN_HOST_NAME = 4
+const MIN_NAME = 3 // a bare name: every common word shorter than this is no secret
+const MIN_OWNER = 2 // the name before a model suffix: two letters before -PC
 
 function distinctiveHost(hostname) {
     const label = typeof hostname === "string" ? hostname.trim().split(".")[0].trim() : ""
-    const name = label.replace(MODEL_SUFFIX, "").toLowerCase().replace(/[-_\s]+/g, "").replace(/(?<=\D)\d{1,2}$/, "")
-    if (name.length < MIN_HOST_NAME || /^\d+$/.test(name) || COMMON_HOSTS.has(name)) return ""
+    const owner = label.replace(MODEL_SUFFIX, "")
+    const name = owner.toLowerCase().replace(/[-_\s]+/g, "").replace(/(?<=\D)\d{1,2}$/, "")
+    const min = owner !== label ? MIN_OWNER : MIN_NAME
+    if (name.length < min || /^\d+$/.test(name) || COMMON_HOSTS.has(name)) return ""
     return label
+}
+
+function hostNeedles(hostname) {
+    const full = typeof hostname === "string" ? hostname.trim() : ""
+    const label = distinctiveHost(full)
+    const needles = full.includes(".") && full.length >= MIN_NAME && !/^localhost(?:\.|$)/i.test(full) ? [full] : []
+    if (label && !needles.includes(label)) needles.push(label)
+    return needles
 }
 
 function findings(text, options = {}) {
@@ -170,8 +189,7 @@ function findings(text, options = {}) {
             add(rule, index, value.length)
         }
     }
-    const host = distinctiveHost(options.hostname)
-    if (host) {
+    for (const host of hostNeedles(options.hostname)) {
         const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(host)}(?![A-Za-z0-9])`, "gi")
         for (const m of s.matchAll(re)) add("host", m.index, m[0].length)
     }
@@ -226,4 +244,4 @@ function personal(harnessHome) {
     }
 }
 
-module.exports = { distinctiveHost, findings, mask, maskText, personal }
+module.exports = { distinctiveHost, findings, hostNeedles, mask, maskText, personal }

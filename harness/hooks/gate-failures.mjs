@@ -275,12 +275,8 @@ export function scrub(text, ctx = {}) {
     if (home) out = replaceFolder(out, home, "~")
     for (const re of HOME_NAMES) out = out.replace(re, "$1<user>")
     const host = typeof ctx.host === "string" ? ctx.host.trim() : ""
-    // A host name that is a common word (privacy.distinctiveHost) is no secret: text that holds the word is left as it is.
-    const label = privacy.distinctiveHost(host)
-    if (label) {
-        out = out.replace(wordPattern(host), "<host>")
-        if (label !== host) out = out.replace(wordPattern(label), "<host>")
-    }
+    // The full name first, then its first label; a first label that is a common word is no secret (privacy.hostNeedles).
+    for (const needle of privacy.hostNeedles(host)) out = out.replace(wordPattern(needle), "<host>")
     const user = typeof ctx.user === "string" ? ctx.user.trim() : ""
     if (personalName(user)) out = out.replace(wordPattern(user), "<user>")
     return privacy.maskText(out, { hostname: host || undefined, deny: Array.isArray(ctx.deny) ? ctx.deny : undefined })
@@ -390,8 +386,9 @@ export function checkComputerName(name, { host, user } = {}) {
     }
     const lower = name.toLowerCase()
     const same = (v) => typeof v === "string" && v !== "" && (lower === v.toLowerCase() || lower === v.split(".")[0].toLowerCase())
-    // A host name that is a common word is no secret (privacy.distinctiveHost), so it is a valid name too.
-    if ((privacy.distinctiveHost(host) && same(host)) || same(user) || privacy.findings(name, { hostname: host }).length > 0) {
+    // A first label of the host name that is a common word is no secret (privacy.hostNeedles), so it is a valid name too.
+    const sameHost = privacy.hostNeedles(host).some((needle) => lower === needle.toLowerCase())
+    if (sameHost || same(user) || privacy.findings(name, { hostname: host }).length > 0) {
         return "the name must not be the host name, the user name or other personal data: it goes into records that may be published"
     }
     return null
