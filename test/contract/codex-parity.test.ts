@@ -395,6 +395,9 @@ function project(name: string): Project {
   writeFileSync(join(main, 'status.txt'), 'ok\n')
   const git = (...args: string[]) => spawnSync('git', ['-C', main, ...args], { stdio: 'ignore' })
   git('init', '-q', '-b', 'main')
+  // The linked worktree gets its files from a checkout: with core.autocrlf=true (the Windows runner) it
+  // would write them with CRLF, and the scenarios compare them byte by byte.
+  git('config', 'core.autocrlf', 'false')
   git('add', '.')
   git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')

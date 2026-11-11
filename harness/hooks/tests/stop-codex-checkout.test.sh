@@ -45,7 +45,9 @@ fi
 # The registry knows the repository by its main checkout; every worktree of it resolves there.
 printf '{"repos":[{"key":"t","match":"%s","pm":"%s","root":{"fast":["check"]},"workspace":{}}]}\n' "$M" "$PM" >"$CLAUDE_GATE_CONFIG"
 echo '{ "name": "fixture", "scripts": { "check": "true" } }' >"$M/package.json"
-git -C "$M" init -q && git -C "$M" add package.json && git -C "$M" commit -q -m init
+# core.autocrlf=false: the linked worktree gets its files from a checkout, as written (Git for Windows
+# may set core.autocrlf=true).
+git -C "$M" init -q && git -C "$M" config core.autocrlf false && git -C "$M" add package.json && git -C "$M" commit -q -m init
 git -C "$M" worktree add -q --detach "$W"
 
 # A hook input: $1 the folder, $2 the event, $3 "codex" or "claude". A Codex input carries turn_id

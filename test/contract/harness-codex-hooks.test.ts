@@ -74,6 +74,9 @@ function project() {
   writeFileSync(join(main, 'package.json'), '{ "name": "fixture", "scripts": { "check": "true" } }\n')
   const git = (...args: string[]) => execFileSync('git', ['-C', main, ...args], { stdio: 'ignore' })
   git('init', '-q', '-b', 'main')
+  // The linked worktree gets its files from a checkout: keep them as written, also where
+  // core.autocrlf=true (the Windows runner).
+  git('config', 'core.autocrlf', 'false')
   git('add', 'package.json')
   git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
@@ -396,6 +399,21 @@ describe('the main checkout on Codex: Stop runs no gate there, SubagentStop and 
     mode('ok')
     expect((await stopOf('Stop', work, { stopHookActive: true })).block).toBeUndefined()
     expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', key: 'c' })
+  }, RUN_MS)
+
+  // A git that cannot tell a linked worktree from the main checkout (here a stand-in, EVAL_GIT of
+  // eval-env.cjs, that fails only the one call isLinkedWorktree makes) leaves the old rule: the gate runs.
+  // Not on Windows: there Node starts a script stand-in only through a shell, and EVAL_GIT is spawned without one.
+  it.skipIf(WINDOWS)('runs the gate on a Stop in the main checkout when git cannot tell it from a linked worktree', async () => {
+    const { dir, main, state, mode } = project()
+    const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
+    const stand = join(dir, 'git-no-common-dir')
+    writeFileSync(stand, `#!/bin/sh\ncase " $* " in *" --git-dir --git-common-dir "*) exit 128 ;; esac\nexec "${real}" "$@"\n`)
+    chmodSync(stand, 0o755)
+    vi.stubEnv('EVAL_GIT', stand)
+    mode('bad')
+    expect((await stopOf('Stop', main)).block).toMatch(/^The quality gate is red \(failed at .+\)\. Run `node /)
+    expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'red', key: 'c' })
   }, RUN_MS)
 
   it('runs no gate on a Stop from a subfolder of the main checkout either', async () => {
