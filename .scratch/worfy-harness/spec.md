@@ -41,7 +41,9 @@ Epic готов, когда (Q35; песочница — отдельные `HOM
 - **Версия.** Ticket 04 ставит в `package.json` 0.2.0 (сейчас там 0.0.0). Сборка пишет
   `<semver>+<короткий SHA>` в `plugin.json` (манифест plugin-а) копии Harness внутри `.app`, и
   worfy показывает эту строку в UI. Semver поднимается в конце каждого Epic-а: после E3 — 0.3.0
-  (Ticket 26).
+  (Ticket 26). 2026-11-11: правило заменено — minor раз в 1–2 недели работы или после большого
+  Epic-а, 1.0 — первый публичный выпуск; см. «Amendments» в
+  [ADR-0040](../../docs/adr/0040-harness-delivery-local-marketplace.md).
 - **Доставка** (Ticket 13). worfy копирует Harness своей версии из `.app` в
   `~/.claude/worfy-harness/plugin/`, регистрирует эту папку как локальный marketplace (каталог
   plugin-ов) и ставит plugin в область пользователя (`--scope user`) встроенным бинарём Claude Code
