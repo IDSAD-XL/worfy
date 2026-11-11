@@ -84,4 +84,4 @@ Rules:
 - `data-props` is a single-quoted attribute holding JSON; must include `"$preview":{"width":1440,"height":900}`.
 - No `<sc-for>` needed; if you use it, set `hint-placeholder-count`.
 - Accessible markup: real `<button>` / `<a href="#">` / `<input>` with `<label>`, `aria-label` on icon-only buttons. Text contrast ≥ 4.5:1 (captions too). Status colors must differ in LIGHTNESS, not only hue; prefer blue/orange over red/green, and always pair color with a text label or icon.
-- Craft: no lorem ipsum, no invented stats beyond the shared content above, no AI tropes (gradient washes, left-border accent cards, emoji, Inter/Roboto/Arial). 1–3 typefaces, a ground, 0–2 accents. Make it DETAILED and believable: real spacing system, consistent radii, hover-less static states clearly drawn, dense but legible like a real pro tool.
+- Craft: no lorem ipsum, no invented stats beyond the shared content above. 1–3 typefaces, a ground, 0–2 accents. Make it DETAILED and believable: real spacing system, consistent radii, hover-less static states clearly drawn, dense but legible like a real pro tool.

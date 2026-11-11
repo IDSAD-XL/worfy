@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n791cae7d",
+      "kind": "question",
+      "text": "Переводить ли UI worfy на готовые библиотеки компонентов («как код»): что заменить, какой объём, что выиграем?",
+      "from": null,
+      "message": "1887f2c8-b114-4e96-b12d-60f5a92ec437"
+    },
+    {
+      "id": "ndb595ddc",
+      "kind": "question",
+      "text": "Зачем overhaul: клавиатура и screen reader, меньше своего кода и багов, скорость новых экранов или новый внешний вид?",
+      "from": "n791cae7d",
+      "message": "eb0791ce-f57a-46d3-9c41-9244a479a984"
+    },
+    {
+      "id": "n580e6017",
+      "kind": "decision",
+      "text": "Не делать полный overhaul на shadcn/ui + Tailwind: он даёт вид shadcn вместо своего (F-SPEC), требует переписать 42 файла CSS и сотни test-ов; около 35–45 Ticket-ов",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "«с остальным согласен»; о доводе BRIEF.md:88: «отменяем это решение, никаких запретов»",
+      "source": "docs/design/BRIEF.md:88 («Do NOT copy the look of any existing product»); docs/design/F-SPEC.md:1; docs/product/ui-overhaul/notes/inventory-foundation.md (разделы 1.9 и 3: prefix(tw), 814 ссылок на классы в test-ах); https://ui.shadcn.com/docs/changelog/2026-07-base-ui-default",
+      "advice": true,
+      "message": "d30d580e-2c0b-40fe-9f24-5e0d4e71a8d8"
+    },
+    {
+      "id": "n3f176d8e",
+      "kind": "decision",
+      "text": "Base UI как слой поведения под свой CSS: Dialog, Popover, Menu, Context Menu, Tooltip, Toggle Group, Radio Group, Tabs. Вид остаётся свой; около 13–16 Ticket-ов",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "a2496e49-bd73-4dc7-9f11-55ef7cd2a45c"
+    },
+    {
+      "id": "nc5be5384",
+      "kind": "decision",
+      "text": "Toast-ы оставить свои, Sonner не брать: он не умеет toast только в своём Project, очередь sticky, обход открытых меню, role=\"alert\" для ошибок",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "d597c721-c123-4d88-a6d1-8847e4aa2e5a"
+    },
+    {
+      "id": "nb9a9debf",
+      "kind": "decision",
+      "text": "Command palette: свой ranking оставить, cmdk не брать (нет release с 2025-03, тянет Radix, vimBindings занимает Ctrl+K); оболочка — Dialog из Base UI",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "4defa774-4359-4220-98e0-7a5f62367ec4"
+    },
+    {
+      "id": "nad784783",
+      "kind": "decision",
+      "text": "Vaul не брать: в README «This repo is unmaintained», это drawer для телефона; если drawer понадобится, он есть в Base UI",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "731b7d05-1d65-4aa3-8835-4b516d42d007"
+    },
+    {
+      "id": "n982d1850",
+      "kind": "decision",
+      "text": "NumberFlow — по желанию, для процентов limits, context meter и стоимости; анимировать только реальную смену значения",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "NumberFlow можно",
+      "advice": true,
+      "message": "6b320973-b1f9-4a00-9b71-d93030bc587b"
+    },
+    {
+      "id": "naa926b22",
+      "kind": "decision",
+      "text": "Коллекции эффектов (Magic UI, Aceternity UI, RareUI, 21st.dev) в UI не брать; Beautiful UI — образец для chat Session, переносить в свой CSS",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "ab97f397-6e49-48dc-a2d4-41b5d910a734"
+    },
+    {
+      "id": "nb89634f7",
+      "kind": "decision",
+      "text": "Свои Button и Chip с вариантами, без библиотеки: сейчас 7 копий primary, 4 danger, около 15 chip, высоты кнопок 20–28 px",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "2693b569-f5af-43d2-ad09-f2bb56adf60b"
+    },
+    {
+      "id": "n83f4d932",
+      "kind": "decision",
+      "text": "eslint-plugin-jsx-a11y и проверка axe в e2e, чтобы доступность не откатывалась",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "9b8a13c8-84fa-40d5-a651-eed51bc8a558"
+    },
+    {
+      "id": "n63b6684c",
+      "kind": "decision",
+      "text": "Выбор библиотеки и правила обёрток записать в ADR; skill pick-ui-library — только как справка, ограничений worfy он не знает",
+      "from": "n791cae7d",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "ccc94a2d-b652-4c4c-b2d0-da17300d1250"
+    },
+    {
+      "id": "nde017a7e",
+      "kind": "decision",
+      "text": "Начать со spike Base UI в Electron: клик в webview, фокус рядом с xterm, drag Node-а с кнопкой menu, Esc под focus mode, бюджет старта 3 s",
+      "from": "n3f176d8e",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "80dd7522-4718-4973-9aea-a3f193337b9e"
+    },
+    {
+      "id": "ne2026bb2",
+      "kind": "decision",
+      "text": "До миграции — фундамент: шкала z-index, один helper открытых слоёв, проверка defaultPrevented в MessageInput; Settings, Keyboard shortcuts и Guide переносить одним шагом вместе с их guard-ами",
+      "from": "n3f176d8e",
+      "status": "accepted",
+      "reason": "с остальным согласен",
+      "advice": true,
+      "message": "02744c52-0f41-45e3-a41f-a19a7529b91d"
+    },
+    {
+      "id": "n2ac94d29",
+      "kind": "decision",
+      "text": "Запрет docs/design/BRIEF.md:88 «Do NOT copy the look of any existing product» отменён: вид можно брать у других продуктов",
+      "from": "n580e6017",
+      "status": "accepted",
+      "reason": "отменяем это решение, никаких запретов",
+      "advice": false,
+      "message": "162973f1-6114-477d-9763-4ac6e3bad0cc"
+    },
+    {
+      "id": "n50d2e559",
+      "kind": "decision",
+      "text": "Epic worfy-ui-kit: 19 Ticket-ов в 6 Wave-ах — spike, фундамент слоёв без Base UI, ADR и пакет, обёртки kit на Base UI, перенос окон, popover-ов и menu, свои Button и Chip, NumberFlow, lint и axe, приёмка. Черновик drafts/worfy-ui-kit.md",
+      "from": "n3f176d8e",
+      "status": "accepted",
+      "reason": "да",
+      "advice": true,
+      "message": "c98a471a-42b0-49eb-b0b8-0c239a1c2274"
+    },
+    {
+      "id": "nc96c4fbe",
+      "kind": "decision",
+      "text": "Seam-ы test-ов worfy-ui-kit: unit test на каждую обёртку kit (роль, focus trap, возврат фокуса, Esc только верхнего слоя, стрелки) и один e2e spec «слои» в Electron; существующие test-ы по роли и data-testid остаются защитой",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "да, устраивает",
+      "advice": true,
+      "message": "9241b1ba-8c2b-4e99-8189-41b9313ba051"
+    },
+    {
+      "id": "n828d9440",
+      "kind": "decision",
+      "text": "Перед принятием отдать черновик worfy-ui-kit критику: 18 Ticket-ов, новая зависимость, затронуты все окна",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "давай критика",
+      "advice": true,
+      "message": "eab48cb9-4861-4747-8a09-a77c3b944cb5"
+    },
+    {
+      "id": "nf459f5c7",
+      "kind": "decision",
+      "text": "Критик 1: spike не проверяет свой Select внутри модального Dialog kit. Список Select лежит в body поверх окон, а модальный Dialog Base UI отключает клики снаружи. В Settings Select есть в 8 файлах",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "ок",
+      "source": "docs/product/critic/worfy-ui-kit-2026-11-11.md (возражение 1); src/renderer/theme/Select.tsx:17; https://base-ui.com/react/components/dialog",
+      "advice": false,
+      "message": "3931a7d2-a136-4ccf-8f24-aee79f1e6acd"
+    },
+    {
+      "id": "n68980212",
+      "kind": "decision",
+      "text": "Критик 2: Ticket 02 держит семь правок и заставляет три правки без Base UI ждать spike. Разрезать: 02a (шкала z-index, helper слоёв, Esc в поле чата) в Wave 1 и 02b (ADR, пакет, lint, закрытие по blur) после spike",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "ок",
+      "source": "docs/product/critic/worfy-ui-kit-2026-11-11.md (возражение 2); src/renderer/session/MessageInput.tsx:344",
+      "advice": false,
+      "message": "bb7d6020-7392-49e8-a09e-6e45f76ed021"
+    },
+    {
+      "id": "n35ece78b",
+      "kind": "decision",
+      "text": "Критик 3: Ticket 06 превращает 4 inline confirm внутри панелей в модальные окна, а это новый дизайн. И он правит HistoryPopover.tsx в одной Wave с Ticket-ом 09. Убрать confirm-ы из 06: оставить inline или вынести в свой Ticket с решением владельца",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "«да»; о доводе «вид не меняется»: «насчет того что вид не поменяется это не так критично, изменения внешнего вида допустимы если они улучшают UX»",
+      "source": "docs/product/critic/worfy-ui-kit-2026-11-11.md (возражение 3); docs/product/ui-overhaul/notes/inventory-overlays.md:74; https://base-ui.com/react/components/alert-dialog",
+      "advice": false,
+      "message": "a76368de-d887-4f6f-b4cf-84fa1ffa1466"
+    },
+    {
+      "id": "n0685c9ed",
+      "kind": "decision",
+      "text": "В Epic-е worfy-ui-kit вид можно менять, если это улучшает UX; редизайн всего приложения в Epic не входит",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "насчет того что вид не поменяется это не так критично, изменения внешнего вида допустимы если они улучшают UX",
+      "advice": false,
+      "message": "b5923330-eb6e-42cb-bd19-f5886851761e"
+    },
+    {
+      "id": "naf7f8831",
+      "kind": "decision",
+      "text": "Запрет «no AI tropes (gradient washes, left-border accent cards, emoji, Inter/Roboto/Arial)» в docs/design/BRIEF.md:87 тоже отменён; остальные правила строки Craft остаются",
+      "from": "n2ac94d29",
+      "status": "accepted",
+      "reason": "да отменяю",
+      "advice": false,
+      "message": "b907c5b4-2e18-421d-af1c-adeb87475e0a"
+    },
+    {
+      "id": "n531edc0b",
+      "kind": "decision",
+      "text": "Epic worfy-ui-kit владелец запустит сам, позже; в очередь его не ставим",
+      "from": "n50d2e559",
+      "status": "accepted",
+      "reason": "запущу епик потом",
+      "advice": false,
+      "message": "2a395bb5-3949-413f-bdd8-26b0a688f710"
+    }
+  ]
+}
