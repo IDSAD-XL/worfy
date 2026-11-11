@@ -245,8 +245,9 @@ describe('ci.yml: every pull request and every push to main, one check for the m
         const block = at === -1 ? [] : lines.slice(at + 1, at + 1 + ELECTRON_STEPS.length)
         const has = block.join('\n') === ELECTRON_STEPS.join('\n')
         expect(has, `${file}: ${name}`).toBe(starts.test(lines.join('\n')))
-        // Once per job: a second copy would restore and save twice.
-        expect(lines.filter((line) => line.includes('actions/cache')), `${file}: ${name}`).toHaveLength(has ? 2 : 0)
+        // Once per job: a second copy would restore and save twice. Other caches of a job (the zsh
+        // packages of linux-tests, worfy-polish 107) have paths of their own.
+        expect(lines.filter((line) => line.trim() === 'path: ${{ runner.temp }}/electron-cache'), `${file}: ${name}`).toHaveLength(has ? 2 : 0)
         if (has) withElectron.push(name)
       }
     }
