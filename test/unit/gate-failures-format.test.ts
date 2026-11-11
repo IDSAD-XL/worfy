@@ -1,7 +1,7 @@
 // The format of the failure records of the gate (harness/hooks/gate-failures.mjs): the run file and its
 // checks, the id of a test, the scrubbing of text and the first line of an error.
 import { describe, expect, it } from 'vitest'
-import { byTest, findLeaks, firstLine, parseRunFile, scrub, scrubRecord, testId, type FailureRecord, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
+import { byTest, checkComputerName, findLeaks, firstLine, parseRunFile, scrub, scrubRecord, testId, type FailureRecord, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
 
 const COMPUTER = { id: '0a1b2c3d', name: 'mac', platform: 'darwin' }
 
@@ -235,6 +235,13 @@ describe('scrub', () => {
   it('replaces the host name and the user name as words', () => {
     expect(scrub(`connect to ${HOST}.local failed for ${USER}`, CTX)).toBe('connect to <host>.local failed for <user>')
     expect(scrub('JDOES-LAPTOP refused', CTX)).toBe('<host> refused')
+  })
+
+  it('leaves a host name that is a common word as it is, and accepts it as a computer name', () => {
+    const ctx = { ...CTX, host: 'Mac.lan' }
+    expect(scrub('skipped on mac: no display', ctx)).toBe('skipped on mac: no display')
+    expect(checkComputerName('Mac', { host: 'Mac.lan' })).toBeNull()
+    expect(checkComputerName(HOST, { host: HOST })).not.toBeNull()
   })
 
   it.each([

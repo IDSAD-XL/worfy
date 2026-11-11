@@ -5,12 +5,18 @@
 // and a gh on PATH that fails shows the real one is never called. Nothing reaches GitHub.
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir, hostname, tmpdir, userInfo } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { RerunRecord, RunRecord } from '../../harness/hooks/gate-failures.mjs'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
+
+// The host name of this computer is a secret only when privacy.cjs keeps it (distinctiveHost): a host named
+// with a common word (a platform name) is not searched for, so the cases below check it only then.
+const { distinctiveHost } = createRequire(import.meta.url)('../../harness/lib/privacy.cjs') as { distinctiveHost: (hostname: string) => string }
+const secretHost = distinctiveHost(hostname()) !== ''
 
 const CLI = join(process.cwd(), 'harness', 'bin', 'gate-failures')
 const FIXTURES = join(process.cwd(), 'test', 'fixtures', 'gate-failures', 'transfer')
@@ -265,7 +271,7 @@ describe('gate-failures export and import', () => {
     expect(exported.stderr).toMatch(/personal data: 0f1e2d3c\/r001 failures\[0\]\.error: .*home-path/)
     expect(exported.stderr).toMatch(/failures\[0\]\.error: .*uuid/)
     expect(exported.stderr).toMatch(/failures\[0\]\.error: .*token/)
-    expect(exported.stderr).toMatch(/failures\[0\]\.error: .*host/)
+    if (secretHost) expect(exported.stderr).toMatch(/failures\[0\]\.error: .*host/)
     for (const value of ['jdoe', UUID, TOKEN]) expect(exported.stderr).not.toContain(value)
 
     const mac = computer('mac', MAC)
@@ -278,7 +284,7 @@ describe('gate-failures export and import', () => {
   })
 
   it('refuses a record that holds the home folder or the host name of this computer', () => {
-    for (const value of [`${homedir()}/x.ts`, hostname()]) {
+    for (const value of [`${homedir()}/x.ts`, ...(secretHost ? [hostname()] : [])]) {
       const pc = computer('pc', PC)
       put(pc, runRecord(1, PC, `failed near ${value}`.slice(0, 200)))
       const exported = cli(['export'], pc)
@@ -301,7 +307,7 @@ describe('gate-failures export and import', () => {
       for (const spelling of [folder, folder.replaceAll('\\', '/'), folder.replaceAll('/', '\\'), JSON.stringify(folder).slice(1, -1)]) expect(lower).not.toContain(spelling.toLowerCase())
     }
     const word = (w: string): RegExp => new RegExp(`(?<![A-Za-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i')
-    if (hostname().length >= 3) expect(text).not.toMatch(word(hostname()))
+    if (secretHost) expect(text).not.toMatch(word(hostname()))
     // The stand-in names of privacy.cjs (a CI runner is "runner") are words of the format itself.
     const user = userInfo().username
     if (user.length >= 3 && !['test', 'someone', 'user', 'you', 'runner', 'runneradmin'].includes(user.toLowerCase())) expect(text).not.toMatch(word(user))

@@ -124,6 +124,9 @@ expect_none "address outside 100.64/10, and the network itself" "ip 100.""128.1.
 expect_none "localhost" "http://localhost:3000 .env.local ~/.local/share"
 expect_none "hosts with an example label" "pc.example.ts.net other.example.local"
 expect_rule "the machine's short host name" "from $OWN_HOST today" host "{\"hostname\":\"$OWN_HOST.lan\"}"
+expect_none "a host name that is a common word" 'platform mac, built on a Mac' '{"hostname":"Mac.lo''cal"}'
+expect_none "a host name that is a model name" 'the MacBook-Pro answers' '{"hostname":"MacBook-Pro-2.lo''cal"}'
+expect_rule "a Windows default host name of six characters" "on DESK""TOP-AB12C3" host "{\"hostname\":\"DESK""TOP-AB12C3\"}"
 expect_rule "a word of the deny list" "said ${DENY_WORD}s" deny "{\"deny\":[\"$DENY_WORD\"]}"
 printf '{"deny":["%s"]}\n' "$DENY_WORD" >"$HARNESS_HOME/user/privacy.json"
 got="$(lib_op "$HARNESS_HOME" personal)"
