@@ -386,9 +386,9 @@ export function checkComputerName(name, { host, user } = {}) {
     }
     const lower = name.toLowerCase()
     const same = (v) => typeof v === "string" && v !== "" && (lower === v.toLowerCase() || lower === v.split(".")[0].toLowerCase())
-    // A first label of the host name that is a common word is no secret (privacy.hostNeedles), so it is a valid name too.
-    const sameHost = privacy.hostNeedles(host).some((needle) => lower === needle.toLowerCase())
-    if (sameHost || same(user) || privacy.findings(name, { hostname: host }).length > 0) {
+    // The host name is caught by findings: it searches the name for privacy.hostNeedles of the host. A first label that
+    // is a common word gives no needle, so it is a valid name too.
+    if (same(user) || privacy.findings(name, { hostname: host }).length > 0) {
         return "the name must not be the host name, the user name or other personal data: it goes into records that may be published"
     }
     return null
