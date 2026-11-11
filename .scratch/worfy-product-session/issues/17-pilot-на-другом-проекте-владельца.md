@@ -1,7 +1,8 @@
 # 17 — Pilot на проекте project-a
 
 Type: task
-Status: open
+Status: done 2026-11-11T19:44Z
+PR: #1804
 Blocked by: 15
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 12; «Соглашения для Ticket-ов этого Epic-а» (содержимое project-a в репозиторий worfy не попадает); «Решения владельца 2026-11-08 (PR #1666)», Q3; карта [worfy-product](../../worfy-product/map.md), решение 03 (Q4); research [«Product Session: качество решений»](../../../docs/research/2026-11-08-product-session-decision-quality.md), разделы 7, 8
 
