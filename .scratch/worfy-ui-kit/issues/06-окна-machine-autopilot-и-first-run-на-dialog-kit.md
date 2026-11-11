@@ -1,0 +1,54 @@
+# 06 — Окна Machine, Autopilot и First run на Dialog kit
+
+Type: task
+Status: open
+Blocked by: 04
+Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения по реализации» (остальные модальные окна); истории 1, 2, 9;
+заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, разделы 1.1 и 10.1
+
+## Что происходит
+
+- Change address и Remove machine делят `MachineDialogFrame` (`machines/ChangeAddressDialog.tsx:30-82`,
+  `machines/MachineDialogs.tsx`, `machines/machine-dialogs.ts`): свой focus trap, фокус не возвращается.
+- Link a machine — `machines/LinkMachineDialog.tsx`: focus trap нет, возврата нет.
+- Start Autopilot и Start now? (`autopilot/StartAutopilotModal.tsx`, `autopilot/StartNowModal.tsx`): свои focus trap и
+  capture-listener-ы на window.
+- First run — `shell/FirstRun.tsx`: focus trap нет, возврата нет; Esc не закрывает во время переноса.
+
+## Что делаем
+
+1. Пять окон и `MachineDialogFrame` переходят на Dialog kit (Ticket 04). Свои focus trap, listener-ы `focusin` и
+   capture-listener-ы `keydown` удаляются.
+2. Слой из шкалы вместо `MACHINE_DIALOG_LAYER` и z-index рамки `.w-apstart` (`autopilot/autopilot-modal.css:23`).
+3. Правила окон сохраняются: First run не закрывается по Esc во время переноса; радио и режимы окна Start Autopilot
+   не трогаются (их переносит Ticket 14).
+
+## Готово, когда
+
+- [ ] Unit test-ы окон: Tab не уходит из окна; после закрытия фокус на кнопке, которая окно открыла; First run во время
+      переноса Esc не закрывает.
+- [ ] Существующие unit test-ы и e2e `linked-machines.spec.ts`, `autopilot-start-modal.spec.ts`, `first-run.spec.ts`
+      зелёные без правок ролей и `data-testid`.
+- [ ] Своих focus trap в этих окнах нет; `MACHINE_DIALOG_LAYER` нет.
+- [ ] Правка вида, если она есть, названа в PR отдельной строкой.
+- [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+
+## Где в коде
+
+- `src/renderer/machines/ChangeAddressDialog.tsx`
+- `src/renderer/machines/MachineDialogs.tsx`
+- `src/renderer/machines/machine-dialogs.ts`
+- `src/renderer/machines/LinkMachineDialog.tsx`
+- `src/renderer/autopilot/StartAutopilotModal.tsx`
+- `src/renderer/autopilot/StartNowModal.tsx`
+- `src/renderer/autopilot/autopilot-modal.css`
+- `src/renderer/shell/FirstRun.tsx`
+- `test/unit/start-autopilot-modal.test.tsx`
+- `test/unit/link-machine-dialog-pause.test.tsx`
+- `test/e2e/linked-machines.spec.ts`
+- `test/e2e/autopilot-start-modal.spec.ts`
+- `test/e2e/first-run.spec.ts`
+
+## Вне скоупа
+
+- Свои radio и segmented control окна Start Autopilot: Ticket 14.
