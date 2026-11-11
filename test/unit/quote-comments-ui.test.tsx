@@ -137,7 +137,8 @@ afterEach(() => {
 describe('the page around the comments', () => {
   /** The declarations of the rule whose selector list is `selector`, from the stylesheet as written. */
   const rule = (selector: string): string => {
-    const css = readFileSync(join(process.cwd(), 'src/renderer/session/quote-comments.css'), 'utf8')
+    // A Windows checkout may have CRLF line endings: the selectors are matched with LF.
+    const css = readFileSync(join(process.cwd(), 'src/renderer/session/quote-comments.css'), 'utf8').replace(/\r\n/g, '\n')
     const found = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)
     if (found === null) throw new Error(`no rule ${selector}`)
     return found[1]!
