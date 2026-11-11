@@ -1,7 +1,8 @@
 # 104 — Pull requests: комментарии review показаны как markdown GitHub
 
 Type: feature
-Status: claimed 2026-11-10T22:39Z
+Status: done 2026-11-10T23:55Z
+PR: #1792
 Branch: worfy-polish/104
 Blocked by: —
 Source: владелец 2026-11-11: «парсинг маркдауна, чтобы как в гитхабе все было» (бриф Orchestrator-а).

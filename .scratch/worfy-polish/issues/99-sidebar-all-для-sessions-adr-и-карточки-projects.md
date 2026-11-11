@@ -1,7 +1,8 @@
 # 99 — Sidebar «All Projects» для Sessions и ADR, карточки Projects с живым состоянием
 
 Type: feature
-Status: claimed 2026-11-10T21:44Z
+Status: done 2026-11-11T12:08Z
+PR: #1790
 Blocked by: —
 Source: worfy-polish 94 (sidebar варианта C, PR #1786), раздел «Итог» → «Следующий шаг»; вердикт первого раунда
 review #1786, пункт 9: follow-up про IPC по всем Project-ам должен быть отдельным Ticket-ом.

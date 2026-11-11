@@ -1,7 +1,7 @@
 # 100 — Новые модели Claude в списке моделей: подъём Agent SDK до 0.3.322 и Dependabot на его новые версии
 
 Type: bug
-Status: claimed 2026-11-10T15:47Z
+Status: done 2026-11-11T11:38Z
 PR: #1787
 Branch: worfy-polish/100
 Blocked by: —

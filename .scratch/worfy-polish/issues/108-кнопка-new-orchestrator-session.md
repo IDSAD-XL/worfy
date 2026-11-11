@@ -1,7 +1,7 @@
 # 108 — Кнопка «New Orchestrator Session» вместо «New conversation»
 
 Type: polish
-Status: claimed 2026-11-11T15:49Z
+Status: done 2026-11-11T18:24Z
 PR: #1799
 Branch: worfy-polish/108
 Blocked by: —

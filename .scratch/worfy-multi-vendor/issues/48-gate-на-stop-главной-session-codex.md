@@ -1,7 +1,8 @@
 # 48 — Gate на Stop главной Session Codex в main checkout не запускается
 
 Type: bug
-Status: claimed 2026-11-11T15:49Z
+Status: done 2026-11-11T18:24Z
+PR: #1800
 Blocked by:
 Source: решение владельца 2026-11-11; tester Codex: Session «висит» после ответа; [ADR-0094](../../../docs/adr/0094-vendor-seam.md), п. 6; Ticket 36 ([36-hook-и-harness-под-codex.md](36-hook-и-harness-под-codex.md))
 

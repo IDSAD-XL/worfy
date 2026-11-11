@@ -1,7 +1,8 @@
 # 103 — Pull requests: Ticket chip не закрывает «#N» в строке списка
 
 Type: bug
-Status: claimed 2026-11-10T21:45Z
+Status: done 2026-11-10T22:36Z
+PR: #1789
 Branch: worfy-polish/103
 Blocked by: —
 Source: владелец 2026-11-10, снимок экрана (бриф Orchestrator-а).

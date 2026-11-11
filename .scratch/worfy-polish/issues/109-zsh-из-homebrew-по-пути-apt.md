@@ -1,7 +1,7 @@
 # 109 — CI: zsh из Homebrew лежит там же, где zsh из apt
 
 Type: bug
-Status: claimed 2026-11-11T16:51Z
+Status: done 2026-11-11T17:14Z
 PR: #1801
 Branch: worfy-polish/109
 Blocked by: none
