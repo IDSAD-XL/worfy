@@ -1,0 +1,29 @@
+{
+  "answer": {
+    "added": [
+      "example-notes"
+    ],
+    "removed": [],
+    "errors": {}
+  },
+  "status_after": [
+    {
+      "name": "example-notes",
+      "status": "connected",
+      "source": "dynamic",
+      "scope": "dynamic",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
+      "name": "worfy-canvas",
+      "status": "connected",
+      "source": "sdk",
+      "scope": "dynamic",
+      "tool_names": [
+        "canvas_ping"
+      ]
+    }
+  ]
+}

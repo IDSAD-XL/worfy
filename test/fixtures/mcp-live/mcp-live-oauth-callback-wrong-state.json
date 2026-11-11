@@ -1,0 +1,20 @@
+{
+  "error": "Callback URL not accepted: it belongs to a different sign-in attempt (OAuth state mismatch) or carries no authorization code. The sign-in in progress is still waiting; submit the redirect URL from its own browser page.",
+  "status_after": [
+    {
+      "name": "example-notes",
+      "status": "connected",
+      "source": "user",
+      "scope": "user",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
+      "name": "example-oauth",
+      "status": "needs-auth",
+      "source": "user",
+      "scope": "user"
+    }
+  ]
+}

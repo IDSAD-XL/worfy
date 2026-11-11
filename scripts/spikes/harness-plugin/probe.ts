@@ -9,19 +9,24 @@
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts env-file        # GH_TOKEN through CLAUDE_ENV_FILE (fake gh, then the real one)
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts install         # plugin validate/marketplace/install/update/uninstall, sandbox only
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-name        # the plugin's `qmd` against allowedMcpServers
+//   pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-live --fixtures test/fixtures/sdk-messages  # a server added while a query runs (worfy-mcp-live/01)
 //   pnpm exec electron scripts/spikes/harness-plugin/probe.ts --rescrub test/fixtures/sdk-messages  # re-sanitize plugin-*.jsonl, no model call
+//   pnpm exec electron scripts/spikes/harness-plugin/probe.ts --rescrub test/fixtures/mcp-live      # re-sanitize mcp-live-*.json, no model call
 //
 // Options: --out <dir> (default $TMPDIR/worfy-harness-probe/<timestamp>), --fixtures <dir>
 // (sanitized system/init messages as plugin-<scenario>-<variant>.jsonl, for
-// test/fixtures/sdk-messages), --model <model> (default haiku, the cheapest model that follows
+// test/fixtures/sdk-messages; the control-call answers of mcp-live go next to it, into
+// ../mcp-live/mcp-live-<step>.json), --model <model> (default haiku, the cheapest model that follows
 // these short prompts; the env-file SDK session defaults to sonnet, because haiku refuses to hash
 // GH_TOKEN), --account <login> (default: `github.account` of the worfy Profile).
 //
 // Model calls: `known`, `workflow-hooks` and `env-file` run real sessions with the user's own
 // settings (settingSources user + project + local, as worfy does) in a temporary working
-// directory, plus one `claude -p` from the terminal (env-file). `install` and `mcp-name` make no
-// model call: they run in a sandbox (HOME and CLAUDE_CONFIG_DIR in a temporary directory, not
+// directory, plus one `claude -p` from the terminal (env-file). `install`, `mcp-name` and `mcp-live`
+// make no model call: they run in a sandbox (HOME and CLAUDE_CONFIG_DIR in a temporary directory, not
 // logged in) — Claude Code still loads plugins, hooks and MCP servers and sends system/init there.
+// `mcp-live` also puts fake `security` and `open` first on PATH, so Claude Code reaches neither the
+// login Keychain nor the browser; its OAuth server is a local fake that never issues a token.
 //
 // The probe never writes to ~/.claude itself. Claude Code does what it does for any session:
 // transcripts under ~/.claude/projects, which the probe lists in summary.json. Real settings are
@@ -31,9 +36,12 @@
 //
 // Electron 44 runs this file directly (Node 24 strips the types): erasable syntax only.
 
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -42,8 +50,8 @@ import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/c
 import { app } from 'electron'
 import { personalLast, scrubPersonal } from '../personal-scrub.mjs'
 
-type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name'
-const ALL: Scenario[] = ['known', 'workflow-hooks', 'env-file', 'install', 'mcp-name']
+type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name' | 'mcp-live'
+const ALL: Scenario[] = ['known', 'workflow-hooks', 'env-file', 'install', 'mcp-name', 'mcp-live']
 type Facts = Record<string, unknown>
 type Recorded = { t: number; msg: unknown }
 
@@ -166,7 +174,7 @@ const UUID = /(?<![0-9a-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const SANITIZED_UUID = /^00000000-0000-4000-8000-\d{12}$/
 // The user's own plugins and MCP servers say what the user has: they become plugin-N / server-N.
 // The spike's own names (worfy, qmd, its tools) and builtin plugins stay.
-const OWN = new Set(['worfy', 'qmd', 'worfy-canvas'])
+const OWN = new Set(['worfy', 'qmd', 'worfy-canvas', 'example-notes', 'example-notes-dynamic', 'example-oauth'])
 const aliases = new Map<string, string>()
 const alias = (kind: 'plugin' | 'server', name: string): string => {
   if (OWN.has(name)) return name
@@ -211,6 +219,8 @@ function scrub(s: string): string {
     .split(home)
     .join('~')
     .replace(/\/(private\/)?(var\/folders|tmp)\/[^\s"']*/g, '<tmp-path>')
+    // The local fake servers of mcp-live listen on a random port.
+    .replace(/https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/g, '<local-url>')
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (m) => (/^[\w-]+@[\w-]+$/.test(m) ? m : '<email>'))
     .replace(/\/Users\/[^/\s"]+/g, '/Users/<user>')
   if (user) out = out.split(`-Users-${user}-`).join('-Users-<user>-')
@@ -869,17 +879,329 @@ async function runMcpName(): Promise<Facts> {
   return out
 }
 
+// --- mcp-live (worfy-mcp-live/01) -------------------------------------------------------------
+
+/** Control-call answers of mcp-live, sanitized, as mcp-live-<step>.json for test/fixtures/mcp-live. */
+const controlFixtures: { file: string; value: unknown }[] = []
+const keepControl = (step: string, value: unknown): void => {
+  // Without the timing: a fixture written again by the same SDK stays the same file.
+  const kept = value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'ms')) : value
+  controlFixtures.push({ file: `mcp-live-${step}.json`, value: kept })
+}
+
+/** Status rows reduced to what the question needs: name, status, source, scope, error, tool names. */
+const statusRows = (list: unknown): unknown =>
+  Array.isArray(list)
+    ? (list as Record<string, unknown>[]).map((s) => ({ name: s.name, status: s.status, source: s.source, scope: s.scope, error: s.error, tool_names: (s.tools as { name: string }[] | undefined)?.map((t) => t.name) }))
+    : list
+
+/** Runs one control call; its answer (or error) and the status right after it. */
+async function control(q: Query, call: () => Promise<unknown>): Promise<Facts> {
+  const t0 = Date.now()
+  let answer: unknown
+  let error: string | undefined
+  try {
+    answer = await call()
+  } catch (err) {
+    error = scrub(err instanceof Error ? err.message : String(err))
+  }
+  const ms = Date.now() - t0
+  await new Promise((r) => setTimeout(r, 1500))
+  return { ms, ...(error === undefined ? { answer: answer === undefined ? null : answer } : { error }), status_after: await mcpStatus(q, 15_000) }
+}
+
+/** A Claude Code process spawned by the SDK, kept so the scenario can wait for its exit and kill leftovers. */
+const liveChildren: ChildProcess[] = []
+const spawnWatched: Options['spawnClaudeCodeProcess'] = ({ command, args, cwd, env, signal }) => {
+  const child = spawn(command, args, { cwd, env, signal, stdio: ['pipe', 'pipe', 'ignore'] })
+  liveChildren.push(child)
+  return child
+}
+const exited = (child: ChildProcess | undefined, ms: number): Promise<boolean> =>
+  new Promise((res) => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return res(true)
+    const timer = setTimeout(() => res(false), ms)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      res(true)
+    })
+  })
+
+/**
+ * Fake `security`, `open` and `xdg-open` that log their subcommand and fail: no Keychain, no browser.
+ * `security find-generic-password` answers 44, the code of "item not found", so Claude Code sees an
+ * empty Keychain rather than a locked one.
+ */
+function fakeBin(dir: string): { bin: string; log: string } {
+  const bin = join(dir, 'fake-bin')
+  const log = join(dir, 'fake-bin.log')
+  mkdirSync(bin, { recursive: true })
+  for (const name of ['security', 'open', 'xdg-open']) {
+    const file = join(bin, name)
+    // Only the command name and its first argument (the subcommand): a Keychain write carries the secret further on.
+    const code = name === 'security' ? '[ "$1" = find-generic-password ] && exit 44\n' : ''
+    writeFileSync(file, `#!/bin/sh\necho "${name} $1" >> "${log}"\n${code}exit 1\n`)
+    chmodSync(file, 0o755)
+  }
+  return { bin, log }
+}
+
+type OAuthFake = { url: string; requests: string[]; close: () => Promise<void> }
+/**
+ * An HTTP MCP endpoint that answers every call with 401 and points to a local authorization server
+ * (protected-resource metadata, authorization-server metadata, dynamic client registration). The
+ * token endpoint always refuses: no token is ever issued, so nothing gets signed in.
+ */
+async function oauthFake(): Promise<OAuthFake> {
+  const requests: string[] = []
+  let base = ''
+  const json = (res: ServerResponse, code: number, body: unknown, headers: Record<string, string> = {}) => {
+    res.writeHead(code, { 'content-type': 'application/json', ...headers })
+    res.end(JSON.stringify(body))
+  }
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const path = (req.url ?? '/').split('?')[0] ?? '/'
+    requests.push(`${req.method ?? '?'} ${path}`)
+    let body = ''
+    req.on('data', (c: Buffer) => (body += c.toString()))
+    req.on('end', () => {
+      // The challenge of RFC 9728: the auth scheme, then where the protected-resource metadata is.
+      const challenge = ['Bearer', `resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`].join(' ')
+      if (path === '/mcp') return json(res, 401, { error: 'unauthorized' }, { 'www-authenticate': challenge })
+      if (path.startsWith('/.well-known/oauth-protected-resource')) return json(res, 200, { resource: `${base}/mcp`, authorization_servers: [base], bearer_methods_supported: ['header'] })
+      if (path.startsWith('/.well-known/oauth-authorization-server') || path.startsWith('/.well-known/openid-configuration'))
+        return json(res, 200, {
+          issuer: base,
+          authorization_endpoint: `${base}/authorize`,
+          token_endpoint: `${base}/token`,
+          registration_endpoint: `${base}/register`,
+          response_types_supported: ['code'],
+          grant_types_supported: ['authorization_code', 'refresh_token'],
+          code_challenge_methods_supported: ['S256'],
+          token_endpoint_auth_methods_supported: ['none'],
+        })
+      if (path === '/register') {
+        let meta: Record<string, unknown> = {}
+        try {
+          meta = JSON.parse(body) as Record<string, unknown>
+        } catch {
+          // keep empty
+        }
+        return json(res, 201, { ...meta, client_id: 'example-client', token_endpoint_auth_method: 'none' })
+      }
+      if (path === '/token') return json(res, 400, { error: 'invalid_grant', error_description: 'the spike fake never issues a token' })
+      return json(res, 404, { error: 'not_found' })
+    })
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const addr = server.address()
+  base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  return { url: `${base}/mcp`, requests, close: () => new Promise((r) => server.close(() => r())) }
+}
+
+/** The answer of mcpAuthenticate with every value that names this run (URL, state, port) replaced by its shape. */
+function authShape(answer: unknown): unknown {
+  if (!answer || typeof answer !== 'object') return answer
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(answer as Record<string, unknown>)) {
+    if (k === 'authUrl' && typeof v === 'string') {
+      try {
+        const u = new URL(v)
+        out[k] = { origin: '<local-url>', path: u.pathname, params: [...new Set(u.searchParams.keys())].sort() }
+      } catch {
+        out[k] = '<not a URL>'
+      }
+    } else if (k === 'state') out[k] = typeof v === 'string' ? '<state>' : v
+    else if (k === 'callbackPort') out[k] = typeof v === 'number' ? '<port>' : v
+    else out[k] = v
+  }
+  return out
+}
+
+/** mcpStatus once the query has registered its servers: the first answers come before that and are empty. */
+async function warmStatus(q: Query): Promise<unknown> {
+  await q.initializationResult()
+  const until = Date.now() + 20_000
+  for (;;) {
+    const list = await mcpStatus(q)
+    if ((Array.isArray(list) && list.length > 0) || Date.now() > until) return list
+    await new Promise((r) => setTimeout(r, 500))
+  }
+}
+
+/**
+ * Does a running query pick up an MCP server added while it runs, and through which call? The policy
+ * tier is the one worfy sends (managedSettings with allowManagedMcpServersOnly + allowedMcpServers).
+ * Everything runs in a sandbox, not logged in; no step sends a prompt except the one turn the
+ * Restart path needs a transcript for, and that turn is refused locally ("Not logged in").
+ */
+async function runMcpLive(): Promise<Facts> {
+  const tmp = realpathSync(tmpdir())
+  const fake = fakeBin(join(scratch, 'mcp-live-bin'))
+  const sb = sandbox('mcp-live', { PATH: `${fake.bin}:${process.env.PATH ?? ''}`, BROWSER: join(fake.bin, 'open') })
+  // Guard: the Claude Code child sees only a fresh temporary HOME and CLAUDE_CONFIG_DIR.
+  const guard = {
+    home_in_fresh_tmp: sb.home.startsWith(`${scratch}/`) && scratch.startsWith(tmp),
+    config_in_fresh_tmp: sb.config.startsWith(`${scratch}/`),
+    env_home: sb.env.HOME === sb.home,
+    env_config: sb.env.CLAUDE_CONFIG_DIR === sb.config,
+    no_api_key: Object.keys(sb.env).every((k) => !/^ANTHROPIC_|^CLAUDE_CODE_OAUTH/.test(k)),
+  }
+  if (!Object.values(guard).every(Boolean)) throw new Error(`mcp-live: the sandbox guard failed: ${JSON.stringify(guard)}`)
+  const notesJs = join(here, 'example-notes.mjs')
+  const notesConfig = { type: 'stdio' as const, command: 'node', args: [notesJs] }
+  const oauth = await oauthFake()
+  const cwd = workDir('mcp-live')
+  const worfyPolicy = (names: string[]): Partial<Options> => ({ managedSettings: { allowManagedMcpServersOnly: true, allowedMcpServers: names.map((serverName) => ({ serverName })) } })
+  const base = (extra: Partial<Options>): Options => sessionOptions(cwd, { env: sb.env, spawnClaudeCodeProcess: spawnWatched, ...extra })
+  const projects = join(sb.config, 'projects')
+  /** What the sandbox config says about MCP servers: does a toggle outlive the Session? */
+  const configState = (): Facts => {
+    const file = join(sb.config, '.claude.json')
+    if (!existsSync(file)) return { file: 'absent' }
+    const c = JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: Record<string, unknown>; projects?: Record<string, Record<string, unknown>> }
+    const project = c.projects?.[cwd] ?? {}
+    return { user_servers: Object.keys(c.mcpServers ?? {}), project_mcp_keys: Object.fromEntries(Object.entries(project).filter(([k]) => /mcp/i.test(k))) }
+  }
+  const out: Facts = { sandbox_guard: guard }
+  try {
+    // 1. A Session with example-notes already in mcp.allowed; the user adds the server while it runs.
+    {
+      const s = start(base({ mcpServers: await canvasServer(), ...worfyPolicy(['worfy-canvas', 'example-notes']) }))
+      const step: Facts = { allowedMcpServers: ['worfy-canvas', 'example-notes'] }
+      step.status_start = await warmStatus(s.q)
+      step.init_before_any_prompt = initOf(s) !== undefined
+      step.mcp_add = cli(sb, ['mcp', 'add', '--scope', 'user', 'example-notes', '--', 'node', notesJs])
+      await new Promise((r) => setTimeout(r, 5000))
+      step.status_5s_after_write_no_call = await mcpStatus(s.q, 10_000)
+      const reload = await control(s.q, () => s.q.reloadPlugins())
+      step.reload_plugins = { ...reload, answer: reload.answer ? { mcpServers: statusRows((reload.answer as { mcpServers?: unknown }).mcpServers) } : undefined }
+      step.set_mcp_servers = await control(s.q, async () => s.q.setMcpServers({ ...(await canvasServer()), 'example-notes': notesConfig }))
+      step.toggle_off = await control(s.q, () => s.q.toggleMcpServer('example-notes', false))
+      step.config_after_toggle_off = configState()
+      step.toggle_on = await control(s.q, () => s.q.toggleMcpServer('example-notes', true))
+      step.config_after_toggle_on = configState()
+      step.reconnect = await control(s.q, () => s.q.reconnectMcpServer('example-notes'))
+      step.reconnect_unknown = await control(s.q, () => s.q.reconnectMcpServer('example-unknown'))
+      // A turn refused locally (not logged in) only to get the system/init after the pickup.
+      step.turn = resultFacts(await s.turn('Reply with: ok'))
+      await s.finish()
+      keepInit('mcp-live', 'allowed-added-while-running', s)
+      for (const k of ['reload_plugins', 'set_mcp_servers', 'toggle_off', 'reconnect', 'reconnect_unknown']) keepControl(`allowed-${k.replace(/_/g, '-')}`, sanitize(step[k]))
+      out.allowed_added_while_running = step
+    }
+    // 2. The same user server, outside mcp.allowed: the list cuts it; what can a running query do about it?
+    let sessionId: string | undefined
+    let firstChild: ChildProcess | undefined
+    {
+      const s = start(base({ mcpServers: await canvasServer(), ...worfyPolicy(['worfy-canvas']) }))
+      firstChild = liveChildren[liveChildren.length - 1]
+      const step: Facts = { allowedMcpServers: ['worfy-canvas'] }
+      step.status_start = await warmStatus(s.q)
+      step.set_mcp_servers_unlisted = await control(s.q, async () => s.q.setMcpServers({ ...(await canvasServer()), 'example-notes-dynamic': notesConfig }))
+      step.apply_flag_settings = await control(s.q, () => s.q.applyFlagSettings({ allowedMcpServers: [{ serverName: 'worfy-canvas' }, { serverName: 'example-notes' }, { serverName: 'example-notes-dynamic' }] }))
+      step.reload_after_flag = await control(s.q, () => s.q.reloadPlugins().then((r) => ({ mcpServers: statusRows(r.mcpServers) })))
+      step.reconnect_cut = await control(s.q, () => s.q.reconnectMcpServer('example-notes'))
+      step.toggle_on_cut = await control(s.q, () => s.q.toggleMcpServer('example-notes', true))
+      // The one turn: it gives the Restart path a transcript to resume. Not logged in, Claude Code refuses it locally.
+      const result = await s.turn('Reply with: ok')
+      step.turn = resultFacts(result)
+      step.init_api_key_source = initOf(s)?.apiKeySource
+      sessionId = sessionIdOf(s)
+      step.session_id_seen = sessionId !== undefined
+      await s.finish()
+      keepInit('mcp-live', 'cut-by-allowlist', s)
+      for (const k of ['set_mcp_servers_unlisted', 'apply_flag_settings', 'reload_after_flag', 'reconnect_cut']) keepControl(`cut-${k.replace(/_/g, '-')}`, sanitize(step[k]))
+      out.cut_by_allowlist = step
+    }
+    // 3. Restart: after the first process exits, the same conversation resumed with the name in a second managedSettings.
+    {
+      const t0 = Date.now()
+      const gone = await exited(firstChild, 30_000)
+      const step: Facts = { first_process_exited: gone, waited_ms: Date.now() - t0, resumed: sessionId !== undefined, allowedMcpServers: ['worfy-canvas', 'example-notes'] }
+      const s = start(base({ mcpServers: await canvasServer(), ...worfyPolicy(['worfy-canvas', 'example-notes']), ...(sessionId ? { resume: sessionId } : {}) }))
+      step.status_start = await warmStatus(s.q)
+      step.init_seen_without_prompt = initOf(s) !== undefined
+      step.turn = resultFacts(await s.turn('Reply with: ok'))
+      step.init_session_id_same = sessionIdOf(s) === sessionId
+      await s.finish()
+      keepInit('mcp-live', 'restart-same-conversation', s)
+      keepControl('restart-status', sanitize(step.status_start))
+      out.restart_same_conversation = step
+    }
+    // 4. The inventory query (spec Q11): the user's settings, no allowlist, no worfy servers, no prompt.
+    {
+      cli(sb, ['mcp', 'add', '--scope', 'user', '--transport', 'http', 'example-oauth', oauth.url])
+      const before = tree(projects, /^$/)
+      const t0 = Date.now()
+      const s = start(base({}))
+      const status = await warmStatus(s.q)
+      const listed_ms = Date.now() - t0
+      await s.finish()
+      const child = liveChildren[liveChildren.length - 1]
+      const step: Facts = { listed_ms, total_ms: Date.now() - t0, process_exited: await exited(child, 15_000), status, init_seen_without_prompt: initOf(s) !== undefined }
+      step.transcripts_before = before.length
+      step.transcripts_after = tree(projects, /^$/).length
+      keepControl('inventory-status', sanitize(status))
+      out.inventory = step
+    }
+    // 5. OAuth: the undocumented mcpAuthenticate / mcpSubmitOAuthCallbackUrl against the local fake.
+    {
+      const s = start(base({}))
+      const step: Facts = { status_start: await warmStatus(s.q) }
+      const q = s.q as Query & {
+        mcpAuthenticate?: (name: string, redirectUri?: string, o?: { redirectUriOnly?: boolean }) => Promise<unknown>
+        mcpSubmitOAuthCallbackUrl?: (name: string, url: string) => Promise<unknown>
+        mcpClearAuth?: (name: string) => Promise<unknown>
+      }
+      step.methods_present = { mcpAuthenticate: typeof q.mcpAuthenticate, mcpSubmitOAuthCallbackUrl: typeof q.mcpSubmitOAuthCallbackUrl, mcpClearAuth: typeof q.mcpClearAuth }
+      let state = ''
+      let port = 0
+      if (q.mcpAuthenticate && q.mcpSubmitOAuthCallbackUrl && q.mcpClearAuth) {
+        const auth = await control(q, async () => {
+          const a = (await q.mcpAuthenticate?.('example-oauth')) as Record<string, unknown> | undefined
+          state = typeof a?.state === 'string' ? a.state : ''
+          port = typeof a?.callbackPort === 'number' ? a.callbackPort : 0
+          return a
+        })
+        step.authenticate = { ...auth, answer: authShape(auth.answer) }
+        step.authenticate_unknown = await control(q, () => q.mcpAuthenticate?.('example-unknown') as Promise<unknown>)
+        step.authenticate_stdio = await control(q, () => q.mcpAuthenticate?.('example-notes') as Promise<unknown>)
+        step.callback_without_code = await control(q, () => q.mcpSubmitOAuthCallbackUrl?.('example-oauth', `http://localhost:${port}/callback`) as Promise<unknown>)
+        step.callback_wrong_state = await control(q, () => q.mcpSubmitOAuthCallbackUrl?.('example-oauth', `http://localhost:${port}/callback?code=fake-code&state=not-this-attempt`) as Promise<unknown>)
+        step.callback_refused_token = await control(q, () => q.mcpSubmitOAuthCallbackUrl?.('example-oauth', `http://localhost:${port}/callback?code=fake-code&state=${state}`) as Promise<unknown>)
+        step.clear_auth = await control(q, () => q.mcpClearAuth?.('example-oauth') as Promise<unknown>)
+      }
+      step.config_after_oauth = configState()
+      await s.finish()
+      step.fake_server_requests = [...new Set(oauth.requests)]
+      for (const k of ['authenticate', 'authenticate_unknown', 'authenticate_stdio', 'callback_without_code', 'callback_wrong_state', 'callback_refused_token', 'clear_auth']) if (step[k] !== undefined) keepControl(`oauth-${k.replace(/_/g, '-')}`, sanitize(step[k]))
+      out.oauth = step
+    }
+  } finally {
+    await oauth.close()
+    const alive = liveChildren.filter((c) => c.exitCode === null && c.signalCode === null)
+    for (const c of alive) c.kill('SIGTERM')
+    out.children = { spawned: liveChildren.length, alive_at_end_killed: alive.length }
+    out.fake_bin_calls = existsSync(fake.log) ? [...new Set(readFileSync(fake.log, 'utf8').split('\n').filter(Boolean))] : []
+    out.sandbox_config_files = tree(sb.config, /\/(projects|statsig|telemetry|shell-snapshots|session-env|debug)\//)
+    out.sandbox_transcripts = tree(projects, /^$/).length
+  }
+  return out
+}
+
 const RUNNERS: Record<Scenario, () => Promise<Facts>> = {
   known: runKnown,
   'workflow-hooks': runWorkflowHooks,
   'env-file': runEnvFile,
   install: runInstall,
   'mcp-name': runMcpName,
+  'mcp-live': runMcpLive,
 }
 
 // --- main ------------------------------------------------------------------------------------
 
-/** Re-applies scrub() to every string of the plugin-*.jsonl fixtures in a directory, without a model call. */
+/** Re-applies scrub() to every string of the plugin-*.jsonl and mcp-live-*.json fixtures in a directory, without a model call. */
 function rescrub(dir: string): void {
   const deep = (v: unknown, key = ''): unknown => {
     if (typeof v === 'string') return scrub(v)
@@ -888,11 +1210,16 @@ function rescrub(dir: string): void {
     return v
   }
   const files = readdirSync(dir).filter((f) => f.startsWith('plugin-') && f.endsWith('.jsonl'))
+  const controls = readdirSync(dir).filter((f) => f.startsWith('mcp-live-') && f.endsWith('.json'))
   const parsed = files.map((f) => ({ f, values: readLines(join(dir, f)) }))
-  for (const f of files) for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/00000000-0000-4000-8000-(\d{12})/g)) uuidBase = Math.max(uuidBase, Number(m[1]))
+  for (const f of [...files, ...controls]) for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/00000000-0000-4000-8000-(\d{12})/g)) uuidBase = Math.max(uuidBase, Number(m[1]))
   registerPlugins(parsed.flatMap((p) => p.values))
   for (const { f, values } of parsed) {
     writeFileSync(join(dir, f), `${values.map((v) => JSON.stringify(deep(v))).join('\n')}\n`)
+    process.stdout.write(`[probe] rescrubbed ${f}\n`)
+  }
+  for (const f of controls) {
+    writeFileSync(join(dir, f), `${JSON.stringify(deep(JSON.parse(readFileSync(join(dir, f), 'utf8'))), null, 2)}\n`)
     process.stdout.write(`[probe] rescrubbed ${f}\n`)
   }
 }
@@ -908,7 +1235,8 @@ async function main(): Promise<void> {
   const guard: Facts = { before: fingerprint() }
   const summary: Facts = {
     sdk_version: sdkPkg.version,
-    bundled_claude_code: spawnSync(CLAUDE_BIN, ['--version'], { encoding: 'utf8', env: cleanEnv() }).stdout.trim(),
+    // In a sandbox too: even `--version` gets no chance to touch the real ~/.claude.
+    bundled_claude_code: spawnSync(CLAUDE_BIN, ['--version'], { encoding: 'utf8', env: sandbox('version').env }).stdout.trim(),
     model: MODEL,
     electron: process.versions.electron,
     scenarios: results,
@@ -935,6 +1263,11 @@ async function main(): Promise<void> {
     mkdirSync(fixturesDir, { recursive: true })
     registerPlugins(fixtureMessages)
     for (const f of fixtureMessages) writeFileSync(join(fixturesDir, f.file), `${f.messages.map((m) => JSON.stringify(sanitize(m))).join('\n')}\n`)
+    if (controlFixtures.length > 0) {
+      const controlDir = join(dirname(fixturesDir), 'mcp-live')
+      mkdirSync(controlDir, { recursive: true })
+      for (const f of controlFixtures) writeFileSync(join(controlDir, f.file), `${JSON.stringify(sanitize(f.value), null, 2)}\n`)
+    }
   }
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n[probe] written to ${outDir}\n`)
 }

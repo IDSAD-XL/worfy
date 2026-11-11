@@ -1,7 +1,7 @@
 # 01 — Spike: подхват MCP-серверов в работающей Session
 
 Type: spike
-Status: open
+Status: claimed 2026-11-11T21:22Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения владельца» (Q3, Q5, Q9, Q11); «Что уже есть в SDK и в
 протоколе Codex»; «Риски» (живой подхват невозможен, живая проверка connector-а, недокументированный вход OAuth);

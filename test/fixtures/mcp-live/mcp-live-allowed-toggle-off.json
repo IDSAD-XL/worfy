@@ -1,0 +1,20 @@
+{
+  "answer": null,
+  "status_after": [
+    {
+      "name": "example-notes",
+      "status": "disabled",
+      "source": "dynamic",
+      "scope": "dynamic"
+    },
+    {
+      "name": "worfy-canvas",
+      "status": "connected",
+      "source": "sdk",
+      "scope": "dynamic",
+      "tool_names": [
+        "canvas_ping"
+      ]
+    }
+  ]
+}
