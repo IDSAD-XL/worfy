@@ -35,8 +35,9 @@ gate запускается, как до этого Ticket-а.
       (verdict-файла нет), red marker прошлого run-а по-прежнему держит ход; Codex `Stop` в linked worktree — gate
       запускается; Codex `SubagentStop` в main checkout — gate запускается; Claude Code — как было. Красный до
       исправления.
-- [ ] Shell test `harness/hooks/tests/` на те же случаи — exit 0.
-- [ ] Test-ы, которые гоняли Codex `Stop` с gate в main checkout (parity suite, stdin), идут в linked worktree.
+- [ ] Shell test `harness/hooks/tests/stop-codex-checkout.test.sh` на те же случаи — exit 0.
+- [ ] Test-ы, которые гоняли Codex `Stop` с gate в main checkout (parity suite, случаи stdin в
+      `harness-codex-hooks.test.ts`), идут в linked worktree.
 - [ ] Комментарий в начале `stop.mjs`, `docs/features/gate-and-github.md`, `docs/features/harness.md`,
       `docs/features/skills-agents-and-hooks.md`, `harness/README.md` говорят новое правило; ADR-0094 — датированная
       поправка в `## Amendments`.
@@ -47,9 +48,9 @@ gate запускается, как до этого Ticket-а.
 - `harness/hooks/stop.mjs` — запуск gate под Codex, комментарий в начале файла.
 - `harness/hooks/gate-paths.mjs` — как hook узнаёт linked worktree.
 - `harness/hooks/tests/` — shell test-ы Stop hook-а.
-- `test/contract/harness-codex-hooks.test.ts`, `test/contract/codex-parity.test.ts`,
-  `test/contract/harness-hook-stdin.test.ts` — Codex `Stop` в main checkout и в linked worktree.
+- `test/contract/harness-codex-hooks.test.ts`, `test/contract/codex-parity.test.ts` — Codex `Stop` в main checkout и
+  в linked worktree.
 - `docs/features/gate-and-github.md`, `docs/features/harness.md`, `docs/features/skills-agents-and-hooks.md`,
-  `docs/features/vendors.md`, `harness/README.md` — описание gate под Codex.
+  `harness/README.md` — описание gate под Codex.
 - `docs/adr/0094-vendor-seam.md` — поправка в `## Amendments`.
 - `.scratch/worfy-multi-vendor/issues/43-финальная-приёмка.md` — `Blocked by`.
