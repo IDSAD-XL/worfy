@@ -1,7 +1,7 @@
 # 111 — Длинная ветка в карточке Project-а прячет его имя
 
 Type: bug
-Status: claimed 2026-11-11T18:00Z
+Status: done 2026-11-11T22:54Z
 PR: #1807
 Branch: worfy-polish/111-long-branch-project-card
 Blocked by: none
@@ -39,6 +39,7 @@ Source: бриф Orchestrator-а 2026-11-11, сообщение tester-а.
   - evidence: test-run pass · `pnpm test test/unit/project-card-long-branch.test.tsx` exit 0, exit 1 before the fix · mac - · ee8dc2592b42c24b24ea28600a876fc038734c01
 - [ ] e2e `test/e2e/sidebar-rail.spec.ts`: у «meadow» длинная ветка; в карточке ширина имени > 0, ветка в одну строку и
       внутри карточки; в меню switcher-а имя «meadow» шире нуля. Локально не запускается (правило владельца) — проверяет CI.
+  - evidence: ci-check pass · CI e2e (macos-e2e, windows-e2e) green on PR #1807 · mac - · 4fb0a1ff306960bac43ef9f5c11ae2508dcb76f9
 - [ ] lint, typecheck, unit test-ы sidebar-а и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ee8dc2592b42c24b24ea28600a876fc038734c01
 
