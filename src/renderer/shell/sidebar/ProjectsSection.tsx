@@ -63,9 +63,10 @@ const styles = {
   groupName: { flex: 1, minWidth: 0, display: 'flex' },
   unavailable: { background: 'var(--surface-raised)', color: 'var(--text-muted)' },
   // The card of a Project, `.pcard` of the sidebar prototype: two lines in one button, CARD_HEIGHT high
-  // (5 + 18 + 2 + 14 + 5), a little denser than the prototype's so that 8 cards fit the smallest window.
+  // (5 + 18 + 2 + 14 + 5), a little denser than the prototype's.
   card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, height: CARD_HEIGHT, padding: '5px 8px' },
-  cardLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 18 },
+  // Fixed line heights, so the card is CARD_HEIGHT whatever the platform's font metrics.
+  cardLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 18, lineHeight: '18px', overflow: 'hidden' },
   // Under the name: the icon's width and the gap after it.
   pulse: { display: 'flex', alignItems: 'center', gap: 6, height: 14, paddingLeft: 21, fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' },
   busy: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--working-text)' },

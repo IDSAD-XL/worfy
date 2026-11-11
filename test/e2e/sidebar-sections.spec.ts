@@ -426,12 +426,14 @@ test('under an error of "Add project" a list of 8 Projects keeps the rest of the
     await expect(window.getByTestId('project-pulse')).toHaveCount(8)
     await setWindowSize(launched, 'smallest')
     // The smallest window. Without a message the list has the panel under the header. Its 8 cards of two lines
-    // (44 px each since ticket 99, 28 px rows before) are higher than that panel, so the list scrolls by itself.
+    // (44 px each since ticket 99, 28 px rows before) take 360 px: more than that panel on Windows (335 px), less
+    // than it on macOS (400 px), as CI measured them. The body's scrollHeight is never
+    // below its own height, so the content is the larger of the two; the list scrolls by itself where it is higher.
     const quietColumn = await measure(window)
     expectFills(quietColumn, 'ProjectsSection', 'without a message')
     const quiet = sectionOf(quietColumn, 'ProjectsSection')
-    expect(quiet.content).toBe(8 * CARD_ROW + BODY_PAD)
-    expect(quiet.body).toBeLessThan(quiet.content)
+    expect(await window.getByTestId('project-row').evaluateAll((rows) => rows.map((row) => (row as unknown as { getBoundingClientRect: () => { height: number } }).getBoundingClientRect().height))).toStrictEqual(Array.from({ length: 8 }, () => CARD_ROW))
+    expect(quiet.content).toBe(Math.max(quiet.body, 8 * CARD_ROW + BODY_PAD))
     expect(Math.round(quiet.body)).toBe(Math.round(quiet.bottom - quiet.top - HEADER))
 
     // A short error: the folder picker, replaced in main, fails. No system dialog opens.
