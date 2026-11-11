@@ -79,6 +79,14 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
   let group: Extract<TranscriptItem, { kind: 'tools' }> | null = null
   // A whole text block's anchor: its message id and its text, whatever came before it (quoteAnchor).
   const anchorOf = (messageId: string, text: string): { anchor?: string } => (messageId === '' ? {} : { anchor: quoteAnchor(messageId, text) })
+  // The rows of hooks shown while they run (a Stop hook of Codex), by event and name: the run's end takes
+  // the row's place, or drops it when it said nothing (worfy-multi-vendor ticket 47).
+  const runningHooks = new Map<string, number>()
+  const dropped = new Set<number>()
+  const dropRunningHooks = (): void => {
+    for (const open of runningHooks.values()) dropped.add(open)
+    runningHooks.clear()
+  }
 
   const push = (item: TranscriptItem): void => {
     items.push(item)
@@ -193,14 +201,30 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         else push({ kind: 'subagent', key, at, run, ...(event.toolUseId === null ? {} : { toolUseId: event.toolUseId }) })
         return
       }
-      case 'hook':
+      case 'hook': {
+        const run = `${event.hookEvent}\0${event.hookName}`
+        const open = event.outcome === 'running' ? undefined : runningHooks.get(run)
+        const row = open === undefined ? undefined : items[open]
+        if (open !== undefined && row !== undefined) {
+          runningHooks.delete(run)
+          if (quietHook(event)) dropped.add(open)
+          else replace(open, { kind: 'hook', key: row.key, at: row.at, event })
+          return
+        }
+        if (quietHook(event)) return
         push({ kind: 'hook', key, at, event })
+        if (event.outcome === 'running') runningHooks.set(run, items.length - 1)
         return
+      }
       case 'result':
         endStreaming()
+        // A hook still shown as running when its turn ended did not end by itself (an interrupted turn stops it).
+        dropRunningHooks()
         push({ kind: 'result', key, at, event })
         return
       case 'state':
+        // A process that died, or a Session closed or idle again, ends whatever hook was still shown as running.
+        if (event.state === 'error' || event.state === 'closed' || event.state === 'idle') dropRunningHooks()
         if (event.state === 'error') {
           endStreaming()
           push({ kind: 'error', key, at, text: event.error ?? 'The Session stopped with an error' })
@@ -210,7 +234,15 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         return
     }
   })
-  return items
+  return dropped.size === 0 ? items : items.filter((_, index) => !dropped.has(index))
+}
+
+/**
+ * A Codex hook run that ended and said nothing: `completed`, no exit code but 0, no output. Only the end of a
+ * running row is that quiet; a hook of Claude Code reaches the fold only when it said something.
+ */
+function quietHook(event: EventOf<'hook'>): boolean {
+  return event.outcome === 'completed' && (event.exitCode === null || event.exitCode === 0) && event.stdout.trim() === '' && event.stderr.trim() === ''
 }
 
 /** A stretch of a run with tools hidden: calls folded into one «N tools» line, or calls drawn as they are. */

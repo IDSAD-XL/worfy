@@ -310,7 +310,8 @@ function refsOf(projectId: string, chips: readonly NodeChip[] | undefined): Node
  * Hook outcomes that are an error (worfy-daily ticket 25): `error` and `cancelled` of a live
  * Session's hook_response, `blocked` of a Stop hook summary, and the attachment types of Claude
  * Code 2.1.291 transcripts (`hook_blocking_error`, `hook_non_blocking_error`,
- * `hook_error_during_execution`, `hook_cancelled`, `hook_stopped_continuation`). Any other outcome
+ * `hook_error_during_execution`, `hook_cancelled`, `hook_stopped_continuation`), and `failed`, `blocked`
+ * and `stopped` of a Codex hook run (worfy-multi-vendor ticket 47). Any other outcome
  * (`success`, `permission_decision`, `deferred_tool`) gets a cross only with a non-zero exit code.
  */
 const HOOK_FAILURES: ReadonlySet<string> = new Set([
@@ -321,6 +322,8 @@ const HOOK_FAILURES: ReadonlySet<string> = new Set([
   'non_blocking_error',
   'error_during_execution',
   'stopped_continuation',
+  'failed',
+  'stopped',
 ])
 
 function json(value: unknown): string {
@@ -602,10 +605,18 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
     case 'hook': {
       const { event } = item
       const failed = HOOK_FAILURES.has(event.outcome) || (event.exitCode !== null && event.exitCode !== 0)
+      // A Codex Stop hook while it runs (the Harness's runs the gate): the turn waits for it after the answer.
+      const running = event.outcome === 'running'
       const output = hookOutput(event)
       const line = (
         <span className="w-tr__hook-line">
-          <span className={failed ? 'w-tr__status--blocked' : 'w-tr__status--ready'}>{failed ? <Cross /> : <Check />}</span>
+          {running ? (
+            <span className="w-tr__status w-tr__status--working" data-testid="hook-running">
+              <Spinner />
+            </span>
+          ) : (
+            <span className={failed ? 'w-tr__status--blocked' : 'w-tr__status--ready'}>{failed ? <Cross /> : <Check />}</span>
+          )}
           <span className="w-tr__tool-name">{event.hookEvent} hook</span>
           <span className="w-mono w-tr__muted" data-find={find('hook-name')}>
             {event.hookName}

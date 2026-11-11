@@ -51,7 +51,11 @@ the Orchestrator's stay `orch`.
 **A Codex Session's chat.** It works as a Claude Code Session does ([Sessions](sessions.md)). A message sent during a turn
 waits in the Session's queue and goes after the turn's result. Interrupt cancels the open approval requests and stops the
 turn. Closing, a crash and Resume behave as for Claude Code; Resume continues the same Codex thread. Codex's
-thinking shows as the summary Codex gives of it.
+thinking shows as the summary Codex gives of it. A turn ends when Codex says it completed, in any status, or reports
+an error it does not retry; the Session is then idle. A turn waits for Codex's Stop hooks after the
+answer, and under Codex the Harness's Stop hook runs the gate, which may take minutes: while a Stop hook runs, the
+transcript shows a "Stop hook" row with a spinner after the answer. A hook run that ends silently takes its row away;
+one that blocked, failed or said something stays, as a hook of Claude Code does.
 
 **Model, effort and permissions of a Codex Session.** The three pickers under the input field offer what Codex offers.
 
