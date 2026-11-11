@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-11T14:50Z
+PR: #1798
 Branch: worfy-polish/107
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-11: в этот день все `linux-tests (n/4)` в `.github/workflows/ci.yml` падают на шаге
