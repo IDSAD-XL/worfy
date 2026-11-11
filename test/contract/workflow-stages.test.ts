@@ -746,6 +746,45 @@ describe('one computation per Project root, however it is spelled (worfy-pipelin
   })
 })
 
+// worfy-polish ticket 99: the live state of the Projects (src/main/claude-home/pulse.ts) reads the waits of the Stages
+// main computes for the windows anyway, and never starts a computation of its own.
+describe('the Stages read without a subscription', () => {
+  it('current() is null for a root no one computes, the last snapshot while someone does, null again after; onChange tells each', async () => {
+    let opens = 0
+    const sources: StageSources = {
+      workflow: {
+        open: async () => {
+          opens += 1
+          return null as never
+        },
+        close: async () => true,
+        model: async () => null,
+      },
+      prs: { read: async () => ({ pulls: [], gh: { state: 'ok' } }) as never },
+      profile: async () => ({ ok: false, reason: 'no Profile in this test' }),
+      deployments: { environment: async () => [], deployMarks: async () => [] },
+      harnessHome: dir,
+    }
+    const hub = new StageHub(sources)
+    cleanups.push(async () => hub.closeAll())
+    let told = 0
+    const stop = hub.onChange(() => (told += 1))
+    expect(hub.current(dir)).toBeNull()
+    expect(opens).toBe(0)
+    const snapshot = await hub.open(dir, { id: 1, send: () => undefined })
+    expect(hub.current(dir)).toBe(snapshot)
+    expect(hub.current(join(dir, '.'))).toBe(snapshot)
+    expect(told).toBe(1)
+    await hub.close(dir, 1)
+    expect(hub.current(dir)).toBeNull()
+    expect(told).toBe(2)
+    stop()
+    await hub.open(dir, { id: 2, send: () => undefined })
+    expect(told).toBe(2)
+    expect(opens).toBe(2)
+  })
+})
+
 // worfy-polish ticket 36: an edit of a Ticket's body changes its `version` alone, and the Stages are
 // computed from the Tickets' fields; a new computation would cost a `profile` run for nothing.
 describe('the Stages and an edit of a Ticket\'s text alone', () => {

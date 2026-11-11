@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { PR_INBOX_GROUP_TITLES, type PrInboxGroup } from '../../../shared/ipc/pr-inbox'
+import { PR_INBOX_GROUP_TITLES, PR_NEED_YOU, type PrInboxGroup } from '../../../shared/ipc/pr-inbox'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import { readableReason } from '../../ipc'
 import { openPrInboxOf } from '../../pr-inbox/open'
@@ -29,9 +29,6 @@ export function RailIcon() {
   )
 }
 
-/** The groups whose pull requests wait for you: they make the count on the rail button. */
-const NEED_YOU: ReadonlySet<PrInboxGroup> = new Set<PrInboxGroup>(['needs-review', 'needs-answer', 'needs-fix'])
-
 interface ProjectPullsProps {
   project: ProjectView
   /**
@@ -49,7 +46,7 @@ function ProjectPulls({ project, onShown, onOpen }: ProjectPullsProps) {
   const failed = snapshot === undefined && error !== undefined
   const known = failed || snapshot !== undefined
   const shown = failed || counts.length > 0
-  const needYou = counts.reduce((sum, { group, count }) => sum + (NEED_YOU.has(group) ? count : 0), 0)
+  const needYou = counts.reduce((sum, { group, count }) => sum + (PR_NEED_YOU.has(group) ? count : 0), 0)
   useEffect(() => {
     if (known) onShown(project.id, shown, needYou)
   }, [known, shown, needYou, project.id, onShown])

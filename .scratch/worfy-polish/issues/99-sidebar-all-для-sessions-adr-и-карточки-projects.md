@@ -1,7 +1,7 @@
 # 99 — Sidebar «All Projects» для Sessions и ADR, карточки Projects с живым состоянием
 
 Type: feature
-Status: open
+Status: claimed 2026-11-10T21:44Z
 Blocked by: —
 Source: worfy-polish 94 (sidebar варианта C, PR #1786), раздел «Итог» → «Следующий шаг»; вердикт первого раунда
 review #1786, пункт 9: follow-up про IPC по всем Project-ам должен быть отдельным Ticket-ом.
@@ -47,11 +47,15 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
 
 - [ ] IPC с состоянием каждого Project-а: contract test-ы на ответ и на событие изменения; в main нет watcher-а на Project
       на каждое окно.
+  - evidence: test-run pass · `pnpm test test/contract/project-pulse.test.ts test/contract/docs.test.ts test/contract/workflow-stages.test.ts` exit 0 (in `pnpm test` exit 0) · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 - [ ] Sessions и ADR в «All» показывают все Project-ы по группам; клик по чужому Project-у открывает его; unit test-ы.
+  - evidence: test-run pass · `pnpm test test/unit/sidebar-all-projects.test.tsx test/unit/sidebar-section.test.tsx test/unit/adr-section.test.tsx` exit 0 (in `pnpm test` exit 0) · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 - [ ] Карточки Projects и badge busy по прототипу; e2e на двух fixture Project-ах.
 - [ ] `docs/features/app-shell.md` (раздел Sidebar) и `docs/features/sessions.md` описывают новое поведение.
+  - evidence: commit pass · Sidebar «All Projects»: Sessions, ADR and live Project cards (worfy-polish 99) · - - · b5be304e827b486322a296ed62a6e078cc17dca3
 - [ ] Снимки dev build-а: тёмная и светлая тема, «All» с двумя Project-ами в Sessions, ADR и Projects; fixture Project-ы.
 - [ ] gate fast — exit 0; `ci-ok` на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ae30f5a8acc5a7a3a2ab231a8d7a87d23b2d5fe5
 
 ## Где в коде
 
@@ -63,3 +67,65 @@ Projects.» (`src/renderer/shell/SidebarSection.tsx`, `ScopeNote`). Им нуж�
 - `src/renderer/shell/sidebar-scope.ts` (`projectsInScope`), `src/renderer/shell/SidebarSection.tsx` (`scope`,
   `ScopeNote`).
 - `test/unit/`, `test/contract/`, `test/e2e/sidebar-rail.spec.ts`.
+
+## Итог
+
+Код — ветка `worfy-polish/99`.
+
+**Что изменилось.**
+- **Живое состояние всех Project-ов одним ответом.** Новый канал `projectPulse.get` и событие `projectPulse.changed`
+  (`src/shared/ipc/project-pulse.ts`): для каждого Project-а Machine-ы — live Session-ы, сколько из них busy, сколько PR
+  ждут пользователя (группы needs review / answer / fix), сколько Ticket-ов в работе blocked или ждут человека.
+  В main один hub на все окна (`src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`): раз в секунду
+  листает папку реестра live Session-ов (`~/.claude/sessions`), пока подписано хоть одно окно, и читает её заново при
+  изменении. Пока есть live Session, каждый poll проверяет её pid сигналом 0 (`processGoneNow`, без `ps` и PowerShell):
+  так ловится процесс, умерший без удаления файла; полное чтение с проверкой времени старта (pid занят другим
+  процессом) — раз в минуту. Session относится к Project-у, чей root или worktree содержит её cwd, к самому глубокому;
+  Session вложенного Project-а в «All» показана и посчитана один раз, под ним. Watcher-а на Project нет ни в одном окне.
+- **Linked machine не видит local-only Project-ы.** Ответ `projectPulse.get` и каждое `projectPulse.changed` для
+  удалённого клиента идут без Project-ов с `localOnly`, как `projects.list`.
+- **Чтение, начатое до ухода последнего окна, ничего не оставляет**: счётчик поколений в hub-е, следующее окно читает
+  заново.
+- **PR без новых вызовов GitHub.** Число «PR need you» — из снимка PR inbox, который main уже читает
+  (`appPrInboxSource`); `null`, пока PR inbox Project-а выключен. Группы «need you» — один `PR_NEED_YOU` в
+  `src/shared/ipc/pr-inbox.ts` для карточки и badge-а Pull requests.
+- **Waits из Stage-ей, которые main уже считает.** `StageHub.current(root)` и `StageHub.onChange` (`src/main/workflow/stages.ts`):
+  hub читает последний снимок, ничего не запуская. Project, чей Pipeline не показывает ни одно окно, — `waits: null`
+  (в «All» Pipeline section открывает все Project-ы, так что там число есть).
+- **ADR других Project-ов разово.** `docs.adrs` читает ADR Project-а без watcher-а и подписки; AdrSection зовёт его
+  для других Project-ов каждый раз, когда раздел попадает в панель.
+- **Sessions и ADR в «All».** Открытый Project первым, потом каждый другой, у которого есть live Session / ADR, под
+  своим именем, как Epics в 94. Клик по Session-у другого Project-а: запрос `requestSession`
+  (`src/renderer/shell/session-request.ts`), потом `openProject`; раздел нового Project-а открывает Session, когда её
+  Node есть в Layout (не дольше 15 с). Клик по ADR другого Project-а: `openProject`, потом `openAdr`, как «Go to» палитры.
+  Отказ открыть Project — строка с role alert. На read-only экране скрытая Node Session-а другого Project-а не
+  возвращается, раздел говорит почему, как у своих строк.
+- **Карточки Projects.** Project Machine-ы окна — карточка в две строки (44 px): имя и ветка, ниже
+  «N busy · N PR need you · N waits» или «quiet»; busy — цветом работы, остальное — цветом блока; нулевые и
+  неизвестные части не пишутся. Project Linked machine — одна строка, как раньше.
+- **Badge Sessions** — число busy Session-ов Project-ов, которые показывает переключатель, тоном working
+  («N busy»), как `.cnt.working` прототипа.
+
+**Что убрано или заменено.**
+- Строка «<имя> only: this list does not show other Projects.» (`ScopeNote`) и вид `scope="current"` у
+  `SidebarSection`: Sessions и ADR теперь `filtered`.
+- Badge Sessions больше не считает live Session-ы открытого Project-а нейтральным тоном: он считает busy.
+- Строка Project-а в Projects (`ListRow`) для Project-ов Machine-ы окна заменена карточкой.
+- Число в заголовке ADR (`adr-count`) и «N live» Sessions в «All» считают все показанные Project-ы.
+
+- Полное перечитывание реестра раз в 5 с, пока есть live Session: теперь раз в минуту, между ними — сигнал 0 по pid.
+
+**Решения без владельца.**
+- Канал без `close`: окно подписывается один раз и остаётся подписанным до закрытия. Иначе Linked machine, которая
+  обслуживает все окна Machine-ы одним клиентом, закрывала бы подписку всех окон по закрытию одного
+  (как в worfy-windows 64/69).
+- «Waits» — Ticket-ы в работе, которые blocked или ждут человека (`waits` не `agent`), как «waits for you» в
+  прототипе; точка Pipeline на rail-е считает по-прежнему всех ждущих.
+- Session другого Project-а подписана именем из реестра Claude Code и «terminal»/«desktop»: Canvas и история того
+  Project-а не читаются, поэтому «worfy» там не отмечается, пока Project не открыт.
+- Перевод `docs/features/ru/` не правился: `rules.md`, раздел «Язык» — в PR с поведением правится только английская
+  страница.
+
+**Снимки dev build-а** — ждут: локально Electron не запускался (правило владельца про фокус окон). e2e
+`test/e2e/sidebar-rail.spec.ts` снимает «projects-cards», «sessions-all», «adr-all» в обеих темах под
+`WORFY_SNAPSHOT_DIR` (имена `99-sidebar-*`).

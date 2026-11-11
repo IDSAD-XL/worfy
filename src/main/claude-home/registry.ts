@@ -308,6 +308,20 @@ export async function processState(pid: number, procStart: string | undefined, o
   return collapse(stdout) === collapse(procStart) ? 'alive' : 'gone'
 }
 
+/**
+ * Whether no process has the pid now, by a signal 0 alone: no `ps` or PowerShell is started, so it may be
+ * asked often. A reused pid still counts as running here; processState() tells that apart.
+ */
+export function processGoneNow(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return true
+  try {
+    process.kill(pid, 0)
+    return false
+  } catch (error) {
+    return !(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPERM')
+  }
+}
+
 /** True when processState() says `alive`; a `ps` that could not answer counts as not running here. */
 export async function processAlive(pid: number, procStart: string | undefined): Promise<boolean> {
   return (await processState(pid, procStart)) === 'alive'
@@ -356,7 +370,8 @@ function dropUndefined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as T
 }
 
-async function liveSessions(home: string, roots: readonly string[], isAlive: NonNullable<RegistryOptions['isAlive']>): Promise<LiveSession[]> {
+/** The live Sessions of the registry whose cwd lies in one of `roots`; with `roots` null, every one of them. */
+async function liveSessions(home: string, roots: readonly string[] | null, isAlive: NonNullable<RegistryOptions['isAlive']>): Promise<LiveSession[]> {
   const dir = join(home, 'sessions')
   // Only <pid>.json: the <pid>.<sha256>.key files next to them are never opened.
   const files = (await listDir(dir)).filter((entry) => entry.isFile && /^\d+\.json$/.test(entry.name))
@@ -371,7 +386,7 @@ async function liveSessions(home: string, roots: readonly string[], isAlive: Non
       const parsed = registryEntrySchema.safeParse(raw)
       if (!parsed.success) return undefined
       const entry = parsed.data
-      if (!inProject(entry.cwd, roots)) return undefined
+      if (roots !== null && !inProject(entry.cwd, roots)) return undefined
       if (!(await isAlive(entry.pid, entry.procStart))) return undefined
       return dropUndefined<LiveSession>({
         pid: entry.pid,
@@ -856,6 +871,19 @@ export class ClaudeHomeRegistry {
   /** Only the live Sessions of the Project at `projectRoot`; the history is not read. */
   async live(projectRoot: RegistryRoot): Promise<LiveSession[]> {
     return liveSessions(this.home, await this.roots(projectRoot), this.isAlive)
+  }
+
+  /**
+   * Every live Session of the registry, whatever Project its cwd lies in (worfy-polish ticket 99): the
+   * live state of all Projects is one read of the registry folder (src/main/claude-home/pulse.ts).
+   */
+  async liveAll(): Promise<LiveSession[]> {
+    return liveSessions(this.home, null, this.isAlive)
+  }
+
+  /** Names, sizes and modification times of the registry files: equal while the registry is unchanged. */
+  registryStamp(): Promise<string> {
+    return registryStamp(this.sessionsDir)
   }
 
   /**

@@ -395,6 +395,8 @@ class ProjectStages {
     private readonly root: string,
     private readonly sources: StageSources,
     private readonly watchId: string,
+    /** Told after each snapshot that differs from the one before, the first one too. */
+    private readonly onSnapshot: () => void = () => undefined,
   ) {
     this.reader = new StageReader(sources, () => void this.refresh())
   }
@@ -437,9 +439,11 @@ class ProjectStages {
       return
     }
     if (this.closed) return
-    const changed = this.current !== null && JSON.stringify(this.current) !== JSON.stringify(next)
+    const first = this.current === null
+    const changed = !first && JSON.stringify(this.current) !== JSON.stringify(next)
     this.current = next
     if (changed) for (const subscriber of this.subscribers.values()) subscriber.send(next)
+    if (first || changed) this.onSnapshot()
   }
 
   async close(): Promise<void> {
@@ -463,6 +467,8 @@ let watchIds = 0
  */
 export class StageHub {
   private readonly projects = new Map<string, { stages: ProjectStages; ready: Promise<void> }>()
+  /** Those told when any Project's snapshot changes or a Project stops being computed (onChange). */
+  private readonly listeners = new Set<() => void>()
 
   constructor(private readonly sources: StageSources) {}
 
@@ -472,7 +478,7 @@ export class StageHub {
     let project = this.projects.get(root)
     if (!project) {
       watchIds += 1
-      const stages = new ProjectStages(root, this.sources, `pipeline-stages:${watchIds}`)
+      const stages = new ProjectStages(root, this.sources, `pipeline-stages:${watchIds}`, () => this.tell())
       const ready = stages.start()
       project = { stages, ready }
       this.projects.set(root, project)
@@ -495,10 +501,35 @@ export class StageHub {
     if (!project || !project.stages.subscribers.delete(subscriberId)) return false
     if (project.stages.subscribers.size === 0) {
       this.projects.delete(root)
+      this.tell()
       await project.ready.catch(() => undefined)
       await project.stages.close()
     }
     return true
+  }
+
+  /**
+   * The last snapshot of `root` while someone computes it, else null: read without starting a computation
+   * (the live state of the Projects, src/main/claude-home/pulse.ts, worfy-polish ticket 99).
+   */
+  current(root: string): PipelineSnapshot | null {
+    return this.projects.get(this.keyOf(root))?.stages.current ?? null
+  }
+
+  /** Calls `listener` whenever current() may answer otherwise for some root; returns the unsubscribe. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
+  }
+
+  private tell(): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener()
+      } catch (error) {
+        console.error('[pipeline] a listener of the Stages failed', error)
+      }
+    }
   }
 
   private keyOf(root: string): string {

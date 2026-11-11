@@ -22,8 +22,9 @@ The column on the left of the window, 264 pixels wide. From the top:
   and a chevron at its right end. A long Project name has the whole row.
 - **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Pipeline, Epics, ADR, and at its
   foot Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
-  another section is open: the number of live Sessions in a neutral colour, the number of pull requests that need you (review, answer or fix),
-  a dot while a Ticket in work is blocked or waits for someone, and the dot of the Linked machines.
+  another section is open: the number of busy Sessions of the Projects the switcher shows, in the colour of work, the
+  number of pull requests that need you (review, answer or fix), a dot while a Ticket in work is blocked or waits for
+  someone, and the dot of the Linked machines.
 - **The panel**, next to the rail. It shows one section: its name, which Projects it shows, its own buttons, and its list,
   which scrolls by itself.
 
@@ -32,15 +33,26 @@ opens at once. The section that is open is remembered for the window.
 
 **The Project switcher** answers "All Projects" or one Project of the window's Machine:
 
-- **All Projects** mixes the Projects in the sections that can: Pipeline, Pull requests and Epics. Epics shows the open
-  Project's Epics first, then those of every other Project that has Epics, each under its name. A click on an Epic of
-  another Project opens that Project and centres the Epic on its Canvas.
+- **All Projects** mixes the Projects in Sessions, Pull requests, Pipeline, Epics and ADR. Each of Sessions, Epics and
+  ADR shows the open Project's list first, then the list of every other Project that has one, each under its name. A
+  click on an Epic of another Project opens that Project and centres the Epic on its Canvas. A click on a Session of
+  another Project opens that Project, then the Session as a click in its own list does, once its Node is on the Canvas
+  (within 15 seconds). A click on an ADR of another Project opens that Project, then the ADR.
 - **One Project** opens that Project, as its row in the Projects section does, and the sections show it alone once it is
   open. When the Project cannot be opened, the switcher says why and keeps its answer. While the switcher is on one
   Project it follows the open one: opening another Project shows that one.
-- Sessions and ADR show the open Project in either answer. Under "All Projects", with more than one Project, the section
-  says so under its header.
 - Projects and Machines are not filtered: Projects is where Projects are opened, added and removed.
+
+**The Projects section** shows each Project of the window's Machine as a card of two lines: the name and the branch, then
+its live state, "N busy · N PR need you · N waits", or "quiet". Busy is in the colour of work, the other two in the
+colour of a block. A part that is zero or unknown is left out. "PR need you" counts the pull requests that need your
+review, answer or fix; it is unknown while the Project's PR inbox is off. "Waits" counts the Tickets in work that are
+blocked or wait for a person, not for an agent. It is known only while a window shows the Project's Pipeline, which "All
+Projects" does. A Project of a Linked machine keeps its single line.
+
+In another Project's group, a Session shows the name Claude Code gives it, else "Session <id>", and "terminal" or
+"desktop". That Project's Canvas is not read, so its worfy Sessions are not marked "worfy" there. "New session", "Product
+Session" and History work with the open Project.
 
 The answer is remembered for the window, as the open section is. A new window and a restart start from the last choice
 made in any window. On one Project with no Project open, the sections show every Project. With no Project open, Epics,
@@ -59,6 +71,18 @@ and whether it stands at the foot. Every section stays mounted while another one
 badge stays current; the others are only hidden. The switcher's answer and the open section are kept in the window's local
 storage, in worfy's data folder. No setting of the app holds them.
 
+The other Projects cost no watcher per Project in each window. Their Sessions, busy counts, pull requests that need you
+and waits come in one answer from main, `projectPulse.get`, and one event, `projectPulse.changed`. Main keeps one reader
+for every window. It lists the folder of live Sessions in the Claude home every second while a window is subscribed, and
+reads it again when it changed. A process that died without removing its file changes no file, so while a Session is
+live each poll also asks the system whether its process still runs, which starts no other process. The whole folder,
+with the start-time check that tells a reused process number apart, is read again once a minute. A Session of a
+Project inside the open one is listed and counted once, under its own Project. A Linked machine gets no Project that
+is kept on this Machine only. It takes the pull requests from the PR inbox as last read, so it makes no GitHub call of its own. It
+takes the waits from the Stages it already computes for the windows. A window subscribes once and stays subscribed until
+it closes. The other Projects' ADRs are read once with `docs.adrs`, each time the ADR section comes into the panel, with no
+watcher. Only the open Project's documents are watched.
+
 ### Implementation
 
 | What | Where |
@@ -67,6 +91,8 @@ storage, in worfy's data folder. No setting of the app holds them.
 | Frame of a section | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
 | Answer, open section, badges | `src/renderer/shell/sidebar-scope.ts` |
+| Live state of every Project | `src/shared/ipc/project-pulse.ts`, `src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`, `src/renderer/projects/useProjectPulse.ts` |
+| A Session of another Project, opened after its Project | `src/renderer/shell/session-request.ts` |
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 

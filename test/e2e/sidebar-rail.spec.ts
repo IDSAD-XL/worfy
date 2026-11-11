@@ -15,8 +15,12 @@ import { nodeScript } from '../harness-node'
 // the Sessions say that they show the open Project only; both choices outlive a restart. The button that hides the
 // sidebar is in the sidebar's strip, and in the toolbar only while the sidebar is hidden; ⌘B is unchanged.
 // A third Project, «meadow», has no Epics and a long name, for the pill of the switcher.
-// WORFY_SNAPSHOT_DIR, when set, also gets the screenshots of the ticket, each dark and light: the Epics under «All» and
-// under one Project, the Sessions with their «… only» line, the Projects with the long name in the pill, the open menu.
+// Under «All Projects» the Sessions and the ADRs of every Project show too, each under its name, and the Projects are
+// cards with their live state (worfy-polish ticket 99): live Sessions of «orchard» and «harbor» in the registry of the
+// Claude home, ADRs in both.
+// WORFY_SNAPSHOT_DIR, when set, also gets the screenshots of the tickets, each dark and light: the Epics under «All» and
+// under one Project, the Sessions, the Projects with the long name in the pill, the open menu (94); the Projects as
+// cards, the Sessions and the ADRs of both Projects under «All» (99).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -106,16 +110,16 @@ const pick = async (window: Page, name: string): Promise<void> => {
 const appRegion = (locator: Locator): Promise<string> =>
   locator.evaluate((node) => (globalThis as unknown as { getComputedStyle(of: unknown): { getPropertyValue(name: string): string } }).getComputedStyle(node).getPropertyValue('-webkit-app-region'))
 
-/** The screenshots of the ticket, when the run asks for them: copied out of test-results under the ticket's names. */
-async function ticketShots(window: Page, name: string): Promise<void> {
+/** The screenshots of a ticket (94 unless named), when the run asks for them: copied out of test-results under the ticket's names. */
+async function ticketShots(window: Page, name: string, ticket = '94'): Promise<void> {
   // The pointer away from the sidebar: no hover on a row or a tab in the picture.
   await parkPointer(window)
-  const shots = await snapshotThemes(window, `sidebar-rail-${name}`)
+  const shots = await snapshotThemes(window, `sidebar-rail-${ticket}-${name}`)
   const out = process.env.WORFY_SNAPSHOT_DIR
   if (out === undefined || out === '') return
   mkdirSync(out, { recursive: true })
-  copyFileSync(shots.dark, join(out, `94-sidebar-${name}-dark.png`))
-  copyFileSync(shots.light, join(out, `94-sidebar-${name}-light.png`))
+  copyFileSync(shots.dark, join(out, `${ticket}-sidebar-${name}-dark.png`))
+  copyFileSync(shots.light, join(out, `${ticket}-sidebar-${name}-light.png`))
 }
 
 test('one section at a time on the rail; the switcher mixes the Projects or shows the one it opens; both choices outlive a restart', async () => {
@@ -144,7 +148,9 @@ test('one section at a time on the rail; the switcher mixes the Projects or show
     await expect(tab(window, 'ADR')).toBeFocused()
     await expect(tab(window, 'ADR')).toHaveAttribute('aria-selected', 'true')
     await tab(window, 'Sessions').click()
-    await expect(window.getByRole('region', { name: 'Sessions', exact: true }).getByTestId('sidebar-scope-note')).toHaveText('orchard only: this list does not show other Projects.')
+    // The Sessions follow the switcher too (worfy-polish ticket 99): no line that they show the open Project only.
+    await expect(window.getByRole('region', { name: 'Sessions', exact: true }).getByTestId('sidebar-scope-label')).toHaveText('All Projects')
+    await expect(window.getByRole('region', { name: 'Sessions', exact: true }).getByTestId('sidebar-scope-note')).toHaveCount(0)
     await ticketShots(window, 'sessions-all')
 
     // One Project — the other one: it opens, and the Epics show it alone.
@@ -258,6 +264,90 @@ test('the top as the owner chose: the wordmark after the traffic lights, the but
     await expect(menu.getByRole('menuitemradio', { name: new RegExp(`^${MEADOW_NAME}`) })).toHaveAttribute('aria-checked', 'true')
     await ticketShots(window, 'menu-open')
     await expect(menu).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
+/** A live Session in the registry of the Claude home: the test runner's own process, so it counts as running. */
+function writeLiveSession(file: number, sessionId: string, cwd: string, status: 'busy' | 'idle', name: string): void {
+  mkdirSync(join(claudeHome, 'sessions'), { recursive: true })
+  writeFileSync(join(claudeHome, 'sessions', `${file}.json`), JSON.stringify({ pid: process.pid, sessionId, cwd, status, name, entrypoint: 'cli', kind: 'interactive' }))
+}
+
+/** An ADR of the Project in folder `name`. */
+function writeAdr(name: string, file: string, title: string): void {
+  mkdirSync(join(scratch, name, 'docs', 'adr'), { recursive: true })
+  writeFileSync(join(scratch, name, 'docs', 'adr', file), `# ${title}\n\nDate: 2026-11-10. Status: accepted.\n`)
+}
+
+const ORCHARD_SESSION = '0a0a0a0a-1111-4111-8111-000000000001'
+const HARBOR_BUSY = '0b0b0b0b-2222-4222-8222-000000000002'
+const HARBOR_IDLE = '0b0b0b0b-3333-4333-8333-000000000003'
+
+test('«All Projects» lists the Sessions and the ADRs of both Projects, each under its name; the Projects are cards with their live state; a click in the other Project opens it', async () => {
+  writeLiveSession(9001, ORCHARD_SESSION, join(scratch, 'orchard'), 'busy', 'Billing review')
+  writeLiveSession(9002, HARBOR_BUSY, join(scratch, 'harbor'), 'busy', 'Dock schedule')
+  writeLiveSession(9003, HARBOR_IDLE, join(scratch, 'harbor'), 'idle', 'Crane notes')
+  writeAdr('orchard', '0001-billing-in-cents.md', 'Billing in cents')
+  writeAdr('harbor', '0001-one-queue-per-dock.md', 'One queue per dock')
+  writeAdr('harbor', '0002-tides-from-a-file.md', 'Tides from a file')
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await setWindowSize(launched, SIZE)
+    const card = (id: string) => window.locator(`[data-testid="project-row"][data-project-id="${id}"] [data-testid="project-pulse"]`)
+
+    // The Projects: a card of two lines each, the live state under the name and the branch.
+    await expect(card(ORCHARD)).toHaveText('1 busy')
+    await expect(card(HARBOR)).toHaveText('1 busy')
+    await expect(card(MEADOW)).toHaveText('quiet')
+    await ticketShots(window, 'projects-cards', '99')
+
+    // The rail button of the Sessions counts the busy Sessions of both Projects, in the tone of work.
+    const badge = tab(window, 'Sessions').getByTestId('sidebar-rail-badge')
+    await expect(badge).toHaveText('2')
+    await expect(badge).toHaveAttribute('data-tone', 'working')
+
+    // The Sessions: the open Project's first, then harbor's, each under its name.
+    await tab(window, 'Sessions').click()
+    const sessions = window.getByRole('region', { name: 'Sessions', exact: true })
+    await expect(sessions.getByTestId('sidebar-session')).toHaveCount(3)
+    expect(await sessions.getByTestId('sidebar-sessions-project').evaluateAll((all) => all.map((group) => group.getAttribute('data-project')))).toEqual([ORCHARD, HARBOR])
+    // Both harbor Sessions share the test's pid, so their order follows the folder listing: compared without it.
+    const harborNames = sessions.locator(`[data-testid="sidebar-session"][data-project="${HARBOR}"] [data-testid="sidebar-session-name"]`)
+    await expect.poll(async () => (await harborNames.allTextContents()).sort()).toEqual(['Crane notes', 'Dock schedule'])
+    await expect(sessions.getByTestId('sidebar-sessions-live')).toHaveText('3 live')
+    await expect(sessions.getByTestId('sidebar-scope-note')).toHaveCount(0)
+    await ticketShots(window, 'sessions-all', '99')
+
+    // The ADRs: orchard's, then harbor's, read once for the other Project.
+    await tab(window, 'ADR').click()
+    const adrs = window.getByRole('region', { name: 'ADR', exact: true })
+    await expect(adrs.getByTestId('sidebar-adr')).toHaveCount(3)
+    expect(await adrs.getByTestId('sidebar-adr-project').evaluateAll((all) => all.map((group) => group.getAttribute('data-project')))).toEqual([ORCHARD, HARBOR])
+    await expect(adrs.getByTestId('adr-count')).toHaveText('3')
+    await ticketShots(window, 'adr-all', '99')
+
+    // A click on an ADR of harbor opens harbor, then the ADR.
+    await adrs.locator(`[data-testid="sidebar-adr"][data-project="${HARBOR}"][data-path="docs/adr/0002-tides-from-a-file.md"]`).click()
+    await expect(window.locator('.w-toolbar__name')).toHaveText('harbor')
+    await expect(window.getByTestId('adr-panel')).toHaveAttribute('data-path', 'docs/adr/0002-tides-from-a-file.md')
+    await window.keyboard.press('Escape')
+    await expect(window.getByTestId('adr-panel')).toHaveCount(0)
+    // harbor is open now: its ADRs first.
+    await expect.poll(() => adrs.getByTestId('sidebar-adr-project').evaluateAll((all) => all.map((group) => group.getAttribute('data-project')))).toEqual([HARBOR, ORCHARD])
+
+    // A click on the Session of orchard, another Project now, opens orchard.
+    await tab(window, 'Sessions').click()
+    await expect.poll(() => sessions.getByTestId('sidebar-sessions-project').evaluateAll((all) => all.map((group) => group.getAttribute('data-project')))).toEqual([HARBOR, ORCHARD])
+    await sessions.locator(`[data-testid="sidebar-session"][data-project="${ORCHARD}"]`).click()
+    await expect(window.locator('.w-toolbar__name')).toHaveText('orchard')
+
+    // Under one Project the Sessions show the open one alone, and the badge counts its own.
+    await pick(window, 'orchard')
+    await expect(sessions.getByTestId('sidebar-session')).toHaveCount(1)
+    await expect(badge).toHaveText('1')
   } finally {
     await launched.close()
   }

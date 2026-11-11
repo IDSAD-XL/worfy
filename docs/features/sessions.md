@@ -115,8 +115,9 @@ A read-only Node turns live in place, keeping its id and position, and grows to 
 comes back to the Canvas first. A locked Node is refused. Without a Node, a new Node appears.
 
 **Sidebar and history.** The sidebar's Sessions section lists the live Sessions of the active Project, with "New session"
-and the history; under "All Projects" of the sidebar's Project switcher it says it shows that Project only. Its rail icon
-counts the live Sessions. The history popover lists up to 100 past Sessions, newest first, each with Show and Resume, and its source: worfy,
+and the history. Under "All Projects" of the sidebar's Project switcher, the live Sessions of every other Project of the
+Machine follow, each Project under its name. A click on one opens its Project first, then the Session (see
+[App shell](app-shell.md)). Its rail icon counts the busy Sessions of the Projects the switcher shows. The history popover lists up to 100 past Sessions, newest first, each with Show and Resume, and its source: worfy,
 desktop or terminal. Show puts a read-only Node on the Canvas, or goes to the Node the Session has. The title is the last
 custom title, then the AI title, then the first prompt.
 

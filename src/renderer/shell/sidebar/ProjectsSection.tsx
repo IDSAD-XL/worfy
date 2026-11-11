@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import '../../canvas/actions/actions.css'
 import type { LinkState } from '../../../shared/ipc/link'
+import type { ProjectPulse } from '../../../shared/ipc/project-pulse'
 import type { ConnectFolder, ProjectsState, ProjectView } from '../../../shared/ipc/projects'
 import { invokeOn, readableReason, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
@@ -11,8 +12,9 @@ import { RemoveProject } from '../../projects/RemoveProject'
 import { readOnlyHint, writeAction } from '../../projects/read-only'
 import { onAddProjectRequest } from '../../projects/add-project'
 import { useGateQueue } from '../../projects/useGateQueue'
+import { pulseOf, pulseParts, useProjectPulse } from '../../projects/useProjectPulse'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
-import { ListRow, StatusChip } from '../../theme/primitives'
+import { StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
 import { showSidebarSection } from '../sidebar-scope'
@@ -21,7 +23,10 @@ import { MachineName } from './MachinesSection'
 
 /**
  * First section of the sidebar (design F): every Project, by Machine. The Project switcher does not
- * filter it (worfy-polish ticket 94): it is where Projects are opened, added and removed.
+ * filter it (worfy-polish ticket 94): it is where Projects are opened, added and removed. Each Project of
+ * the window's Machine is a card of two lines, as in the sidebar prototype (worfy-polish ticket 99): its
+ * name and branch, then its live state — «N busy · N PR need you · N waits», or «quiet» — from the live
+ * state of the Projects (projects/useProjectPulse.ts). A Project of another Machine keeps its one line.
  */
 export const order = 10
 export const railTitle = 'Projects'
@@ -33,6 +38,9 @@ export function RailIcon() {
     </svg>
   )
 }
+
+/** The height of a Project's card with its live state, in px; a row without it keeps --row-height. */
+const CARD_HEIGHT = 44
 
 const styles = {
   iconButton: {
@@ -54,6 +62,15 @@ const styles = {
   groupHeader: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minHeight: 22, padding: '0 8px', fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
   groupName: { flex: 1, minWidth: 0, display: 'flex' },
   unavailable: { background: 'var(--surface-raised)', color: 'var(--text-muted)' },
+  // The card of a Project, `.pcard` of the sidebar prototype: two lines in one button, CARD_HEIGHT high
+  // (5 + 18 + 2 + 14 + 5), a little denser than the prototype's.
+  card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, height: CARD_HEIGHT, padding: '5px 8px' },
+  // Fixed line heights, so the card is CARD_HEIGHT whatever the platform's font metrics.
+  cardLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 18, lineHeight: '18px', overflow: 'hidden' },
+  // Under the name: the icon's width and the gap after it.
+  pulse: { display: 'flex', alignItems: 'center', gap: 6, height: 14, paddingLeft: 21, fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' },
+  busy: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--working-text)' },
+  needs: { color: 'var(--blocked-text)' },
   menu: {
     position: 'fixed',
     zIndex: 90,
@@ -332,8 +349,35 @@ interface RowsProps {
   onMenu: (project: ProjectView, x: number, y: number) => void
 }
 
-/** The Project rows of one Machine. */
+const busyDot = <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--working-dot)', flex: 'none' }} aria-hidden="true" />
+
+/** The second line of a card: the live state, each part in its colour, or «quiet». */
+function PulseLine({ pulse }: { pulse: ProjectPulse }) {
+  const parts = pulseParts(pulse)
+  return (
+    <span style={styles.pulse} data-testid="project-pulse">
+      {parts.length === 0 ? (
+        <span>quiet</span>
+      ) : (
+        parts.map((part, index) => (
+          <span key={part.key} style={{ display: 'contents' }}>
+            {index > 0 ? <span aria-hidden="true">·</span> : null}
+            <span style={part.tone === 'busy' ? styles.busy : styles.needs} data-pulse={part.key}>
+              {part.tone === 'busy' ? busyDot : null}
+              {part.text}
+            </span>
+          </span>
+        ))
+      )}
+    </span>
+  )
+}
+
+/** The Project rows of one Machine: cards with the live state for the window's Machine. */
 function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
+  const state = useProjectPulse()
+  // The live state is of the window's Machine alone: the other Machines' Projects keep their one line.
+  const live = group.machine === windowMachine()
   return (
     <ul style={styles.list} aria-label={group.machine === null ? 'Projects' : 'Projects of the Machine'}>
       {group.projects.map((project) => (
@@ -348,16 +392,30 @@ function ProjectRows({ group, onSelect, onMenu }: RowsProps) {
             onMenu(project, event.clientX, event.clientY)
           }}
         >
-          <ListRow
-            label={<span style={{ fontWeight: 600 }}>{project.name}</span>}
-            icon={folderIcon}
-            trailing={<span className="w-mono">{project.branch ?? '—'}</span>}
-            selected={project.id === group.selectedId}
-            onSelect={() => onSelect(project)}
-          />
+          <ProjectCard project={project} selected={project.id === group.selectedId} pulse={live ? pulseOf(state, project.id) : undefined} onSelect={() => onSelect(project)} />
         </li>
       ))}
     </ul>
+  )
+}
+
+/** A Project's row: its name and branch, and its live state under them when it is known. */
+function ProjectCard({ project, selected, pulse, onSelect }: { project: ProjectView; selected: boolean; pulse: ProjectPulse | undefined; onSelect: () => void }) {
+  return (
+    <button type="button" className="w-row" style={pulse === undefined ? undefined : styles.card} aria-current={selected ? 'true' : undefined} onClick={onSelect}>
+      <span style={styles.cardLine}>
+        <span className="w-row__icon" aria-hidden="true">
+          {folderIcon}
+        </span>
+        <span className="w-row__label" style={{ fontWeight: 600 }}>
+          {project.name}
+        </span>
+        <span className="w-row__trailing">
+          <span className="w-mono">{project.branch ?? '—'}</span>
+        </span>
+      </span>
+      {pulse === undefined ? null : <PulseLine pulse={pulse} />}
+    </button>
   )
 }
 

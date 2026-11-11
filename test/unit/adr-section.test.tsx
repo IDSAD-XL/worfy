@@ -53,7 +53,8 @@ const panelPath = () => screen.queryByTestId('adr-panel')?.getAttribute('data-pa
 beforeEach(() => {
   resetToasts()
   shown.machine = null
-  invoke.mockClear()
+  invoke.mockReset()
+  invoke.mockImplementation(() => Promise.resolve({ ok: true, value: { path: 'opened', outcome: 'opened' } }))
   projects.state = { projects: [project('p1'), project('p2')], activeId: 'p1', revision: 1 }
   useCanvasRequests.setState({ adr: null, adrHandled: 0 })
 })
@@ -122,7 +123,10 @@ describe('ADR panel: Open in Editor', () => {
 
   // worfy-polish ticket 35: a symlinked ADR that leads to anything but a document is shown, not opened.
   it('says why when main showed the file in Finder instead of opening it', async () => {
-    invoke.mockResolvedValueOnce({ ok: true, value: { path: '/p1/run.term', outcome: 'revealed', revealedIn: 'darwin' } })
+    // Only Open in Editor gets this answer: the section, now in the panel, also reads the ADRs of p2 once (docs.adrs).
+    invoke.mockImplementation((channel) =>
+      Promise.resolve({ ok: true, value: channel === 'shell.openInEditor' ? { path: '/p1/run.term', outcome: 'revealed', revealedIn: 'darwin' } : { adrs: [] } }),
+    )
     await openInEditor()
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'Shown in Finder: not a document', testId: 'file-revealed' }])
   })
@@ -132,6 +136,6 @@ describe('ADR panel: Open in Editor', () => {
     await openInEditor()
     // The toast of the window (toast/ToastRegion.tsx) shows it, not the panel.
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'info', text: 'File is on Mini', testId: 'file-elsewhere' }])
-    expect(invoke).not.toHaveBeenCalled()
+    expect(invoke.mock.calls.map(([channel]) => channel).filter((channel) => channel !== 'docs.adrs')).toEqual([])
   })
 })

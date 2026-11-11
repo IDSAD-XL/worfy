@@ -55,16 +55,6 @@
   font-size: var(--text-11);
   color: var(--text-muted);
 }
-.w-sidebar-section__scope-note {
-  flex: none;
-  margin: 0 8px 6px;
-  padding: 4px 8px;
-  border-radius: var(--radius-button);
-  background: var(--surface-raised);
-  font-size: var(--text-11);
-  line-height: 15px;
-  color: var(--text-secondary);
-}
 /* The row of the section's main buttons (SidebarSection `actions`): they share it, the first one the primary. */
 .w-sidebar-section__actions {
   flex: none;
