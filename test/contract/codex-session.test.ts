@@ -470,6 +470,26 @@ describe('a Codex Session: a turn that ended leaves the Session idle (worfy-mult
     await session.handle.interrupt()
     expect(at.requests('turn/interrupt')).toEqual([])
   })
+
+  it('a system error of the thread, in the order the live Codex sends it (systemError, error, turn/completed), ends the turn once, with Codex\'s error and its kind', async () => {
+    const at = fake('turn-system-error')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('Say hello'))
+    await session.until(isResult, 'the result of the failed turn')
+    // The script's last step, after the turn/completed, is a context of 1241 tokens: once it is here, the turn/completed was taken.
+    await session.until((event) => event.type === 'context' && event.usage?.totalTokens === 1241, 'the context after the turn/completed')
+    const results = session.events.filter(isResult)
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({
+      type: 'result',
+      subtype: 'error',
+      isError: true,
+      error: "The 'no-such-model' model is not supported when using Codex with a ChatGPT account.",
+      terminalReason: 'modelNotFound',
+      interrupted: false,
+    })
+  })
 })
 
 describe('a Codex Session: model, effort and preset', () => {
