@@ -30,6 +30,12 @@ unset GITHUB_ACTIONS
 mkdir -p "$HARNESS_HOME/user" "$HARNESS_HOME/gate"; printf '{"repos":[]}\n' >"$HARNESS_HOME/gate/config.json"
 export CLAUDE_GATE_CONFIG="$HARNESS_HOME/gate/config.json"
 unset CLAUDE_PROFILES_DIR CLAUDE_TICKET_BIN CLAUDE_PROFILE_BIN
+# Every node here sees a stand-in host name, not this machine's: the real one may be a word the checked
+# files legitimately hold (a host named like the platform field of an evidence line), and then the
+# repository's own files would fail the check. A case below checks that evidence-check flags the stand-in.
+export FAKE_HOSTNAME="evi""dence-test-box"
+FAKE_HOST_JS="$(cd "$(dirname "$0")/fixtures" && { pwd -W 2>/dev/null || pwd -P; })/fake-hostname.cjs"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$FAKE_HOST_JS\""
 
 # --- values, from pieces ------------------------------------------------------------------------
 NAME="jd""oe"
@@ -204,6 +210,12 @@ l="$(leaks "$T/out-files.txt")"; [ -z "$l" ] && ok "explicit files: no value pri
 
 (cd "$T/files" && node "$CHECK" clean.png) >"$T/out-clean.txt" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(cat "$T/out-clean.txt")" = "evidence-check: ok (1 files)" ] && ok "clean file -> exit 0, ok line" || bad "clean: exit $rc: $(cat "$T/out-clean.txt")"
+# evidence-check hands the machine's host name (here the stand-in FAKE_HOSTNAME) to the rules: a file
+# that holds it is a finding, and the output does not print it whole.
+mkdir -p "$T/own-host"; printf 'line one\nbuilt on %s today\n' "$FAKE_HOSTNAME" >"$T/own-host/notes.md"
+(cd "$T/own-host" && node "$CHECK" notes.md) >"$T/out-own-host.txt" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -qF "notes.md:2: host: " "$T/out-own-host.txt" && ! grep -qF "$FAKE_HOSTNAME" "$T/out-own-host.txt" \
+    && ok "the machine's host name in a file -> host finding, masked" || bad "own host name: exit $rc: $(head -c 600 "$T/out-own-host.txt")"
 node "$CHECK" --bogus >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "unknown option -> exit 2" || bad "unknown option: exit $rc"
 node "$CHECK" "$T/files/missing.md" >/dev/null 2>&1; rc=$?

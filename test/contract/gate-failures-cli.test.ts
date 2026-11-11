@@ -3,7 +3,7 @@
 // CLAUDE_GATE_STATE in a temporary folder, so no test reads or writes the Harness home of this machine.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { homedir, hostname, tmpdir, userInfo } from 'node:os'
+import { homedir, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { importedDir, pruneFailures, testId, type RunRecord } from '../../harness/hooks/gate-failures.mjs'
@@ -13,6 +13,11 @@ import { scriptNode } from '../script-node'
 const CLI = join(process.cwd(), 'harness', 'bin', 'gate-failures')
 const DAY = 24 * 60 * 60 * 1000
 const OTHER = '9f8e7d6c'
+// The CLI runs with this stand-in for the host name (harness/bin/tests/fixtures/fake-hostname.cjs), not
+// the name of the machine under the test: a host may be called like a word machine.json holds by design
+// (the platform name), and the checks below must fail exactly when the CLI writes or accepts the host name.
+const FAKE_HOST = 'gate-failures-test-box'
+const FAKE_HOST_JS = join(process.cwd(), 'harness', 'bin', 'tests', 'fixtures', 'fake-hostname.cjs')
 
 let root: string
 // The machine.json of the real Harness home, and whether it was there before the tests: the tests must
@@ -38,8 +43,8 @@ function folders(name: string): { home: string; state: string } {
 }
 
 function cli(args: string[], { home, state }: { home: string; state: string }): { status: number | null; stdout: string; stderr: string } {
-  const env = { ...process.env, HARNESS_HOME: home, CLAUDE_GATE_STATE: state, EVAL_HARNESS_HOME: '' }
-  const run = spawnSync(scriptNode(), [CLI, ...args], { cwd: root, encoding: 'utf8', env })
+  const env = { ...process.env, HARNESS_HOME: home, CLAUDE_GATE_STATE: state, EVAL_HARNESS_HOME: '', FAKE_HOSTNAME: FAKE_HOST }
+  const run = spawnSync(scriptNode(), ['--require', FAKE_HOST_JS, CLI, ...args], { cwd: root, encoding: 'utf8', env })
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
 
@@ -109,9 +114,8 @@ describe('gate-failures', () => {
     expect(readFileSync(file, 'utf8')).toBe(text)
     expect(statSync(file).mtimeMs).toBe(made)
 
-    const host = (hostname().split('.')[0] ?? '').toLowerCase()
     const user = userInfo().username.toLowerCase()
-    if (host.length >= 3) expect(text.toLowerCase()).not.toContain(host)
+    expect(text.toLowerCase()).not.toContain(FAKE_HOST)
     if (user.length >= 3) expect(text.toLowerCase()).not.toContain(user)
   })
 
@@ -122,7 +126,7 @@ describe('gate-failures', () => {
     expect(renamed.status, renamed.stderr).toBe(0)
     expect(JSON.parse(readFileSync(join(dirs.home, 'gate', 'machine.json'), 'utf8'))).toEqual({ id, name: 'PC' })
 
-    const refused = cli(['machine', '--name', hostname()], dirs)
+    const refused = cli(['machine', '--name', FAKE_HOST], dirs)
     expect(refused.status).toBe(2)
     expect(JSON.parse(readFileSync(join(dirs.home, 'gate', 'machine.json'), 'utf8')).name).toBe('PC')
     expect(cli(['machine', '--name'], dirs).status).toBe(2)
