@@ -146,3 +146,9 @@ hook-ам (Ticket-ы 02–05).
 - 2026-11-08 — пункт 5, «зависимость `mattpocock-skills` — отдельным plugin-ом»: зависимости больше нет, Codex получает
   эти skills внутри того же plugin-а `worfy` (Epic `worfy-skills`, решение владельца 2026-11-07). Подробно — поправка
   [ADR-0059](0059-installer-installs-plugin-dependencies.md#amendments).
+- 2026-11-11 — пункт 6, строка «gate до конца работы»: под Codex `Stop` главной Session в main checkout Project-а
+  (не в linked worktree) gate больше не запускает — там работает Orchestrator, а не implementer, и run стоил до 900 s
+  в конце каждого его хода, который поменял дерево (tester видел, что Session «висит» после ответа). Удержание хода по
+  red marker прошлого run-а остаётся; `SubagentStop` в main checkout и `Stop` в linked worktree запускают gate, как
+  раньше; под Claude Code ничего не меняется. Main checkout от linked worktree hook отличает по
+  `git rev-parse --git-dir` и `--git-common-dir`. Решение владельца 2026-11-11, Ticket `worfy-multi-vendor` 48.

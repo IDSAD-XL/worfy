@@ -380,7 +380,7 @@ workflow keeps the guarantees it has on Claude Code, no stricter, each by a mech
 
 | Guarantee | On Codex |
 |---|---|
-| The gate before the work ends | Codex has no `TaskCompleted` or `TeammateIdle`. On `Stop` and `SubagentStop` in a registered Project, `stop.mjs` runs `gate.mjs fast` itself and holds the turn while it is red; Codex goes on with the reason |
+| The gate before the work ends | Codex has no `TaskCompleted` or `TeammateIdle`. On `Stop` and `SubagentStop` in a registered Project, `stop.mjs` runs `gate.mjs fast` itself and holds the turn while it is red; Codex goes on with the reason. A `Stop` in the main checkout, not in a linked worktree, runs no gate and is held only by the red marker an earlier run left |
 | A read-only reviewer and scout | The Bash guard refuses `apply_patch`, Codex's file edit, to `worfy-reviewer` and `worfy-scout`; their shell commands go through the Bash rules |
 | The Bash guard | The same `guard.mjs` on `Bash\|apply_patch`. Input typed into an open shell runs no hook, so an agent `worfy-*` may not start an interactive shell, interpreter or terminal multiplexer |
 | Rules at the start | `SessionStart` and `SubagentStart`, the same events |

@@ -84,7 +84,7 @@ const GUARANTEES: Guarantee[] = [
     row: 2,
     guarantee: 'a turn does not end while the gate is red',
     readme: 'The gate before the work ends',
-    codex: 'Stop with a red gate keeps the turn going with the reason; with a green gate the turn ends',
+    codex: 'Stop in a linked worktree with a red gate keeps the turn going with the reason; with a green gate the turn ends',
     claude: [
       { file: 'harness/bin/tests/harness-home.test.sh', check: 'check "default: stop.mjs reads the red marker from the new place (exit 2)"' },
       { file: 'harness/hooks/tests/gate-notverified.test.sh', check: 'check "stop: broken config + red marker -> red message"' },
@@ -378,23 +378,27 @@ interface Project {
 const MACHINE_VARIABLES = /^(CLAUDE_|HARNESS_HOME$|EVAL_HARNESS_HOME$|GATE_|GH_TOKEN$|GITHUB_TOKEN$|QMD_|XDG_|WORFY_CODEX|WORFY_SESSION_KIND$)/i
 
 /**
- * A registered project for one run: a git worktree with status.txt, whose first line is what its one gate
- * script `check` passes on (ok) or fails on; its registry, gate state, Harness home, HOME and a stand-in
+ * A registered project for one run: a linked git worktree with status.txt, whose first line is what its one
+ * gate script `check` passes on (ok) or fails on, where the agents of the scenarios work as an implementer
+ * does (on Codex a Stop in the main checkout runs no gate, ticket 48; the registry names the main checkout,
+ * as it names a repository); its registry, gate state, Harness home, HOME and a stand-in
  * bin/profile that names a profile with session.retro_reminder_after (a field worfy-skills 02 removed, which an
  * older profile may still carry). `env` is the environment of the fake.
  */
 function project(name: string): Project {
   const dir = join(root, name)
+  const main = join(dir, 'main')
   const work = join(dir, 'project')
-  mkdirSync(work, { recursive: true })
-  writeFileSync(join(work, 'package.json'), '{ "name": "fixture", "scripts": { "check": "true" } }\n')
-  writeFileSync(join(work, 'README.md'), '# Project\n')
-  writeFileSync(join(work, 'status.txt'), 'ok\n')
-  const git = (...args: string[]) => spawnSync('git', ['-C', work, ...args], { stdio: 'ignore' })
+  mkdirSync(main, { recursive: true })
+  writeFileSync(join(main, 'package.json'), '{ "name": "fixture", "scripts": { "check": "true" } }\n')
+  writeFileSync(join(main, 'README.md'), '# Project\n')
+  writeFileSync(join(main, 'status.txt'), 'ok\n')
+  const git = (...args: string[]) => spawnSync('git', ['-C', main, ...args], { stdio: 'ignore' })
   git('init', '-q', '-b', 'main')
   git('add', '.')
   git('-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'init')
   git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  git('worktree', 'add', '-q', '--detach', work)
   const status = join(work, 'status.txt')
   const pm = join(dir, WINDOWS ? 'fakepm.cmd' : 'fakepm')
   writeFileSync(
@@ -402,7 +406,7 @@ function project(name: string): Project {
     WINDOWS ? `@echo off\r\nset /p m=<"${status}"\r\nif "%m%"=="ok" exit /b 0\r\necho Tests 1 failed\r\nexit /b 1\r\n` : `#!/bin/sh\n[ "$(head -n 1 "${status}")" = ok ] && exit 0\necho "Tests 1 failed"\nexit 1\n`,
   )
   if (!WINDOWS) chmodSync(pm, 0o755)
-  writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [{ key: 'p', match: work, pm, root: { fast: ['check'] }, workspace: {} }] }))
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: [{ key: 'p', match: main, pm, root: { fast: ['check'] }, workspace: {} }] }))
   const profileDir = join(dir, 'profile')
   mkdirSync(profileDir)
   const profileBin = join(dir, 'profile.mjs')
