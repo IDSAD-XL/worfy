@@ -1,7 +1,8 @@
 # 17 — Pilot на проекте project-a
 
 Type: task
-Status: open
+Status: done 2026-11-11T19:44Z
+PR: #1804
 Blocked by: 15
 Source: [spec.md](../spec.md), «Решения владельца 2026-11-07», п. 12; «Соглашения для Ticket-ов этого Epic-а» (содержимое project-a в репозиторий worfy не попадает); «Решения владельца 2026-11-08 (PR #1666)», Q3; карта [worfy-product](../../worfy-product/map.md), решение 03 (Q4); research [«Product Session: качество решений»](../../../docs/research/2026-11-08-product-session-decision-quality.md), разделы 7, 8
 
@@ -31,6 +32,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 
 - [ ] (manual) Product Session на project-a: хотя бы один раунд идей и один разбор критика; снимок не публикуется.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-11 Q6: pilot on another project passed, close it («5-7 да») · mac stable · 94d475ba337105cf63740d85ae368bf4a923a00d
 - [ ] Доля принятых советов на project-a — N из M в «Итог», без содержания проекта.
 - [ ] (manual) Один план разобран без критика (baseline) и с критиком; в «Итог» — что критик нашёл сверх baseline и
       расход токенов обоих разборов, без содержания проекта.
@@ -39,6 +41,7 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
       принятых советов.
 - [ ] (manual) Владелец говорит, полезен ли советник на project-a, — его слова в «Итог» без подробностей проекта.
   - needs: mac stable
+  - evidence: owner-check pass · owner 2026-11-11 Q6: pilot on another project passed («5-7 да»); words in Итог · mac stable · 94d475ba337105cf63740d85ae368bf4a923a00d
 
 ## Тесты
 
@@ -49,3 +52,9 @@ Source: [spec.md](../spec.md), «Решения владельца 2026-11-07»,
 - `.scratch/worfy-product-session/evidence/17-*`
 
 Только читать: Profile project-a (через `bin/profile`, вне репозитория worfy).
+
+## Итог
+
+Владелец 2026-11-11 ответил «5-7 да» на вопрос Q6 (pilot Product Session на другом проекте пройден, закрыть
+Ticket): pilot пройден, Ticket закрыт. Подробности проекта сюда не пишутся. Пункты 2–4 (доля принятых советов,
+разбор с критиком и без, ложные возражения) без чисел: владелец их не называл.

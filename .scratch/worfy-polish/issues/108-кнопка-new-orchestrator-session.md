@@ -1,7 +1,7 @@
 # 108 — Кнопка «New Orchestrator Session» вместо «New conversation»
 
 Type: polish
-Status: claimed 2026-11-11T15:49Z
+Status: done 2026-11-11T18:24Z
 PR: #1799
 Branch: worfy-polish/108
 Blocked by: —
@@ -45,6 +45,7 @@ Session, а эта кнопка заменяет текущую Session Orchestr
   - evidence: commit pass · git grep -n "New conversation" -- src docs/features: no match · - - · e1ab280da5a90eb0f327462b755955072889fe48
 - [ ] e2e spec-и с текстом кнопки (`test/e2e/vendor-picker.spec.ts`) ждут новый текст; e2e — только в CI на PR
       (локальный e2e сейчас запрещён: владелец за Mac).
+  - evidence: ci-check pass · CI e2e on PR #1799 (macos-e2e 2/2, windows-e2e 4/4 success) · ci - · 75be0f045701cc1da0b1e272fd305119e0838471
 - [ ] lint, typecheck, test-ы затронутых модулей и gate fast — exit 0; `ci-ok` на PR зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e1ab280da5a90eb0f327462b755955072889fe48
 

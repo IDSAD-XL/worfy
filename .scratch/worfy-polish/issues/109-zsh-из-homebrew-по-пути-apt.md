@@ -1,7 +1,7 @@
 # 109 — CI: zsh из Homebrew лежит там же, где zsh из apt
 
 Type: bug
-Status: claimed 2026-11-11T16:51Z
+Status: done 2026-11-11T17:14Z
 PR: #1801
 Branch: worfy-polish/109
 Blocked by: none
@@ -46,6 +46,7 @@ Ubuntu-ского `/etc/zsh/zshrc`. Regex конца prompt-а в `terminal-ai-z
   - evidence: gate pass · `gate fast` exit 0 · mac - · d6fdc92510c75da3a4a23087ef0b54b8945531b2
 - [ ] Terminal test-ы (`terminal-ai-zle.test.ts`, `terminal-shell-integration.test.ts`) зелёные в `linux-tests` с zsh из
       Homebrew — CI полного набора (`main` после merge или следующий PR с полным набором).
+  - evidence: ci-check pass · full CI run 43064497175 (workflow_dispatch on worfy-polish/109): linux-tests 4/4 success, ci-ok success · ci - · 13cea61aea6198fc54655e02e331638038b3eab7
 
 ## Где в коде
 

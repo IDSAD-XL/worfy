@@ -1,7 +1,7 @@
 # 107 — CI: zsh на Linux runner-е без зеркал Ubuntu
 
 Type: bug
-Status: claimed 2026-11-11T14:50Z
+Status: done 2026-11-11T15:51Z
 PR: #1798
 Branch: worfy-polish/107
 Blocked by: none

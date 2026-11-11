@@ -1,8 +1,8 @@
 # 94 — Sidebar: rail разделов, одна панель и переключатель Project-а «All» / один Project
 
 Type: feature
-Status: claimed 2026-11-10T13:46Z
-PR: —
+Status: done 2026-11-10T21:23Z
+PR: #1786
 Branch: worfy-polish/94
 Blocked by: —
 Source: владелец 2026-11-10, снимок Stable и выбор варианта C прототипа (Card `card-d8349882`).

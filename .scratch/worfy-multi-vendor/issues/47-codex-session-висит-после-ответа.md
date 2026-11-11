@@ -1,7 +1,7 @@
 # 47 — Session на Codex висит «в работе» после ответа
 
 Type: bug
-Status: claimed 2026-11-11T12:16Z
+Status: done 2026-11-11T18:24Z
 PR: #1796
 Branch: worfy-multi-vendor/47
 Blocked by:
