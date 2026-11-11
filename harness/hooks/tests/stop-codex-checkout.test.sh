@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The Stop hook stop.mjs on Codex in the main checkout and in a linked worktree (owner decision
-# 2026-11-11, worfy-multi-vendor ticket 48):
+# The Stop hook stop.mjs on Codex in the main checkout and in a linked worktree:
 #   - a Codex Stop in the main checkout runs no gate (no verdict file) and lets a turn without a red
 #     marker end;
 #   - a Codex SubagentStop in the main checkout runs the gate, and its red marker holds the next Stop

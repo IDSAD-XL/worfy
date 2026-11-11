@@ -24,14 +24,13 @@
 // so on Stop and on SubagentStop in a registered project this hook first runs `gate.mjs fast` with
 // the hook input on stdin (the gate's green cache keeps a turn that changed nothing cheap), then
 // holds the turn on its red marker as below: neither the agent nor a Subagent finishes with a red gate.
-// One exception (owner decision 2026-11-11, worfy-multi-vendor ticket 48): a Stop in the main checkout
-// of the repository, not in a linked worktree (gate-paths.mjs isLinkedWorktree), runs no gate. There the
-// main Session works — the Orchestrator, say — not an implementer, and the run cost up to 900 s at the
-// end of each of its turns that changed the tree, so the Session seemed to hang after its answer. Its
-// Stop is still held on the red marker a run left; a SubagentStop in the main checkout and a Stop in a
-// linked worktree run the gate as before, and a git that cannot tell the two apart runs it too.
-// Codex reads the block the same way (exit 2, the reason on stderr). Its Stop output takes no hookSpecificOutput, so a
-// message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
+// One exception: a Stop in the main checkout of the repository, not in a linked worktree (gate-paths.mjs
+// isLinkedWorktree), runs no gate. There the main Session works — the Orchestrator, say — not an
+// implementer, and the run cost up to 900 s at the end of each of its turns that changed the tree, so the
+// Session seemed to hang after its answer. Its Stop is still held on the red marker a run left; a
+// SubagentStop in the main checkout and a Stop in a linked worktree run the gate as before, and a git
+// that cannot tell the two apart runs it too. Codex reads the block the same way (exit 2, the reason
+// on stderr). Its Stop output takes no hookSpecificOutput, so a message to the model is {"decision":"block","reason":…}: Codex continues the turn with the reason
 // as a new prompt, the extra turn additionalContext costs under Claude Code. Under Claude Code,
 // SubagentStop is no gate point and the hook does nothing on it; the Stop hook stays cheap there.
 // A Subagent of Codex counts its blocks and hears each note on its own (by agent_id), so it does not
