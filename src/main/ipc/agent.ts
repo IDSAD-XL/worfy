@@ -48,6 +48,8 @@ import {
   agentEvent,
   agentInterrupt,
   agentList,
+  agentMcp,
+  agentMcpAction,
   agentModels,
   agentPermission,
   agentQueueRemove,
@@ -340,6 +342,13 @@ export function agentHandlers(
     }),
     defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
     defineHandler(agentCapabilities, ({ sessionId }) => registry().get(sessionId).capabilities()),
+    defineHandler(agentMcp, async ({ sessionId }) => ({ servers: await registry().get(sessionId).mcp() })),
+    defineHandler(agentMcpAction, ({ sessionId, name, action }) => {
+      const session = registry().get(sessionId)
+      // The server's name is the user's own: the journal of an Autopilot run gets the action alone.
+      registry().noteInput(sessionId, `asked for ${action} of an MCP server`)
+      return session.mcpAction(name, action)
+    }),
     defineHandler(agentQueueRemove, ({ sessionId, id }) => {
       const session = registry().get(sessionId)
       registry().noteInput(sessionId, 'removed a queued message')

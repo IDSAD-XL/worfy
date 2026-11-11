@@ -12,6 +12,7 @@
 // (src/shared/transcript/parse.ts) uses its helpers too.
 import { z } from 'zod'
 import type { AgentEvent, ContextUsage } from '../../agent/events'
+import { mcpSourceOf, type McpServerRow } from '../../agent/mcp-status'
 import { limitStateOf, limitUpdatesFromSdk, limitWindows } from '../../agent/limits'
 
 // ---------------------------------------------------------------------------------------------
@@ -439,4 +440,56 @@ export function isCompactBoundary(message: unknown): boolean {
   if (message === null || typeof message !== 'object') return false
   const { type, subtype } = message as { type?: unknown; subtype?: unknown }
   return type === 'system' && subtype === 'compact_boundary'
+}
+
+// ---------------------------------------------------------------------------------------------
+// The MCP servers of a Session (worfy-mcp-live ticket 02): Query.mcpServerStatus() and the
+// `mcp_servers` of system/init, as the rows of src/shared/agent/mcp-status.ts. Only the fields a row
+// shows are read: the server's `config` (its URL and headers), `scope` and `serverInfo` go nowhere.
+
+const sdkMcpServer = z.object({
+  name: z.string().min(1),
+  status: z.enum(['connected', 'failed', 'needs-auth', 'pending', 'disabled']),
+  error: optStr,
+  source: optStr,
+  tools: z.array(z.unknown()).nullish(),
+})
+
+/**
+ * The row of a server of Claude Code. Reconnect is offered to a failed server only; Turn off and
+ * Turn on are not offered: Claude Code's toggleMcpServer writes the user's .claude.json, so they come
+ * as a Restart of the Session (ticket 03), and worfy never calls it.
+ */
+function mcpRow(server: z.infer<typeof sdkMcpServer>): McpServerRow {
+  return {
+    name: server.name,
+    status: server.status,
+    tools: server.tools === null || server.tools === undefined ? null : server.tools.length,
+    error: orNull(server.error),
+    ...mcpSourceOf(server.source),
+    actions: server.status === 'failed' ? ['reconnect'] : [],
+  }
+}
+
+/**
+ * The rows of an mcpServerStatus() answer (McpServerStatus[] of the SDK); null when the answer is no
+ * list. An entry worfy cannot read — no name, a status it does not know — is left out.
+ */
+export function mcpServerRowsOf(answer: unknown): McpServerRow[] | null {
+  if (!Array.isArray(answer)) return null
+  return answer.flatMap((entry) => {
+    const server = sdkMcpServer.safeParse(entry)
+    return server.success ? [mcpRow(server.data)] : []
+  })
+}
+
+/**
+ * The servers a system/init names (`mcp_servers`: name, status, source; no tools), as rows; null
+ * for any other message, or an init without the list.
+ */
+export function initMcpServers(message: unknown): McpServerRow[] | null {
+  if (message === null || typeof message !== 'object') return null
+  const { type, subtype, mcp_servers: servers } = message as { type?: unknown; subtype?: unknown; mcp_servers?: unknown }
+  if (type !== 'system' || subtype !== 'init') return null
+  return mcpServerRowsOf(servers)
 }

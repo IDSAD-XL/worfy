@@ -21,6 +21,22 @@
 //                                    ticket 23). Before any such line getContextUsage() rejects, as
 //                                    a Claude Code with no usage to report
 //   {"fake":"context","error":"..."} getContextUsage() rejects with this message from here on
+//   {"fake":"mcp","fixture":"<path>"} what mcpServerStatus() answers from here on (worfy-mcp-live
+//                                    ticket 02): an answer the spike of ticket 01 recorded, its path
+//                                    relative to the script's folder (../mcp-live/mcp-live-<name>.json)
+//                                    — a list of servers, or a record whose `status_after` is one. Its
+//                                    scrub kept only the names of the tools (`tool_names`); they become
+//                                    the SDK's `tools` again. Before any such line mcpServerStatus()
+//                                    rejects, as getContextUsage() does
+//   {"fake":"mcp","servers":[...]}   the same with the servers in the SDK's shape (McpServerStatus)
+//   {"fake":"mcp","error":"..."}     mcpServerStatus() rejects with this message from here on
+//                                    reconnectMcpServer(name) of a server the last answer lists makes
+//                                    it `connected`, without an error, as Claude Code did
+//                                    (F:restart-user-reconnect); any other name rejects with
+//                                    "Server not found: <name>" (F:allowed-reconnect-unknown).
+//                                    toggleMcpServer(name, enabled) makes it `disabled` / `connected`;
+//                                    worfy never calls it (it writes the user's .claude.json), and the
+//                                    record shows a call that would
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
 //   {"fake":"permission","toolName":"Bash","toolUseId":"toolu_…","input":{...},"suggestions":[...]}
@@ -79,8 +95,9 @@
 // The fake agent reads the Session's input as soon as a message arrives, as Claude Code does, and
 // reports what it gets to `record` (FakeQueryOptions): each user message whole — its text, and its
 // content as Claude Code got it, image blocks included (ticket 20) —, each control call
-// (setModel, setPermissionMode, applyFlagSettings for effort) and the settings it started with.
-// getContextUsage() is a read, not a control call, and is not recorded.
+// (setModel, setPermissionMode, applyFlagSettings for effort, reconnectMcpServer, toggleMcpServer) and
+// the settings it started with. getContextUsage() and mcpServerStatus() are reads, not control calls,
+// and are not recorded.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
 // Claude Code. Each answer canUseTool gave is recorded with the tool and its input. close() while
@@ -89,7 +106,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { ASK_USER_QUESTION, MULTI_SELECT_SEPARATOR } from '../../shared/agent/questions'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
@@ -108,6 +125,10 @@ export type FakeCall =
   | { kind: 'applyFlagSettings'; settings: Record<string, unknown> }
   /** What canUseTool answered for a tool call of a `permission` line. */
   | { kind: 'permission'; toolName: string; input: Record<string, unknown>; result: PermissionAnswer }
+  /** An MCP server reconnected (worfy-mcp-live ticket 02). */
+  | { kind: 'reconnectMcpServer'; name: string }
+  /** An MCP server turned off or on: worfy never asks for it (it writes the user's .claude.json). */
+  | { kind: 'toggleMcpServer'; name: string; enabled: boolean }
   /** close() while background tasks lived: Claude Code would have killed these (task ids). */
   | { kind: 'close'; backgroundTasks: string[] }
 
@@ -126,6 +147,26 @@ type Account = { info: AccountInfoLike } | { error: string }
 /** What getContextUsage() answers: the usage as the SDK gives it, or a rejection. */
 type ContextAnswer = { usage: unknown } | { error: string }
 
+/** What mcpServerStatus() answers: the servers in the SDK's shape, or a rejection. */
+type McpAnswer = { servers: Record<string, unknown>[] } | { error: string }
+
+/**
+ * The servers of an `mcp` line: its own `servers`, or those of the recorded answer its `fixture` names
+ * (relative to the script's folder), `tool_names` turned back into the SDK's `tools`.
+ */
+function mcpAnswerOf(value: Record<string, unknown>, scriptPath: string): McpAnswer {
+  if (typeof value.error === 'string') return { error: value.error }
+  let servers: unknown = value.servers
+  if (typeof value.fixture === 'string') {
+    const recorded = JSON.parse(readFileSync(resolve(dirname(scriptPath), value.fixture), 'utf8')) as unknown
+    servers = Array.isArray(recorded) ? recorded : (recorded as { status_after?: unknown }).status_after
+  }
+  if (!Array.isArray(servers)) throw new Error(`${scriptPath}: an mcp line names no servers`)
+  return {
+    servers: (servers as Record<string, unknown>[]).map(({ tool_names: names, ...server }) => (Array.isArray(names) ? { ...server, tools: names.map((name: unknown) => ({ name })) } : server)),
+  }
+}
+
 /** What the head lines of a script set; absent fields keep the defaults. */
 interface FakeConfig {
   account?: Account
@@ -141,6 +182,7 @@ type Step =
   | { kind: 'wait_release'; name: string }
   | { kind: 'stderr'; text: string }
   | { kind: 'context'; answer: ContextAnswer }
+  | { kind: 'mcp'; answer: McpAnswer }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
   | {
@@ -168,12 +210,13 @@ type Step =
 type Line = Step | { kind: 'config'; config: FakeConfig }
 
 /** Each directive of a script (`{"fake": <name>, ...}`) and the line it makes. */
-const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
+const DIRECTIVES: Record<string, (value: Record<string, unknown>, path: string) => Line> = {
   wait_message: () => ({ kind: 'wait_message' }),
   wait_interrupt: () => ({ kind: 'wait_interrupt' }),
   wait_release: (value) => ({ kind: 'wait_release', name: String(value.name ?? '') }),
   stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
   context: (value) => ({ kind: 'context', answer: typeof value.error === 'string' ? { error: value.error } : { usage: value.usage } }),
+  mcp: (value, path) => ({ kind: 'mcp', answer: mcpAnswerOf(value, path) }),
   crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
   exit: () => ({ kind: 'exit' }),
   permission: (value) => ({
@@ -225,7 +268,7 @@ function parseScript(path: string, session: string, cwd: string): Line[] {
       if (value.fake === undefined) return { kind: 'message', message: value }
       const directive = typeof value.fake === 'string' && Object.hasOwn(DIRECTIVES, value.fake) ? DIRECTIVES[value.fake] : undefined
       if (directive === undefined) throw new Error(`${path}:${index + 1}: unknown directive ${JSON.stringify(value.fake)}`)
-      return directive(value)
+      return directive(value, path)
     })
 }
 
@@ -351,6 +394,8 @@ class FakeQuery implements QueryHandle {
   private registryEntry: string | null
   /** What getContextUsage() answers, set by the last `context` line played. */
   private context: ContextAnswer = { error: 'the fake agent has no context usage to report' }
+  /** What mcpServerStatus() answers, set by the last `mcp` line played and by the MCP calls since. */
+  private mcp: McpAnswer = { error: 'the fake agent has no MCP servers to report' }
   /** The query's PreToolUse hooks (FakeQueryOptions.preToolUse), made when the query starts; null: none. */
   private readonly preToolUse: Promise<FakePreToolUse | undefined> | null
 
@@ -411,6 +456,38 @@ class FakeQuery implements QueryHandle {
   getContextUsage(): Promise<unknown> {
     const answer = this.context
     return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(structuredClone(answer.usage))
+  }
+
+  /** Answers what the last `mcp` line set, as it stood when called. */
+  mcpServerStatus(): Promise<unknown> {
+    const answer = this.mcp
+    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(structuredClone(answer.servers))
+  }
+
+  reconnectMcpServer(serverName: string): Promise<void> {
+    this.record({ kind: 'reconnectMcpServer', name: serverName })
+    return this.setMcpStatus(serverName, 'connected')
+  }
+
+  /** Not part of QueryHandle: worfy never calls it; the record shows a call that would. */
+  toggleMcpServer(serverName: string, enabled: boolean): Promise<void> {
+    this.record({ kind: 'toggleMcpServer', name: serverName, enabled })
+    return this.setMcpStatus(serverName, enabled ? 'connected' : 'disabled')
+  }
+
+  /** The server `name` of the last answer gets `status` and loses its error; a server it does not list is not found. */
+  private setMcpStatus(name: string, status: string): Promise<void> {
+    const answer = this.mcp
+    if ('error' in answer || !answer.servers.some((server) => server.name === name)) return Promise.reject(new Error(`Server not found: ${name}`))
+    this.mcp = {
+      servers: answer.servers.map((server) => {
+        if (server.name !== name) return server
+        const rest = { ...server }
+        delete rest.error
+        return { ...rest, status }
+      }),
+    }
+    return Promise.resolve()
   }
 
   /** Reads the Session's input as messages arrive, like Claude Code reading its stdin. */
@@ -646,6 +723,9 @@ class FakeQuery implements QueryHandle {
             break
           case 'context':
             this.context = line.answer
+            break
+          case 'mcp':
+            this.mcp = line.answer
             break
           case 'crash':
             throw new Error(line.error)

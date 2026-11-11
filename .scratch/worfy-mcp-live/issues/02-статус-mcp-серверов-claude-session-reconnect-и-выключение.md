@@ -1,7 +1,7 @@
 # 02 — Статус MCP-серверов Claude Session и Reconnect
 
 Type: task
-Status: open
+Status: claimed 2026-11-11T22:38Z
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения владельца» Q10; «Решения по реализации» (одна форма
 строки, seam, событие `mcp`, каналы, приватность); «Решения по test-ам»; «Решено без владельца» 2, 3; истории 3, 5, 6,
