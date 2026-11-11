@@ -61,7 +61,8 @@ https://security.ubuntu.com/ubuntu/pool/main/z/zsh/zsh_5.9-8ubuntu3_amd64v3.deb 
       есть — ничего не зовёт; cache hit — только `dpkg -i`, apt не зовётся; холодный cache — apt с
       `Acquire::Retries=3`, пакеты в папке, `debs=true`; битый cache — apt, пакеты заменены; apt не достаёт зеркал —
       Homebrew (на PATH и в `BREW_DIR`) с `::warning::`, папка пуста, сохранять нечего; нет Homebrew или Homebrew
-      тоже упал — exit 1; без аргумента — exit 2. Contract test `test/contract/ci-install-zsh.test.ts`.
+      тоже упал — exit 1; `dpkg`, `apt-get install` или `brew install` вышли 0, а zsh на PATH нет — следующий путь или
+      exit 1; `brew install` под тем же `timeout`; без аргумента — exit 2. Contract test `test/contract/ci-install-zsh.test.ts`.
   - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0 · mac - · 83fc58a11f23e8cd6554e8b13e989c603adbe082
   - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0; 5 mutants of the script each fail it · mac - · 4b195ee758d91fdc9dde21de057c7882b3509114
 - [ ] `ci.yml`: в `linux-tests` четыре шага в этом порядке, старой однострочной установки нет — тот же test; на ci.yml
@@ -88,6 +89,11 @@ zsh-debs-Linux-X64-ubuntu-26.04»), `apt-get update` остановлен пре
 5.9.2 за ~20 с (`::warning::zsh came from Homebrew (/usr/local/bin/zsh), not from apt`), shell test-ы Harness в shard-ах
 прошли. Шаг «Install zsh» занял ~3 мин 25 с против ~5 мин 20 с красного шага в run 43032607379. После этого run-а warning
 называет, какая команда apt упала и как (предел времени — exit 124 — или код выхода).
+
+Run 43047819743: на Windows (`windows (1/3) / full-suite`) test текста `ci.yml` не нашёл шаги — Git for Windows отдал
+`ci.yml` с CRLF, а test делил строки по `\n`. Теперь строки делятся по `\r?\n`; на CRLF-копии `ci.yml` test зелёный, со
+старым делением — та же ошибка «expected -1 to be greater than -1». Test-ы скрипта на stub-ах на Windows пропускаются:
+скрипт работает только на Linux runner-е; test текста `ci.yml` идёт везде.
 
 ## Вне скоупа
 
