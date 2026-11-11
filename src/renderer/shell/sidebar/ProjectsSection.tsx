@@ -67,6 +67,11 @@ const styles = {
   card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, height: CARD_HEIGHT, padding: '5px 8px' },
   // Fixed line heights, so the card is CARD_HEIGHT whatever the platform's font metrics.
   cardLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 18, lineHeight: '18px', overflow: 'hidden' },
+  // The branch gives way to the name: it shrinks, never takes more than half of the line, and a long one is cut
+  // with an ellipsis on one line (worfy-polish ticket 111). The shared `.w-row__trailing` stays as it is: the chips
+  // of the other rows must not be cut.
+  branchBox: { flex: '0 1 auto', minWidth: 0, maxWidth: '50%' },
+  branch: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // Under the name: the icon's width and the gap after it.
   pulse: { display: 'flex', alignItems: 'center', gap: 6, height: 14, paddingLeft: 21, fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' },
   busy: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--working-text)' },
@@ -410,8 +415,10 @@ function ProjectCard({ project, selected, pulse, onSelect }: { project: ProjectV
         <span className="w-row__label" style={{ fontWeight: 600 }}>
           {project.name}
         </span>
-        <span className="w-row__trailing">
-          <span className="w-mono">{project.branch ?? '—'}</span>
+        <span className="w-row__trailing" style={styles.branchBox}>
+          <span className="w-mono" style={styles.branch} title={project.branch ?? undefined}>
+            {project.branch ?? '—'}
+          </span>
         </span>
       </span>
       {pulse === undefined ? null : <PulseLine pulse={pulse} />}

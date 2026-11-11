@@ -178,7 +178,14 @@ export function ProjectSwitcher() {
               >
                 <span className="w-project-switcher__icon">{choice.icon}</span>
                 <span className="w-project-switcher__label">{choice.label}</span>
-                {choice.detail !== undefined ? <span className="w-project-switcher__detail w-mono">{choice.detail}</span> : null}
+                {choice.detail !== undefined ? (
+                  // At most half of the item, so a long branch leaves the name the other half (worfy-polish ticket 111).
+                  // shortcut: an inline style, because shell.css is being changed by another ticket; move it to
+                  // `.w-project-switcher__detail` the next time shell.css is edited.
+                  <span className="w-project-switcher__detail w-mono" style={{ maxWidth: '50%' }}>
+                    {choice.detail}
+                  </span>
+                ) : null}
                 <span className="w-project-switcher__check">{choice.checked ? check : null}</span>
               </button>
             </Fragment>
