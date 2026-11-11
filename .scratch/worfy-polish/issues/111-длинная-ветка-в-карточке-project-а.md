@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-11T18:00Z
+PR: #1807
 Branch: worfy-polish/111-long-branch-project-card
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-11, сообщение tester-а.
