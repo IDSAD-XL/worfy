@@ -43,8 +43,13 @@
 }
 
 /* Text only screen readers read: what the layer announces. */
+/* The live region is in the overlay, a portal into <body>, and is there while the Session view is
+   hidden too: fixed at the top left, it adds nothing to the page's size. Absolute, it stood at its
+   place in the flow, right under the 100 %-high root, and gave the window a scrollbar. */
 .w-qsr {
-  position: absolute;
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;

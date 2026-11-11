@@ -107,6 +107,10 @@ const textEnds = (window: Page, text: string) =>
     return null
   })()`) as Promise<{ from: { x: number; y: number }; to: { x: number; y: number } } | null>
 
+/** How far the page reaches past the window, in CSS px: 0 and 0 when nothing gives it a scrollbar. */
+const overflow = (window: Page) =>
+  window.evaluate(`(() => ({ x: document.documentElement.scrollWidth - innerWidth, y: document.documentElement.scrollHeight - innerHeight }))()`) as Promise<{ x: number; y: number }>
+
 /** Whether a highlight of that name paints a range now. */
 const lit = (window: Page, name: string) => window.evaluate(`(() => (CSS.highlights.get(${JSON.stringify(name)})?.size ?? 0) > 0)()`) as Promise<boolean>
 
@@ -115,12 +119,15 @@ test('select a part of an answer, comment on it, send the round: the agent gets 
   const app = await launchApp({ env })
   try {
     const { window } = app
+    // The comments' layer is mounted with the hidden Session view: idle, it adds nothing to the page.
+    expect(await overflow(window)).toEqual({ x: 0, y: 0 })
     const view = await openSession(window)
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
     await field.fill('hello')
     await field.press('Enter')
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
     await expect(view.locator('[data-quote-anchor]')).toHaveCount(1)
+    expect(await overflow(window)).toEqual({ x: 0, y: 0 })
 
     // The selection gets its button, and a right click on it offers «Comment».
     const point = await selectInAnswer(window, QUOTE)

@@ -5,6 +5,8 @@
 // in the Session's queue, and goes back to the tray when its message leaves it unsent; images kept by
 // main and read back for a round; a write the storage refuses, shown.
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -130,6 +132,31 @@ afterEach(() => {
   localStorage.clear()
   resetToasts()
   delete (globalThis as { worfy?: WorfyBridge }).worfy
+})
+
+describe('the page around the comments', () => {
+  /** The declarations of the rule whose selector list is `selector`, from the stylesheet as written. */
+  const rule = (selector: string): string => {
+    const css = readFileSync(join(process.cwd(), 'src/renderer/session/quote-comments.css'), 'utf8')
+    const found = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)
+    if (found === null) throw new Error(`no rule ${selector}`)
+    return found[1]!
+  }
+
+  it('while idle puts only its live region into the page, fixed at the top left, so the page keeps its size', () => {
+    const { container } = render(<Harness />)
+    const outside = [...document.body.children].filter((element) => element !== container)
+    expect(outside.map((element) => element.className)).toEqual(['w-qsr'])
+    // Absolute, it stood under the 100 %-high root and gave the window a scrollbar 15 px wide (Windows).
+    const live = rule('.w-qsr')
+    expect(live).toMatch(/position:\s*fixed;/)
+    expect(live).toMatch(/top:\s*0;/)
+    expect(live).toMatch(/left:\s*0;/)
+  })
+
+  it('what floats over the transcript is fixed too: none of it adds to the page’s size', () => {
+    expect(rule('.w-qfab,\n.w-qmenu,\n.w-qpop,\n.w-qcard')).toMatch(/position:\s*fixed;/)
+  })
 })
 
 describe('the button next to a selection', () => {
