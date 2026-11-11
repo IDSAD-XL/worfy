@@ -401,9 +401,22 @@ describe('the main checkout on Codex: Stop runs no gate there, SubagentStop and 
     expect(JSON.parse(readFileSync(join(state, verdicts(state)[0] as string), 'utf8'))).toMatchObject({ outcome: 'green', key: 'c' })
   }, RUN_MS)
 
+  // From a subfolder git prints a relative common directory unless asked for absolute paths, and the
+  // main checkout would then read as a linked worktree.
+  it('tells the main checkout from a linked worktree from their roots and their subfolders, and gives null outside git', async () => {
+    const { dir, main, work } = project()
+    const { isLinkedWorktree } = (await import(pathToFileURL(join(plugin, 'hooks', 'gate-paths.mjs')).href)) as { isLinkedWorktree: (worktree: string) => boolean | null }
+    mkdirSync(join(main, 'src', 'deep'), { recursive: true })
+    mkdirSync(join(work, 'src', 'deep'), { recursive: true })
+    const outside = join(dir, 'outside')
+    mkdirSync(outside)
+    expect([main, join(main, 'src', 'deep'), work, join(work, 'src', 'deep'), outside].map(isLinkedWorktree)).toEqual([false, false, true, true, null])
+  })
+
   // A git that cannot tell a linked worktree from the main checkout (here a stand-in, EVAL_GIT of
   // eval-env.cjs, that fails only the one call isLinkedWorktree makes) leaves the old rule: the gate runs.
-  // Not on Windows: there Node starts a script stand-in only through a shell, and EVAL_GIT is spawned without one.
+  // Not on Windows: a stand-in there would be a .cmd, Node refuses to start a .cmd without a shell (EINVAL),
+  // and the hooks spawn EVAL_GIT without one; every git call would fail, and the hook would end before the gate.
   it.skipIf(WINDOWS)('runs the gate on a Stop in the main checkout when git cannot tell it from a linked worktree', async () => {
     const { dir, main, state, mode } = project()
     const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
