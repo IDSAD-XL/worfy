@@ -3,6 +3,7 @@ import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
 import type { ChatQueue } from './product-session'
+import { removeQueuedMessage } from './queue-removals'
 
 // The Session's queue at the end of a Product Session's chat (worfy-product-session ticket 28, owner
 // 2026-11-09): a message sent while the advisor works is the owner's bubble, dimmed, with «queued», below
@@ -41,8 +42,9 @@ function QueuedMessage({ id, text, status, sessionId }: { id: string; text: stri
   // The queue keeps a message as main will send it, attachment paths included; the bubble shows what was typed.
   const lines = attachmentLines(text)
   const attached = lines.files.length + lines.images.length
+  // Taken out before it was sent: the comments it carried go back to the tray (queue-removals.ts).
   const remove = () => {
-    if (sessionId !== null) void invoke('agent.queueRemove', { sessionId, id }).then(report('agent.queueRemove'))
+    if (sessionId !== null) removeQueuedMessage(sessionId, id, text)
   }
   return (
     <div className="w-pmsg w-pmsg--you w-pmsg--queued" data-testid="product-queued" data-who="you" data-status={status}>

@@ -4,7 +4,8 @@
 // the time; the status line of the running turn at the end (ticket 29), and the live summary under it (ticket 32). Thinking, tool calls (a failed one
 // too), Subagents, hooks, notices, «Turn finished» and slash commands are not drawn, and find does not
 // look in them. A plain Session draws every row as before.
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { foldTranscript } from '../../src/renderer/session/fold'
@@ -12,6 +13,9 @@ import { chatQueue, ProductSessionContext, type ChatQueue } from '../../src/rend
 import { NARRATION_TITLE } from '../../src/renderer/session/Narration'
 import { acceptAgentEvent, useSessionLogs } from '../../src/renderer/session/store'
 import { Transcript } from '../../src/renderer/session/Transcript'
+import { useQuoteComments } from '../../src/renderer/session/QuoteComments'
+import { agentText, type QuoteComment } from '../../src/renderer/session/quote-comments'
+import { forgetQuotesInMemory, markPending, readQuotes } from '../../src/renderer/session/quote-store'
 import { extensionTypes, rowMatches, findItems } from '../../src/renderer/session/transcript-find'
 
 vi.mock('../../src/renderer/ipc', () => ({ invoke: vi.fn(), subscribe: () => () => undefined, showSubscribeError: () => undefined }))
@@ -311,7 +315,8 @@ describe('a queued message in the chat of a Product Session', () => {
     const { invoke } = await import('../../src/renderer/ipc')
     const call = vi.mocked(invoke)
     call.mockReset()
-    call.mockResolvedValue({ ok: true, value: undefined } as never)
+    // main answers a removal with whether the message was still queued; «Send queued» with nothing.
+    call.mockImplementation((channel) => Promise.resolve({ ok: true, value: channel === 'agent.queueRemove' ? { removed: true } : undefined }) as never)
     render(<Product events={[prompt('What could we sell?'), result(false, true)]} queued={chatQueue({ ...two, paused: true }, 'idle')} />)
     for (const label of screen.getAllByTestId('product-queued-label')) expect(label.textContent).toBe('queued · held')
     fireEvent.click(screen.getByTestId('product-queue-send'))
@@ -320,6 +325,36 @@ describe('a queued message in the chat of a Product Session', () => {
     expect(call).toHaveBeenCalledWith('agent.queueRemove', { sessionId: 's1', id: 'q-2' })
     // The log still ends with the queue: the button stands after the last held message.
     expect(screen.getByTestId('transcript').lastElementChild?.contains(screen.getByTestId('product-queue-send'))).toBe(true)
+  })
+
+  it('× on a queued round of comments on quotes puts its comments back in the tray (worfy-polish ticket 102)', async () => {
+    const { invoke } = await import('../../src/renderer/ipc')
+    const call = vi.mocked(invoke)
+    call.mockReset()
+    call.mockResolvedValue({ ok: true, value: { removed: true } } as never)
+    const KEY = 'p1/product/sdk-1'
+    const comment: QuoteComment = { id: 'c1', anchor: 'm1#0', start: 0, end: 4, quote: 'Sell', text: 'To whom first?', images: [], messageAt: null, at: 1 }
+    const text = agentText([{ quote: 'Sell', text: 'To whom first?', images: 0, time: null }], 'And the price?')
+    markPending(KEY, { id: 'r1', message: text, at: Date.now(), comments: [comment] })
+    function Tray() {
+      const log = useRef<HTMLDivElement>(null)
+      const quotes = useQuoteComments({ storeKey: KEY, sessionId: 's1', log, assistant: 'claude', refusal: null, prompts: [] })
+      return <div data-testid="above-field">{quotes.tray}</div>
+    }
+    render(
+      <>
+        <Product events={[prompt('What could we sell?'), result(false, true)]} queued={chatQueue({ items: [{ id: 'q-1', text }], paused: true }, 'idle')} />
+        <Tray />
+      </>,
+    )
+    expect(screen.getByTestId('quote-waiting').textContent).toContain('Waiting to send · 1 comment')
+    fireEvent.click(screen.getByTestId('product-queued-remove'))
+    expect(call).toHaveBeenCalledWith('agent.queueRemove', { sessionId: 's1', id: 'q-1' })
+    await waitFor(() => expect(screen.queryByTestId('quote-waiting')).toBeNull())
+    expect(readQuotes(KEY).drafts).toEqual([comment])
+    expect(within(screen.getByTestId('quote-tray')).getAllByTestId('quote-chip')).toHaveLength(1)
+    forgetQuotesInMemory()
+    localStorage.clear()
   })
 
   it('while it goes on its own there is no «Send queued»; × still takes it out', () => {

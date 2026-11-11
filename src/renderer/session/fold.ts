@@ -10,6 +10,7 @@ import type { MessageAttachment } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { AGENT_TOOLS } from '../../shared/transcript/subagents'
 import { INTERRUPT_NOTICE } from './history'
+import { quoteAnchor } from './quote-comments'
 
 type EventOf<T extends AgentEvent['type']> = Extract<AgentEvent, { type: T }>
 
@@ -40,8 +41,12 @@ export interface ToolCall {
 export type TranscriptItem = { at: number | null } & (
   /** The user's message: the text as typed, and what went with it (worfy-ui ticket 28). */
   | { kind: 'prompt'; key: string; text: string; attachments: MessageAttachment[] }
-  /** `streaming`: still being written (deltas), replaced by the whole block when it arrives. */
-  | { kind: 'text'; key: string; text: string; synthetic: boolean; streaming: boolean }
+  /**
+   * `streaming`: still being written (deltas), replaced by the whole block when it arrives. `anchor`: the
+   * whole block's message id and the hash of its text (quote-comments.ts, quoteAnchor), which a comment
+   * on a quote of it keeps (worfy-polish ticket 102); none while it streams.
+   */
+  | { kind: 'text'; key: string; text: string; synthetic: boolean; streaming: boolean; anchor?: string }
   | { kind: 'thinking'; key: string; text: string; streaming: boolean }
   /** Consecutive tool calls, drawn as one group. */
   | { kind: 'tools'; key: string; calls: ToolCall[] }
@@ -72,6 +77,8 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
   let streamingThinking: number | null = null
   // The open group of tool calls: the next tool_use joins it until another row comes between.
   let group: Extract<TranscriptItem, { kind: 'tools' }> | null = null
+  // A whole text block's anchor: its message id and its text, whatever came before it (quoteAnchor).
+  const anchorOf = (messageId: string, text: string): { anchor?: string } => (messageId === '' ? {} : { anchor: quoteAnchor(messageId, text) })
 
   const push = (item: TranscriptItem): void => {
     items.push(item)
@@ -125,10 +132,10 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
         if (current?.kind === 'text') {
           // The whole block replaces the streamed one, and so does its time: a transcript file
           // has only the block, and the row reads the same after a restart.
-          replace(slot as number, { ...current, at: at ?? current.at, text: event.text, streaming: false })
+          replace(slot as number, { ...current, at: at ?? current.at, text: event.text, streaming: false, ...anchorOf(event.messageId, event.text) })
           streamingText = null
         } else {
-          push({ kind: 'text', key, at, text: event.text, synthetic: event.synthetic, streaming: false })
+          push({ kind: 'text', key, at, text: event.text, synthetic: event.synthetic, streaming: false, ...anchorOf(event.messageId, event.text) })
         }
         return
       }

@@ -22,6 +22,9 @@ import { useOpenedSession } from './navigation'
 import { useWaitingRequests } from './open-requests'
 import { AcceptedAdvice, ProductSessionPanel, ProductTopicName } from './ProductSessionPanel'
 import { chatQueue } from './product-session'
+import { useQuoteComments } from './QuoteComments'
+import { SentQuotesContext } from './sent-quotes'
+import { quoteKey } from './quote-store'
 import { SessionPicker } from './SessionPicker'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
@@ -237,12 +240,33 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const runningModel = headerModel(null, facts.model, view?.model ?? null)
   const codexModels = useCodexModels(sessionId, vendor, runningModel)
   const effort = headerEffort(settings?.effort ?? null, vendor, codexDefaultEffort(codexModels, modelPick, runningModel))
+  // Comments on quotes of the agent's messages (worfy-polish ticket 102): kept per SDK session, as its
+  // messages are; none on a read-only screen, which has no input field to send them.
+  const readOnly = useReadOnly()
+  // The user's prompts shown: a sent round's comments wait for theirs (QuoteComments.tsx).
+  const prompts = useMemo(() => events.flatMap((event) => (event.type === 'notice' && event.kind === 'user' ? [{ text: event.text, at: event.at ?? null }] : [])), [events])
+  const quotes = useQuoteComments({
+    storeKey: claudeSessionId === null ? null : quoteKey(projectId, nodeId, claudeSessionId),
+    sessionId,
+    log: logRef,
+    assistant: assistantLabel,
+    refusal: readOnly,
+    prompts,
+  })
+
   // The transcript shows the message when main gives it to Claude Code (a `prompt` event): at
-  // once, or after the running turn when it waits in the queue.
-  const send = async ({ text, attachments }: OutgoingMessage): Promise<string | null> => {
+  // once, or after the running turn when it waits in the queue. The comments of the round go in it,
+  // before the field's text (QuoteComments.tsx, compose); they wait for that event to stay as sent
+  // quotes, and go back to the tray when the message leaves the queue unsent.
+  const send = async (outgoing: OutgoingMessage): Promise<string | null> => {
     if (sessionId === null) return 'The Session is not running'
+    // Without comments the message goes at once, with no wait for main (a command too).
+    const composed = quotes.count === 0 ? { message: outgoing, round: [] } : await quotes.compose(outgoing)
+    if ('error' in composed) return composed.error
+    const { text, attachments } = composed.message
     const result = await invoke('agent.send', { sessionId, text, ...(attachments.length > 0 ? { attachments } : {}) })
     if (!result.ok) return result.error
+    quotes.sent(composed.round, text)
     // An Autopilot command started Autopilot, or was refused, instead of reaching the agent (worfy-flight-recorder ticket 22).
     if (result.value?.autopilot) showToast(chatCommandToast(result.value.autopilot))
     return null
@@ -250,7 +274,6 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
 
   // A file dropped anywhere on the chat, the transcript too, goes to the input field (worfy-ui ticket 28).
   const input = useRef<MessageInputHandle>(null)
-  const readOnly = useReadOnly()
   const drop = useChatDrop(dropRefusal(sessionId, readOnly), (files) => input.current?.drop(files))
 
   const interrupt = () => {
@@ -279,6 +302,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       ) : null}
       <SessionFind find={find} />
       {/* Another Session gets a fresh log: no row stays opened from the one shown before (rows are keyed by position). */}
+      <SentQuotesContext.Provider value={quotes.sentQuotes}>
       <Transcript
         key={claudeSessionId ?? `node:${nodeId}`}
         events={events}
@@ -293,14 +317,18 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
         working={state === 'busy'}
         queued={product ? chatQueue(queue, state) : null}
         narration={product ? (log.narration ?? null) : null}
+        jump={quotes.jump}
+        onJump={quotes.onJump}
       />
+      </SentQuotesContext.Provider>
+      {quotes.overlay}
       {/* Main has no open request either: no card to draw, so the chat says what the Session waits for. */}
       {unseen ? (
         <p className="w-session__unseen" role="alert" data-testid="session-request-unseen">
           The Session waits for an answer this window cannot show. Interrupt refuses the request.
         </p>
       ) : null}
-      <MessageInput ref={input} key={nodeId} nodeId={nodeId} draft={draftKey('chat', projectId, nodeId)} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} onSend={send} onInterrupt={interrupt} />
+      <MessageInput ref={input} key={nodeId} nodeId={nodeId} draft={draftKey('chat', projectId, nodeId)} sessionId={sessionId} busy={busy} history={history} recipient={heading} product={product} above={quotes.tray} comments={quotes.count} onSend={send} onInterrupt={interrupt} />
     </section>
   )
 

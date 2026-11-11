@@ -74,6 +74,11 @@ export const attachmentSourceSchema = z.discriminatedUnion('kind', [
    * copy in worfy's data folder.
    */
   z.object({ kind: z.literal('dropped'), name, data: base64(FILE_COPY_LIMIT_BYTES) }),
+  /**
+   * An image main already keeps a copy of, `<sha256>.<ext>` in its images folder: an image of a comment
+   * on a quote (worfy-polish ticket 102), whose bytes the window does not keep across a restart.
+   */
+  z.object({ kind: z.literal('kept'), name, ref: z.string().regex(/^[0-9a-f]{64}$/, 'the ref must be a sha256 in hex'), mediaType: imageMediaTypeSchema }),
 ])
 export type AttachmentSource = z.output<typeof attachmentSourceSchema>
 

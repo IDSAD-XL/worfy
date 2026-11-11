@@ -1,4 +1,5 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent } from '../../shared/agent/events'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { clipText as clip, hookOutput, toolSummary } from '../../shared/transcript/find'
@@ -13,6 +14,8 @@ import { formatDuration } from './format'
 import { MessageAttachments } from './MessageAttachments'
 import { ProductSessionContext, shownInProductChat, type ChatQueue } from './product-session'
 import { QueuedRows } from './QueuedMessages'
+import { parseQuoted } from './quote-comments'
+import { QuotedPrompt } from './QuotedPrompt'
 import { rowTypes } from './rows/index'
 import type { NarrationLines } from './store'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
@@ -72,7 +75,17 @@ export interface TranscriptProps {
    * lines under the status line while the turn runs. They are no rows of the transcript.
    */
   narration?: NarrationLines | null | undefined
+  /**
+   * A row to bring into view (worfy-polish ticket 102, QuoteComments.tsx): the agent's text row of a quote's
+   * message, or the user's row whose text is a sent message. A row not drawn is drawn first; then
+   * `onJump` gets its element. Once per `seq`.
+   */
+  jump?: TranscriptJump | null | undefined
+  onJump?: ((row: HTMLElement, jump: TranscriptJump) => void) | undefined
 }
+
+/** What `jump` brings into view: the text row of `anchor` (fold.ts), or the last user's row whose text is `prompt`. */
+export type TranscriptJump = { seq: number } & ({ anchor: string; prompt?: undefined } | { prompt: string; anchor?: undefined })
 
 export interface EarlierControl {
   /** Reads the events before the shown ones; the log keeps the row the reader looked at in place. */
@@ -459,6 +472,15 @@ function ResultRow({ event }: { event: Extract<AgentEvent, { type: 'result' }> }
   )
 }
 
+/**
+ * The attributes that let a quote of an agent's text be commented on (QuoteComments.tsx): the message's
+ * anchor and its time. None for a block still streaming, for Claude Code's own text, or for one with no message id.
+ */
+function quoteTarget(item: Extract<TranscriptItem, { kind: 'text' }>): Record<string, string> {
+  if (item.streaming || item.synthetic || item.anchor === undefined) return {}
+  return { 'data-quote-anchor': item.anchor, ...(item.at === null ? {} : { 'data-quote-at': String(item.at) }) }
+}
+
 function Item({ item, props, product, number }: { item: TranscriptItem; props: TranscriptProps; product: boolean; number?: number }) {
   const assistant = props.assistantLabel ?? 'claude'
   const current = props.find?.current
@@ -467,22 +489,26 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
   const seq = props.find?.seq ?? 0
   const reveal = (what: string): string | null => (revealing !== null && revealing.reveal === what ? `${revealing.part}#${revealing.occurrence}#${seq}` : null)
   const find = (part: string): string => partId(item.key, part)
+  // A message with comments on quotes draws its quote blocks (worfy-polish ticket 102).
+  const quoted = item.kind === 'prompt' ? parseQuoted(item.text) : null
   if (product && item.kind === 'prompt') {
     return (
       <Message who="you" at={item.at} number={number} testId="transcript-prompt">
-        {item.text !== '' || item.attachments.length === 0 ? (
+        {quoted !== null ? (
+          <QuotedPrompt text={item.text} parsed={quoted} attachments={item.attachments} assistant="advisor" find={find('prompt')} />
+        ) : item.text !== '' || item.attachments.length === 0 ? (
           <div className="w-pmsg__text" data-find={find('prompt')}>
             {item.text}
           </div>
         ) : null}
-        <MessageAttachments attachments={item.attachments} />
+        {quoted !== null ? null : <MessageAttachments attachments={item.attachments} />}
       </Message>
     )
   }
   if (product && item.kind === 'text') {
     return (
       <Message who="advisor" at={item.at} number={number} testId="transcript-text">
-        <div data-streaming={item.streaming || undefined} data-find={find('text')}>
+        <div data-streaming={item.streaming || undefined} data-find={find('text')} {...quoteTarget(item)}>
           <Markdown text={item.text} projectId={props.projectId} breaks />
         </div>
       </Message>
@@ -492,19 +518,25 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
     case 'prompt':
       return (
         <Row label="you" labelKind="user" at={item.at} testId="transcript-prompt">
-          {item.text !== '' || item.attachments.length === 0 ? (
-            <div className="w-tr__prompt" data-find={find('prompt')}>
-              {item.text}
-            </div>
-          ) : null}
-          <MessageAttachments attachments={item.attachments} />
+          {quoted !== null ? (
+            <QuotedPrompt text={item.text} parsed={quoted} attachments={item.attachments} assistant={assistant} find={find('prompt')} />
+          ) : (
+            <>
+              {item.text !== '' || item.attachments.length === 0 ? (
+                <div className="w-tr__prompt" data-find={find('prompt')}>
+                  {item.text}
+                </div>
+              ) : null}
+              <MessageAttachments attachments={item.attachments} />
+            </>
+          )}
         </Row>
       )
     case 'text':
       return (
         // The F mockups show no time on the answer: it stays in the label's tooltip.
         <Row label={item.synthetic ? 'claude code' : assistant} labelKind="assistant" at={item.at} time="tooltip" testId="transcript-text">
-          <div className={item.synthetic ? 'w-tr__synthetic' : undefined} data-streaming={item.streaming || undefined} data-find={find('text')}>
+          <div className={item.synthetic ? 'w-tr__synthetic' : undefined} data-streaming={item.streaming || undefined} data-find={find('text')} {...quoteTarget(item)}>
             <Markdown text={item.text} projectId={props.projectId} breaks />
           </div>
         </Row>
@@ -694,7 +726,7 @@ function firstVisibleRow(log: HTMLElement): { row: HTMLElement; offset: number }
 }
 
 export function Transcript(props: TranscriptProps) {
-  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false, queued = null, narration = null } = props
+  const { events, firstIndex = 0, earlier, hideTools, find, logRef, sessionId = null, working = false, queued = null, narration = null, jump = null, onJump } = props
   const inProduct = useContext(ProductSessionContext)
   const folded = useMemo(() => foldTranscript(events, extensionTypes, firstIndex), [events, firstIndex])
   // A Product Session's chat draws the conversation only; the rows are folded as for any Session.
@@ -989,6 +1021,33 @@ export function Transcript(props: TranscriptProps) {
     element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top - element.clientHeight / 3
     track()
   }, [chips, shownMessage, product, index, drawn, place, track])
+
+  // A jump of the quote comments (worfy-polish ticket 102): the row is drawn, brought a third of the way down
+  // the log, and handed to onJump, which scrolls to the part it wants and flashes it; once per request.
+  const jumped = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const element = log.current
+    if (element === null || jump === null || jumped.current === jump.seq) return
+    let key: string | undefined
+    for (let at = items.length - 1; at >= 0 && key === undefined; at -= 1) {
+      const one = items[at]!
+      if (jump.anchor !== undefined ? one.kind === 'text' && one.anchor === jump.anchor : one.kind === 'prompt' && typedText(one.text) === jump.prompt) key = one.key
+    }
+    if (key === undefined) {
+      jumped.current = jump.seq
+      return
+    }
+    const row = drawnRows(element).find((one) => one.dataset['item'] === key)
+    if (row === undefined) {
+      position.current = { bottom: false, key, offset: element.clientHeight / 3 }
+      atBottom.current = false
+      place()
+      return
+    }
+    jumped.current = jump.seq
+    onJump?.(row, jump)
+    track()
+  }, [jump, onJump, items, drawn, place, track])
 
   // Last: the rows to draw for where the reader is now, after the scroll above moved.
   useLayoutEffect(() => place())

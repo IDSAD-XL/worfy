@@ -46,6 +46,8 @@ export interface AttachTarget {
   cwd: string
   /** Where copies go: `<Project data folder>/attachments`. */
   attachmentsDir: string
+  /** The folder of the copies of images (attachmentImagesDir), which a `kept` source reads; none: such a source is refused. */
+  imagesDir?: string
 }
 
 /** The longest head of a file the image types are told by. */
@@ -135,9 +137,25 @@ async function attachBytes(source: Extract<AttachmentSource, { kind: 'pasted' | 
   return { ok: true, attachment: { kind: 'file', name, path: copy, size: bytes.length, copied: true } }
 }
 
+/**
+ * An image main keeps a copy of (worfy-polish ticket 102): read from the images folder by its ref,
+ * and taken only when its bytes are still an image of that type and hash to that ref.
+ */
+async function attachKept(source: Extract<AttachmentSource, { kind: 'kept' }>, target: AttachTarget): Promise<AttachResult> {
+  const name = safeName(source.name)
+  if (target.imagesDir === undefined) return refuse(name, `${name} is not kept here`)
+  const bytes = await readFile(join(target.imagesDir, imageFileName(source.ref, source.mediaType))).catch(() => null)
+  if (bytes === null) return refuse(name, `${name} is no longer kept: attach it again`)
+  const data = bytes.toString('base64')
+  if (imageTypeOf(bytes.subarray(0, HEAD_BYTES)) !== source.mediaType || imageRef(data) !== source.ref) return refuse(name, `${name} is no longer the image it was: attach it again`)
+  if (bytes.length > IMAGE_LIMIT_BYTES) return refuse(name, imageTooLarge(name))
+  return image(name, source.mediaType, bytes)
+}
+
 /** Checks one attachment and makes it ready to send; a refused one says why, and nothing is written for it. */
 export async function attach(source: AttachmentSource, target: AttachTarget): Promise<AttachResult> {
   try {
+    if (source.kind === 'kept') return await attachKept(source, target)
     return source.kind === 'path' ? await attachPath(source.path, target) : await attachBytes(source, target)
   } catch (error) {
     const name = safeName(source.kind === 'path' ? source.path : source.name)

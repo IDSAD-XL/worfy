@@ -76,7 +76,18 @@ export const agentSend = invokeChannel(
 const attachResults = z.object({ results: z.array(attachResultSchema) })
 
 /** Checks pasted and dropped things, and copies what needs copying (src/main/agent/attachments.ts). */
-export const agentAttach = invokeChannel('agent.attach', z.object({ sessionId, sources: z.array(attachmentSourceSchema).min(1).max(MAX_ATTACHMENTS) }), attachResults, 'project', 'write')
+/**
+ * `keep`: main also keeps a copy of each image it answers, `<sha256>.<ext>` in its images folder, and
+ * refuses an image whose copy it could not write; a `kept` source reads such a copy back (the images
+ * of comments on quotes, worfy-polish ticket 102).
+ */
+export const agentAttach = invokeChannel(
+  'agent.attach',
+  z.object({ sessionId, sources: z.array(attachmentSourceSchema).min(1).max(MAX_ATTACHMENTS), keep: z.boolean().default(false) }),
+  attachResults,
+  'project',
+  'write',
+)
 
 /** "+": main's file dialog; no results when the user cancels it. */
 export const agentAttachPick = invokeChannel('agent.attachPick', z.object({ sessionId }), attachResults, 'desktop')

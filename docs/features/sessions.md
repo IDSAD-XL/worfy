@@ -169,6 +169,44 @@ request either, the chat says the Session waits for an answer this window cannot
 - Files picked with "+" inside the Project go by their path, at any size.
 - Files picked outside the Project, and every dropped file, are copied into the Project's data folder, up to 20 MB each.
 
+**Comments on quotes.** In the Session view, text selected inside one agent answer, of Claude Code or Codex, can be
+commented on. A button next to the selection says "Comment ⇧⌘M"; a right click (a two-finger click on a trackpad) opens
+"Comment" and "Copy"; ⇧⌘M (Ctrl+Shift+M) does the same. A selection across two messages says "Select inside one message
+to comment". The popover shows the quote, takes a text and up to 3 images (a file from "Add image", ⌘V, or a drop), and
+saves with ⌘↵; Esc cancels. A comment may be images alone. The images of one message's comments are 10 at most, and an
+image's long side is scaled down to 1568 pixels before main checks it.
+
+- The quote gets a light green ground and a green underline: the accent in the dark theme, the ready dot's green in the
+  light one. Hovering it shows the comment with Edit and Delete; Delete offers Undo.
+- A new selection may not overlap a comment not sent yet: the button says "Overlaps a comment · Open it". Right next to
+  one, or over a sent quote, it may.
+- The tray above the input field says "N comments on M messages", with a chip per comment in text order and Clear. A
+  chip's click scrolls to its quote and flashes it; its × removes the comment.
+- Send sends one message, and the field may be empty then. The comments come first, in the order they stand in the
+  agent's text: a numbered quote, the time of its message, the comment indented under it and an `[image N]` mark per
+  image, then "General:" and the field's text. The comments' images are the message's first attachments, in that order.
+  A quote over 200 characters is cut in the middle for the agent. A message that starts with `/` (a command) is refused
+  while there are comments: send it alone, or clear the comments first. More than 10 images of comments are refused at
+  Send too, however they came into the tray (Undo of a deletion as well).
+- While the agent works, the message waits in the queue, and its comments wait with it: out of the tray and lit dimly.
+  They become sent quotes when the message goes to the agent. A message the user removes from the queue (the × in the
+  "N queued" list, or on the queued message in a Product Session's chat) puts its comments back in the tray, and a
+  notice says so. A queue that empties otherwise (Autopilot's "Start now" keeps it for the person's Session) leaves them
+  waiting for the message to go. A line above the input field says "Waiting to send · N comments" while they wait; its
+  "Back to drafts" puts them back in the tray, and a prompt of that message that comes later counts nothing twice.
+- The user's message draws a block per quote: a green bar, the quote folded to three lines with "Show all", the comment
+  and its images. The window that sent it shows the whole quote, and the block's source line leads back to the quote. The
+  block is read from the message's own text, so it is the same after a restart.
+- A sent quote stays lit, dimly, in that Session; a click on it scrolls to its block. It leaves the tray and can no
+  longer be edited. ↑ in the input field brings back the text typed after the comments, not the comments.
+- The comments not sent yet survive another Session, another Project and a restart, as the field's draft does, and go
+  with their Node when it leaves the Canvas or is archived. A Node keeps the comments of its three Sessions changed last,
+  and a Session its 500 newest sent quotes. A read-only screen, with no input field, offers no comments.
+- An image of a comment is kept in worfy's data folder when it is added (`attachments/images`, by the sha256 of its
+  bytes); the comment names it, and no image bytes go into the window's storage. A round after a restart reads the image
+  back from there; one that is gone is refused with "attach it again". When the window's storage refuses to save the
+  comments, a notice says they stay in this window until it closes.
+
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
 a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. A Product
@@ -300,6 +338,7 @@ for a process also asks the system.
 | Handlers | `src/main/ipc/agent.ts`, `src/main/ipc/sessions.ts`, `src/main/ipc/orchestrator.ts`, `src/main/ipc/session-autocompact.ts` |
 | Session view | `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/navigation.ts` |
 | Drafts of the input fields | `src/renderer/session/drafts.ts` |
+| Comments on quotes: the model and the agent's text, the store, the layer and the bubble | `src/renderer/session/quote-comments.ts`, `src/renderer/session/quote-store.ts`, `src/renderer/session/QuoteComments.tsx`, `src/renderer/session/QuoteCommentParts.tsx`, `src/renderer/session/QuotedPrompt.tsx`, `src/renderer/session/comment-image.ts` |
 | Renderer store, the join of past and live events | `src/renderer/session/store.ts` |
 | Cards | `src/renderer/session/PermissionCard.tsx`, `src/renderer/session/QuestionCard.tsx` |
 | Items under the input field, found by glob | `src/renderer/session/composer/` |
@@ -333,6 +372,8 @@ events go to every client on `agent.event`, and the renderer store keeps the new
 - `test/e2e/session-view.spec.ts`, `test/e2e/session-controls.spec.ts`, `test/e2e/permissions.spec.ts`,
   `test/e2e/session-question.spec.ts`, `test/e2e/session-resume.spec.ts`, `test/e2e/own-sessions.spec.ts`,
   `test/e2e/orchestrator.spec.ts`, `test/e2e/chat-attachments.spec.ts`, `test/e2e/context-meter.spec.ts`.
+- `test/unit/quote-comments.test.ts`, `test/unit/quote-store.test.tsx`, `test/unit/quote-comments-ui.test.tsx`,
+  `test/contract/agent-quote-comments.test.ts`, `test/e2e/quote-comments.spec.ts`: comments on quotes.
 
 ## Subagent
 

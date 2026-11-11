@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
 import { writeAction } from '../projects/read-only'
@@ -71,6 +71,13 @@ export interface MessageInputProps {
   draft?: string
   /** A Product Session's field: one line with attaching, Interrupt and Send. */
   product?: boolean
+  /**
+   * What stands above the field: the tray of comments on quotes (worfy-polish ticket 102,
+   * QuoteComments.tsx). None: nothing.
+   */
+  above?: ReactNode
+  /** Comments on quotes that go with the next message: with any, an empty field sends too. */
+  comments?: number
   /** Sends a message; resolves to an error text when it was not sent. */
   onSend: (message: OutgoingMessage) => Promise<string | null>
   onInterrupt: () => void
@@ -156,7 +163,7 @@ export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; o
   )
 }
 
-export function MessageInput({ nodeId, sessionId, busy, history, recipient, draft, product = false, onSend, onInterrupt, ref }: MessageInputProps) {
+export function MessageInput({ nodeId, sessionId, busy, history, recipient, draft, product = false, above = null, comments = 0, onSend, onInterrupt, ref }: MessageInputProps) {
   const [text, setText] = useDraft(draft)
   // The field's selection, as the textarea reports it: a caret when both ends meet (the slash menu follows it).
   const [caret, setCaret] = useState(0)
@@ -302,7 +309,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
   const send = async () => {
     const message = text
     const attached = chipsNow.current
-    if (disabled || sending || (message.trim() === '' && attached.length === 0)) return
+    if (disabled || sending || (message.trim() === '' && attached.length === 0 && comments === 0)) return
     // A send from a field a step offered a text to, whatever it sends: no ring on Send or on the step's button now (Getting started).
     const before = nodeId === undefined ? undefined : usePendingInput.getState().fields[nodeId]
     const offeredIn = nodeId !== undefined && (before === 'offered' || before === 'ready') ? nodeId : null
@@ -371,7 +378,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
     },
   }))
 
-  const canSend = !disabled && !sending && (text.trim() !== '' || chips.length > 0)
+  const canSend = !disabled && !sending && (text.trim() !== '' || chips.length > 0 || comments > 0)
 
   // The parts of the bar: a plain Session's two lines and a Product Session's one line hold the same controls.
   const attach = (
@@ -444,6 +451,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
   if (product) {
     return (
       <div className="w-composer w-composer--product" data-testid="message-input" data-toast-keep-out="">
+        {above}
         <div className="w-composer__anchor">
           {slash.element}
           {attachments}
@@ -466,6 +474,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
 
   return (
     <div className="w-composer" data-testid="message-input" data-toast-keep-out="">
+      {above}
       <div className="w-composer__anchor">
         {slash.element}
         <div

@@ -11,6 +11,7 @@ import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { promptHistory, stepHistory } from '../../src/renderer/session/history'
+import { agentText, quoteAnchor } from '../../src/renderer/session/quote-comments'
 import { collectRowTypes } from '../../src/renderer/session/rows/index'
 import { collectRailBlocks, type RailBlockProps } from '../../src/renderer/session/rail/index'
 import { collectComposerItems } from '../../src/renderer/session/composer/index'
@@ -169,6 +170,32 @@ describe('foldTranscript', () => {
   })
 })
 
+describe('foldTranscript: the anchor of a text block a quote is kept by (worfy-polish ticket 102)', () => {
+  const anchors = (items: ReturnType<typeof foldTranscript>) => items.flatMap((item) => (item.kind === 'text' ? [item.anchor] : []))
+  const delta = (value: string): AgentEvent => ({ type: 'delta', kind: 'text', text: value, parentToolUseId: null })
+  const tool: AgentEvent = { type: 'tool_use', id: 't1', name: 'Read', input: {}, parentToolUseId: null }
+
+  it('gives two text blocks of one message two anchors', () => {
+    const [first, second] = anchors(foldTranscript([text('First block.'), tool, text('Second block.')]))
+    expect(first).toBe(quoteAnchor('m1', 'First block.'))
+    expect(second).toBe(quoteAnchor('m1', 'Second block.'))
+    expect(first).not.toBe(second)
+  })
+
+  it('has none while a block streams, and the whole block’s once it replaces the streamed one', () => {
+    const streamed = foldTranscript([text('First block.'), tool, delta('Second '), delta('blo')])
+    expect(anchors(streamed)).toEqual([quoteAnchor('m1', 'First block.'), undefined])
+    const whole = foldTranscript([text('First block.'), tool, delta('Second '), delta('blo'), text('Second block.')])
+    expect(anchors(whole)).toEqual([quoteAnchor('m1', 'First block.'), quoteAnchor('m1', 'Second block.')])
+  })
+
+  it('names a block the same when the loaded part of the log starts after the blocks before it', () => {
+    const all = foldTranscript([prompt('go'), text('First block.'), tool, text('Second block.')])
+    const tail = foldTranscript([text('Second block.')], new Set(), 3)
+    expect(anchors(tail)).toEqual([anchors(all)[1]])
+  })
+})
+
 describe('prompt history', () => {
   it('lists what the user sent, oldest first, without the interruption message', () => {
     expect(promptHistory([prompt('one'), text('a'), prompt('[Request interrupted by user]'), prompt('two')])).toEqual(['one', 'two'])
@@ -177,6 +204,12 @@ describe('prompt history', () => {
   it('brings back the typed text of a message with attachments, not the lines naming them', () => {
     const sent = prompt('look\n\nAttached files: /data/1/notes.txt\n\nAttached images: shot.png')
     expect(promptHistory([prompt('one'), sent, prompt('Attached images: only.png')])).toEqual(['one', 'look'])
+  })
+
+  it('brings back the text typed after a round of comments on quotes, not the comments (worfy-polish ticket 102)', () => {
+    const round = agentText([{ quote: 'the lint step', text: 'Keep it.', images: 1, time: null }], 'General words')
+    const alone = agentText([{ quote: 'q', text: 'c', images: 0, time: null }], '')
+    expect(promptHistory([prompt(round), prompt(`${alone}\n\nAttached images: shot.png`), prompt('two')])).toEqual(['General words', 'two'])
   })
 
   it('steps to older prompts, stops at the oldest, and past the newest returns to an empty field', () => {
@@ -686,6 +719,28 @@ describe('composer: pickers and queue (ticket 19)', () => {
     expect(asked).toContainEqual({ channel: 'agent.queueRemove', input: { sessionId: 's', id: 'q2' } })
     emit('s', { type: 'queue', items: [], paused: false })
     expect(screen.queryByTestId('queue-chip')).toBeNull()
+  })
+
+  it('tells the comments on quotes of a message the user removed from the queue, only once main removed it', async () => {
+    const { onQueuedMessageRemoved } = await import('../../src/renderer/session/queue-removals')
+    const heard: [string, string][] = []
+    const stop = onQueuedMessageRemoved((sessionId, text) => heard.push([sessionId, text]))
+    let removed = false
+    answers['agent.queueRemove'] = () => ({ removed })
+    await mountInput()
+    emit('s', { type: 'queue', items: [{ id: 'q1', text: 'first' }, { id: 'q2', text: 'second' }], paused: true })
+    fireEvent.click(screen.getByTestId('queue-chip'))
+    // Already sent: main did not remove it, and its comments wait for its prompt.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 1' }))
+    await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'agent.queueRemove')).toHaveLength(1))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(heard).toEqual([])
+    removed = true
+    fireEvent.click(screen.getByRole('button', { name: 'Remove queued message 2' }))
+    await vi.waitFor(() => expect(heard).toEqual([['s', 'second']]))
+    stop()
   })
 
   it('a queue held after Interrupt offers Send queued', async () => {
