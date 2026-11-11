@@ -51,5 +51,5 @@ Ubuntu-ского `/etc/zsh/zshrc`. Regex конца prompt-а в `terminal-ai-z
 
 ## Вне скоупа
 
-- `ci-scope`/`affected-tests`: PR, который меняет только `scripts/ci-install-zsh.sh`, гоняет из test-ов лишь тот, что
-  читает скрипт. Terminal test-ы, которые зависят от zsh на runner-е, в его список не попадают.
+- `scripts/affected-tests.mjs origin/main HEAD` для этого PR-а даёт 33 файла test-ов, Terminal test-ов среди них нет: от zsh
+  на runner-е они зависят, но скрипт не читают. Их проверит run полного набора.
