@@ -484,12 +484,15 @@ describe('the plugins and skills of a Session in a Project', () => {
     const reported = (init?.plugins ?? []).map((plugin) => plugin.source)
     // The settings enable the marketplace plugins of that run; the built-in, inline and synced ones come from elsewhere.
     const enabled = reported.filter((source) => !/@(builtin|inline|synced)$/u.test(source))
-    expect(enabled).toEqual(['plugin-1@claude-plugins-official', 'plugin-2@claude-plugins-official'])
+    expect(enabled).toEqual(['plugin-1@claude-plugins-official'])
+    // The 2026-11-10 capture has one marketplace plugin; a second one, added here, is the one the allowlist keeps or not.
+    const ids = [...enabled, 'plugin-9@claude-plugins-official']
     const home = tmp()
-    writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: Object.fromEntries(enabled.map((id) => [id, true])) }))
-    const off = sessionOptions(input({ skillsAllowlist: ['plugin-2'], userExtensions: userExtensions(home, tmp()) })).settings as Record<string, Record<string, unknown>>
-    expect(off.enabledPlugins).toEqual({ 'plugin-1@claude-plugins-official': false })
-    for (const source of reported.filter((id) => /@(builtin|inline)$/u.test(id))) expect(off.enabledPlugins).not.toHaveProperty(source)
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ enabledPlugins: Object.fromEntries(ids.map((id) => [id, true])) }))
+    const offWith = (allowed: string[]) => (sessionOptions(input({ skillsAllowlist: allowed, userExtensions: userExtensions(home, tmp()) })).settings as Record<string, Record<string, unknown>>).enabledPlugins
+    expect(offWith(['plugin-9'])).toEqual({ 'plugin-1@claude-plugins-official': false })
+    expect(offWith(['plugin-1'])).toEqual({ 'plugin-9@claude-plugins-official': false })
+    for (const source of reported.filter((id) => /@(builtin|inline|synced)$/u.test(id))) expect(offWith(['plugin-9'])).not.toHaveProperty(source)
   })
 })
 

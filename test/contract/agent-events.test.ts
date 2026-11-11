@@ -41,12 +41,12 @@ describe('SDK messages → agent events', () => {
     expect(sdkMessageToEvents(message)).toEqual([
       {
         type: 'init',
-        sdkSessionId: '00000000-0000-4000-8000-000000000142',
-        model: 'claude-haiku-4-5-20251001',
+        sdkSessionId: '00000000-0000-4000-8000-000000000003',
+        model: 'claude-haiku-5-5',
         permissionMode: 'bypassPermissions',
         apiKeySource: 'none',
         cwd: '<repo>',
-        claudeCodeVersion: '2.1.289',
+        claudeCodeVersion: '2.1.322',
         slashCommands: message.slash_commands,
       },
     ])
@@ -60,7 +60,7 @@ describe('SDK messages → agent events', () => {
 
   it('turns an assistant text block into a text event and a thinking block into a thinking event', () => {
     const text = first('controls.jsonl', (m) => m.type === 'assistant' && contentTypes(m).includes('text'))
-    expect(sdkMessageToEvents(text)).toEqual([{ type: 'text', text: 'YES', messageId: expect.any(String) as string, parentToolUseId: null, synthetic: false }])
+    expect(sdkMessageToEvents(text)).toEqual([{ type: 'text', text: 'NO', messageId: expect.any(String) as string, parentToolUseId: null, synthetic: false }])
     const thinking = first('controls.jsonl', (m) => m.type === 'assistant' && contentTypes(m).includes('thinking'))
     expect(sdkMessageToEvents(thinking)).toEqual([{ type: 'thinking', text: '', messageId: expect.any(String) as string, parentToolUseId: null }])
   })
@@ -86,10 +86,11 @@ describe('SDK messages → agent events', () => {
 
   it('turns a Stop hook that blocked the turn into a hook event and drops silent hooks', () => {
     const responses = fixture('stop-hook.jsonl').filter(isSystem('hook_response'))
-    const events = responses.flatMap((m) => sdkMessageToEvents(m))
+    // The user's SessionStart and UserPromptSubmit hooks that print additionalContext are events too.
+    const events = responses.flatMap((m) => sdkMessageToEvents(m)).filter((e) => e.type === 'hook' && e.hookEvent === 'Stop')
     // Two blocks (exit 2) and one additionalContext answer: the three continuations of ticket 06.
     expect(events.map((e) => e.type === 'hook' && e.exitCode)).toEqual([2, 2, 0])
-    expect(events[0]).toMatchObject({ type: 'hook', hookEvent: 'Stop', outcome: 'error', stderr: expect.stringContaining('Гейт качества красный') as string })
+    expect(events[0]).toMatchObject({ type: 'hook', hookEvent: 'Stop', outcome: 'error', stderr: expect.stringContaining('The quality gate is red') as string })
     expect(events[2]).toMatchObject({ type: 'hook', stdout: expect.stringContaining('additionalContext') as string })
     // The quiet SessionStart and Stop hooks that printed nothing.
     const silent = responses.filter((m) => m.exit_code === 0 && m.stdout === '' && m.stderr === '')
@@ -109,8 +110,36 @@ describe('SDK messages → agent events', () => {
     expect(sdkMessageToEvents(local)).toEqual([{ type: 'notice', kind: 'local_command', text: expect.stringContaining('Set model to') as string }])
   })
 
-  it('turns rate_limit_event into a limits event with both windows', () => {
-    const message = first('controls.jsonl', (m) => m.type === 'rate_limit_event')
+  it('turns rate_limit_event into a limits event with the windows it carries', () => {
+    const at = Date.UTC(2026, 10, 10, 15, 0)
+    const window = { vendor: 'claude', receivedAt: at, source: 'sdk' }
+    // The account of the 2026-11-10 capture has a seven-day window only.
+    expect(sdkMessageToEvents(first('controls.jsonl', (m) => m.type === 'rate_limit_event'), at)).toEqual([
+      {
+        type: 'limits',
+        vendor: 'claude',
+        windows: [{ ...window, id: 'seven_day', label: '7-day', usedPercent: 34, windowMinutes: 10080, resetsAt: 1794801600, state: 'ok' }],
+        status: { text: 'allowed', state: 'ok', windowId: 'seven_day', resetsAt: 1794801600 },
+      },
+    ])
+  })
+
+  it('turns a rate_limit_event with both windows into a limits event with both', () => {
+    // As the 2026-10-05 capture (Claude Code 2.1.289) had it; the 2026-11-10 one has no five-hour window.
+    const message = {
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed',
+        resetsAt: 1791184200,
+        rateLimitType: 'five_hour',
+        overageStatus: 'rejected',
+        overageDisabledReason: 'org_level_disabled',
+        isUsingOverage: false,
+        unifiedWindows: { five_hour: { utilization: 0.07, resetsAt: 1791184200 }, seven_day: { utilization: 0.62, resetsAt: 1791172800 } },
+      },
+      uuid: '00000000-0000-4000-8000-000000000012',
+      session_id: '00000000-0000-4000-8000-000000000003',
+    }
     const at = Date.UTC(2026, 9, 5, 5, 0)
     const window = { vendor: 'claude', receivedAt: at, source: 'sdk' }
     expect(sdkMessageToEvents(message, at)).toEqual([
@@ -134,9 +163,9 @@ describe('SDK messages → agent events', () => {
         subtype: 'success',
         isError: false,
         error: null,
-        text: 'YES',
-        costUsd: 0.0023546,
-        durationMs: 3651,
+        text: 'NO',
+        costUsd: 0.0034022000000000006,
+        durationMs: 2047,
         numTurns: 1,
         usage: {
           inputTokens: expect.any(Number) as number,
@@ -155,7 +184,26 @@ describe('SDK messages → agent events', () => {
     expect(sdkMessageToEvents(interrupted)[0]).toMatchObject({ type: 'result', isError: true, error: expect.stringContaining('ede_diagnostic') as string, interrupted: true })
     const noLogin = first('no-login.jsonl', (m) => m.type === 'result')
     expect(sdkMessageToEvents(noLogin)[0]).toMatchObject({ type: 'result', subtype: 'success', isError: true, error: 'Not logged in · Please run /login', interrupted: false })
-    const tooLong = fixture('init.jsonl').filter((m) => m.type === 'result')[1]
+    // A context that outgrew the window, as the 2026-10-05 capture (Claude Code 2.1.289, haiku 4.5)
+    // had it; haiku 5.5 of the 2026-11-10 capture has room for the same context.
+    const tooLong = {
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'Prompt is too long',
+      terminal_reason: 'prompt_too_long',
+      api_error_status: 400,
+      stop_reason: 'stop_sequence',
+      duration_ms: 984,
+      duration_api_ms: 4844,
+      num_turns: 1,
+      total_cost_usd: 0.345856,
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      modelUsage: {},
+      permission_denials: [],
+      uuid: '00000000-0000-4000-8000-000000000048',
+      session_id: '00000000-0000-4000-8000-000000000003',
+    }
     expect(sdkMessageToEvents(tooLong)[0]).toMatchObject({ type: 'result', isError: true, error: 'Prompt is too long', terminalReason: 'prompt_too_long' })
   })
 
@@ -168,9 +216,8 @@ describe('SDK messages → agent events', () => {
   })
 
   it('turns system/status, notification and commands_changed into their events', () => {
-    const status = fixture('init.jsonl')
-      .filter(isSystem('status'))
-      .find((m) => m.status === 'compacting')
+    // The 2026-10-05 capture compacted (Claude Code 2.1.289); the 2026-11-10 one did not need to.
+    const status = { type: 'system', subtype: 'status', status: 'compacting', session_id: '00000000-0000-4000-8000-000000000003', uuid: '00000000-0000-4000-8000-000000000044' }
     expect(sdkMessageToEvents(status)).toEqual([{ type: 'status', status: 'compacting', permissionMode: null }])
     const notification = first('stop-hook.jsonl', isSystem('notification'))
     expect(sdkMessageToEvents(notification)).toEqual([{ type: 'notice', kind: 'notification', text: 'Stop hook error occurred · ctrl+o to see' }])
@@ -222,7 +269,7 @@ describe('SDK messages → agent events', () => {
   // worfy-daily ticket 29: test/fixtures/sdk-messages/background-tasks.jsonl, one Bash in the background.
   it('turns a background task start into a subagent event that says it runs in the background', () => {
     const [event] = sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_started')))
-    expect(event).toMatchObject({ type: 'subagent', phase: 'started', taskId: 'bo1g8a214', isBackgrounded: true, taskType: 'local_bash', ambient: null })
+    expect(event).toMatchObject({ type: 'subagent', phase: 'started', taskId: 'brllupirh', isBackgrounded: true, taskType: 'local_bash', ambient: null })
     const restarted = { type: 'system', subtype: 'task_notification', task_id: 't9', status: 'stopped', reason: 'worker_restart', ambient: true, output_file: '/tmp/x', summary: 's', uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(restarted)).toEqual([expect.objectContaining({ phase: 'finished', status: 'stopped', reason: 'worker_restart', ambient: true })])
   })
@@ -232,7 +279,7 @@ describe('SDK messages → agent events', () => {
       .filter(isSystem('background_tasks_changed'))
       .map((message) => sdkMessageToEvents(message))
     expect(levels).toEqual([
-      [{ type: 'background_tasks_changed', tasks: [{ taskId: 'bo1g8a214', taskType: 'local_bash', description: 'Run sleep for 5 seconds', ambient: false }] }],
+      [{ type: 'background_tasks_changed', tasks: [{ taskId: 'brllupirh', taskType: 'local_bash', description: 'Run sleep for 5 seconds in background', ambient: false }] }],
       [{ type: 'background_tasks_changed', tasks: [] }],
     ])
     const ambient = { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'w1', task_type: 'monitor', description: 'watch', ambient: true, secret: 'leak-me' }], uuid: 'u', session_id: 's' }
@@ -240,7 +287,7 @@ describe('SDK messages → agent events', () => {
   })
 
   it('turns task_updated and task_progress into task_activity; a move to the background is marked', () => {
-    expect(sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_updated')))).toEqual([{ type: 'task_activity', taskId: 'bo1g8a214', backgrounded: false }])
+    expect(sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_updated')))).toEqual([{ type: 'task_activity', taskId: 'brllupirh', backgrounded: false }])
     const moved = { type: 'system', subtype: 'task_updated', task_id: 't2', patch: { is_backgrounded: true }, uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(moved)).toEqual([{ type: 'task_activity', taskId: 't2', backgrounded: true }])
     const progress = { type: 'system', subtype: 'task_progress', task_id: 't3', description: 'd', usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 }, uuid: 'u', session_id: 's' }

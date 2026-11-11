@@ -72,6 +72,25 @@ function fakeQuery(messages: unknown[]): QueryHandle & { interrupted: number } {
 
 const request = {} as QueryRequest
 
+/**
+ * A rate_limit_event with both windows, as the 2026-10-05 capture (Claude Code 2.1.289) had it in
+ * init.jsonl; the account of the 2026-11-10 capture has a seven-day window only (worfy-polish 100).
+ */
+const BOTH_WINDOWS = {
+  type: 'rate_limit_event',
+  rate_limit_info: {
+    status: 'allowed',
+    resetsAt: 1791184200,
+    rateLimitType: 'five_hour',
+    overageStatus: 'rejected',
+    overageDisabledReason: 'org_level_disabled',
+    isUsingOverage: false,
+    unifiedWindows: { five_hour: { utilization: 0.05, resetsAt: 1791184200 }, seven_day: { utilization: 0.62, resetsAt: 1791172800 } },
+  },
+  uuid: '00000000-0000-4000-8000-000000000009',
+  session_id: '00000000-0000-4000-8000-000000000003',
+}
+
 describe('LimitsTracker', () => {
   it('records the rate_limit_event of every query from the observed factory and passes every message on unchanged', async () => {
     const limits = tracker()
@@ -85,11 +104,10 @@ describe('LimitsTracker', () => {
     await handle.interrupt()
     expect(query.interrupted).toBe(1)
 
-    // init.jsonl: five_hour 0.05 (the rateLimitType, status allowed), seven_day 0.62.
+    // init.jsonl: seven_day 0.34 (the rateLimitType, status allowed) and no five-hour window.
     expect(limits.snapshot()).toEqual({
       windows: {
-        five_hour: { utilization: 0.05, resetsAt: 1791184200, status: 'allowed', receivedAt: NOW, source: 'sdk' },
-        seven_day: { utilization: 0.62, resetsAt: 1791172800, status: null, receivedAt: NOW, source: 'sdk' },
+        seven_day: { utilization: 0.34, resetsAt: 1794801600, status: 'allowed', receivedAt: NOW, source: 'sdk' },
       },
     })
   })
@@ -120,7 +138,7 @@ describe('LimitsTracker', () => {
     const first = tracker()
     for (const message of recorded('bypass.jsonl')) first.recordSdkMessage(message)
     const saved = first.snapshot()
-    expect(saved.windows.five_hour?.utilization).toBe(0.06)
+    expect(saved.windows.seven_day?.utilization).toBe(0.34)
 
     expect(readdirSync(dataDir)).toEqual(['limits.json'])
     expect(tracker(NOW + 1).snapshot()).toEqual(saved)
@@ -244,7 +262,7 @@ describe('statusline-limits.json', () => {
 
   it('does not undo a newer SDK event, and a broken file changes nothing', () => {
     const limits = tracker()
-    limits.recordSdkMessage(recorded('init.jsonl').find((message) => (message as { type?: string }).type === 'rate_limit_event'))
+    limits.recordSdkMessage(BOTH_WINDOWS)
     const before = limits.snapshot()
 
     writeStatusline(STATUSLINE, NOW - 1000)
@@ -260,7 +278,7 @@ describe('statusline-limits.json', () => {
 
   it('is read when the watch starts: a file written while worfy was closed replaces older saved Limits', () => {
     // The saved state comes from an SDK event at NOW; the bridge wrote its file later, before this start.
-    tracker().recordSdkMessage(recorded('init.jsonl').find((message) => (message as { type?: string }).type === 'rate_limit_event'))
+    tracker().recordSdkMessage(BOTH_WINDOWS)
     writeStatusline(STATUSLINE, NOW + 5000)
 
     const limits = tracker(NOW + 10_000)

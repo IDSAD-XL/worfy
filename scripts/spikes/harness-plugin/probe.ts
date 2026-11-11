@@ -40,6 +40,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
+import { personalLast, scrubPersonal } from '../personal-scrub.mjs'
 
 type Scenario = 'known' | 'workflow-hooks' | 'env-file' | 'install' | 'mcp-name'
 const ALL: Scenario[] = ['known', 'workflow-hooks', 'env-file', 'install', 'mcp-name']
@@ -222,6 +223,7 @@ function scrub(s: string): string {
     if (!uuidMap.has(key)) uuidMap.set(key, `00000000-0000-4000-8000-${String(uuidBase + uuidMap.size + 1).padStart(12, '0')}`)
     return uuidMap.get(key) as string
   })
+  out = scrubPersonal(out)
   return out.length > 600 ? `${out.slice(0, 600)}…<truncated ${out.length - 600} chars>` : out
 }
 
@@ -235,8 +237,9 @@ function sanitize(value: unknown, key = ''): unknown {
     if (LISTS.has(key) && value.length > 6) {
       const own = value.filter((v) => typeof v === 'string' && v.startsWith('worfy:'))
       const rest = value.filter((v) => !own.includes(v)).slice(0, 4)
-      return [...own, ...rest].map((v) => sanitize(v)).concat(`<${value.length - own.length - rest.length} more>`)
+      return personalLast([...own, ...rest].map((v) => sanitize(v)).concat(`<${value.length - own.length - rest.length} more>`))
     }
+    if (LISTS.has(key)) return personalLast(value.map((v) => sanitize(v)))
     // Tools: every MCP tool (they are the question), the built-ins counted.
     if (key === 'tools' && value.every((v) => typeof v === 'string')) {
       const mcp = (value as string[]).filter((v) => v.startsWith('mcp__'))
@@ -878,10 +881,10 @@ const RUNNERS: Record<Scenario, () => Promise<Facts>> = {
 
 /** Re-applies scrub() to every string of the plugin-*.jsonl fixtures in a directory, without a model call. */
 function rescrub(dir: string): void {
-  const deep = (v: unknown): unknown => {
+  const deep = (v: unknown, key = ''): unknown => {
     if (typeof v === 'string') return scrub(v)
-    if (Array.isArray(v)) return v.map(deep)
-    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+    if (Array.isArray(v)) return LISTS.has(key) ? personalLast(v.map((x) => deep(x))) : v.map((x) => deep(x))
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, k)]))
     return v
   }
   const files = readdirSync(dir).filter((f) => f.startsWith('plugin-') && f.endsWith('.jsonl'))

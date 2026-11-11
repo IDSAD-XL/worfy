@@ -111,7 +111,7 @@ export type FakeCall =
   /** close() while background tasks lived: Claude Code would have killed these (task ids). */
   | { kind: 'close'; backgroundTasks: string[] }
 
-/** supportedModels() of the fake agent: the shape of SDK 0.3.289, extra keys included. */
+/** supportedModels() of the fake agent: the shape of SDK 0.3.322 (as in 0.3.289), extra keys included. */
 export const FAKE_MODELS: ModelInfoLike[] = [
   { value: 'default', displayName: 'Default (recommended)', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { value: 'opus', displayName: 'Opus', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] },

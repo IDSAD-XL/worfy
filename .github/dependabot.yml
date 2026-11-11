@@ -1,0 +1,30 @@
+# Dependabot (worfy-polish 100): a pull request when a new Claude Agent SDK is out. worfy's model
+# picker lists what the Claude Code binary of the pinned SDK knows (query.supportedModels()), so a new
+# model shows up only after the SDK is raised.
+#
+# Only @anthropic-ai/claude-agent-sdk: its platform packages (@anthropic-ai/claude-agent-sdk-<platform>-<arch>)
+# are its optional dependencies and move with it in pnpm-lock.yaml; the group keeps them in one pull
+# request. The cooldown of one day matches pnpm 11, which by default does not install a version
+# younger than a day.
+#
+# A Dependabot pull request runs ci.yml like any other (`pull_request`, a read-only token, no
+# secrets). Its ci-ok stays red until the SDK messages are captured again for the new version
+# (test/contract/sdk-compat.test.ts, test/fixtures/sdk-messages/README.md): that capture is a paid
+# run on the owner's word, pushed to the same branch.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: '@anthropic-ai/claude-agent-sdk'
+    groups:
+      claude-agent-sdk:
+        patterns:
+          - '@anthropic-ai/claude-agent-sdk*'
+    cooldown:
+      default-days: 1
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: deps
