@@ -14,7 +14,8 @@ import { nodeScript } from '../harness-node'
 // Project switcher at the top mixes the Projects («All Projects») or shows one, which it opens; the Epics follow it,
 // the Sessions say that they show the open Project only; both choices outlive a restart. The button that hides the
 // sidebar is in the sidebar's strip, and in the toolbar only while the sidebar is hidden; ⌘B is unchanged.
-// A third Project, «meadow», has no Epics and a long name, for the pill of the switcher.
+// A third Project, «meadow», has no Epics, a long name, for the pill of the switcher, and a long branch, which its card
+// and the switcher's menu cut with an ellipsis and which leaves its name in place (worfy-polish ticket 111).
 // Under «All Projects» the Sessions and the ADRs of every Project show too, each under its name, and the Projects are
 // cards with their live state (worfy-polish ticket 99): live Sessions of «orchard» and «harbor» in the registry of the
 // Claude home, ADRs in both.
@@ -28,6 +29,8 @@ const ORCHARD = 'orchard-0000000a'
 const HARBOR = 'harbor-0000000b'
 const MEADOW = 'meadow-0000000c'
 const MEADOW_NAME = 'meadow-field-notebooks'
+/** Longer than half a card: it is cut with an ellipsis and leaves the name in place (worfy-polish ticket 111). */
+const MEADOW_BRANCH = 'feature/meadow-hedgerow-survey-and-seed-catalogue'
 const HOUR = 60 * 60_000
 const SIZE = { width: 1280, height: 800 }
 const stamp = (ago: number): string => new Date(Date.now() - ago).toISOString().slice(0, 16) + 'Z'
@@ -62,6 +65,7 @@ test.beforeEach(() => {
     git(repo, 'init', '-q')
     git(repo, 'add', '.')
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
+    if (name === 'meadow') git(repo, 'checkout', '-q', '-b', MEADOW_BRANCH)
     // What epic-status answers in this Project's folder: its own Epics, each with a Ticket done an hour ago.
     writeFileSync(
       join(claudeHome, `${name}.json`),
@@ -262,6 +266,13 @@ test('the top as the owner chose: the wordmark after the traffic lights, the but
     const menu = window.getByRole('menu', { name: 'Sidebar shows' })
     await expect(menu.getByRole('menuitemradio')).toHaveCount(4)
     await expect(menu.getByRole('menuitemradio', { name: new RegExp(`^${MEADOW_NAME}`) })).toHaveAttribute('aria-checked', 'true')
+    // The long branch takes at most half of its item, so the name keeps the rest (worfy-polish ticket 111).
+    const meadowItem = menu.locator(`[data-project="${MEADOW}"]`)
+    const item = await box(meadowItem)
+    const itemName = await box(meadowItem.locator('.w-project-switcher__label'))
+    const itemBranch = await box(meadowItem.locator('.w-project-switcher__detail'))
+    expect(itemName.width).toBeGreaterThan(0)
+    expect(itemBranch.width).toBeLessThanOrEqual(item.width / 2 + 1)
     await ticketShots(window, 'menu-open')
     await expect(menu).toBeVisible()
   } finally {
@@ -302,6 +313,32 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
     await expect(card(ORCHARD)).toHaveText('1 busy')
     await expect(card(HARBOR)).toHaveText('1 busy')
     await expect(card(MEADOW)).toHaveText('quiet')
+    // The long branch of meadow: one line, cut inside the card, at most half of it; the name keeps the rest (worfy-polish ticket 111).
+    const meadow = window.locator(`[data-testid="project-row"][data-project-id="${MEADOW}"] button`)
+    const branch = meadow.getByTitle(MEADOW_BRANCH, { exact: true })
+    await expect(branch).toHaveText(MEADOW_BRANCH)
+    const layout = await meadow.evaluate((button) => {
+      const rect = (element: typeof button | null) => {
+        if (element === null) throw new Error('no element')
+        const { left, right, top, bottom, width, height } = element.getBoundingClientRect()
+        return { left, right, top, bottom, width, height }
+      }
+      const shown = button.querySelector('.w-row__trailing .w-mono')
+      return {
+        card: rect(button),
+        name: rect(button.querySelector('.w-row__label')),
+        branch: rect(shown),
+        cut: shown === null ? false : shown.scrollWidth > shown.clientWidth,
+      }
+    })
+    expect(layout.name.width).toBeGreaterThan(0)
+    expect(layout.branch.height).toBeLessThanOrEqual(18)
+    expect(layout.branch.width).toBeLessThanOrEqual(layout.card.width / 2)
+    expect(layout.cut).toBe(true)
+    expect(layout.branch.left).toBeGreaterThanOrEqual(layout.card.left)
+    expect(layout.branch.right).toBeLessThanOrEqual(layout.card.right)
+    expect(layout.branch.top).toBeGreaterThanOrEqual(layout.card.top)
+    expect(layout.branch.bottom).toBeLessThanOrEqual(layout.card.bottom)
     await ticketShots(window, 'projects-cards', '99')
 
     // The rail button of the Sessions counts the busy Sessions of both Projects, in the tone of work.

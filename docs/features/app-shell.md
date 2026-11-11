@@ -44,7 +44,9 @@ opens at once. The section that is open is remembered for the window.
 - Projects and Machines are not filtered: Projects is where Projects are opened, added and removed.
 
 **The Projects section** shows each Project of the window's Machine as a card of two lines: the name and the branch, then
-its live state, "N busy · N PR need you · N waits", or "quiet". Busy is in the colour of work, the other two in the
+its live state, "N busy · N PR need you · N waits", or "quiet". A long branch stays on one line, takes at most half of it
+and is cut with an ellipsis, so the name keeps the rest; its tooltip holds the whole branch. The switcher's menu gives a
+branch at most half of an item the same way. Busy is in the colour of work, the other two in the
 colour of a block. A part that is zero or unknown is left out. "PR need you" counts the pull requests that need your
 review, answer or fix; it is unknown while the Project's PR inbox is off. "Waits" counts the Tickets in work that are
 blocked or wait for a person, not for an agent. It is known only while a window shows the Project's Pipeline, which "All
