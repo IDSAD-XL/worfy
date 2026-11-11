@@ -24,7 +24,7 @@ once. "New session" in the Command palette uses the default Vendor too. The defa
 Claude Code. One Project holds Sessions of both Vendors side by side.
 
 **The Orchestrator and Autopilot on Codex.** The Project's Orchestrator runs on the default Vendor too, read at its next
-start: "New conversation", or the next start of worfy. It keeps that Vendor while it runs, and so does each new Session of
+start: "New Orchestrator Session", or the next start of worfy. It keeps that Vendor while it runs, and so does each new Session of
 the Orchestrator that Autopilot starts for a Wave. A saved Session of the other Vendor is not resumed: a new one starts, and the old one stays
 in the history ([Sessions, Orchestrator](sessions.md#behaviour)). Autopilot drives a Codex Orchestrator the way it drives a
 Claude Code one, unattended, in the preset Full access. It weighs the budget by the Codex windows, waits for a used-up

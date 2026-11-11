@@ -172,10 +172,10 @@ While a run goes on:
 - On either Vendor the Project's Auto-approval mode changes what happens to a permission request, and in Shadow and On
   the run's agent starts with the run's own temporary folder and git environment:
   [Auto-approval, During a run](auto-approval.md#during-a-run).
-- "Run wave" and "Process gate queue" by hand and "New conversation" of the Orchestrator are refused.
+- "Run wave" and "Process gate queue" by hand and "New Orchestrator Session" are refused.
 - A person can still write to the Orchestrator. What a person does on its Session through worfy goes to the journal as
   `human-input`: a message, a Card's message, Interrupt, "Send queued", removing a queued message, a change of settings,
-  also one that was refused. A refused "Run wave", "Process gate queue" or "New conversation" writes no line, and neither do
+  also one that was refused. A refused "Run wave", "Process gate queue" or "New Orchestrator Session" writes no line, and neither do
   actions in other Sessions.
 - Interrupting a turn of the Wave ends the run with the reason `interrupted`.
 - The Session uses only the Browser profiles marked "Available to Autopilot", must name a Ticket of the Epic when it opens

@@ -472,7 +472,7 @@ describe('Autopilot on a Codex Orchestrator (worfy-multi-vendor ticket 37)', () 
     expect(next.transcripts).toEqual([['thr_fake_1', 'codex']])
   })
 
-  it('a change of defaultVendor takes effect at the next start of the Orchestrator: not while it runs, and at New conversation', async () => {
+  it('a change of defaultVendor takes effect at the next start of the Orchestrator: not while it runs, and at New Orchestrator Session', async () => {
     let vendor: VendorId | undefined = 'codex'
     const h = harness({ vendor: () => vendor, scripts: ['turn'] })
     const first = await h.orchestrators.open(PROJECT)

@@ -616,7 +616,7 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
     expect(fake.sent).not.toContain('layout.apply')
   })
 
-  it('read-only: the Orchestrator Node shows, "New conversation" is inactive', async () => {
+  it('read-only: the Orchestrator Node shows, "New Orchestrator Session" is inactive', async () => {
     const view = { projectId: PROJECT, nodeId: 'orch', sessionId: 'pending-1', state: 'idle', error: null, model: 'claude-opus-5-5', costUsd: 0, statusBlock: null, version: 1 }
     await windowOn(M, true, { 'orchestrator.view': { view } })
     const { default: OrchestratorNode } = await import('../../src/renderer/canvas/nodes/OrchestratorNode')

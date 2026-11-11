@@ -19,7 +19,7 @@ import { useOrchestratorView } from './orchestrator-view'
 // cost and the last status block of the Session's answers, verbatim — is main's view of the
 // Orchestrator (src/main/agent/orchestrator.ts), asked for once and then followed on
 // `orchestrator.changed` (orchestrator-view.ts). A double click opens the Session view on its
-// Session (src/renderer/session/SessionView.tsx). "New conversation" (ticket 18) sends the current
+// Session (src/renderer/session/SessionView.tsx). "New Orchestrator Session" (ticket 18) sends the current
 // Session to the history and makes a new one the Orchestrator; it waits for the turn to end.
 //
 // main creates the Node with the kind and size of src/shared/ipc/orchestrator.ts. The registry
@@ -136,9 +136,13 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
           style={styles.tool}
           data-testid="orchestrator-new-conversation"
           disabled={!view || busy}
-          {...writeAction(readOnly, newConversation, busy ? 'Interrupt the turn first' : 'Send this Session to the history and start a new one')}
+          {...writeAction(
+            readOnly,
+            newConversation,
+            busy ? 'Interrupt the turn first' : 'The current Session goes to the history; the Orchestrator starts again with a clean context.',
+          )}
         >
-          New conversation
+          New Orchestrator Session
         </button>
       </div>
       {problem !== null ? (

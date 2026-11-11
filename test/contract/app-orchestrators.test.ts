@@ -114,7 +114,7 @@ const threadStarts = (): number => {
 }
 
 describe("the app's Orchestrators run on the Project's defaultVendor (worfy-multi-vendor ticket 37)", () => {
-  it("reads the Claude Code transcript of the saved session, then moves to Codex at New conversation once settings.json names it; Autopilot's refusal is Codex's own", async () => {
+  it("reads the Claude Code transcript of the saved session, then moves to Codex at New Orchestrator Session once settings.json names it; Autopilot's refusal is Codex's own", async () => {
     vi.resetModules()
     const { sharedOrchestrators } = await import('../../src/main/agent/app-orchestrators')
     const { layoutStore } = await import('../../src/main/layout/store')

@@ -12,7 +12,7 @@ worfy runs Sessions itself and shows the ones started elsewhere. Each Session ha
 
 | Node | How it appears | What the user can do |
 | ---- | ------------- | -------------------- |
-| Orchestrator | Created locked, one per Project | Everything below, plus "New conversation". It can be moved, not removed |
+| Orchestrator | Created locked, one per Project | Everything below, plus "New Orchestrator Session". It can be moved, not removed |
 | Live Session Node, 340 by 220 pixels | "New session", or Resume | Send messages from the Node or the Session view |
 | Read-only Session Node, 300 by 120 pixels | A Session started in a terminal or Claude desktop | Read its transcript, Resume it once it has finished |
 
@@ -238,11 +238,12 @@ login shell overrides both rows, and the section says so. A running Session keep
 **Orchestrator.** The Project's main Session. The Node shows its state, model, summed cost and the last status block of its
 answers.
 
-- "New conversation" is refused in `busy` and while Autopilot runs. The old conversation stays in the history, and the
-  cost starts from zero.
+- "New Orchestrator Session" replaces the Orchestrator's Session with a new one. Its tooltip: "The current Session goes to
+  the history; the Orchestrator starts again with a clean context." It is refused in `busy` and while Autopilot runs. The
+  old Session stays in the history, and the cost starts from zero.
 - When the Orchestrator opens, its saved Session is resumed. With the transcript gone, a new Session starts.
 - It runs on the Project's "Default vendor" ([Project settings](projects.md)), Claude Code while none is chosen. A change
-  of it applies from the Orchestrator's next start: "New conversation", or the next start of worfy. A saved Session of
+  of it applies from the Orchestrator's next start: "New Orchestrator Session", or the next start of worfy. A saved Session of
   the other Vendor is not resumed then: a new one starts on the new Vendor, with that Vendor's default model and effort,
   and the old one stays in the history. The permission mode moves to its equivalent on the new Vendor: Bypass
   permissions and Full access, Accept edits and Auto, Ask before tools and Read only (Plan only becomes Read only). The

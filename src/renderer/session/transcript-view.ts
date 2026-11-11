@@ -10,7 +10,7 @@ import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from 'reac
 // survives a restart and is shared by every window of worfy on this Machine.
 //
 // A Session is keyed by its SDK session id: one Session keeps one choice wherever it is opened — live
-// on its Node, read-only, from the Command palette — and a new conversation on the same Node starts
+// on its Node, read-only, from the Command palette — and a New Orchestrator Session on the same Node starts
 // with tools shown. Only while no id is known yet (a Node whose Session has not started) the key is
 // the Node; the choice moves to the Session's key once its id appears (useSessionToolsHidden). A
 // Session that main renames (src/main/agent/session.ts: a process that died before its first turn,

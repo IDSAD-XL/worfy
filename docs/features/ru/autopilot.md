@@ -175,10 +175,10 @@ tooltip «⋯». Идущую очередь меняет только чело�
 - Auto-approval mode Project-а меняет судьбу запроса разрешения на обоих Vendor-ах, а в Shadow и On агент run-а
   стартует с собственной временной папкой run-а и git-окружением:
   [Auto-approval, Во время run-а](auto-approval.md#во-время-run-а).
-- «Run wave» и «Process gate queue» вручную и «New conversation» у Orchestrator-а получают отказ.
+- «Run wave» и «Process gate queue» вручную и «New Orchestrator Session» получают отказ.
 - Человек по-прежнему может написать Orchestrator-у. То, что человек делает с его Session через worfy, идёт в journal как
   `human-input`: сообщение, сообщение от Card, Interrupt, «Send queued», удаление сообщения из очереди, смена настроек, в
-  том числе та, в которой отказано. «Run wave», «Process gate queue» и «New conversation», получившие отказ, строки не
+  том числе та, в которой отказано. «Run wave», «Process gate queue» и «New Orchestrator Session», получившие отказ, строки не
   пишут, и действия в других Session тоже.
 - Interrupt turn-а Wave завершает run с причиной `interrupted`.
 - Session использует только Browser profile с отметкой «Available to Autopilot», при открытии Browser обязана назвать

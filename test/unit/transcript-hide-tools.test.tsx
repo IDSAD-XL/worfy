@@ -190,7 +190,7 @@ describe('the choice, per Session', () => {
   it('keeps each Session and each Subagent apart', () => {
     const session = key('node-1', 's-1')
     const subagent = key('node-1', 's-1', 'agent-7')
-    // A new conversation on the same Node is another Session.
+    // A New Orchestrator Session on the same Node is another Session.
     const other = key('node-1', 's-2')
     expect(new Set([session, subagent, other]).size).toBe(3)
     // The same Session opened from the Command palette (a `session:<id>` Node) or read-only keeps its key.
