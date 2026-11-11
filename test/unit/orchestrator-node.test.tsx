@@ -111,6 +111,18 @@ describe('OrchestratorNode', () => {
     }
   })
 
+  it('names its button «New Orchestrator Session», with the tooltip that it replaces the current Session; busy, it asks to interrupt first (worfy-polish 108)', async () => {
+    await mount()
+    await act(async () => answer({ view: view(1) }))
+    const button = screen.getByRole('button', { name: 'New Orchestrator Session' })
+    expect(button.getAttribute('data-testid')).toBe('orchestrator-new-conversation')
+    expect(button.getAttribute('title')).toBe('The current Session goes to the history; the Orchestrator starts again with a clean context.')
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    act(() => changed?.(view(2, { state: 'busy' })))
+    expect(button.getAttribute('title')).toBe('Interrupt the turn first')
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it("ignores another Node's views", async () => {
     await mount()
     act(() => changed?.(view(2, { nodeId: 'other', statusBlock: BLOCK_NEW })))

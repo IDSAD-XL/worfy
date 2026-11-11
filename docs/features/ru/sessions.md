@@ -13,7 +13,7 @@ worfy сам ведёт Session и показывает те, что запущ�
 
 | Node | Как появляется | Что может пользователь |
 | ---- | -------------- | ---------------------- |
-| Orchestrator | Создаётся закреплённым, один на Project | Всё описанное ниже и «New conversation». Его можно двигать, но нельзя убрать |
+| Orchestrator | Создаётся закреплённым, один на Project | Всё описанное ниже и «New Orchestrator Session». Его можно двигать, но нельзя убрать |
 | Live Session Node, 340 на 220 пикселей | «New session» или Resume | Отправлять сообщения из Node или Session view |
 | Read-only Session Node, 300 на 120 пикселей | Session, запущенная в терминале или Claude desktop | Читать её transcript, сделать Resume, когда она закончится |
 
@@ -137,7 +137,7 @@ Orchestrator. Память об этом выборе живёт столько 
 
 **Orchestrator.** Главная Session Project-а. Node показывает её состояние, модель, суммарную стоимость и последний status block её ответов.
 
-- «New conversation» отклоняется в `busy` и пока работает Autopilot. Старый разговор остаётся в истории, а стоимость начинается с нуля.
+- «New Orchestrator Session» заменяет Session Orchestrator-а новой. Tooltip кнопки: «The current Session goes to the history; the Orchestrator starts again with a clean context.» Кнопка отклоняется в `busy` и пока работает Autopilot. Старая Session остаётся в истории, а стоимость начинается с нуля.
 - Когда Orchestrator открывается, его сохранённая Session продолжается. Если transcript пропал, стартует новая Session.
 - Orchestrator modes — Eco mode, Auto-approval и Auto-continue — собраны в одной кнопке под полем ввода Orchestrator-а,
   «Modes». С включённым Auto-continue worfy продолжает turn Orchestrator-а, который закончился временной ошибкой API или

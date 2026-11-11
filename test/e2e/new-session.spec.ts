@@ -9,7 +9,7 @@ import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
 // Sessions started from worfy (ticket 18), against the built app on the fake agent: "New session"
-// makes a new live Node and two of them answer side by side; "New conversation" sends the
+// makes a new live Node and two of them answer side by side; "New Orchestrator Session" sends the
 // Orchestrator's Session to the history; the history offers Resume only for a finished Session
 // whose folder still exists, and a resumed Session goes on under its own id (the fake agent answers
 // with the session id and cwd it was started with, as Claude Code does) in the cwd its transcript
@@ -176,7 +176,7 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-test('New session, New conversation, the history and Resume', async () => {
+test('New session, New Orchestrator Session, the history and Resume', async () => {
   const worktree = join(projectPath, '.claude', 'worktrees', '07')
   mkdirSync(worktree, { recursive: true })
   // What Claude Code left before worfy starts: a finished terminal Session, one still running, one
@@ -238,7 +238,7 @@ test('New session, New conversation, the history and Resume', async () => {
     await expect(first.getByTestId('session-node-status')).toHaveText('finished')
     await expect(first.getByTestId('session-node-resume')).toBeVisible()
 
-    // ── New conversation of the Orchestrator: its Session goes to the history, a new one takes its place.
+    // ── New Orchestrator Session: its Session goes to the history, a new one takes its place.
     // The Canvas may be centered on the last new Session, the Orchestrator off screen on either axis.
     const orchestrator = (await nodes(window)).find((node) => node.kind === 'orchestrator')
     if (!orchestrator) throw new Error('no Orchestrator Node')

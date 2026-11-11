@@ -96,7 +96,7 @@ export const orchestratorOpen = invokeChannel('orchestrator.open', z.object({ pr
 export const orchestratorView = invokeChannel('orchestrator.view', z.object({ nodeId }), z.object({ view: orchestratorViewSchema.nullable() }), 'project', 'read')
 
 /**
- * "New conversation": the Orchestrator's current Session goes to the history and a new one becomes
+ * "New Orchestrator Session": the Orchestrator's current Session goes to the history and a new one becomes
  * the Project's Orchestrator. Refused while a turn runs. Answers the new view.
  */
 export const orchestratorNewConversation = invokeChannel('orchestrator.newConversation', z.object({ projectId }), orchestratorViewSchema, 'project', 'write')

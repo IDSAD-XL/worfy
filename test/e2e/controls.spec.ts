@@ -218,7 +218,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
     // A Node's header, and the Orchestrator's state beside its buttons, which is only a label.
     const orchestrator = window.getByTestId('orchestrator-node')
-    await expectControl(window, orchestrator.getByTestId('orchestrator-new-conversation'), 'New conversation of the Orchestrator')
+    await expectControl(window, orchestrator.getByTestId('orchestrator-new-conversation'), 'New Orchestrator Session')
     await expectStatic(window, orchestrator.getByTestId('orchestrator-state'), 'the state of the Orchestrator')
 
     // A Browser's header: Back stays inactive on a page with no history. All three buttons are

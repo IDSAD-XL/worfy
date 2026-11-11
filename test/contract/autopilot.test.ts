@@ -616,10 +616,11 @@ describe('an Autopilot run on the fake agent', () => {
     expect(messages(h.calls)).toHaveLength(1)
   })
 
-  it('refuses "New conversation" of the Orchestrator while the run has it', async () => {
+  it('refuses "New Orchestrator Session" while the run has it', async () => {
     const h = harness({ script: 'orchestrator' })
     await h.autopilot.start(PROJECT, EPIC)
     await expect(h.orchestrators.newConversation(PROJECT)).rejects.toThrow(AUTOPILOT_OWNS_ORCHESTRATOR)
+    expect(AUTOPILOT_OWNS_ORCHESTRATOR).toBe('Autopilot runs this Orchestrator: stop Autopilot before starting a New Orchestrator Session')
   })
 
   it('journals Interrupt, closing the Session, removing a queued message and answering a permission request as human-input', async () => {

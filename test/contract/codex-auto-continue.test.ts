@@ -191,7 +191,7 @@ afterEach(async () => {
  * test's LimitsTracker, and the windows read anew through a LimitsRefresher whose Codex poll starts the fake
  * app-server on the next of `pollScripts` (codexLimitsPart.poll: account/read, account/rateLimits/read).
  * A person's message starts the turn. `options.scripts`: the scripts of the app-servers started after the
- * first (a New conversation); `options.usage`: the read of the windows the module gets in place of the real one.
+ * first (a New Orchestrator Session); `options.usage`: the read of the windows the module gets in place of the real one.
  * The switch is on until `switchOff()`, which tells the module as the settings store's `changed` does.
  */
 async function manualTurn(script: string, options: { polls?: readonly string[]; scripts?: readonly string[]; usage?: VendorUsage } = {}) {
@@ -268,7 +268,7 @@ async function manualTurn(script: string, options: { polls?: readonly string[]; 
     on = false
     for (const listener of settingsListeners) listener()
   }
-  /** worfy's lines in any Session's transcript, the old conversation's and the new one's. */
+  /** worfy's lines in any Session's transcript, the old Session's and the new one's. */
   const anyNotices = (): string[] => events.flatMap(({ event }) => (event.type === 'notice' && event.kind === 'notification' && event.text.startsWith('worfy:') ? [event.text] : []))
   return { h, continuer, notices, anyNotices, results, pollsDone, refreshes, session, switchOff }
 }
@@ -411,7 +411,7 @@ const FIRST_WAIT_LINE = `worfy: waiting for the Limits, resumes ${clockText(LIMI
 
 /**
  * The read of the windows at the reset does not answer until the test says. Whatever ends the wait while
- * it is read (a person's message, the switch, a New conversation, the quit) wins: the read answering after
+ * it is read (a person's message, the switch, a New Orchestrator Session, the quit) wins: the read answering after
  * it — even "the window is open" — sends nothing (orchestrator-continue.ts limitsFired, isCurrent after the read).
  */
 describe('Auto-continue of a manual turn on Codex: the wait ended during the read of the windows (worfy-retry ticket 08)', () => {
@@ -449,12 +449,12 @@ describe('Auto-continue of a manual turn on Codex: the wait ended during the rea
     expect(continuer.wait(PROJECT)).toBeNull()
   })
 
-  it("New conversation during the read: the old Session's wait ends with it, and the new conversation gets no continuation", async () => {
+  it("New Orchestrator Session during the read: the old Session's wait ends with it, and the new Session gets no continuation", async () => {
     const { h, continuer, anyNotices, session, read } = await heldAtReset({ scripts: ['turn'] })
     const old = session().id
     const view = await h.orchestrators.newConversation(PROJECT)
     expect(view.sessionId).not.toBe(old)
-    await until(() => h.registry.get(view.sessionId!).state === 'idle', 'the new conversation to be idle')
+    await until(() => h.registry.get(view.sessionId!).state === 'idle', 'the new Session to be idle')
     read.open()
     await tick(200)
     expect(h.messages()).toEqual([PERSON])

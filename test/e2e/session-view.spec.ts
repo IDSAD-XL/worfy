@@ -283,7 +283,7 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
   }
 })
 
-test('«Hide tools» folds the ordinary tool calls around an error, per Session: kept after a restart, not for a new conversation (worfy-ui ticket 25)', async () => {
+test('«Hide tools» folds the ordinary tool calls around an error, per Session: kept after a restart, not for a New Orchestrator Session (worfy-ui ticket 25)', async () => {
   // test/fixtures/agent-scripts/hide-tools.jsonl: one turn of Bash ✓, Edit ✗, Grep ✓, then the answer.
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'hide-tools' }
   const sessionViewOf = (window: Page): Locator => window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
@@ -378,7 +378,7 @@ test('«Hide tools» folds the ordinary tool calls around an error, per Session:
     await expect(view.getByRole('button', { name: 'Hide tools' })).toHaveAttribute('aria-pressed', 'true')
     await expect.poll(() => runOrder(view)).toEqual(['1 tool', 'Edit', '1 tool'])
 
-    // New conversation on the same Node: another Session, which shows its tools.
+    // New Orchestrator Session on the same Node: another Session, which shows its tools.
     await window.getByRole('button', { name: /Canvas/ }).click()
     await window.getByTestId('orchestrator-new-conversation').click()
     await expect(window.getByTestId('orchestrator-state')).toHaveText('idle')

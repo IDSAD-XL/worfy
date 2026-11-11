@@ -25,7 +25,7 @@
 // its tasks live on (worfy-polish ticket 50). Going back to attended carries the queue over
 // to the new Session. Before each Wave after a run's first, Autopilot asks for a new SDK session of
 // the unattended Orchestrator (newUnattendedSession, worfy-throughput ticket 52): the old Session
-// closes, as on "New conversation", only while no turn, background task or queued message would be
+// closes, as on "New Orchestrator Session", only while no turn, background task or queued message would be
 // lost. Stop in Autopilot (worfy-week ticket 17, ADR-0050) gives the Orchestrator back
 // at once instead (giveBackNow): its halted Session's process closes, and with it every background
 // task and the turn the interrupt did not end.
@@ -36,7 +36,7 @@
 // setUnattended and giveBackNow answer once its process has started.
 //
 // The Orchestrator runs on the Project's defaultVendor (worfy-multi-vendor ticket 37), read when it
-// starts — when it opens, and at "New conversation" — and kept for every relaunch, so Autopilot's
+// starts — when it opens, and at "New Orchestrator Session" — and kept for every relaunch, so Autopilot's
 // unattended Session and the give-back continue the same Vendor's session. The Node's data names
 // the Vendor of the saved session (ADR-0095); when the Project's Vendor is another one, the
 // Orchestrator starts a new session on it rather than resuming one its agent does not know. The
@@ -239,8 +239,8 @@ export interface OrchestratorBusy {
   tasks: BackgroundTask[]
 }
 
-/** Why "New conversation" is refused while Autopilot runs the Orchestrator. */
-export const AUTOPILOT_OWNS_ORCHESTRATOR = 'Autopilot runs this Orchestrator: stop Autopilot before starting a new conversation'
+/** Why "New Orchestrator Session" is refused while Autopilot runs the Orchestrator. */
+export const AUTOPILOT_OWNS_ORCHESTRATOR = 'Autopilot runs this Orchestrator: stop Autopilot before starting a New Orchestrator Session'
 
 /** Why Autopilot cannot take the Orchestrator while a turn runs: starting its Session again would kill the turn. */
 export const ORCHESTRATOR_IN_TURN = 'The Orchestrator is in a turn: wait for it to end, or Interrupt it, before starting Autopilot'
@@ -292,7 +292,7 @@ export class Orchestrators {
   }
 
   /**
-   * "New conversation" (ticket 18): the current Session closes and stays in the history as its
+   * "New Orchestrator Session" (ticket 18): the current Session closes and stays in the history as its
    * transcript; a new Session becomes the Project's Orchestrator, with its cost from zero. Refused
    * during a turn, like closing any Session (resume.ts).
    */
@@ -439,7 +439,7 @@ export class Orchestrators {
   /**
    * Autopilot's next Wave (worfy-throughput ticket 52): the unattended Orchestrator starts a new SDK
    * session instead of continuing the one of the last Wave. The old Session closes and stays in the
-   * history as its transcript, as on "New conversation"; the new one runs unattended too, its cost
+   * history as its transcript, as on "New Orchestrator Session"; the new one runs unattended too, its cost
    * from zero. The Node keeps the old SDK session id and cost until the new session's first init
    * (after its first prompt): a give-back before that continues the old session. Only while the Orchestrator is free — no turn, no live background task, nothing in its
    * queue and no give-back waiting — since closing the old Session would end what runs there or

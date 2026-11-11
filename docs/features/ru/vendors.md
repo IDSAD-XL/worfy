@@ -27,7 +27,7 @@ Project-а. «New session» в Command palette тоже берёт Vendor по �
 Claude Code. В одном Project Session-ы обоих Vendor-ов живут рядом.
 
 **Orchestrator и Autopilot на Codex.** Orchestrator Project-а тоже идёт на Vendor-е по умолчанию; Vendor читается при его
-следующем старте: «New conversation» или следующий запуск worfy. Пока Orchestrator работает, он держит этот Vendor, и так же
+следующем старте: «New Orchestrator Session» или следующий запуск worfy. Пока Orchestrator работает, он держит этот Vendor, и так же
 его держит каждая новая Session Orchestrator-а, которую Autopilot запускает для Wave. Сохранённая Session другого Vendor-а не
 продолжается: начинается новая, а старая остаётся в истории ([Sessions, Orchestrator](sessions.md#behaviour)). Autopilot ведёт
 Orchestrator на Codex так же, как на Claude Code: unattended, в preset-е Full access. Budget он взвешивает по окнам Codex,

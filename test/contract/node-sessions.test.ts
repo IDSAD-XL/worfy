@@ -2,7 +2,7 @@
 // Layout store and Session registry, on the fake agent: "New session" makes a new live Node, two of
 // them run side by side, Resume continues a finished Session on its Node in the cwd its transcript
 // records and is refused for a running one or a gone folder, the Node's data keeps identifiers only
-// (ADR-0010), a busy Session is not closed, "New conversation" of the Orchestrator, and the
+// (ADR-0010), a busy Session is not closed, "New Orchestrator Session", and the
 // `sessions.*` channels at the IPC boundary.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm, stat } from 'node:fs/promises'
@@ -661,7 +661,7 @@ describe('Close', () => {
   })
 })
 
-describe('New conversation of the Orchestrator', () => {
+describe('New Orchestrator Session', () => {
   it('closes the current Session, forgets its id and cost, and makes a new Session the Orchestrator; refused during a turn', async () => {
     const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
     const requests: QueryRequest[] = []

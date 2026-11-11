@@ -321,7 +321,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
             {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
             <Select<VendorChoice> id={vendorId} style={styles.input} value={vendor} options={VENDOR_OPTIONS} onChange={setVendor} data-testid="project-settings-vendor" />
             <span style={styles.hint}>
-              Listed first in New session. The Orchestrator runs on it from its next start: New conversation, or the next start of worfy. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)}{' '}
+              Listed first in New session. The Orchestrator runs on it from its next start: New Orchestrator Session, or the next start of worfy. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)}{' '}
               whatever is chosen here.
             </span>
           </div>

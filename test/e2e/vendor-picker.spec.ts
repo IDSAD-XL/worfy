@@ -176,7 +176,7 @@ test('Project settings: "Default vendor" says the Orchestrator runs on it from i
     const dialog = window.getByRole('dialog', { name: 'Project settings' })
     await dialog.getByTestId('project-settings-vendor').click()
     await window.getByRole('option', { name: 'Codex', exact: true }).click()
-    await expect(dialog).toContainText('The Orchestrator runs on it from its next start: New conversation, or the next start of worfy.')
+    await expect(dialog).toContainText('The Orchestrator runs on it from its next start: New Orchestrator Session, or the next start of worfy.')
     // The dialog alone: the sidebar behind it shows the launch's temporary folders.
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
