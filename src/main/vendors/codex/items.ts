@@ -10,8 +10,16 @@
 //   Subagents: spawn, wait, send…; worfy-retry ticket 08) → `tool_use` when they start and `tool_result`
 //   when they complete (a tool that completes without having started gets both then);
 // - `turn/started` → `init` (the thread's id as the Vendor's session id); `turn/completed` → `result`,
-//   an interrupted or failed turn with its text; `error` → a `result` with the error, after which the
-//   `turn/completed` of the same turn gives nothing more; an `error` Codex retries by itself → `notice`.
+//   an interrupted or failed turn with its text, and a status worfy does not know too: a turn/completed
+//   is the end of its turn whatever it says, so the Session never stays busy after it (worfy-multi-vendor
+//   ticket 47); `error` → a `result` with the error, after which the `turn/completed` of the same turn
+//   gives nothing more; an `error` Codex retries by itself → `notice`;
+// - `thread/status/changed` to `systemError` while a turn runs → a `result` with the error: the thread
+//   stopped, and no turn/completed may come (a late one gives nothing more); any other status gives nothing;
+// - a hook run (`hook/started`, `hook/completed`) → `hook`: a Stop hook while it runs, with outcome
+//   `running` — under Codex the Harness's Stop hook runs the gate, which may take minutes after the answer
+//   (harness/hooks/stop.mjs) — and a run that said something once it ends (not `completed`, or with
+//   output), as a hook of Claude Code is shown; a silent end of a running Stop hook closes its row.
 //   The `result`'s `terminalReason` is the error's `codexErrorInfo` key, with its HTTP status when Codex
 //   gives one (`responseTooManyFailedAttempts:429`): turnFailureKind reads both (worfy-retry ticket 08);
 // - `thread/tokenUsage/updated` → `context`;
@@ -23,6 +31,7 @@
 import type { AgentEvent, ContextUsage } from '../../../shared/agent/events'
 import type { ServerNotification } from './protocol/ts/ServerNotification'
 import type { ErrorNotification } from './protocol/ts/v2/ErrorNotification'
+import type { HookRunSummary } from './protocol/ts/v2/HookRunSummary'
 import type { ThreadItem } from './protocol/ts/v2/ThreadItem'
 import type { ThreadTokenUsage } from './protocol/ts/v2/ThreadTokenUsage'
 import type { Turn } from './protocol/ts/v2/Turn'
@@ -55,7 +64,6 @@ const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTok
 /** Notifications that only repeat what the events of other notifications say. */
 const QUIET = new Set([
   'thread/started',
-  'thread/status/changed',
   'item/commandExecution/outputDelta',
   'item/fileChange/outputDelta',
   'item/fileChange/patchUpdated',
@@ -86,6 +94,24 @@ const errorKind = (error: TurnError | null | undefined): string | null => {
   const fields = (info as Record<string, unknown>)[key]
   const status = fields !== null && typeof fields === 'object' ? (fields as { httpStatusCode?: unknown }).httpStatusCode : undefined
   return Number.isInteger(status) ? `${key}:${String(status)}` : key
+}
+
+/** The name Claude Code gives a hook event (`Stop`, `PreToolUse`) for Codex's (`stop`, `preToolUse`). */
+const hookEventName = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1)
+
+/**
+ * A hook run as worfy's `hook` event: named by its event and its run's id (which the end of a running row
+ * matches), its output the entries Codex gave — those of the model's context on stdout, the rest on stderr.
+ * Codex gives no exit code.
+ */
+function hookEvent(run: HookRunSummary, outcome: string): Extract<AgentEvent, { type: 'hook' }> {
+  const entries = run.entries ?? []
+  const lines = (context: boolean): string =>
+    entries
+      .filter((entry) => (entry.kind === 'context' || entry.kind === 'feedback') === context && entry.text.trim() !== '')
+      .map((entry) => boundedText(entry.text))
+      .join('\n')
+  return { type: 'hook', hookEvent: hookEventName(String(run.eventName)), hookName: run.id, exitCode: null, outcome, stdout: lines(true), stderr: lines(false) }
 }
 
 /** How full the context window is after the turn's latest request; null when Codex did not give the window. */
@@ -178,8 +204,19 @@ export class CodexItems {
   private readonly usages = new Map<string, Usage>()
   /** Turns whose `result` was already given (by an `error`): their `turn/completed` gives none. */
   private readonly ended = new Set<string>()
+  /** The turn that runs, from its `turn/started` until its `result`; null between turns. */
+  private running: string | null = null
+  /** The turn the last `result` ended. */
+  private endedLast: string | null = null
+  /** The hook runs shown as running (Stop), by their id: their end closes the row. */
+  private readonly runningHooks = new Set<string>()
 
   constructor(private readonly context: CodexTurnContext) {}
+
+  /** The turn the latest `result` ended, whichever notification gave it; null before any. */
+  get lastEnded(): string | null {
+    return this.endedLast
+  }
 
   /** The item `id` while it runs. */
   item(id: string): ThreadItem | undefined {
@@ -198,11 +235,18 @@ export class CodexItems {
   take(notification: ServerNotification): AgentEvent[] {
     switch (notification.method) {
       case 'turn/started':
+        this.running = notification.params.turn.id
         return [this.init()]
       case 'turn/completed':
         return this.completed(notification.params.turn)
       case 'error':
         return this.error(notification.params)
+      case 'thread/status/changed':
+        return notification.params.status.type === 'systemError' ? this.systemError() : []
+      case 'hook/started':
+        return this.hookStarted(notification.params.run)
+      case 'hook/completed':
+        return this.hookCompleted(notification.params.run)
       case 'item/agentMessage/delta':
         return [{ type: 'delta', kind: 'text', text: notification.params.delta, parentToolUseId: null }]
       case 'item/reasoning/summaryTextDelta':
@@ -292,9 +336,37 @@ export class CodexItems {
         return [this.result(turn.id, { subtype: 'interrupted', error: textOf(turn.error) ?? 'The turn was interrupted.', terminalReason: 'interrupted', interrupted: true, durationMs })]
       case 'failed':
         return [this.result(turn.id, { subtype: 'error', error: textOf(turn.error) ?? 'The turn failed.', terminalReason: errorKind(turn.error) ?? 'failed', interrupted: false, durationMs })]
-      default:
-        return [{ type: 'unknown', sdkType: `turn/completed/${String(turn.status)}` }]
+      default: {
+        // A status worfy does not know (`inProgress`, or one of a later Codex): the turn ended all the same.
+        // Its error, when it has one, says how; without one the answer stands, as of a completed turn.
+        const status = String(turn.status)
+        const error = textOf(turn.error)
+        return [this.result(turn.id, { subtype: error === null ? 'success' : 'error', error, terminalReason: errorKind(turn.error) ?? status, interrupted: false, durationMs })]
+      }
     }
+  }
+
+  /** The thread stopped with a system error: the turn that runs ends with it, and its late turn/completed gives nothing. */
+  private systemError(): AgentEvent[] {
+    const turn = this.running
+    if (turn === null) return []
+    this.ended.add(turn)
+    return [this.result(turn, { subtype: 'error', error: 'Codex stopped the thread with a system error.', terminalReason: 'systemError', interrupted: false, durationMs: 0 })]
+  }
+
+  /** A Stop hook that starts is shown while it runs: the turn waits for it after the answer. */
+  private hookStarted(run: HookRunSummary): AgentEvent[] {
+    if (run.eventName !== 'stop') return []
+    this.runningHooks.add(run.id)
+    return [hookEvent(run, 'running')]
+  }
+
+  /** A hook run that ended: shown when it said something, or to close the row of a running Stop hook. */
+  private hookCompleted(run: HookRunSummary): AgentEvent[] {
+    const shown = this.runningHooks.delete(run.id)
+    const output = (run.entries ?? []).some((entry) => entry.text.trim() !== '')
+    if (run.status === 'completed' && !output && !shown) return []
+    return [hookEvent(run, run.status)]
   }
 
   private result(turnId: string, end: { subtype: string; error: string | null; terminalReason: string; interrupted: boolean; durationMs: number }): Result {
@@ -302,6 +374,8 @@ export class CodexItems {
     const usage = this.usages.get(turnId) ?? NO_USAGE
     this.answers.delete(turnId)
     this.usages.delete(turnId)
+    this.endedLast = turnId
+    if (this.running === turnId) this.running = null
     return {
       type: 'result',
       subtype: end.subtype,

@@ -210,8 +210,75 @@ describe('the events of a turn: what the scripts do not play', () => {
     expect(events[1]?.[1]).toEqual([])
   })
 
-  it('a turn status worfy does not know is unknown', () => {
-    expect(play([turnCompleted({ status: 'paused' })])[0]?.[1]).toEqual([{ type: 'unknown', sdkType: 'turn/completed/paused' }])
+  it('a turn/completed in a status worfy does not know still ends the turn: its answer, or its error (worfy-multi-vendor ticket 47)', () => {
+    expect(play([turnCompleted({ status: 'paused' })])[0]?.[1]).toEqual([result({ durationMs: 0, terminalReason: 'paused' })])
+    expect(play([turnCompleted({ status: 'inProgress', error: { message: 'Lost the stream.', codexErrorInfo: 'responseStreamDisconnected' } })])[0]?.[1]).toEqual([
+      result({ subtype: 'error', isError: true, error: 'Lost the stream.', durationMs: 0, terminalReason: 'responseStreamDisconnected' }),
+    ])
+  })
+
+  it('a system error of the thread ends the turn that runs, and its late turn/completed gives no second result; other statuses give nothing', () => {
+    const status = (type: string): ServerNotification => ({ method: 'thread/status/changed', params: { threadId: 'thr_fake_1', status: { type } } }) as unknown as ServerNotification
+    const started: ServerNotification = { method: 'turn/started', params: { threadId: 'thr_fake_1', turn: { id: 'turn_9', items: [], status: 'inProgress' } } } as unknown as ServerNotification
+    expect(play([status('systemError'), started, status('idle'), status('systemError'), turnCompleted({ status: 'failed' }), status('systemError')])).toEqual([
+      ['thread/status/changed', []],
+      ['turn/started', [INIT]],
+      ['thread/status/changed', []],
+      ['thread/status/changed', [result({ subtype: 'error', isError: true, error: 'Codex stopped the thread with a system error.', durationMs: 0, terminalReason: 'systemError' })]],
+      ['turn/completed', []],
+      ['thread/status/changed', []],
+    ])
+  })
+
+  it('names the turn each result ended, whichever notification gave it', () => {
+    const items = new CodexItems(CONTEXT)
+    expect(items.lastEnded).toBeNull()
+    items.take(turnCompleted({ status: 'completed' }))
+    expect(items.lastEnded).toBe('turn_9')
+    items.take({ method: 'error', params: { threadId: 'thr_fake_1', turnId: 'turn_10', willRetry: false, error: { message: 'x', codexErrorInfo: null } } } as ServerNotification)
+    expect(items.lastEnded).toBe('turn_10')
+  })
+
+  it('a Stop hook is a hook event while it runs; a run that ends silent closes it, one that said something is shown; other silent runs give nothing', () => {
+    const run = (fields: Record<string, unknown>) => ({
+      id: 'stop:0:/codex/plugins/worfy/hooks/hooks.json',
+      eventName: 'stop',
+      handlerType: 'command',
+      executionMode: 'sync',
+      scope: 'turn',
+      sourcePath: '/codex/plugins/worfy/hooks/hooks.json',
+      source: 'plugin',
+      displayOrder: 0,
+      status: 'running',
+      statusMessage: null,
+      startedAt: 1793000000,
+      completedAt: null,
+      durationMs: null,
+      entries: [],
+      ...fields,
+    })
+    const hook = (method: 'hook/started' | 'hook/completed', fields: Record<string, unknown> = {}): ServerNotification =>
+      ({ method, params: { threadId: 'thr_fake_1', turnId: 'turn_1', run: run(fields) } }) as unknown as ServerNotification
+    const shown = (outcome: string, stdout = '', stderr = '', hookEvent = 'Stop', hookName = 'stop:0:/codex/plugins/worfy/hooks/hooks.json'): AgentEvent => ({ type: 'hook', hookEvent, hookName, exitCode: null, outcome, stdout, stderr })
+    expect(
+      play([
+        hook('hook/started'),
+        hook('hook/completed', { status: 'completed' }),
+        hook('hook/started'),
+        hook('hook/completed', { status: 'blocked', entries: [{ kind: 'stop', text: '[gate] red (fast): lint' }, { kind: 'context', text: 'Fix the lint first.' }] }),
+        hook('hook/started', { id: 'pre:1', eventName: 'preToolUse' }),
+        hook('hook/completed', { id: 'pre:1', eventName: 'preToolUse', status: 'completed' }),
+        hook('hook/completed', { id: 'pre:2', eventName: 'preToolUse', status: 'failed' }),
+      ]),
+    ).toEqual([
+      ['hook/started', [shown('running')]],
+      ['hook/completed', [shown('completed')]],
+      ['hook/started', [shown('running')]],
+      ['hook/completed', [shown('blocked', 'Fix the lint first.', '[gate] red (fast): lint')]],
+      ['hook/started', []],
+      ['hook/completed', []],
+      ['hook/completed', [shown('failed', '', '', 'PreToolUse', 'pre:2')]],
+    ])
   })
 
   it('a reasoning item without a summary gives nothing; empty parts of a summary are left out', () => {

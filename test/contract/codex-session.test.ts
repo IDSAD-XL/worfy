@@ -458,6 +458,32 @@ describe('a Codex Session: start and turns', () => {
   })
 })
 
+describe('a Codex Session: a turn that ended leaves the Session idle (worfy-multi-vendor ticket 47)', () => {
+  it('a turn/completed in a status the translator does not know still ends the turn with its answer', async () => {
+    const at = fake('turn-end-in-progress')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('Say hello'))
+    const end = await session.until(isResult, 'the result of a turn/completed in status inProgress')
+    expect(end).toMatchObject({ type: 'result', subtype: 'success', isError: false, text: 'Hello from the fake Codex.', terminalReason: 'inProgress', interrupted: false })
+    // The turn is over for the Session's own bookkeeping too: Interrupt has nothing to stop.
+    await session.handle.interrupt()
+    expect(at.requests('turn/interrupt')).toEqual([])
+  })
+
+  it('a system error of the thread during a turn ends the turn with an error, with no turn/completed after it', async () => {
+    const at = fake('turn-system-error')
+    const session = await live(at)
+    await session.until((event) => event.type === 'account', 'account')
+    await session.handle.send(message('Say hello'))
+    const end = await session.until(isResult, 'the result of a thread in systemError')
+    expect(end).toMatchObject({ type: 'result', subtype: 'error', isError: true, text: null, terminalReason: 'systemError', interrupted: false })
+    expect(session.events.filter(isResult)).toHaveLength(1)
+    await session.handle.interrupt()
+    expect(at.requests('turn/interrupt')).toEqual([])
+  })
+})
+
 describe('a Codex Session: model, effort and preset', () => {
   it('lists the models of model/list, page by page, once; the next turn takes what changed, and Default is Codex\'s default model and its effort', async () => {
     const at = fake('settings')

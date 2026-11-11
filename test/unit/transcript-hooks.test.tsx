@@ -71,6 +71,41 @@ describe('the hook row', () => {
   })
 })
 
+describe('the row of a Codex hook run (worfy-multi-vendor ticket 47)', () => {
+  const stop = (outcome: string, overrides: Partial<Hook> = {}): Hook => hook({ hookEvent: 'Stop', hookName: 'stop:0:hooks.json', outcome, ...overrides })
+  const answer: AgentEvent = { type: 'text', text: 'Done.', messageId: 'm1', parentToolUseId: null, synthetic: false }
+
+  it('draws a running Stop hook with a spinner after the answer', () => {
+    render(<Transcript events={[answer, stop('running')]} working />)
+    expect(within(row()).getByTestId('hook-running')).toBeTruthy()
+    expect(row().textContent).toContain('Stop hook')
+    expect(row().textContent).toContain('running')
+  })
+
+  it('a silent end of the run takes its row away', () => {
+    render(<Transcript events={[answer, stop('running'), stop('completed')]} />)
+    expect(screen.queryByTestId('transcript-hook')).toBeNull()
+  })
+
+  it('an end that said something takes the running row\'s place, with a cross for a block', () => {
+    render(<Transcript events={[answer, stop('running'), stop('blocked', { stderr: '[gate] red' })]} />)
+    expect(screen.getAllByTestId('transcript-hook')).toHaveLength(1)
+    expect(screen.queryByTestId('hook-running')).toBeNull()
+    expect(crossed()).toBe(true)
+  })
+
+  it('a run still shown as running when its turn ended goes with the turn', () => {
+    const end: AgentEvent = { type: 'result', subtype: 'interrupted', isError: true, error: 'The turn was interrupted.', text: null, costUsd: 0, durationMs: 0, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, terminalReason: 'interrupted', interrupted: true }
+    render(<Transcript events={[answer, stop('running'), end]} />)
+    expect(screen.queryByTestId('transcript-hook')).toBeNull()
+  })
+
+  it.each(['failed', 'stopped'])('draws the Codex outcome %s with a cross', (outcome) => {
+    render(<Transcript events={[hook({ outcome })]} />)
+    expect(crossed()).toBe(true)
+  })
+})
+
 describe('the hook row of an outcome that is not an error', () => {
   it.each(['permission_decision', 'deferred_tool'])('draws %s without a cross', (outcome) => {
     render(<Transcript events={[hook({ hookEvent: 'PreToolUse', outcome })]} />)

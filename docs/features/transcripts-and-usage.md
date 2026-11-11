@@ -10,7 +10,7 @@ worfy reads from Claude Code's own folder. **Memory** is the memory figure of wo
 
 **Rows.** A prompt, Claude's text as markdown (streaming while it arrives; its links stand out in the accent colour and
 open in the default browser, as in [Projects](projects.md)), folded thinking, tool calls in one line with a tick
-or an error, a Subagent, a hook that said something, a notice, a result and an error. A row shows its time: `HH:MM`, a date for
+or an error, a Subagent, a hook that said something (and a Codex Stop hook while it runs), a notice, a result and an error. A row shows its time: `HH:MM`, a date for
 another day (`Oct 4`), and a year for another year (`Dec 31 '25`). The full time is in the tooltip. The user's own messages (a
 prompt and a slash command) stand at the right edge, with "you" and the time to their right and the box's right side in the
 accent colour; every other row starts at the left.
