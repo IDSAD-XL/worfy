@@ -1,0 +1,11 @@
+[
+  {
+    "name": "worfy-canvas",
+    "status": "connected",
+    "source": "sdk",
+    "scope": "dynamic",
+    "tool_names": [
+      "canvas_ping"
+    ]
+  }
+]

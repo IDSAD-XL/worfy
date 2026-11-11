@@ -1,0 +1,20 @@
+{
+  "answer": {
+    "added": [],
+    "removed": [],
+    "errors": {
+      "example-notes-dynamic": "Blocked by enterprise policy (allowedMcpServers/deniedMcpServers)"
+    }
+  },
+  "status_after": [
+    {
+      "name": "worfy-canvas",
+      "status": "connected",
+      "source": "sdk",
+      "scope": "dynamic",
+      "tool_names": [
+        "canvas_ping"
+      ]
+    }
+  ]
+}

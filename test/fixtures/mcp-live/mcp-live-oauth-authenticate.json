@@ -1,0 +1,39 @@
+{
+  "answer": {
+    "authUrl": {
+      "origin": "<local-url>",
+      "path": "/authorize",
+      "params": [
+        "client_id",
+        "code_challenge",
+        "code_challenge_method",
+        "redirect_uri",
+        "resource",
+        "response_type",
+        "state"
+      ]
+    },
+    "requiresUserAction": true,
+    "callbackExpected": true,
+    "redirectScheme": "localhost",
+    "state": "<state>",
+    "callbackPort": "<port>"
+  },
+  "status_after": [
+    {
+      "name": "example-notes",
+      "status": "connected",
+      "source": "user",
+      "scope": "user",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
+      "name": "example-oauth",
+      "status": "needs-auth",
+      "source": "user",
+      "scope": "user"
+    }
+  ]
+}

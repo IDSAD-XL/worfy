@@ -1,0 +1,20 @@
+{
+  "error": "Invalid callback URL: missing authorization code. Please paste the full redirect URL including the code parameter.",
+  "status_after": [
+    {
+      "name": "example-notes",
+      "status": "connected",
+      "source": "user",
+      "scope": "user",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
+      "name": "example-oauth",
+      "status": "needs-auth",
+      "source": "user",
+      "scope": "user"
+    }
+  ]
+}

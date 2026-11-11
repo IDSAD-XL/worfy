@@ -231,8 +231,16 @@ Q8–Q11 — второй раунд, по вопросу spec-а и трём в
 1. **Что считает chip.** «n/m»: n — серверы со статусом connected, m — все серверы Session, кроме «не разрешён». Цвет
    chip-а предупреждающий, если есть failed или needs-auth. Строки «не разрешён» стоят в popover-е отдельной группой
    под остальными.
-2. **«Turn off for this Session»** выключает сервер только в этой Session (`toggleMcpServer` у Claude). Profile не
-   меняется; новая Session снова получит сервер. Включить обратно — та же строка, `Turn on`.
+2. **«Turn off for this Session»** выключает сервер только в этой Session. Profile не меняется; новая Session снова
+   получит сервер. Включить обратно — та же строка, `Turn on`. Поправка 2026-11-12 (Orchestrator вместо спящего
+   владельца, ждёт подтверждения утром): spike (Ticket 01, `spike-mcp-live.md`) показал, что `toggleMcpServer`
+   пишет `disabledMcpServers` в запись Project-а в `.claude.json` пользователя, то есть выключает сервер не только
+   в этой Session. Поэтому worfy `toggleMcpServer` не зовёт. Turn off = «Restart with the same conversation», где
+   сервера нет в `managedSettings` этой Session: имя убрано из `allowedMcpServers`, а без списка в Profile —
+   названо в `deniedMcpServers`; свой сервер worfy просто не передаётся в `mcpServers`. Turn on = тот же Restart с
+   сервером обратно. В `.claude.json` worfy ничего не пишет. Unattended Session Autopilot-а Turn off не получает:
+   это Restart посреди Wave. Turn off и Turn on переезжают из Ticket-а 02 в Ticket 03, где Restart; 02 остаётся
+   статусом и Reconnect (меняет разрез Q10), Blocked by и Wave-ы не меняются.
 3. **Свои серверы worfy** (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`, `plugin_worfy_qmd`) в списке есть, с
    источником worfy. Выключить их можно; Allow им не нужен — они в списке по умолчанию.
 4. **Restart — в этом Epic-е при любом ответе spike-а.** Он нужен хотя бы для сервера, который Vendor не может включить
@@ -258,8 +266,8 @@ Q8–Q11 — второй раунд, по вопросу spec-а и трём в
 | # | Ticket | Кто | Blocked by |
 |---|---|---|---|
 | 01 | [Spike: подхват MCP-серверов в работающей Session](issues/01-spike-подхват-mcp-серверов-в-работающей-session.md). Сценарий `mcp-live` в `scripts/spikes/harness-plugin/probe.ts`: sandbox, без входа, без модели; `reloadPlugins`, `setMcpServers`, второй `managedSettings`, `mcpServerStatus`, query инвентаря, форма `mcpAuthenticate`; Codex по fake и схеме. Шаги живой проверки connector-а для владельца | агент (запускает сценарий); владелец — живая проверка connector-а, не блокирует | — |
-| 02 | [Статус MCP-серверов Claude Session: Reconnect и выключение](issues/02-статус-mcp-серверов-claude-session-reconnect-и-выключение.md): строка, событие `mcp`, каналы, Reconnect, Turn off for this Session | агент | 01 |
-| 03 | [Подхват сервера на ходу и Restart с тем же разговором](issues/03-подхват-сервера-и-restart-с-тем-же-разговором.md): подхват разрешённого сервера, Restart над `SessionRegistry.start(…, after)` и ADR-0064, правило Wave в Autopilot | агент; пункт connector-а ждёт живой проверки владельца | 01, 02 |
+| 02 | [Статус MCP-серверов Claude Session и Reconnect](issues/02-статус-mcp-серверов-claude-session-reconnect-и-выключение.md): строка, событие `mcp`, каналы, Reconnect (Turn off — в 03, «Решено без владельца» 2) | агент | 01 |
+| 03 | [Подхват сервера на ходу, Restart с тем же разговором и Turn off for this Session](issues/03-подхват-сервера-и-restart-с-тем-же-разговором.md): подхват разрешённого сервера, Restart над `SessionRegistry.start(…, after)` и ADR-0064, Turn off / Turn on for this Session через тот же Restart, правило Wave в Autopilot | агент; пункт connector-а ждёт живой проверки владельца | 01, 02 |
 | 04 | [Chip «MCP n/m» в шапке Session и статус в Project settings](issues/04-chip-mcp-в-шапке-session-и-статус-в-project-settings.md) | агент | 02 |
 | 05 | [Allow in Project, query инвентаря и вход OAuth для Claude; поправка к ADR-0021](issues/05-allow-в-project-и-вход-oauth-для-claude.md) | агент; пункт connector-а ждёт живой проверки владельца | 03, 04 |
 | 06 | [Codex: статус MCP-серверов и действия](issues/06-codex-статус-mcp-серверов-и-действия.md) | агент | 02 |

@@ -1,0 +1,30 @@
+{
+  "managedSettings": {
+    "allowManagedMcpServersOnly": true,
+    "allowedMcpServers": [
+      {
+        "serverName": "worfy-canvas"
+      },
+      {
+        "serverName": "example-notes"
+      }
+    ],
+    "deniedMcpServers": [
+      {
+        "serverName": "example-notes"
+      }
+    ]
+  },
+  "status": [
+    {
+      "name": "worfy-canvas",
+      "status": "connected",
+      "source": "sdk",
+      "scope": "dynamic",
+      "tool_names": [
+        "canvas_ping"
+      ]
+    }
+  ],
+  "config_unchanged": true
+}

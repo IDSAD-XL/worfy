@@ -1,0 +1,14 @@
+{
+  "error": "MCP server example-notes is blocked by enterprise managed policy",
+  "status_after": [
+    {
+      "name": "worfy-canvas",
+      "status": "connected",
+      "source": "sdk",
+      "scope": "dynamic",
+      "tool_names": [
+        "canvas_ping"
+      ]
+    }
+  ]
+}

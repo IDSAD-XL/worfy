@@ -1,4 +1,4 @@
-# 02 — Статус MCP-серверов Claude Session: Reconnect и выключение
+# 02 — Статус MCP-серверов Claude Session и Reconnect
 
 Type: task
 Status: open
@@ -17,33 +17,38 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
   событие `context` (`src/shared/agent/events.ts:139`).
 - После Ticket-а 01 есть fixture-ы ответов `mcpServerStatus`, `reconnectMcpServer` и `toggleMcpServer`
   (`test/fixtures/mcp-live/`).
+- Spike (Ticket 01, `.scratch/worfy-mcp-live/spike-mcp-live.md`, шаг 3, пункт 4) показал: `toggleMcpServer(name,
+  false)` пишет `disabledMcpServers` в запись Project-а в `.claude.json` пользователя, то есть выключает сервер не
+  только в этой Session. Поэтому Turn off / Turn on for this Session делаются через Restart с тем же разговором и
+  живут в Ticket-е 03 (spec, «Решено без владельца» 2, поправка 2026-11-12). worfy `toggleMcpServer` не зовёт.
 
 ## Что делаем
 
 1. Схема строки сервера в `src/shared/agent/` (раздел spec-а «Одна форма строки»): статус, tools, ошибка, источник,
    действия. Сведение источников SDK к четырём, незнакомое слово — user config. В схеме уже есть `not-allowed`,
-   `allow`, `sign-in` и `restart`; строки с ними дают Ticket-ы 03 и 05.
+   `allow`, `sign-in`, `restart`, `turn-off` и `turn-on`; строки с ними дают Ticket-ы 03 и 05.
 2. `McpPart` (`src/main/vendors/mcp.ts`) получает необязательные `status` и `act`. Claude реализует их в
-   `src/main/vendors/claude/mcp.ts` поверх `mcpServerStatus`, `reconnectMcpServer` и `toggleMcpServer`. `QueryHandle`
-   и fake query получают эти вызовы; fake отвечает по fixture-ам `test/fixtures/mcp-live/`.
+   `src/main/vendors/claude/mcp.ts` поверх `mcpServerStatus` и `reconnectMcpServer`. `QueryHandle` и fake query
+   получают эти вызовы; fake отвечает по fixture-ам `test/fixtures/mcp-live/`.
 3. Событие `{ type: 'mcp', servers }`: после `system/init`, после каждого `result`, после действия, по запросу.
    Неудачный запрос — «нет данных», ход не падает.
 4. Каналы `agent.mcp` (read) и `agent.mcpAction` (write) в `src/shared/ipc/agent.ts` и их обработчики в main.
-   Действия этого Ticket-а — `reconnect`, `turn-off`, `turn-on`; остальные обработчик пока отклоняет понятной ошибкой.
+   Действие этого Ticket-а — `reconnect`; остальные (`turn-off` и `turn-on` тоже) обработчик пока отклоняет понятной
+   ошибкой.
 5. Строки статуса не пишутся в Journal, Flight recorder и диагностические выгрузки; `config` ответа SDK дальше driver-а
    не идёт.
 
 ## Готово, когда
 
 - [ ] Unit test `test/unit/mcp-status-row.test.ts`: каждый `source` SDK сводится к своему источнику, незнакомый — к
-      user config; у failed есть `reconnect`, у connected — `turn-off`, у disabled — `turn-on`. Красный до правки — в
+      user config; у failed есть `reconnect`; `turn-off` и `turn-on` эта строка ещё не даёт. Красный до правки — в
       «Итог».
 - [ ] Contract test `test/contract/claude-mcp-status.test.ts` над fake query: событие `mcp` после init и после хода;
-      неудачный `mcpServerStatus` — «нет данных», ход идёт; `agent.mcpAction` `reconnect`, `turn-off` и `turn-on`
-      зовут нужный вызов query; неизвестное действие отклоняется, Session не меняется.
+      неудачный `mcpServerStatus` — «нет данных», ход идёт; `agent.mcpAction` `reconnect` зовёт `reconnectMcpServer`;
+      `turn-off`, `turn-on` и неизвестное действие отклоняются, Session не меняется; `toggleMcpServer` не зовётся
+      никогда.
 - [ ] Contract test: строки статуса не попадают в Journal и в диагностическую выгрузку; `config` нет в событии `mcp`.
-- [ ] `test/contract/sdk-compat.test.ts` держит форму `mcpServerStatus`, `reconnectMcpServer` и `toggleMcpServer` в SDK
-      0.3.322.
+- [ ] `test/contract/sdk-compat.test.ts` держит форму `mcpServerStatus` и `reconnectMcpServer` в SDK 0.3.322.
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/agent/` зелёные; lint, typecheck и
       gate fast — exit 0.
 
@@ -65,7 +70,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
 
 ## Вне скоупа
 
-- Подхват нового сервера, Restart с тем же разговором и правило Wave в Autopilot: Ticket 03.
+- Подхват нового сервера, Restart с тем же разговором, Turn off / Turn on for this Session и правило Wave в
+  Autopilot: Ticket 03.
 - UI: Ticket 04.
 - Строки «не разрешён», query инвентаря, Allow и вход OAuth: Ticket 05.
 - Codex: Ticket 06.

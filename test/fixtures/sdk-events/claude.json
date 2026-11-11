@@ -245,6 +245,15 @@
   "plugin-known-user-settings.jsonl": [
     [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000003","model":"claude-haiku-5-5","permissionMode":"bypassPermissions","apiKeySource":"none","cwd":"<tmp>/work-known","claudeCodeVersion":"2.1.322","slashCommands":["worfy:spike-root","agents-sdk","cloudflare","cloudflare-email-service","skill-1","<97 more>"]}]
   ],
+  "plugin-mcp-live-allowed-added-while-running.jsonl": [
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000001","model":"claude-haiku-5-5","permissionMode":"bypassPermissions","apiKeySource":"none","cwd":"<tmp>/work-mcp-live","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","design","design-sync","dataviz","<44 more>"]}]
+  ],
+  "plugin-mcp-live-cut-by-allowlist.jsonl": [
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000003","model":"claude-haiku-5-5","permissionMode":"bypassPermissions","apiKeySource":"none","cwd":"<tmp>/work-mcp-live","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","design","design-sync","dataviz","<44 more>"]}]
+  ],
+  "plugin-mcp-live-restart-same-conversation.jsonl": [
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000003","model":"claude-haiku-5-5","permissionMode":"bypassPermissions","apiKeySource":"none","cwd":"<tmp>/work-mcp-live","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","design","design-sync","dataviz","<44 more>"]}]
+  ],
   "plugin-mcp-name-plugin-only-no-allowlist.jsonl": [
     [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000001","model":"claude-haiku-5-5","permissionMode":"bypassPermissions","apiKeySource":"none","cwd":"<tmp>/work-mcp","claudeCodeVersion":"2.1.322","slashCommands":["worfy:spike-root","deep-research","design","design-sync","dataviz","<44 more>"]}]
   ],

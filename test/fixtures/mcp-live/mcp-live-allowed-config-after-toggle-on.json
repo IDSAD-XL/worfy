@@ -1,0 +1,12 @@
+{
+  "user_servers": [
+    "example-notes"
+  ],
+  "project_mcp_keys": {
+    "mcpContextUris": [],
+    "mcpServers": {},
+    "enabledMcpjsonServers": [],
+    "disabledMcpjsonServers": [],
+    "disabledMcpServers": []
+  }
+}
