@@ -33,10 +33,13 @@ Source: бриф Orchestrator-а 2026-11-11, сообщение tester-а.
 - [ ] Карточка с длинной веткой: span ветки с `white-space: nowrap`, `overflow: hidden`, `text-overflow: ellipsis`, его
       обёртка не шире 50 % строки и сжимается, в `title` — полная ветка, имя на месте. Unit test
       `test/unit/project-card-long-branch.test.tsx` (jsdom), красный до правки.
+  - evidence: test-run pass · `pnpm test test/unit/project-card-long-branch.test.tsx` exit 0, exit 1 before the fix · mac - · ee8dc2592b42c24b24ea28600a876fc038734c01
 - [ ] Пункт меню Project switcher-а: ветка не шире 50 % пункта — тот же unit test.
+  - evidence: test-run pass · `pnpm test test/unit/project-card-long-branch.test.tsx` exit 0, exit 1 before the fix · mac - · ee8dc2592b42c24b24ea28600a876fc038734c01
 - [ ] e2e `test/e2e/sidebar-rail.spec.ts`: у «meadow» длинная ветка; в карточке ширина имени > 0, ветка в одну строку и
       внутри карточки; в меню switcher-а имя «meadow» шире нуля. Локально не запускается (правило владельца) — проверяет CI.
 - [ ] lint, typecheck, unit test-ы sidebar-а и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ee8dc2592b42c24b24ea28600a876fc038734c01
 
 ## Где в коде
 
