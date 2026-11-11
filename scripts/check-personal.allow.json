@@ -5,6 +5,18 @@
       "rule": "email",
       "sha256": "b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7",
       "reason": "the contact address of the glob package maintainer in the deprecation notice of glob@7.2.3, third-party metadata pnpm copies from the registry; the lockfile is not edited by hand"
+    },
+    {
+      "path": "docs/product/termalin/research-termalin.md",
+      "rule": "email",
+      "sha256": "87f96936179a35b21de6bc43e93f42ab0628012543ff8dfc7dd6089a6bebe570",
+      "reason": "the public contact address of Termalin (an SSH client vendor) on its own site, quoted in the Product Session research note; not a person"
+    },
+    {
+      "path": "docs/product/termalin/research-termalin.md",
+      "rule": "email",
+      "sha256": "634602560ddfa0ee8be4331611f0cf7d428a525f0d643ba3f3f2e5f3dda1018a",
+      "reason": "the public support address of Termalin (an SSH client vendor) on its own site, quoted in the Product Session research note; not a person"
     }
   ]
 }
