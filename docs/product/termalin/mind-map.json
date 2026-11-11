@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n9455da6c",
+      "kind": "question",
+      "text": "Хочет ли владелец, чтобы агенты worfy работали на его серверах? Если да — на каком сервере и что делать: читать логи, проверять деплой, править. Сейчас в Ticket-е 01 worfy-terminal-ssh записано: «Агент на серверы владельца сам не ходит».",
+      "from": null,
+      "message": "37ae76da-9feb-4ee1-83f9-366de59e92fe"
+    },
+    {
+      "id": "n37b4a3cd",
+      "kind": "idea",
+      "text": "Отложить тему, если работы на серверах нет. Сейчас ни у одного Project-а Harness нет своего Linux-сервера. Заметка остаётся в папке темы. Вернуться, когда появится сервер, на котором агенту есть что делать.",
+      "from": "n9455da6c",
+      "advice": true,
+      "message": "bc5e6eca-88a3-485c-a003-798cedfeba74"
+    },
+    {
+      "id": "n63ce8792",
+      "kind": "idea",
+      "text": "Путь A, без кода worfy. Поставить desktop app Termalin. Включить в нём доступ агентов, у host-а выставить policy allowlist. Подключить локальный termalin-mcp: `claude mcp add termalin -- <путь>/termalin-mcp`. Он бесплатный, работает через stdio, облака в пути нет. Добавить `termalin` в `mcp.allowed` Profile Project-а рядом с `plugin_worfy_qmd` и `worfy-canvas`. Проверить вживую в одной Session worfy. Для Codex — `codex mcp add`.",
+      "from": "n9455da6c",
+      "advice": true,
+      "message": "8cab9708-66dd-4f60-8f99-e398f6d33b30"
+    },
+    {
+      "id": "nce2c05fa",
+      "kind": "idea",
+      "text": "Путь C, большой Epic: свой SSH для агентов в worfy, без Termalin. Host-ы Project-а заводятся как Browser profiles, ключи лежат в ssh-agent. Сессия агента идёт в Terminal Node со знаком «Claude is driving», пользователь может перехватить. По сути это повтор агентской части Termalin. Делать только если работа на серверах станет регулярной.",
+      "from": "n9455da6c",
+      "advice": true,
+      "message": "169452ca-662c-4875-9ff6-2347fc51de78"
+    },
+    {
+      "id": "n83510e62",
+      "kind": "idea",
+      "text": "Project-у с деплоем в PaaS нужен не Termalin, а MCP server самого PaaS. У Railway он встроен в CLI: `railway mcp`. Подключается тем же путём, через `mcp.allowed`. Termalin работает только с Linux-серверами, где стоит sshd, а у PaaS их нет (вывод).",
+      "from": "n9455da6c",
+      "advice": true,
+      "message": "9099117d-21f3-4646-9840-e147add527da"
+    },
+    {
+      "id": "ndcf153c3",
+      "kind": "objection",
+      "text": "Не строить функции worfy под сам Termalin. Это «small pre-revenue project» с одним автором, версия 0.1.x, код закрыт, API нет. На hosted пути вывод команд идёт через termal.in. Команды агентов сервер Termalin сам отправляет в Anthropic.",
+      "from": null,
+      "source": "docs/product/termalin/research-termalin.md, разделы 1, 4 и 7; https://termal.in/security/; https://termal.in/privacy",
+      "advice": true,
+      "message": "aeb15e4d-9cff-425e-afd7-c67552ead2c0"
+    },
+    {
+      "id": "nbbdbc361",
+      "kind": "idea",
+      "text": "Путь B, небольшой Epic, если путь A прижился: внешние MCP server-ы в Settings Project-а по образцу Browser profiles. Секрет хранится в Keychain. Флаг «Available to Autopilot» по умолчанию выключен. На отдельный tool ставится правило: `ssh_exec` → `always_ask`, пока рядом человек, и `always_deny` в Autopilot. Codex получает тот же список. Подойдёт и для Termalin, и для MCP server-а PaaS.",
+      "from": "n63ce8792",
+      "advice": true,
+      "message": "ebc1e342-f4f4-4de1-a745-99bd20eabeab"
+    },
+    {
+      "id": "na8d6fdb0",
+      "kind": "objection",
+      "text": "На пути A Autopilot получит Termalin так же, как Session с человеком. Autopilot идёт в bypassPermissions, а отдельного флага «только с человеком» у MCP server-а нет. Ограничивает его только policy host-а внутри Termalin. Подтверждения каждой команды у Termalin нет.",
+      "from": "n63ce8792",
+      "source": "src/main/vendors/claude/options.ts:691; docs/adr/0022-unattended-session-refuses-permission-mode-change.md; https://termal.in/watch-grid/",
+      "advice": true,
+      "message": "6cf76db9-4e01-43f8-a084-941858a8d339"
+    },
+    {
+      "id": "n9149eeca",
+      "kind": "objection",
+      "text": "Для Codex список `mcp.allowed`, похоже, не работает: свой MCP server пользователя Codex Session получает мимо него. Это вывод из комментария в коде, запуском не проверено. Задача для Orchestrator-а: проверить и распространить ADR-0021 на Codex.",
+      "from": "n63ce8792",
+      "source": "src/main/vendors/codex/mcp.ts:153-154 («the user's own servers stay as they are»); docs/adr/0021-mcp-servers-allowlist-in-profile.md",
+      "advice": true,
+      "message": "634c8aae-9215-40b8-a596-2b5cfcaccf49"
+    }
+  ]
+}
