@@ -1,5 +1,8 @@
 # worfy-ui-kit: общий слой UI-компонентов на Base UI
 
+Moved to .scratch/worfy-ui-kit/spec.md on 2026-11-11 ([spec](../../../../.scratch/worfy-ui-kit/spec.md), 19 Ticket-ов
+в `.scratch/worfy-ui-kit/issues/`). Этот файл больше не правится.
+
 Advisor draft
 
 Status: принят владельцем 2026-11-11 («да»), после разбора критика. Seam-ы test-ов (раздел «Решения по test-ам»)

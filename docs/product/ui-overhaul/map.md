@@ -74,6 +74,9 @@ epic-а с объёмом в Ticket-ах.
   `docs/design/BRIEF.md:87` тоже отменён: «да отменяю». Остальные правила строки Craft остаются. Правку файла
   делает orchestrator: файл вне папки темы.
 - Epic запустит владелец сам, позже: «запущу епик потом». В очередь его никто не ставит.
+- 2026-11-11 orchestrator перенёс черновик в Epic `worfy-ui-kit`:
+  [.scratch/worfy-ui-kit/spec.md](../../../.scratch/worfy-ui-kit/spec.md), 19 Ticket-ов в 6 Wave-ах. Черновик
+  [worfy-ui-kit](drafts/worfy-ui-kit.md) остаётся с пометкой «Moved».
 
 ## Not yet specified
 
