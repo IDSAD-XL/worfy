@@ -12,8 +12,11 @@ import type { ServerNotification } from '../../src/main/vendors/codex/protocol/t
 import type { ServerRequest } from '../../src/main/vendors/codex/protocol/ts/ServerRequest'
 import type { ThreadItem } from '../../src/main/vendors/codex/protocol/ts/v2/ThreadItem'
 import { exitText, userInput } from '../../src/main/vendors/codex/session'
+import { turnFailureKind } from '../../src/shared/agent/turn-failure'
 
 const SCRIPTS = join(import.meta.dirname, '..', 'fixtures', 'codex-scripts')
+/** The recordings of the live pinned Codex (scripts/codex-capture.mjs): the same line shape as the scripts. */
+const RECORDINGS = join(import.meta.dirname, '..', 'fixtures', 'codex-messages')
 
 interface Step {
   notify?: string
@@ -21,14 +24,14 @@ interface Step {
   params?: unknown
 }
 
-const steps = (script: string): Step[] =>
-  readFileSync(join(SCRIPTS, `${script}.jsonl`), 'utf8')
+const steps = (script: string, folder = SCRIPTS): Step[] =>
+  readFileSync(join(folder, `${script}.jsonl`), 'utf8')
     .split(/\r?\n/)
     .filter((line) => line.trim() !== '')
     .map((line) => JSON.parse(line) as Step)
 
-const notificationsOf = (script: string): ServerNotification[] =>
-  steps(script).flatMap((step) => (step.notify === undefined ? [] : [{ method: step.notify, params: step.params } as ServerNotification]))
+const notificationsOf = (script: string, folder = SCRIPTS): ServerNotification[] =>
+  steps(script, folder).flatMap((step) => (step.notify === undefined ? [] : [{ method: step.notify, params: step.params } as ServerNotification]))
 
 const CONTEXT: CodexTurnContext = {
   threadId: () => 'thr_fake_1',
@@ -217,15 +220,29 @@ describe('the events of a turn: what the scripts do not play', () => {
     ])
   })
 
-  it('a system error of the thread ends the turn that runs, and its late turn/completed gives no second result; other statuses give nothing', () => {
+  it('the live failed turn of 0.166.0: the thread\'s systemError comes first and gives nothing; the error ends the turn with Codex\'s words and kind, its turn/completed gives no second result', () => {
+    const events = play(notificationsOf('turn-failed', RECORDINGS).filter((notification) => (notification.params as { threadId?: string } | undefined)?.threadId !== undefined))
+    const order = events.map(([method]) => method).filter((method) => ['thread/status/changed', 'error', 'turn/completed'].includes(method))
+    expect(order.slice(-3)).toEqual(['thread/status/changed', 'error', 'turn/completed'])
+    const results = events.flatMap(([, given]) => given).filter((event): event is Extract<AgentEvent, { type: 'result' }> => event.type === 'result')
+    expect(results).toHaveLength(1)
+    const end = results[0] as Extract<AgentEvent, { type: 'result' }>
+    expect(end).toMatchObject({
+      subtype: 'error',
+      isError: true,
+      error: "The 'worfy-capture-no-such-model' model is not supported when using Codex with a ChatGPT account.",
+      terminalReason: 'modelNotFound',
+      interrupted: false,
+    })
+    expect(events.find(([method]) => method === 'error')?.[1]).toEqual([end])
+    // Auto-continue reads the kind of the error, not a system error of the thread: not a temporary failure, as before.
+    expect(turnFailureKind({ vendor: 'codex', isError: end.isError, interrupted: end.interrupted, error: end.error, terminalReason: end.terminalReason })).toEqual({ kind: 'other' })
+  })
+
+  it('a thread status gives nothing: neither systemError nor idle ends a turn by itself', () => {
     const status = (type: string): ServerNotification => ({ method: 'thread/status/changed', params: { threadId: 'thr_fake_1', status: { type } } }) as unknown as ServerNotification
-    const started: ServerNotification = { method: 'turn/started', params: { threadId: 'thr_fake_1', turn: { id: 'turn_9', items: [], status: 'inProgress' } } } as unknown as ServerNotification
-    expect(play([status('systemError'), started, status('idle'), status('systemError'), turnCompleted({ status: 'failed' }), status('systemError')])).toEqual([
+    expect(play([status('systemError'), status('idle')])).toEqual([
       ['thread/status/changed', []],
-      ['turn/started', [INIT]],
-      ['thread/status/changed', []],
-      ['thread/status/changed', [result({ subtype: 'error', isError: true, error: 'Codex stopped the thread with a system error.', durationMs: 0, terminalReason: 'systemError' })]],
-      ['turn/completed', []],
       ['thread/status/changed', []],
     ])
   })

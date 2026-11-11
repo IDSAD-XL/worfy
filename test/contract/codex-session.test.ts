@@ -470,18 +470,6 @@ describe('a Codex Session: a turn that ended leaves the Session idle (worfy-mult
     await session.handle.interrupt()
     expect(at.requests('turn/interrupt')).toEqual([])
   })
-
-  it('a system error of the thread during a turn ends the turn with an error, with no turn/completed after it', async () => {
-    const at = fake('turn-system-error')
-    const session = await live(at)
-    await session.until((event) => event.type === 'account', 'account')
-    await session.handle.send(message('Say hello'))
-    const end = await session.until(isResult, 'the result of a thread in systemError')
-    expect(end).toMatchObject({ type: 'result', subtype: 'error', isError: true, text: null, terminalReason: 'systemError', interrupted: false })
-    expect(session.events.filter(isResult)).toHaveLength(1)
-    await session.handle.interrupt()
-    expect(at.requests('turn/interrupt')).toEqual([])
-  })
 })
 
 describe('a Codex Session: model, effort and preset', () => {

@@ -83,6 +83,10 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
   // the row's place, or drops it when it said nothing (worfy-multi-vendor ticket 47).
   const runningHooks = new Map<string, number>()
   const dropped = new Set<number>()
+  const dropRunningHooks = (): void => {
+    for (const open of runningHooks.values()) dropped.add(open)
+    runningHooks.clear()
+  }
 
   const push = (item: TranscriptItem): void => {
     items.push(item)
@@ -215,11 +219,12 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
       case 'result':
         endStreaming()
         // A hook still shown as running when its turn ended did not end by itself (an interrupted turn stops it).
-        for (const open of runningHooks.values()) dropped.add(open)
-        runningHooks.clear()
+        dropRunningHooks()
         push({ kind: 'result', key, at, event })
         return
       case 'state':
+        // A process that died, or a Session closed or idle again, ends whatever hook was still shown as running.
+        if (event.state === 'error' || event.state === 'closed' || event.state === 'idle') dropRunningHooks()
         if (event.state === 'error') {
           endStreaming()
           push({ kind: 'error', key, at, text: event.error ?? 'The Session stopped with an error' })

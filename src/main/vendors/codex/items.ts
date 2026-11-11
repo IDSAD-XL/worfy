@@ -14,8 +14,6 @@
 //   is the end of its turn whatever it says, so the Session never stays busy after it (worfy-multi-vendor
 //   ticket 47); `error` → a `result` with the error, after which the `turn/completed` of the same turn
 //   gives nothing more; an `error` Codex retries by itself → `notice`;
-// - `thread/status/changed` to `systemError` while a turn runs → a `result` with the error: the thread
-//   stopped, and no turn/completed may come (a late one gives nothing more); any other status gives nothing;
 // - a hook run (`hook/started`, `hook/completed`) → `hook`: a Stop hook while it runs, with outcome
 //   `running` — under Codex the Harness's Stop hook runs the gate, which may take minutes after the answer
 //   (harness/hooks/stop.mjs) — and a run that said something once it ends (not `completed`, or with
@@ -64,6 +62,9 @@ const NO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTok
 /** Notifications that only repeat what the events of other notifications say. */
 const QUIET = new Set([
   'thread/started',
+  // `systemError` included: the live 0.166.0 recording of a failed turn (codex-messages/turn-failed.jsonl)
+  // sends it before the turn's `error` and `turn/completed`, and those end the turn with Codex's own words.
+  'thread/status/changed',
   'item/commandExecution/outputDelta',
   'item/fileChange/outputDelta',
   'item/fileChange/patchUpdated',
@@ -204,8 +205,6 @@ export class CodexItems {
   private readonly usages = new Map<string, Usage>()
   /** Turns whose `result` was already given (by an `error`): their `turn/completed` gives none. */
   private readonly ended = new Set<string>()
-  /** The turn that runs, from its `turn/started` until its `result`; null between turns. */
-  private running: string | null = null
   /** The turn the last `result` ended. */
   private endedLast: string | null = null
   /** The hook runs shown as running (Stop), by their id: their end closes the row. */
@@ -235,14 +234,11 @@ export class CodexItems {
   take(notification: ServerNotification): AgentEvent[] {
     switch (notification.method) {
       case 'turn/started':
-        this.running = notification.params.turn.id
         return [this.init()]
       case 'turn/completed':
         return this.completed(notification.params.turn)
       case 'error':
         return this.error(notification.params)
-      case 'thread/status/changed':
-        return notification.params.status.type === 'systemError' ? this.systemError() : []
       case 'hook/started':
         return this.hookStarted(notification.params.run)
       case 'hook/completed':
@@ -346,14 +342,6 @@ export class CodexItems {
     }
   }
 
-  /** The thread stopped with a system error: the turn that runs ends with it, and its late turn/completed gives nothing. */
-  private systemError(): AgentEvent[] {
-    const turn = this.running
-    if (turn === null) return []
-    this.ended.add(turn)
-    return [this.result(turn, { subtype: 'error', error: 'Codex stopped the thread with a system error.', terminalReason: 'systemError', interrupted: false, durationMs: 0 })]
-  }
-
   /** A Stop hook that starts is shown while it runs: the turn waits for it after the answer. */
   private hookStarted(run: HookRunSummary): AgentEvent[] {
     if (run.eventName !== 'stop') return []
@@ -375,7 +363,6 @@ export class CodexItems {
     this.answers.delete(turnId)
     this.usages.delete(turnId)
     this.endedLast = turnId
-    if (this.running === turnId) this.running = null
     return {
       type: 'result',
       subtype: end.subtype,

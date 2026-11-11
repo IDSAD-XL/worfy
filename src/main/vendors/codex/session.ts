@@ -579,7 +579,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     if (typeof threadId === 'string' && this.threadId !== '' && threadId !== this.threadId) return this.items.follow(notification)
     if (notification.method === 'turn/started') this.activeTurn = notification.params.turn.id
     for (const event of this.items.take(notification)) {
-      // The turn a `result` ended, whichever notification gave it (turn/completed, error, a system error of the thread).
+      // The turn a `result` ended, whichever notification gave it (turn/completed or error).
       if (event.type === 'result' && this.items.lastEnded !== null) this.turnEnded(this.items.lastEnded)
       this.out.push(event)
     }

@@ -23,8 +23,9 @@ Session уходит из `busy` только по `result` (`src/main/agent/ses
    `hook/completed` идут в `unknown`. Ответ уже на экране, Interrupt активен, видимой работы нет.
 2. `turn/completed` со статусом, которого разбор не знает (в схеме 0.166.0 есть `inProgress`), даёт `unknown`, а не
    `result`: Session остаётся `busy` навсегда.
-3. `thread/status/changed` с `systemError` молча глотается (QUIET): если после него `turn/completed` не придёт,
-   Session висит.
+3. `thread/status/changed` с `systemError` молча глотается (QUIET). Проверено и отклонено как причина: живая запись
+   0.166.0 (`test/fixtures/codex-messages/turn-failed.jsonl`, строки 20–22) шлёт после него `error` с причиной и
+   `turn/completed` `failed`; они и заканчивают ход.
 
 ## Что делаем
 
@@ -32,9 +33,11 @@ Session уходит из `busy` только по `result` (`src/main/agent/ses
    hook показывается, только если он что-то сказал (не `completed` или есть вывод) — то же правило, что у Claude Code
    (`hookSaidSomething`).
 2. Любой `turn/completed` хода этой Session заканчивает ход: статус, которого разбор не знает, даёт `result`.
-3. `thread/status/changed` → `systemError` во время хода заканчивает ход с ошибкой; поздний `turn/completed` того же
-   хода второго `result` не даёт.
-4. Без слепого timeout-а.
+3. `systemError` хода не заканчивает: иначе `result` уходит раньше настоящего `error` — без причины, с видом
+   `systemError` вместо `modelNotFound`, Auto-continue перестаёт повторять временные ошибки, а `limit_reached` приходит
+   после `result` (review round 1 PR #1796).
+4. Строка идущего hook-а закрывается и при `state` `error`, `closed`, `idle` — процесс умер или Session закрыта.
+5. Без слепого timeout-а.
 
 Глубина review — `medium`.
 
@@ -42,15 +45,11 @@ Session уходит из `busy` только по `result` (`src/main/agent/ses
 
 - [ ] Contract test на fake app-server: `turn/completed` со статусом `inProgress` — Session получает `result`
       (до правки — нет, test красный).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/codex-session.test.ts` exit 0 (red before the fix: no result) · mac - · 6d961ae3e7080b5f92491c1ebd94bce9a11b5802
-- [ ] Contract test на fake app-server: `thread/status/changed` `systemError` во время хода — `result` с ошибкой,
-      поздний `turn/completed` второго `result` не даёт.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/codex-session.test.ts test/unit/codex-items.test.ts` exit 0 (red before the fix: no result) · mac - · 6d961ae3e7080b5f92491c1ebd94bce9a11b5802
+- [ ] Unit test на живой записи `codex-messages/turn-failed.jsonl`: один `result` с текстом ошибки Codex и видом
+      `modelNotFound`, `turnFailureKind` — как на origin/main (`other`); `systemError` ничего не даёт.
 - [ ] Unit test-ы: hook Stop идёт — событие `hook` с outcome `running`; законченный молчащий hook строку убирает,
-      сказавший что-то — остаётся.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/unit/codex-items.test.ts test/unit/transcript-hooks.test.tsx` exit 0 · mac - · 6d961ae3e7080b5f92491c1ebd94bce9a11b5802
+      сказавший что-то — остаётся; конец хода и `state` `error`/`closed`/`idle` строку убирают.
 - [ ] Все unit и contract test-ы `src/main/vendors/codex` и `src/main/agent`, `pnpm typecheck`, `pnpm lint` — exit 0.
-  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 6d961ae3e7080b5f92491c1ebd94bce9a11b5802
 
 ## Где в коде
 

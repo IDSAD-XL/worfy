@@ -100,6 +100,16 @@ describe('the row of a Codex hook run (worfy-multi-vendor ticket 47)', () => {
     expect(screen.queryByTestId('transcript-hook')).toBeNull()
   })
 
+  it.each(['error', 'closed', 'idle'] as const)('a run still shown as running when the Session goes %s goes with it', (state) => {
+    render(<Transcript events={[answer, stop('running'), { type: 'state', state, error: state === 'error' ? 'The agent exited' : null }]} />)
+    expect(screen.queryByTestId('hook-running')).toBeNull()
+  })
+
+  it('a run stays running while the turn waits for a permission answer', () => {
+    render(<Transcript events={[answer, stop('running'), { type: 'state', state: 'needs_permission', error: null }]} working />)
+    expect(screen.getByTestId('hook-running')).toBeTruthy()
+  })
+
   it.each(['failed', 'stopped'])('draws the Codex outcome %s with a cross', (outcome) => {
     render(<Transcript events={[hook({ outcome })]} />)
     expect(crossed()).toBe(true)
