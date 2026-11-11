@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-11T16:51Z
+PR: #1801
 Branch: worfy-polish/109
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-11: `main` красный после #1798 (worfy-polish 107, merge e66d9cf4f). Правило владельца:
