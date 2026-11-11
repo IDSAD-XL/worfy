@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-11T12:16Z
+PR: #1796
 Branch: worfy-multi-vendor/47
 Blocked by:
 Source: отзыв тестировщика, переданный владельцем 2026-11-11: «на кодексі він пише відповідь і далі висить у стані що
