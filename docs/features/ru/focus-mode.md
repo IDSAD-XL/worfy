@@ -141,7 +141,7 @@ Ctrl заменяет ⌘: focus mode открывает Ctrl+Enter, и подп
 Ctrl+- ничего не делают, как и везде в focus mode, а Ctrl+_ остаётся undo shell-а ([Terminal](terminal.md)). В плитке Terminal Ctrl+F
 остаётся у shell-а.
 
-На macOS при скрытом sidebar панель оставляет 80 свободными для traffic lights. На Windows их нет, и панель этого не делает.
+На macOS при скрытом sidebar панель оставляет 92 пикселя окна свободными для traffic lights. На Windows их нет, и панель этого не делает.
 
 ### На Linked machine
 

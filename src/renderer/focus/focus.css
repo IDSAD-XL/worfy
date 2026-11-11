@@ -36,10 +36,10 @@
   background: var(--toolbar);
   -webkit-app-region: drag;
 }
-/* Without the sidebar the traffic lights sit over the bar: it keeps clear of them by 80 px of the
-   window at any interface scale, as the toolbar does. */
+/* Without the sidebar the traffic lights sit over the bar: it keeps clear of them by
+   --traffic-lights-room (theme/tokens.css, 92 px of the window) at any interface scale, as the toolbar does. */
 .w-focus__bar[data-sidebar='hidden'] {
-  padding-left: calc(80px / var(--interface-scale, 1));
+  padding-left: calc(var(--traffic-lights-room) / var(--interface-scale, 1));
 }
 /* Outside macOS there are no traffic lights to keep clear of (worfy-windows ticket 11). */
 html[data-platform='windows'] .w-focus__bar[data-sidebar='hidden'],

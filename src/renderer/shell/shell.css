@@ -29,7 +29,7 @@
   align-items: center;
   gap: var(--space-1);
   box-sizing: border-box;
-  padding: 0 var(--space-2) 0 calc(80px / var(--interface-scale, 1));
+  padding: 0 var(--space-2) 0 calc(var(--traffic-lights-room) / var(--interface-scale, 1));
   -webkit-app-region: drag;
 }
 .w-sidebar__titlebar button {
@@ -386,10 +386,10 @@
   }
 }
 /* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. They do not move
-   with the interface scale, so the room is 80 px of the window, not 80 CSS px
-   (settings/interface-scale.ts writes --interface-scale on <html>). */
+   with the interface scale, so the room (--traffic-lights-room of theme/tokens.css, 92 px) is pixels of
+   the window, not CSS px (settings/interface-scale.ts writes --interface-scale on <html>). */
 .w-toolbar[data-sidebar='hidden'] {
-  padding-left: calc(80px / var(--interface-scale, 1));
+  padding-left: calc(var(--traffic-lights-room) / var(--interface-scale, 1));
 }
 /*
  * Outside macOS the window has the system's own frame, with no traffic lights and no vibrancy

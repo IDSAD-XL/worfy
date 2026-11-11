@@ -138,7 +138,7 @@ Ctrl takes the place of ⌘: Ctrl+Enter opens focus mode, and the key label on t
 Ctrl+= and Ctrl+- do nothing, as elsewhere in focus mode, and Ctrl+_ stays the shell's undo ([Terminal](terminal.md)). In a Terminal tile Ctrl+F stays with the
 shell.
 
-With the sidebar hidden on macOS, the bar keeps 80 clear for the traffic lights. On Windows there are none, and it does not.
+With the sidebar hidden on macOS, the bar keeps 92 pixels of the window clear for the traffic lights. On Windows there are none, and it does not.
 
 ### On a Linked machine
 

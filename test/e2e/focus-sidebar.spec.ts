@@ -25,7 +25,7 @@ const EPICS = ['epic-one', 'epic-two']
 /** The id of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SIDEBAR = 'view.sidebar'
 /** The room left of a bar for the window buttons of macOS, in pixels of the window. */
-const TRAFFIC_LIGHTS_PX = 80
+const TRAFFIC_LIGHTS_PX = 92
 const mac = process.platform === 'darwin'
 
 const NOTES = [
