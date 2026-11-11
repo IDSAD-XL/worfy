@@ -1,0 +1,9 @@
+[
+  {
+    "name": "example-oauth",
+    "status": "failed",
+    "source": "user",
+    "scope": "user",
+    "error": "Couldn't read the stored credentials for MCP server \"example-oauth\", so the request didn't run. If your Mac's keychain is locked, unlock it, then try again."
+  }
+]

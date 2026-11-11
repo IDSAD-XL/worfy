@@ -2,6 +2,24 @@
   "error": "Server not found: example-unknown",
   "status_after": [
     {
+      "name": "example-notes-project",
+      "status": "connected",
+      "source": "dynamic",
+      "scope": "dynamic",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
+      "name": "example-notes-local",
+      "status": "connected",
+      "source": "dynamic",
+      "scope": "dynamic",
+      "tool_names": [
+        "notes_list"
+      ]
+    },
+    {
       "name": "example-notes",
       "status": "connected",
       "source": "dynamic",
