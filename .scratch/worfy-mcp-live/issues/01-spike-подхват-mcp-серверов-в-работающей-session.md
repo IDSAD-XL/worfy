@@ -72,10 +72,12 @@ connector-а claude.ai по шагам заметки; этот Ticket её не
 - [ ] Сценарий `mcp-live` в `scripts/spikes/harness-plugin/probe.ts`: sandbox, без входа, без вызова модели; агент
       прогнал его, exit code и итог — в заметке.
   - evidence: test-run pass · `pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-live --fixtures test/fixtures/sdk-messages` exit 0 · mac - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
+  - evidence: test-run pass · `pnpm exec electron scripts/spikes/harness-plugin/probe.ts mcp-live --fixtures test/fixtures/sdk-messages` exit 0 (round 2) · mac - · 8a248643a740f19ab8364930ecd74c7aff94522c
 - [ ] Заметка `.scratch/worfy-mcp-live/spike-mcp-live.md`: ответ на каждый пункт шагов 3 и 5, как проверено (чтение
       SDK, сценарий в sandbox, fake app-server), выбранный вызов по каждому пути, решение по query инвентаря и по OAuth
       с запасным путём.
   - evidence: commit pass · Spike worfy-mcp-live 01: mcp-live scenario of the harness-plugin probe · - - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
+  - evidence: commit pass · Spike worfy-mcp-live 01, round 2: every observed fact in a fixture; turn-off by Restart · - - · 8a248643a740f19ab8364930ecd74c7aff94522c
 - [ ] В заметке — шаги живой проверки connector-а для владельца и место для её итога. Сама проверка в этот Ticket не
       входит.
   - evidence: commit pass · Spike worfy-mcp-live 01: mcp-live scenario of the harness-plugin probe · - - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
@@ -83,10 +85,13 @@ connector-а claude.ai по шагам заметки; этот Ticket её не
       имена серверов, без URL, путей домашней папки и id учётных записей; `--rescrub` по обеим папкам ничего не
       меняет.
   - evidence: test-run pass · `probe.ts --rescrub test/fixtures/sdk-messages` and `probe.ts --rescrub test/fixtures/mcp-live` exit 0 with an empty `git diff`; `node scripts/check-personal.mjs` exit 0 · mac - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
+  - evidence: test-run pass · `probe.ts --rescrub test/fixtures/sdk-messages` and `probe.ts --rescrub test/fixtures/mcp-live` exit 0 with an empty `git diff` (round 2); `node scripts/check-personal.mjs` exit 0 · mac - · 8a248643a740f19ab8364930ecd74c7aff94522c
 - [ ] Настоящие настройки не изменились: fingerprint до и после совпадает (`summary.json` probe-а).
   - evidence: test-run pass · `probe.ts mcp-live` exit 0, summary.json real_settings before = after for all four files (last run) · mac - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
+  - evidence: test-run pass · `probe.ts mcp-live` exit 0: summary.json probe_tmp_in_real_claude_json false; hashes of settings.json, installed_plugins.json, known_marketplaces.json equal; ~/.claude.json hash moves with other live sessions · mac - · 8a248643a740f19ab8364930ecd74c7aff94522c
 - [ ] lint и gate fast — exit 0.
   - evidence: gate pass · `pnpm lint` exit 0, `gate fast` exit 0 · mac - · ad24c3a3f559b304f0861e4e9f99425a7582b9c8
+  - evidence: gate pass · `pnpm lint` exit 0, `gate fast` exit 0 (round 2) · mac - · 8a248643a740f19ab8364930ecd74c7aff94522c
 
 ## Где в коде
 
