@@ -40,7 +40,9 @@ Ubuntu-ского `/etc/zsh/zshrc`. Regex конца prompt-а в `terminal-ai-z
 - [ ] Путь Homebrew ставит ссылку по `ZSH_LINK` и дописывает её в `SHELLS` один раз; по умолчанию ссылка — `/usr/bin/zsh`,
       список — `/etc/shells`. Contract test `test/contract/ci-install-zsh.test.ts`; mutant-ы (ссылка в `/usr/local/bin`,
       дописывать всегда, `tee` без `-a`) роняют его.
+  - evidence: test-run pass · `pnpm test test/contract/ci-install-zsh.test.ts test/contract/ci-workflow.test.ts` exit 0; 3 mutants each fail it · mac - · d6fdc92510c75da3a4a23087ef0b54b8945531b2
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d6fdc92510c75da3a4a23087ef0b54b8945531b2
 - [ ] Terminal test-ы (`terminal-ai-zle.test.ts`, `terminal-shell-integration.test.ts`) зелёные в `linux-tests` с zsh из
       Homebrew — CI полного набора (`main` после merge или следующий PR с полным набором).
 
