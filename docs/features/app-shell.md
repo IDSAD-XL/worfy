@@ -50,7 +50,10 @@ branch at most half of an item the same way. Busy is in the colour of work, the 
 colour of a block. A part that is zero or unknown is left out. "PR need you" counts the pull requests that need your
 review, answer or fix; it is unknown while the Project's PR inbox is off. "Waits" counts the Tickets in work that are
 blocked or wait for a person, not for an agent. It is known only while a window shows the Project's Pipeline, which "All
-Projects" does. A Project of a Linked machine keeps its single line.
+Projects" does. No part of the live line is cut: a part that does not fit moves whole to the next line, without the
+" · " before it, and the card grows with it. Each part has a tooltip that says what it counts: busy — the Sessions in a
+turn; PR need you — the pull requests that need your review, answer or fix; waits — the Tickets that are blocked, or wait
+for a person, not an agent. A Project of a Linked machine keeps its single line.
 
 In another Project's group, a Session shows the name Claude Code gives it, else "Session <id>", and "terminal" or
 "desktop". That Project's Canvas is not read, so its worfy Sessions are not marked "worfy" there. "New session", "Product
