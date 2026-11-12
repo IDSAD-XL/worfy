@@ -32,12 +32,17 @@ Source: владелец 2026-11-12, взгляд на popover chip-а «MCP n/m
 - [ ] Unit test `test/unit/mcp-chip.test.tsx`: группа «not started» — один заголовок с текстом и одной кнопкой
       «Restart Session» при любом числе строк; в строках группы кнопок нет; кнопка запускает тот же Restart, что и
       раньше.
+  - evidence: test-run pass · `pnpm test test/unit/mcp-chip.test.tsx` exit 0 · mac - · 424479c1525cbeeb956b3c1657db010745162957
 - [ ] Unit test: имя connector-а claude.ai показано без приставки, полное исходное имя доступно в tooltip; длинное имя
       не обрезается многоточием.
+  - evidence: test-run pass · `pnpm test test/unit/mcp-chip.test.tsx test/unit/mcp-status-row.test.ts` exit 0 · mac - · 424479c1525cbeeb956b3c1657db010745162957
 - [ ] Unit test: «Allow» в строках — secondary, «Allow all» — единственная акцентная кнопка popover-а.
+  - evidence: test-run pass · `pnpm test test/unit/mcp-chip.test.tsx` exit 0 · mac - · 424479c1525cbeeb956b3c1657db010745162957
 - [ ] E2e `test/e2e/session-mcp.spec.ts` зелёный в CI на macOS и Windows; снимки popover-а в обеих темах приложены к PR.
 - [ ] Страницы `docs/features/mcp-servers.md` и `docs/features/ru/mcp-servers.md` описывают новую группу и кнопку.
+  - evidence: commit pass · MCP list: one Restart for the not-started group, full names, quiet Allow (worfy-mcp-live 10) · - - · 424479c1525cbeeb956b3c1657db010745162957
 - [ ] Правка вида названа в PR отдельной строкой. Merge — только после того, как владелец посмотрел снимки (Q12).
+  - evidence: commit pass · PR 1841 description, line Look change · - - · 424479c1525cbeeb956b3c1657db010745162957
 - [ ] lint, typecheck, unit и contract test-ы затронутых модулей, gate fast — exit 0.
 
 ## Где в коде
