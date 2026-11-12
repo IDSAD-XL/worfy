@@ -3,8 +3,8 @@
 
    The area is drawn on <body> at the toasts' layer (--z-toast, 120, tokens.css): above focus mode
    (inside the main area's own stacking context, shell.css), above the dialogs of the app (90–101) and
-   above the Settings window (110, settings-window.ts), whose modal guard lets a layer above it keep
-   its keys and its focus.
+   above the modal windows of the kit (--z-dialog: Settings, Keyboard shortcuts, the Guide), whose key
+   guard (theme/kit/Dialog.tsx) lets a layer above them keep its keys and its focus.
 
    Place: the right edge of the window, not the top centre, where the Command palette and Canvas find
    open. The height there is measured while a toast is shown (ToastRegion.tsx, placement.ts): the

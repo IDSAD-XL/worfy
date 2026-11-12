@@ -60,7 +60,7 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     await expect(dialog.getByTestId('settings-version')).toHaveText(version)
     // Above everything else of the window: the backdrop covers the toolbar. The layer (the dialog
     // layer of the scale, theme/layers.ts) sits on the portal around the backdrop (theme/kit/layer.ts).
-    await expect(window.locator('.w-settings__backdrop').locator('xpath=..')).toHaveCSS('z-index', '100')
+    await expect(window.locator('.w-settings__backdrop').locator('xpath=..')).toHaveCSS('z-index', '110')
     await snapshotThemes(window, 'settings-general')
 
     // The keyboard stays in the window: Tab goes through the rows of the section list, however many

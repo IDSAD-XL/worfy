@@ -91,7 +91,7 @@ test('"?" on the Canvas opens Keyboard shortcuts in groups and Esc closes it; "?
     // Back in the window of a Subagent (ExternalSessionPanel.tsx) is an entry of the registry too.
     await expect(shortcuts.locator('[data-shortcut="session.back"] kbd')).toHaveText(mac ? '⌘[' : 'Ctrl+[')
     // Above everything else of the window, in the layer of Settings: on the portal around the backdrop.
-    await expect(window.locator('.w-shortcuts__backdrop').locator('xpath=..')).toHaveCSS('z-index', '100')
+    await expect(window.locator('.w-shortcuts__backdrop').locator('xpath=..')).toHaveCSS('z-index', '110')
     await keepEvidence(await snapshotThemes(window, 'shortcuts'), '11-shortcuts')
 
     await window.keyboard.press('Escape')

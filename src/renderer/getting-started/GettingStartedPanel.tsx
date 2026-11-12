@@ -78,7 +78,7 @@ const corner: CSSProperties = {
   position: 'fixed',
   top: 'calc(var(--toolbar-height) + var(--space-3))',
   right: 'var(--space-4)',
-  // Below First run and the menus (90), Add project and Connect (95), the Command palette (100) and Settings (110).
+  // Below First run and the menus (90), Add project and Connect (95), the Command palette (100) and the modal windows of the kit (LAYERS.dialog).
   zIndex: 80,
   fontFamily: 'var(--font-ui)',
 }

@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Dialog } from '../../src/renderer/theme/kit/Dialog'
+import { KIT_POPUP_ATTRIBUTE } from '../../src/renderer/theme/open-layers'
 import { Select } from '../../src/renderer/theme/Select'
 import { ToastRegion } from '../../src/renderer/toast/ToastRegion'
 import { resetToasts, showToast } from '../../src/renderer/toast/toasts'
@@ -403,5 +404,67 @@ describe('the Tab stops of a kit window with a group of the kit inside', () => {
     act(() => (document.activeElement as HTMLElement).blur())
     expect(pressKey(document.body, { key: 'Tab', shiftKey: true }).defaultPrevented).toBe(true)
     expect(document.activeElement).toBe(close)
+  })
+})
+
+describe('the layers a kit window yields to', () => {
+  it('a popup of the kit that is not a window counts as a layer above, whatever its z-index: it keeps its keys and its Esc', async () => {
+    const { window } = await openFromOpener()
+    // A popup of the kit drawn on <body> with no z-index of its own: a popover, a menu.
+    const popup = document.createElement('div')
+    popup.setAttribute(KIT_POPUP_ATTRIBUTE, '')
+    const item = document.createElement('button')
+    popup.append(item)
+    document.body.append(popup)
+    const heard = vi.fn()
+    globalThis.addEventListener('keydown', heard)
+    try {
+      expect(pressKey(item, { key: 'Escape' }).defaultPrevented).toBe(false)
+      expect(heard).toHaveBeenCalledTimes(1)
+      await flush()
+      expect(window.isConnected).toBe(true)
+      expect(probe()).not.toBeNull()
+    } finally {
+      globalThis.removeEventListener('keydown', heard)
+      popup.remove()
+    }
+  })
+
+  /** A window that opens a second window of the kit over itself, as a confirmation does. */
+  function TwoWindows() {
+    const [outer, setOuter] = useState(true)
+    const [inner, setInner] = useState(false)
+    return (
+      <>
+        <Dialog open={outer} onClose={() => setOuter(false)} label="Outer window" className="probe">
+          <button type="button" onClick={() => setInner(true)}>
+            Open inner
+          </button>
+        </Dialog>
+        <Dialog open={inner} onClose={() => setInner(false)} label="Inner window" className="probe">
+          <button type="button">Inner first</button>
+          <button type="button">Inner last</button>
+        </Dialog>
+      </>
+    )
+  }
+
+  it('with two windows open, the one opened last is on top: Tab of a fallen focus goes into it, Esc closes it alone', async () => {
+    render(<TwoWindows />)
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'Open inner' }))
+    await flush()
+    const inner = screen.getByRole('dialog', { name: 'Inner window' })
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(pressKey(document.body, { key: 'Tab' }).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(within(inner).getByRole('button', { name: 'Inner first' }))
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(pressKey(document.body, { key: 'Tab', shiftKey: true }).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(within(inner).getByRole('button', { name: 'Inner last' }))
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(pressKey(document.body, { key: 'Escape' }).defaultPrevented).toBe(true)
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Inner window' })).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Outer window' })).not.toBeNull()
   })
 })
