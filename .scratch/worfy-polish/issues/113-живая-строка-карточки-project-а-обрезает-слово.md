@@ -35,8 +35,10 @@ Source: сообщение владельца со снимком экрана 2
 - [ ] Строка без обрезки: у живой строки нет пары `overflow: hidden` + `white-space: nowrap`, ряд частей переносится
       (`flex-wrap: wrap`), каждая часть — целиком в своём элементе, карточка не фиксирует высоту. Unit test
       `test/unit/project-pulse-line.test.tsx` (jsdom), красный до правки.
+  - evidence: test-run pass · `pnpm test test/unit/project-pulse-line.test.tsx` exit 0, exit 1 before the fix · mac - · 529bb25f1748d8046c6b25c0b716ba0f68b2ff3a
 - [ ] У каждой части — tooltip с тем, что она считает, в единственном и множественном числе; экранный диктор слышит его
       как описание части. Тот же unit test.
+  - evidence: test-run pass · `pnpm test test/unit/project-pulse-line.test.tsx` exit 0, exit 1 before the fix · mac - · 529bb25f1748d8046c6b25c0b716ba0f68b2ff3a
 - [ ] e2e `test/e2e/sidebar-rail.spec.ts`: у «harbor» — Ticket, который ждёт человека; в узком sidebar-е строка
       «1 busy · 1 waits» переносится, обе части целиком внутри карточки, разделитель перед второй частью не виден.
       Локально не запускается (правило владельца) — проверяет CI.
