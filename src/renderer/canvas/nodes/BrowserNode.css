@@ -278,14 +278,6 @@
   font-size: var(--text-12);
   pointer-events: all;
 }
-.w-browser-frame__choose-menu {
-  min-width: 180px;
-  padding: var(--space-1);
-  border-radius: var(--radius-popover);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow-node);
-}
 .w-browser-frame__choose .w-browser-frame__open-button {
   margin-left: 0;
 }

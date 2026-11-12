@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
-import { createPortal } from 'react-dom'
-import { AUTO_APPROVAL_MODES } from '../../../shared/settings/app-settings'
+import { useState } from 'react'
+import { AUTO_APPROVAL_MODES, type AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { useOrchestratorViews } from '../../canvas/nodes/orchestrator-view'
+import { Menu, MenuCheckboxItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from '../../theme/kit/Menu'
 import { AUTO_APPROVAL_DETAILS, AUTO_APPROVAL_LABELS, AUTO_APPROVAL_TITLES, useAutoApproval } from '../modes/auto-approval'
 import { useAutoContinue } from '../modes/auto-continue'
 import { useEcoMode } from '../modes/eco-mode'
@@ -17,21 +17,15 @@ import type { ComposerItemProps } from './index'
 // slot of a fixed width, so the button is as wide in every combination of states; only its caption
 // «Modes» goes when the bar is short of room (Pickers.tsx, the caption step `modes`).
 //
-// The menu opens over the button, drawn into the page's body like the list of a Select
-// (theme/select.css). Choosing an item does not close it: the new state shows in it. A window that shows
+// The menu is the kit's Menu (theme/kit/Menu.tsx, worfy-ui-kit ticket 11): over the button, drawn into
+// the page's body and slid left along the window's right edge, on the layer of a menu over a dialog.
+// The arrows stop at the ends. Choosing an item does not close it: the new state shows in it. A window that shows
 // a Linked machine shows the modes of that Machine's Project (worfy-retry ticket 13): with full access
 // every item changes them there, with read-only access every item shows its state and is unavailable with
 // the read-only hint. A change made on either Machine shows in an open menu at once.
 
 /** Right of the pickers (Pickers.tsx, order 10), before the queue (Queue.tsx, order 20). */
 export const order = 15
-
-/** The gap between the button and its menu. */
-const MENU_GAP = 4
-/** The menu keeps this far from the window's edges. */
-const WINDOW_MARGIN = 8
-/** Every item of the menu, in its order. */
-const ITEMS = '[role="menuitemcheckbox"], [role="menuitemradio"]'
 
 /** How an item's icon on the button looks. */
 type IconState = 'on' | 'off' | 'shadow' | 'unknown'
@@ -81,11 +75,7 @@ function ModesMenu({ projectId }: { projectId: string }) {
   const eco = useEcoMode(projectId)
   const auto = useAutoApproval(projectId)
   const cont = useAutoContinue(projectId)
-  /** Where the open menu stands; null while it is closed. */
-  const [menu, setMenu] = useState<CSSProperties | null>(null)
-  const button = useRef<HTMLButtonElement>(null)
-  const list = useRef<HTMLDivElement>(null)
-  const heading = useId()
+  const [open, setOpen] = useState(false)
 
   const ecoState: IconState = eco.on === null ? 'unknown' : eco.on ? 'on' : 'off'
   const autoState: IconState = auto.mode ?? 'unknown'
@@ -94,183 +84,82 @@ function ModesMenu({ projectId }: { projectId: string }) {
   // The states are in the button's name, not only in its tooltip: a screen reader says them with it.
   const summary = `Modes: Eco mode ${stateWords(ecoState, eco)}, Auto-approval ${stateWords(autoState, auto)}, Auto-continue ${stateWords(contState, cont)}`
 
-  const close = useCallback((focus: boolean) => {
-    setMenu(null)
-    if (focus) button.current?.focus()
-  }, [])
-
-  const open = (): void => {
-    const rect = button.current?.getBoundingClientRect()
-    if (rect === undefined) return
-    // Over the button: the bar stands at the bottom of the Session view.
-    setMenu({ position: 'fixed', left: rect.left, bottom: window.innerHeight - rect.top + MENU_GAP })
-  }
-
-  // Once the menu shows: it moves left as far as the window's right edge makes it, and its first item
-  // takes the focus.
-  useLayoutEffect(() => {
-    if (menu === null) return
-    const element = list.current
-    if (element === null) return
-    const box = element.getBoundingClientRect()
-    const furthest = window.innerWidth - box.width - WINDOW_MARGIN
-    if (box.left > furthest) element.style.left = `${Math.max(WINDOW_MARGIN, furthest)}px`
-    element.querySelector<HTMLElement>(ITEMS)?.focus()
-  }, [menu])
-
-  // A press outside, a resize and the window losing focus close the menu.
-  useEffect(() => {
-    if (menu === null) return
-    const outside = (event: PointerEvent): void => {
-      const target = event.target as Node | null
-      if (target !== null && (list.current?.contains(target) === true || button.current?.contains(target) === true)) return
-      close(false)
-    }
-    const away = (): void => close(false)
-    document.addEventListener('pointerdown', outside, true)
-    window.addEventListener('resize', away)
-    window.addEventListener('blur', away)
-    return () => {
-      document.removeEventListener('pointerdown', outside, true)
-      window.removeEventListener('resize', away)
-      window.removeEventListener('blur', away)
-    }
-  }, [menu, close])
-
-  const onButtonKey = (event: KeyboardEvent<HTMLButtonElement>): void => {
-    // Enter and Space are the button's click; ArrowDown opens the menu as well.
-    if (event.key !== 'ArrowDown' || menu !== null) return
-    event.preventDefault()
-    open()
-  }
-
-  const onMenuKey = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (event.key === 'Escape') {
-      // Taken here: the dialog or the focus mode under the bar does not close on it.
-      event.preventDefault()
-      event.stopPropagation()
-      close(true)
-      return
-    }
-    if (event.key === 'Tab') {
-      // The focus goes back to the button before the menu goes, so Tab moves on from there.
-      close(true)
-      return
-    }
-    const items = [...(list.current?.querySelectorAll<HTMLElement>(ITEMS) ?? [])]
-    const at = items.findIndex((item) => item === document.activeElement)
-    if (event.key === 'Enter' || event.key === ' ') {
-      // The item's own click, once: the browser's activation of a focused button is held back.
-      event.preventDefault()
-      items[at]?.click()
-      return
-    }
-    const next = { ArrowDown: Math.min(items.length - 1, at + 1), ArrowUp: Math.max(0, at - 1), Home: 0, End: items.length - 1 }[event.key]
-    if (next === undefined) return
-    event.preventDefault()
-    items[next]?.focus()
-  }
-
   const autoChecked = (mode: string): boolean => auto.mode === mode
+  const trigger = (
+    <button type="button" className="w-modes" aria-label={summary} aria-busy={eco.busy || auto.busy || cont.busy ? 'true' : undefined} title={summary} data-testid="modes" data-read-only={readOnly ? '' : undefined}>
+      <span className="w-modes__label">Modes</span>
+      <span className="w-modes__slot" data-mode-item="eco" data-state={ecoState}>
+        <LeafIcon />
+      </span>
+      <span className="w-modes__slot" data-mode-item="auto-approval" data-state={autoState} data-saved={auto.saved ?? undefined}>
+        <ShieldIcon />
+      </span>
+      <span className="w-modes__slot" data-mode-item="auto-continue" data-state={contState}>
+        <ContinueIcon />
+      </span>
+    </button>
+  )
+  // Over the button: the bar stands at the bottom of the Session view. On the layer of a menu over a
+  // dialog: the composer is in a Session window and in focus mode too.
   return (
-    <>
-      <button
-        ref={button}
-        type="button"
-        className="w-modes"
-        aria-label={summary}
-        aria-haspopup="menu"
-        aria-expanded={menu !== null}
-        aria-busy={eco.busy || auto.busy || cont.busy ? 'true' : undefined}
-        title={summary}
-        data-testid="modes"
-        data-read-only={readOnly ? '' : undefined}
-        onKeyDown={onButtonKey}
-        onClick={() => {
-          if (menu === null) open()
-          else close(false)
-        }}
+    <Menu open={open} onOpenChange={setOpen} trigger={trigger} label="Modes" className="w-modes__menu" testId="modes-menu" side="top" align="start" loopFocus={false} layer="dialogMenu">
+      <MenuCheckboxItem
+        className="w-modes__item"
+        data-item="eco"
+        checked={eco.on === true}
+        onCheckedChange={eco.toggle}
+        // Inactive, not disabled: the item keeps the focus and its tooltip (aria-disabled, read-only.ts).
+        disabled={eco.unavailable !== null}
+        aria-busy={eco.busy ? 'true' : undefined}
+        title={eco.title}
+        data-read-only={eco.readOnly ? '' : undefined}
       >
-        <span className="w-modes__label">Modes</span>
-        <span className="w-modes__slot" data-mode-item="eco" data-state={ecoState}>
-          <LeafIcon />
-        </span>
-        <span className="w-modes__slot" data-mode-item="auto-approval" data-state={autoState} data-saved={auto.saved ?? undefined}>
-          <ShieldIcon />
-        </span>
-        <span className="w-modes__slot" data-mode-item="auto-continue" data-state={contState}>
-          <ContinueIcon />
-        </span>
-      </button>
-      {menu === null
-        ? null
-        : createPortal(
-            <div ref={list} role="menu" aria-label="Modes" className="w-modes__menu" style={menu} data-testid="modes-menu" onKeyDown={onMenuKey}>
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                className="w-modes__item"
-                data-item="eco"
-                aria-checked={eco.on === true}
-                // aria-disabled rather than disabled: a disabled button shows no tooltip (read-only.ts).
-                aria-disabled={eco.unavailable !== null ? 'true' : undefined}
-                aria-busy={eco.busy ? 'true' : undefined}
-                title={eco.title}
-                data-read-only={eco.readOnly ? '' : undefined}
-                tabIndex={-1}
-                onClick={eco.toggle}
-              >
-                <span className="w-modes__check">{eco.on === true ? <CheckMark /> : null}</span>
-                <span className="w-modes__item-label">Eco mode</span>
-                <span className="w-modes__item-detail">Fewer agents, Sonnet</span>
-              </button>
-              <div role="separator" className="w-modes__separator" />
-              <div role="group" aria-labelledby={heading} aria-busy={auto.busy ? 'true' : undefined} className="w-modes__group" data-item="auto-approval">
-                <span id={heading} className="w-modes__heading">
-                  Auto-approval
-                </span>
-                {AUTO_APPROVAL_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    className="w-modes__item"
-                    data-mode={mode}
-                    aria-checked={autoChecked(mode)}
-                    aria-disabled={auto.unavailable !== null ? 'true' : undefined}
-                    title={auto.unavailable ?? AUTO_APPROVAL_TITLES[mode]}
-                    data-read-only={auto.readOnly ? '' : undefined}
-                    tabIndex={-1}
-                    onClick={() => auto.choose(mode)}
-                  >
-                    <span className="w-modes__check">{autoChecked(mode) ? <CheckMark /> : null}</span>
-                    <span className="w-modes__item-label">{AUTO_APPROVAL_LABELS[mode]}</span>
-                    <span className="w-modes__item-detail">{AUTO_APPROVAL_DETAILS[mode]}</span>
-                  </button>
-                ))}
-              </div>
-              <div role="separator" className="w-modes__separator" />
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                className="w-modes__item"
-                data-item="auto-continue"
-                aria-checked={cont.on === true}
-                aria-disabled={cont.unavailable !== null ? 'true' : undefined}
-                aria-busy={cont.busy ? 'true' : undefined}
-                title={cont.title}
-                data-read-only={cont.readOnly ? '' : undefined}
-                tabIndex={-1}
-                onClick={cont.toggle}
-              >
-                <span className="w-modes__check">{cont.on === true ? <CheckMark /> : null}</span>
-                <span className="w-modes__item-label">Auto-continue</span>
-                <span className="w-modes__item-detail">Retry after API errors and Limits</span>
-              </button>
-            </div>,
-            document.body,
-          )}
-    </>
+        <span className="w-modes__check">{eco.on === true ? <CheckMark /> : null}</span>
+        <span className="w-modes__item-label">Eco mode</span>
+        <span className="w-modes__item-detail">Fewer agents, Sonnet</span>
+      </MenuCheckboxItem>
+      <MenuSeparator className="w-modes__separator" />
+      <MenuRadioGroup
+        heading="Auto-approval"
+        headingClassName="w-modes__heading"
+        value={auto.mode}
+        onValueChange={(mode) => auto.choose(mode as AutoApprovalMode)}
+        aria-busy={auto.busy ? 'true' : undefined}
+        className="w-modes__group"
+        data-item="auto-approval"
+      >
+        {AUTO_APPROVAL_MODES.map((mode) => (
+          <MenuRadioItem
+            key={mode}
+            value={mode}
+            className="w-modes__item"
+            data-mode={mode}
+            disabled={auto.unavailable !== null}
+            title={auto.unavailable ?? AUTO_APPROVAL_TITLES[mode]}
+            data-read-only={auto.readOnly ? '' : undefined}
+          >
+            <span className="w-modes__check">{autoChecked(mode) ? <CheckMark /> : null}</span>
+            <span className="w-modes__item-label">{AUTO_APPROVAL_LABELS[mode]}</span>
+            <span className="w-modes__item-detail">{AUTO_APPROVAL_DETAILS[mode]}</span>
+          </MenuRadioItem>
+        ))}
+      </MenuRadioGroup>
+      <MenuSeparator className="w-modes__separator" />
+      <MenuCheckboxItem
+        className="w-modes__item"
+        data-item="auto-continue"
+        checked={cont.on === true}
+        onCheckedChange={cont.toggle}
+        disabled={cont.unavailable !== null}
+        aria-busy={cont.busy ? 'true' : undefined}
+        title={cont.title}
+        data-read-only={cont.readOnly ? '' : undefined}
+      >
+        <span className="w-modes__check">{cont.on === true ? <CheckMark /> : null}</span>
+        <span className="w-modes__item-label">Auto-continue</span>
+        <span className="w-modes__item-detail">Retry after API errors and Limits</span>
+      </MenuCheckboxItem>
+    </Menu>
   )
 }
 

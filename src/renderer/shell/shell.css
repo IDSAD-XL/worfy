@@ -241,13 +241,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The kit's Menu (theme/kit/menu.css) under the button, as wide as it; its layer from the scale. */
 .w-project-switcher__menu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 30;
-  max-height: 60vh;
+  width: var(--anchor-width);
+  max-height: min(60vh, var(--available-height));
   overflow-y: auto;
   box-sizing: border-box;
   padding: 6px;

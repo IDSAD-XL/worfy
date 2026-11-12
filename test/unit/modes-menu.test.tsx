@@ -328,27 +328,17 @@ describe('the Modes button', () => {
 })
 
 describe('where the menu stands', () => {
-  it('over the button, moved left as far as the right edge of the window makes it', async () => {
+  // jsdom lays nothing out: the slide along the window's right edge is the kit's positioner, seen in
+  // the built app (test/e2e/layers-menu.spec.ts, at the edge of the window).
+  it('over the button, lined up with its start, on the layer of a menu over a dialog', async () => {
     main = preload()
-    const width = window.innerWidth
-    const height = window.innerHeight
-    // The button and the menu both 240 px wide, 900 px from the left, 700 px from the top, in a 1000×800 window.
-    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 900, top: 700, width: 240, height: 24, right: 1140, bottom: 724, x: 900, y: 700, toJSON: () => ({}) })
-    Object.assign(window, { innerWidth: 1000, innerHeight: 800 })
-    try {
-      await mount()
-      await openMenu()
-      expect(menu()!.style.bottom).toBe('104px')
-      expect(menu()!.style.left).toBe(`${1000 - 240 - 8}px`)
-      await press(ecoItem(), 'Escape')
-      // Room enough on the right: it stays where the button starts.
-      Object.assign(window, { innerWidth: 1600 })
-      await openMenu()
-      expect(menu()!.style.left).toBe('900px')
-    } finally {
-      rect.mockRestore()
-      Object.assign(window, { innerWidth: width, innerHeight: height })
-    }
+    await mount()
+    await openMenu()
+    await settle()
+    expect(menu()!.getAttribute('data-side')).toBe('top')
+    expect(menu()!.getAttribute('data-align')).toBe('start')
+    const { LAYERS } = await import('../../src/renderer/theme/layers')
+    expect(menu()!.closest<HTMLElement>('body > div')!.style.zIndex).toBe(String(LAYERS.dialogMenu))
   })
 })
 
@@ -356,7 +346,10 @@ describe('the keyboard', () => {
   it('ArrowDown on the button opens the menu; arrows, Home and End move; Enter and Space choose; Esc closes it back to the button', async () => {
     main = preload({ eco: [ECO_OFF], auto: ['off'] })
     await mount()
+    // The key goes to the button that has the focus.
+    trigger().focus()
     await press(trigger(), 'ArrowDown')
+    await settle()
     expect(menu()).not.toBeNull()
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
     // The roles: one menu, a checkbox item, then the group of three radio items.
@@ -367,7 +360,8 @@ describe('the keyboard', () => {
       'menuitemradio false',
       'menuitemcheckbox false',
     ])
-    expect(document.activeElement).toBe(ecoItem())
+    // The kit's Menu moves the focus in on the next frame.
+    await vi.waitFor(() => expect(document.activeElement).toBe(ecoItem()))
     await press(ecoItem(), 'ArrowDown')
     expect(document.activeElement).toBe(position('Off'))
     await press(position('Off'), 'End')
@@ -434,7 +428,7 @@ describe('the keyboard', () => {
     }
   })
 
-  it('Tab, a resize and the window losing focus close the menu, writing nothing', async () => {
+  it('Tab and the window losing focus close the menu, writing nothing; a resize keeps it, placed again by the button', async () => {
     main = preload()
     await mount()
     await openMenu()
@@ -452,7 +446,7 @@ describe('the keyboard', () => {
     await act(async () => {
       window.dispatchEvent(new Event('resize'))
     })
-    expect(menu()).toBeNull()
+    expect(menu()).not.toBeNull()
     expect(modeCalls()).toHaveLength(3)
   })
 
@@ -1132,5 +1126,46 @@ describe('Auto-continue in the menu', () => {
     main = preload()
     await mount('another-session')
     expect(contCalls()).toEqual([])
+  })
+})
+
+// The Esc rule of ADR-0106 (item 7) in the composer: the input field's Esc interrupts the turn, and the
+// Modes menu opens from the bar under that field. Its keyboard handler is the field's own, and the focus
+// goes into the menu, so the press that closes the menu never reaches it.
+describe('Esc in the Modes menu of the composer while the agent works', () => {
+  // Eco mode unavailable (a Harness without bin/profile-set, as on the Windows CI runner): the first
+  // item, which takes the focus, is inactive, and Base UI marks every key on it handled.
+  it.each([
+    ['Eco mode available', () => preload()],
+    ['Eco mode unavailable, the focus on an inactive item', () => preload({ eco: [{ available: false, reason: 'this Harness has no bin/profile-set --field' }] })],
+  ])('closes the menu and leaves the turn running; the next Esc in the field interrupts it (%s)', async (_case, made) => {
+    main = made()
+    const { acceptOrchestratorView } = await import('../../src/renderer/canvas/nodes/orchestrator-view')
+    const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
+    const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+    acceptOrchestratorView(view(SESSION))
+    acceptProjectsState({ projects: [{ id: PROJECT, name: 'demo', path: ROOT, branch: null }], activeId: PROJECT, revision: ++projectsRevision })
+    const interrupt = vi.fn()
+    render(<MessageInput sessionId={SESSION} busy history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={interrupt} />)
+    await settle()
+    const field = screen.getByRole('textbox', { name: 'Message Orchestrator' })
+    // The Modes button of the bar, opened from the keyboard: the focus goes to its first item.
+    trigger().focus()
+    await press(trigger(), 'ArrowDown')
+    await vi.waitFor(() => expect(document.activeElement).toBe(ecoItem()))
+    let delivered = true
+    await act(async () => {
+      delivered = fireEvent.keyDown(ecoItem(), { key: 'Escape' })
+    })
+    expect(delivered).toBe(false)
+    expect(menu()).toBeNull()
+    expect(interrupt).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger()))
+    // Esc on the button of the closed menu is not the field's either.
+    await press(trigger(), 'Escape')
+    expect(interrupt).not.toHaveBeenCalled()
+    field.focus()
+    await press(field, 'Escape')
+    expect(interrupt).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import type { UpdateSnapshot } from '../../shared/ipc/update'
 import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { invoke } from '../ipc'
+import { Menu, MenuItem } from '../theme/kit/Menu'
 import { buildStepText, elapsedText, installUpdateTelling, updateVersionLabel, useTicking, useUpdateStore } from './store'
 import WhatsNew, { type WhatsNewAction } from './WhatsNew'
 
@@ -72,19 +72,6 @@ function withBuild(text: string, build: string | undefined): string {
   return build === undefined ? text : `${text}\n${build}`
 }
 
-const menuStyle: CSSProperties = {
-  position: 'fixed',
-  // Over the toasts (z-index 120, src/renderer/toast/toast.css), as "What's new": the sticky Update
-  // toast of the start lies right under the chip.
-  zIndex: 130,
-  minWidth: 180,
-  padding: 'var(--space-1)',
-  borderRadius: 'var(--radius-popover)',
-  border: '1px solid var(--border)',
-  background: 'var(--surface)',
-  boxShadow: 'var(--shadow-node)',
-}
-
 function install(update: UpdateSnapshot | null): void {
   void installUpdateTelling(update)
 }
@@ -104,107 +91,6 @@ function primaryOf(signal: Signal, update: UpdateSnapshot | null, label: (versio
   return { label: 'Update worfy', run: () => install(update) }
 }
 
-interface MenuProps {
-  primary: WhatsNewAction
-  anchor: HTMLElement
-  onClose: () => void
-  onWhatsNew: () => void
-}
-
-/**
- * The chip's menu, drawn over everything under the chip with its left edge on the chip's. Escape, a
- * click elsewhere, the focus elsewhere in the window, the window losing focus and choosing an item close it; the focus goes back to the chip.
- */
-function ChipMenu({ primary, anchor, onClose, onWhatsNew }: MenuProps) {
-  const menu = useRef<HTMLDivElement>(null)
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-  // 4px under the chip, its left edge on the chip's; the toolbar does not move while the menu is open.
-  const [place] = useState(() => {
-    const box = anchor.getBoundingClientRect()
-    return { left: box.left, top: box.bottom + 4 }
-  })
-
-  useEffect(() => {
-    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
-    const outside = (event: Event): void => {
-      const target = event.target as Node
-      if (!menu.current?.contains(target) && !anchor.contains(target)) close.current()
-    }
-    const blur = (): void => close.current()
-    document.addEventListener('mousedown', outside)
-    // The focus elsewhere in the window (the Command palette's field on ⌘K): the menu lies over the
-    // toasts and the palette, so it must not stay open under the focus.
-    document.addEventListener('focusin', outside)
-    window.addEventListener('blur', blur)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      document.removeEventListener('focusin', outside)
-      window.removeEventListener('blur', blur)
-    }
-  }, [anchor])
-
-  const choose = (action: () => void) => () => {
-    close.current()
-    anchor.focus()
-    action()
-  }
-  const move = (step: number): void => {
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
-    const at = items.indexOf(document.activeElement as HTMLElement)
-    items[(at + step + items.length) % items.length]?.focus()
-  }
-
-  const { run } = primary
-  const first =
-    run === undefined ? (
-      <button type="button" role="menuitem" className="w-row" aria-disabled="true" style={{ color: 'var(--text-muted)' }}>
-        {primary.label}
-      </button>
-    ) : (
-      <button type="button" role="menuitem" className="w-row" onClick={choose(run)}>
-        {primary.label}
-      </button>
-    )
-
-  return createPortal(
-    <div
-      ref={menu}
-      role="menu"
-      aria-label="worfy update"
-      style={{ ...menuStyle, ...place }}
-      data-testid="update-chip-menu"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation()
-          close.current()
-          anchor.focus()
-        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault()
-          move(event.key === 'ArrowDown' ? 1 : -1)
-        }
-      }}
-    >
-      {first}
-      <button
-        type="button"
-        role="menuitem"
-        className="w-row"
-        // The popover takes the menu's place and the focus; the chip gets it back when it closes.
-        onClick={onWhatsNew}
-      >
-        What's new
-      </button>
-      <button type="button" role="menuitem" className="w-row" onClick={choose(() => undefined)}>
-        Later
-      </button>
-    </div>,
-    document.body,
-  )
-}
-
 export interface UpdateChipProps {
   /** The app version (`app.version`). */
   version: string
@@ -221,9 +107,10 @@ const spinner = <span className="w-update-spinner" aria-hidden="true" />
 
 /** The app version line of the toolbar, a button with a dot and a menu while an Update waits. */
 export default function UpdateChip({ version, number, update, now = Date.now }: UpdateChipProps) {
-  // The chip while its menu or "What's new" is open, else null.
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  const [view, setView] = useState<'menu' | 'whatsNew'>('menu')
+  // What is open under the chip: its menu, "What's new", or nothing.
+  const [view, setView] = useState<'closed' | 'menu' | 'whatsNew'>('closed')
+  // The chip's button, which "What's new" stands under.
+  const [chip, setChip] = useState<HTMLButtonElement | null>(null)
   // The pointer or the focus on the chip: its tooltip may be open, so the elapsed time counts on.
   const [pointed, setPointed] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -235,7 +122,7 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
   const startedAt = signal?.phase === 'building' ? build?.startedAt : undefined
   const time = useTicking(startedAt !== undefined && (pointed || focused), now)
   if (update?.enabled === true && update.restarting) {
-    if (anchor !== null) setAnchor(null)
+    if (view !== 'closed') setView('closed')
     if (pointed) setPointed(false)
     if (focused) setFocused(false)
     return (
@@ -249,7 +136,7 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
     // The signal went (installed from Settings or another window): the menu goes with it, so a later
     // signal shows a closed chip rather than a menu that opens by itself. Adjusted during render, as
     // React advises for state that follows a prop.
-    if (anchor !== null) setAnchor(null)
+    if (view !== 'closed') setView('closed')
     if (pointed) setPointed(false)
     if (focused) setFocused(false)
     return (
@@ -264,48 +151,59 @@ export default function UpdateChip({ version, number, update, now = Date.now }: 
   const progress = step !== undefined ? `Updating · ${step}` : starting || signal.phase === 'building' ? 'Starting update…' : undefined
   const said = TOOLTIP[signal.phase](label(signal.version)) + (startedAt === undefined ? '' : ` ${elapsedText(startedAt, time)}`)
   const tooltip = progress === undefined ? said : `${progress}\n${said}`
+  // A press on the chip while "What's new" is open closes it, as the press that opened the menu would.
+  const change = (open: boolean) => setView((was) => (open ? (was === 'whatsNew' ? 'closed' : 'menu') : was === 'menu' ? 'closed' : was))
+  const { run } = primary
+  const trigger = (
+    <button
+      ref={setChip}
+      type="button"
+      className="w-mono w-toolbar__version w-toolbar__version-chip"
+      title={withBuild(tooltip, buildVersionTooltip(version, number))}
+      data-testid="app-version"
+      data-update={signal.phase}
+      onMouseEnter={() => setPointed(true)}
+      onMouseLeave={() => setPointed(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+    >
+      {progress === undefined ? (
+        <>
+          v{shown}
+          {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
+        </>
+      ) : (
+        <>
+          {spinner}
+          <span className="w-toolbar__version-step">{progress}</span>
+        </>
+      )}
+    </button>
+  )
+  // The menu is the kit's Menu (theme/kit/Menu.tsx, worfy-ui-kit ticket 11) under the chip, its left
+  // edge on the chip's, on the topmost layer of the scale: over the toasts, as "What's new" — the sticky
+  // Update toast of the start lies right under the chip. Choosing an item closes it and gives the focus
+  // back to the chip; "What's new" takes the menu's place and the focus, and gives the focus back when it
+  // closes. The focus elsewhere in the window (the Command palette's field on ⌘K) closes it too: it must
+  // not stay open over the palette.
   return (
     <>
-      <button
-        type="button"
-        className="w-mono w-toolbar__version w-toolbar__version-chip"
-        title={withBuild(tooltip, buildVersionTooltip(version, number))}
-        aria-haspopup="menu"
-        aria-expanded={anchor !== null}
-        data-testid="app-version"
-        data-update={signal.phase}
-        onClick={(event) => {
-          const target = event.currentTarget
-          setView('menu')
-          setAnchor((was) => (was === null ? target : null))
-        }}
-        onMouseEnter={() => setPointed(true)}
-        onMouseLeave={() => setPointed(false)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      >
-        {progress === undefined ? (
-          <>
-            v{shown}
-            {signal.dot ? <span className="w-update-dot" aria-hidden="true" /> : null}
-          </>
+      <Menu open={view === 'menu'} onOpenChange={change} trigger={trigger} label="worfy update" testId="update-chip-menu" layer="top">
+        {run === undefined ? (
+          <MenuItem className="w-row" disabled style={{ color: 'var(--text-muted)' }}>
+            {primary.label}
+          </MenuItem>
         ) : (
-          <>
-            {spinner}
-            <span className="w-toolbar__version-step">{progress}</span>
-          </>
+          <MenuItem className="w-row" onClick={run}>
+            {primary.label}
+          </MenuItem>
         )}
-      </button>
-      {anchor === null ? null : view === 'menu' ? (
-        <ChipMenu
-          primary={primary}
-          anchor={anchor}
-          onClose={() => setAnchor(null)}
-          onWhatsNew={() => setView('whatsNew')}
-        />
-      ) : (
-        <WhatsNew version={signal.version} label={label} anchor={anchor} action={primary} onClose={() => setAnchor(null)} />
-      )}
+        <MenuItem className="w-row" onClick={() => setView('whatsNew')}>
+          What's new
+        </MenuItem>
+        <MenuItem className="w-row">Later</MenuItem>
+      </Menu>
+      {view === 'whatsNew' && chip !== null ? <WhatsNew version={signal.version} label={label} anchor={chip} action={primary} onClose={() => setView('closed')} /> : null}
     </>
   )
 }

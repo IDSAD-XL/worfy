@@ -2,7 +2,7 @@
 // panel (src/renderer/shell/sidebar-scope.ts), the rail and the panel (Sidebar.tsx) and the switcher
 // itself (ProjectSwitcher.tsx). The real sections are checked against the built app
 // (test/e2e/sidebar-rail.spec.ts); here the sections are stand-ins.
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
@@ -256,7 +256,7 @@ describe('the Project switcher', () => {
     fireEvent.click(screen.getByTestId('project-switcher'))
     expect(within(menu()).getAllByRole('menuitemradio').map((each) => each.textContent)).toEqual(['All Projects', 'alphamain', 'betanext'])
     expect(item('All Projects').getAttribute('aria-checked')).toBe('true')
-    expect(document.activeElement).toBe(item('All Projects'))
+    await waitFor(() => expect(document.activeElement).toBe(item('All Projects')))
   })
 
   it('one Project opens that Project and shows it alone; the answer is saved', async () => {
@@ -288,15 +288,17 @@ describe('the Project switcher', () => {
     await drawSwitcher()
     const button = screen.getByTestId('project-switcher')
     fireEvent.click(button)
-    fireEvent.keyDown(menu(), { key: 'ArrowDown' })
+    // The kit's Menu (worfy-ui-kit ticket 11) opens on the answer in force and moves the focus round on the next frame.
+    await waitFor(() => expect(document.activeElement).toBe(item('All Projects')))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
     expect(document.activeElement).toBe(item('alpha'))
-    fireEvent.keyDown(menu(), { key: 'End' })
+    fireEvent.keyDown(document.activeElement!, { key: 'End' })
     expect(document.activeElement).toBe(item('beta'))
-    fireEvent.keyDown(menu(), { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(item('All Projects'))
-    fireEvent.keyDown(menu(), { key: 'Escape' })
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    await waitFor(() => expect(document.activeElement).toBe(item('All Projects')))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(document.activeElement).toBe(button)
+    await waitFor(() => expect(document.activeElement).toBe(button))
   })
 
   it('a press outside closes the menu', async () => {

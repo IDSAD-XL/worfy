@@ -2416,12 +2416,11 @@ body.w-split-dragging * {
   opacity: 0.3;
 }
 
-/* The menu over the button, drawn into the page's body like the list of a Select (theme/select.css):
+/* The menu over the button, the kit's Menu (theme/kit/menu.css), its layer from the scale:
    Eco mode, a line, the group of the three positions of Auto-approval under its heading, a line, then
    Auto-continue (worfy-retry ticket 02). Each
    item has a slot for the check mark in front, its caption and a muted line after it. */
 .w-modes__menu {
-  z-index: 3000;
   display: flex;
   flex-direction: column;
   min-width: 240px;

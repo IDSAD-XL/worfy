@@ -231,18 +231,18 @@ function Sessions({ project, others }: SessionsProps) {
   // primary one, and "Product Session" — a Session apart from the development Sessions of the list.
   const actions = (
     <>
-      <Button
-        variant="primary"
-        style={styles.newButton}
-        data-testid="sidebar-new-session"
-        aria-haspopup="menu"
-        aria-expanded={vendorOpen}
-        // The picker closes on a press outside it: this button toggles it instead.
-        onMouseDown={(event) => event.stopPropagation()}
-        {...writeAction(readOnly, () => setVendorOpen((open) => !open), "A new Session in the Project's root, on the Vendor you pick")}
-      >
-        New session
-      </Button>
+      <NewSessionVendor
+        projectId={project.id}
+        open={vendorOpen}
+        // On a read-only screen the button stays, inactive: it opens nothing.
+        onOpenChange={(open) => setVendorOpen(open && readOnly === null)}
+        onPick={(vendor) => void newSession(vendor)}
+        trigger={
+          <Button variant="primary" style={styles.newButton} data-testid="sidebar-new-session" {...writeAction(readOnly, () => undefined, "A new Session in the Project's root, on the Vendor you pick")}>
+            New session
+          </Button>
+        }
+      />
       <Button
         style={styles.newButton}
         aria-label="New Product Session"
@@ -331,7 +331,6 @@ function Sessions({ project, others }: SessionsProps) {
           {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
           {/* Placed against the section, under its header: it opens over a collapsed section too. */}
           {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
-          {vendorOpen ? <NewSessionVendor projectId={project.id} onPick={(vendor) => void newSession(vendor)} onClose={() => setVendorOpen(false)} /> : null}
         </>
       }
     >
