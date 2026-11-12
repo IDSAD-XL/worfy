@@ -140,6 +140,8 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
     await window.screenshot({ path: test.info().outputPath('project-settings-error.png'), omitBackground: true })
     await dialog.getByRole('button', { name: 'Cancel' }).click()
     await expect(dialog).toBeHidden()
+    // The window opened from the row's context menu gives the focus back to the row (worfy-ui-kit ticket 12).
+    await expect(rowButton(window, 'worfy')).toBeFocused()
 
     dialog = await openSettings(window, 'worfy')
     await expect(dialog.getByLabel('Ship ticket')).toHaveValue(PLUGIN_SHIP)

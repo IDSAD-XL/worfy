@@ -22,6 +22,11 @@ import { settled } from './wait'
 //   test/unit/kit-layer.test.tsx.
 // - Over a window: none of the six menus of this ticket opens inside a dialog or Settings; a kit menu
 //   in one takes the `dialogMenu` layer of the scale, which test/unit/kit-menu.test.tsx holds.
+// - The context menu of the Canvas (theme/kit/ContextMenu.tsx, worfy-ui-kit ticket 12): a right click
+//   on the empty Canvas at the bottom right corner of the window opens it inside the window, above and
+//   to the left of the point, on top of everything; it takes the focus, the arrows and a letter move in
+//   it, Esc closes it. «Remove binding» by the keyboard is in test/e2e/binding.spec.ts, which has the
+//   manual Binding it needs.
 // The Projects are temporary folders; the agent is the fake one with
 // test/fixtures/agent-scripts/session-view.jsonl, whose turn 2 holds until it is interrupted.
 
@@ -172,4 +177,43 @@ test('at the bottom edge, in the composer, while the agent works: Modes opens ov
   await field.focus()
   await window.keyboard.press('Escape')
   await expect(view.getByTestId('session-state')).toHaveText('idle')
+})
+
+test('the context menu of the Canvas at the bottom right corner of the window opens inside the window, takes the focus and moves by the keys', async () => {
+  project([])
+  const window = await start()
+  const pane = window.locator('.react-flow__pane')
+  await expect(pane).toBeVisible()
+  // The point of the empty Canvas nearest the bottom right corner of the window: nothing of the
+  // Canvas's own (its controls) lies over it.
+  const point = await window.evaluate(() => {
+    const dom = globalThis as unknown as { innerWidth: number; innerHeight: number; document: { elementFromPoint: (x: number, y: number) => { classList: { contains: (name: string) => boolean } } | null } }
+    for (let inset = 4; inset < 400; inset += 4) {
+      const at = { x: dom.innerWidth - inset, y: dom.innerHeight - inset }
+      if (dom.document.elementFromPoint(at.x, at.y)?.classList.contains('react-flow__pane') === true) return at
+    }
+    return null
+  })
+  expect(point, 'an empty spot of the Canvas near the corner').not.toBeNull()
+  await window.mouse.click(point!.x, point!.y, { button: 'right' })
+
+  const menu = window.getByRole('menu', { name: 'Canvas' })
+  await expect(menu).toBeVisible()
+  // Inside the window, moved up and to the left of the point, on top of everything.
+  expect(await insideWindow(window, menu)).toBe(true)
+  const at = await box(menu)
+  expect(at.y + at.height).toBeLessThanOrEqual(point!.y + 1)
+  expect(at.x).toBeLessThan(point!.x)
+  expect(await onTop(menu)).toBe(true)
+  // The focus is on its first item; the arrows move; a letter goes to its item.
+  const first = menu.getByRole('menuitem').first()
+  await expect(first).toBeFocused()
+  await expect(first).toHaveText(/^New /u)
+  await window.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem').nth(1)).toBeFocused()
+  await window.keyboard.press('t')
+  await expect(menu.getByRole('menuitem', { name: 'Tidy up' })).toBeFocused()
+  // Esc closes it.
+  await window.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
 })

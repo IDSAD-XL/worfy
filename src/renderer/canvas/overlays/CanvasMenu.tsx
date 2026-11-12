@@ -9,12 +9,15 @@
 // ADR-0075). The menu also carries out the palette's "Tidy up", "Arrange by Epic" and "Re-pack": it
 // is inside the Canvas's LayoutOps, so each write is one step of ⌘Z.
 //
-// The menu is HTML, not a native Menu.popup: Playwright cannot click a native menu (ticket 04).
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
+// The menu is HTML, not a native Menu.popup: Playwright cannot click a native menu (ticket 04). It is
+// the kit's ContextMenu (theme/kit/ContextMenu.tsx, worfy-ui-kit ticket 12): the keys and the focus of
+// every menu, its place at the point of the click moved inside the window at its edge.
+import { useCallback, useEffect, useState } from 'react'
 import { useReactFlow, useStore } from '@xyflow/react'
 import '../../theme/primitives.css'
-import { writeAction } from '../../projects/read-only'
+import { writeItem } from '../../projects/read-only'
+import { ContextMenu, ContextMenuSeparator, type ContextMenuPoint } from '../../theme/kit/ContextMenu'
+import { MenuItem } from '../../theme/kit/Menu'
 import { useArrangeByEpic, useArrangeByEpicRequests } from '../arrange-by-epic-command'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { nodeTypes, type NodeType } from '../nodes'
@@ -27,25 +30,6 @@ import { useLayoutOps } from '../useLayout'
 export const order = 100
 
 const items = createItems(import.meta.glob('../nodes/*Node.tsx', { eager: true }), nodeTypes)
-
-const menuStyle: CSSProperties = {
-  position: 'fixed',
-  zIndex: 90,
-  minWidth: 180,
-  padding: 'var(--space-1)',
-  borderRadius: 'var(--radius-popover)',
-  border: '1px solid var(--border)',
-  background: 'var(--surface)',
-  boxShadow: 'var(--shadow-node)',
-}
-
-interface Opened {
-  /** Where the menu is drawn, in window coordinates. */
-  x: number
-  y: number
-}
-
-const separatorStyle: CSSProperties = { height: 1, margin: 'var(--space-1) 0', background: 'var(--border)' }
 
 export default function CanvasMenu() {
   const project = activeProject(useProjects())
@@ -64,8 +48,7 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
   const repack = useRepack(projectId)
   useRepackRequests(projectId, repack)
   const container = useStore((state) => state.domNode)
-  const [opened, setOpened] = useState<Opened>()
-  const menu = useRef<HTMLDivElement>(null)
+  const [opened, setOpened] = useState<ContextMenuPoint | null>(null)
   // On a read-only screen (worfy-link ticket 25) the menu opens with every item inactive, saying why.
   const readOnly = useReadOnly()
 
@@ -81,91 +64,50 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
     return () => container.removeEventListener('contextmenu', onContextMenu)
   }, [container])
 
-  const close = useCallback(() => setOpened(undefined), [])
-
-  useEffect(() => {
-    if (opened === undefined) return
-    menu.current?.querySelector('button')?.focus()
-    const outside = (event: MouseEvent) => {
-      if (!menu.current?.contains(event.target as Node)) close()
-    }
-    document.addEventListener('mousedown', outside)
-    window.addEventListener('blur', close)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      window.removeEventListener('blur', close)
-    }
-  }, [opened, close])
-
-  if (opened === undefined) return null
+  const close = useCallback(() => setOpened(null), [])
 
   const create = (type: NodeType) => {
+    if (opened === null) return
     const { x, y } = flow.screenToFlowPosition({ x: opened.x, y: opened.y })
     close()
     void ops.apply({ op: 'create', node: { kind: type.kind, x, y, w: type.defaultWidth, h: type.defaultHeight, data: newNodeData(type.kind, projectId) } })
   }
 
-  return createPortal(
-    <div
-      ref={menu}
-      role="menu"
-      aria-label="Canvas"
-      style={{ ...menuStyle, left: opened.x, top: opened.y }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          // The press that closes the menu does nothing else (the Esc of an active Node, of Focus mode).
-          event.preventDefault()
-          close()
-        }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault()
-          const buttons = [...(menu.current?.querySelectorAll('button') ?? [])]
-          const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
-          const next = (current + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length
-          buttons[next]?.focus()
-        }
-      }}
-    >
+  return (
+    <ContextMenu at={opened} onClose={close} label="Canvas">
       {items.map(({ label, type }) => (
-        <button key={type.kind} type="button" role="menuitem" className="w-row" {...writeAction(readOnly, () => create(type))}>
+        <MenuItem key={type.kind} className="w-row" {...writeItem(readOnly, () => create(type))}>
           {label}
-        </button>
+        </MenuItem>
       ))}
-      <div role="separator" style={separatorStyle} />
-      <button
-        type="button"
-        role="menuitem"
+      <ContextMenuSeparator />
+      <MenuItem
         className="w-row"
-        {...writeAction(readOnly, () => {
+        {...writeItem(readOnly, () => {
           close()
           void tidyUp()
         })}
       >
         Tidy up
-      </button>
-      <button
-        type="button"
-        role="menuitem"
+      </MenuItem>
+      <MenuItem
         className="w-row"
-        {...writeAction(readOnly, () => {
+        {...writeItem(readOnly, () => {
           close()
           void arrangeByEpic()
         })}
       >
         Arrange by Epic
-      </button>
-      <button
-        type="button"
-        role="menuitem"
+      </MenuItem>
+      <MenuItem
         className="w-row"
-        {...writeAction(readOnly, () => {
+        {...writeItem(readOnly, () => {
           close()
           void repack()
         })}
       >
         Re-pack
-      </button>
-    </div>,
-    document.body,
+      </MenuItem>
+    </ContextMenu>
   )
 }
