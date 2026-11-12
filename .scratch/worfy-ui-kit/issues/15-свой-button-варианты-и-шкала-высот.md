@@ -30,10 +30,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения 
 
 - [ ] Unit test `test/unit/button.test.tsx`: каждый вариант — `<button type="button">` с именем; `aria-disabled` не
       снимает подсказку; высота варианта берётся из шкалы.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/button.test.tsx 17 tests) · mac - · 612573abff3507cd3b2e0b9a616a05edbdd5f93f
 - [ ] `PrimaryButton` нет; копий primary, danger и secondary из списка выше нет.
+  - evidence: commit pass · One Button with variants and one scale of button heights (worfy-ui-kit 15) · - - · 612573abff3507cd3b2e0b9a616a05edbdd5f93f
 - [ ] E2e `test/e2e/controls.spec.ts` (кольцо фокуса и курсор) зелёный; существующие test-ы мест без правок ролей и
       `data-testid`.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 612573abff3507cd3b2e0b9a616a05edbdd5f93f
 
 ## Где в коде
 
