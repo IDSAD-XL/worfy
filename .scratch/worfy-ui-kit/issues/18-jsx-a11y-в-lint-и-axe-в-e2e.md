@@ -27,6 +27,7 @@ Tooling доступности нет: в `package.json` нет `eslint-plugin-j
 
 - [ ] `pnpm lint` с `eslint-plugin-jsx-a11y` — exit 0; mutant (кнопка-иконка без `aria-label`) роняет lint.
 - [ ] E2e `test/e2e/a11y.spec.ts` зелёный на macOS и Windows runner-е; mutant (dialog без имени) роняет его.
+- [ ] axe в `a11y.spec.ts` проверяет и два места, которые остаются на своей вёрстке, а не на kit (решение владельца 2026-11-12, Q3): окно запроса команды Terminal AI и карточку Mind map.
 - [ ] В «Итог» — включённые правила и оставленные вне lint с причиной.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
 

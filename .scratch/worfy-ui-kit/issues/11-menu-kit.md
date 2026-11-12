@@ -1,7 +1,8 @@
 # 11 — Menu kit: `ActionMenu`, «Modes» и остальные menu
 
 Type: task
-Status: claimed 2026-11-12T16:53Z
+Status: done 2026-11-12T22:29Z
+PR: #1836
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения по реализации» (kit, Esc); «Решения по test-ам» (Seam 1,
 Seam 2); истории 3, 8, 10, 13, 15, 16, 25; заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`,
@@ -42,6 +43,7 @@ Seam 2); истории 3, 8, 10, 13, 15, 16, 25; заметка темы `docs/
 - [ ] Существующие `modes-menu`, `update-chip` unit test-ы и e2e мест зелёные без правок ролей и `data-testid`.
   - evidence: test-run pass · `pnpm test` exit 0 (modes-menu, update-chip unit tests; roles and data-testid unchanged) · mac - · d9b93ea28995f4080f7e20968848759bc063e8dc
 - [ ] E2e `test/e2e/layers-menu.spec.ts` зелёный на macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1836 (ci-ok, e2e jobs included) · mac - · f1952c5d54b01faf7c268e6ae6fe280aab6cfc17
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d9b93ea28995f4080f7e20968848759bc063e8dc

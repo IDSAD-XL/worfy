@@ -1,7 +1,7 @@
 # 06 — Окна Machine, Autopilot и First run на Dialog kit
 
 Type: task
-Status: claimed 2026-11-12T17:33Z
+Status: done 2026-11-12T22:29Z
 PR: #1839
 Branch: worfy-ui-kit/06
 Blocked by: 04
@@ -37,6 +37,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/first-run-dialog.test.tsx test/unit/machines-section.test.tsx test/unit/start-autopilot-modal.test.tsx test/unit/start-now-modal.test.tsx test/unit/settings-health.test.tsx test/unit/kit-dialog.test.tsx` exit 0 · mac - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 - [ ] Существующие unit test-ы и e2e `linked-machines.spec.ts`, `autopilot-start-modal.spec.ts`, `first-run.spec.ts`
       зелёные без правок ролей и `data-testid`.
+  - evidence: ci-check pass · CI green on PR #1839 (ci-ok, e2e jobs included) · mac - · 197ffc5095477f78176a8d38ee85ec790c7884a2
 - [ ] Своих focus trap в этих окнах нет; `MACHINE_DIALOG_LAYER` нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/layers.test.tsx` exit 0 · mac - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.

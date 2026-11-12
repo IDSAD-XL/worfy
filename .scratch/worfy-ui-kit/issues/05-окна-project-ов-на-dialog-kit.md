@@ -1,7 +1,8 @@
 # 05 — Окна Project-ов на Dialog kit
 
 Type: task
-Status: claimed 2026-11-12T17:31Z
+Status: done 2026-11-12T22:29Z
+PR: #1837
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения по реализации» (остальные модальные окна); истории 1, 2, 9;
 заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, раздел 1.1
@@ -33,6 +34,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 17f70594f922871813b0acde0a0c16b058f60987
 - [ ] Существующие unit test-ы и e2e `projects-connect.spec.ts`, `edit-profile.spec.ts` зелёные без правок ролей и
       `data-testid`.
+  - evidence: ci-check pass · CI green on PR #1837 (ci-ok, e2e jobs included) · mac - · a620c4b52ead363ea60a5da57d7d9071b1eb0e4c
 - [ ] Своих focus trap, backdrop и inline `zIndex` в этих шести окнах нет.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/layers.test.tsx) · mac - · 17f70594f922871813b0acde0a0c16b058f60987
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.

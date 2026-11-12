@@ -1,7 +1,8 @@
 # 17 — NumberFlow: проценты limits, context meter, стоимость
 
 Type: task
-Status: claimed 2026-11-12T16:53Z
+Status: done 2026-11-12T22:29Z
+PR: #1838
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения по реализации» (NumberFlow); истории 19, 20; решение
 владельца 2026-11-11 «NumberFlow можно»; заметка темы `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 2.2
@@ -30,6 +31,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения 
       motion — сразу; доступный текст — итоговое значение.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/animated-number.test.tsx, 8 tests) · mac - · 6e1b00edeff78a364d5ec615b4dae928de9ea660
 - [ ] Существующие `context-meter`, `limits-meter` unit test-ы и e2e `context-meter.spec.ts`, `limits.spec.ts` зелёные.
+  - evidence: ci-check pass · CI green on PR #1838 (ci-ok, e2e jobs included) · mac - · b35c4d980d38ac60bd44a3ca08655b858372eb1a
 - [ ] `ContinueCountdown.tsx` не изменён.
   - evidence: commit pass · NumberFlow for the Limits, the context meter and the cost (worfy-ui-kit 17) · - - · 6e1b00edeff78a364d5ec615b4dae928de9ea660
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.

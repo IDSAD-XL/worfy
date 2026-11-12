@@ -1,7 +1,8 @@
 # 08 — Command palette в Dialog kit; ranking свой
 
 Type: task
-Status: claimed 2026-11-12T17:28Z
+Status: done 2026-11-12T22:29Z
+PR: #1835
 Branch: worfy-ui-kit/08
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 08; «Решения по реализации» (Command palette); истории 12, 23;
@@ -27,6 +28,7 @@ Canvas (`rankItems`, `find/search-index.ts`), есть асинхронная г
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/palette-dialog.test.tsx test/unit/layers.test.tsx` exit 0 · mac - · 1a69e2d0b2c38df488fe695a939b77a338ce0378
 - [ ] Ranking прежний: существующие unit test-ы палитры и e2e `palette-groups.spec.ts`, `palette-find.spec.ts` зелёные
       без правок; на Windows runner-е тоже.
+  - evidence: ci-check pass · CI green on PR #1835 (ci-ok, e2e jobs included) · mac - · 615bfbed85f099d6419596eb377fcf83818bc648
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0, `gate fast` exit 0 · mac - · 1a69e2d0b2c38df488fe695a939b77a338ce0378
