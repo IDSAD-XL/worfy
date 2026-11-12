@@ -41,6 +41,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
       `config/mcpServer/reload`; `sign-in` зовёт `mcpServer/oauth/login` и завершается по уведомлению; ни у одной
       строки нет `not-allowed` и `allow`. Красный до правки — в «Итог».
   - evidence: test-run pass · `vitest run test/contract/codex-mcp-status.test.ts` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
+  - evidence: test-run pass · `vitest run test/contract/codex-mcp-status.test.ts` exit 0 · mac - · a3cf88573a067a4cfc2b566de5a7c8a7bf72df7c
 - [ ] Существующие `test/contract/codex-session-mcp.test.ts` и `test/contract/codex-mcp-app.test.ts` зелёные.
   - evidence: test-run pass · `vitest run test/contract/codex-session-mcp.test.ts test/unit/codex-mcp-app.test.ts` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
 - [ ] `test/contract/codex-compat.test.ts` держит форму этих запросов и уведомлений версии 0.166.0.
@@ -50,6 +51,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 - [ ] Все unit и contract test-ы модуля `src/main/vendors/codex/` зелёные; lint, typecheck и gate fast — exit 0.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc1d8b766c2844cc1fc093048345b772ccf362c3
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a3cf88573a067a4cfc2b566de5a7c8a7bf72df7c
 
 ## Где в коде
 
