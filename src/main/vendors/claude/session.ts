@@ -7,6 +7,9 @@
 // `account` once accountInfo() answers (the Session is `starting` until then), `context` after each
 // `result` and each compaction (getContextUsage), `mcp` after each system/init and each `result`
 // (mcpServerStatus, worfy-mcp-live ticket 02), and the end of its events when Claude Code is gone.
+// A read of the MCP servers a person asks for (readMcp with pickUp, ticket 03) takes in a server added
+// to the user's config first, between turns of an attended Session (src/main/vendors/claude/mcp.ts); every ask
+// of the handle is numbered, and an answer to any but the latest is dropped.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
 //
@@ -333,8 +336,10 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
   private underway = false
   /** Asks for the context usage so far; an answer to any but the latest is dropped. */
   private contextAsks = 0
-  /** Asks for the MCP servers; an answer to any but the latest is dropped. */
+  /** Asks for the MCP servers, the events' and readMcp()'s; an event answering any but the latest is dropped. */
   private mcpAsks = 0
+  /** A turn runs: from a message sent or a system/init to the turn's `result`. Nothing is taken in meanwhile. */
+  private turning = false
   /** The MCP servers of the last system/init: the status of a query without mcpServerStatus(). */
   private initServers: McpServerRow[] | null = null
 
@@ -343,14 +348,21 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     private readonly user: UserDefaults,
     /** The SDK session id, for the log. */
     private readonly label: string,
+    /** A person is at the Session (SessionStart.unattended, read each time): its rows offer Turn off, and new servers are taken in. */
+    private readonly attended: () => boolean = () => true,
   ) {}
 
   get query(): QueryHandle | null {
     return this.queryValue
   }
 
-  get initMcpServers(): readonly McpServerRow[] | null {
-    return this.initServers
+  /** The rows of the MCP servers asked now (ClaudeMcpLive.readMcp): with `pickUp`, a new server taken in first between turns of an attended Session. */
+  async readMcp(pickUp: boolean): Promise<McpServerRow[] | null> {
+    const query = this.queryValue
+    if (query === null || this.done) return null
+    ++this.mcpAsks
+    const attended = this.attended()
+    return claudeMcpStatus(query, this.initServers, this.label, { attended, pickUp: pickUp && attended && !this.turning })
   }
 
   /** Starts the query; rejects when Claude Code cannot be started. */
@@ -378,6 +390,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
 
   send(message: SessionMessage): Promise<void> {
     this.underway = true
+    this.turning = true
     this.input.push({
       type: 'user',
       message: { role: 'user', content: userContent(message.text, message.attachments) },
@@ -479,7 +492,11 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     if (isCompactBoundary(message)) this.askContext()
     this.initServers = initMcpServers(message) ?? this.initServers
     for (const event of sdkMessageToEvents(message)) {
-      if (event.type === 'init') this.underway = true
+      if (event.type === 'init') {
+        this.underway = true
+        this.turning = true
+      }
+      if (event.type === 'result') this.turning = false
       this.out.push(event)
       if (event.type === 'init') this.askMcp()
       if (event.type === 'result') {
@@ -537,7 +554,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     const query = this.queryValue
     if (query === null) return
     const ask = ++this.mcpAsks
-    void claudeMcpStatus(query, this.initServers, this.label).then((servers) => {
+    void claudeMcpStatus(query, this.initServers, this.label, { attended: this.attended(), pickUp: false }).then((servers) => {
       if (ask !== this.mcpAsks || this.done) return
       this.out.push({ type: 'mcp', servers })
     })
@@ -565,7 +582,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
   const user: UserDefaults = { ...USER_DEFAULTS, ...given }
   const open = async (opts: SessionStart, resume: string | undefined, sessionId: string | undefined): Promise<SessionHandle> => {
     const previous = opts.previous === undefined ? null : claudeLive(opts.previous)
-    const handle = new ClaudeSession(previous?.catalog ?? new CommandCatalog(), user, resume ?? sessionId ?? 'a new Session')
+    const handle = new ClaudeSession(previous?.catalog ?? new CommandCatalog(), user, resume ?? sessionId ?? 'a new Session', () => !opts.unattended)
     // The shell's folder of each tool call, for the approval policy of an unattended Session (worfy-auto-approve ticket 04).
     const folders = opts.unattended && opts.approval !== undefined ? new ToolUseFolders() : undefined
     await handle.open(factory, {
@@ -573,6 +590,7 @@ export function claudeSessions(factory: QueryFactory, given: Partial<UserDefault
       resume,
       sessionId: resume === undefined ? sessionId : undefined,
       stderr: opts.stderr,
+      ...(opts.mcpOff === undefined || opts.mcpOff.length === 0 ? {} : { mcpOff: [...opts.mcpOff] }),
       settings: handle.startSettings(opts.settings),
       canUseTool: liveCanUseTool(opts, folders),
       unattended: opts.unattended,

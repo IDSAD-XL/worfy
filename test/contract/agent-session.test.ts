@@ -129,7 +129,8 @@ describe('agent channels on the fake agent', () => {
     await vi.waitFor(() => expect(h.states([id])).toEqual(['starting', 'idle', 'busy', 'idle']))
 
     const events = h.eventsOf([id])
-    const types = events.map((e) => e.type)
+    // The MCP rows (worfy-mcp-live) come when their ask answers, in no fixed place among the turn's events.
+    const types = events.map((e) => e.type).filter((type) => type !== 'mcp')
     expect(types.slice(types.indexOf('init'))).toEqual(['init', 'status', 'delta', 'delta', 'text', 'result', 'state'])
     expect(types.indexOf('state', types.indexOf('account') + 2)).toBeLessThan(types.indexOf('result'))
     const [init] = ofType(events, 'init')

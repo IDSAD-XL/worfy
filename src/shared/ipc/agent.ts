@@ -166,9 +166,11 @@ const mcpServers = z.array(mcpServerRowSchema).nullable()
 /**
  * The MCP servers of the Session as they are now, asked of its agent (worfy-mcp-live ticket 02);
  * `servers` null: no data — no process runs, or its agent did not answer. A change also goes out as an
- * `mcp` event.
+ * `mcp` event. `pickUp` (worfy-mcp-live ticket 03): take in a server added to the user's config while
+ * the Session runs first — the chip's popover asks it when it opens; nothing is taken in during a turn
+ * or in an unattended Session.
  */
-export const agentMcp = invokeChannel('agent.mcp', z.object({ sessionId }), z.object({ servers: mcpServers }), 'project', 'read')
+export const agentMcp = invokeChannel('agent.mcp', z.object({ sessionId, pickUp: z.boolean().optional() }), z.object({ servers: mcpServers }), 'project', 'read')
 
 /**
  * Does `action` on the MCP server `name` of the Session: one its row offers. Ticket 02 does

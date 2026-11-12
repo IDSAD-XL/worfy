@@ -169,11 +169,12 @@ describe('the popover', () => {
     const popover = open()
     const button = within(rowOf(popover, 'example-tracker')).getByRole('button', { name: 'Reconnect' })
     fireEvent.click(button)
-    expect(main.calls).toEqual([{ channel: 'agent.mcpAction', input: { sessionId: 's', name: 'example-tracker', action: 'reconnect' } }])
+    const actions = () => main.calls.filter((call) => call.channel === 'agent.mcpAction')
+    expect(actions()).toEqual([{ channel: 'agent.mcpAction', input: { sessionId: 's', name: 'example-tracker', action: 'reconnect' } }])
     expect(button.getAttribute('aria-disabled')).toBe('true')
     // A second click while it runs sends nothing.
     fireEvent.click(button)
-    expect(main.calls).toHaveLength(1)
+    expect(actions()).toHaveLength(1)
     const after = ROWS.map((each) => (each.name === 'example-tracker' ? { ...each, status: 'connected' as const, tools: 1, error: null, actions: [] } : each))
     await act(async () => settle({ ok: true, value: { servers: after, error: null } }))
     expect(button.getAttribute('aria-disabled')).toBeNull()
@@ -200,6 +201,58 @@ describe('the popover', () => {
     expect(free).toBe(false)
     expect(screen.queryByRole('dialog', { name: 'MCP servers' })).toBeNull()
     expect(document.activeElement).toBe(screen.getByTestId('session-mcp'))
+  })
+})
+
+// Ticket 03: the open popover is the moment main may take in a server allowed since the Session started.
+// Whether it does — an attended Session, no turn running — main decides (test/contract/claude-mcp-pickup.test.ts).
+describe('opening the popover', () => {
+  const asks = () => main.calls.filter((call) => call.channel === 'agent.mcp')
+
+  it('asks main once for the rows with pickUp, and draws the server main took in; closing asks nothing', async () => {
+    const picked = [...ROWS, row('example-new', { tools: 1, actions: ['turn-off'] })]
+    main.answers['agent.mcp'] = () => ({ ok: true, value: { servers: picked } })
+    render(<McpChip sessionId="opened" rows={ROWS} autopilot={false} />)
+    expect(asks()).toEqual([])
+    open()
+    await act(async () => {})
+    expect(asks()).toEqual([{ channel: 'agent.mcp', input: { sessionId: 'opened', pickUp: true } }])
+    expect(useSessionLogs.getState().logs.opened?.mcp?.servers).toEqual(picked)
+    await act(async () => fireEvent.click(screen.getByTestId('session-mcp')))
+    expect(screen.queryByRole('dialog', { name: 'MCP servers' })).toBeNull()
+    expect(asks()).toHaveLength(1)
+  })
+
+  it('an `mcp` event that comes while main is asked wins over the answer', async () => {
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcp'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    render(<McpChip sessionId="overtaken" rows={ROWS} autopilot={false} />)
+    open()
+    await act(async () => acceptAgentEvent({ sessionId: 'overtaken', event: { type: 'mcp', servers: [row('example-notes')] } }))
+    await act(async () => settle({ ok: true, value: { servers: ROWS } }))
+    expect(useSessionLogs.getState().logs.overtaken?.mcp?.servers).toEqual([row('example-notes')])
+  })
+
+  it('a refused ask changes nothing and is no toast', async () => {
+    main.answers['agent.mcp'] = () => ({ ok: false, error: 'the Session is gone' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    render(<McpChip sessionId="gone" rows={ROWS} autopilot={false} />)
+    open()
+    await act(async () => {})
+    expect(asks()).toHaveLength(1)
+    expect(useSessionLogs.getState().logs.gone?.mcp).toBeUndefined()
+    expect(main.toasts).toEqual([])
+    warn.mockRestore()
+  })
+
+  it('an answer with no data keeps the rows the chip has', async () => {
+    acceptAgentEvent({ sessionId: 'blank', event: { type: 'mcp', servers: ROWS } })
+    main.answers['agent.mcp'] = () => ({ ok: true, value: { servers: null } })
+    render(<McpChip sessionId="blank" rows={ROWS} autopilot={false} />)
+    open()
+    await act(async () => {})
+    expect(asks()).toHaveLength(1)
+    expect(useSessionLogs.getState().logs.blank?.mcp?.servers).toEqual(ROWS)
   })
 })
 

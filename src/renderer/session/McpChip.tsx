@@ -10,7 +10,7 @@ import { StatusChip, type Status } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
 import { useSessionNodeViews } from './node-sessions'
 import { mcpCount } from './header-facts'
-import { acceptMcpServers, useLatestMcp, useSessionMcp } from './store'
+import { acceptMcpServers, pickUpMcp, useLatestMcp, useSessionMcp } from './store'
 import './mcp-chip.css'
 
 // The chip «MCP n/m» of the Session header and its popover (worfy-mcp-live ticket 04; spec worfy-mcp-live,
@@ -18,7 +18,9 @@ import './mcp-chip.css'
 // but those not allowed in the Project. The chip takes the blocked colours, with its warning icon, while
 // a server failed or needs auth, and is not drawn while main has no rows (store.ts, useSessionMcp).
 //
-// A click opens the popover under the chip: a row per server — its name, status, number of tools, error
+// A click opens the popover under the chip and asks main for the rows with `pickUp` (worfy-mcp-live
+// ticket 03): main may take in a server allowed since the Session started, between turns of an attended
+// Session only. The popover holds a row per server — its name, status, number of tools, error
 // and source — and a button for each action main put in the row. main builds the rows and decides the
 // actions (src/shared/agent/mcp-status.ts); this file only draws them and sends a click to
 // `agent.mcpAction`, whatever the Vendor. The servers not allowed in the Project stand in a group of
@@ -265,6 +267,8 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
           if (place !== null) return close(false)
           const rect = chip.current?.getBoundingClientRect()
           if (rect !== undefined) setPlace({ position: 'fixed', left: rect.left, top: rect.bottom + POPOVER_GAP })
+          // The person looks at the servers now: main may take in one allowed since the Session started (ticket 03).
+          if (sessionId !== null) void pickUpMcp(sessionId)
         }}
       >
         {warn ? <WarningIcon /> : null}

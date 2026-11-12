@@ -301,9 +301,13 @@ function placeholders(text: string): string {
     .replaceAll('\\\\', '/')
 }
 
-/** What a run shows outside: the events of its Session and the Journal's text, as placeholders. */
+/**
+ * What a run shows outside: the events of its Session and the Journal's text, as placeholders. The MCP
+ * rows (worfy-mcp-live) are left out: the baseline was recorded before them, and they come when their
+ * ask answers, in no fixed place.
+ */
 function observed(h: ReturnType<typeof harness>): { events: string[]; journal: string } {
-  return { events: h.events.map((event) => placeholders(JSON.stringify(event))), journal: placeholders(readFileSync(h.runFile(), 'utf8')) }
+  return { events: h.events.filter((event) => event.type !== 'mcp').map((event) => placeholders(JSON.stringify(event))), journal: placeholders(readFileSync(h.runFile(), 'utf8')) }
 }
 
 describe('Auto-approval of an unattended Claude Session (worfy-auto-approve ticket 04)', () => {

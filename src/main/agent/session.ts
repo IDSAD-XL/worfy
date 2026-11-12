@@ -27,7 +27,24 @@
 //
 // The MCP servers of the Session (worfy-mcp-live ticket 02) come from the mcp part of the Vendor's
 // driver: the handle sends them as `mcp` events, a window asks for them (mcp()), and an action on a
-// server (mcpAction()) goes to the driver, then the rows are asked again. Only a change goes out.
+// server (mcpAction()) goes to the driver, then the rows are asked again. Only a change goes out, and
+// an answer older than what the Session holds — asked before another ask or before the agent's last
+// `mcp` event, or of a process gone since — is not taken.
+//
+// Restart with the same conversation (worfy-mcp-live ticket 03): `restart`, `turn-off` and `turn-on`
+// of a driver whose mcp part `restarts` are done here, the same for every Vendor. The process is closed
+// — a running turn interrupted first, as Interrupt does, the queue held — and the Session starts a new
+// one that resumes the same Vendor session once the old one has exited (begin(), ADR-0064): the same
+// Session, so its windows and its owner (an Orchestrator, a Session Node) stay, and so does its id once
+// a turn has run. Before the first turn there is no conversation to resume: the new process starts a
+// new Vendor session under a new id, and the Session is `renamed`, as after a process that died before
+// its first turn (newSessionId). Two Restarts at once, or a close while a Restart waits for the
+// interrupted turn, start no second process: only the Restart whose process is still current goes
+// on. What a person sends meanwhile waits for the new process. Turn off keeps the server in the Session's own set
+// (`mcpOff`): every process of the Session starts without it (SessionStart.mcpOff), and its row stays,
+// `disabled`, offering Turn on; neither the Profile nor the Vendor's config changes, and a new Session
+// gets every server again. An unattended Session (Autopilot) refuses all three: its set of servers is
+// fixed for the Wave.
 //
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
@@ -176,6 +193,15 @@ export class Session {
   private contextValue: ContextUsage | null = null
   /** The MCP servers last sent; null: none, or the last ask failed. */
   private mcpValue: McpServerRow[] | null = null
+  /** Asks for the MCP servers (mcp()); an answer to any but the latest is not taken. */
+  private mcpAsks = 0
+  /** The agent's `mcp` events so far: an answer asked before the latest of them is not taken. */
+  private mcpEvents = 0
+  /**
+   * The servers turned off for this Session (worfy-mcp-live ticket 03), each with the row it is shown
+   * as: `disabled`, offering Turn on. Every process of the Session starts without them.
+   */
+  private readonly mcpOff = new Map<string, McpServerRow>()
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   /** The Session's permission requests and the subjects "Always allow" covers, across its processes. */
   private readonly permissions = new PermissionGate(
@@ -279,7 +305,7 @@ export class Session {
     this.emit({ type: 'state', state: 'starting', error: null })
     this.emit({ type: 'settings', settings: this.settings })
     if (after === undefined) {
-      this.begin()
+      void this.begin()
       return
     }
     this.heldBack = true
@@ -288,7 +314,7 @@ export class Session {
       .then(() => {
         this.heldBack = false
         // Messages that came meanwhile wait in the queue: they go once the process is idle, as at any start.
-        if (!this.closing) this.begin()
+        if (!this.closing) void this.begin()
       })
   }
 
@@ -429,6 +455,12 @@ export class Session {
     this.permissions.cancelAll()
     const handle = this.run?.handle
     if (!inTurn(this.stateValue) || !handle) return false
+    await this.interruptTurn(handle, timeoutMs)
+    return true
+  }
+
+  /** Interrupts the running turn of `handle` and waits for its end — its `result`, an error or the close — `timeoutMs` at most. */
+  private async interruptTurn(handle: SessionHandle, timeoutMs: number): Promise<void> {
     this.interrupted = true
     const ended = new Promise<void>((done) => this.turnEndWaiters.push(done))
     // Not awaited: an interrupt that never answers must not hold the stop past its limit.
@@ -442,7 +474,6 @@ export class Session {
     } finally {
       clearTimeout(timer)
     }
-    return true
   }
 
   /**
@@ -567,20 +598,25 @@ export class Session {
   /**
    * The rows of the MCP servers of the live process, asked now (agent.mcp); sent as an `mcp` event when
    * they changed. null: no data — no process runs, the driver reads no status, or the ask failed.
+   * `pickUp`: the driver takes in servers added to the Vendor's config first (agent.mcp from the chip's
+   * popover, worfy-mcp-live ticket 03).
    */
-  async mcp(): Promise<McpServerRow[] | null> {
+  async mcp(read: { pickUp?: boolean } = {}): Promise<McpServerRow[] | null> {
     const handle = this.run?.handle ?? null
     const status = this.parts.mcp?.status
     if (handle === null || status === undefined) return null
+    const ask = ++this.mcpAsks
+    const events = this.mcpEvents
     let servers: McpServerRow[] | null = null
     try {
-      servers = await status.call(this.parts.mcp, handle)
+      servers = await status.call(this.parts.mcp, handle, { pickUp: read.pickUp === true })
     } catch (error) {
       console.warn(`[agent] could not read the MCP servers of ${this.current}: ${messageOf(error)}`)
     }
-    // An answer of a process that is gone since says nothing of the Session now.
-    if (this.run?.handle === handle) this.takeMcp(servers)
-    return servers
+    // An answer of a process that is gone since says nothing of the Session now; one asked before
+    // another ask, or before the agent's last `mcp` event, is older than what the Session holds.
+    if (this.run?.handle === handle && ask === this.mcpAsks && events === this.mcpEvents) this.takeMcp(servers)
+    return this.mcpValue
   }
 
   /**
@@ -591,6 +627,7 @@ export class Session {
    */
   async mcpAction(name: string, action: McpServerAction): Promise<McpActionAnswer> {
     this.assertOpen()
+    if (action === 'turn-off' || action === 'turn-on' || action === 'restart') return this.restartFor(name, action)
     const part = this.parts.mcp
     if (part?.act === undefined) throw new McpActionRefused(action)
     const handle = this.run?.handle ?? null
@@ -603,6 +640,59 @@ export class Session {
       error = messageOf(failure)
     }
     return { servers: await this.mcp(), error }
+  }
+
+  /**
+   * Turn off, Turn on and Restart (worfy-mcp-live ticket 03): the Session's set of servers turned off
+   * changes, then its process is restarted with the same conversation (restartProcess). Refused —
+   * nothing changes — for a driver that does not `restart`, an unattended or halted Session, a server
+   * whose row does not offer Turn off, and one not turned off for Turn on.
+   */
+  private async restartFor(name: string, action: 'turn-off' | 'turn-on' | 'restart'): Promise<McpActionAnswer> {
+    if (this.parts.mcp?.restarts !== true || this.launch.unattended || this.halted) throw new McpActionRefused(action)
+    if ((this.run?.handle ?? null) === null) throw new Error("The Session's agent is not running")
+    if (action === 'turn-off') {
+      const row = this.mcpValue?.find((each) => each.name === name)
+      if (row === undefined || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
+      this.mcpOff.set(name, { ...row, status: 'disabled', tools: null, error: null, actions: ['turn-on'] })
+    } else if (action === 'turn-on') {
+      if (!this.mcpOff.delete(name)) throw new McpActionRefused(action)
+    }
+    await this.restartProcess()
+    return { servers: await this.mcp(), error: null }
+  }
+
+  /**
+   * Restart with the same conversation (worfy-mcp-live ticket 03): a running turn is interrupted as
+   * Interrupt does — the queue held, open requests refused — and waited for, HALT_TURN_MS at most; the
+   * process is closed, and a new one resumes the same Vendor session once the old one has exited
+   * (begin(), ADR-0064). The Session is `starting` meanwhile and keeps what is sent to it. Settles once
+   * the new process has started, or failed to (the Session is then in `error`).
+   */
+  private async restartProcess(): Promise<void> {
+    const run = this.run
+    const handle = run?.handle ?? null
+    if (run === null || handle === null) throw new Error("The Session's agent is not running")
+    if (inTurn(this.stateValue)) {
+      this.queue.pause()
+      this.permissions.cancelAll()
+      await this.interruptTurn(handle, HALT_TURN_MS)
+    }
+    // Closed (close() clears the run), halted or restarted by another Restart while the turn was
+    // ending: a new process here would be a second one on the same conversation (ADR-0064).
+    if (this.halted || this.run !== run) return
+    // The old process is closed first: begin() then only waits for its exit, never kills it at the limit.
+    this.run = null
+    try {
+      handle.close()
+    } catch (error) {
+      console.warn(`[agent] closing ${this.current} failed`, error)
+    }
+    this.permissions.cancelAll()
+    // Closing ends the process, and its background tasks with it.
+    this.resetTasks()
+    this.setState('starting')
+    await this.begin()
   }
 
   close(): void {
@@ -628,7 +718,7 @@ export class Session {
 
   /** Gives the agent one user message and starts its turn. */
   private deliver(text: string, attachments: readonly Attachment[]): void {
-    if (this.stateValue === 'error' || this.run === null) this.begin()
+    if (this.stateValue === 'error' || this.run === null) void this.begin()
     // The row shows the text as typed and the attachments by name (worfy-ui ticket 28).
     this.emit({ type: 'prompt', text: text.trim() === '' ? '' : text, attachments: shownAttachments(attachments) })
     const run = this.run
@@ -682,7 +772,8 @@ export class Session {
     if (item !== undefined) this.deliver(item.text, item.attachments)
   }
 
-  private begin(): void {
+  /** Starts the agent's next process; settles once it has started, or failed to. */
+  private begin(): Promise<void> {
     // A new process starts with an empty set of background tasks: a new Session has none yet, and
     // fail() emptied it when the process before this one died. The new process reports its own
     // only when they change.
@@ -710,6 +801,8 @@ export class Session {
       },
       spawned: (child) => this.watch(child),
       previous: this.lastHandle ?? undefined,
+      // Turned off for this Session (worfy-mcp-live ticket 03): every process starts without them.
+      ...(this.mcpOff.size === 0 ? {} : { mcpOff: [...this.mcpOff.keys()] }),
     }
     // Object.assign, not a spread: a spread would copy `unattended` once instead of keeping its getter.
     const startNow = (): Promise<SessionHandle> =>
@@ -726,6 +819,10 @@ export class Session {
             return startNow()
           })
     void this.consume(run, starting)
+    return starting.then(
+      () => undefined,
+      () => undefined,
+    )
   }
 
   /** Keeps a started process until it exits, for exited(). */
@@ -838,6 +935,7 @@ export class Session {
         this.emit(event)
         return
       case 'mcp':
+        this.mcpEvents += 1
         this.takeMcp(event.servers)
         return
       case 'init':
@@ -869,11 +967,19 @@ export class Session {
     }
   }
 
-  /** Keeps the rows of the MCP servers; tells the subscribers when they changed. */
+  /** Keeps the rows of the MCP servers, those turned off for this Session added; tells the subscribers when they changed. */
   private takeMcp(servers: McpServerRow[] | null): void {
-    if (sameMcpRows(servers, this.mcpValue)) return
-    this.mcpValue = servers
-    this.emit({ type: 'mcp', servers })
+    const shown = this.withOffRows(servers)
+    if (sameMcpRows(shown, this.mcpValue)) return
+    this.mcpValue = shown
+    this.emit({ type: 'mcp', servers: shown })
+  }
+
+  /** `servers` and, after them, the row of each server turned off for this Session that the agent does not list. */
+  private withOffRows(servers: McpServerRow[] | null): McpServerRow[] | null {
+    if (servers === null || this.mcpOff.size === 0) return servers
+    const listed = new Set(servers.map((server) => server.name))
+    return [...servers, ...[...this.mcpOff.values()].filter((row) => !listed.has(row.name))]
   }
 
   /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */
