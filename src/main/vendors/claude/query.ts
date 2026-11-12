@@ -356,6 +356,8 @@ export function sdkQueryFactory(
       canUseTool: request.canUseTool,
       unattended: request.unattended,
       mcpAllowlist: allowlist,
+      // Turned off for this Session (worfy-mcp-live ticket 03): left out of the list, or denied by name without one.
+      mcpOff: request.mcpOff,
       skillsAllowlist,
       // Read only with a list: without one nothing is turned off.
       userExtensions: skillsAllowlist !== null ? userExtensions(claudeHome(), request.cwd) : undefined,

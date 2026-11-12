@@ -24,6 +24,9 @@
 // covers the whole Claude Code process, so the Session's Subagents get the same set. It does not
 // cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
 // Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
+// A server turned off for one Session (worfy-mcp-live ticket 03, `mcpOff`) is left out of that list —
+// with no list, named in `deniedMcpServers` —, and worfy's own is not passed; Claude Code's
+// toggleMcpServer is never used for it: it writes the user's .claude.json.
 // The Browser server `worfy-browser` (worfy-browser ticket 04, src/main/mcp/browser-server.ts) is
 // passed the same way, only when the list names it; a Profile list that names `worfy-canvas` names
 // it too (withBrowserServer, the owner's decision 6: the existing lists get it without an edit).
@@ -302,6 +305,12 @@ export interface SessionOptionsInput {
    * Project — leaves the user's servers as they are.
    */
   mcpAllowlist?: readonly string[] | null | undefined
+  /**
+   * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
+   * left out of the Profile's list, or — with no list — named in `deniedMcpServers`; worfy's own are not
+   * passed at all. Absent or empty: none.
+   */
+  mcpOff?: readonly string[] | undefined
   /**
    * The plugins and skills of the user the Project's Profile allows (`skills.allowed`, ADR-0084):
    * plugin names or ids, skill names, `claude.ai` for what is synced from there. Absent or null — a
@@ -722,9 +731,14 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]
   if (input.allowedTools !== undefined && input.allowedTools.length > 0) options.allowedTools = [...input.allowedTools]
   const allowlist = input.mcpAllowlist ?? null
-  const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
+  const off = input.mcpOff ?? []
+  const allowed = (name: string): boolean => (allowlist === null || allowlist.includes(name)) && !off.includes(name)
   if (allowlist !== null) {
-    options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.map((serverName) => ({ serverName })) }
+    options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.filter((name) => !off.includes(name)).map((serverName) => ({ serverName })) }
+  } else if (off.length > 0) {
+    // No list to leave them out of: the policy tier denies them by name. Not measured on Claude Code in
+    // this form, a deny list alone: the spike sent it together with a list (F:turnoff-restart-denied).
+    options.managedSettings = { deniedMcpServers: off.map((serverName) => ({ serverName })) }
   }
   if (input.permissionRulesFromPolicyOnly === true) options.managedSettings = { ...options.managedSettings, allowManagedPermissionRulesOnly: true }
   // Added to the user's own MCP servers from settingSources, not instead of them.

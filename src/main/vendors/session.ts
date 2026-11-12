@@ -130,6 +130,11 @@ export interface SessionStart {
    * worfy-auto-approve ticket 04), read when the process starts; absent: none.
    */
   environment?: Readonly<Record<string, string>> | undefined
+  /**
+   * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
+   * a driver whose mcp part `restarts` starts its agent without them. Absent or empty: none.
+   */
+  mcpOff?: readonly string[] | undefined
   /** The agent's process' stderr, kept to explain a crash. */
   stderr(data: string): void
   /** Told of each process the agent starts, so the Session can wait for its exit. */

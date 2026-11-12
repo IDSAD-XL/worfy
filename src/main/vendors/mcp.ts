@@ -5,6 +5,8 @@
 //
 // worfy-mcp-live ticket 02: the part also reads the status of every MCP server of a live Session, the
 // user's own among them, as the rows of src/shared/agent/mcp-status.ts, and does what a row offers.
+// Ticket 03: Turn off, Turn on and Restart are a Restart of the Session with the same conversation,
+// done by the Session for a driver that `restarts`.
 import type { z } from 'zod'
 import type { McpServerAction, McpServerRow } from '../../shared/agent/mcp-status'
 import type { SessionHandle } from './session'
@@ -27,6 +29,12 @@ export interface McpPart {
    * error when it refused the action.
    */
   act?(session: SessionHandle, name: string, action: McpServerAction): Promise<void>
+  /**
+   * The driver starts its agent without the servers SessionStart.mcpOff names (worfy-mcp-live ticket
+   * 03): `turn-off`, `turn-on` and `restart` are then done by the Session itself, as a Restart with the
+   * same conversation (Session.mcpAction), never by act(). Absent: the Session refuses them.
+   */
+  readonly restarts?: boolean
 }
 
 /** An MCP action the driver does not do: refused before anything reaches the Vendor. Its message names no server. */

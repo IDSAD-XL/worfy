@@ -93,6 +93,12 @@ export interface QueryHandle extends AsyncIterable<unknown> {
    * toggleMcpServer is left out on purpose: it writes the user's .claude.json, so worfy never calls it.
    */
   reconnectMcpServer?(serverName: string): Promise<void>
+  /**
+   * Reads the user's plugins and MCP config again (worfy-mcp-live ticket 03): a server the list allows,
+   * added while the query runs, joins it (the spike of ticket 01). Its answer is read leniently, only
+   * its `mcpServers`; optional, as a query that lacks it takes in nothing.
+   */
+  reloadPlugins?(): Promise<unknown>
 }
 
 export interface QueryRequest {
@@ -115,6 +121,11 @@ export interface QueryRequest {
   sessionId?: string | undefined
   /** Claude Code's stderr, kept to explain a crash. */
   stderr: (data: string) => void
+  /**
+   * The MCP servers turned off for this Session (Turn off, worfy-mcp-live ticket 03): Claude Code starts
+   * without them (sessionOptions). Absent or empty: none.
+   */
+  mcpOff?: readonly string[] | undefined
   /** The model, effort and permission mode the query starts with. */
   settings: SessionSettings
   /** Answers Claude Code's permission requests: the Claude driver's canUseTool over the Session's gate (permissions.ts). */

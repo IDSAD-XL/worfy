@@ -1,7 +1,7 @@
 # 03 — Подхват сервера на ходу, Restart с тем же разговором и Turn off for this Session
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T01:27Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения владельца» Q3, Q6, Q10; «Решения по реализации»
 (Restart, Autopilot); «Решено без владельца» 2 (поправка 2026-11-12), 4, 5; «Риски» (живой подхват невозможен); истории 1, 2, 11; возражение 2
@@ -88,3 +88,49 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
 - UI кнопок Restart, Turn off и Turn on: Ticket 04 рисует их из `actions`.
 - Allow и строки «не разрешён»: Ticket 05.
 - `restart` у строк Codex: Ticket 06 (путь отсюда годится и для Codex).
+
+## Итог
+
+- Красный до правки (тот же набор test-ов на исходниках `origin/main` 9eb522bae): `vitest run
+  test/contract/claude-mcp-pickup.test.ts test/contract/claude-mcp-turn-off.test.ts test/contract/claude-mcp-status.test.ts
+  test/contract/sdk-compat.test.ts` — exit 1, 17 из 45 красные: fake query не знает директиву `mcp_added` и
+  `reloadPlugins`, `turn-off`, `turn-on` и `restart` отклоняются «not available», строки connected без `turn-off`,
+  ответ статуса, спрошенный до Reconnect, ложится поверх нового.
+- **Restart — в той же Session, а не новой через `SessionRegistry.start(…, after)`.** Spec и Ticket предлагали закрыть
+  старую Session и запустить новую. Но у Session три владельца, которые держат её объект и id (Orchestrator, Session
+  Node — `node-sessions.ts`, канал `agent.start`); новая Session получила бы id `pending-…` до своего `init`, и окно,
+  Orchestrator и вызвавший `agent.mcpAction` остались бы с закрытой. Поэтому `Session.restartProcess()` закрывает
+  процесс и зовёт тот же `begin()`, которым Session уже перезапускает процесс после падения: новый процесс с `resume`
+  того же разговора стартует только после выхода старого (`endProcesses`, SIGKILL по `EXIT_WAIT_MS`, ADR-0064). Ошибки
+  «already live» быть не может: `registry.start` не зовётся. `orchestrator.ts` и `registry.ts` не правлены. Путь общий
+  для Vendor-ов: driver только говорит `restarts: true` (`McpPart`) и стартует без серверов `SessionStart.mcpOff`.
+- Ход, который шёл, прерывается как Interrupt: очередь держится, открытые запросы отклоняются, конец хода ждётся
+  `HALT_TURN_MS` (общий с `halt()` helper `interruptTurn`). Что отправили во время перезапуска, ждёт новый процесс.
+- **Подхват:** `reloadPlugins()` без опций, затем `mcpServerStatus()` — только когда статус спрашивает окно
+  (`agent.mcp`, `claudeMcp.status` → `readMcp`) и ход не идёт; после `init` и `result` сам по себе не зовётся. Подтверждение
+  из-за prompt cache не спрашивается, `holdOnCacheImpact` не используется: tool-список меняется только когда сервер
+  действительно добавлен. Строки с `restart` подхват не даёт: spike показал, что разрешённый сервер подхватывается на
+  ходу; `restart` принимается каналом для Ticket-а 05 (Allow).
+- **Turn off / Turn on:** Session помнит выключенные серверы (`mcpOff`) со строкой `disabled` и `turn-on`; каждый её
+  процесс стартует без них: имя убрано из `allowedMcpServers`, свой сервер worfy не передан в `mcpServers`.
+  Без списка Profile (Session вне Project — единственный случай без `managedSettings`, со списком по умолчанию Session в
+  Project всегда) — `{ deniedMcpServers: [{ serverName }] }` без `allowManagedMcpServersOnly`. **Эта форма на
+  настоящем Claude Code не измерена:** spike слал deny вместе со списком (F:turnoff-restart-denied); contract test
+  держит только форму записи и то, что fake сервер не отдаёт. `toggleMcpServer` не зовётся; `.claude.json` во
+  временном HOME test-а побайтно тот же. `turn-off` принимается только для строки, где он предложен (connected),
+  `turn-on` — только для выключенного.
+- Autopilot: unattended Session не подхватывает, строки без `turn-off`, `restart`/`turn-off`/`turn-on` отклоняются
+  (`McpActionRefused`), `reconnect` работает.
+- Хвосты ревью #1811: ответы статуса упорядочены — driver нумерует свои запросы (ответ события на любой, кроме
+  последнего, не уходит), Session берёт ответ `mcp()` только если после него не было другого запроса и события `mcp`,
+  и процесс тот же. Четыре test-а в `claude-mcp-status.test.ts`; мутанты, снимающие каждую из четырёх проверок,
+  убиты. Fake по умолчанию отвечает `[]` без console.warn.
+- Connector claude.ai (пункт manual): итога живой проверки владельца в заметке spike-а нет, connector идёт тем же путём,
+  что сервер списка (`reloadPlugins` при чтении статуса); пункт открыт до итога владельца.
+- Вне списка «Где в коде» правлены: `src/main/agent/session.ts` (Restart, `mcpOff`, порядок ответов),
+  `src/main/agent/session/types.ts` (`reloadPlugins`, `QueryRequest.mcpOff`), `src/main/vendors/session.ts`
+  (`SessionStart.mcpOff`), `src/main/vendors/mcp.ts` (`restarts`), `src/main/vendors/claude/query.ts` (передаёт
+  `mcpOff`), сценарии `test/fixtures/agent-scripts/mcp-pickup.jsonl`, `mcp-restart.jsonl`, `mcp-restart-long.jsonl`,
+  и два test-а, чьи списки событий не ждали события `mcp` с `[]` (`agent-session.test.ts`,
+  `auto-approve-claude.test.ts`: события `mcp` отфильтрованы, baseline не тронут). Test-ы relaunch-а Orchestrator-а не
+  правлены.

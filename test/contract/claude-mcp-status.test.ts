@@ -1,9 +1,10 @@
 // The MCP servers of a Claude Session (worfy-mcp-live ticket 02), on the fake agent: main asks
 // Claude Code mcpServerStatus() after each system/init, after each turn's `result`, after an action
 // and when a window asks (agent.mcp), and sends the rows as an `mcp` event. A failed ask is "no data",
-// never a failed turn. agent.mcpAction does Reconnect (reconnectMcpServer); Turn off, Turn on and any
-// other action are refused, and worfy never calls toggleMcpServer: it writes the user's .claude.json
-// (the spike of ticket 01). The rows go to the Session's windows only: not into the Autopilot journal,
+// never a failed turn, and an answer older than another one is dropped. agent.mcpAction does Reconnect
+// (reconnectMcpServer); Turn off, Turn on and Restart are a Restart of the Session (ticket 03,
+// claude-mcp-turn-off.test.ts), Allow and Sign in are refused, and worfy never calls toggleMcpServer:
+// it writes the user's .claude.json (the spike of ticket 01). The rows go to the Session's windows only: not into the Autopilot journal,
 // not to the console, and the server's config not even there. The fake agent answers with the
 // answers the spike recorded (test/fixtures/mcp-live/). Never the real Claude Code.
 import { readFileSync } from 'node:fs'
@@ -92,7 +93,17 @@ async function harness(script: string, dir = scriptsDir, wrap: (query: QueryHand
   return { call, ok, calls, mcpCalls, registry, events, ofType, start, turn }
 }
 
-const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => ({ name, status: 'connected', tools: 1, error: null, source: 'user', sourceWord: null, actions: [], ...fields })
+/** A row of an attended Session: a connected server offers Turn off (ticket 03). */
+const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => ({
+  name,
+  status: 'connected',
+  tools: 1,
+  error: null,
+  source: 'user',
+  sourceWord: null,
+  actions: (fields.status ?? 'connected') === 'connected' ? ['turn-off'] : [],
+  ...fields,
+})
 
 const WORFY_CANVAS = row('worfy-canvas', { source: 'worfy' })
 const NOTES = row('example-notes')
@@ -144,13 +155,15 @@ describe('the mcp event of a Claude Session', () => {
     expect(h.ofType('mcp')).toHaveLength(1)
   })
 
-  it('a script that sets no MCP answer reports nothing, and the turn goes on as before', async () => {
+  it('a script that sets no MCP answer reports no servers, once and quietly, and the turn goes on as before', async () => {
+    const warn = vi.spyOn(console, 'warn')
     const h = await harness('turn')
     const id = await h.start()
     await h.turn(id, 'hello')
     await new Promise((done) => setTimeout(done, 50))
-    expect(h.ofType('mcp')).toEqual([])
-    expect(await h.ok('agent.mcp', { sessionId: id })).toEqual({ servers: null })
+    expect(h.ofType('mcp')).toEqual([{ type: 'mcp', servers: [] }])
+    expect(await h.ok('agent.mcp', { sessionId: id })).toEqual({ servers: [] })
+    expect(warn.mock.calls.filter((args) => String(args[0]).includes('MCP servers'))).toEqual([])
   })
 
   it('a query without mcpServerStatus() reports the servers of its system/init, without tool counts', async () => {
@@ -195,10 +208,11 @@ describe('agent.mcpAction', () => {
     expect(h.registry.get(id).state).toBe('idle')
   })
 
-  it('turn-off, turn-on and the actions of later tickets are refused, and the Session does not change', async () => {
+  it('the actions of ticket 05, and turn-off and turn-on a row does not offer, are refused, and the Session does not change', async () => {
     const { h, id } = await failedServer()
     const before = h.events().length
-    for (const action of ['turn-off', 'turn-on', 'allow', 'sign-in', 'restart']) {
+    // example-oauth failed: it offers Reconnect only, and was never turned off.
+    for (const action of ['turn-off', 'turn-on', 'allow', 'sign-in']) {
       const result = await h.call('agent.mcpAction', { sessionId: id, name: 'example-oauth', action })
       expect(result.ok, action).toBe(false)
       if (!result.ok) expect(result.error, action).toMatch(/not available/)
@@ -233,6 +247,103 @@ describe('agent.mcpAction', () => {
       { kind: 'reconnectMcpServer', name: 'example-unknown' },
       { kind: 'reconnectMcpServer', name: 'example-oauth' },
     ])
+  })
+})
+
+/**
+ * A query whose mcpServerStatus() answers wait for the test while `hold` is on: each held call takes
+ * the fake agent's answer as it stood when asked, and gives it — or `instead` — once released.
+ */
+function holdingStatus() {
+  const held: ((instead?: unknown) => void)[] = []
+  const state = { hold: false }
+  const wrap = (query: QueryHandle): QueryHandle => {
+    const real = query.mcpServerStatus?.bind(query)
+    if (real === undefined) return query
+    query.mcpServerStatus = () => {
+      const answer = real()
+      if (!state.hold) return answer
+      return new Promise((done) => held.push((instead) => done(instead === undefined ? answer : instead)))
+    }
+    return query
+  }
+  return { held, state, wrap }
+}
+
+/** An answer of mcpServerStatus() in the SDK's shape: example-oauth failed. */
+const FAILED_ANSWER = [{ name: 'example-oauth', status: 'failed', source: 'user', error: 'it failed before' }]
+
+describe('an older answer never overwrites a newer one', () => {
+  it('the driver drops the answer of an ask when a later ask was made: the status after init comes back after the one after the result', async () => {
+    const hold = holdingStatus()
+    const h = await harness('mcp-status', scriptsDir, hold.wrap)
+    const id = await h.start()
+    hold.state.hold = true
+    await h.turn(id, 'one')
+    // Asked after system/init (example-notes connected), then after the result (example-oauth failed).
+    await vi.waitFor(() => expect(hold.held).toHaveLength(2))
+    hold.held[1]?.()
+    await vi.waitFor(() => expect(h.ofType('mcp')).toHaveLength(1))
+    hold.held[0]?.()
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.ofType('mcp').map((event) => event.servers?.map((server) => server.name))).toEqual([['example-oauth']])
+  })
+
+  it('a status asked before a Reconnect that answers after the one asked after it does not show the server failed again', async () => {
+    const hold = holdingStatus()
+    const h = await harness('mcp-status', scriptsDir, hold.wrap)
+    const id = await h.start()
+    await h.turn(id, 'one')
+    await vi.waitFor(() => expect(h.ofType('mcp').at(-1)?.servers?.[0]?.status).toBe('failed'))
+    hold.state.hold = true
+    const before = h.ok<{ servers: McpServerRow[] }>('agent.mcp', { sessionId: id })
+    await vi.waitFor(() => expect(hold.held).toHaveLength(1))
+    hold.state.hold = false
+    const after = await h.ok<{ servers: McpServerRow[] }>('agent.mcpAction', { sessionId: id, name: 'example-oauth', action: 'reconnect' })
+    expect(after.servers).toEqual([row('example-oauth', { tools: null })])
+    hold.held[0]?.(FAILED_ANSWER)
+    await before
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.ofType('mcp').at(-1)).toEqual({ type: 'mcp', servers: [row('example-oauth', { tools: null })] })
+    expect(await h.ok('agent.mcp', { sessionId: id })).toEqual({ servers: [row('example-oauth', { tools: null })] })
+  })
+
+  it('a window’s ask that answers after an mcp event of a later ask is not taken: the turn’s rows stay', async () => {
+    const hold = holdingStatus()
+    const h = await harness('mcp-status', scriptsDir, hold.wrap)
+    const id = await h.start()
+    hold.state.hold = true
+    const asked = h.ok('agent.mcp', { sessionId: id })
+    await vi.waitFor(() => expect(hold.held).toHaveLength(1))
+    hold.state.hold = false
+    await h.turn(id, 'one')
+    await vi.waitFor(() => expect(h.ofType('mcp').at(-1)?.servers?.[0]?.error).toMatch(/^Couldn't read the stored credentials/))
+    const events = h.ofType('mcp').length
+    hold.held[0]?.(FAILED_ANSWER)
+    await asked
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.ofType('mcp')).toHaveLength(events)
+    expect(JSON.stringify(h.ofType('mcp'))).not.toContain('it failed before')
+  })
+
+  it('an answer of a process that is gone since says nothing of the Session: the late answer after a close goes nowhere', async () => {
+    const hold = holdingStatus()
+    const h = await harness('mcp-status', scriptsDir, hold.wrap)
+    const id = await h.start()
+    await h.turn(id, 'one')
+    await vi.waitFor(() => expect(h.ofType('mcp')).toHaveLength(2))
+    hold.state.hold = true
+    const asked = h.ok('agent.mcp', { sessionId: id })
+    await vi.waitFor(() => expect(hold.held).toHaveLength(1))
+    const session = h.registry.get(id)
+    const events = h.events().length
+    session.close()
+    const closed = h.events().length
+    expect(closed).toBeGreaterThan(events)
+    hold.held[0]?.([{ name: 'example-late', status: 'connected', source: 'user' }])
+    await asked
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.events().length).toBe(closed)
   })
 })
 

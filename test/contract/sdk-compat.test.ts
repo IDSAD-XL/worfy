@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url'
 import type {
   McpServerStatus,
   Query,
+  SDKControlReloadPluginsResponse,
   SDKAssistantMessage,
   SDKCompactBoundaryMessage,
   SDKRateLimitInfo,
@@ -280,6 +281,7 @@ const HANDLE_METHODS = [
   'getContextUsage',
   'mcpServerStatus',
   'reconnectMcpServer',
+  'reloadPlugins',
 ] as const satisfies readonly (keyof QueryHandle)[]
 
 type HandleMethod = Exclude<keyof QueryHandle, typeof Symbol.asyncIterator>
@@ -360,6 +362,27 @@ describe('the MCP calls of the SDK against what worfy reads of them (worfy-mcp-l
       })
     expect(lists.length).toBeGreaterThan(10)
     for (const { name, list } of lists) expect(mcpServerRowsOf(list)?.length, name).toBe(list.length)
+  })
+})
+
+describe('the call that takes in a server added while the query runs (worfy-mcp-live ticket 03)', () => {
+  it('reloadPlugins() takes no argument worfy must pass and answers the servers as mcpServerStatus() does (tsc)', () => {
+    // worfy calls it bare: no holdOnCacheImpact, no addPlugins (the spike's call, F:allowed-reload-plugins).
+    expectTypeOf<[]>().toExtend<Parameters<Query['reloadPlugins']>>()
+    expectTypeOf<ReturnType<Query['reloadPlugins']>>().toEqualTypeOf<Promise<SDKControlReloadPluginsResponse>>()
+    expectTypeOf<SDKControlReloadPluginsResponse['mcpServers']>().toEqualTypeOf<McpServerStatus[]>()
+  })
+
+  it('the manifest of the pinned SDK has it with this signature', () => {
+    expect(manifest.queryMethods['reloadPlugins'], RECAPTURE).toBe('reloadPlugins(options?: {holdOnCacheImpact?: boolean; addPlugins?: SdkPluginConfig[];}): Promise<SDKControlReloadPluginsResponse>;')
+  })
+
+  it('the recorded answer of the spike has its servers where worfy reads them, each a row', () => {
+    const recorded = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'mcp-live', 'mcp-live-allowed-reload-plugins.json'), 'utf8')) as { answer: { mcpServers: unknown[] } }
+    expect(mcpServerRowsOf(recorded.answer.mcpServers)?.map((row) => [row.name, row.status, row.source])).toEqual([
+      ['example-notes', 'pending', 'user'],
+      ['worfy-canvas', 'connected', 'worfy'],
+    ])
   })
 })
 

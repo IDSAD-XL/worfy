@@ -27,7 +27,7 @@
 //                                    — a list of servers, or a record whose `status_after` is one. Its
 //                                    scrub kept only the names of the tools (`tool_names`); they become
 //                                    the SDK's `tools` again. Before any such line mcpServerStatus()
-//                                    rejects, as getContextUsage() does
+//                                    answers no servers (`[]`), quietly
 //   {"fake":"mcp","servers":[...]}   the same with the servers in the SDK's shape (McpServerStatus)
 //   {"fake":"mcp","error":"..."}     mcpServerStatus() rejects with this message from here on
 //                                    reconnectMcpServer(name) of a server the last answer lists makes
@@ -36,7 +36,16 @@
 //                                    "Server not found: <name>" (F:allowed-reconnect-unknown).
 //                                    toggleMcpServer(name, enabled) makes it `disabled` / `connected`;
 //                                    worfy never calls it (it writes the user's .claude.json), and the
-//                                    record shows a call that would
+//                                    record shows a call that would. A server the request turns off
+//                                    (QueryRequest.mcpOff, worfy-mcp-live ticket 03) is never in an
+//                                    answer, as Claude Code left out a server its managedSettings
+//                                    did not allow (F:turnoff-restart-allowlist-without, F:turnoff-restart-denied)
+//   {"fake":"mcp_added","fixture":"<path>"} a server written into the user's config while the query
+//                                    runs (worfy-mcp-live ticket 03): mcpServerStatus() still does not
+//                                    list it (F:allowed-status-5s-after-write-no-call); the next
+//                                    reloadPlugins() answers the recorded `answer` and from then on
+//                                    mcpServerStatus() its `status_after` (F:allowed-reload-plugins).
+//                                    A reloadPlugins() with nothing added answers the servers as they are
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
 //   {"fake":"permission","toolName":"Bash","toolUseId":"toolu_…","input":{...},"suggestions":[...]}
@@ -95,7 +104,7 @@
 // The fake agent reads the Session's input as soon as a message arrives, as Claude Code does, and
 // reports what it gets to `record` (FakeQueryOptions): each user message whole — its text, and its
 // content as Claude Code got it, image blocks included (ticket 20) —, each control call
-// (setModel, setPermissionMode, applyFlagSettings for effort, reconnectMcpServer, toggleMcpServer) and
+// (setModel, setPermissionMode, applyFlagSettings for effort, reconnectMcpServer, toggleMcpServer, reloadPlugins) and
 // the settings it started with. getContextUsage() and mcpServerStatus() are reads, not control calls,
 // and are not recorded.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
@@ -129,6 +138,8 @@ export type FakeCall =
   | { kind: 'reconnectMcpServer'; name: string }
   /** An MCP server turned off or on: worfy never asks for it (it writes the user's .claude.json). */
   | { kind: 'toggleMcpServer'; name: string; enabled: boolean }
+  /** The user's plugins and MCP servers read again: how a server added while the query runs is taken in (worfy-mcp-live ticket 03). */
+  | { kind: 'reloadPlugins' }
   /** close() while background tasks lived: Claude Code would have killed these (task ids). */
   | { kind: 'close'; backgroundTasks: string[] }
 
@@ -162,9 +173,27 @@ function mcpAnswerOf(value: Record<string, unknown>, scriptPath: string): McpAns
     servers = Array.isArray(recorded) ? recorded : (recorded as { status_after?: unknown }).status_after
   }
   if (!Array.isArray(servers)) throw new Error(`${scriptPath}: an mcp line names no servers`)
-  return {
-    servers: (servers as Record<string, unknown>[]).map(({ tool_names: names, ...server }) => (Array.isArray(names) ? { ...server, tools: names.map((name: unknown) => ({ name })) } : server)),
-  }
+  return { servers: sdkServers(servers) }
+}
+
+/** Recorded servers in the SDK's shape: the scrub kept only the names of the tools (`tool_names`). */
+const sdkServers = (servers: unknown[]): Record<string, unknown>[] =>
+  (servers as Record<string, unknown>[]).map(({ tool_names: names, ...server }) => (Array.isArray(names) ? { ...server, tools: names.map((name: unknown) => ({ name })) } : server))
+
+/** What an `mcp_added` line sets: what the next reloadPlugins() answers, and mcpServerStatus() after it. */
+interface McpAdded {
+  reloaded: Record<string, unknown>[]
+  after: Record<string, unknown>[]
+}
+
+/** The `answer` and `status_after` of a recorded reloadPlugins() (F:allowed-reload-plugins), named by an `mcp_added` line. */
+function mcpAddedOf(value: Record<string, unknown>, scriptPath: string): McpAdded {
+  if (typeof value.fixture !== 'string') throw new Error(`${scriptPath}: an mcp_added line names no fixture`)
+  const recorded = JSON.parse(readFileSync(resolve(dirname(scriptPath), value.fixture), 'utf8')) as { answer?: { mcpServers?: unknown }; status_after?: unknown }
+  const reloaded = recorded.answer?.mcpServers
+  const after = recorded.status_after
+  if (!Array.isArray(reloaded) || !Array.isArray(after)) throw new Error(`${scriptPath}: ${value.fixture} is no recorded reloadPlugins()`)
+  return { reloaded: sdkServers(reloaded), after: sdkServers(after) }
 }
 
 /** What the head lines of a script set; absent fields keep the defaults. */
@@ -183,6 +212,7 @@ type Step =
   | { kind: 'stderr'; text: string }
   | { kind: 'context'; answer: ContextAnswer }
   | { kind: 'mcp'; answer: McpAnswer }
+  | { kind: 'mcp_added'; added: McpAdded }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
   | {
@@ -217,6 +247,7 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>, path: string) 
   stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
   context: (value) => ({ kind: 'context', answer: typeof value.error === 'string' ? { error: value.error } : { usage: value.usage } }),
   mcp: (value, path) => ({ kind: 'mcp', answer: mcpAnswerOf(value, path) }),
+  mcp_added: (value, path) => ({ kind: 'mcp_added', added: mcpAddedOf(value, path) }),
   crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
   exit: () => ({ kind: 'exit' }),
   permission: (value) => ({
@@ -394,8 +425,10 @@ class FakeQuery implements QueryHandle {
   private registryEntry: string | null
   /** What getContextUsage() answers, set by the last `context` line played. */
   private context: ContextAnswer = { error: 'the fake agent has no context usage to report' }
-  /** What mcpServerStatus() answers, set by the last `mcp` line played and by the MCP calls since. */
-  private mcp: McpAnswer = { error: 'the fake agent has no MCP servers to report' }
+  /** What mcpServerStatus() answers, set by the last `mcp` line played and by the MCP calls since; no servers before any. */
+  private mcp: McpAnswer = { servers: [] }
+  /** What the last `mcp_added` line wrote into the user's config, until reloadPlugins() takes it in. */
+  private added: McpAdded | null = null
   /** The query's PreToolUse hooks (FakeQueryOptions.preToolUse), made when the query starts; null: none. */
   private readonly preToolUse: Promise<FakePreToolUse | undefined> | null
 
@@ -458,10 +491,27 @@ class FakeQuery implements QueryHandle {
     return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(structuredClone(answer.usage))
   }
 
-  /** Answers what the last `mcp` line set, as it stood when called. */
+  /** Answers what the last `mcp` line set, as it stood when called; the servers the request turned off are not in it. */
   mcpServerStatus(): Promise<unknown> {
     const answer = this.mcp
-    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(structuredClone(answer.servers))
+    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(this.withoutOff(answer.servers))
+  }
+
+  /** Takes in what an `mcp_added` line wrote, as Claude Code did (F:allowed-reload-plugins); the SDK's shape of the answer. */
+  reloadPlugins(): Promise<unknown> {
+    this.record({ kind: 'reloadPlugins' })
+    const added = this.added
+    this.added = null
+    if (added !== null) this.mcp = { servers: added.after }
+    const answer = this.mcp
+    const servers = added?.reloaded ?? ('error' in answer ? [] : answer.servers)
+    return Promise.resolve({ commands: [], agents: [], plugins: [], mcpServers: this.withoutOff(servers), error_count: 0 })
+  }
+
+  /** `servers` without those the request turned off (QueryRequest.mcpOff), copied. */
+  private withoutOff(servers: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+    const off = this.request.mcpOff ?? []
+    return structuredClone(servers.filter((server) => !off.includes(String(server.name))))
   }
 
   reconnectMcpServer(serverName: string): Promise<void> {
@@ -726,6 +776,9 @@ class FakeQuery implements QueryHandle {
             break
           case 'mcp':
             this.mcp = line.answer
+            break
+          case 'mcp_added':
+            this.added = line.added
             break
           case 'crash':
             throw new Error(line.error)
