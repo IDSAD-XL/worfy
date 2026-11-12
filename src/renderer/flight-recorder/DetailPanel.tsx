@@ -25,6 +25,7 @@ import type { RunView } from '../../shared/ipc/runs'
 import { sessionNodeId } from '../claude-home/session-nodes'
 import { invoke } from '../ipc'
 import { openSession } from '../session/navigation'
+import { Tab, TabList, TabPanel, Tabs } from '../theme/kit/Tabs'
 import { firstWaveOf, formatDuration, formatLocal, revealSpan, selectSpan, useRunHistory } from './store'
 import { displayName, lostWord, reasonText, spanDuration, tokenOf } from './span-words'
 
@@ -184,8 +185,8 @@ function RepoLink({ base, path, children, onError }: { base: string | null; path
   )
 }
 
-type Tab = 'overview' | 'links' | 'source'
-const TABS: readonly [Tab, string][] = [
+type DetailTab = 'overview' | 'links' | 'source'
+const TABS: readonly [DetailTab, string][] = [
   ['overview', 'Overview'],
   ['links', 'Links'],
   ['source', 'Source'],
@@ -466,7 +467,7 @@ export function DetailPanel({ view }: { view: RunView }) {
 /** The details of the selected span; a hint while none is selected. */
 function SpanDetails({ view }: { view: RunView }) {
   const selected = useRunHistory((state) => state.selected)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<DetailTab>('overview')
   const [error, setError] = useState<string | null>(null)
   // A page that could not be opened is about the span it was opened from: another selection clears it,
   // and an answer that comes after the selection changed is dropped. Adjusted while rendering, not in an
@@ -484,15 +485,17 @@ function SpanDetails({ view }: { view: RunView }) {
       </section>
     )
   return (
-    <section className="w-fr-detail" data-testid="run-history-detail" data-span-id={span.id} aria-label="Details">
+    // The kit's Tabs (worfy-ui-kit ticket 14): Tab enters the tabs in one step, the arrows, Home and End
+    // move the selection; the panel is named by its tab.
+    <Tabs value={tab} onValueChange={(next: DetailTab) => setTab(next)} render={<section className="w-fr-detail" data-testid="run-history-detail" data-span-id={span.id} aria-label="Details" />}>
       <div className="w-fr-detail__head">
-        <div role="tablist" aria-label="Details" className="w-fr-detail__tabs">
+        <TabList aria-label="Details" className="w-fr-detail__tabs">
           {TABS.map(([id, label]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} className={`w-fr-detail__tab${tab === id ? ' is-on' : ''}`} onClick={() => setTab(id)}>
+            <Tab key={id} value={id} className="w-fr-detail__tab">
               {label}
-            </button>
+            </Tab>
           ))}
-        </div>
+        </TabList>
         <span className="w-fr-detail__title" data-testid="run-history-detail-title">
           <span className={`w-fr-dot w-fr-dot--${tokenOf(span)}`} /> {displayName(span, view.epics)}
           {span.attempt > 1 ? ` #${span.attempt}` : ''}
@@ -506,14 +509,16 @@ function SpanDetails({ view }: { view: RunView }) {
           ×
         </button>
       </div>
-      <div className="w-fr-detail__body" role="tabpanel">
-        {tab === 'overview' ? <Overview span={span} view={view} /> : tab === 'links' ? <Links span={span} view={view} onError={(text) => (useRunHistory.getState().selected === span.id ? setError(text) : undefined)} /> : <Source span={span} view={view} />}
-        {error !== null ? (
-          <p className="w-fr-problem-text" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </section>
+      {TABS.map(([id]) => (
+        <TabPanel key={id} value={id} className="w-fr-detail__body">
+          {id === 'overview' ? <Overview span={span} view={view} /> : id === 'links' ? <Links span={span} view={view} onError={(text) => (useRunHistory.getState().selected === span.id ? setError(text) : undefined)} /> : <Source span={span} view={view} />}
+          {error !== null ? (
+            <p className="w-fr-problem-text" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </TabPanel>
+      ))}
+    </Tabs>
   )
 }

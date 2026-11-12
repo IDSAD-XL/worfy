@@ -1,7 +1,8 @@
 # 14 — ToggleGroup, RadioGroup и Tabs kit вместо своих групп
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:52Z
+Branch: worfy-ui-kit/14
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения по реализации» (группы); история 7; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 2
@@ -29,11 +30,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения 
 
 - [ ] Unit test `test/unit/kit-groups.test.tsx`: в каждой группе стрелки двигают выбор, Home и End — к краям, Tab
       входит в группу одним шагом.
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/kit-groups.test.tsx` exit 0 · mac - · cd6597342c644a99e42a8baf7bb4ba019d89441e
 - [ ] Существующие `start-autopilot-modal`, `question-card` unit test-ы и e2e `autopilot-start-modal.spec.ts`,
       `flight-recorder-detail.spec.ts` зелёные без правок ролей и `data-testid`.
 - [ ] Своих копий segmented control и своих `role="radio"` в этих местах нет.
+  - evidence: commit pass · ToggleGroup, RadioGroup and Tabs of the kit instead of own groups (worfy-ui-kit 14) · - - · cd6597342c644a99e42a8baf7bb4ba019d89441e
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · cd6597342c644a99e42a8baf7bb4ba019d89441e
 
 ## Где в коде
 

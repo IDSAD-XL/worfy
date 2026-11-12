@@ -58,6 +58,7 @@ import { useEcoMode } from '../session/modes/eco-mode'
 import { focusablesOf } from '../settings/settings-window'
 import { useAppSettings } from '../settings/useAppSettings'
 import { Chip, type ChipVariant } from '../theme/Chip'
+import { Radio, RadioGroup } from '../theme/kit/RadioGroup'
 import { QueueList, type QueueFacts, type QueueRow } from './QueueList'
 import { agentTimeUp, askFromAgent, openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
 import './autopilot-modal.css'
@@ -420,7 +421,8 @@ function StartWindow({ open }: { open: OpenStart }) {
       } else if (event.key === 'Tab') {
         event.preventDefault()
         event.stopImmediatePropagation()
-        const focusable = focusablesOf(dialog)
+        // A radio group of the kit is one Tab stop: its other radios and Base UI's hidden inputs carry tabindex=-1.
+        const focusable = focusablesOf(dialog).filter((element) => element.tabIndex >= 0)
         if (focusable.length === 0) return
         const at = focusable.indexOf(document.activeElement as HTMLElement)
         const next = at < 0 ? (event.shiftKey ? focusable.length - 1 : 0) : (at + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length
@@ -510,23 +512,15 @@ function StartWindow({ open }: { open: OpenStart }) {
           ) : null}
           <div className="w-apstart__section">
             <h3>Mode</h3>
-            <div className="w-apstart__modes" role="radiogroup" aria-label="Mode">
+            <RadioGroup className="w-apstart__modes" aria-label="Mode" value={mode} onValueChange={(next: RunMode) => setPicked(next)}>
               {RUN_MODES.map((each) => (
-                <button
-                  key={each}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === each}
-                  data-testid={`start-autopilot-mode-${each}`}
-                  disabled={timeUp}
-                  onClick={() => setPicked(each)}
-                >
+                <Radio key={each} value={each} data-testid={`start-autopilot-mode-${each}`} disabled={timeUp}>
                   {RUN_MODE_LABELS[each]}
                   {each === 'start-window' ? ` (${hourText(hours.from)}–${hourText(hours.to)})` : ''}
                   {each === defaultMode ? <span className="w-apstart__muted"> (default)</span> : null}
-                </button>
+                </Radio>
               ))}
-            </div>
+            </RadioGroup>
             <div className="w-apstart__mode-hint" data-testid="start-autopilot-mode-hint">
               {hint}
             </div>

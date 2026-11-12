@@ -13,6 +13,7 @@
 // each block reads "title: note". Reduce motion stops the dots (motion.ts) and the CSS transitions
 // (guide.css), and the highlight still changes, at once.
 import { useEffect, useId, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { ToggleGroup, ToggleGroupItem } from '../../theme/kit/ToggleGroup'
 import type { GuideStrings } from '../content'
 import { githubFileUrl, openInBrowser } from '../links'
 import { shownTopics } from '../registry'
@@ -328,20 +329,19 @@ export function LivingScene({ spec, labels, strings, testId = 'guide-scene' }: L
           <button type="button" className="w-guide-steps__play" onClick={() => dispatch({ type: 'toggle' })}>
             {player.playing ? strings.pause : strings.play}
           </button>
-          <div className="w-guide-steps__track">
+          {/* The kit's ToggleGroup (worfy-ui-kit ticket 14): one Tab stop, the arrows move the focus
+              along the steps, Space or Enter chooses. The step chosen again shows the whole diagram. */}
+          <ToggleGroup
+            className="w-guide-steps__track"
+            value={player.step === null ? null : String(player.step)}
+            onValueChange={(next: string | null) => dispatch({ type: 'choose', step: next === null ? (player.step ?? 0) : Number(next) })}
+          >
             {steps.map((step, index) => (
-              <button
-                key={step.caption}
-                type="button"
-                className="w-guide-steps__step"
-                aria-pressed={player.step === index}
-                aria-label={`${strings.step} ${index + 1}`}
-                onClick={() => dispatch({ type: 'choose', step: index })}
-              >
+              <ToggleGroupItem key={step.caption} value={String(index)} className="w-guide-steps__step" aria-label={`${strings.step} ${index + 1}`}>
                 {index + 1}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           <p className="w-guide-steps__caption" aria-live="polite" data-testid={`${testId}-caption`}>
             {caption}
           </p>
