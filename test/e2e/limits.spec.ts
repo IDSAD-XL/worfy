@@ -157,6 +157,10 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await expect(sevenDay.getByRole('meter')).toHaveCount(0)
     await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(animatedText(fiveHour.getByTestId('limit-five_hour-value'))).toHaveText('62%')
+    // A share in rolling digits is as tall as a status in words (src/renderer/theme/AnimatedNumber.tsx
+    // takes back the room of NumberFlow's mask), so a line does not jump when `99%` turns into `limit reached`.
+    const [share, words] = [(await fiveHour.getByTestId('limit-five_hour-value').boundingBox())!, (await sevenDay.getByTestId('limit-seven_day-value').boundingBox())!]
+    expect(share.height, 'a share as tall as "limit reached"').toBe(words.height)
   } finally {
     await first.close()
   }

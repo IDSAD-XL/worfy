@@ -142,6 +142,9 @@ test('the context meter shows the share of the autocompact threshold after each 
 
     await expectPickersKeepTheirRoom(composer, 'no data')
     await shoot(window, composer, 'no-data')
+    // A figure in rolling digits keeps the meter as tall as "no data" (src/renderer/theme/AnimatedNumber.tsx
+    // takes back the room of NumberFlow's mask).
+    const { height: noDataHeight } = await box(meter)
 
     const states = [
       { text: '10%', level: 'normal', title: '16.7K / 200K tokens · autocompact at 167K', shot: '10' },
@@ -153,6 +156,7 @@ test('the context meter shows the share of the autocompact threshold after each 
       await field.press('Enter')
       await expect(view.getByTestId('transcript-turn-done')).toHaveCount(index + 1)
       await expect(animatedText(value)).toHaveText(state.text)
+      expect((await box(meter)).height, `${state.text}: the meter as tall as with "no data"`).toBe(noDataHeight)
       await expect(meter).toHaveAttribute('data-level', state.level)
       await expect(meter).toHaveAttribute('title', state.title)
       await expectPickersKeepTheirRoom(composer, state.text)

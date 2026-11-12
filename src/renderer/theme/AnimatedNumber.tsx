@@ -46,9 +46,30 @@ export interface AnimatedNumberProps {
   suffix?: string
 }
 
+/**
+ * NumberFlow draws its digits with padding above and below, the room of its fade mask
+ * (`--number-flow-mask-height`, 0.25em by default, half of it on each side, rounded to a pixel). This
+ * margin takes that room back, so a line with rolling digits is as tall as one with text: a Limits line
+ * stays 12 px when `99%` turns into `limit reached`. The mask still fades the rolling digits.
+ */
+const maskRoomBack: CSSProperties = { marginBlock: 'calc(-1 * round(nearest, calc(var(--number-flow-mask-height, 0.25em) / 2), 1px))' }
+
+/** One formatter per format, as Intl advises: the text is formatted on every render. */
+const formatters = new Map<string, Intl.NumberFormat>()
+
+function formatterOf(format: Format | undefined): Intl.NumberFormat {
+  const key = JSON.stringify(format ?? {})
+  let formatter = formatters.get(key)
+  if (formatter === undefined) {
+    formatter = new Intl.NumberFormat(LOCALE, { useGrouping: false, ...format })
+    formatters.set(key, formatter)
+  }
+  return formatter
+}
+
 /** The final text of the number, as the screen reader and `textContent` get it: `62%`, `$0.0125`. */
 function animatedNumberText({ value, format, prefix = '', suffix = '' }: AnimatedNumberProps): string {
-  return `${prefix}${new Intl.NumberFormat(LOCALE, { useGrouping: false, ...format }).format(value)}${suffix}`
+  return `${prefix}${formatterOf(format).format(value)}${suffix}`
 }
 
 export function AnimatedNumber({ value, format, prefix, suffix }: AnimatedNumberProps) {
@@ -57,7 +78,8 @@ export function AnimatedNumber({ value, format, prefix, suffix }: AnimatedNumber
   // the text alone is shown.
   const supported = useIsSupported()
   const reduced = useSyncExternalStore(subscribeReducedMotion, reducedMotion, () => false)
-  // Rolls only after the value has changed once since the first show.
+  // Rolls only after the value has changed once since the first show, and from then on always, a
+  // return to the first value too.
   const [firstValue] = useState(value)
   const [changed, setChanged] = useState(false)
   if (!changed && value !== firstValue) setChanged(true)
@@ -74,7 +96,7 @@ export function AnimatedNumber({ value, format, prefix, suffix }: AnimatedNumber
       <span className="w-animated-number__text" style={visuallyHidden}>
         {text}
       </span>
-      <NumberFlow value={value} locales={LOCALE} format={{ useGrouping: false, ...format }} prefix={prefix} suffix={suffix} animated={changed && !reduced} aria-hidden="true" />
+      <NumberFlow value={value} locales={LOCALE} format={{ useGrouping: false, ...format }} prefix={prefix} suffix={suffix} animated={changed && !reduced} aria-hidden="true" style={maskRoomBack} />
     </span>
   )
 }

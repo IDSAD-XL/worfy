@@ -4,6 +4,7 @@
 // ones about motion replace NumberFlow with a stub that records the `animated` it was given, and the
 // rest read the final text.
 import { act, render, screen } from '@testing-library/react'
+import type { CSSProperties } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const REDUCE = '(prefers-reduced-motion: reduce)'
@@ -80,15 +81,18 @@ describe('AnimatedNumber text', () => {
 
 describe('AnimatedNumber motion', () => {
   const given: boolean[] = []
+  const styles: (CSSProperties | undefined)[] = []
 
   beforeEach(() => {
     given.length = 0
+    styles.length = 0
     vi.resetModules()
     // NumberFlow as in Chromium, where it can animate; the stub draws no digits of its own.
     vi.doMock('@number-flow/react', () => ({
       useIsSupported: () => true,
-      default: ({ animated, ...rest }: { animated?: boolean; 'aria-hidden'?: string }) => {
+      default: ({ animated, style, ...rest }: { animated?: boolean; style?: CSSProperties; 'aria-hidden'?: string }) => {
         given.push(animated === true)
+        styles.push(style)
         return <span data-testid="digits" aria-hidden={rest['aria-hidden'] === 'true' ? 'true' : undefined} />
       },
     }))
@@ -153,5 +157,29 @@ describe('AnimatedNumber motion', () => {
     const { show } = await mount(10)
     show(42)
     expect(given.at(-1)).toBe(true)
+  })
+
+  it('still animates a return to the first value: 10 → 42 → 10', async () => {
+    stubReducedMotion(false)
+    const { show } = await mount(10)
+    show(42)
+    show(10)
+    expect(given.at(-1)).toBe(true)
+    expect(screen.getByText('10%')).toBeTruthy()
+  })
+
+  it('takes back the room of the mask, so the line keeps its height', async () => {
+    stubReducedMotion(false)
+    await mount(62)
+    expect(styles.at(-1)?.marginBlock).toBe('calc(-1 * round(nearest, calc(var(--number-flow-mask-height, 0.25em) / 2), 1px))')
+  })
+
+  it('makes one formatter per format, not one per render', async () => {
+    stubReducedMotion(false)
+    const made = vi.spyOn(Intl, 'NumberFormat')
+    const { show } = await mount(10)
+    for (const next of [11, 12, 13, 14]) show(next)
+    expect(made).toHaveBeenCalledTimes(1)
+    made.mockRestore()
   })
 })

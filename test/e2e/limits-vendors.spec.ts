@@ -122,7 +122,11 @@ async function expectStacked(section: Locator, ids: readonly string[]): Promise<
     const cut = await section.getByTestId(id).evaluate((node) => {
       type Element = { scrollWidth: number; clientWidth: number; querySelectorAll(selector: string): Iterable<Element> }
       const element = node as unknown as Element
-      return [element, ...element.querySelectorAll('*')].some((each) => each.scrollWidth > each.clientWidth && each.clientWidth > 0)
+      // The screen-reader text of a share (src/renderer/theme/AnimatedNumber.tsx) is a 1 px clipped box
+      // by design, so its scrollWidth always passes its clientWidth. It is left out by its class alone;
+      // the digits drawn on screen (the NumberFlow element) are still checked.
+      const shown = [element, ...element.querySelectorAll(':not(.w-animated-number__text)')]
+      return shown.some((each) => each.scrollWidth > each.clientWidth && each.clientWidth > 0)
     })
     expect(cut, `a text of ${id} is cut`).toBe(false)
   }
