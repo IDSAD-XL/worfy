@@ -379,8 +379,11 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await expect(focus).toHaveCount(0)
     await again()
 
-    // The context menu of a Project takes the focus and closes on Esc; the next press leaves focus mode.
+    // The context menu of a Project (the kit's ContextMenu, worfy-ui-kit ticket 12) takes the focus and
+    // closes on Esc alone; the focus is back on the row, in the sidebar, where Esc is never focus
+    // mode's. From the layer, the next Esc leaves focus mode.
     const menu = window.getByRole('menu', { name: 'Project' })
+    const rowButton = window.getByTestId('project-row').first().getByRole('button')
     await showSidebarSection(window, 'Projects')
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
@@ -388,10 +391,15 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(menu).toHaveCount(0)
     await expect(focus).toBeVisible()
+    await expect(rowButton).toBeFocused()
+    await escape()
+    await expect(focus).toBeVisible()
+    await intoLayer()
     await escape()
     await expect(focus).toHaveCount(0)
 
-    // Project settings, a modal dialog from that menu: it holds the focus and closes on Esc.
+    // Project settings, a modal dialog from that menu: it holds the focus and closes on Esc, and gives
+    // the focus back to the row the menu was opened on.
     const settings = window.getByTestId('project-settings')
     await again()
     await window.getByTestId('project-row').first().click({ button: 'right' })
@@ -402,19 +410,24 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(settings).toHaveCount(0)
     await expect(focus).toBeVisible()
+    await expect(rowButton).toBeFocused()
+    await intoLayer()
     await escape()
     await expect(focus).toHaveCount(0)
 
-    // A menu that has lost the focus to the layer does not react to Esc. It is not in the way: the
-    // press leaves focus mode, and the menu stays open.
+    // The focus moved into the layer closes the menu, as for every popup of the kit, and stays in the
+    // layer: the next Esc leaves focus mode.
     await again()
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
     await focus.focus()
+    await expect(menu).toHaveCount(0)
     await escape()
     await expect(focus).toHaveCount(0)
-    await expect(menu).toBeVisible()
     // A press outside the menu closes it, as ever.
+    await again()
+    await window.getByTestId('project-row').first().click({ button: 'right' })
+    await expect(menu).toBeVisible()
     await window.locator('.w-toolbar__name').click()
     await expect(menu).toHaveCount(0)
     await again()
