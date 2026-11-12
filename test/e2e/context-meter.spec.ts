@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { animatedText, launchApp } from './helpers'
 
 // The context meter under the input field (worfy-polish ticket 23) against the built app, on the
 // fake agent with test/fixtures/agent-scripts/context-meter.jsonl: each turn sets what
@@ -142,6 +142,9 @@ test('the context meter shows the share of the autocompact threshold after each 
 
     await expectPickersKeepTheirRoom(composer, 'no data')
     await shoot(window, composer, 'no-data')
+    // A figure in rolling digits keeps the meter as tall as "no data" (src/renderer/theme/AnimatedNumber.tsx
+    // takes back the room of NumberFlow's mask).
+    const { height: noDataHeight } = await box(meter)
 
     const states = [
       { text: '10%', level: 'normal', title: '16.7K / 200K tokens · autocompact at 167K', shot: '10' },
@@ -152,7 +155,8 @@ test('the context meter shows the share of the autocompact threshold after each 
       await field.fill(`turn ${index + 1}`)
       await field.press('Enter')
       await expect(view.getByTestId('transcript-turn-done')).toHaveCount(index + 1)
-      await expect(value).toHaveText(state.text)
+      await expect(animatedText(value)).toHaveText(state.text)
+      expect((await box(meter)).height, `${state.text}: the meter as tall as with "no data"`).toBe(noDataHeight)
       await expect(meter).toHaveAttribute('data-level', state.level)
       await expect(meter).toHaveAttribute('title', state.title)
       await expectPickersKeepTheirRoom(composer, state.text)

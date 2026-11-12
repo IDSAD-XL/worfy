@@ -4,7 +4,8 @@ import { invoke } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
-import { formatCost, STATE_CHIPS } from '../../session/format'
+import { costNumber, STATE_CHIPS } from '../../session/format'
+import { AnimatedNumber } from '../../theme/AnimatedNumber'
 import { StatusChip } from '../../theme/primitives'
 import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
@@ -155,7 +156,7 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
           {view?.model ?? '—'}
         </span>
         <span className="w-mono" data-testid="orchestrator-cost" title="Cost of this Session">
-          {view ? formatCost(view.costUsd) : '—'}
+          {view ? <AnimatedNumber {...costNumber(view.costUsd)} /> : '—'}
         </span>
       </div>
       {view?.statusBlock ? (

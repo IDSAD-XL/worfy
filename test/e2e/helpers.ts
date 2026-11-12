@@ -1223,3 +1223,11 @@ export async function roomToEdges(window: Page, locator: Locator): Promise<numbe
   const page = await innerSize(window)
   return Math.min(box.x, box.y, page.width - box.x - box.width, page.height - box.y - box.height)
 }
+
+/**
+ * The text of a number src/renderer/theme/AnimatedNumber.tsx draws inside `value`: the final value
+ * (`62%`, `$0.0125`), the one a screen reader gets. Assert on this, not on `value` itself: NumberFlow
+ * draws its digits in an open shadow root as columns of every digit, and Playwright's text matching
+ * reads shadow roots too, so `value` reads as `62%01234567890123456789%`.
+ */
+export const animatedText = (value: Locator): Locator => value.locator('.w-animated-number__text')

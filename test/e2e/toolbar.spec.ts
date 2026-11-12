@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { buildNumber } from '../../scripts/build-version'
-import { launchApp, repoRoot, smallestWindow, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, repoRoot, smallestWindow, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 /**
@@ -299,7 +299,7 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     expect(smallest.width, 'the content of an 800 px window').toBeLessThanOrEqual(800)
     await expectItemsInside(window, toolbar, 'smallest window')
     // The Limits: the percents alone; the window's name and its reset line are the tooltip of the percent.
-    await expect(percent).toHaveText('62%')
+    await expect(animatedText(percent)).toHaveText('62%')
     await expect(fiveHour.getByText('5h', { exact: true })).toBeHidden()
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toBeHidden()
     await expect(toolbar.getByTestId('limits-meter').getByText('Limits', { exact: true })).toBeHidden()

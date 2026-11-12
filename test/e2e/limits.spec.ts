@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, repoRoot } from './helpers'
+import { animatedText, launchApp, repoRoot } from './helpers'
 
 // The Limits in the toolbar against the built app, on the fake agent: the script
 // test/fixtures/agent-scripts/limits.jsonl sends a rate_limit_event with both windows on turn 1
@@ -132,11 +132,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await playTurns(first.window, project, 1)
     const fiveHour = meter(first.window).getByTestId('limit-five_hour')
     const sevenDay = meter(first.window).getByTestId('limit-seven_day')
-    await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
+    await expect(animatedText(fiveHour.getByTestId('limit-five_hour-value'))).toHaveText('62%')
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^\d\d:\d\d$/)
     await expect(fiveHour.getByRole('meter', { name: '5-hour limit' })).toHaveAttribute('aria-valuenow', '62')
     await expect(fiveHour).toHaveAttribute('data-level', 'working')
-    await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('38%')
+    await expect(animatedText(sevenDay.getByTestId('limit-seven_day-value'))).toHaveText('38%')
     await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
     await expect(sevenDay).toHaveAttribute('data-level', 'normal')
     // worfy-polish ticket 93: the reset line is the time alone, the whole line its tooltip, and the
@@ -156,7 +156,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await expect(sevenDay).toHaveAttribute('data-level', 'blocked')
     await expect(sevenDay.getByRole('meter')).toHaveCount(0)
     await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^[A-Z][a-z]{2} \d\d:\d\d$/)
-    await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
+    await expect(animatedText(fiveHour.getByTestId('limit-five_hour-value'))).toHaveText('62%')
+    // A share in rolling digits is as tall as a status in words (src/renderer/theme/AnimatedNumber.tsx
+    // takes back the room of NumberFlow's mask), so a line does not jump when `99%` turns into `limit reached`.
+    const [share, words] = [(await fiveHour.getByTestId('limit-five_hour-value').boundingBox())!, (await sevenDay.getByTestId('limit-seven_day-value').boundingBox())!]
+    expect(share.height, 'a share as tall as "limit reached"').toBe(words.height)
   } finally {
     await first.close()
   }
@@ -173,7 +177,7 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
   try {
     const fiveHour = meter(second.window).getByTestId('limit-five_hour')
     const sevenDay = meter(second.window).getByTestId('limit-seven_day')
-    await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
+    await expect(animatedText(fiveHour.getByTestId('limit-five_hour-value'))).toHaveText('62%')
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
     // The tooltip keeps the value, so a cut "limit reached" stays readable.
     await expect(fiveHour).toHaveAttribute('title', /^62% · as of [A-Z][a-z]{2} \d\d:\d\d$/)
@@ -216,14 +220,14 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     writeFileSync(temporary, JSON.stringify({ five_hour: { used_percentage: 91, resets_at: 1791202800 }, seven_day: { used_percentage: 9, resets_at: 1791777600 } }))
     renameSync(temporary, join(dataDir, 'statusline-limits.json'))
 
-    await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('91%')
+    await expect(animatedText(fiveHour.getByTestId('limit-five_hour-value'))).toHaveText('91%')
     await expect(fiveHour).toHaveAttribute('data-level', 'blocked')
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^\d\d:\d\d$/)
     // Fresh again: no longer dimmed, no tooltip, and the same height as when it was old.
     await expect(fiveHour).not.toHaveAttribute('data-stale', 'true')
     await expect(fiveHour).not.toHaveAttribute('title', /as of/)
     expect((await fiveHour.boundingBox())!.height).toBe(staleHeight)
-    await expect(meter(second.window).getByTestId('limit-seven_day-value')).toHaveText('9%')
+    await expect(animatedText(meter(second.window).getByTestId('limit-seven_day-value'))).toHaveText('9%')
   } finally {
     await second.close()
   }

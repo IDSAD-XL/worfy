@@ -233,7 +233,9 @@ rest. Subagents are not in it.
 **Context meter.** A ring under the input field. 100% is the autocompact threshold and the figure stops there. With
 autocompact off, or with no threshold known, it shows Claude Code's own percentage, which may pass 100. It changes colour
 at 60% and 85%. Before the first report it says "no data". The tooltip reads
-`84.2K / 200K tokens · autocompact at 167K`, or ends in `autocompact off`.
+`84.2K / 200K tokens · autocompact at 167K`, or ends in `autocompact off`. A new figure rolls its digits into place, as
+the Cost in the header and on the Orchestrator's Node does. The first figure shows at once, and so does every new one
+under Reduce motion.
 
 **Autocompact window.** Settings → Sessions has three rows. The first two are the autocompact windows: Orchestrator,
 whose window its Subagents use too, and Other Sessions. The third, "Live summary while the advisor works", is the switch of

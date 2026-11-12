@@ -111,3 +111,17 @@ Ticket 10 (popover-ы Queued messages и Effort в composer-е, `test/e2e/layers
     на том же нажатии, и `escapeBelongsToPopup` tooltip не считает: пометки kit-а у него нет;
   - toast-ы tooltip не обходят: он нарисован на верхнем слое шкалы (`LAYERS.top`) поверх них и не берёт указатель
     (`pointer-events: none`).
+- 2026-11-12 — NumberFlow поставлен (worfy-ui-kit, Ticket 17): `@number-flow/react` 0.6.2 точной версией в
+  `dependencies`, с ним `number-flow` 0.6.2 и `esm-env` 1.2.2. Лицензия у всех трёх MIT. Install scripts нет: у двух
+  пакетов NumberFlow в `scripts` только `build`, `dev` и `test`, у `esm-env` поля `scripts` нет (`npm view … scripts`).
+  Версия 0.6.2 вышла 2026-07-18, правило `minimumReleaseAge` она проходит, исключений нет. JS и CSS renderer-а: +9 078
+  байт gzip (сборка без минификации, против `main` 0ece520f4).
+  - Обёртка одна — `src/renderer/theme/AnimatedNumber.tsx`; NumberFlow импортирует только она.
+  - Цифры NumberFlow рисует в открытом shadow root, по столбцу из всех цифр на разряд. Обёртка прячет их от screen
+    reader-а (`aria-hidden`) и кладёт итоговое значение текстом в light DOM (`.w-animated-number__text`). Playwright
+    читает текст и внутри shadow root, поэтому e2e test-ы проверяют этот текст (`animatedText` в `test/e2e/helpers.ts`),
+    а не текст всего элемента.
+  - Где NumberFlow анимировать не может (`useIsSupported` ложно: нет easing `linear()` или CSS `mod()`; так в jsdom
+    unit test-ов), обёртка показывает только текст. В jsdom `esm-env` отвечает «не браузер», и NumberFlow иначе записал
+    бы свою разметку для сервера в light DOM. В сборке renderer-а разметки для сервера нет: Vite берёт условие
+    `browser`.

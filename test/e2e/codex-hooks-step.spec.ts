@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { codexHooksCommand } from '../../src/shared/ipc/harness'
 import { approvePluginHooks } from '../fixtures/codex-app-server/hook-runner.mjs'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // worfy-multi-vendor ticket 39: after Install installs the Harness into Codex as well, the toolbar shows
 // the step "Approve the Harness hooks in Codex": what to open (/hooks in Codex) and "Check again". The
@@ -204,7 +204,7 @@ test('"Codex: approve hooks" is the third line of the Harness column, inside the
     await expect(codexLine).toHaveText('Codex: approve hooks')
     await expect(item).not.toContainText('Codex')
     await expect(toolbar.getByTestId('limits-meter').getByRole('group', { name: 'Codex limits' }).getByRole('meter')).toHaveCount(2)
-    await expect(toolbar.getByTestId('limit-five_hour-value')).toHaveText('101%')
+    await expect(animatedText(toolbar.getByTestId('limit-five_hour-value'))).toHaveText('101%')
     await expect(toolbar.getByTestId('limit-five_hour')).toHaveAttribute('data-level', 'blocked')
 
     const box = async (locator: typeof column): Promise<{ x: number; y: number; width: number; height: number }> => {
