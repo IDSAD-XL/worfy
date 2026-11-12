@@ -46,19 +46,26 @@ Ticket берут только после «да» spike-а (Ticket 01, заме
 
 - [ ] ADR в `docs/adr/` со статусом accepted; в нём Base UI, правила kit, отказ от Radix, cmdk, Sonner и лицензии
       обоих пакетов.
+  - evidence: commit pass · Base UI for the kit: ADR-0106 (docs/adr/0106-base-ui-kit.md) · - - · be0d34c94
 - [ ] `@base-ui/react` в `dependencies` точной версией; `pnpm install` без новых install scripts.
+  - evidence: test-run pass · `pnpm install --frozen-lockfile` exit 0; package.json pins @base-ui/react 1.9.0, no ERR_PNPM_IGNORED_BUILDS · mac - · be0d34c94
 - [ ] Lint test: import `@base-ui/react` вне `theme/kit/` даёт ошибку lint, внутри — нет.
+  - evidence: test-run pass · `WORFY_TEST_FILES=test/unit/kit-import-lint.test.ts node scripts/vitest-electron.mjs` exit 0 · mac - · be0d34c94
 - [ ] Unit test общей части: blur окна и смена вида закрывают открытый popup; popup с пометкой «внутри Node» не
       снимает активность Node-а первым кликом.
+  - evidence: test-run pass · `WORFY_TEST_FILES=test/unit/kit-layer.test.tsx node scripts/vitest-electron.mjs` exit 0; canvas.test.tsx exit 0 · mac - · be0d34c94
 - [ ] Unit test helper-а: popup Base UI в состоянии закрытия не считается открытым слоем.
+  - evidence: test-run pass · `WORFY_TEST_FILES=test/unit/open-layers.test.tsx node scripts/vitest-electron.mjs` exit 0 · mac - · be0d34c94
 - [ ] Unit test общей части: Esc в popup-е внутри элемента со своим обработчиком Esc в `onKeyDown` закрывает только
       popup, обработчик элемента не срабатывает; поле с фокусом при открытом popup-е не выполняет своё действие по Esc.
+  - evidence: test-run pass · `WORFY_TEST_FILES=test/unit/kit-layer.test.tsx node scripts/vitest-electron.mjs` exit 0 · mac - · be0d34c94
 - [ ] E2e test в настоящем Electron: Esc в popup-е внутри элемента со своим Esc — одно нажатие, одно действие. Его
       пишет первый Ticket, у которого такой popup появляется в приложении (10 или 11); здесь — сценарий и unit test.
       Пишут его Ticket 11 (menu «Modes» в composer-е, `test/e2e/layers-menu.spec.ts`, пункт 4) и Ticket 10 (popover-ы
       Queued messages и Effort, `test/e2e/layers-popover.spec.ts`, пункт 4); сценарий — ADR-0106, раздел
       «E2e-сценарий для Ticket-ов 10 и 11».
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · be0d34c94
 
 ## Где в коде
 
