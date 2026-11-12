@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NewSessionVendor } from '../../src/renderer/session/NewSessionVendor'
 import { VendorBadge } from '../../src/renderer/session/VendorBadge'
@@ -94,8 +95,33 @@ describe('VendorBadge', () => {
   })
 })
 
+/** "New session" and its Vendor picker, the open state kept here as the sidebar keeps it (shell/sidebar/SessionsSection.tsx). */
+function Picker({ onPick, onOpenChange = () => undefined }: { onPick: (vendor: string | undefined) => void; onOpenChange?: (open: boolean) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <NewSessionVendor
+      projectId="p"
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next)
+        setOpen(next)
+      }}
+      onPick={onPick}
+      trigger={<button type="button">New session</button>}
+    />
+  )
+}
+
 describe('the Vendor picker of New session', () => {
   const options = (): HTMLElement[] => screen.getAllByTestId('new-session-vendor-option')
+  const newSession = () => screen.getByRole('button', { name: 'New session' })
+  /** Opens the picker from its button and lets main answer. */
+  const openPicker = async () => {
+    await act(async () => {
+      fireEvent.click(newSession())
+    })
+    await act(async () => {})
+  }
 
   it('lists the Vendors in main\'s order, the default first and marked; one nobody is signed in to is inactive with the reason', async () => {
     main.answers['sessions.vendors'] = {
@@ -103,15 +129,19 @@ describe('the Vendor picker of New session', () => {
       value: { defaultVendor: 'codex', choices: [{ vendor: 'codex', refusal: null }, { vendor: 'claude', refusal: null }] },
     }
     const onPick = vi.fn()
-    render(<NewSessionVendor projectId="p" onPick={onPick} onClose={() => undefined} />)
-    await act(async () => {})
+    render(<Picker onPick={onPick} />)
+    // Nothing is asked before the picker opens.
+    expect(main.calls).toEqual([])
+    await openPicker()
+    expect(screen.getByRole('menu', { name: 'New session on' }).getAttribute('data-testid')).toBe('new-session-vendor')
+    expect(newSession().getAttribute('aria-expanded')).toBe('true')
     expect(main.calls).toEqual([{ channel: 'sessions.vendors', input: { projectId: 'p' } }])
     expect(options().map((option) => [option.dataset.vendor, option.textContent])).toEqual([
       ['codex', 'Codexdefault'],
       ['claude', 'Claude Code'],
     ])
     // The default takes the focus, so Enter picks it.
-    expect(document.activeElement).toBe(options()[0])
+    await vi.waitFor(() => expect(document.activeElement).toBe(options()[0]))
     fireEvent.click(options()[1]!)
     expect(onPick).toHaveBeenCalledWith('claude')
   })
@@ -122,8 +152,8 @@ describe('the Vendor picker of New session', () => {
       value: { defaultVendor: 'claude', choices: [{ vendor: 'claude', refusal: null }, { vendor: 'codex', refusal: signInHint('codex') }] },
     }
     const onPick = vi.fn()
-    render(<NewSessionVendor projectId="p" onPick={onPick} onClose={() => undefined} />)
-    await act(async () => {})
+    render(<Picker onPick={onPick} />)
+    await openPicker()
     const codex = options()[1]!
     expect(codex.getAttribute('aria-disabled')).toBe('true')
     expect(codex.getAttribute('title')).toBe('Sign in to Codex in Settings → Vendors')
@@ -134,21 +164,33 @@ describe('the Vendor picker of New session', () => {
 
   it('a Machine that does not answer the picker gets New session on its default Vendor, as before the picker', async () => {
     const onPick = vi.fn()
-    render(<NewSessionVendor projectId="p" onPick={onPick} onClose={() => undefined} />)
-    await act(async () => {})
+    render(<Picker onPick={onPick} />)
+    await openPicker()
     expect(onPick).toHaveBeenCalledWith(undefined)
   })
 
-  it('Esc and a press outside close it', async () => {
+  it('Esc, marked handled, and a press outside close it; a press inside does not', async () => {
     main.answers['sessions.vendors'] = { ok: true, value: { defaultVendor: 'claude', choices: [{ vendor: 'claude', refusal: null }] } }
-    const onClose = vi.fn()
-    render(<NewSessionVendor projectId="p" onPick={() => undefined} onClose={onClose} />)
-    await act(async () => {})
+    const onOpenChange = vi.fn()
+    render(<Picker onPick={() => undefined} onOpenChange={onOpenChange} />)
+    await openPicker()
     fireEvent.mouseDown(options()[0]!)
-    expect(onClose).not.toHaveBeenCalled()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    fireEvent.mouseDown(document.body)
-    expect(onClose).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('menu')).not.toBeNull()
+    let delivered = true
+    await act(async () => {
+      delivered = fireEvent.keyDown(options()[0]!, { key: 'Escape' })
+    })
+    expect(delivered).toBe(false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    await openPicker()
+    await act(async () => {
+      fireEvent.pointerDown(document.body)
+      fireEvent.mouseDown(document.body)
+    })
+    expect(screen.queryByRole('menu')).toBeNull()
+    // Opened, closed, opened, closed: a close may be told twice (by the kit and by Base UI), never a stray open.
+    const told = onOpenChange.mock.calls.map(([open]) => open as boolean)
+    expect(told.filter((open, index) => index === 0 || told[index - 1] !== open)).toEqual([true, false, true, false])
   })
 })
 

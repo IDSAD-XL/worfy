@@ -1,30 +1,36 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import type { SessionVendors } from '../../shared/ipc/sessions'
 import { invoke } from '../ipc'
+import { Menu, MenuItem } from '../theme/kit/Menu'
 import { VendorBadge } from './VendorBadge'
 
-// The Vendor picker of "New session" (worfy-multi-vendor ticket 24): opened by "New session" in the
-// sidebar, it lists the Vendors main offers (`sessions.vendors`) in its order — the Project's Default
-// vendor first, marked "default". A Vendor that cannot start a Session now (nobody is signed in to it)
-// stays in the list, inactive, its tooltip main's reason ("Sign in to Codex in Settings → Vendors").
-// A pick starts the Session on that Vendor; Esc or a click outside closes the list.
+// The Vendor picker of "New session" (worfy-multi-vendor ticket 24): "New session" in the sidebar is its
+// menu button, and the menu lists the Vendors main offers (`sessions.vendors`, asked each time it opens)
+// in its order — the Project's Default vendor first, marked "default". A Vendor that cannot start a
+// Session now (nobody is signed in to it) stays in the list, inactive, its tooltip main's reason ("Sign
+// in to Codex in Settings → Vendors"). A pick starts the Session on that Vendor. The menu is the kit's
+// Menu (theme/kit/Menu.tsx, worfy-ui-kit ticket 11) under the button: the arrows, Esc that closes only
+// it, a press outside and the focus back on the button are the kit's.
 //
 // A Machine that does not answer `sessions.vendors` (a Linked machine on a build from before the
 // picker) gets New session as before: on its Project's default Vendor, with no list.
 
 export interface NewSessionVendorProps {
   projectId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** "New session": a `<button>`, the menu's trigger. */
+  trigger: ReactElement<Record<string, unknown>>
   /** Starts the Session: on `vendor`, or on the Project's default when undefined. */
   onPick: (vendor: string | undefined) => void
-  onClose: () => void
 }
+
+/** The first Vendor that can start: it takes the focus, so Enter picks it. */
+const FIRST_FREE = '[role="menuitem"]:not([aria-disabled="true"])'
 
 const styles = {
   root: {
-    position: 'absolute',
-    zIndex: 20,
-    left: 8,
-    right: 8,
+    minWidth: 'var(--anchor-width)',
     padding: 4,
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-card, 8px)',
@@ -53,15 +59,21 @@ const styles = {
   quiet: { margin: 0, padding: '2px 6px 4px', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
 
-export function NewSessionVendor({ projectId, onPick, onClose }: NewSessionVendorProps) {
+export function NewSessionVendor({ projectId, open, onOpenChange, trigger, onPick }: NewSessionVendorProps) {
+  return (
+    <Menu open={open} onOpenChange={onOpenChange} trigger={trigger} label="New session on" style={styles.root} testId="new-session-vendor" focusOnOpen={FIRST_FREE}>
+      {open ? <Vendors projectId={projectId} onPick={onPick} /> : null}
+    </Menu>
+  )
+}
+
+/** The list of the open menu: asked of main as it opens. */
+function Vendors({ projectId, onPick }: { projectId: string; onPick: (vendor: string | undefined) => void }) {
   const [vendors, setVendors] = useState<SessionVendors>()
-  const root = useRef<HTMLDivElement>(null)
-  // The latest callbacks, so the answer and the outside click do not depend on the parent's render.
+  // The latest callback, so the answer does not depend on the parent's render.
   const pick = useRef(onPick)
-  const close = useRef(onClose)
   useEffect(() => {
     pick.current = onPick
-    close.current = onClose
   })
 
   useEffect(() => {
@@ -79,28 +91,13 @@ export function NewSessionVendor({ projectId, onPick, onClose }: NewSessionVendo
     }
   }, [projectId])
 
-  useEffect(() => {
-    const outside = (event: MouseEvent) => {
-      if (root.current !== null && !root.current.contains(event.target as Node)) close.current()
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close.current()
-    }
-    document.addEventListener('mousedown', outside)
-    document.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      document.removeEventListener('keydown', escape)
-    }
-  }, [])
-
   // The first Vendor that can start takes the focus once the list is there, so Enter picks it.
-  const first = useRef<HTMLButtonElement>(null)
+  const first = useRef<HTMLElement>(null)
   useEffect(() => first.current?.focus(), [vendors])
   const firstFree = vendors?.choices.findIndex((choice) => choice.refusal === null) ?? -1
 
   return (
-    <div ref={root} style={styles.root} role="menu" aria-label="New session on" data-testid="new-session-vendor">
+    <>
       <p style={styles.heading} aria-hidden="true">
         New session on
       </p>
@@ -108,23 +105,23 @@ export function NewSessionVendor({ projectId, onPick, onClose }: NewSessionVendo
         <p style={styles.quiet}>Checking the Vendors…</p>
       ) : (
         vendors.choices.map(({ vendor, refusal }, index) => (
-          <button
+          <MenuItem
             key={vendor}
             ref={index === firstFree ? first : undefined}
-            type="button"
-            role="menuitem"
             className="w-row"
             style={{ ...styles.row, ...(refusal === null ? {} : styles.inactive) }}
-            data-testid="new-session-vendor-option"
+            testId="new-session-vendor-option"
             data-vendor={vendor}
-            // aria-disabled rather than disabled: a disabled button shows no tooltip (as writeAction does).
-            {...(refusal === null ? { onClick: () => onPick(vendor) } : { 'aria-disabled': 'true' as const, title: refusal, onClick: () => undefined })}
+            // Inactive, not disabled: the item keeps its tooltip (aria-disabled, as writeAction does).
+            disabled={refusal !== null}
+            title={refusal ?? undefined}
+            onClick={() => onPick(vendor)}
           >
             <VendorBadge vendor={vendor} />
             {vendor === vendors.defaultVendor ? <span style={styles.mark}>default</span> : null}
-          </button>
+          </MenuItem>
         ))
       )}
-    </div>
+    </>
   )
 }

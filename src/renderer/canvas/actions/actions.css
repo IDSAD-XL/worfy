@@ -42,18 +42,8 @@
   text-align: center;
 }
 
-/* The menu of an action (action-menu.ts): the look of the Canvas menu (overlays/CanvasMenu.tsx,
-   menuStyle), drawn into document.body and placed by the button. */
-.w-action-menu {
-  position: fixed;
-  z-index: 90;
-  min-width: 180px;
-  padding: var(--space-1);
-  border-radius: var(--radius-popover);
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: var(--shadow-node);
-}
+/* The menu of an action (action-menu.ts): the kit's Menu (theme/kit/menu.css) gives its frame, the
+   look of the Canvas menu; the kit's positioner places it by the button. */
 .w-action-menu .w-row[aria-disabled='true'] {
   color: var(--text-muted);
   background: transparent;

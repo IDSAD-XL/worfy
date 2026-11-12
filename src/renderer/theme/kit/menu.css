@@ -1,0 +1,16 @@
+/* The kit's Menu (Menu.tsx): the frame every menu of the kit shares, the look the Canvas menu set
+   (canvas/overlays/CanvasMenu.tsx). Under :where(), so a menu's own class (`w-modes__menu`,
+   `w-project-switcher__menu`) overrides any of it; values come from tokens.css. */
+:where(.w-kit-menu) {
+  box-sizing: border-box;
+  min-width: 180px;
+  /* Never taller than the room the positioner found next to the trigger. */
+  max-height: var(--available-height);
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  outline: none;
+}

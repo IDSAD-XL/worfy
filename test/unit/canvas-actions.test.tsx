@@ -717,9 +717,11 @@ describe('Force stop interrupts the Orchestrator (worfy-week tickets 17, 18)', (
     })
     await screen.findByRole('button', { name: 'Autopilot' })
     expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
-    // A stopped run has nothing to force: the menu, still open, holds Run all accepted (worfy-autopilot-queue ticket 17)
-    // and Run history (worfy-flight-recorder ticket 20).
-    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Run all accepted', 'Run history'])
+    // A stopped run has nothing to force: the menu holds Run all accepted (worfy-autopilot-queue ticket 17)
+    // and Run history (worfy-flight-recorder ticket 20). Force stop had the focus and went, so the kit's
+    // Menu closed with it (focus out); opened again, it shows the two.
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(menuItems()).toEqual(['Run all accepted', 'Run history'])
   })
 
   it('main\'s refusal of Force stop is the title of "⋯", with the error mark', async () => {
@@ -788,22 +790,24 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     fireEvent.click(more)
     const menu = screen.getByRole('menu', { name: 'Autopilot over demo' })
     // Drawn into document.body, out of the Node, where the Canvas's zoom does not reach it.
-    expect(menu.parentElement).toBe(document.body)
+    expect(more.parentElement?.contains(menu)).toBe(false)
+    expect(document.body.contains(menu)).toBe(true)
     expect(more.getAttribute('aria-expanded')).toBe('true')
     const item = screen.getByRole('menuitem', { name: 'Force stop' })
     expect(item.getAttribute('data-testid')).toBe('action-force-stop-autopilot')
-    expect(document.activeElement).toBe(item)
-    // The arrows move to Run history (worfy-flight-recorder ticket 20) and round again.
+    await vi.waitFor(() => expect(document.activeElement).toBe(item))
+    // The arrows move to Run history (worfy-flight-recorder ticket 20) and round again, the kit's
+    // Menu moving the focus round on the next frame.
     const history = screen.getByRole('menuitem', { name: 'Run history' })
     fireEvent.keyDown(item, { key: 'ArrowDown' })
     expect(document.activeElement).toBe(history)
     fireEvent.keyDown(history, { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(item)
+    await vi.waitFor(() => expect(document.activeElement).toBe(item))
     const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
     act(() => void item.dispatchEvent(esc))
     expect(esc.defaultPrevented).toBe(true)
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(document.activeElement).toBe(more)
+    await vi.waitFor(() => expect(document.activeElement).toBe(more))
     expect(more.getAttribute('aria-expanded')).toBe('false')
   })
 
@@ -830,7 +834,7 @@ describe('the graceful Stop and the "⋯" menu (worfy-week ticket 18)', () => {
     const more = await screen.findByTestId('action-autopilot-more')
     fireEvent.click(more)
     fireEvent.click(screen.getByRole('menuitem', { name: 'Force stop' }))
-    expect(document.activeElement).toBe(more)
+    await vi.waitFor(() => expect(document.activeElement).toBe(more))
     await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'autopilot.forceStop')).toHaveLength(1))
     await screen.findByRole('button', { name: 'Autopilot' })
     expect(screen.getByTestId('autopilot-status').textContent).toBe('stopped: user force stop')
@@ -980,7 +984,7 @@ describe('the entries into Run history on the Epic frame (worfy-flight-recorder 
     const item = screen.getByRole('menuitem', { name: 'Run history' })
     expect(item.getAttribute('data-testid')).toBe('action-run-history')
     expect(item.getAttribute('title')).toBe('Show the Autopilot Runs of demo: where the time of each went')
-    expect(item.getAttribute('aria-disabled')).toBe('false')
+    expect(item.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(item)
     expect(opened).toEqual([[PROJECT, undefined, 'demo']])
     act(() => listeners.get('autopilot.changed')?.({ ...autopilot, epic: 'demo', status: 'running', wave: 1, run: RUN, revision: 5 }))
@@ -1108,7 +1112,7 @@ describe('Open PR on a Ticket over several repositories (worfy-multi-repo-ticket
     const [api, web] = screen.getAllByRole('menuitem')
     expect(api!.getAttribute('aria-disabled')).toBe('true')
     expect(api!.getAttribute('title')).toBe('Not a GitHub address: https://evil.example/o/r/pull/41')
-    expect(web!.getAttribute('aria-disabled')).toBe('false')
+    expect(web!.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(api!)
     expect(calls.some((call) => call.channel === 'shell.openExternal')).toBe(false)
   })
@@ -1195,7 +1199,7 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
     expect(force.getAttribute('aria-disabled')).toBe('true')
     expect(force.getAttribute('title')).toBe(HINT)
     // Reading the Runs changes nothing: Run history stays active (worfy-flight-recorder ticket 20).
-    expect(screen.getByRole('menuitem', { name: 'Run history' }).getAttribute('aria-disabled')).toBe('false')
+    expect(screen.getByRole('menuitem', { name: 'Run history' }).getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(force)
     expect(calls.filter((call) => call.channel === 'autopilot.stop' || call.channel === 'autopilot.forceStop')).toEqual([])
   })

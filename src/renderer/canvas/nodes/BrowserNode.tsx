@@ -10,6 +10,7 @@ import { useInFocusTile, useSeeThroughTile } from '../../focus/focus-tile'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { Chip } from '../../theme/Chip'
+import { Menu, MenuItem } from '../../theme/kit/Menu'
 import { useEdgeFocus } from '../edge-focus'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
@@ -428,63 +429,40 @@ function useProfilesWindow(): { open: (selected: string | null) => void; window:
 }
 
 /**
- * The frame of a Browser whose profile is not settled: the button «Choose a profile» and its list —
+ * The frame of a Browser whose profile is not settled: the button «Choose a profile» and its menu —
  * the Project's profiles, and «Browser profiles…» to make or manage one. The choice goes into the
- * Node's data, as the address does; the Browser layer then opens the page on that profile.
+ * Node's data, as the address does; the Browser layer then opens the page on that profile. The menu is
+ * the kit's Menu of a Node (theme/kit/Menu.tsx, worfy-ui-kit ticket 11): drawn over the Canvas under
+ * the button, with the keys, Esc and the focus back on the button.
  */
 function ChooseProfile({ id, choice, profiles, manage }: { id: string; choice: BrowserProfileChoice & { kind: 'choose' }; profiles: readonly BrowserProfile[]; manage: () => void }) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const [open, setOpen] = useState(false)
-  const root = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const outside = (event: MouseEvent) => {
-      if (event.target instanceof Node && root.current?.contains(event.target) !== true) setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    return () => document.removeEventListener('mousedown', outside)
-  }, [open])
   const why = {
     deleted: 'The Browser profile of this Browser was deleted.',
     several: 'This Browser has no Browser profile yet.',
     none: 'This Project has no Browser profile yet.',
   }[choice.reason]
+  const trigger = (
+    <button type="button" className="w-browser-frame__open-button" data-testid="browser-choose-profile-button" {...writeAction(readOnly, () => undefined)}>
+      Choose a profile
+    </button>
+  )
   return (
-    <div ref={root} className="w-browser-frame__choose nodrag" data-testid="browser-choose-profile">
+    <div className="w-browser-frame__choose nodrag" data-testid="browser-choose-profile">
       <span className="w-browser-frame__choose-why">{why}</span>
-      <button type="button" className="w-browser-frame__open-button" data-testid="browser-choose-profile-button" aria-expanded={open} {...writeAction(readOnly, () => setOpen(!open))}>
-        Choose a profile
-      </button>
-      {open ? (
-        <div role="menu" aria-label="Browser profiles" className="w-browser-frame__choose-menu">
-          {profiles.map((profile) => (
-            <button
-              key={profile.id}
-              type="button"
-              role="menuitem"
-              className="w-row"
-              onClick={() => {
-                setOpen(false)
-                void ops.apply({ op: 'patchData', id, data: { profile: profile.id } })
-              }}
-            >
-              {profile.name}
-            </button>
-          ))}
-          <button
-            type="button"
-            role="menuitem"
-            className="w-row"
-            onClick={() => {
-              setOpen(false)
-              manage()
-            }}
-          >
-            Browser profiles…
-          </button>
-        </div>
-      ) : null}
+      {/* On a read-only screen the button stays, inactive: it opens nothing. */}
+      <Menu open={open} onOpenChange={(next) => setOpen(next && readOnly === null)} trigger={trigger} label="Browser profiles" inNode>
+        {profiles.map((profile) => (
+          <MenuItem key={profile.id} className="w-row" onClick={() => void ops.apply({ op: 'patchData', id, data: { profile: profile.id } })}>
+            {profile.name}
+          </MenuItem>
+        ))}
+        <MenuItem className="w-row" onClick={manage}>
+          Browser profiles…
+        </MenuItem>
+      </Menu>
     </div>
   )
 }

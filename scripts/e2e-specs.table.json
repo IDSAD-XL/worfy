@@ -124,10 +124,11 @@
         "test/e2e/browser-webview-guard.spec.ts",
         "test/e2e/browser.spec.ts",
         "test/e2e/controls.spec.ts",
+        "test/e2e/layers-menu.spec.ts",
         "test/e2e/layers-popover.spec.ts",
         "test/e2e/linked-browser.spec.ts"
       ],
-      "why": "The Browser node and its layer: web pages in the app, seen by the browser* specs, linked-browser.spec.ts, controls.spec.ts (a Browser node among the controls) and layers-popover.spec.ts (a press inside a Browser page closes a popover). Left out: read-only.ts (ipc/layout.ts), cdp.ts and origins.ts (the MCP server of every agent session), shared/browser/* and renderer browser-frame.ts and profiles.ts (the menu that creates nodes, create-items.ts)."
+      "why": "The Browser node and its layer: web pages in the app, seen by the browser* specs, linked-browser.spec.ts, controls.spec.ts (a Browser node among the controls), layers-menu.spec.ts (the «Choose a profile» menu of a Browser node) and layers-popover.spec.ts (a press inside a Browser page closes a popover). Left out: read-only.ts (ipc/layout.ts), cdp.ts and origins.ts (the MCP server of every agent session), shared/browser/* and renderer browser-frame.ts and profiles.ts (the menu that creates nodes, create-items.ts)."
     },
     {
       "paths": [

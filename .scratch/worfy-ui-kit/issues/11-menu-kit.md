@@ -1,7 +1,7 @@
 # 11 — Menu kit: `ActionMenu`, «Modes» и остальные menu
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T16:53Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения по реализации» (kit, Esc); «Решения по test-ам» (Seam 1,
 Seam 2); истории 3, 8, 10, 13, 15, 16, 25; заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`,
