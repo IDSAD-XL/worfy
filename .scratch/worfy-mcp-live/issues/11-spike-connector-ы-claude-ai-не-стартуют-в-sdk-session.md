@@ -33,9 +33,13 @@ Stable 802d79536: четыре connector-а claude.ai разрешены в Proj
 
 - [ ] Заметка `.scratch/worfy-mcp-live/spike-claudeai-connectors.md`: ответ на каждый вопрос, как проверено (чтение
       SDK и бинарника, сценарий в sandbox), выбранный путь и запасной путь.
+  - evidence: test-run pass · `node scripts/spikes/harness-plugin/connector-name.mjs` exit 0 · mac - · 38da81449f86c0ce916db6bc5a44e6cecfc6bab6
+  - evidence: test-run pass · `node scripts/spikes/harness-plugin/connector-name.mjs` exit 0 · mac - · 8982db2ff4a3f8b925524f1b7233214e20c07932
 - [ ] Если ответ требует живой проверки — шаги для владельца в заметке (10 минут, без настоящих изменений профиля) и
       место для итога.
+  - evidence: commit pass · Spike: claude.ai connectors not started in a worfy Session (worfy-mcp-live 11) · - - · 38da81449f86c0ce916db6bc5a44e6cecfc6bab6
 - [ ] Предложение следующего Ticket-а (исправление или честная строка) — в заметке; Ticket заводит Orchestrator.
+  - evidence: commit pass · Spike: claude.ai connectors not started in a worfy Session (worfy-mcp-live 11) · - - · 38da81449f86c0ce916db6bc5a44e6cecfc6bab6
 - [ ] Настоящие настройки не изменились: `~/.claude.json`, `~/.claude/settings.json` и Profile-ы — fingerprint до и
       после совпадает. Тесты и сценарии — только с временным HOME.
 - [ ] lint и gate fast — exit 0.
