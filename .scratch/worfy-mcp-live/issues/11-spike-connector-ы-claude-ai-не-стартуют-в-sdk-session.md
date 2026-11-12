@@ -1,7 +1,7 @@
 # 11 — Spike: connector-ы claude.ai не стартуют в Session worfy даже после Restart
 
 Type: spike
-Status: open
+Status: claimed 2026-11-12T20:17Z
 Blocked by: none
 Source: владелец 2026-11-12 Q4 («spike, только если Restart не помогает») и Q11 («не помог») — живая проверка на
 Stable 802d79536: четыре connector-а claude.ai разрешены в Project, после «Restart Session with the same conversation»
