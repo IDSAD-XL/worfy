@@ -1,7 +1,8 @@
 # 13 — Tooltip kit: подсказки «почему неактивно» и кнопки-иконки
 
 Type: task
-Status: claimed 2026-11-12T14:18Z
+Status: done 2026-11-12T17:50Z
+PR: #1828
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения по реализации» (Tooltip kit); истории 5, 6; заметка темы
 `docs/product/ui-overhaul/notes/inventory-overlays.md`, раздел 4
@@ -38,6 +39,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4ba8e9d05fea0cbe295a9a27161137065a70bd8c
+  - evidence: ci-check pass · CI green on PR #1828 (ci-ok, e2e jobs included) · mac - · 666c6fba0e99f928d27cd759d0402a9039731087
 
 ## Где в коде
 
