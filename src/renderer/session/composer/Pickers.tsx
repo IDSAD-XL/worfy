@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
 import type { ModelOption, SettingsChange } from '../../../shared/agent/settings'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
+import { Popover } from '../../theme/kit/Popover'
 import { Select, SelectChevron, type SelectOption } from '../../theme/Select'
 import { useSessionControls } from '../store'
 import { useCapabilities } from '../useCapabilities'
@@ -175,9 +176,13 @@ interface EffortPickerProps {
  * one value goes to `configure`: when the popover closes (Esc, Enter, a press outside, the focus
  * leaving it), or EFFORT_REST_MS after the thumb last moved — never on a single move, and never a
  * level main already has. A picker that goes away with the thumb moved sends its level too.
+ *
+ * The popover is the kit's (theme/kit/Popover.tsx, worfy-ui-kit ticket 10): it opens with the focus on
+ * the slider and gives it back to the button on Esc; a press outside, the focus leaving it, a blur of
+ * the window and a switch of the view close it too. Esc that closes it does nothing else: the turn of
+ * the agent goes on (the message field asks theme/open-layers.ts before it interrupts).
  */
 function EffortPicker({ effort, efforts, order, disabled, configure }: EffortPickerProps) {
-  const popoverId = useId()
   const [open, setOpen] = useState(false)
   /** Where the user put the thumb since the popover opened; undefined: not moved, the thumb is on `effort`. */
   const [moved, setMoved] = useState<{ mark: EffortMark } | undefined>(undefined)
@@ -272,107 +277,85 @@ function EffortPicker({ effort, efforts, order, disabled, configure }: EffortPic
     }
   }
 
-  // The slider takes the focus on opening: ← and → work at once.
-  useEffect(() => {
-    if (shown) sliderRef.current?.focus({ preventScroll: true })
-  }, [shown])
-
-  useEffect(() => {
-    if (!shown) return
-    const onPress = (event: Event): void => {
-      const inside = event.target instanceof Node && (buttonRef.current?.parentElement?.contains(event.target) ?? false)
-      if (!inside) close(false)
+  const openChange = (next: boolean): void => {
+    if (!next) {
+      close(false)
+      return
     }
-    document.addEventListener('mousedown', onPress, true)
-    return () => document.removeEventListener('mousedown', onPress, true)
-  }, [shown, close])
+    // What an earlier opening sent is main's by now, or was refused: the level main reports counts again.
+    sent.current = null
+    setOpen(true)
+  }
 
   const last = marks.length - 1
   return (
-    <span
-      className="w-effort"
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || !shown) return
-        // The press that closes the popover does nothing else: the focus mode does not get it.
-        event.preventDefault()
-        event.stopPropagation()
-        close(true)
-      }}
-      onBlur={(event) => {
-        // The focus left the button and the popover: Tab, another window.
-        if (shown && !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) close(false)
-      }}
-    >
-      <button
-        ref={buttonRef}
-        type="button"
-        className="w-select w-select--mono w-pickers__select"
-        aria-label={inactive ? 'Effort' : `Effort: ${markName(effort)}`}
-        aria-haspopup="dialog"
-        aria-expanded={shown}
-        aria-controls={shown ? popoverId : undefined}
-        title="Claude Code does not report the effort it applies: this is the level worfy asked for"
-        data-testid="picker-effort"
-        data-value={effort ?? DEFAULT_VALUE}
-        disabled={inactive}
-        onClick={() => {
-          if (shown) close(false)
-          else {
-            // What an earlier opening sent is main's by now, or was refused: the level main reports counts again.
-            sent.current = null
-            setOpen(true)
-          }
-        }}
-      >
-        <span className="w-select__prefix">Effort</span>
-        <span className="w-select__value">{inactive ? '—' : markName(effort)}</span>
-        <SelectChevron />
-      </button>
-      {shown ? (
-        <div
-          id={popoverId}
-          role="dialog"
-          aria-label="Effort"
-          className="w-effort__popover"
-          data-testid="effort-popover"
-          // A press next to the slider keeps the focus on the slider.
-          onMouseDown={(event) => {
+    <span className="w-effort">
+      <Popover
+        open={shown}
+        onOpenChange={openChange}
+        label="Effort"
+        testId="effort-popover"
+        className="w-effort__popover"
+        side="top"
+        align="start"
+        sideOffset={8}
+        // The slider takes the focus on opening: ← and → work at once.
+        initialFocus={sliderRef}
+        // A press next to the slider keeps the focus on the slider.
+        popupProps={{
+          onMouseDown: (event) => {
             if (event.target !== sliderRef.current) event.preventDefault()
-          }}
-        >
-          <div className="w-effort__head">
-            <span className="w-effort__caption">Effort</span>
-            {/* For the eye: a screen reader hears the mark as the slider's aria-valuetext. */}
-            <span className="w-effort__current w-mono" aria-hidden="true" data-testid="effort-current">
-              {name}
-            </span>
-          </div>
-          <input
-            ref={sliderRef}
-            type="range"
-            className="w-effort__slider"
-            min={0}
-            max={last}
-            step={1}
-            value={index}
-            aria-label="Effort"
-            aria-valuetext={name}
-            data-testid="effort-slider"
-            style={{ '--w-effort-fill': `${(index / last) * 100}%` } as CSSProperties}
-            onChange={(event) => moveTo(Number(event.target.value))}
-            onKeyDown={onSliderKey}
-          />
-          <div className="w-effort__marks" aria-hidden="true">
-            {marks.map((mark, at) => (
-              <span key={markName(mark)} className="w-effort__mark" data-testid="effort-mark" data-mark={markName(mark)} data-reached={at <= index ? '' : undefined} style={{ left: `${(at / last) * 100}%` }} />
-            ))}
-          </div>
-          <div className="w-effort__ends w-mono" aria-hidden="true">
-            <span>{markName(marks[0] ?? null)}</span>
-            <span>{markName(marks[last] ?? null)}</span>
-          </div>
+          },
+        }}
+        trigger={
+          <button
+            ref={buttonRef}
+            type="button"
+            className="w-select w-select--mono w-pickers__select"
+            aria-label={inactive ? 'Effort' : `Effort: ${markName(effort)}`}
+            title="Claude Code does not report the effort it applies: this is the level worfy asked for"
+            data-testid="picker-effort"
+            data-value={effort ?? DEFAULT_VALUE}
+            disabled={inactive}
+          >
+            <span className="w-select__prefix">Effort</span>
+            <span className="w-select__value">{inactive ? '—' : markName(effort)}</span>
+            <SelectChevron />
+          </button>
+        }
+      >
+        <div className="w-effort__head">
+          <span className="w-effort__caption">Effort</span>
+          {/* For the eye: a screen reader hears the mark as the slider's aria-valuetext. */}
+          <span className="w-effort__current w-mono" aria-hidden="true" data-testid="effort-current">
+            {name}
+          </span>
         </div>
-      ) : null}
+        <input
+          ref={sliderRef}
+          type="range"
+          className="w-effort__slider"
+          min={0}
+          max={last}
+          step={1}
+          value={index}
+          aria-label="Effort"
+          aria-valuetext={name}
+          data-testid="effort-slider"
+          style={{ '--w-effort-fill': `${(index / last) * 100}%` } as CSSProperties}
+          onChange={(event) => moveTo(Number(event.target.value))}
+          onKeyDown={onSliderKey}
+        />
+        <div className="w-effort__marks" aria-hidden="true">
+          {marks.map((mark, at) => (
+            <span key={markName(mark)} className="w-effort__mark" data-testid="effort-mark" data-mark={markName(mark)} data-reached={at <= index ? '' : undefined} style={{ left: `${(at / last) * 100}%` }} />
+          ))}
+        </div>
+        <div className="w-effort__ends w-mono" aria-hidden="true">
+          <span>{markName(marks[0] ?? null)}</span>
+          <span>{markName(marks[last] ?? null)}</span>
+        </div>
+      </Popover>
     </span>
   )
 }

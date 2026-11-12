@@ -223,3 +223,67 @@ describe('a kit Popover of a Node on the Canvas', () => {
     expect(insideNodePopup(screen.getByRole('button', { name: 'Restore' }))).toBe(false)
   })
 })
+
+describe('a kit Popover without a trigger, and what its place may keep open (worfy-ui-kit ticket 10)', () => {
+  /** A popover placed against a chip, opened by its place: What's new under the version chip. */
+  function Anchored({ onDismiss }: { onDismiss?: PopoverProps['onDismiss'] }) {
+    const [open, setOpen] = useState(true)
+    const [chip, setChip] = useState<HTMLButtonElement | null>(null)
+    return (
+      <>
+        <button type="button" ref={setChip}>
+          Chip
+        </button>
+        <input aria-label="Search or run" />
+        {chip !== null ? (
+          <Popover open={open} onOpenChange={setOpen} label="What's new" anchor={chip} {...(onDismiss !== undefined ? { onDismiss } : {})}>
+            <button type="button">Update</button>
+          </Popover>
+        ) : null}
+      </>
+    )
+  }
+  const shown = () => screen.queryByRole('dialog', { name: "What's new" })
+
+  it('is placed against its anchor; a press on the anchor is not a press outside, a press elsewhere is', async () => {
+    render(<Anchored />)
+    await flush()
+    expect(shown()).not.toBeNull()
+    press(screen.getByRole('button', { name: 'Chip' }))
+    await flush()
+    expect(shown()).not.toBeNull()
+    press(document.body)
+    await flush()
+    expect(shown()).toBeNull()
+  })
+
+  it('the focus going to anything else of the window closes it; the focus on its anchor does not', async () => {
+    render(<Anchored />)
+    await flush()
+    act(() => screen.getByRole('button', { name: 'Chip' }).focus())
+    await flush()
+    expect(shown()).not.toBeNull()
+    act(() => screen.getByRole('textbox', { name: 'Search or run' }).focus())
+    await flush()
+    expect(shown()).toBeNull()
+  })
+
+  it('onDismiss answering false keeps it open on a press outside, a blur of the window and the focus leaving; Esc closes it all the same', async () => {
+    const onDismiss = vi.fn<(reason: string) => boolean>(() => false)
+    render(<Anchored onDismiss={onDismiss} />)
+    await flush()
+    press(document.body)
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    act(() => screen.getByRole('textbox', { name: 'Search or run' }).focus())
+    await flush()
+    expect(shown()).not.toBeNull()
+    expect(onDismiss.mock.calls.map(([reason]) => reason)).toEqual(expect.arrayContaining(['outside-press', 'blur', 'focus-out']))
+    act(() => {
+      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    await flush()
+    expect(shown()).toBeNull()
+  })
+})

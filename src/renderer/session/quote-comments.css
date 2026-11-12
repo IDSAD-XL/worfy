@@ -94,12 +94,19 @@
   }
 }
 
-/* What floats over the transcript: the button, the menu, the popover, the card. */
+/* What floats over the transcript: the button, the menu, the popover, the card. The button and the menu
+   place themselves (QuoteCommentParts.tsx, placeNear); the popover and the card are popups of the kit
+   (theme/kit/Popover.tsx, PreviewCard.tsx), whose positioner places them. The compound selectors win over
+   the kit's frame (`.w-kit-popover`) whatever the order of the stylesheets: the look is the one before the kit. */
+.w-qfab,
+.w-qmenu {
+  position: fixed;
+}
+
 .w-qfab,
 .w-qmenu,
-.w-qpop,
-.w-qcard {
-  position: fixed;
+.w-kit-popover.w-qpop,
+.w-kit-popover.w-qcard {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-popover);
   background: var(--surface);
@@ -211,15 +218,15 @@
 }
 
 /* The popover of a comment. */
-.w-qpop {
-  z-index: 310;
+.w-kit-popover.w-qpop {
   width: 372px;
   max-width: calc(100vw - 16px);
+  max-height: var(--available-height);
   box-sizing: border-box;
   padding: 10px;
 }
 
-.w-qpop--shake {
+.w-kit-popover.w-qpop--shake {
   animation: w-quote-shake 0.28s;
 }
 
@@ -404,9 +411,9 @@
 }
 
 /* The card of a comment under the pointer. */
-.w-qcard {
-  z-index: 305;
+.w-kit-popover.w-qcard {
   width: 300px;
+  max-height: var(--available-height);
   box-sizing: border-box;
   padding: 9px 10px;
   font-size: var(--text-12);
@@ -704,10 +711,10 @@ button.w-qprompt__source:hover {
 @media (prefers-reduced-motion: reduce) {
   .w-qfab,
   .w-qmenu,
-  .w-qpop,
-  .w-qcard,
+  .w-kit-popover.w-qpop,
+  .w-kit-popover.w-qcard,
   .w-qtray,
-  .w-qpop--shake,
+  .w-kit-popover.w-qpop--shake,
   .w-qprompt__block--flash {
     animation: none;
   }

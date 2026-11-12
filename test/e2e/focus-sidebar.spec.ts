@@ -294,39 +294,35 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     }
     const escape = (): Promise<void> => window.keyboard.press('Escape')
 
-    // History. It closes on Esc only with the focus inside it.
+    // History, a Popover of the kit (worfy-ui-kit ticket 10): it takes the focus when it opens, closes
+    // on Esc wherever the focus is and on a press elsewhere, and gives the focus back to its button.
     const history = window.getByTestId('history-popover')
+    const historyButton = window.getByTestId('sidebar-history')
     await showSidebarSection(window, 'Sessions')
     await enterFocus(window)
-    await window.getByTestId('sidebar-history').click()
+    await historyButton.click()
     await expect(history).toBeVisible()
     await expect(focus).toBeVisible()
-    // The focus in the layer: History does not react, so the press leaves focus mode.
-    await intoLayer()
-    await escape()
-    await expect(focus).toHaveCount(0)
-    await expect(history).toBeVisible()
-    // The same from the field of a note in a tile.
-    await again()
-    await focus.getByTestId('focus-tile').first().getByRole('textbox', { name: 'Note text' }).click()
-    await escape()
-    await expect(focus).toHaveCount(0)
-    await expect(history).toBeVisible()
-    // The focus inside History: the first press closes History, the second leaves focus mode.
-    await again()
-    await history.getByRole('button', { name: 'Close' }).focus()
+    expect(await holdsFocus(history)).toBe(true)
+    // The first press closes History alone; the focus is back on its button, in the sidebar, and an Esc
+    // pressed in the sidebar is never focus mode's.
     await escape()
     await expect(history).toHaveCount(0)
     await expect(focus).toBeVisible()
+    await expect(historyButton).toBeFocused()
+    await escape()
+    await expect(focus).toBeVisible()
+    // A press in the layer is a press outside History: it closes, and the next Esc leaves focus mode.
+    await historyButton.click()
+    await expect(history).toBeVisible()
+    await intoLayer()
+    await expect(history).toHaveCount(0)
     await escape()
     await expect(focus).toHaveCount(0)
-    // In the normal view too: Esc inside History closes it, and outside it leaves it open.
-    await window.getByTestId('sidebar-history').click()
-    await expect(history).toBeVisible()
-    await escape()
+    // In the normal view too: another key pressed inside leaves it open, Esc closes it.
+    await historyButton.click()
     await expect(history).toBeVisible()
     await history.getByRole('button', { name: 'Close' }).focus()
-    // Only Esc: another key pressed inside leaves it open.
     await window.keyboard.press('ArrowDown')
     await window.keyboard.press('a')
     await expect(history).toBeVisible()
@@ -361,12 +357,13 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(focus).toBeVisible()
 
-    // Both open, the focus inside History: one press closes History alone, the next the panel, the
-    // third — the focus is nowhere by then — leaves focus mode.
+    // Both open, the focus inside History: one press closes History alone, the next the panel. The
+    // focus is back on History's button by then, in the sidebar: the third press leaves focus mode only
+    // from the layer.
     await window.getByTestId('sidebar-adr').first().click()
     await expect(panel).toBeVisible()
     await showSidebarSection(window, 'Sessions')
-    await window.getByTestId('sidebar-history').click()
+    await historyButton.click()
     await history.getByRole('button', { name: 'Close' }).focus()
     await escape()
     await expect(history).toHaveCount(0)
@@ -375,6 +372,7 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(panel).toHaveCount(0)
     await expect(focus).toBeVisible()
+    await intoLayer()
     await escape()
     await expect(focus).toHaveCount(0)
     await again()

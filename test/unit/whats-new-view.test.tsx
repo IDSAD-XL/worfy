@@ -56,6 +56,8 @@ afterEach(() => {
 })
 
 const chip = (): HTMLElement => screen.getByTestId('app-version')
+/** Lets Base UI's effects and timers run. */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
 const items = (): string[] => screen.getAllByRole('menuitem').map((item) => item.textContent ?? '')
 
 /** Opens the chip's menu and chooses "What's new"; answers the popover once main has answered. */
@@ -202,8 +204,29 @@ describe("What's new", () => {
     fakeBridge({ ok: true, value: ANSWER })
     render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
     const popover = await openWhatsNew()
-    fireEvent.keyDown(popover, { key: 'Escape' })
+    // The kit Popover (theme/kit/Popover.tsx) moves the focus in, and back out, after the event.
+    await settle()
+    // The popover itself has the focus, not its button.
+    expect(document.activeElement).toBe(popover)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await settle()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(chip())
+  })
+
+  it('stays open when the window loses the focus, as a PR opening in the browser takes it; a press on the chip does not close it either', async () => {
+    fakeBridge({ ok: true, value: ANSWER })
+    render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
+    await openWhatsNew()
+    await settle()
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(screen.getByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeTruthy()
+    fireEvent.pointerDown(chip(), { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(chip(), { button: 0 })
+    await settle()
+    expect(screen.getByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeTruthy()
   })
 })

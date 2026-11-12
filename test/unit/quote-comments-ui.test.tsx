@@ -156,7 +156,8 @@ describe('the page around the comments', () => {
   })
 
   it('what floats over the transcript is fixed too: none of it adds to the page’s size', () => {
-    expect(rule('.w-qfab,\n.w-qmenu,\n.w-qpop,\n.w-qcard')).toMatch(/position:\s*fixed;/)
+    // The popover and the card are popups of the kit (worfy-ui-kit ticket 10): Base UI's positioner places them.
+    expect(rule('.w-qfab,\n.w-qmenu')).toMatch(/position:\s*fixed;/)
   })
 })
 
@@ -184,7 +185,12 @@ describe('the button next to a selection', () => {
     fireEvent.click(button)
     const popover = await screen.findByTestId('quote-popover')
     expect(within(popover).getByText('Edit comment')).toBeTruthy()
-    expect((within(popover).getByTestId('quote-popover-text') as HTMLTextAreaElement).value).toBe('Keep it.')
+    const field = within(popover).getByTestId('quote-popover-text') as HTMLTextAreaElement
+    expect(field.value).toBe('Keep it.')
+    // The focus in the field, the caret after its text.
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    expect(document.activeElement).toBe(field)
+    expect([field.selectionStart, field.selectionEnd]).toEqual([8, 8])
   })
 
   it('right next to an unsent comment it offers a new comment', async () => {
@@ -291,6 +297,93 @@ describe('the popover', () => {
     const popover = await screen.findByTestId('quote-popover')
     fireEvent.paste(within(popover).getByTestId('quote-popover-text'), { clipboardData: { files: [new File(['x'], 'pasted.png', { type: 'image/png' })] } })
     await waitFor(() => expect(within(popover).getAllByTestId('quote-popover-image')).toHaveLength(1))
+  })
+})
+
+describe('the popover and the card on the kit (worfy-ui-kit ticket 10)', () => {
+  const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+  /** A pointer press as a browser sends it: the kit hears a press outside by its pointerdown. */
+  function press(element: Element): void {
+    fireEvent.pointerDown(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(element, { button: 0 })
+    fireEvent.pointerUp(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseUp(element, { button: 0 })
+    fireEvent.click(element, { button: 0 })
+  }
+
+  async function openPopover(): Promise<HTMLElement> {
+    render(<Harness />)
+    select('m1#0', 'the lint step')
+    fireEvent.click(await screen.findByTestId('quote-button'))
+    await settle()
+    return screen.getByRole('dialog', { name: 'Comment on the quote' })
+  }
+
+  it('the popover is a named dialog with the focus in its field; a press outside closes it unchanged', async () => {
+    const popover = await openPopover()
+    expect(popover.getAttribute('data-testid')).toBe('quote-popover')
+    expect(document.activeElement).toBe(within(popover).getByTestId('quote-popover-text'))
+    press(screen.getByTestId('log'))
+    await settle()
+    expect(screen.queryByTestId('quote-popover')).toBeNull()
+  })
+
+  it('with a text written, a press outside keeps it open and asks to save or cancel; a blur of the window keeps it too', async () => {
+    const popover = await openPopover()
+    fireEvent.change(within(popover).getByTestId('quote-popover-text'), { target: { value: 'Not lost.' } })
+    press(screen.getByTestId('log'))
+    await settle()
+    expect(screen.getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel \(Esc\) first\.$/)
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect((within(screen.getByTestId('quote-popover')).getByTestId('quote-popover-text') as HTMLTextAreaElement).value).toBe('Not lost.')
+  })
+
+  it('Tab and Shift+Tab go round the field and the buttons of the popover', async () => {
+    const popover = await openPopover()
+    const field = within(popover).getByTestId('quote-popover-text')
+    fireEvent.change(field, { target: { value: 'Keep it.' } })
+    act(() => field.focus())
+    const pressed = fireEvent.keyDown(field, { key: 'Tab', shiftKey: true })
+    expect(pressed).toBe(false)
+    expect(document.activeElement).toBe(within(popover).getByTestId('quote-popover-save'))
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
+    expect(document.activeElement).toBe(field)
+  })
+
+  it('unchanged, a blur of the window closes it', async () => {
+    await openPopover()
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(screen.queryByTestId('quote-popover')).toBeNull()
+  })
+
+  it('the card of a comment is a dialog named Comment placed against the light; the pointer on it keeps it, leaving it and Esc close it', async () => {
+    const { HoverCard } = await import('../../src/renderer/session/QuoteCommentParts')
+    const comment = { id: 'c1', anchor: 'm1#0', start: 0, end: 4, quote: 'the lint step', messageAt: AT, text: 'Keep it.', images: [], createdAt: 1 } as unknown as QuoteComment
+    const onEnter = vi.fn()
+    const onLeave = vi.fn()
+    const onEdit = vi.fn()
+    render(<HoverCard rect={new DOMRect(40, 60, 120, 16)} comment={comment} sent={null} onEnter={onEnter} onLeave={onLeave} onEdit={onEdit} onDelete={() => undefined} onReply={() => undefined} />)
+    await settle()
+    const card = screen.getByRole('dialog', { name: 'Comment' })
+    expect(card.getAttribute('data-testid')).toBe('quote-card')
+    expect(card.textContent).toContain('Keep it.')
+    fireEvent.mouseEnter(card)
+    expect(onEnter).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(card).getByTestId('quote-card-edit'))
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    fireEvent.mouseLeave(card)
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    act(() => {
+      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    await settle()
+    expect(onLeave).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -1863,12 +1863,12 @@ body.w-split-dragging * {
   flex: none;
 }
 
-.w-effort__popover {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  z-index: 10;
+/* A Popover of the kit (theme/kit/Popover.tsx), placed over its button by the kit: the frame keeps the
+   look it had before the kit, so the rule wins over the kit's frame (`.w-kit-popover`) whatever the order. */
+.w-kit-popover.w-effort__popover {
   width: 220px;
+  max-height: none;
+  overflow: visible;
   box-sizing: border-box;
   padding: 10px var(--space-3) var(--space-2);
   border: 1px solid var(--border-strong);
@@ -2030,11 +2030,8 @@ body.w-split-dragging * {
   outline-offset: 1px;
 }
 
-.w-queue__popover {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 10;
+/* A Popover of the kit (theme/kit/Popover.tsx), placed over its chip by the kit, with the look it had before. */
+.w-kit-popover.w-queue__popover {
   width: 320px;
   box-sizing: border-box;
   padding: 6px;
@@ -2498,4 +2495,14 @@ body.w-split-dragging * {
 .w-modes__item-detail {
   color: var(--text-muted);
   font-size: var(--text-12);
+}
+
+/* History in the sidebar (HistoryPopover.tsx): a Popover of the kit as wide as the element it hangs from
+   (`--anchor-width`, set by Base UI), with the look it had before the kit. */
+.w-kit-popover.w-history-popover {
+  width: var(--anchor-width);
+  padding: 4px;
+  border-radius: var(--radius-card, 8px);
+  background: var(--bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }

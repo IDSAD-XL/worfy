@@ -285,12 +285,17 @@ test('messages from two windows during a turn wait in one queue, in the order th
     await write(inTwo, 'queued from window two')
 
     // Both windows show one queue, in the order the messages came; none of them reached Claude Code.
-    for (const view of views) {
+    for (const [view, page] of [
+      [views[0], one],
+      [views[1], two],
+    ] as const) {
       await expect(view.getByTestId('queue-chip')).toHaveText('2 queued')
       await view.getByTestId('queue-chip').click()
-      await expect(view.getByTestId('queue-item')).toHaveCount(2)
-      await expect(view.getByTestId('queue-item').nth(0)).toContainText('queued from window one')
-      await expect(view.getByTestId('queue-item').nth(1)).toContainText('queued from window two')
+      // The list is a Popover of the kit (worfy-ui-kit ticket 10), drawn into the page's body, not the view.
+      const items = page.getByTestId('queue-list').getByTestId('queue-item')
+      await expect(items).toHaveCount(2)
+      await expect(items.nth(0)).toContainText('queued from window one')
+      await expect(items.nth(1)).toContainText('queued from window two')
     }
     expect(messages()).toEqual(['hold'])
 

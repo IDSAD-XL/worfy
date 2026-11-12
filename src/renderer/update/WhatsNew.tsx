@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import { createPortal } from 'react-dom'
 import { failureReason } from '../../shared/ipc/channels'
 import { UPDATE_REPO_PAGE, type WhatsNew as WhatsNewAnswer } from '../../shared/ipc/update'
 import { invoke } from '../ipc'
+import { Popover } from '../theme/kit/Popover'
 
 // "What's new" (worfy-update ticket 10, spec item 6, R13): a popover under the version chip
 // (src/renderer/update/UpdateChip.tsx), opened from its menu. Main answers `update.whatsNew` with
@@ -16,9 +16,12 @@ import { invoke } from '../ipc'
 // markup. The number and "…and more" open github.com in the system's browser (`shell.openExternal`,
 // which main accepts for https only); the window never navigates.
 //
-// It lies over the toasts (z-index 120), so it closes once the focus goes to anything else of the
-// window — the Command palette's field on ⌘K (z-index 101) among them —, never under it. The window
-// losing the focus (a PR opening in the browser) keeps it open.
+// The popover is the kit's (theme/kit/Popover.tsx, worfy-ui-kit ticket 10), placed against the chip and
+// opened by the chip's menu, on the topmost layer of the scale with the chip's menu: over the toasts, so the
+// sticky Update toast of the start under the chip does not cover it. The focus goes in when it opens and
+// back to the chip when it closes; Esc, a press elsewhere and the focus going to anything else of the window
+// — the Command palette's field on ⌘K among them — close it. The window losing the focus (a PR opening
+// in the browser) keeps it open.
 
 /** The button of the popover: the chip's first menu item. Without `run` it is inactive (a build that runs). */
 export interface WhatsNewAction {
@@ -40,22 +43,12 @@ export interface WhatsNewProps {
 type Reading = { kind: 'reading' } | { kind: 'read'; answer: WhatsNewAnswer } | { kind: 'failed'; reason: string }
 
 const popoverStyle: CSSProperties = {
-  position: 'fixed',
-  // Over the toasts (z-index 120, src/renderer/toast/toast.css): the sticky Update toast of the start
-  // lies right under the chip, and a popover the user opened comes first.
-  zIndex: 130,
   display: 'flex',
   flexDirection: 'column',
-  boxSizing: 'border-box',
   padding: 'var(--space-3)',
   gap: 'var(--space-2)',
-  borderRadius: 'var(--radius-popover)',
-  border: '1px solid var(--border)',
-  background: 'var(--surface)',
-  color: 'var(--text)',
   boxShadow: 'var(--shadow-node)',
   fontSize: 'var(--text-13)',
-  outline: 'none',
 }
 
 const linkStyle: CSSProperties = { color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap' }
@@ -85,17 +78,16 @@ function GitHubLink({ url, children }: { url: string; children: string }) {
 
 /** The popover; it asks main once, when it opens. Escape, a click elsewhere and the focus elsewhere close it. */
 export default function WhatsNew({ version, label = (each) => each, anchor, action, onClose }: WhatsNewProps) {
-  const popover = useRef<HTMLDivElement>(null)
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
   const [reading, setReading] = useState<Reading>({ kind: 'reading' })
-  // 4px under the chip, its left edge on the chip's, at most as wide and as high as the window leaves.
-  const [place] = useState(() => {
+  /** The chip, for the focus to go back to: a popover opened by a menu item has no trigger of its own. */
+  const chip = useRef<HTMLElement | null>(anchor)
+  useEffect(() => {
+    chip.current = anchor
+  }, [anchor])
+  // As wide as the window leaves right of the chip, 240 to 420 px; as high as it leaves under it.
+  const [size] = useState(() => {
     const box = anchor.getBoundingClientRect()
-    const top = box.bottom + 4
-    return { left: box.left, top, width: Math.max(240, Math.min(420, window.innerWidth - box.left - 8)), maxHeight: Math.max(160, window.innerHeight - top - 16) }
+    return { width: Math.max(240, Math.min(420, window.innerWidth - box.left - 8)), maxHeight: Math.max(160, window.innerHeight - box.bottom - 20) }
   })
 
   useEffect(() => {
@@ -108,20 +100,6 @@ export default function WhatsNew({ version, label = (each) => each, anchor, acti
       open = false
     }
   }, [])
-
-  useEffect(() => {
-    popover.current?.focus()
-    const outside = (event: Event): void => {
-      const target = event.target as Node
-      if (!popover.current?.contains(target) && !anchor.contains(target)) close.current()
-    }
-    document.addEventListener('mousedown', outside)
-    document.addEventListener('focusin', outside)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      document.removeEventListener('focusin', outside)
-    }
-  }, [anchor])
 
   const shown = label(reading.kind === 'read' ? reading.answer.version : version)
   let body
@@ -157,21 +135,23 @@ export default function WhatsNew({ version, label = (each) => each, anchor, acti
     )
   }
 
-  return createPortal(
-    <div
-      ref={popover}
-      role="dialog"
-      aria-label={`What's new in worfy ${shown}`}
-      tabIndex={-1}
-      style={{ ...popoverStyle, ...place }}
-      data-testid="whats-new"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation()
-          close.current()
-          anchor.focus()
-        }
+  return (
+    <Popover
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
       }}
+      anchor={anchor}
+      label={`What's new in worfy ${shown}`}
+      testId="whats-new"
+      align="start"
+      layer="top"
+      // The popover itself takes the focus, not its button: Enter right after opening updates nothing.
+      initialFocus="popup"
+      finalFocus={chip}
+      // A PR opened in the browser takes the focus from the window: the popover stays for the next one.
+      onDismiss={(reason) => reason !== 'blur'}
+      popupProps={{ style: { ...popoverStyle, ...size } }}
     >
       <h2 style={{ margin: 0, fontSize: 'var(--text-13)', fontWeight: 600 }}>{`What's new in worfy ${shown}`}</h2>
       {body}
@@ -184,7 +164,7 @@ export default function WhatsNew({ version, label = (each) => each, anchor, acti
           style={action.run === undefined ? { opacity: 0.5 } : undefined}
           onClick={() => {
             if (action.run === undefined) return
-            close.current()
+            onClose()
             anchor.focus()
             action.run()
           }}
@@ -192,7 +172,6 @@ export default function WhatsNew({ version, label = (each) => each, anchor, acti
           {action.label}
         </button>
       </div>
-    </div>,
-    document.body,
+    </Popover>
   )
 }

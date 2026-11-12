@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { LiveSession } from '../../../shared/ipc/claude-home'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import { shownOnCanvas } from '../../../shared/layout/derived'
@@ -12,7 +12,7 @@ import { invoke, readableReason, windowMachine } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { pulseOf, useProjectPulse } from '../../projects/useProjectPulse'
 import { activeProject, openProject, useProjects, useReadOnly } from '../../projects/useProjects'
-import { HistoryPopover } from '../../session/HistoryPopover'
+import { HistoryButton } from '../../session/HistoryPopover'
 import { nodeSession, openSession, setView, useNavigation } from '../../session/navigation'
 import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
@@ -54,6 +54,9 @@ export function RailIcon() {
 }
 
 const styles = {
+  // History's popover hangs from it: across the section, 8 px in from each side, where the overlay starts under
+  // the header and the actions (no `top`: it stays at its place in the flow, as the popover stood before the kit).
+  historyAnchor: { position: 'absolute', left: 8, right: 8, height: 0, pointerEvents: 'none' },
   // The margin keeps room for a second digit before History: «All Projects» next to the heading gives way first
   // (sidebar-section.css, __scope) and would otherwise take every free pixel of the header.
   count: { fontSize: 'var(--text-11)', color: 'var(--text-secondary)', whiteSpace: 'nowrap', marginRight: 6 },
@@ -132,6 +135,8 @@ function Sessions({ project, others }: SessionsProps) {
   )
   const worfyIds = useMemo(() => worfySessionIds(nodes ?? [], [...worfy.keys()]), [nodes, worfy])
   const [historyOpen, setHistoryOpen] = useState(false)
+  /** Across the section under its actions: History's popover hangs from it (session/HistoryPopover.tsx). */
+  const historyAnchor = useRef<HTMLSpanElement>(null)
   const [vendorOpen, setVendorOpen] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   // Why a Session of this Project asked from another one was not opened (the request below).
@@ -314,9 +319,17 @@ function Sessions({ project, others }: SessionsProps) {
         </span>
       }
       trailing={
-        <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
-          History
-        </button>
+        <HistoryButton
+          project={project}
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          anchor={historyAnchor}
+          trigger={
+            <button type="button" style={styles.action} data-testid="sidebar-history">
+              History
+            </button>
+          }
+        />
       }
       actions={actions}
       notice={
@@ -330,7 +343,7 @@ function Sessions({ project, others }: SessionsProps) {
         <>
           {orchestratorNode ? <FollowOrchestrator nodeId={orchestratorNode.id} /> : null}
           {/* Placed against the section, under its header: it opens over a collapsed section too. */}
-          {historyOpen ? <HistoryPopover project={project} onClose={() => setHistoryOpen(false)} /> : null}
+          <span ref={historyAnchor} style={styles.historyAnchor} aria-hidden="true" />
         </>
       }
     >

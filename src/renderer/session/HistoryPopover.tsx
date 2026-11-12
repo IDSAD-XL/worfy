@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactElement, type RefObject } from 'react'
 import type { HistorySession } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { ResumeVerdict } from '../../shared/ipc/sessions'
@@ -12,8 +12,10 @@ import { refreshClaudeHome, useClaudeHome } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
+import { Popover } from '../theme/kit/Popover'
 import { openSession, setView, useNavigation } from './navigation'
 import { ensureProject, useSessionNodeViews } from './node-sessions'
+import './session.css'
 
 // The history of a Project (ticket 18): every Session the Project's transcripts record, wherever
 // it was started — newest first, with its title, where it was started, when it last changed and
@@ -36,24 +38,16 @@ import { ensureProject, useSessionNodeViews } from './node-sessions'
 // main's verdict, which reads only the Claude home: it puts the thread's read-only Node on the Canvas
 // when there is none, so main resumes it on Codex, and for a thread worfy did not start it asks first,
 // as the Node does: «This Session may be open in a terminal».
+//
+// The popover is the kit's (theme/kit/Popover.tsx, worfy-ui-kit ticket 10): the focus goes in when it
+// opens and back to History when it closes; Esc wherever the focus is, a press elsewhere, a blur of
+// the window and a switch of the view close it. It is placed against the section of the sidebar, under
+// its header and its row of actions, as wide as the section less 8 px on each side (`anchor`).
 
 /** Rows the popover shows; older Sessions stay in the transcripts. */
 export const HISTORY_ROWS = 100
 
 const styles = {
-  root: {
-    position: 'absolute',
-    zIndex: 20,
-    left: 8,
-    right: 8,
-    maxHeight: 360,
-    overflow: 'auto',
-    padding: 4,
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-card, 8px)',
-    background: 'var(--bg)',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
-  },
   header: { display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 4px' },
   heading: { flex: 1, margin: 0, fontSize: 'var(--text-11)', fontWeight: 600, color: 'var(--text-muted)' },
   list: { margin: 0, padding: 0, listStyle: 'none' },
@@ -117,11 +111,31 @@ function useVerdicts(projectId: string, rows: readonly HistorySession[], liveKey
   return verdicts
 }
 
+export interface HistoryButtonProps {
+  project: ProjectView
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** The button History of the section's header. */
+  trigger: ReactElement<Record<string, unknown>>
+  /** What the popover is placed against: an element across the section, under its actions (shell/sidebar/SessionsSection.tsx). */
+  anchor: RefObject<Element | null>
+}
+
+/** The button History with its popover; the list is read only while the popover is open. */
+export function HistoryButton({ project, open, onOpenChange, trigger, anchor }: HistoryButtonProps) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange} trigger={trigger} anchor={anchor} label="History" testId="history-popover" className="w-history-popover" align="start" sideOffset={0}>
+      <HistoryPopover project={project} onClose={() => onOpenChange(false)} />
+    </Popover>
+  )
+}
+
 export interface HistoryPopoverProps {
   project: ProjectView
   onClose: () => void
 }
 
+/** What the popover holds: the heading with Close, and the rows. */
 export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   const { live, history, error } = useClaudeHome(project.path)
   const layout = useLayout(project.id).state
@@ -273,20 +287,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
     )
 
   return (
-    <div
-      role="dialog"
-      aria-label="History"
-      style={styles.root}
-      data-testid="history-popover"
-      // Esc pressed with the focus inside the popover closes it, as the dialogs of the sidebar do,
-      // and only it: the press goes no further, so an ADR panel open next to it stays.
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation()
-          onClose()
-        }
-      }}
-    >
+    <>
       <div style={styles.header}>
         <h3 style={styles.heading}>History</h3>
         <button type="button" style={styles.button} onClick={onClose}>
@@ -294,6 +295,6 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
         </button>
       </div>
       {body}
-    </div>
+    </>
   )
 }
