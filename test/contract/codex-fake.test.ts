@@ -145,6 +145,9 @@ interface Step {
   exit?: unknown
 }
 
+/** Responses whose request has no params definition to name them after (as in codex-compat.test.ts). */
+const RESPONSES: Readonly<Record<string, string>> = { 'config/mcpServer/reload': 'v2/McpServerRefreshResponse' }
+
 /**
  * The checker of the scripts: checkScript(text) is the list of what in the script the pinned Codex
  * does not have, empty when it plays only its messages. A result is checked against the response of
@@ -178,7 +181,7 @@ function scriptChecker(): (text: string) => string[] {
   }
   const responseOf = (method: string): string | undefined => {
     const params = paramsOf(requests, method)
-    return params?.endsWith('Params') ? params.replace(/Params$/, 'Response') : undefined
+    return RESPONSES[method] ?? (params?.endsWith('Params') ? params.replace(/Params$/, 'Response') : undefined)
   }
   return (text) => {
     const problems: string[] = []

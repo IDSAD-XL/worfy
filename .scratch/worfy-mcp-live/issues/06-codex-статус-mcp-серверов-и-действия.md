@@ -1,7 +1,7 @@
 # 06 — Codex: статус MCP-серверов и действия
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T01:27Z
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения владельца» Q4, Q5, Q8, Q10; «Что уже есть в SDK и в
 протоколе Codex»; «Не в этом Epic-е» (список для Codex); история 10
