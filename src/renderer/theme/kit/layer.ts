@@ -1,16 +1,20 @@
 /**
  * The shared part of every kit popup (worfy-ui-kit ticket 03, ADR-0106). A kit wrapper takes Base UI
- * for the behaviour and spreads these props on its popup; the portal takes `layerStyle`. Base UI is
- * imported only under theme/kit/ (the lint rule in eslint.config.js); this file needs none of it.
+ * for the behaviour, spreads `popup` on its popup and `trigger` on its trigger; the portal takes
+ * `layerStyle`. Base UI is imported only under theme/kit/ (the lint rule in eslint.config.js); this
+ * file needs none of it.
  *
  * What every popup gets here:
  * - it closes when the window loses the focus (a press inside a Browser Node's <webview> takes the
  *   focus out of the renderer, and Base UI does not see it as a press outside: Base UI #5410) and
  *   when the view of the shell switches, so it never hangs over another view;
- * - Esc is taken in React's phase, on the popup itself: it closes the popup and is marked handled
- *   (`preventDefault`, `stopPropagation`). Base UI closes on Esc too, but in its listener on the
- *   document, after every React handler: an ancestor with its own Esc (the rail panel of
- *   session/ProductSessionPanel.tsx) would act on the same press;
+ * - Esc pressed in the popup or on its trigger is taken in React's phase, there: it closes the popup
+ *   and is marked handled (`preventDefault`, `stopPropagation`), so an ancestor in the React tree
+ *   with its own Esc (the rail panel of session/ProductSessionPanel.tsx) does not act on the same
+ *   press. Base UI 1.9.0 does the same from onKeyDown handlers of its own on the popup and the
+ *   trigger, but that is its internal (ADR-0106, item 7); the kit does not rely on it. An Esc
+ *   pressed anywhere else Base UI takes only in its listener on the document, after every React
+ *   handler: a field that keeps the focus asks `escapeBelongsToPopup` (theme/open-layers.ts);
  * - toasts keep clear of it (`data-toast-keep-out`, toast/ToastRegion.tsx);
  * - a popup of a Node on the Canvas carries `nodrag`, `nopan` and `nowheel` for React Flow and the
  *   in-node mark: a press inside it leaves the Node active (canvas/Canvas.tsx).
@@ -62,8 +66,18 @@ export interface KitPopupProps {
   [IN_NODE_ATTRIBUTE]?: ''
 }
 
-/** The shared part of a kit popup: closing on a blur of the window and on a view switch, and the popup's props. */
-export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): KitPopupProps {
+/** The props a kit wrapper spreads on the trigger of its popup. */
+export interface KitTriggerProps {
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+}
+
+export interface KitLayer {
+  popup: KitPopupProps
+  trigger: KitTriggerProps
+}
+
+/** The shared part of a kit popup: closing on a blur of the window and on a view switch, and the props of the popup and its trigger. */
+export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): KitLayer {
   const closeNow = useEffectEvent(close)
 
   useEffect(() => {
@@ -81,7 +95,7 @@ export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): K
     }
   }, [open])
 
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+  const onPopupKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape' || event.nativeEvent.isComposing) return
     event.stopPropagation()
     if (event.defaultPrevented) {
@@ -94,11 +108,23 @@ export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): K
     close()
   }
 
+  // On the trigger only while the popup is open: with it closed, Esc on the trigger is its
+  // ancestor's, as for any other button.
+  const onTriggerKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!open || event.key !== 'Escape' || event.nativeEvent.isComposing || event.defaultPrevented) return
+    event.stopPropagation()
+    event.preventDefault()
+    close()
+  }
+
   return {
-    className: inNode ? IN_NODE_CLASSES : undefined,
-    onKeyDown,
-    [KIT_POPUP_ATTRIBUTE]: '',
-    'data-toast-keep-out': '',
-    ...(inNode ? { [IN_NODE_ATTRIBUTE]: '' as const } : {}),
+    popup: {
+      className: inNode ? IN_NODE_CLASSES : undefined,
+      onKeyDown: onPopupKeyDown,
+      [KIT_POPUP_ATTRIBUTE]: '',
+      'data-toast-keep-out': '',
+      ...(inNode ? { [IN_NODE_ATTRIBUTE]: '' as const } : {}),
+    },
+    trigger: { onKeyDown: onTriggerKeyDown },
   }
 }

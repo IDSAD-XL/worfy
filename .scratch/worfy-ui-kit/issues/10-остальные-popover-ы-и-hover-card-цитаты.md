@@ -27,9 +27,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
    своими, и Ticket записывает почему.
 4. E2e `test/e2e/layers-popover.spec.ts` дописывается: popover composer-а у края окна, History в sidebar поверх
    Settings; Esc в popover-е внутри элемента со своим Esc — одно нажатие, одно действие (правило Ticket-а 03,
-   пункт 6). Сценарий — ADR-0106, раздел «E2e-сценарий для Ticket-ов 10 и 11»: popover kit-а внутри панели справа
-   `session/ProductSessionPanel.tsx`, у которой свой Esc. Queued messages и Effort в composer-е в риск не попадают:
-   Esc поля ввода висит только на поле, а фокус уходит в popover.
+   пункт 6). Пример — Queued messages и Effort в composer-е: при ходе агента Esc закрывает popover и не прерывает
+   ход. Как сценарий попадает в риск — ADR-0106, раздел «E2e-сценарий для Ticket-ов 10 и 11».
 
 ## Готово, когда
 

@@ -959,7 +959,7 @@ describe('the active Node and a popup of a Node (worfy-ui-kit ticket 03)', () =>
     function NodePopup() {
       const layer = useKitLayer({ open: true, close: () => {}, inNode: true })
       return (
-        <div {...layer} role="menu" aria-label="Node menu">
+        <div {...layer.popup} role="menu" aria-label="Node menu">
           <button type="button">Item</button>
         </div>
       )

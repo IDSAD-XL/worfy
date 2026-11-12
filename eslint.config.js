@@ -74,6 +74,9 @@ const processBoundary = {
   },
 }
 
+// The message of the rule that keeps Base UI inside the kit (ADR-0106).
+const BASE_UI_ONLY_IN_KIT = 'Base UI is imported only under src/renderer/theme/kit/ (ADR-0106): take the kit wrapper instead.'
+
 // One plugin object for the local rules: flat config refuses a plugin name defined twice.
 const worfy = { rules: { 'process-boundary': processBoundary, 'no-cyrillic': noCyrillic } }
 
@@ -131,10 +134,17 @@ export default defineConfig(
           patterns: [
             {
               group: ['@base-ui/*', '@base-ui/**'],
-              message: 'Base UI is imported only under src/renderer/theme/kit/ (ADR-0106): take the kit wrapper instead.',
+              message: BASE_UI_ONLY_IN_KIT,
             },
           ],
         },
+      ],
+      // no-restricted-imports sees static imports and re-exports only: a dynamic import() and an
+      // import type (`typeof import(...)`) are caught here.
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'ImportExpression[source.value=/^@base-ui\\//]', message: BASE_UI_ONLY_IN_KIT },
+        { selector: 'TSImportType[argument.literal.value=/^@base-ui\\//]', message: BASE_UI_ONLY_IN_KIT },
       ],
     },
   },

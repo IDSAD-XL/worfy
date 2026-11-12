@@ -67,7 +67,7 @@ describe('open layers', () => {
     expect(isOpenLayer(closing)).toBe(false)
   })
 
-  it('a real Base UI Popover kept in the page after it closed is not an open layer', async () => {
+  it('a real Base UI Popover kept in the page after it closed is not an open layer (Base UI hides it; the closing marks are the case above)', async () => {
     function Kept() {
       const [shown, setShown] = useState(true)
       return (

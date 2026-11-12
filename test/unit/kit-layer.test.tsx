@@ -1,8 +1,9 @@
 // The shared part of every kit popup (theme/kit/layer.ts, worfy-ui-kit ticket 03, ADR-0106): it closes
 // on a blur of the window and on a switch of the view, marks a popup of a Node on the Canvas, keeps
-// toasts clear of it, and takes Esc in React's phase, on the popup itself. Base UI takes Esc on the
-// document, after every React handler (spike, .scratch/worfy-ui-kit/spike-base-ui.md, step 2 item 4),
-// so without the shared part an ancestor with its own Esc closes on the same press. The popup here is
+// toasts clear of it, and takes Esc in React's phase, on the popup and on its trigger, so an ancestor
+// with its own Esc never acts on the same press. Base UI 1.9.0 does the same from internal onKeyDown
+// handlers of its own (ADR-0106, item 7); "the shared part alone" below shows the kit does not need
+// them. Esc pressed elsewhere Base UI takes only on the document, after React. The popup here is
 // a bare Base UI Popover with the shared part, as a kit wrapper will build it; the wrappers come in
 // later tickets.
 import { Popover } from '@base-ui/react/popover'
@@ -39,10 +40,12 @@ function Probe({ inNode = false, takeFocus = true }: ProbeProps) {
   const layer = useKitLayer({ open, close, inNode })
   return (
     <Popover.Root open={open} onOpenChange={setOpen} modal={false}>
-      <Popover.Trigger data-testid="trigger">Open</Popover.Trigger>
+      <Popover.Trigger {...layer.trigger} data-testid="trigger">
+        Open
+      </Popover.Trigger>
       <Popover.Portal style={layerStyle('popover')} data-testid="portal">
         <Popover.Positioner>
-          <Popover.Popup {...layer} initialFocus={takeFocus} aria-label="Probe" data-testid="popup">
+          <Popover.Popup {...layer.popup} initialFocus={takeFocus} aria-label="Probe" data-testid="popup">
             <input aria-label="Inside" data-testid="inside" />
           </Popover.Popup>
         </Popover.Positioner>
@@ -181,27 +184,70 @@ describe('Esc in a kit popup: one press, one action', () => {
     expect(panelEscape).toHaveBeenCalledTimes(1)
   })
 
-  it('the shared part alone, without Base UI, takes Esc in React: the panel never sees it', () => {
-    // Base UI 1.9.0 also closes on Esc from an onKeyDown of its own popup (an internal of useDismiss,
-    // ADR-0106); the rule of the kit holds without it.
+  it('Esc on the trigger of an open popup inside an element with its own Esc closes only the popup', async () => {
     const panelEscape = vi.fn()
-    const close = vi.fn()
-    function Bare() {
-      const layer = useKitLayer({ open: true, close })
-      return <div {...layer} tabIndex={-1} data-testid="bare" />
-    }
     render(
       <Panel onEscape={panelEscape}>
-        <Bare />
+        <Probe takeFocus={false} />
       </Panel>,
     )
-    const free = fireEvent.keyDown(screen.getByTestId('bare'), { key: 'Escape' })
+    await open()
+    const trigger = screen.getByTestId('trigger')
+    trigger.focus()
+    expect(popupOpen()).toBe(true)
+    const free = fireEvent.keyDown(trigger, { key: 'Escape' })
+    await flush()
     expect(free).toBe(false)
-    expect(close).toHaveBeenCalledTimes(1)
+    expect(popupOpen()).toBe(false)
     expect(panelEscape).not.toHaveBeenCalled()
-    expect(reachedWindow).toHaveLength(0)
-    fireEvent.keyDown(screen.getByTestId('bare'), { key: 'Enter' })
-    expect(close).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(panelEscape).toHaveBeenCalledTimes(1)
+  })
+
+  describe('the shared part alone, without Base UI, takes Esc in React: the panel never sees it', () => {
+    // Base UI 1.9.0 also closes on Esc from onKeyDown handlers of its own popup and trigger (an
+    // internal of useDismiss, ADR-0106, item 7); the rule of the kit holds without them.
+    function Bare({ open, close }: { open: boolean; close: () => void }) {
+      const layer = useKitLayer({ open, close })
+      return (
+        <>
+          <button type="button" {...layer.trigger} data-testid="bare-trigger">
+            Open
+          </button>
+          <div {...layer.popup} tabIndex={-1} data-testid="bare" />
+        </>
+      )
+    }
+
+    it.each(['bare', 'bare-trigger'])('Esc on %s closes the popup and stops there', (where) => {
+      const panelEscape = vi.fn()
+      const close = vi.fn()
+      render(
+        <Panel onEscape={panelEscape}>
+          <Bare open close={close} />
+        </Panel>,
+      )
+      const free = fireEvent.keyDown(screen.getByTestId(where), { key: 'Escape' })
+      expect(free).toBe(false)
+      expect(close).toHaveBeenCalledTimes(1)
+      expect(panelEscape).not.toHaveBeenCalled()
+      expect(reachedWindow).toHaveLength(0)
+      fireEvent.keyDown(screen.getByTestId(where), { key: 'Enter' })
+      expect(close).toHaveBeenCalledTimes(1)
+    })
+
+    it('Esc on the trigger of a closed popup is the ancestor\'s', () => {
+      const panelEscape = vi.fn()
+      const close = vi.fn()
+      render(
+        <Panel onEscape={panelEscape}>
+          <Bare open={false} close={close} />
+        </Panel>,
+      )
+      fireEvent.keyDown(screen.getByTestId('bare-trigger'), { key: 'Escape' })
+      expect(close).not.toHaveBeenCalled()
+      expect(panelEscape).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('Esc something inside the popup already took (preventDefault) leaves the popup open', async () => {

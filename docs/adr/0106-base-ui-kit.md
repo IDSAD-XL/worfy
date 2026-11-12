@@ -27,10 +27,12 @@ Base UI уживается с Electron worfy — с `<webview>`, Node-ами Can
    `minimumReleaseAge` pnpm). Исключений из этого правила (`minimumReleaseAgeExclude`) для Base UI нет. Обновление —
    отдельный PR, в нём unit test-ы kit-а и e2e-сценарии слоёв.
 4. **kit — обёртки в `src/renderer/theme/kit/`.** Только kit импортирует Base UI: правило lint
-   `no-restricted-imports` в `eslint.config.js` запрещает `@base-ui/*` во всём `src/`, кроме `src/renderer/theme/kit/`
-   (test `test/unit/kit-import-lint.test.ts`). Test-ы в `test/` импортировать Base UI могут: они собирают probe
+   в `eslint.config.js` запрещает `@base-ui/*` во всём `src/`, кроме `src/renderer/theme/kit/`: `no-restricted-imports`
+   ловит `import` и `export … from`, `no-restricted-syntax` — `import()` и `typeof import(…)` (test
+   `test/unit/kit-import-lint.test.ts`). Test-ы в `test/` импортировать Base UI могут: они собирают probe
    так же, как обёртка. Остальной renderer берёт обёртку kit-а.
-5. **Общая часть обёрток — `theme/kit/layer.ts`.** Каждая обёртка popup-а берёт `useKitLayer` и `layerStyle`:
+5. **Общая часть обёрток — `theme/kit/layer.ts`.** Каждая обёртка popup-а берёт `useKitLayer` (props `popup` — на
+   popup, `trigger` — на trigger) и `layerStyle` (на portal):
    - popup закрывается по `blur` окна (нажатие в `<webview>` Browser Node-а Base UI не считает нажатием снаружи,
      Base UI #5410) и при смене вида shell-а;
    - popup Node-а на Canvas — с классами `nodrag`, `nopan`, `nowheel` и пометкой «внутри Node»; обработчик Canvas,
@@ -42,16 +44,18 @@ Base UI уживается с Electron worfy — с `<webview>`, Node-ами Can
    portal-е с `position: relative` (`layerStyle`) или на positioner-е. Без `position` z-index не действует, и backdrop
    окна с меньшим z-index закрывает popup (spike, run 43129431332, Popover над Settings).
 7. **Esc: одно нажатие — одно действие.**
-   - Обёртка kit-а отмечает Esc обработанным в фазе React, на самом popup-е: `onKeyDown` из `useKitLayer` закрывает
-     popup, вызывает `preventDefault()` и `stopPropagation()`. Предок popup-а по дереву React со своим Esc (панель
-     справа в `session/ProductSessionPanel.tsx`, её `onKeyDown` закрывает панель) нажатие не получает. Если Esc уже
-     взял элемент внутри popup-а (`defaultPrevented`), popup остаётся открытым, и свой обработчик Base UI на этом
-     нажатии не работает (`preventBaseUIHandler`).
+   - Обёртка kit-а отмечает Esc обработанным в фазе React там, где стоит фокус: на popup-е и, пока popup открыт, на
+     его trigger-е. `onKeyDown` из `useKitLayer` (`popup` и `trigger`) закрывает popup, вызывает `preventDefault()` и
+     `stopPropagation()`. Предок popup-а или trigger-а по дереву React со своим Esc (панель справа в
+     `session/ProductSessionPanel.tsx`, её `onKeyDown` закрывает панель) нажатие не получает. При закрытом popup-е Esc
+     на trigger-е — предка, как у любой кнопки. Если Esc уже взял элемент внутри popup-а (`defaultPrevented`), popup
+     остаётся открытым, и свой обработчик Base UI на этом нажатии не работает (`preventBaseUIHandler`).
    - Base UI 1.9.0 сам закрывает popup по Esc в двух местах: в `onKeyDown` своего popup-а и trigger-а (фаза React) и
      в слушателе `keydown` на `document` (после всех обработчиков React). Первое найдено при чтении исходника
      (`floating-ui-react/hooks/useDismiss.mjs`) в Ticket-е 03; spike считал, что только второе. Первое — внутренность
-     Base UI, kit на неё не опирается: правило выше держится и без неё (test `the shared part alone, without Base UI`
-     в `test/unit/kit-layer.test.tsx`).
+     Base UI. Для фокуса на popup-е и на trigger-е kit на неё не опирается: правило выше держится и без неё (test-ы
+     `the shared part alone, without Base UI` в `test/unit/kit-layer.test.tsx`). Фокус вне popup-а и trigger-а Base UI
+     ловит только на `document` — об этом следующий пункт.
    - Поле, в котором фокус остаётся при открытом popup-е, не полагается на `defaultPrevented`: Base UI отметит Esc
      позже, на `document`. Поле спрашивает helper «открытые слои» — `escapeBelongsToPopup(field)`: открыт ли popup kit-а,
      в котором поле не лежит. Так делает поле ввода чата (`session/MessageInput.tsx`): при открытом popup-е kit-а Esc
@@ -63,13 +67,16 @@ Base UI уживается с Electron worfy — с `<webview>`, Node-ами Can
    `data-checked`, `data-side`). Вид можно менять, если это улучшает UX (решение владельца 2026-11-11); PR называет
    такую правку отдельной строкой.
 
-**E2e-сценарий для Ticket-ов 10 и 11** (Esc в popup-е внутри элемента со своим Esc). Сценарий попадает в риск,
-только если popup kit-а лежит внутри элемента, у которого в дереве React свой Esc в `onKeyDown`. Popover-ы и menu
-composer-а (Queued messages, Effort, Modes) в него не попадают: Esc поля ввода висит только на самом поле, а фокус
-уходит в popup. Сценарий: в Session view Product Session открыта панель справа (`session/ProductSessionPanel.tsx`,
-`data-testid="product-agents-panel"` или `product-rail-*-panel`); внутри неё открыт popup kit-а (Popover или Menu),
-фокус в popup-е. Первый Esc закрывает только popup: панель открыта, фокус на trigger-е popup-а. Второй Esc закрывает
-панель. На 2026-11-12 внутри этой панели popup-ов нет; e2e пишет первый Ticket, который кладёт туда popup kit-а.
+**E2e-сценарий для Ticket-ов 10 и 11** (Esc в popup-е внутри элемента со своим Esc; история 4 spec-а). Пишут его
+Ticket 10 (popover-ы Queued messages и Effort в composer-е, `test/e2e/layers-popover.spec.ts`) и Ticket 11 (menu
+«Modes» в composer-е, `test/e2e/layers-menu.spec.ts`), каждый на своих popup-ах. Сценарий: Session занята ходом агента
+(`busy`); в composer-е открыт popup kit-а.
+- Фокус в popup-е (или на его trigger-е): Esc закрывает popup, ход идёт дальше (Session `busy`, запроса на interrupt
+  нет). Следующий Esc в поле ввода прерывает ход.
+- Фокус остаётся в поле ввода при открытом popup-е — popup с `initialFocus={false}`, открытый наведением или клавишей
+  из поля: Esc в поле закрывает popup и ход не прерывает; следующий Esc прерывает. Это и есть риск: поле видит Esc
+  раньше Base UI. Если ни один popup Ticket-а так не открывается, Ticket так и пишет, а этот случай держит unit test
+  `test/unit/kit-layer.test.tsx` › `the chat field keeps the focus while a kit popup is open`.
 
 ## Considered Options
 
