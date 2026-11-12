@@ -54,21 +54,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
 - [ ] Contract test `test/contract/claude-mcp-pickup.test.ts` над fake query: новый разрешённый сервер появляется в
       событии `mcp` без новой Session (или строка получает `restart`, если так решил spike). Красный до правки — в
       «Итог».
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/claude-mcp-pickup.test.ts) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] Contract test `restart`: новая Session продолжает тот же разговор (тот же `sdkId`); fake query нового процесса
       стартует только после выхода старого; ошибки «already live» нет; ход, который шёл, прерван.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/claude-mcp-turn-off.test.ts, describe restart) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] Contract test `test/contract/claude-mcp-turn-off.test.ts` над fake query: `turn-off` перезапускает Session с
       тем же `sdkId` после выхода старого процесса; в `managedSettings` нового query нет выключенного сервера (или он
       в `deniedMcpServers`), свой сервер worfy не передан в `mcpServers`; `toggleMcpServer` не зовётся; файл
       `.claude.json` во временном HOME test-а побайтно тот же до и после; `turn-on` возвращает сервер; новая Session
       (не Restart) получает выключенный сервер снова. Красный до правки — в «Итог».
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/claude-mcp-turn-off.test.ts, describe turn-off and turn-on) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] Contract test: unattended Session не подхватывает сервер посреди Wave и не получает `restart`, `turn-off` и
       `turn-on`.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/claude-mcp-pickup.test.ts, describe an unattended Session) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] Существующие test-ы relaunch-а Orchestrator-а (ADR-0064) зелёные без правок.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/orchestrator-relaunch.test.ts unchanged against origin/main) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] `test/contract/sdk-compat.test.ts` держит форму вызова подхвата, который выбрал spike, в SDK 0.3.322.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/contract/sdk-compat.test.ts, reloadPlugins) · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 - [ ] (manual) Подхват connector-а claude.ai — по итогу живой проверки владельца в заметке spike-а; путь записан в
       «Итог».
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/agent/` зелёные; lint, typecheck и
       gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 918c22243edcc785a06a2d9ff4b288595c56fe12
 
 ## Где в коде
 
