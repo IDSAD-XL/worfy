@@ -41,11 +41,16 @@ Source: spike Ticket 11 (`.scratch/worfy-mcp-live/spike-claudeai-connectors.md`,
 
 - [ ] Записи списка: stdio — `serverName`, удалённый сервер с адресом — `serverUrl`, query срезан до origin + path + `*`,
       пустой список — `[]`, имя без адреса, которое Claude Code не прочитает, — не в списке. Unit- и contract-тесты.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] Адреса только в main: строки, лог и Journal их не несут. Contract-тест.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] Старт Session берёт адреса инвентаря; удалённый сервер, найденный после старта, — строка `not-started` с причиной и
       Restart; connector без адреса — строка с честной причиной без Restart. Contract-тест.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] Комментарий `options.ts` исправлен; поправка ADR-0021 от 2026-11-13 дописана.
+  - evidence: commit pass · Allow claude.ai connectors and remote MCP servers by address (worfy-mcp-live 12) · - - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] lint, typecheck, `pnpm test` и gate fast — exit 0; CI на PR зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 780617bbcd544e6801593bd916a39f380f7da8bc
 - [ ] (вручную) Владелец: настоящий connector claude.ai стартует в Session worfy — шаг 3 живой проверки в заметке
       spike 11; входит в приёмку, Ticket 08.
 
