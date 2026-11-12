@@ -1,7 +1,7 @@
 # 01 — Spike Base UI в Electron
 
 Type: spike
-Status: open
+Status: claimed 2026-11-11T23:54Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения по реализации» (`Select` внутри окна kit, Esc); «Риски»
 (spike ответит «нет», `<webview>`, перетаскивание Node-а, размер); истории 24 и 32;
