@@ -25,9 +25,10 @@ describe('the scale of layers', () => {
     expect(declared.sort()).toEqual(Object.keys(LAYERS).map(tokenOf).sort())
   })
 
-  it('keeps the order the layers had: panel < popover < dialog < toast < a menu over a dialog < the top', () => {
+  it('keeps the order the layers had: panel < popover < the Command palette < dialog < toast < a menu over a dialog < the top', () => {
     expect(LAYERS.panel).toBeLessThan(LAYERS.popover)
-    expect(LAYERS.popover).toBeLessThan(LAYERS.dialog)
+    expect(LAYERS.popover).toBeLessThan(LAYERS.palette)
+    expect(LAYERS.palette).toBeLessThan(LAYERS.dialog)
     // The modal windows of the kit (Settings among them) are the dialog layer: the toasts stay above it.
     expect(LAYERS.dialog).toBeLessThan(LAYERS.toast)
     expect(LAYERS.toast).toBeGreaterThan(110)
@@ -51,16 +52,19 @@ describe('the places on the scale', () => {
     expect(read('canvas/pinning.ts')).toContain('LAYERS.canvasOverlay')
   })
 
+  it('the Command palette takes the palette layer, on the portal of its kit window', () => {
+    expect(read('palette/CommandPalette.tsx')).toContain('layer="palette"')
+  })
+
   it('none of them keeps a number of its own', () => {
     expect(read('toast/toast.css')).not.toMatch(/z-index: \d/)
     expect(read('theme/select.css')).not.toMatch(/z-index: \d/)
+    expect(read('palette/CommandPalette.tsx')).not.toMatch(/zIndex: \d/)
+    expect(read('palette/palette.css')).not.toMatch(/z-index/)
   })
 })
 
 describe('the modal windows of the kit among the layers that are not on the scale yet', () => {
-  /** Every `zIndex: <n>` of a file of inline styles. */
-  const inlineLayers = (path: string): number[] => [...read(path).matchAll(/zIndex: (\d+)/g)].map((match) => Number(match[1]))
-  const commandPalette = Math.max(...inlineLayers('palette/CommandPalette.tsx'))
   const imageOverlay = Number(/\.w-image-overlay \{[^}]*z-index: (\d+);/.exec(read('session/session.css'))?.[1])
 
   it('Settings, Keyboard shortcuts and the Guide sit on the dialog layer', () => {
@@ -68,10 +72,13 @@ describe('the modal windows of the kit among the layers that are not on the scal
   })
 
   it('a kit window is above the Command palette and a full-screen image: ⌘, over either opens the window on top', () => {
-    expect(commandPalette).toBe(101)
+    // The palette kept its z-index of before the kit (101) when it moved onto the kit (worfy-ui-kit ticket 08).
+    expect(LAYERS.palette).toBe(101)
     expect(imageOverlay).toBe(105)
-    expect(LAYERS.dialog).toBeGreaterThan(commandPalette)
+    expect(LAYERS.dialog).toBeGreaterThan(LAYERS.palette)
     expect(LAYERS.dialog).toBeGreaterThan(imageOverlay)
+    // A full-screen image stays over the palette, as before.
+    expect(imageOverlay).toBeGreaterThan(LAYERS.palette)
   })
 
   it('a kit window is under the toasts and the dialogs of a Linked machine, which open over Settings', () => {

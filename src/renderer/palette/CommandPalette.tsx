@@ -6,13 +6,18 @@
 // would change the Project is inactive the same way, with the read-only hint. The ranked rows are shown in groups (groups.ts), each under
 // a heading with its name; ↑/↓ walk the rows across the groups.
 //
+// The palette is a modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 08): `aria-modal`,
+// the focus kept inside it, back where it was on closing, Esc closed and marked handled by the kit. Its
+// layer is the palette's of the scale (theme/layers.ts), under the dialog layer: Settings opened over
+// it with ⌘, lies on top and takes the keys, and the focus comes back to the palette's field once
+// Settings closes.
+//
 // Below the commands, "In transcripts" lists the Project's Sessions whose conversation contains the
 // query (`claudeHome.search`, worfy-polish ticket 10): Sessions of worfy and those started in a
 // terminal or Claude Desktop alike, and the Project's Codex threads (worfy-multi-vendor ticket 28). Each
 // row ends with the logo of the Vendor whose agent ran the Session (VendorBadge, its name as the
 // tooltip). Picking one opens it in the Session view.
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
 import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
@@ -31,10 +36,12 @@ import { activeProject, useProjects, useReadOnly } from '../projects/useProjects
 import { openSession, useNavigation } from '../session/navigation'
 import { VendorBadge } from '../session/VendorBadge'
 import { label, matches } from '../shortcuts/match'
+import { Dialog } from '../theme/kit/Dialog'
 import { useUpdate } from '../update/store'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { buildCommands, forQuery, type CommandGate, type PaletteCommand } from './commands'
 import { groupRows, type RowGroup } from './groups'
+import './palette.css'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
@@ -54,7 +61,7 @@ const WRAPPED_TITLE_LINES = 3
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
   trigger: { fontFamily: 'inherit', fontSize: 'var(--text-12)', lineHeight: '16px', whiteSpace: 'nowrap', textAlign: 'left' },
-  backdrop: { position: 'fixed', inset: 0, zIndex: 100 },
+  // The layer (z-index) is on the portal of the kit's window (theme/kit/layer.ts): `palette` of the scale.
   panel: {
     position: 'fixed',
     top: 'calc(var(--toolbar-height) + var(--space-2))',
@@ -70,7 +77,6 @@ const styles = {
     background: 'var(--surface)',
     boxShadow: 'var(--shadow-node)',
     overflow: 'hidden',
-    zIndex: 101,
   },
   // As tall as a result row. `flex: none`: otherwise, with a long list, the panel's column shrinks the field.
   field: {
@@ -435,10 +441,6 @@ export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps
   const current = Math.min(picked, Math.max(0, rows.length - 1))
 
   useEffect(() => {
-    input.current?.focus()
-  }, [])
-
-  useEffect(() => {
     const row = list.current?.querySelector<HTMLElement>('[data-active="true"]')
     if (row === null || row === undefined) return
     // The first row of a group brings its heading into view too, so the group's name is never cut off.
@@ -465,11 +467,9 @@ export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps
     [onClose, running],
   )
 
+  // Esc is the kit's: the window closes on it and marks it handled (theme/kit/layer.ts).
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      onClose()
-    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       if (rows.length === 0) return
       const step = event.key === 'ArrowDown' ? 1 : rows.length - 1
@@ -485,86 +485,93 @@ export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps
   // Where each group's rows start in `shown`.
   const starts = listed.map((_, groupIndex) => listed.slice(0, groupIndex).reduce((sum, group) => sum + group.rows.length, 0))
 
-  return createPortal(
-    <>
-      <div style={styles.backdrop} onMouseDown={onClose} aria-hidden="true" />
-      <div role="dialog" aria-label="Command palette" style={styles.panel} data-testid="command-palette">
-        <div style={styles.field} data-testid="palette-field">
-          <SearchIcon />
-          <input
-            ref={input}
-            role="combobox"
-            aria-expanded="true"
-            aria-controls={listId}
-            aria-activedescendant={rows.length > 0 ? optionId(current) : undefined}
-            aria-label="Search or run"
-            placeholder="Search or run…"
-            spellCheck={false}
-            style={styles.input}
-            data-testid="palette-input"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setPicked(0)
-              setProblem(null)
-            }}
-            onKeyDown={onKeyDown}
-          />
-          <kbd className="w-mono" style={styles.note}>
-            esc
-          </kbd>
-        </div>
-        {listed.length === 0 ? (
-          <p style={styles.message}>{empty}</p>
-        ) : (
-          <ul ref={list} id={listId} role="listbox" aria-label="Commands" style={styles.list}>
-            {listed.map((group, groupIndex) => {
-              const headingId = `${listId}-group-${groupIndex}`
-              const start = starts[groupIndex] ?? 0
-              return (
-                <li key={group.name} role="presentation">
-                  <ul role="group" aria-labelledby={headingId} style={styles.groupRows} data-testid="palette-group" data-group={group.name}>
-                    {groupIndex > 0 ? <li role="presentation" aria-hidden="true" style={styles.separator} data-testid="palette-group-separator" /> : null}
-                    <li role="presentation" id={headingId} style={styles.heading} data-testid="palette-group-heading">
-                      {group.name}
-                    </li>
-                    {group.rows.map((command, offset) => {
-                      const index = start + offset
-                      const props: RowProps = {
-                        id: optionId(index),
-                        command,
-                        first: offset === 0,
-                        active: index === current,
-                        onPick: pick,
-                        onHover: () => {
-                          if (index !== current) setPicked(index)
-                        },
-                      }
-                      return group.name === TRANSCRIPTS_GROUP ? (
-                        <RowButton key={command.id} {...props} prose hint={snippets.get(command.id)} vendor={vendors.get(command.id)} state={null} />
-                      ) : (
-                        <CommandRow key={command.id} {...props} />
-                      )
-                    })}
-                    {group.name === TRANSCRIPTS_GROUP && note !== null ? (
-                      <li role="presentation" style={styles.status} data-testid="palette-transcripts-note">
-                        {note}
-                      </li>
-                    ) : null}
-                  </ul>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-        {problem !== null ? (
-          <p role="alert" style={styles.problem} data-testid="palette-problem">
-            {problem}
-          </p>
-        ) : null}
+  // Open while it is on the page: CommandPalette mounts it on opening and unmounts it on closing.
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      label="Command palette"
+      className="w-palette"
+      backdropClassName="w-palette__backdrop"
+      initialFocus={() => input.current}
+      layer="palette"
+      style={styles.panel}
+      data-testid="command-palette"
+    >
+      <div style={styles.field} data-testid="palette-field">
+        <SearchIcon />
+        <input
+          ref={input}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls={listId}
+          aria-activedescendant={rows.length > 0 ? optionId(current) : undefined}
+          aria-label="Search or run"
+          placeholder="Search or run…"
+          spellCheck={false}
+          style={styles.input}
+          data-testid="palette-input"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setPicked(0)
+            setProblem(null)
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <kbd className="w-mono" style={styles.note}>
+          esc
+        </kbd>
       </div>
-    </>,
-    document.body,
+      {listed.length === 0 ? (
+        <p style={styles.message}>{empty}</p>
+      ) : (
+        <ul ref={list} id={listId} role="listbox" aria-label="Commands" style={styles.list}>
+          {listed.map((group, groupIndex) => {
+            const headingId = `${listId}-group-${groupIndex}`
+            const start = starts[groupIndex] ?? 0
+            return (
+              <li key={group.name} role="presentation">
+                <ul role="group" aria-labelledby={headingId} style={styles.groupRows} data-testid="palette-group" data-group={group.name}>
+                  {groupIndex > 0 ? <li role="presentation" aria-hidden="true" style={styles.separator} data-testid="palette-group-separator" /> : null}
+                  <li role="presentation" id={headingId} style={styles.heading} data-testid="palette-group-heading">
+                    {group.name}
+                  </li>
+                  {group.rows.map((command, offset) => {
+                    const index = start + offset
+                    const props: RowProps = {
+                      id: optionId(index),
+                      command,
+                      first: offset === 0,
+                      active: index === current,
+                      onPick: pick,
+                      onHover: () => {
+                        if (index !== current) setPicked(index)
+                      },
+                    }
+                    return group.name === TRANSCRIPTS_GROUP ? (
+                      <RowButton key={command.id} {...props} prose hint={snippets.get(command.id)} vendor={vendors.get(command.id)} state={null} />
+                    ) : (
+                      <CommandRow key={command.id} {...props} />
+                    )
+                  })}
+                  {group.name === TRANSCRIPTS_GROUP && note !== null ? (
+                    <li role="presentation" style={styles.status} data-testid="palette-transcripts-note">
+                      {note}
+                    </li>
+                  ) : null}
+                </ul>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {problem !== null ? (
+        <p role="alert" style={styles.problem} data-testid="palette-problem">
+          {problem}
+        </p>
+      ) : null}
+    </Dialog>
   )
 }
 
