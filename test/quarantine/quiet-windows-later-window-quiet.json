@@ -1,0 +1,12 @@
+{
+  "runner": "playwright",
+  "file": "test/e2e/quiet-windows.spec.ts",
+  "test": "a window worfy opens later is quiet too: shown inactive, transparent, and the mouse goes through it",
+  "platforms": [
+    "darwin"
+  ],
+  "reason": "On the macOS runner main sometimes stops answering while the test destroys the first window: the step 'wrapping the window methods and destroying the first window' gets no answer from main within 60 s, and even main's own 30 s timer never fires, so main's thread is stalled. Failed twice in PR #1811's run 43118125388 (macos-e2e 1/2) and once, passing on retry, in run 42919374356. #1606 split the step and bounded it; the hang remains.",
+  "owner": "worfy-polish 112",
+  "since": "2026-11-12",
+  "until": "2026-11-26"
+}
