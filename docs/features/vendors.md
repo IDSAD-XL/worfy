@@ -139,6 +139,12 @@ read-only Node by itself, with its transcript read from Codex, and Resume contin
 (Canvas, and Cards with `worfy.ask`) and `worfy-browser`, over HTTP on `127.0.0.1` with a token of its own process. The
 details are in [Cards](cards.md) and [Browser](browser.md).
 
+**MCP servers in Codex.** A Codex Session has the same chip «MCP n/m» and popover as a Claude Code Session, with
+Reconnect and Sign in. The user's own servers are shown as they are: the Profile's list is not applied to them in Codex,
+so no row is "not allowed" and none offers Allow. There is no Turn off for this Session, since Codex cannot turn a server
+off for one thread only, and opening the popover takes in no new server. The details are in
+[MCP servers of a Session](mcp-servers.md#codex).
+
 **Search.** "In transcripts" in the Command palette searches the Project's Codex threads together with Claude Code's
 transcripts ([App shell](app-shell.md)).
 

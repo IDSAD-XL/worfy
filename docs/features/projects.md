@@ -366,8 +366,11 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   access and marks the Profile's account while gh lists it. Loading the list changes nothing; only an account picked
   there sets the account and its finish, and Save waits while the accounts load. A list field the Profile does not have
   stays absent when left empty; one it has, emptied, is written as an empty list, which for the MCP servers and the
-  skills allowed means "none". A Project of a Linked machine, or one shared read-only, shows the form without Save: a
-  Profile is written only on its own machine.
+  skills allowed means "none". Under "MCP servers" each name of the list shows its status in the newest Session of the
+  Project on this Machine, its Orchestrator or a Session Node; a name that Session does not have shows none, and with no
+  such Session, or for a Project of a Linked machine, nothing shows. A claude.ai connector the Session's popover may not
+  list is allowed by typing its name into this list ([MCP servers of a Session](mcp-servers.md)). A Project of a Linked
+  machine, or one shared read-only, shows the form without Save: a Profile is written only on its own machine.
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
