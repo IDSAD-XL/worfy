@@ -132,6 +132,50 @@ describe('Sign in to a server in needs-auth', () => {
     expect(answer.error).toBe('Claude Code gave a sign-in page that is not a web page')
     expect(mocks.openExternal).not.toHaveBeenCalled()
   })
+  it.each([
+    ['a leading tab', '\thttps://ok', 'https://ok/'],
+    ['a trailing line break', 'https://ok\n', 'https://ok/'],
+    ['backslashes for slashes', 'http:\\\\evil', 'http://evil/'],
+  ])('a sign-in page with %s opens as the URL parser reads it, not as the raw string', async (_what, given, opened) => {
+    const h = await harness('mcp-sign-in', AGENT_SCRIPTS, (query) => Object.assign(query, { mcpAuthenticate: () => Promise.resolve({ authUrl: given, requiresUserAction: true, callbackExpected: false }) }))
+    const answer = await h.session.mcpAction('example-oauth', 'sign-in')
+    expect(answer.error).toBeNull()
+    expect(mocks.openExternal.mock.calls).toEqual([[opened]])
+  })
+
+  it('a row that does not offer Sign in is refused before Claude Code is asked: no mcpAuthenticate, no page', async () => {
+    const h = await harness()
+    expect(h.rowOf('example-notes')?.actions).not.toContain('sign-in')
+    await expect(h.session.mcpAction('example-notes', 'sign-in')).rejects.toMatchObject({ name: 'McpActionRefused' })
+    expect(h.calls.filter((call) => call.kind === 'mcpAuthenticate')).toEqual([])
+    expect(mocks.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('a server that ends failed after the sign-in is reconnected once', async () => {
+    let signedIn = false
+    const reconnected: string[] = []
+    const h = await harness('mcp-sign-in', AGENT_SCRIPTS, (query) => {
+      const status = query.mcpServerStatus!.bind(query)
+      return Object.assign(query, {
+        mcpAuthenticate: () => {
+          signedIn = true
+          return Promise.resolve({ authUrl: 'https://auth.example.invalid/authorize', requiresUserAction: true, callbackExpected: true })
+        },
+        mcpServerStatus: async () => {
+          const rows = (await status()) as { name: string; status: string }[]
+          return signedIn ? rows.map((row) => (row.name === 'example-oauth' ? { ...row, status: 'failed', error: 'the token was refused' } : row)) : rows
+        },
+        reconnectMcpServer: (name: string) => {
+          reconnected.push(name)
+          return Promise.resolve()
+        },
+      })
+    })
+    const answer = await h.session.mcpAction('example-oauth', 'sign-in')
+    expect(answer.error).toBeNull()
+    expect(mocks.openExternal).toHaveBeenCalledTimes(1)
+    expect(reconnected).toEqual(['example-oauth'])
+  })
 })
 
 describe('a Claude Code without mcpAuthenticate (the method is not in the SDK’s documented types)', () => {

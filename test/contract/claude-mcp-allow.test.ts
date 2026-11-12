@@ -20,11 +20,11 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeInventoryStarter, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { ProfileSetRunner } from '../../src/main/ipc/pipeline'
-import { ALLOW_CONFLICT, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
+import { ALLOW_CONFLICT, allowMcpServer, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import { McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
@@ -137,7 +137,7 @@ interface SdkStart {
  * fake agent of each process leaves out what its managedSettings do not allow. The canvas attaches
  * worfy-canvas. A stub process stands behind each query, so a Restart waits for the old one's exit.
  */
-async function harness(initial: readonly string[] | null) {
+async function harness(initial: readonly string[] | null, wrap: (query: QueryHandle, process: number) => QueryHandle = (query) => query) {
   const set = profileSetStub(initial)
   const calls: FakeCall[] = []
   const starts: SdkStart[] = []
@@ -158,7 +158,8 @@ async function harness(initial: readonly string[] | null) {
       const start = options as SdkStart
       starts.push(start)
       allowedOf.set(prompt, (start.managedSettings?.allowedMcpServers ?? []).map((each) => each.serverName))
-      return fake(requests.get(prompt) as QueryRequest)
+      const process = starts.length
+      return fake(requests.get(prompt) as QueryRequest).then((query) => wrap(query, process))
     },
   }
   const listNow = (): readonly string[] => set.profile.allowed ?? ['plugin_worfy_qmd', CANVAS_SERVER_NAME]
@@ -246,6 +247,35 @@ describe('Allow of a server outside the Profile’s list', () => {
     expect(h.calls.filter((each) => each.kind === 'toggleMcpServer')).toEqual([])
     await h.turn('two')
     expect(h.ofType('init').at(-1)?.sdkSessionId).toBe(sdkId)
+  })
+
+  it('waits while the allowed server is still pending after the Restart, and answers its final row', async () => {
+    let pendingServed = 0
+    const h = await harness(LIST, (query, process) => {
+      if (process !== 2) return query
+      const status = query.mcpServerStatus!.bind(query)
+      // The new process brings example-tracker up slowly: its first two answers have it pending.
+      return Object.assign(query, {
+        mcpServerStatus: async () => {
+          const rows = (await status()) as { name: string; status: string }[]
+          if (pendingServed >= 2 || !rows.some((each) => each.name === 'example-tracker')) return rows
+          pendingServed += 1
+          return rows.map((each) => (each.name === 'example-tracker' ? { ...each, status: 'pending' } : each))
+        },
+      })
+    })
+    await withTrackerOutside(h)
+    const result = await h.allow('example-tracker')
+    expect(pendingServed).toBe(2)
+    expect(result).toEqual({ ok: true, value: { servers: [NOTES, TRACKER, CANVAS], error: null } })
+  })
+
+  it('a second Allow of a name the Profile lists already reads the list and writes nothing', async () => {
+    const set = profileSetStub([...LIST, 'example-tracker'])
+    await allowMcpServer(set.runner, cwd, 'example-tracker')
+    expect(set.calls.map((each) => each.args.includes('--read'))).toEqual([true])
+    expect(set.sets()).toEqual([])
+    expect(set.profile.allowed).toEqual([...LIST, 'example-tracker'])
   })
 
   it('a Profile with no list gets the default list with the name added', async () => {

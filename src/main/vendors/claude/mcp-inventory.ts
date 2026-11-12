@@ -7,8 +7,10 @@
 // mcpServerStatus() and closes it (F:inventory-status: ~1.8 s, no transcript left).
 //
 // It runs when a Claude Session with a list starts and when a person opens the list of its servers (the
-// Claude driver's handle, session.ts); one at a time per folder of this Machine: a second ask while one runs
-// gets the running one. The answer is kept in memory until the next run, never written to disk, never
+// Claude driver's handle, session.ts); one at a time per Project of this Machine: a Session in a worktree of
+// the Project asks as one in its main checkout does (repositoryRoot, the way main tells a Project by a folder),
+// so a Wave of Sessions in N worktrees starts one Claude Code, not N; a second ask while one runs gets the
+// running one. It runs in the folder of the Session that asked first. The answer is kept in memory until the next run, never written to disk, never
 // logged, and never told to the Autopilot journal or to the Flight recorder: it reaches the person only as
 // the rows of the Session (notAllowedRows). A failure is logged by its kind alone, with no server in it.
 //
@@ -16,6 +18,7 @@
 // Whether it lists the claude.ai connectors waits for the owner's live check (spike-mcp-live.md); without them
 // the person types a connector's name into the list in Project settings (McpChip.tsx says so).
 import { resolve } from 'node:path'
+import { repositoryRoot } from '../../mcp/canvas-server'
 import type { QueryHandle } from '../../agent/session/types'
 import type { McpServerRow } from '../../../shared/agent/mcp-status'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
@@ -48,6 +51,9 @@ export interface McpInventoryTiming {
 /** How long, past INVENTORY_SETTLE_MS, a run waits for Claude Code to start and answer at all. */
 export const INVENTORY_ANSWER_MS = 30_000
 
+/** The root of the Project that holds the folder `cwd`; null: none, the folder stands for itself. */
+export type ProjectRootOf = (cwd: string) => Promise<string | null>
+
 const delay = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 
 /** `promise`, or a rejection once the clock passes `limit`. */
@@ -60,38 +66,61 @@ function beforeLimit<T>(promise: Promise<T>, limit: number): Promise<T> {
 }
 
 export class McpInventory {
-  /** The last answer of each folder, as rows; in memory only. */
+  /** The last answer of each Project, as rows; in memory only. */
   private readonly answers = new Map<string, McpServerRow[]>()
-  /** The run of each folder that has not ended yet. */
+  /** The run of each Project that has not ended yet. */
   private readonly running = new Map<string, Promise<McpServerRow[] | null>>()
+  /** The Project of each folder asked about, once known: what latest() reads. */
+  private readonly projects = new Map<string, string>()
+  /** The Project of each folder asked about, being found or found. */
+  private readonly finding = new Map<string, Promise<string>>()
 
   constructor(
     private readonly start: InventoryQueryStarter,
     private readonly timing: McpInventoryTiming = { settleMs: INVENTORY_SETTLE_MS, pollMs: INVENTORY_POLL_MS },
+    private readonly rootOf: ProjectRootOf = repositoryRoot,
   ) {}
 
-  /** The servers of the user in the folder `cwd` by the last run that answered; null before any did. */
+  /** The servers of the user in the Project of the folder `cwd` by the last run that answered; null before any did. */
   latest(cwd: string): readonly McpServerRow[] | null {
-    return this.answers.get(resolve(cwd)) ?? null
+    const folder = resolve(cwd)
+    return this.answers.get(this.projects.get(folder) ?? folder) ?? null
   }
 
   /**
-   * Runs the inventory in the folder `cwd`, unless one runs there already: then its run. Settles with the
-   * rows (null: the run failed, and the last answer stays); never rejects.
+   * Runs the inventory of the Project of the folder `cwd`, unless one runs for that Project already: then
+   * its run. Settles with the rows (null: the run failed, and the last answer stays); never rejects.
    */
-  refresh(cwd: string): Promise<McpServerRow[] | null> {
-    const key = resolve(cwd)
+  async refresh(cwd: string): Promise<McpServerRow[] | null> {
+    const folder = resolve(cwd)
+    const key = await this.projectOf(folder)
     const now = this.running.get(key)
     if (now !== undefined) return now
-    const run = this.run(key).finally(() => this.running.delete(key))
+    const run = this.run(folder, key).finally(() => this.running.delete(key))
     this.running.set(key, run)
     return run
   }
 
-  private async run(cwd: string): Promise<McpServerRow[] | null> {
+  /** The key of the folder's Project: its root, or the folder itself outside a repository. */
+  private projectOf(folder: string): Promise<string> {
+    let found = this.finding.get(folder)
+    if (found === undefined) {
+      found = this.rootOf(folder).then(
+        (root) => (root === null ? folder : resolve(root)),
+        () => folder,
+      ).then((key) => {
+        this.projects.set(folder, key)
+        return key
+      })
+      this.finding.set(folder, found)
+    }
+    return found
+  }
+
+  private async run(cwd: string, key: string): Promise<McpServerRow[] | null> {
     const stop = new AbortController()
     let query: QueryHandle | null = null
-    // A Claude Code that never answers must not hold the folder's inventory for good.
+    // A Claude Code that never answers must not hold the Project's inventory for good.
     const limit = Date.now() + this.timing.settleMs + (this.timing.answerMs ?? INVENTORY_ANSWER_MS)
     try {
       const starting = this.start(cwd, silentInput(stop.signal))
@@ -110,7 +139,7 @@ export class McpInventory {
         await delay(this.timing.pollMs)
         rows = await read()
       }
-      if (rows !== null) this.answers.set(cwd, rows)
+      if (rows !== null) this.answers.set(key, rows)
       return rows
     } catch (error) {
       // The kind alone: a message may name the user's servers.

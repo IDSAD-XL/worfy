@@ -107,16 +107,20 @@ const openWithShell = async (url: string): Promise<void> => {
   await shell.openExternal(url)
 }
 
-/** `url` when it is a web page (http or https): a sign-in page of another scheme is refused before anything opens it. */
+/**
+ * `url` as the URL parser reads it (`href`), when it is a web page (http or https): a sign-in page of another
+ * scheme is refused before anything opens it, and the browser gets the address that was checked, not the raw
+ * string (a tab, a line break or backslashes in it are what the parser makes of them).
+ */
 function webPage(url: string): string {
-  let protocol = ''
+  let parsed: URL | null = null
   try {
-    protocol = new URL(url).protocol
+    parsed = new URL(url)
   } catch {
     // Not a URL at all.
   }
-  if (protocol !== 'https:' && protocol !== 'http:') throw new Error('Claude Code gave a sign-in page that is not a web page')
-  return url
+  if (parsed === null || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) throw new Error('Claude Code gave a sign-in page that is not a web page')
+  return parsed.href
 }
 
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))

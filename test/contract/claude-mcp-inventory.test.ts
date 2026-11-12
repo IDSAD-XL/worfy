@@ -9,14 +9,16 @@
 // name, as Claude Code does; the inventory's query answers the script's servers as they are. The real
 // starter is checked by the options it gives the SDK's query(), which the test answers itself: no Claude
 // Code can start, the SDK module is mocked to throw.
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeInventoryStarter, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryHandle } from '../../src/main/agent/session'
-import { McpInventory, notAllowedRows, silentInput } from '../../src/main/vendors/claude/mcp-inventory'
+import { McpInventory, notAllowedRows, silentInput, type InventoryQueryStarter } from '../../src/main/vendors/claude/mcp-inventory'
+import { repositoryRoot } from '../../src/main/mcp/canvas-server'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { McpServerRow } from '../../src/shared/agent/mcp-status'
@@ -196,16 +198,80 @@ describe('one inventory at a time', () => {
     )
     const first = inventory.refresh(cwd)
     const second = inventory.refresh(join(cwd, '.'))
-    expect(second).toBe(first)
-    await Promise.resolve()
+    await vi.waitFor(() => expect(starts).toHaveLength(1))
+    await new Promise((done) => setTimeout(done, 20))
     expect(starts).toHaveLength(1)
     release()
-    await first
+    expect(await second).toBe(await first)
     const third = inventory.refresh(cwd)
-    expect(third).not.toBe(first)
     await vi.waitFor(() => expect(starts).toHaveLength(2))
     release()
-    await third
+    expect(await third).not.toBe(await first)
+  })
+
+  it('two Sessions of one Project, in its main checkout and in a worktree of it, start one inventory, and both get its rows', async () => {
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd, stdio: 'pipe' })
+    git('init', '-q', '-b', 'main')
+    git('commit', '-q', '--allow-empty', '-m', 'first')
+    const worktree = join(cwd, '.claude', 'worktrees', 'other')
+    git('worktree', 'add', '-q', worktree)
+    const options = { scriptsDir: AGENT_SCRIPTS, script: 'mcp-sign-in' }
+    const fake = fakeQueryFactory({ ...options, mcpAllowlist: () => Promise.resolve(['example-notes']) })
+    const starter = fakeInventoryStarter(options)
+    const starts: string[] = []
+    let open: () => void = () => undefined
+    const opened = new Promise<void>((done) => (open = done))
+    const held: InventoryQueryStarter = async (at, prompt) => {
+      starts.push(at)
+      await opened
+      return starter(at, prompt)
+    }
+    // The app's way to the Project of a folder, counted: both Sessions have asked once both are found.
+    const found: string[] = []
+    const inventory = new McpInventory(held, undefined, async (folder) => {
+      const root = await repositoryRoot(folder)
+      found.push(folder)
+      return root
+    })
+    const registry = new SessionRegistry(claudeSessions(fake, {}, inventory))
+    registries.push(registry)
+    const rowsOf = (events: AgentEvent[]) => events.filter((event): event is Extract<AgentEvent, { type: 'mcp' }> => event.type === 'mcp').at(-1)?.servers
+    const mainEvents: AgentEvent[] = []
+    const otherEvents: AgentEvent[] = []
+    registry.start(cwd, undefined, (_id, event) => mainEvents.push(event))
+    registry.start(worktree, undefined, (_id, event) => otherEvents.push(event))
+    await vi.waitFor(() => expect(found).toHaveLength(2))
+    open()
+    await vi.waitFor(() => expect(rowsOf(mainEvents)).toEqual([NOTES, OAUTH_NOT_ALLOWED]))
+    await vi.waitFor(() => expect(rowsOf(otherEvents)).toEqual([NOTES, OAUTH_NOT_ALLOWED]))
+    expect(starts).toHaveLength(1)
+    expect(inventory.latest(worktree)).toBe(inventory.latest(cwd))
+    expect(realpathSync(starts[0]!)).toBe(realpathSync(found[0]!))
+  })
+
+  it('a Session started unattended (Autopilot) runs the inventory itself, not from an answer an attended Session left', async () => {
+    const options = { scriptsDir: AGENT_SCRIPTS, script: 'mcp-sign-in' }
+    const fake = fakeQueryFactory({ ...options, mcpAllowlist: () => Promise.resolve(['example-notes']) })
+    const starter = fakeInventoryStarter(options)
+    const starts: string[] = []
+    const inventory = new McpInventory((at, prompt) => {
+      starts.push(at)
+      return starter(at, prompt)
+    })
+    const registry = new SessionRegistry(claudeSessions(fake, {}, inventory))
+    registries.push(registry)
+    const attended: AgentEvent[] = []
+    registry.start(cwd, undefined, (_id, event) => attended.push(event))
+    await vi.waitFor(() => expect(attended.filter((event) => event.type === 'mcp').at(-1)).toMatchObject({ servers: [NOTES, OAUTH_NOT_ALLOWED] }))
+    expect(starts).toHaveLength(1)
+    expect(inventory.latest(cwd)).not.toBeNull()
+    const unattended: AgentEvent[] = []
+    const session = registry.start(cwd, undefined, (_id, event) => unattended.push(event), undefined, { unattended: true })
+    expect(session.unattended).toBe(true)
+    // Its own run, at its own start: the answer the attended Session left is not what it reads.
+    await vi.waitFor(() => expect(starts).toHaveLength(2))
+    // No one is at it, so no Turn off on its rows (ticket 03); the server outside its list is there all the same.
+    await vi.waitFor(() => expect(unattended.filter((event) => event.type === 'mcp').at(-1)).toMatchObject({ servers: [{ ...NOTES, actions: [] }, OAUTH_NOT_ALLOWED] }))
   })
 
   it('a Claude Code that never answers is closed at the limit: the run answers null, and the next ask starts another', async () => {

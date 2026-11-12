@@ -100,7 +100,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
   без `managedSettings`, `mcpServers` и plugin-ов worfy, вход которого не отдаёт ни одного сообщения
   (`inventoryOptions`, `sdkInventoryStarter`). Ждёт выхода серверов из `pending` (до 10 с), читает
   `mcpServerStatus()`, закрывается. Идёт, когда Session со списком стартует и когда открывается popover (`agent.mcp` с
-  `pickUp`); один на папку за раз, ответ — в памяти main. Строка `not-allowed` с `allow` — сервер пользователя
+  `pickUp`); один на Project Machine за раз (ключ — корень Project-а, `repositoryRoot`: Session-ы в worktree-ах
+  одного Project-а делят один query; раунд 2 review), ответ — в памяти main. Строка `not-allowed` с `allow` — сервер пользователя
   (источник не worfy), которого нет в списке, с которым стартовал процесс (`QueryRequest.mcpListed`), нет в строках
   Session и нет среди выключенных. Session без списка (вне Project) инвентарь не запускает.
 - **Allow** — `Session.mcpAction(name, 'allow', { allow })`: строка должна предлагать Allow; запись —
