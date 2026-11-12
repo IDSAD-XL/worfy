@@ -1,7 +1,8 @@
 # 113 — Живая строка карточки Project-а обрезает слово
 
 Type: bug
-Status: claimed 2026-11-12T20:23Z
+Status: done 2026-11-12T22:29Z
+PR: #1843
 Branch: worfy-polish/113
 Blocked by: none
 Source: сообщение владельца со снимком экрана 2026-11-12, бриф Orchestrator-а.
@@ -42,6 +43,7 @@ Source: сообщение владельца со снимком экрана 2
 - [ ] e2e `test/e2e/sidebar-rail.spec.ts`: у «harbor» — Ticket, который ждёт человека; в узком sidebar-е строка
       «1 busy · 1 waits» переносится, обе части целиком внутри карточки, разделитель перед второй частью не виден.
       Локально не запускается (правило владельца) — проверяет CI.
+  - evidence: ci-check pass · CI green on PR #1843 (ci-ok, e2e jobs included) · mac - · 43468e1dd4320907e370021f9103311a75292dd3
 - [ ] lint, typecheck, unit test-ы sidebar-а и kit-а Tooltip, gate fast — exit 0.
 
 ## Где в коде

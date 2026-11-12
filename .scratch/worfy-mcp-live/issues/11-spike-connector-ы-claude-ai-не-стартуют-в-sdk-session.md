@@ -1,7 +1,8 @@
 # 11 — Spike: connector-ы claude.ai не стартуют в Session worfy даже после Restart
 
 Type: spike
-Status: claimed 2026-11-12T20:17Z
+Status: done 2026-11-12T22:29Z
+PR: #1844
 Blocked by: none
 Source: владелец 2026-11-12 Q4 («spike, только если Restart не помогает») и Q11 («не помог») — живая проверка на
 Stable 802d79536: четыре connector-а claude.ai разрешены в Project, после «Restart Session with the same conversation»
@@ -43,6 +44,7 @@ Stable 802d79536: четыре connector-а claude.ai разрешены в Proj
 - [ ] Настоящие настройки не изменились: `~/.claude.json`, `~/.claude/settings.json` и Profile-ы — fingerprint до и
       после совпадает. Тесты и сценарии — только с временным HOME.
 - [ ] lint и gate fast — exit 0.
+  - evidence: ci-check pass · CI green on PR #1844 (ci-ok, e2e jobs included) · mac - · b8067cf750fb81d5cdc321d53c4d568b95677b6d
 
 ## Где в коде
 
