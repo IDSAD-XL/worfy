@@ -246,12 +246,21 @@ describe('the Archive popover', () => {
   it('Esc closes it, and that press does nothing else', async () => {
     fireEvent.click(await renderCanvas(recordingOps().ops))
     expect(screen.getByRole('dialog', { name: 'Archive' })).toBeTruthy()
+    // The press goes where the keyboard focus is, as a key does; the window (the Esc of an active
+    // Node, of focus mode) does not get it (worfy-ui-kit ticket 09: the popover is the kit's).
+    const reachedWindow = vi.fn()
+    window.addEventListener('keydown', reachedWindow)
     const press = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    act(() => {
-      window.dispatchEvent(press)
-    })
+    try {
+      await act(async () => {
+        ;(document.activeElement ?? document.body).dispatchEvent(press)
+      })
+    } finally {
+      window.removeEventListener('keydown', reachedWindow)
+    }
     expect(press.defaultPrevented).toBe(true)
-    expect(screen.queryByRole('dialog', { name: 'Archive' })).toBeNull()
+    expect(reachedWindow).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archive' })).toBeNull())
   })
 
   it('on a read-only screen the list is shown and Restore is inactive', async () => {
@@ -287,10 +296,11 @@ describe("a Ticket's history", () => {
     expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
     fireEvent.click(badge)
     expect(screen.getByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeTruthy()
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    // Where the keyboard focus is, as a key does (the popover is the kit's, worfy-ui-kit ticket 09).
+    await act(async () => {
+      ;(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     })
-    expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull())
   })
 
   it('on a read-only screen Show is inactive', async () => {

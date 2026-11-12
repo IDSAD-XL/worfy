@@ -1,7 +1,7 @@
 # 09 — Popover kit; popover-ы Canvas с пометкой «внутри Node»
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:18Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения по реализации» (kit, пометка «внутри Node»); «Решения по
 test-ам» (Seam 1, Seam 2); истории 13, 15, 16, 17, 25; заметка темы
@@ -59,3 +59,14 @@ test-ам» (Seam 1, Seam 2); истории 13, 15, 16, 17, 25; заметка 
 ## Вне скоупа
 
 - Popover-ы sidebar, composer, What's new и комментариев к цитатам: Ticket 10.
+
+## Итог
+
+- Popover kit — `src/renderer/theme/kit/Popover.tsx` и `popover.css`: popup рисуется в `document.body` на слое
+  `popover`, `modal={false}`, переворот и сдвиг у края окна (Positioner Base UI, отступ от края 8 px); нажатие по
+  области toast-ов (`.w-toasts`) не закрывает popover. С `inNode` клик и двойной клик внутри popover-а не доходят до
+  Node-а по дереву React.
+- Trash, Archive и история Session-ов Ticket-а и Epic-а — на Popover kit. `canvas/use-dismiss.ts` удалён: у него
+  не осталось пользователей. Роли и `data-testid` прежние.
+- Фильтр тегов: у плашки «Only tag …» нет всплывающей части (только текст и кнопка «Show all» в `<Panel>`), она
+  остаётся как есть.

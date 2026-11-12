@@ -1,0 +1,18 @@
+/* The kit's Popover (Popover.tsx): the frame every popover of the kit shares. Its content keeps the
+   classes of the place it comes from (trash.css, archive.css); values come from tokens.css. */
+.w-kit-popover {
+  box-sizing: border-box;
+  /* Never wider or taller than the room the positioner found next to the trigger. */
+  max-width: var(--available-width);
+  max-height: min(360px, var(--available-height));
+  overflow: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  color: var(--text);
+  outline: none;
+}
