@@ -101,6 +101,15 @@ describe('the permission card', () => {
     expect(within(card).getByTestId('permission-deny').textContent).toBe('Deny')
   })
 
+  it('draws Allow as the primary Button, Always allow as the secondary, Deny as the quiet danger one', async () => {
+    await renderTranscript([request()])
+    const card = screen.getByTestId('permission-card')
+    const classes = (testId: string) => [...within(card).getByTestId(testId).classList]
+    expect(classes('permission-allow')).toEqual(['w-button', 'w-button--primary'])
+    expect(classes('permission-always-allow')).toEqual(['w-button', 'w-button--secondary'])
+    expect(classes('permission-deny')).toEqual(['w-button', 'w-button--danger', 'w-button--quiet'])
+  })
+
   it.each([
     ['permission-allow', 'allow'],
     ['permission-always-allow', 'always_allow'],

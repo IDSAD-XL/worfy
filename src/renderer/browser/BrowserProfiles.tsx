@@ -212,7 +212,7 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
         </p>
       ) : null}
       <div style={styles.actions}>
-        <Button variant="danger" disabled={locked} title={readOnly ?? undefined} data-testid="browser-profile-delete" onClick={() => setConfirming(true)}>
+        <Button variant="danger" quiet disabled={locked} title={readOnly ?? undefined} data-testid="browser-profile-delete" onClick={() => setConfirming(true)}>
           Delete…
         </Button>
         <span style={{ flex: 1 }} />
@@ -233,7 +233,7 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
             <Button onClick={() => setConfirming(false)}>
               Cancel
             </Button>
-            <Button variant="danger" disabled={locked} data-testid="browser-profile-delete-confirm" onClick={() => void remove()}>
+            <Button variant="danger" quiet disabled={locked} data-testid="browser-profile-delete-confirm" onClick={() => void remove()}>
               Delete
             </Button>
           </div>

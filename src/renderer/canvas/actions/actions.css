@@ -15,9 +15,15 @@
 .w-action:hover:where(:not(:disabled, [aria-disabled='true'], .w-action--primary)) {
   border-color: var(--text-secondary);
 }
-/* `.w-action--primary`: the colours, the hover and the inactive look are the primary Button variant's
-   (theme/button.css). */
-.w-action[aria-disabled='true'] {
+/* `.w-action--primary`: the colours are the primary Button variant's (theme/button.css); its hover
+   brightens it. */
+.w-action.w-action--primary:hover:where(:not(:disabled, [aria-disabled='true'])) {
+  filter: brightness(1.08);
+}
+/* Inactive (F-SPEC, "Button" of the Node actions): transparent fill, border, muted text — the primary
+   one too, so its selector outweighs the colours of theme/button.css. */
+.w-action[aria-disabled='true'],
+.w-action.w-action--primary[aria-disabled='true'] {
   border-color: var(--border);
   background: transparent;
   color: var(--text-muted);

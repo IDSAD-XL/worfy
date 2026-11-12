@@ -267,7 +267,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
             <Button variant="primary" data-testid="question-submit" disabled={!complete || sending} {...writeAction(hint, submit)}>
               Submit
             </Button>
-            <Button variant="danger" data-testid="question-decline" disabled={sending} {...writeAction(hint, () => void send(null))}>
+            <Button variant="danger" quiet data-testid="question-decline" disabled={sending} {...writeAction(hint, () => void send(null))}>
               Decline
             </Button>
           </div>

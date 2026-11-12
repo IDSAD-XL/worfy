@@ -16,12 +16,15 @@ interface CommonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
 }
 
 interface TextButtonProps extends CommonProps {
-  /** primary — the one main action of a place; secondary (the default) — the others; danger — one that destroys. */
+  /** primary — the one main action of a place; secondary (the default) — the others; danger — one that stops or destroys. */
   variant?: Exclude<ButtonVariant, 'icon'>
+  /** Danger only: red text and a red ring instead of the red fill, beside a primary action (Deny, Decline, Delete). */
+  quiet?: boolean
 }
 
 interface IconButtonProps extends CommonProps {
   variant: 'icon'
+  quiet?: never
   /** An icon-only button has no visible text: the label is its name. */
   'aria-label': string
 }
@@ -34,9 +37,9 @@ const isAriaDisabled = (value: ButtonHTMLAttributes<HTMLButtonElement>['aria-dis
  * `disabled` stays the native attribute. `aria-disabled="true"` is the inactive button that still says
  * why: it keeps its tooltip and the keyboard focus, and the click does nothing.
  */
-export function Button({ variant = 'secondary', icon, children, className, onClick, ...rest }: ButtonProps) {
+export function Button({ variant = 'secondary', quiet = false, icon, children, className, onClick, ...rest }: ButtonProps) {
   const inactive = isAriaDisabled(rest['aria-disabled'])
-  const classes = ['w-button', `w-button--${variant}`, className].filter(Boolean).join(' ')
+  const classes = ['w-button', `w-button--${variant}`, quiet && variant === 'danger' ? 'w-button--quiet' : null, className].filter(Boolean).join(' ')
   const click = inactive ? (event: MouseEvent<HTMLButtonElement>) => event.preventDefault() : onClick
   return (
     <button {...rest} type="button" className={classes} onClick={click}>

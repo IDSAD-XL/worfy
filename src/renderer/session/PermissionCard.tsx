@@ -36,7 +36,7 @@ const RESOLVED: Record<PermissionOptionKind, string> = {
   deny: 'Denied',
 }
 
-/** The Button variant of each kind, and its test id. */
+/** The Button variant of each kind (Deny the quiet danger beside Allow), and its test id. */
 const BUTTON: Record<PermissionOptionKind, { variant: 'primary' | 'secondary' | 'danger'; testId: string }> = {
   allow: { variant: 'primary', testId: 'permission-allow' },
   allow_always: { variant: 'secondary', testId: 'permission-always-allow' },
@@ -155,6 +155,7 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
                 <Button
                   key={option.id}
                   variant={BUTTON[option.kind].variant}
+                  quiet={BUTTON[option.kind].variant === 'danger'}
                   className={option.kind === 'allow_always' && request.productWrite !== undefined ? 'w-permission__button--folder' : undefined}
                   data-testid={BUTTON[option.kind].testId}
                   data-option-id={option.id}

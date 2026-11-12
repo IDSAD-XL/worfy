@@ -1,8 +1,8 @@
 /*
  * The Start Autopilot window (worfy-autopilot-queue ticket 09; docs/design/F-SPEC.md, "Start Autopilot
  * window"): the prototype card-918c77d9 on the tokens of tokens.css. One colour of its own: `--danger`,
- * with `--danger-text` on it. The danger button ("Interrupt and start" of ticket 10) no longer reads them:
- * it is the danger variant of Button (theme/button.css, worfy-ui-kit ticket 15).
+ * the fill of the danger button ("Interrupt and start" of ticket 10), with `--danger-text` on it. The
+ * danger variant of Button (theme/button.css) reads them.
  */
 
 :root {

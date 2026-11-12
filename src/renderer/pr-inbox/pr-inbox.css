@@ -657,7 +657,8 @@
   text-decoration: none;
   cursor: default;
 }
-.w-pr-inbox-button:hover:where(:not(:disabled, .w-pr-inbox-button--primary)) {
+.w-pr-inbox-button:hover:where(:not(:disabled)),
+.w-pr-inbox-button.w-pr-inbox-button--primary:hover:where(:not(:disabled)) {
   border-color: var(--text-secondary);
 }
 .w-pr-inbox-button:disabled {
