@@ -12,8 +12,8 @@
 // of the handle is numbered, and an answer to any but the latest is dropped.
 // A Session whose query started with a Profile list (QueryRequest.mcpListed, ticket 05) runs the MCP
 // inventory (mcp-inventory.ts) when it starts and when a person opens the list of its servers: the rows of
-// the servers the list keeps out are added as `not-allowed`, offering Allow, and an `mcp` event goes out
-// once the inventory has answered.
+// the servers the list keeps out are added as `not-allowed`, offering Allow, those it names that Claude Code
+// did not start as `not-started`, and an `mcp` event goes out once the inventory has answered.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
 //
@@ -65,7 +65,7 @@ import { contextUsageOf, initMcpServers, isCompactBoundary, sdkMessageToEvents }
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
 import { claudeMcpStatus, type ClaudeMcpLive } from './mcp'
-import { McpInventory, notAllowedRows } from './mcp-inventory'
+import { McpInventory, notAllowedRows, notStartedRows } from './mcp-inventory'
 import { claudeSettings } from './options'
 import { inventoryStarterFromEnv, queryFactoryFromEnv } from './query'
 
@@ -398,11 +398,16 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     })
   }
 
-  /** `rows` and, after them, the servers the inventory found that the Session's list keeps out (mcp-inventory.ts). */
+  /**
+   * `rows` and, after them, the servers of the Session's list the inventory found but Claude Code did not
+   * start here, then those the list keeps out (mcp-inventory.ts).
+   */
   private withNotAllowed(rows: McpServerRow[] | null): McpServerRow[] | null {
     const inventory = this.inventory
     if (rows === null || inventory === null || this.listed === null) return rows
-    return [...rows, ...notAllowedRows(inventory.of.latest(inventory.cwd), { listed: this.listed, rows, off: this.off })]
+    const found = inventory.of.latest(inventory.cwd)
+    const set = { listed: this.listed, rows, off: this.off, attended: this.attended() }
+    return [...rows, ...notStartedRows(found, set), ...notAllowedRows(found, set)]
   }
 
   /** Read once by the Session; reading starts the message loop and the start check. */

@@ -17,6 +17,9 @@
 // The query starts the user's servers for those seconds: an stdio server's process runs, then stops with it.
 // Whether it lists the claude.ai connectors waits for the owner's live check (spike-mcp-live.md); without them
 // the person types a connector's name into the list in Project settings (McpChip.tsx says so).
+//
+// A server the list names that the inventory finds but the Session's own status lacks is a row `not-started`
+// (notStartedRows): Claude Code left it out of the Session, and without a row it would be shown nowhere.
 import { resolve } from 'node:path'
 import { repositoryRoot } from '../../mcp/canvas-server'
 import type { QueryHandle } from '../../agent/session/types'
@@ -164,7 +167,12 @@ export interface SessionSet {
   rows: readonly McpServerRow[]
   /** The servers turned off for this Session (Turn off, ticket 03): they are not "not allowed". */
   off: readonly string[]
+  /** A person may act on the Session: a server Claude Code did not start offers a Restart. False: an unattended Session. */
+  attended?: boolean
 }
+
+/** Why a server of the Session's list has no row of the Session's own: what the person reads in its row. */
+export const MCP_NOT_STARTED = 'Allowed in this Project, but Claude Code did not start it in this Session.'
 
 /**
  * The rows `not-allowed` of the servers of `inventory` that the Session's list keeps out: a server of the
@@ -179,4 +187,20 @@ export function notAllowedRows(inventory: readonly McpServerRow[] | null, sessio
   return inventory
     .filter((row) => row.source !== 'worfy' && !known.has(row.name))
     .map((row) => ({ ...row, status: 'not-allowed' as const, error: null, actions: ['allow' as const] }))
+}
+
+/**
+ * The rows `not-started` of the servers of `inventory` that the Session's list names but that Claude Code
+ * left out of the Session's own status: without them such a server would be in neither group of the popover
+ * (a claude.ai connector allowed by its name that Claude Code does not pass to the Session, or one connected
+ * after the process started). An attended Session's row offers a Restart with the same conversation, which starts
+ * Claude Code again with the list; worfy's own servers and plugins' never get such a row.
+ */
+export function notStartedRows(inventory: readonly McpServerRow[] | null, session: SessionSet): McpServerRow[] {
+  if (inventory === null) return []
+  const listed = new Set(session.listed)
+  const known = new Set([...session.off, ...session.rows.map((row) => row.name)])
+  return inventory
+    .filter((row) => row.source !== 'worfy' && listed.has(row.name) && !known.has(row.name))
+    .map((row) => ({ ...row, status: 'not-started' as const, tools: null, error: MCP_NOT_STARTED, actions: session.attended === true ? ['restart' as const] : [] }))
 }

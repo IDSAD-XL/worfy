@@ -78,6 +78,6 @@ export function mcpCount(rows: readonly McpServerRow[]): { connected: number; to
   return {
     connected: counted.filter((row) => row.status === 'connected').length,
     total: counted.length,
-    warn: counted.some((row) => row.status === 'failed' || row.status === 'needs-auth'),
+    warn: counted.some((row) => row.status === 'failed' || row.status === 'needs-auth' || row.status === 'not-started'),
   }
 }
