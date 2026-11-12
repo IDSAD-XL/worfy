@@ -214,8 +214,15 @@ test('a menu on a Node does not stop the Node from being dragged', async () => {
   async function dragFrom(target: Locator): Promise<{ dy: number; pressedOn: string }> {
     const before = await box(node)
     const from = await box(target)
-    const x = from.x + Math.min(40, from.width / 2)
+    // A point of the header the open menu does not cover: the menu hangs under its trigger.
     const y = from.y + from.height / 2
+    let x = from.x + 8
+    for (let probe = from.x + 8; probe < from.x + from.width - 8; probe += 10) {
+      if ((await what(probe, y)).startsWith('div.w-note__header')) {
+        x = probe
+        break
+      }
+    }
     const pressedOn = await what(x, y)
     await window.mouse.move(x, y)
     await window.mouse.down()

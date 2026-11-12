@@ -85,6 +85,11 @@ function useCloseOnBlur(open: boolean, enabled: boolean, close: () => void): voi
 const POPUP_LAYER = 3100
 /** A kit Dialog sits below the Select list, as the z-index scale of the spec puts it. */
 const DIALOG_LAYER = 200
+/**
+ * The portal's z-index works only on a positioned box: run 43129431332 had `zIndex` alone, and the
+ * Settings backdrop (z-index 110, positioned) covered the popover of Settings.
+ */
+const LAYER_STYLE = { position: 'relative', zIndex: POPUP_LAYER } as const
 
 export function ProbePopover({ id, closeOnBlur = false, label = 'Popover' }: { id: string; closeOnBlur?: boolean; label?: string }): ReactElement {
   const [open, setOpen] = useState(false)
@@ -100,7 +105,7 @@ export function ProbePopover({ id, closeOnBlur = false, label = 'Popover' }: { i
       <Popover.Trigger className="w-spike-button nodrag" data-testid={`${id}-trigger`}>
         {label}
       </Popover.Trigger>
-      <Popover.Portal className="w-spike-portal" style={{ zIndex: POPUP_LAYER }}>
+      <Popover.Portal className="w-spike-portal" style={LAYER_STYLE}>
         <Popover.Positioner sideOffset={6}>
           <Popover.Popup className="w-spike-popup nodrag nopan nowheel" data-testid={`${id}-popup`}>
             <Popover.Title className="w-spike-title">{label} probe</Popover.Title>
@@ -130,7 +135,7 @@ export function ProbeMenu({ id, modal = true, nodrag = true, label = 'Menu' }: {
       <Menu.Trigger className={nodrag ? 'w-spike-button nodrag' : 'w-spike-button'} data-testid={`${id}-trigger`} data-chosen={chosen}>
         {label}
       </Menu.Trigger>
-      <Menu.Portal className="w-spike-portal" style={{ zIndex: POPUP_LAYER }}>
+      <Menu.Portal className="w-spike-portal" style={LAYER_STYLE}>
         <Menu.Positioner sideOffset={6}>
           <Menu.Popup className="w-spike-popup nodrag nopan nowheel" data-testid={`${id}-popup`}>
             {['One', 'Two', 'Three'].map((item) => (
@@ -151,7 +156,7 @@ export function ProbeTooltip({ id }: { id: string }): ReactElement {
       <Tooltip.Trigger delay={100} className="w-spike-button nodrag" data-testid={`${id}-trigger`} aria-label="Tooltip probe">
         ?
       </Tooltip.Trigger>
-      <Tooltip.Portal className="w-spike-portal" style={{ zIndex: POPUP_LAYER }}>
+      <Tooltip.Portal className="w-spike-portal" style={LAYER_STYLE}>
         <Tooltip.Positioner sideOffset={6}>
           <Tooltip.Popup className="w-spike-tip" data-testid={`${id}-popup`}>
             Tooltip probe
@@ -190,7 +195,7 @@ export function ProbeDialog({ id, way }: { id: string; way: 'body' | 'inside' | 
       <Dialog.Trigger className="w-spike-button" data-testid={`${id}-trigger`}>
         Dialog ({way})
       </Dialog.Trigger>
-      <Dialog.Portal className="w-spike-portal" style={{ zIndex: DIALOG_LAYER }}>
+      <Dialog.Portal className="w-spike-portal" style={{ position: 'relative', zIndex: DIALOG_LAYER }}>
         <Dialog.Backdrop className="w-spike-backdrop" />
         <Dialog.Popup ref={setPopup} className="w-spike-dialog" data-testid={`${id}-popup`}>
           <Dialog.Title className="w-spike-title">Dialog probe ({way})</Dialog.Title>
