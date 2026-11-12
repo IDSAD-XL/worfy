@@ -44,6 +44,7 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 - [ ] Unit/contract test: строка источника `worfy` без `turn-off`; `agent.mcpAction` `turn-off` такого сервера —
       отказ, Session не перезапускается.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-turn-off, claude-mcp-allow worfy over IPC) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2: mcp-status-row, claude-mcp-turn-off plugin keeps Turn off) · mac - · 41c125d0949c093b7dd5c9444e1e07f05e948e37
 - [ ] Contract test Allow all: N имён — одна запись `profile-set --set`, один Restart, все имена в списке; отказ
       записи — ошибка, Session не меняется; unattended — без Restart.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-allow: Allow all) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
@@ -59,8 +60,10 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
       строка под полем с открытым popover-ом. Зелёный в CI (локальный e2e не запускается, правило владельца).
 - [ ] Страницы Feature en и ru обновлены; каждое утверждение сверено с кодом.
   - evidence: commit pass · worfy-mcp-live 09: Allow all, no Turn off for worfy's own servers, MCP chip under the input field · - - · 46a7db01bf77a2adbdcb24c49776e943447902dc
+  - evidence: commit pass · worfy-mcp-live 09 round 2: no Turn off only for worfy's own servers, not for plugins' · - - · 41c125d0949c093b7dd5c9444e1e07f05e948e37
 - [ ] lint, typecheck, unit и contract test-ы затронутых модулей, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · 41c125d0949c093b7dd5c9444e1e07f05e948e37
 
 ## Где в коде
 
