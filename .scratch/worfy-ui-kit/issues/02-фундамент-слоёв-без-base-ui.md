@@ -1,7 +1,8 @@
 # 02 — Фундамент слоёв без Base UI: шкала z-index, helper «открытые слои», Esc поля ввода чата
 
 Type: task
-Status: claimed 2026-11-11T23:53Z
+Status: done 2026-11-12T04:20Z
+PR: #1812
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения по реализации» (шкала слоёв, helper «открытые слои»,
 Esc); истории 4, 26, 27; [критик](../../../docs/product/critic/worfy-ui-kit-2026-11-11.md), возражение 2
@@ -39,6 +40,7 @@ Base UI здесь не нужен: всё это нужно при любом �
   - evidence: test-run pass · `pnpm test test/unit/message-input-escape.test.tsx` exit 0 · mac - · 0b4474c6f1848a0c40df1bdaef9cbb3052e43e25
 - [ ] Tokens z-index лежат в `theme/tokens.css`; toast-ы, список `Select` и закреплённые Node-ы берут их; порядок слоёв
       прежний — `test/e2e/toast-placement.spec.ts`, `test/e2e/select.spec.ts`, `test/e2e/focus.spec.ts` зелёные.
+  - evidence: ci-check pass · CI green on PR #1812 (ci-ok, e2e jobs included) · mac - · 152af0ffc624aca5d8ee1e90b31288e8a3347d09
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 0b4474c6f1848a0c40df1bdaef9cbb3052e43e25
 

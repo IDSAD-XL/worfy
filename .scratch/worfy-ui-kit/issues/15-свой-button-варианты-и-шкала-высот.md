@@ -1,7 +1,8 @@
 # 15 — Свой Button: варианты и одна шкала высот
 
 Type: task
-Status: claimed 2026-11-11T23:54Z
+Status: done 2026-11-12T04:20Z
+PR: #1813
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения по реализации» (Button и Chip); история 21; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, разделы 2 и 2.1
@@ -37,6 +38,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения 
   - evidence: commit pass · Button keeps the F-SPEC looks: dimmed inactive, filled danger (review round 1) · - - · 87c5644f3e71ae36ea872563f58ca68f5c1d5d19
 - [ ] E2e `test/e2e/controls.spec.ts` (кольцо фокуса и курсор) зелёный; существующие test-ы мест без правок ролей и
       `data-testid`.
+  - evidence: ci-check pass · CI green on PR #1813 (ci-ok, e2e jobs included) · mac - · 4910613a89a7000b3a8a63c411a27e7468bddbe4
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 612573abff3507cd3b2e0b9a616a05edbdd5f93f
   - evidence: gate pass · `gate fast` exit 0 · mac - · 87c5644f3e71ae36ea872563f58ca68f5c1d5d19

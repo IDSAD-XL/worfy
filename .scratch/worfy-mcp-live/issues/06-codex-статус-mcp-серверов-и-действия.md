@@ -1,7 +1,8 @@
 # 06 — Codex: статус MCP-серверов и действия
 
 Type: task
-Status: claimed 2026-11-12T01:27Z
+Status: done 2026-11-12T04:20Z
+PR: #1817
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения владельца» Q4, Q5, Q8, Q10; «Что уже есть в SDK и в
 протоколе Codex»; «Не в этом Epic-е» (список для Codex); история 10
@@ -52,6 +53,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc1d8b766c2844cc1fc093048345b772ccf362c3
   - evidence: gate pass · `gate fast` exit 0 · mac - · a3cf88573a067a4cfc2b566de5a7c8a7bf72df7c
+  - evidence: ci-check pass · CI green on PR #1817 (ci-ok, e2e jobs included) · mac - · fc16a5a185be0ad6a08c5dc61b61bf40b0917475
 
 ## Где в коде
 

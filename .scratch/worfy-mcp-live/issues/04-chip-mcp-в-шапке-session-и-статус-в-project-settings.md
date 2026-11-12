@@ -1,7 +1,7 @@
 # 04 — Chip «MCP n/m» в шапке Session и статус в Project settings
 
 Type: task
-Status: claimed 2026-11-12T01:28Z
+Status: done 2026-11-12T04:20Z
 PR: #1815
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения владельца» Q2, Q10; «Решения по реализации» (строку
@@ -41,6 +41,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
   - evidence: test-run pass · `vitest run test/unit/edit-profile.test.tsx` exit 0 · mac - · a4be1f8b240785a5ab34ce91d52d1a3662737868
 - [ ] E2e `test/e2e/session-mcp.spec.ts` на fake query: chip в шапке, popover со строками, клик Reconnect уходит в
       `agent.mcpAction`. Зелёный на macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1815 (ci-ok, e2e jobs included) · mac - · b6d2dc5874b6831c7c12fd4de833f95faa595d62
 - [ ] Существующие test-ы шапки Session и Edit profile зелёные без правок ролей и `data-testid`.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · cc4b2c4b265794a4a6b7c8c4e5950c8517ac2d28
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · a4be1f8b240785a5ab34ce91d52d1a3662737868
