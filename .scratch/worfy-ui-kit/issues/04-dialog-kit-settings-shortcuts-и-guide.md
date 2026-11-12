@@ -1,7 +1,8 @@
 # 04 — Dialog kit: Settings, Keyboard shortcuts и Guide одним шагом, без трёх guard-ов
 
 Type: task
-Status: claimed 2026-11-12T14:18Z
+Status: done 2026-11-12T17:50Z
+PR: #1831
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения по реализации» (Settings, Keyboard shortcuts и Guide;
 toast-ы; `Select` внутри окна kit); «Решения по test-ам» (Seam 1, Seam 2); истории 1, 2, 3, 9, 11, 14, 25;
@@ -42,6 +43,7 @@ toast-ы; `Select` внутри окна kit); «Решения по test-ам»
       unit test `select.test.tsx` и e2e `select.spec.ts`.
   - evidence: test-run pass · `pnpm exec vitest run --project jsdom test/unit/select.test.tsx` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
 - [ ] E2e `test/e2e/layers-dialog.spec.ts` зелёный на macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1831 (ci-ok, e2e jobs included) · mac - · 8d42f030259f21c18264a28443a3e9d61b655339
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
