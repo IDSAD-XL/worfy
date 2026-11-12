@@ -176,7 +176,18 @@ function topDialog(): OpenDialog | undefined {
   return top?.element.isConnected === true ? top : undefined
 }
 
-const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]'
+
+/**
+ * The Tab stops of `window`, in order. An element with a negative tabindex is not one, even a button:
+ * a group of the kit leaves only its active button in the Tab order (roving tabindex), and Base UI
+ * adds hidden inputs with tabindex -1.
+ */
+function tabStopsOf(window: HTMLElement): HTMLElement[] {
+  return [...window.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+    (element) => element.tabIndex >= 0 && element.closest('[hidden], [inert]') === null,
+  )
+}
 
 /** The z-index of the layer `element` is in: of its ancestor right under `body`; NaN without one. */
 function zIndexOf(element: Element): number {
@@ -218,7 +229,7 @@ function guardKeys(event: globalThis.KeyboardEvent): void {
     dialog.close()
   } else if (event.key === 'Tab') {
     event.preventDefault()
-    const focusable = [...dialog.element.querySelectorAll<HTMLElement>(FOCUSABLE)]
+    const focusable = tabStopsOf(dialog.element)
     ;((event.shiftKey ? focusable.at(-1) : focusable[0]) ?? dialog.element).focus()
   }
 }

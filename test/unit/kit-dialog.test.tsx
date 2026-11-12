@@ -344,3 +344,64 @@ describe('the keys of the app while a kit window is open', () => {
     }
   })
 })
+
+describe('the Tab stops of a kit window with a group of the kit inside', () => {
+  /**
+   * A window with a group as the kit draws it (ToggleGroup, RadioGroup: roving tabindex, only the
+   * active button is a Tab stop) and the hidden inputs Base UI adds, with tabindex -1, at both ends.
+   */
+  function GroupWindow() {
+    const [open, setOpen] = useState(true)
+    return (
+      <Dialog open={open} onClose={() => setOpen(false)} label="Group window" className="probe">
+        <input type="checkbox" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0 }} />
+        <div role="group" aria-label="Size">
+          <button type="button" tabIndex={-1}>
+            S
+          </button>
+          <button type="button" tabIndex={0} aria-pressed="true">
+            M
+          </button>
+          <button type="button" tabIndex={-1}>
+            L
+          </button>
+        </div>
+        <button type="button" onClick={() => setOpen(false)}>
+          Close
+        </button>
+        <input type="checkbox" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0 }} />
+      </Dialog>
+    )
+  }
+
+  async function openGroupWindow() {
+    render(<GroupWindow />)
+    await flush()
+    const window = screen.getByRole('dialog', { name: 'Group window' })
+    return {
+      active: within(window).getByRole('button', { name: 'M' }),
+      close: within(window).getByRole('button', { name: 'Close' }),
+    }
+  }
+
+  it('Tab and Shift+Tab stop once in the group, on its active button, and skip what has tabindex -1', async () => {
+    const { active, close } = await openGroupWindow()
+    active.focus()
+    await pressTab()
+    expect(document.activeElement).toBe(close)
+    await pressTab()
+    expect(document.activeElement).toBe(active)
+    await pressTab(true)
+    expect(document.activeElement).toBe(close)
+  })
+
+  it('with the focus fallen to the page, Tab brings it to the active button of the group and Shift+Tab to the last stop', async () => {
+    const { active, close } = await openGroupWindow()
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(pressKey(document.body, { key: 'Tab' }).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(active)
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(pressKey(document.body, { key: 'Tab', shiftKey: true }).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(close)
+  })
+})
