@@ -34,12 +34,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
 
 - [ ] Unit test `test/unit/kit-preview-card.test.tsx`: карточка открывается наведением и фокусом, закрывается уходом и
       Esc.
+  - evidence: test-run pass · `pnpm test test/unit/kit-preview-card.test.tsx` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Unit test-ы мест: History и Queued messages закрываются по Esc и нажатию снаружи; фокус входит и возвращается.
+  - evidence: test-run pass · `pnpm test test/unit/history-popover.test.tsx test/unit/composer-popovers.test.tsx` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Существующие test-ы мест и e2e `quote-comments.spec.ts` зелёные без правок ролей и `data-testid`; дописанный
       `layers-popover.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] В «Итог» — какие места остались своими и почему.
+  - evidence: commit pass · Remaining popovers on the kit Popover; a kit PreviewCard for the quote hover card (worfy-ui-kit 10) · - - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 
 ## Где в коде
 
