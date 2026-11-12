@@ -27,6 +27,11 @@
 // - Limits (ticket 26): `account/rateLimits/updated` → a `limits` event, whose windows also go to the
 //   app's LimitsTracker for the Limits panel; a turn refused by the Limits (`usageLimitExceeded`) →
 //   `limit_reached` (limits.ts, decision 09) before the error that ends the turn.
+// - MCP servers (worfy-mcp-live ticket 06, mcp.ts): `mcpServer/startupStatus/updated` of the thread → an
+//   `mcp` event with the changed row; once no server is starting, `mcpServerStatus/list {threadId}` → the
+//   rows with tools and sign-in state. Reconnect → `config/mcpServer/reload`; Sign in →
+//   `mcpServer/oauth/login`, its page opened (CodexServerOptions.openUrl), over by
+//   `mcpServer/oauthLogin/completed`. No row and no answer goes to a log: they name the user's servers.
 //
 // The process is reported to the Session (SessionStart.spawned) the moment it is spawned, before its
 // handshake: a Session closed while the start runs waits for that process too, every failure of the
@@ -54,6 +59,7 @@ import { messageText } from '../../../shared/agent/attachments'
 import type { SlashCommand } from '../../../shared/agent/commands'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitWindow } from '../../../shared/agent/limits'
+import { sameMcpRows, type McpServerRow } from '../../../shared/agent/mcp-status'
 import type { ModelOption } from '../../../shared/agent/settings'
 import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
@@ -70,9 +76,14 @@ import { codexCommandOf, codexSlashCommands, CODEX_BUILT_IN_COMMANDS, slashName,
 import { boundedText, CodexItems } from './items'
 import { CODEX_VENDOR, codexLimitReachedEvent, codexLimitsEvent } from './limits'
 import type { SpawnProcess } from './launch'
-import { appCodexMcp, type CodexMcpResolver } from './mcp'
+import { appCodexMcp, codexMcpListParams, codexMcpLoginParams, codexMcpRow, codexStartupRow, worfyServerNames, type CodexMcpLive, type CodexMcpResolver } from './mcp'
 import type { RequestId } from './protocol/ts/RequestId'
 import type { AccountRateLimitsUpdatedNotification } from './protocol/ts/v2/AccountRateLimitsUpdatedNotification'
+import type { ListMcpServerStatusResponse } from './protocol/ts/v2/ListMcpServerStatusResponse'
+import type { McpServerOauthLoginCompletedNotification } from './protocol/ts/v2/McpServerOauthLoginCompletedNotification'
+import type { McpServerOauthLoginResponse } from './protocol/ts/v2/McpServerOauthLoginResponse'
+import type { McpServerRefreshResponse } from './protocol/ts/v2/McpServerRefreshResponse'
+import type { McpServerStatusUpdatedNotification } from './protocol/ts/v2/McpServerStatusUpdatedNotification'
 import type { ServerNotification } from './protocol/ts/ServerNotification'
 import type { ServerRequest } from './protocol/ts/ServerRequest'
 import type { Model } from './protocol/ts/v2/Model'
@@ -104,6 +115,10 @@ export interface CodexServerOptions {
   limits?: (windows: readonly LimitWindow[]) => void
   /** worfy's MCP servers of a Session (mcp.ts, ticket 33); without it a Session gets none. */
   mcp?: CodexMcpResolver
+  /** Opens the sign-in page of an MCP server (worfy-mcp-live ticket 06): Electron's shell.openExternal by default; tests replace it. */
+  openUrl?: (url: string) => Promise<void>
+  /** How long the sign-in to an MCP server may wait for its completion; MCP_LOGIN_TIMEOUT_MS by default. */
+  mcpLoginTimeoutMs?: number
   /**
    * GH_TOKEN of the GitHub account of the Profile at `cwd`, or null when there is none; may reject with
    * a reason that holds no token. Without it the process gets the environment as it is.
@@ -125,6 +140,41 @@ const METHOD_NOT_FOUND = -32601
 
 /** How many pages of `model/list` a Session reads at most. */
 const MODEL_PAGES = 10
+
+/** How many pages of `mcpServerStatus/list` a Session reads at most. */
+const MCP_PAGES = 10
+
+/** How long the sign-in to an MCP server may take in the browser, as the sign-in to Codex itself (account.ts). */
+const MCP_LOGIN_TIMEOUT_MS = 10 * 60 * 1000
+
+/** A sign-in to an MCP server that waits for its `mcpServer/oauthLogin/completed`. */
+interface McpLogin {
+  readonly name: string
+  /** The id Codex gave the sign-in; undefined until it answered, null when it gave none (an older Codex). */
+  loginId: string | null | undefined
+  /** The completions of sign-ins to this server since it began: one may come before the answer is read. */
+  readonly completions: McpServerOauthLoginCompletedNotification[]
+  /** Looks for its completion again. */
+  wake(): void
+  fail(error: Error): void
+}
+
+const openWithShell = async (url: string): Promise<void> => {
+  const { shell } = await import('electron')
+  await shell.openExternal(url)
+}
+
+/** `url` when it is a web page (http or https); a sign-in page of another scheme is refused before anything opens it. */
+function webPage(url: string): string {
+  let protocol: string
+  try {
+    protocol = new URL(url).protocol
+  } catch {
+    protocol = ''
+  }
+  if (protocol !== 'https:' && protocol !== 'http:') throw new Error('Codex gave a sign-in page that is not a web page')
+  return url
+}
 
 /** What a turn runs with: the model and effort (null: Codex's default) and the id of a Codex preset. */
 interface TurnSettings {
@@ -170,7 +220,7 @@ export function userInput(message: SessionMessage, skill?: Extract<CodexCommand,
 }
 
 /** One `codex app-server` process of a Session, behind worfy's SessionHandle. */
-class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource {
+class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource, CodexMcpLive {
   private server: CodexAppServer | null = null
   /** The whole environment of the app-server process, which the shells of the Session inherit; null: not known. */
   private processEnv: Readonly<Record<string, string | undefined>> | null = null
@@ -202,12 +252,26 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
   private limitWindows: readonly LimitWindow[] = []
   /** A refusal by the Limits being decided: the messages that came after it wait for it (receive()). */
   private deciding: Promise<void> | null = null
+  /** The names of worfy's own MCP servers of this process (mcp.ts, worfyServerNames). */
+  private mcpWorfy: readonly string[] = []
+  /** The rows of the thread's MCP servers last sent as `mcp`; null before Codex said anything of them. */
+  private mcpRows: McpServerRow[] | null = null
+  /** Startup notifications that came before the thread answered: taken once it did (attach). */
+  private readonly mcpEarly: McpServerStatusUpdatedNotification[] = []
+  /** Asks of the list; an answer to any but the latest, or one a startup notification came after, is dropped. */
+  private mcpAsks = 0
+  /** Sign-ins to MCP servers that wait for their completion. */
+  private readonly mcpLogins = new Set<McpLogin>()
 
   constructor(
     private readonly opts: SessionStart,
     preset: string,
     /** Where the windows of each `limits` event go (CodexServerOptions.limits). */
     private readonly recordLimits: (windows: readonly LimitWindow[]) => void = () => undefined,
+    /** Opens the sign-in page of an MCP server (CodexServerOptions.openUrl). */
+    private readonly openUrl: (url: string) => Promise<void> = openWithShell,
+    /** How long a sign-in to an MCP server waits for its completion (CodexServerOptions.mcpLoginTimeoutMs). */
+    private readonly mcpLoginTimeoutMs: number = MCP_LOGIN_TIMEOUT_MS,
   ) {
     // Effort is not part of thread/start: the thread starts on Codex's own, and the first turn names the Session's.
     this.told = { model: opts.settings.model, effort: null, preset }
@@ -225,9 +289,10 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
    * The process, once its handshake is done, and the whole environment it started with: what it sends from now on
    * reaches this handle.
    */
-  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null): void {
+  started(server: CodexAppServer, env: Readonly<Record<string, string | undefined>> | null, worfyServers: readonly string[]): void {
     this.server = server
     this.processEnv = env
+    this.mcpWorfy = worfyServers
   }
 
   /** The thread answered: the Session takes messages, and the end of the process ends the events. */
@@ -244,6 +309,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     if (hasExited(child)) ended(child.exitCode, child.signalCode)
     else child.once('exit', ended)
     this.out.push({ type: 'account', loggedIn: true, subscriptionType: null, apiProvider: null, tokenSource: null })
+    for (const update of this.mcpEarly.splice(0)) this.mcpStartup(update)
   }
 
   readonly events: AsyncIterable<AgentEvent> = { [Symbol.asyncIterator]: () => this.out[Symbol.asyncIterator]() }
@@ -338,6 +404,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
 
   close(): void {
     this.cancelApprovals()
+    this.failLogins(new Error('The Session was closed before the sign-in was over'))
     this.done = true
     this.out.end()
     void this.server?.close()
@@ -571,6 +638,8 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
       this.skillList = null
       return
     }
+    if (notification.method === 'mcpServer/startupStatus/updated') return this.mcpStartup(notification.params)
+    if (notification.method === 'mcpServer/oauthLogin/completed') return this.mcpLoginCompleted(notification.params)
     // Request ids are the process's, not a thread's: Codex withdraws an approval of any of its threads.
     if (notification.method === 'serverRequest/resolved') this.withdraw(notification.params.requestId)
     const { threadId } = (notification.params ?? {}) as { threadId?: unknown }
@@ -725,7 +794,115 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
     this.done = true
     for (const controller of this.approvals.values()) controller.abort()
     this.approvals.clear()
+    this.failLogins(error)
     this.out.fail(error)
+  }
+
+  // --- The MCP servers of the thread (worfy-mcp-live ticket 06; mcp.ts) ---------------------------------
+
+  async codexMcpStatus(): Promise<McpServerRow[] | null> {
+    if (this.server === null || this.done || this.threadId === '') return null
+    const ask = ++this.mcpAsks
+    let rows: McpServerRow[]
+    try {
+      rows = await this.listMcp()
+    } catch (error) {
+      // The answer may name the user's servers: only the kind of the failure is logged.
+      console.warn(`[codex] could not read the MCP servers of a Codex Session: ${error instanceof Error ? error.name : 'an error'}`)
+      return null
+    }
+    if (ask !== this.mcpAsks || this.done) return this.mcpRows
+    this.takeMcp(rows)
+    return rows
+  }
+
+  async codexMcpReload(): Promise<void> {
+    this.live()
+    await this.request<McpServerRefreshResponse, 'config/mcpServer/reload'>('config/mcpServer/reload', undefined)
+  }
+
+  async codexMcpSignIn(name: string): Promise<void> {
+    this.live()
+    let wake = (): void => undefined
+    // Until the wait below begins, a failure of the process reaches the request itself.
+    let fail: (error: Error) => void = () => undefined
+    const login: McpLogin = { name, loginId: undefined, completions: [], wake: () => wake(), fail: (error) => fail(error) }
+    // Kept from before the request: the completion can come in the same chunk as the answer, before it is read.
+    this.mcpLogins.add(login)
+    let timer: NodeJS.Timeout | undefined
+    try {
+      const answer = await this.request<McpServerOauthLoginResponse, 'mcpServer/oauth/login'>('mcpServer/oauth/login', codexMcpLoginParams(name, this.threadId))
+      login.loginId = answer.loginId ?? null
+      await this.openUrl(webPage(answer.authorizationUrl))
+      if (this.done) throw new Error('The Session ended before the sign-in was over')
+      const done = await new Promise<McpServerOauthLoginCompletedNotification>((resolve, reject) => {
+        fail = reject
+        wake = () => {
+          const found = login.completions.find((completion) => login.loginId === null || completion.loginId === undefined || completion.loginId === null || completion.loginId === login.loginId)
+          if (found !== undefined) resolve(found)
+        }
+        timer = setTimeout(() => reject(new Error(`The sign-in was not completed within ${Math.round(this.mcpLoginTimeoutMs / 1000)} s`)), this.mcpLoginTimeoutMs)
+        timer.unref?.()
+        wake()
+      })
+      if (!done.success) throw new Error(boundedText(`Codex could not sign in to the server: ${done.error ?? 'Codex gave no reason'}`))
+    } finally {
+      clearTimeout(timer)
+      this.mcpLogins.delete(login)
+    }
+  }
+
+  /** Every page of `mcpServerStatus/list` of the thread, as rows. */
+  private async listMcp(): Promise<McpServerRow[]> {
+    const rows: McpServerRow[] = []
+    let cursor: string | null = null
+    for (let page = 0; page < MCP_PAGES; page++) {
+      const answer: ListMcpServerStatusResponse = await this.request<ListMcpServerStatusResponse, 'mcpServerStatus/list'>('mcpServerStatus/list', codexMcpListParams(this.threadId, cursor))
+      rows.push(...answer.data.map((server) => codexMcpRow(server, this.mcpWorfy)))
+      cursor = answer.nextCursor
+      if (cursor === null) break
+    }
+    return rows
+  }
+
+  /**
+   * A server of the thread starts, started or failed: its row changes at once. Once none is starting any
+   * more, the list is asked for the tools and the sign-in state of all.
+   */
+  private mcpStartup(update: McpServerStatusUpdatedNotification): void {
+    if (this.threadId === '') {
+      this.mcpEarly.push(update)
+      return
+    }
+    if (update.threadId !== null && update.threadId !== this.threadId) return
+    // A list asked before this says less than it.
+    this.mcpAsks++
+    const rows = this.mcpRows ?? []
+    const previous = rows.find((each) => each.name === update.name)
+    const next = codexStartupRow(previous, update, this.mcpWorfy)
+    const updated = previous === undefined ? [...rows, next] : rows.map((each) => (each === previous ? next : each))
+    this.takeMcp(updated)
+    if (previous?.status === 'pending' && next.status !== 'pending' && !updated.some((each) => each.status === 'pending')) void this.codexMcpStatus()
+  }
+
+  /** Keeps the rows and sends them as `mcp` when they changed. */
+  private takeMcp(rows: McpServerRow[]): void {
+    if (sameMcpRows(rows, this.mcpRows)) return
+    this.mcpRows = rows
+    this.out.push({ type: 'mcp', servers: rows })
+  }
+
+  private mcpLoginCompleted(completion: McpServerOauthLoginCompletedNotification): void {
+    if (completion.threadId !== null && this.threadId !== '' && completion.threadId !== this.threadId) return
+    for (const login of this.mcpLogins) {
+      if (login.name !== completion.name) continue
+      login.completions.push(completion)
+      login.wake()
+    }
+  }
+
+  private failLogins(error: Error): void {
+    for (const login of this.mcpLogins) login.fail(error)
   }
 }
 
@@ -733,7 +910,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource 
 async function open(options: CodexServerOptions, opts: SessionStart, resume: string | undefined): Promise<SessionHandle> {
   const preset = codexPresetFor(opts.settings.permissionMode)
   if (preset === undefined) throw new Error(`${opts.settings.permissionMode} is no permission preset of Codex`)
-  const session = new CodexSession(opts, preset.id, options.limits)
+  const session = new CodexSession(opts, preset.id, options.limits, options.openUrl, options.mcpLoginTimeoutMs)
   const { CodexAppServer, OUTPUT_AFTER_EXIT_MS } = await import('./app-server')
   const spawnProcess = options.spawnProcess ?? spawn
   // The servers' token goes to the process through its environment only (mcp.ts, MCP_TOKEN_ENV).
@@ -779,7 +956,7 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   }
   // The token lives as long as the process: it ends when the process exits, or when the handle closes.
   if (mcp !== null) server.process.once('exit', () => mcp.close())
-  session.started(server, processEnv)
+  session.started(server, processEnv, mcp === null ? [] : worfyServerNames(mcp.config))
   try {
     const params = {
       cwd: opts.cwd,

@@ -30,6 +30,7 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { FAKE_SCRIPTS } from '../../src/main/vendors/codex/launch'
+import { codexMcpListParams, codexMcpLoginParams } from '../../src/main/vendors/codex/mcp'
 import { CODEX_SCHEMA_BUNDLE, codexAjv } from '../../src/main/vendors/codex/schema'
 
 const ROOT = join(import.meta.dirname, '..', '..')
@@ -221,7 +222,7 @@ function firstRef(schema: unknown): string | undefined {
 }
 
 /** Responses whose request has no params definition to name them after. */
-const RESPONSES: Readonly<Record<string, string>> = { 'account/logout': 'v2/LogoutAccountResponse' }
+const RESPONSES: Readonly<Record<string, string>> = { 'account/logout': 'v2/LogoutAccountResponse', 'config/mcpServer/reload': 'v2/McpServerRefreshResponse' }
 
 /**
  * The checker of recorded steps: what in each step the generated JSON Schema refuses, as `<where>: …`.
@@ -354,6 +355,14 @@ const EXCEPTIONS: readonly Exception[] = [
   // and read no thread that had started a Subagent, so no recorded thread is a Subagent's.
   { kind: 'result thread/read', path: 'thread.turns[].items[](subAgentActivity)', reason: 'the thread read in the live run started no Subagent; its live turn gave these items (subagent.jsonl)' },
   { kind: 'result thread/list', path: 'data[].source.subAgent', reason: 'the live run listed no Subagent thread (sourceKinds subAgent*); SessionSource of the schema' },
+  // The MCP servers of a Session (worfy-mcp-live ticket 06): the live run asked no status of its MCP servers,
+  // reloaded none and signed in to none (spike-mcp-live.md, step 5: Codex by the schema only). The fake plays
+  // them by the schema of 0.166.0 (ListMcpServerStatusResponse, McpServerRefreshResponse,
+  // McpServerOauthLoginResponse, McpServerOauthLoginCompletedNotification).
+  { kind: 'result mcpServerStatus/list', reason: 'the live run asked no mcpServerStatus/list' },
+  { kind: 'result config/mcpServer/reload', reason: 'the live run reloaded no MCP server' },
+  { kind: 'result mcpServer/oauth/login', reason: 'the live run signed in to no MCP server: its servers needed no sign-in' },
+  { kind: 'notify mcpServer/oauthLogin/completed', reason: 'the live run signed in to no MCP server: no sign-in completed' },
 
   // JSON types at a key path the recordings have with another type. Each is one the generated schema
   // allows there (`X | null`, src/main/vendors/codex/protocol/ts/v2/) and worfy reads; where worfy reads
@@ -372,6 +381,8 @@ const EXCEPTIONS: readonly Exception[] = [
   { kind: 'notify error', path: 'error.codexErrorInfo', type: 'null', reason: 'the one error of the live run (modelNotFound) had its info; an error without one is CodexErrorInfo | null, as the retried one of turn-failed' },
   { kind: 'notify error', path: 'error.additionalDetails', type: 'string', reason: 'the one error of the live run had no details; worfy shows them when Codex gives some (items.ts)' },
   { kind: 'notify turn/completed', path: 'turn.error.additionalDetails', type: 'string', reason: 'the one failed turn of the live run had no details; worfy shows them when Codex gives some (items.ts)' },
+  { kind: 'notify mcpServer/startupStatus/updated', path: 'error', type: 'string', reason: 'every MCP server of the live run started; a failed one has its error (McpServerStatusUpdatedNotification), which worfy shows in its row' },
+  { kind: 'notify mcpServer/startupStatus/updated', path: 'failureReason', type: 'string', reason: 'every MCP server of the live run started; one that wants a new sign-in fails with reauthenticationRequired, which worfy shows as needs-auth' },
 ]
 
 /** Whether `exception` lets through the kind `kind` (no `path`), or the key path `path` of it, which the recordings lack. */
@@ -453,6 +464,32 @@ describe('the pinned Codex and its recorded messages', () => {
     const { invented, used } = inventedShapes(played, shapesByKind(recordings.steps), EXCEPTIONS)
     expect.soft(invented).toEqual([])
     expect.soft(EXCEPTIONS.filter((exception) => !used.has(exception)).map(({ kind, path }) => `${kind} ${path ?? ''}: no script needs this exception`)).toEqual([])
+  })
+})
+
+// --- The MCP requests worfy sends (worfy-mcp-live ticket 06) ------------------------------------------
+
+describe('the MCP requests of a Codex Session', () => {
+  // What src/main/vendors/codex/mcp.ts builds, as recorded steps: a request with its params and an answer
+  // of the form the pinned Codex gives. No recording has them (the live run asked none), so the JSON
+  // Schema of the pinned Codex is what holds their form.
+  const requests = (threadId: unknown): Played[] => [
+    { where: 'mcpServerStatus/list', step: { expect: 'mcpServerStatus/list', params: { ...codexMcpListParams('thr_1', null), threadId }, result: { data: [], nextCursor: null } } },
+    { where: 'mcpServerStatus/list, page 2', step: { expect: 'mcpServerStatus/list', params: codexMcpListParams('thr_1', 'page-2'), result: { data: [], nextCursor: null } } },
+    { where: 'config/mcpServer/reload', step: { expect: 'config/mcpServer/reload', params: undefined, result: {} } },
+    { where: 'mcpServer/oauth/login', step: { expect: 'mcpServer/oauth/login', params: codexMcpLoginParams('example-wiki', 'thr_1'), result: { authorizationUrl: 'https://wiki.example/authorize', loginId: 'login_1' } } },
+  ]
+  const notifications: Played[] = [
+    { where: 'startup', step: { notify: 'mcpServer/startupStatus/updated', params: { threadId: 'thr_1', name: 'example-wiki', status: 'failed', error: 'the server asks for a sign-in', failureReason: 'reauthenticationRequired' } } },
+    { where: 'sign-in over', step: { notify: 'mcpServer/oauthLogin/completed', params: { name: 'example-wiki', threadId: 'thr_1', loginId: 'login_1', success: false, error: 'denied' } } },
+  ]
+
+  it('pass the JSON Schema of the pinned Codex, with the notifications that answer them', () => {
+    expect(schemaProblems([...requests('thr_1'), ...notifications])).toEqual([])
+  })
+
+  it('a form the pinned Codex does not have is named (the control case of the check above)', () => {
+    expect(schemaProblems(requests(42)).join('\n')).toContain('mcpServerStatus/list: ')
   })
 })
 

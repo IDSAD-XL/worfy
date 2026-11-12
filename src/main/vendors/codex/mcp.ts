@@ -15,17 +15,150 @@
 // The Session's events are watched on the way out of the handle (observe): each turn's `init` names
 // the thread the tools act for, and a `fileChange` into a Card's folder makes the Session the Card's
 // last editor, so a Card's `session.ask` reaches it (src/main/cards/ask.ts), as it reaches Claude.
+//
+// worfy-mcp-live ticket 06: the status of every MCP server of a Codex Session, the user's own among
+// them, as the rows of src/shared/agent/mcp-status.ts. Codex tells how each server of the thread starts
+// (`mcpServer/startupStatus/updated`, which the live 0.166.0 recordings send for every server of a new
+// thread); once none is starting any more, the Session asks `mcpServerStatus/list` of its thread for the
+// tools and the sign-in state (session.ts). Both come to the same row (codexMcpRow, codexStartupRow).
+// Codex shows the user's servers as they are (spec Q8): no row is `not-allowed`, none offers `allow`.
+// Reconnect is `config/mcpServer/reload`, Sign in is `mcpServer/oauth/login` with its page opened in the
+// system browser, over by `mcpServer/oauthLogin/completed`. The protocol has no way to turn a server
+// off for one thread only (`config/value/write` would change the user's config.toml for every
+// Session), so a Codex row offers no Turn off.
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
 import type { AgentEvent } from '../../../shared/agent/events'
+import type { McpServerAction, McpServerRow } from '../../../shared/agent/mcp-status'
 import type { BrowserBinding } from '../../mcp/browser-server'
 import type { CanvasBinding } from '../../mcp/canvas-server'
 import type { McpHttpEndpoint } from '../../mcp/http-server'
-import type { McpPart, McpServer } from '../mcp'
+import { PartNotWired } from '../driver'
+import { McpActionRefused, type McpPart, type McpServer } from '../mcp'
 import type { SessionHandle } from '../session'
 import type { JsonValue } from './protocol/ts/serde_json/JsonValue'
+import type { ListMcpServerStatusParams } from './protocol/ts/v2/ListMcpServerStatusParams'
+import type { McpServerOauthLoginParams } from './protocol/ts/v2/McpServerOauthLoginParams'
+import type { McpServerStatus } from './protocol/ts/v2/McpServerStatus'
+import type { McpServerStatusUpdatedNotification } from './protocol/ts/v2/McpServerStatusUpdatedNotification'
 
-export const codexMcp: McpPart = { delivery: 'http' }
+/** What the mcp part reads of the SessionHandle of the Codex driver (CodexSession, session.ts). */
+export interface CodexMcpLive {
+  /** The rows of `mcpServerStatus/list` of the thread, asked now; null: no data (Codex refused, or it is gone). Never rejects. */
+  codexMcpStatus(): Promise<McpServerRow[] | null>
+  /** `config/mcpServer/reload`: Codex reconnects the servers of its threads, a new one of its config included. */
+  codexMcpReload(): Promise<void>
+  /** `mcpServer/oauth/login` of the server `name`, its page opened; settles when Codex says the sign-in is over. */
+  codexMcpSignIn(name: string): Promise<void>
+}
+
+/** The CodexMcpLive of `session`; null for a handle that is not the Codex driver's. */
+function mcpLive(session: SessionHandle): CodexMcpLive | null {
+  const live = session as SessionHandle & Partial<CodexMcpLive>
+  return typeof live.codexMcpStatus === 'function' && typeof live.codexMcpReload === 'function' && typeof live.codexMcpSignIn === 'function' ? (live as CodexMcpLive) : null
+}
+
+const NOT_OURS = 'it takes the SessionHandle of the Codex driver'
+
+export const codexMcp: McpPart = {
+  delivery: 'http',
+  status(session) {
+    const live = mcpLive(session)
+    return live === null ? Promise.reject(new PartNotWired('codex', 'mcp.status', NOT_OURS)) : live.codexMcpStatus()
+  },
+  async act(session, name, action) {
+    // Turn off, Turn on, Allow and Restart are not Codex's (see above); Restart comes with the shared path of ticket 03.
+    if (action !== 'reconnect' && action !== 'sign-in') throw new McpActionRefused(action)
+    const live = mcpLive(session)
+    if (live === null) throw new PartNotWired('codex', 'mcp.act', NOT_OURS)
+    if (action === 'reconnect') await live.codexMcpReload()
+    else await live.codexMcpSignIn(name)
+  },
+}
+
+/** The params of one page of `mcpServerStatus/list` for the thread `threadId`: its own connections, not new ones. */
+export function codexMcpListParams(threadId: string, cursor: string | null): ListMcpServerStatusParams {
+  return cursor === null ? { threadId } : { threadId, cursor }
+}
+
+/** The params of `mcpServer/oauth/login` of the server `name` of the thread `threadId`. */
+export function codexMcpLoginParams(name: string, threadId: string): McpServerOauthLoginParams {
+  return { name, threadId }
+}
+
+/** The names of worfy's own servers among the `config` keys of a Session (CodexMcpSession.config: `mcp_servers.<name>`). */
+export function worfyServerNames(config: Readonly<Record<string, JsonValue>>): string[] {
+  const prefix = 'mcp_servers.'
+  return Object.keys(config).flatMap((key) => (key.startsWith(prefix) ? [key.slice(prefix.length)] : []))
+}
+
+/** What a row of Codex offers: Reconnect to a failed server, Sign in to one that waits for it — when it can sign in (an HTTP server). */
+function actionsOf(status: McpServerRow['status'], signIn: boolean): McpServerAction[] {
+  if (status === 'failed') return ['reconnect']
+  if (status === 'needs-auth') return signIn ? ['sign-in'] : ['reconnect']
+  return []
+}
+
+/** The source of a server: worfy's own when worfy gave it to the Session, else user config (a plugin's with the word kept). */
+function sourceOf(name: string, pluginId: string | null, worfy: readonly string[]): Pick<McpServerRow, 'source' | 'sourceWord'> {
+  if (worfy.includes(name)) return { source: 'worfy', sourceWord: null }
+  return { source: 'user', sourceWord: pluginId === null ? null : 'plugin' }
+}
+
+/** The status of a row by Codex's runtimeStatus; null — «unavailable or the configuration changed» — is still starting. */
+function runtimeStatusOf(server: McpServerStatus): McpServerRow['status'] {
+  switch (server.runtimeStatus) {
+    case 'connected':
+      return 'connected'
+    case 'authenticationRequired':
+      return 'needs-auth'
+    case 'failed':
+    case 'cancelled':
+      return 'failed'
+    case 'disabled':
+      return 'disabled'
+    default:
+      return 'pending'
+  }
+}
+
+/**
+ * The row of one server of `mcpServerStatus/list`; `worfy` names worfy's own servers of the Session. A
+ * server that is not connected and has no sign-in (`authStatus: notLoggedIn`) needs one. Only the
+ * fields a row shows are read: the server's origin, info and capabilities go nowhere.
+ */
+export function codexMcpRow(server: McpServerStatus, worfy: readonly string[]): McpServerRow {
+  const runtime = runtimeStatusOf(server)
+  const status = runtime !== 'connected' && runtime !== 'disabled' && server.authStatus === 'notLoggedIn' ? 'needs-auth' : runtime
+  return {
+    name: server.name,
+    status,
+    tools: status === 'connected' && server.toolsError === null ? Object.keys(server.tools).length : null,
+    error: server.toolsError,
+    ...sourceOf(server.name, server.pluginId, worfy),
+    // mcpServer/oauth/login signs in to HTTP servers only.
+    actions: actionsOf(status, server.httpOrigin !== null),
+  }
+}
+
+/**
+ * The row of a server after `mcpServer/startupStatus/updated`, over its row before (`previous`, if any):
+ * `starting` → pending, `ready` → connected, `failed` and `cancelled` → failed, a failure for want of a
+ * new sign-in → needs-auth. The tools stay as the last list said while the server is connected.
+ */
+export function codexStartupRow(previous: McpServerRow | undefined, update: McpServerStatusUpdatedNotification, worfy: readonly string[]): McpServerRow {
+  const status: McpServerRow['status'] =
+    update.status === 'ready' ? 'connected' : update.status === 'starting' ? 'pending' : update.failureReason === 'reauthenticationRequired' ? 'needs-auth' : 'failed'
+  return {
+    name: update.name,
+    status,
+    tools: status === 'connected' ? (previous?.tools ?? null) : null,
+    error: status === 'connected' || status === 'pending' ? null : update.error,
+    ...(previous === undefined ? sourceOf(update.name, null, worfy) : { source: previous.source, sourceWord: previous.sourceWord }),
+    // A server that wants a new sign-in signed in before: an OAuth one.
+    actions: actionsOf(status, true),
+  }
+}
 
 /** The environment variable of the app-server that carries the Session's token (`bearer_token_env_var`). */
 export const MCP_TOKEN_ENV = 'WORFY_MCP_TOKEN'
