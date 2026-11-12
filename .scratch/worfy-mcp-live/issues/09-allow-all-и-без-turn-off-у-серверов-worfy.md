@@ -1,7 +1,7 @@
 # 09 — Allow all, серверы worfy без Turn off, chip MCP в строке под полем ввода
 
 Type: task
-Status: claimed 2026-11-12T13:29Z
+Status: done 2026-11-12T16:53Z
 PR: #1827
 Branch: worfy-mcp-live/09
 Blocked by: none
@@ -58,6 +58,7 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-allow, claude-mcp-inventory, mcp-chip) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] E2e `test/e2e/session-mcp.spec.ts`: у worfy-canvas нет кнопок; chip ищется в строке под полем ввода; снимок —
       строка под полем с открытым popover-ом. Зелёный в CI (локальный e2e не запускается, правило владельца).
+  - evidence: ci-check pass · CI green on PR #1827 (ci-ok, e2e jobs included) · mac - · b91647212d88af3a1621b70a27912e26283bc116
 - [ ] Страницы Feature en и ru обновлены; каждое утверждение сверено с кодом.
   - evidence: commit pass · worfy-mcp-live 09: Allow all, no Turn off for worfy's own servers, MCP chip under the input field · - - · 46a7db01bf77a2adbdcb24c49776e943447902dc
   - evidence: commit pass · worfy-mcp-live 09 round 2: no Turn off only for worfy's own servers, not for plugins' · - - · 41c125d0949c093b7dd5c9444e1e07f05e948e37

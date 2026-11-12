@@ -1,7 +1,8 @@
 # 09 — Popover kit; popover-ы Canvas с пометкой «внутри Node»
 
 Type: task
-Status: claimed 2026-11-12T14:18Z
+Status: done 2026-11-12T16:53Z
+PR: #1830
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решения по реализации» (kit, пометка «внутри Node»); «Решения по
 test-ам» (Seam 1, Seam 2); истории 13, 15, 16, 17, 25; заметка темы
@@ -37,6 +38,7 @@ test-ам» (Seam 1, Seam 2); истории 13, 15, 16, 17, 25; заметка 
 - [ ] Unit test: popover на Canvas не снимает активность Node-а первым кликом.
   - evidence: test-run pass · `pnpm test test/unit/canvas.test.tsx` exit 0 · mac - · 61b1e6a1b
 - [ ] E2e `test/e2e/layers-popover.spec.ts` зелёный на macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1830 (ci-ok, e2e jobs included) · mac - · bc44dd10185e7acfd909678cf8e246d8f2759f6f
 - [ ] Существующие test-ы Trash, Archive и истории Session-ов зелёные без правок ролей и `data-testid`.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 61b1e6a1b
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.

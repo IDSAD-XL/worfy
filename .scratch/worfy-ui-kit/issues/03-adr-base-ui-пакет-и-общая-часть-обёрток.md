@@ -1,7 +1,8 @@
 # 03 — ADR о Base UI и правилах kit, пакет, lint на import мимо kit, общая часть обёрток
 
 Type: task
-Status: claimed 2026-11-12T03:24Z
+Status: done 2026-11-12T16:53Z
+PR: #1820
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения по реализации» (библиотека, kit, Base UI импортирует только
 kit, helper, Esc); истории 15, 16, 17, 28, 30; [критик](../../../docs/product/critic/worfy-ui-kit-2026-11-11.md),
@@ -66,6 +67,7 @@ Ticket берут только после «да» spike-а (Ticket 01, заме
       «E2e-сценарий для Ticket-ов 10 и 11».
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · be0d34c94
+  - evidence: ci-check pass · CI green on PR #1820 (ci-ok, e2e jobs included) · mac - · 39573c95750a9a29c8363963ae38cf4912da581f
 
 ## Где в коде
 
