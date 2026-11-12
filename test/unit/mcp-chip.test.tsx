@@ -4,7 +4,9 @@
 // drawn without data. The popover draws a row per server with a button for each action main put in the
 // row and nothing else, the servers not allowed in a group of their own under the others, and a click
 // sends the action to main (`agent.mcpAction`); the button waits while it runs, and a refusal is a toast.
-// The store keeps the last `mcp` event of a Session apart from its transcript. Server names are made up.
+// The store keeps the last `mcp` event of a Session apart from its transcript, asks main (`agent.mcp`) for
+// the rows of a Session no event came for yet, and carries them to the Session's new id. The chip of the
+// Session view starts afresh for another Session. Server names are made up.
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { McpServerRow } from '../../src/shared/agent/mcp-status'
@@ -32,7 +34,7 @@ vi.mock('../../src/renderer/toast/toasts', () => ({
   },
 }))
 
-const { McpChip } = await import('../../src/renderer/session/McpChip')
+const { McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
 const { mcpCount } = await import('../../src/renderer/session/header-facts')
 const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
 
@@ -211,5 +213,63 @@ describe('the store', () => {
     // «No data» from main replaces the rows: the chip goes rather than show a stale count.
     acceptAgentEvent({ sessionId: 'kept', event: { type: 'mcp', servers: null } })
     expect(useSessionLogs.getState().logs.kept?.mcp?.servers).toBeNull()
+  })
+})
+
+describe('the rows of a Session view', () => {
+  /** An answer the test settles when it chooses. */
+  function later(): { answer: () => Promise<Answer>; settle: (answer: Answer) => void } {
+    let settle: (answer: Answer) => void = () => undefined
+    const promise = new Promise<Answer>((resolve) => (settle = resolve))
+    return { answer: () => promise, settle: (answer) => settle(answer) }
+  }
+
+  it('a Session no `mcp` event came for asks main once, and the chip draws the answer', async () => {
+    main.answers['agent.mcp'] = () => ({ ok: true, value: { servers: ROWS.slice(0, 2) } })
+    const { rerender } = render(<SessionMcpChip sessionId="asked" projectId="p" orchestrator={false} />)
+    await act(async () => {})
+    expect(within(screen.getByTestId('session-mcp')).getByTestId('session-mcp-count').textContent).toBe('1/2')
+    rerender(<SessionMcpChip sessionId="asked" projectId="p" orchestrator={false} />)
+    await act(async () => {})
+    expect(main.calls.filter((call) => call.channel === 'agent.mcp')).toEqual([{ channel: 'agent.mcp', input: { sessionId: 'asked' } }])
+  })
+
+  it('an `mcp` event that comes while main is asked wins over the answer, which is older', async () => {
+    const answer = later()
+    main.answers['agent.mcp'] = answer.answer
+    render(<SessionMcpChip sessionId="raced" projectId="p" orchestrator={false} />)
+    await act(async () => acceptAgentEvent({ sessionId: 'raced', event: { type: 'mcp', servers: [row('example-notes')] } }))
+    await act(async () => answer.settle({ ok: true, value: { servers: ROWS } }))
+    expect(useSessionLogs.getState().logs.raced?.mcp?.servers).toEqual([row('example-notes')])
+    expect(within(screen.getByTestId('session-mcp')).getByTestId('session-mcp-count').textContent).toBe('1/1')
+  })
+
+  it('the rows go with the Session to its new id', () => {
+    acceptAgentEvent({ sessionId: 'pending-9', event: { type: 'mcp', servers: ROWS } })
+    acceptAgentEvent({ sessionId: 'real-9', event: { type: 'renamed', from: 'pending-9' } })
+    expect(useSessionLogs.getState().logs['real-9']?.mcp?.servers).toEqual(ROWS)
+    expect(useSessionLogs.getState().logs['pending-9']).toBeUndefined()
+  })
+
+  it('another Session in the same view starts afresh: an action running on a server of the one before holds no button here', async () => {
+    const failed = [row('example-tracker', { status: 'failed', tools: null, actions: ['reconnect'] })]
+    acceptAgentEvent({ sessionId: 's-a', event: { type: 'mcp', servers: failed } })
+    acceptAgentEvent({ sessionId: 's-b', event: { type: 'mcp', servers: failed } })
+    const action = later()
+    main.answers['agent.mcpAction'] = action.answer
+    const { rerender } = render(<SessionMcpChip sessionId="s-a" projectId="p" orchestrator={false} />)
+    const before = open()
+    const reconnect = within(rowOf(before, 'example-tracker')).getByRole('button', { name: 'Reconnect' })
+    fireEvent.click(reconnect)
+    expect(reconnect.getAttribute('aria-disabled')).toBe('true')
+
+    rerender(<SessionMcpChip sessionId="s-b" projectId="p" orchestrator={false} />)
+    expect(screen.queryByRole('dialog', { name: 'MCP servers' })).toBeNull()
+    const after = open()
+    expect(within(rowOf(after, 'example-tracker')).getByRole('button', { name: 'Reconnect' }).getAttribute('aria-disabled')).toBeNull()
+    // The answer of the first Session's action goes to that Session.
+    await act(async () => action.settle({ ok: true, value: { servers: [row('example-tracker')], error: null } }))
+    expect(useSessionLogs.getState().logs['s-a']?.mcp?.servers).toEqual([row('example-tracker')])
+    expect(useSessionLogs.getState().logs['s-b']?.mcp?.servers).toEqual(failed)
   })
 })

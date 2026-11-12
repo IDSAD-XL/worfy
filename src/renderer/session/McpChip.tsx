@@ -327,7 +327,9 @@ function useAutopilotRuns(projectId: string | null): boolean {
 export function SessionMcpChip({ sessionId, projectId, orchestrator }: { sessionId: string | null; projectId: string; orchestrator: boolean }) {
   const rows = useSessionMcp(sessionId)
   const autopilot = useAutopilotRuns(orchestrator && rows !== null && rows.some((row) => row.actions.includes('allow')) ? projectId : null)
-  return <McpChip sessionId={sessionId} rows={rows} autopilot={autopilot} />
+  // Keyed by the Session: the view shows another Session in the same panel, and an action running on a
+  // server of the one before must not hold the button of a server of the same name here, nor its popover stay open.
+  return <McpChip key={sessionId ?? ''} sessionId={sessionId} rows={rows} autopilot={autopilot} />
 }
 
 /**

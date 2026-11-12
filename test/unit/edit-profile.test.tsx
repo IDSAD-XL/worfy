@@ -558,8 +558,9 @@ describe('Edit profile', () => {
       sessionsOfTheProject()
       acceptAgentEvent({ sessionId: 'orch-1', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'failed'), row('example-notes', 'failed')], at: 1000 } })
       acceptAgentEvent({ sessionId: 'node-1', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'connected'), row('example-notes', 'needs-auth')], at: 2000 } })
-      // A Session of another Project says nothing here, however new.
-      acceptAgentEvent({ sessionId: 'elsewhere', event: { type: 'mcp', servers: [row('example-tracker', 'connected')], at: 3000 } })
+      // A Session of another Project of this Machine says nothing here, however new: it has its own view.
+      acceptOrchestratorView({ projectId: 'other-00000002', nodeId: 'orch-other', sessionId: 'elsewhere', state: 'idle', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
+      acceptAgentEvent({ sessionId: 'elsewhere', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'failed'), row('example-tracker', 'connected')], at: 3000 } })
       const form = await openForm()
       const list = within(form).getByTestId('profile-mcp-status')
       const items = [...list.querySelectorAll<HTMLElement>('li')].map((item) => [item.dataset.name, item.dataset.status ?? null, item.textContent])
@@ -573,6 +574,18 @@ describe('Edit profile', () => {
       expect([...within(form).getByTestId('profile-mcp-status').querySelectorAll<HTMLElement>('li')].map((item) => item.dataset.name)).toEqual(['example-notes'])
       // The existing field keeps its label and value.
       expect(input(form, 'MCP servers').value).toBe('example-notes')
+    })
+
+    it('the Project is found by its exact path: a Project whose path starts with it is another one', async () => {
+      main.answers['profileEdit.read'] = { ok: true, value: READ_MCP }
+      main.projects = { projects: [{ id: 'shop-admin-0000003', path: `${PROJECT.path}-admin` }, { id: PROJECT.id, path: PROJECT.path }], activeId: PROJECT.id }
+      sessionsOfTheProject()
+      acceptOrchestratorView({ projectId: 'shop-admin-0000003', nodeId: 'orch-admin', sessionId: 'admin-1', state: 'idle', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
+      acceptAgentEvent({ sessionId: 'orch-1', event: { type: 'mcp', servers: [row('example-notes', 'connected')], at: 1000 } })
+      acceptAgentEvent({ sessionId: 'admin-1', event: { type: 'mcp', servers: [row('example-notes', 'failed')], at: 2000 } })
+      const form = await openForm()
+      const notes = within(form).getByTestId('profile-mcp-status').querySelector<HTMLElement>('li[data-name="example-notes"]')
+      expect(notes?.dataset.status).toBe('connected')
     })
 
     it('without a Session of the Project on this Machine there is no status, and a Project of a Linked machine shows none', async () => {
