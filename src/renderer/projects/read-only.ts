@@ -31,3 +31,20 @@ export function writeAction<E = unknown>(hint: string | null, onClick: (event: E
   if (hint === null) return { onClick, title }
   return { onClick: () => undefined, title: undefined, 'aria-disabled': 'true', 'data-read-only': '', ...hintProps(hint) }
 }
+
+/** What a write action's item of a kit menu gets (theme/kit/Menu.tsx MenuItem). */
+export interface WriteItemProps extends Partial<HintProps> {
+  onClick: () => void
+  disabled: boolean
+  'data-read-only'?: ''
+}
+
+/**
+ * The props of a write action's menu item: `onClick` as given, or — when `hint` is set — an inactive
+ * item with the hint as its tooltip. An inactive item of the kit keeps the focus and the hover, so its
+ * tooltip shows, and a choice of it neither runs nor closes the menu.
+ */
+export function writeItem(hint: string | null, onClick: () => void): WriteItemProps {
+  if (hint === null) return { onClick, disabled: false }
+  return { onClick: () => undefined, disabled: true, 'data-read-only': '', ...hintProps(hint) }
+}

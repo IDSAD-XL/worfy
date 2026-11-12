@@ -1,7 +1,8 @@
 # 12 — ContextMenu kit: 5 context menu в DOM
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T22:42Z
+Branch: worfy-ui-kit/12
 Blocked by: 11
 Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения по реализации» (kit); истории 3, 8, 10, 13, 15; заметка
 темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, раздел 3.1

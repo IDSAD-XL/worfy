@@ -3,7 +3,9 @@
 // (bindings.json in the Project's data folder, src/main/layout/bindings.ts), and its Node goes back
 // to where the drag started, so the gesture binds without moving anything. While the pointer is
 // over a target, the target is outlined with "Bind to …". Right-clicking a Node bound by hand
-// opens a menu with "Remove binding", after which its automatic Binding applies again.
+// opens a menu with "Remove binding", after which its automatic Binding applies again. The menu is the
+// kit's ContextMenu (theme/kit/ContextMenu.tsx, worfy-ui-kit ticket 12): named, it takes the focus and
+// gives it back, and the wheel outside it closes it, as the Canvas moves under it.
 //
 // The overlay draws only the outline and the menu. It learns of drags from React Flow's store and
 // of the pointer from the window: the Canvas still saves the move of a Layout Node as for any drag
@@ -13,15 +15,16 @@
 // On a read-only screen (worfy-link ticket 25) no Node is dragged (overlays/ReadOnlyCanvas.tsx), so
 // nothing is bound, and "Remove binding" is inactive, saying why.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import { useReactFlow, useStoreApi, ViewportPortal, type InternalNode } from '@xyflow/react'
 import { bindingTargetLabel } from '../../../shared/binding/resolve'
 import type { BindingAgent } from '../../../shared/ipc/bindings'
 import { EPIC_FRAME_KIND, TICKET_KIND } from '../../../shared/layout/derived'
 import { agentOfNode, dropTargetAt, type DropCandidate } from '../../binding/drop'
 import { bindManually, manualOf, removeManualBinding, useManualBindings } from '../../binding/store'
-import { writeAction } from '../../projects/read-only'
+import { writeItem } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { ContextMenu } from '../../theme/kit/ContextMenu'
+import { MenuItem } from '../../theme/kit/Menu'
 import type { CanvasFlowNode } from '../nodes'
 import type { SubagentNodeData } from '../sources/subagents'
 import { applyLayoutOp } from '../useLayout'
@@ -67,24 +70,15 @@ const styles = {
     fontSize: 'var(--text-12)',
     whiteSpace: 'nowrap',
   },
-  menu: {
-    position: 'fixed',
-    zIndex: 2000,
-    minWidth: 160,
-    padding: 4,
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-popover)',
-    background: 'var(--surface)',
-    boxShadow: 'var(--shadow-node)',
-  },
+  menu: { minWidth: 160, padding: 4 },
   item: {
+    display: 'flex',
+    alignItems: 'center',
     width: '100%',
+    boxSizing: 'border-box',
     padding: '4px 10px',
-    border: 0,
     borderRadius: 'var(--radius-button)',
-    background: 'transparent',
     color: 'var(--text)',
-    font: 'inherit',
     fontSize: 'var(--text-13)',
     textAlign: 'left',
   },
@@ -190,26 +184,6 @@ function BindingDropFor({ projectId }: { projectId: string }) {
     }
   }, [flow, store, projectId])
 
-  // The menu closes on Escape and on a press anywhere outside it.
-  useEffect(() => {
-    if (menu === null) return
-    const close = (event: Event) => {
-      if (event instanceof KeyboardEvent && event.key !== 'Escape') return
-      if (event.target instanceof Element && event.target.closest('[data-testid="binding-menu"]')) return
-      // The press that closes the menu does nothing else (the Esc of an active Node, of Focus mode).
-      if (event instanceof KeyboardEvent) event.preventDefault()
-      setMenu(null)
-    }
-    window.addEventListener('mousedown', close, true)
-    window.addEventListener('keydown', close, true)
-    window.addEventListener('wheel', close, true)
-    return () => {
-      window.removeEventListener('mousedown', close, true)
-      window.removeEventListener('keydown', close, true)
-      window.removeEventListener('wheel', close, true)
-    }
-  }, [menu])
-
   return (
     <>
       {hover ? (
@@ -219,27 +193,21 @@ function BindingDropFor({ projectId }: { projectId: string }) {
           </div>
         </ViewportPortal>
       ) : null}
-      {menu
-        ? createPortal(
-            <div role="menu" style={{ ...styles.menu, left: menu.x, top: menu.y }} data-testid="binding-menu">
-              <button
-                type="button"
-                role="menuitem"
-                style={styles.item}
-                {...writeAction(readOnly, () => {
-                  const { agent } = menu
-                  setMenu(null)
-                  void removeManualBinding(projectId, agent).then((error) => {
-                    if (error !== undefined) console.error('bindings.remove failed:', error)
-                  })
-                })}
-              >
-                Remove binding
-              </button>
-            </div>,
-            document.body,
-          )
-        : null}
+      <ContextMenu at={menu} onClose={() => setMenu(null)} label="Binding" testId="binding-menu" style={styles.menu} inNode>
+        <MenuItem
+          style={styles.item}
+          {...writeItem(readOnly, () => {
+            if (menu === null) return
+            const { agent } = menu
+            setMenu(null)
+            void removeManualBinding(projectId, agent).then((error) => {
+              if (error !== undefined) console.error('bindings.remove failed:', error)
+            })
+          })}
+        >
+          Remove binding
+        </MenuItem>
+      </ContextMenu>
     </>
   )
 }

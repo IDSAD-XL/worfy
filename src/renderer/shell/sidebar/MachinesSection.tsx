@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { LinkedMachineView } from '../../../shared/ipc/link'
 import { LinkMachineDialog } from '../../machines/LinkMachineDialog'
 import { askRemoveMachine, openChangeAddress } from '../../machines/machine-dialogs'
@@ -6,6 +6,8 @@ import { machinesDot } from '../../machines/machines-dot'
 import '../../machines/machines.css'
 import { machineAccessLines, reconnectMachine, useMachines } from '../../machines/useMachines'
 import { useLinked } from '../../projects/useProjects'
+import { ContextMenu } from '../../theme/kit/ContextMenu'
+import { MenuItem } from '../../theme/kit/Menu'
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { setRailBadge } from '../sidebar-scope'
 import { SidebarSection } from '../SidebarSection'
@@ -57,16 +59,6 @@ const styles = {
     background: 'var(--surface-raised)',
     color: 'var(--text)',
     fontSize: 'var(--text-12)',
-  },
-  menu: {
-    position: 'fixed',
-    zIndex: 90,
-    minWidth: 180,
-    padding: 'var(--space-1)',
-    borderRadius: 'var(--radius-popover)',
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    boxShadow: 'var(--shadow-node)',
   },
 } satisfies Record<string, CSSProperties>
 
@@ -133,50 +125,26 @@ interface MenuProps {
   onClose: () => void
 }
 
-/** The context menu of a Machine row. Escape, a click elsewhere or leaving the window closes it. */
+/**
+ * The context menu of a Machine row: the kit's ContextMenu (theme/kit/ContextMenu.tsx, worfy-ui-kit
+ * ticket 12). Escape, a choice, a click elsewhere or leaving the window closes it, and the focus goes
+ * back to where it was. Reconnect is inactive while worfy dials the Machine.
+ */
 function MachineMenu({ machine, x, y, onReconnect, onChangeAddress, onRemove, onClose }: MenuProps) {
-  const menu = useRef<HTMLDivElement>(null)
-  const close = useRef(onClose)
-  useEffect(() => {
-    close.current = onClose
-  })
-
-  useEffect(() => {
-    menu.current?.querySelector('button')?.focus()
-    const outside = (event: MouseEvent): void => {
-      if (!menu.current?.contains(event.target as Node)) close.current()
-    }
-    const blur = (): void => close.current()
-    document.addEventListener('mousedown', outside)
-    window.addEventListener('blur', blur)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      window.removeEventListener('blur', blur)
-    }
-  }, [])
-
   return (
-    <div
-      ref={menu}
-      role="menu"
-      aria-label={`Machine ${machine.name}`}
-      style={{ ...styles.menu, left: x, top: y }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose()
-      }}
-    >
+    <ContextMenu at={{ x, y }} onClose={onClose} label={`Machine ${machine.name}`}>
       {offline(machine) ? (
-        <button type="button" role="menuitem" className="w-row" disabled={machine.dialing === true} onClick={onReconnect}>
+        <MenuItem className="w-row" disabled={machine.dialing === true} onClick={onReconnect}>
           {machine.dialing === true ? 'Connecting…' : 'Reconnect'}
-        </button>
+        </MenuItem>
       ) : null}
-      <button type="button" role="menuitem" className="w-row" onClick={onChangeAddress}>
+      <MenuItem className="w-row" onClick={onChangeAddress}>
         Change address…
-      </button>
-      <button type="button" role="menuitem" className="w-row" onClick={onRemove}>
+      </MenuItem>
+      <MenuItem className="w-row" onClick={onRemove}>
         Remove
-      </button>
-    </div>
+      </MenuItem>
+    </ContextMenu>
   )
 }
 

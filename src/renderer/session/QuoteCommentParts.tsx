@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { machineLabel } from '../../shared/cards/bridge'
 import { attachmentImageUrl } from '../../shared/images'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { windowMachine } from '../ipc'
+import { ContextMenu as KitContextMenu } from '../theme/kit/ContextMenu'
+import { MenuItem as KitMenuItem, MenuSeparator } from '../theme/kit/Menu'
 import { Popover as KitPopover, type AnchorBox, type DismissReason } from '../theme/kit/Popover'
 import { PreviewCard } from '../theme/kit/PreviewCard'
 import { matches as matchesShortcut } from '../shortcuts/match'
@@ -177,47 +179,39 @@ export function SelectionButton({ selection, commentKeys, onComment }: { selecti
   )
 }
 
+/** The first item that can be chosen: the menu opens on it, past an inactive «Comment». */
+const FIRST_ACTIVE = '[role="menuitem"]:not([aria-disabled="true"])'
+
+/** Keeps the selection in the transcript: a press in the menu does not take it away. */
+const keepSelection = (event: { preventDefault: () => void }) => event.preventDefault()
+
+/**
+ * The menu of a right click in the transcript: the kit's ContextMenu (theme/kit/ContextMenu.tsx,
+ * worfy-ui-kit ticket 12) at the point of the click, below it or above it at the bottom of the window.
+ * An inactive item says why in a note under it, which is its description too.
+ */
 export function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useFloating(ref, { top: menu.y, bottom: menu.y - 6, left: menu.x + 2 }, [menu])
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
-    const onDown = (event: MouseEvent) => {
-      if (!(event.target instanceof Node) || !ref.current?.contains(event.target)) onClose()
-    }
-    const onBlur = () => onClose()
-    document.addEventListener('mousedown', onDown, true)
-    globalThis.addEventListener('blur', onBlur)
-    return () => {
-      document.removeEventListener('mousedown', onDown, true)
-      globalThis.removeEventListener('blur', onBlur)
-    }
-  }, [onClose])
-  const onKeyDown = (event: ReactKeyboardEvent) => {
-    const buttons = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
-    const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const step = event.key === 'ArrowDown' ? 1 : -1
-      buttons[(at + step + buttons.length) % buttons.length]?.focus()
-    } else if (event.key === 'Escape' || event.key === 'Tab') {
-      event.preventDefault()
-      onClose()
-    }
-  }
+  const id = useId()
   return (
-    <div ref={ref} className="w-qmenu" role="menu" aria-label="Selection actions" data-quote-float="" data-testid="quote-menu" onKeyDown={onKeyDown} onMouseDown={(event) => event.preventDefault()}>
+    <KitContextMenu
+      at={menu}
+      onClose={onClose}
+      label="Selection actions"
+      testId="quote-menu"
+      className="w-qmenu"
+      focusOnOpen={FIRST_ACTIVE}
+      popupProps={{ 'data-quote-float': '', onMouseDown: keepSelection }}
+    >
       {menu.items.map((item, index) =>
         item === 'separator' ? (
-          <div key={`separator:${index}`} className="w-qmenu__separator" role="separator" />
+          <MenuSeparator key={`separator:${index}`} className="w-qmenu__separator" />
         ) : (
-          <div key={item.testId}>
-            <button
-              type="button"
-              role="menuitem"
+          <Fragment key={item.testId}>
+            <KitMenuItem
               className="w-qmenu__item"
-              data-testid={item.testId}
-              disabled={item.disabled}
+              testId={item.testId}
+              disabled={item.disabled === true}
+              aria-describedby={item.note !== undefined ? `${id}-${index}` : undefined}
               onClick={() => {
                 onClose()
                 item.run()
@@ -225,12 +219,16 @@ export function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void
             >
               {item.label}
               {item.keys !== undefined ? <kbd className="w-qmenu__keys">{item.keys}</kbd> : null}
-            </button>
-            {item.note !== undefined ? <div className="w-qmenu__note">{item.note}</div> : null}
-          </div>
+            </KitMenuItem>
+            {item.note !== undefined ? (
+              <div id={`${id}-${index}`} className="w-qmenu__note">
+                {item.note}
+              </div>
+            ) : null}
+          </Fragment>
         ),
       )}
-    </div>
+    </KitContextMenu>
   )
 }
 
