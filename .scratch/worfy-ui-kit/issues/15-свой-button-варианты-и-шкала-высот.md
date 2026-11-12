@@ -1,7 +1,7 @@
 # 15 — Свой Button: варианты и одна шкала высот
 
 Type: task
-Status: open
+Status: claimed 2026-11-11T23:54Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения по реализации» (Button и Chip); история 21; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, разделы 2 и 2.1

@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { formatLinkAddress, isTailscaleHost, parseLinkAddress, type DiscoveredMachineView, type TailscalePeerView } from '../../shared/ipc/link'
 import { invoke } from '../ipc'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 import { closeLinking, openLinking, pairWith, useMachines } from './useMachines'
 
 export interface LinkMachineDialogProps {
@@ -73,15 +73,6 @@ const styles = {
   offlineRow: { color: 'var(--text-muted)', cursor: 'default' },
   linkedRow: { display: 'flex', height: 'auto', minHeight: 'var(--row-height)', flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingTop: 4, paddingBottom: 4, cursor: 'default' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>
 
 type Target = { name: string | null; address: string }
@@ -339,7 +330,7 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
             </div>
             <div style={styles.actions}>
               <span style={{ flex: 1 }} />
-              <PrimaryButton onClick={onClose}>Done</PrimaryButton>
+              <Button variant="primary" onClick={onClose}>Done</Button>
             </div>
           </>
         ) : (
@@ -455,12 +446,12 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                 </div>
                 <div style={styles.actions}>
                   <span style={{ flex: 1 }} />
-                  <button type="button" style={styles.secondary} onClick={onClose}>
+                  <Button onClick={onClose}>
                     Close
-                  </button>
-                  <PrimaryButton disabled={address.trim() === ''} onClick={next}>
+                  </Button>
+                  <Button variant="primary" disabled={address.trim() === ''} onClick={next}>
                     Next
-                  </PrimaryButton>
+                  </Button>
                 </div>
               </>
             ) : (
@@ -499,16 +490,16 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
                   ) : null}
                 </div>
                 <div style={styles.actions}>
-                  <button type="button" style={styles.secondary} disabled={pairing} onClick={() => setTarget(undefined)}>
+                  <Button disabled={pairing} onClick={() => setTarget(undefined)}>
                     Back
-                  </button>
+                  </Button>
                   <span style={{ flex: 1 }} />
-                  <button type="button" style={styles.secondary} onClick={onClose}>
+                  <Button onClick={onClose}>
                     Close
-                  </button>
-                  <PrimaryButton disabled={pairing || code.length !== 6} onClick={() => void link()}>
+                  </Button>
+                  <Button variant="primary" disabled={pairing || code.length !== 6} onClick={() => void link()}>
                     {pairing ? 'Linking…' : 'Link'}
-                  </PrimaryButton>
+                  </Button>
                 </div>
               </>
             )}

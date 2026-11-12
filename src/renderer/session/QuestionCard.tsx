@@ -5,6 +5,7 @@ import { invoke } from '../ipc'
 import { Markdown } from '../markdown/Markdown'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
+import { Button } from '../theme/Button'
 import type { QuestionRequestEvent } from './open-requests'
 import { answersWithEnter } from './question-keys'
 import { useSessionLog } from './store'
@@ -255,21 +256,20 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
           <div className="w-permission__actions">
             {questions.length > 1 ? (
               <>
-                <button type="button" className="w-permission__button" data-testid="question-back" disabled={step === 0} onClick={() => go(step - 1)}>
+                <Button data-testid="question-back" disabled={step === 0} onClick={() => go(step - 1)}>
                   Back
-                </button>
-                <button type="button" className="w-permission__button" data-testid="question-next" disabled={last} onClick={() => go(step + 1)}>
+                </Button>
+                <Button data-testid="question-next" disabled={last} onClick={() => go(step + 1)}>
                   Next
-                </button>
+                </Button>
               </>
             ) : null}
-            {/* The primary action's look (theme/primitives.tsx, PrimaryButton), with a test id. */}
-            <button type="button" className="w-primary" data-testid="question-submit" disabled={!complete || sending} {...writeAction(hint, submit)}>
+            <Button variant="primary" data-testid="question-submit" disabled={!complete || sending} {...writeAction(hint, submit)}>
               Submit
-            </button>
-            <button type="button" className="w-permission__button w-permission__button--deny" data-testid="question-decline" disabled={sending} {...writeAction(hint, () => void send(null))}>
+            </Button>
+            <Button variant="danger" data-testid="question-decline" disabled={sending} {...writeAction(hint, () => void send(null))}>
               Decline
-            </button>
+            </Button>
           </div>
           {problem !== null ? (
             <div className="w-permission__problem" role="alert">

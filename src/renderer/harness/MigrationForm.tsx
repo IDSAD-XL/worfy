@@ -12,7 +12,8 @@ import type {
   ProfileFields,
 } from '../../shared/ipc/harness-migration'
 import { invoke } from '../ipc'
-import { PrimaryButton, SegmentedControl } from '../theme/primitives'
+import { Button } from '../theme/Button'
+import { SegmentedControl } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
 // The form that moves the old Harness out of ~/.claude (worfy-harness ticket 14): a row for each
@@ -85,15 +86,6 @@ const styles = {
   added: { color: 'var(--ready-text)', background: 'var(--ready-bg)', display: 'block' },
   same: { display: 'block' },
   fields: { display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', margin: '4px 0', alignItems: 'center' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>
 
 interface DiffLine {
@@ -375,13 +367,13 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
       )}
       <div style={styles.footer} data-testid="migration-actions">
         <span style={{ flex: 1 }} />
-        <button type="button" style={styles.secondary} onClick={onClose} disabled={busy} data-testid="migration-close">
+        <Button onClick={onClose} disabled={busy} data-testid="migration-close">
           {done ? 'Close' : 'Cancel'}
-        </button>
+        </Button>
         {done ? null : (
-          <PrimaryButton disabled={!plan.available || busy} onClick={() => onMove({ choices, profiles: fields })}>
+          <Button variant="primary" disabled={!plan.available || busy} onClick={() => onMove({ choices, profiles: fields })}>
             {busy ? 'Moving…' : 'Move'}
-          </PrimaryButton>
+          </Button>
         )}
       </div>
     </div>
@@ -439,9 +431,9 @@ export default function MigrationForm({ onClose, onMoved, layer }: MigrationForm
         <div role="dialog" aria-modal="true" aria-label="Move the old Harness" style={{ ...styles.dialog, padding: 'var(--space-4)' }} data-testid="migration-form">
           <p style={failure === undefined ? styles.hint : styles.warning}>{failure ?? 'Reading ~/.claude…'}</p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" style={styles.secondary} onClick={onClose} data-testid="migration-close">
+            <Button onClick={onClose} data-testid="migration-close">
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (

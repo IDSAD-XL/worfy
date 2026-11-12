@@ -7,7 +7,7 @@ import { collectExtensions } from '../../src/renderer/shell/registry'
 import { SidebarView } from '../../src/renderer/shell/Sidebar'
 import { ToolbarView } from '../../src/renderer/shell/Toolbar'
 import { AppShell } from '../../src/renderer/shell/AppShell'
-import { ListRow, PrimaryButton, SegmentedControl, StatusChip } from '../../src/renderer/theme/primitives'
+import { ListRow, SegmentedControl, StatusChip } from '../../src/renderer/theme/primitives'
 
 const section = (text: string) =>
   function Section() {
@@ -516,13 +516,6 @@ describe('primitives', () => {
     expect(row.getAttribute('aria-current')).toBe('true')
     fireEvent.click(row)
     expect(onSelect).toHaveBeenCalledOnce()
-  })
-
-  it('the primary button runs its action', () => {
-    const onClick = vi.fn()
-    render(<PrimaryButton onClick={onClick}>Run wave</PrimaryButton>)
-    fireEvent.click(screen.getByRole('button', { name: 'Run wave' }))
-    expect(onClick).toHaveBeenCalledOnce()
   })
 
   it('the segmented control presses exactly one segment', () => {

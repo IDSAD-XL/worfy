@@ -16,7 +16,7 @@ import { invoke, invokeOn, windowMachine } from '../ipc'
 import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
 import { SettingSwitch } from '../settings/controls'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 import { Select } from '../theme/Select'
 
 export interface ProjectSettingsProps {
@@ -79,15 +79,6 @@ const styles = {
   folder: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   // A long path wraps anywhere, so its end — the folder's own name — stays in view.
   folderPath: { flex: 1, minWidth: 0, overflowWrap: 'anywhere', fontSize: 'var(--text-12)' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>
 
 /** The shells of the Machine of the Project, as terminal.shells answers. */
@@ -341,9 +332,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
                     <code className="w-mono" style={styles.folderPath} title={folder}>
                       {folder}
                     </code>
-                    <button type="button" style={styles.secondary} aria-label={`Remove ${folder}`} disabled={readOnly !== null} onClick={() => setFolders(folders.filter((each) => each !== folder))}>
+                    <Button aria-label={`Remove ${folder}`} disabled={readOnly !== null} onClick={() => setFolders(folders.filter((each) => each !== folder))}>
                       Remove
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -371,9 +362,9 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
             <span style={styles.label}>Profile</span>
             <span style={styles.hint}>The Harness&apos;s profile of the Project: commands, ticket paths, review lenses, languages, worktrees.</span>
             <div style={styles.actions}>
-              <button ref={editProfileButton} type="button" style={styles.secondary} onClick={() => setEditingProfile(true)}>
+              <Button ref={editProfileButton} onClick={() => setEditingProfile(true)}>
                 Edit profile…
-              </button>
+              </Button>
             </div>
             {profileSaved === undefined ? null : (
               <span role="status" style={styles.hint} data-testid="project-settings-profile-saved">
@@ -413,16 +404,16 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
         ) : null}
 
         <div style={styles.actions}>
-          <button type="button" style={styles.secondary} disabled={!templates} onClick={() => void resetToDefault()}>
+          <Button disabled={!templates} onClick={() => void resetToDefault()}>
             Reset to default
-          </button>
+          </Button>
           <span style={{ flex: 1 }} />
-          <button type="button" style={styles.secondary} onClick={onClose}>
+          <Button onClick={onClose}>
             Cancel
-          </button>
-          <PrimaryButton disabled={!templates || invalid || saving || readOnly !== null} onClick={() => void save()}>
+          </Button>
+          <Button variant="primary" disabled={!templates || invalid || saving || readOnly !== null} onClick={() => void save()}>
             Save
-          </PrimaryButton>
+          </Button>
         </div>
       </div>
       {editingProfile && project.path !== undefined ? (
@@ -540,23 +531,23 @@ function TeamReviewerSection({ projectId, machine, readOnly, onBuilt }: TeamRevi
       <span style={styles.hint}>A review skill in your team&apos;s voice, built from the pull request history. Its files stay in the Profile folder on this machine.</span>
       {buttons && !confirming ? (
         <div style={styles.actions}>
-          <button type="button" style={styles.secondary} disabled={busy} onClick={() => void build()}>
+          <Button disabled={busy} onClick={() => void build()}>
             {state.status === 'built' ? 'Update' : 'Build'}
-          </button>
-          <button type="button" style={styles.secondary} disabled={busy || state.status === 'none'} onClick={() => setConfirming(true)}>
+          </Button>
+          <Button disabled={busy || state.status === 'none'} onClick={() => setConfirming(true)}>
             Delete
-          </button>
+          </Button>
         </div>
       ) : null}
       {buttons && confirming ? (
         <div style={styles.actions} role="group" aria-label="Delete the team reviewer">
           <span style={styles.hint}>Delete the team reviewer? Its files in the Profile folder are erased.</span>
-          <button type="button" style={styles.secondary} disabled={busy} onClick={() => void remove()}>
+          <Button disabled={busy} onClick={() => void remove()}>
             Delete
-          </button>
-          <button type="button" style={styles.secondary} disabled={busy} onClick={() => setConfirming(false)}>
+          </Button>
+          <Button disabled={busy} onClick={() => setConfirming(false)}>
             Keep
-          </button>
+          </Button>
         </div>
       ) : null}
       {started ? (

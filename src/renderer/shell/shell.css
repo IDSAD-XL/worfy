@@ -53,9 +53,10 @@
   display: flex;
   padding: 0 var(--space-2) var(--space-2);
 }
+/* An icon-only button: the square of the icon variant of Button (theme/button.css). */
 .w-sidebar__icon-button {
-  width: var(--row-height);
-  height: var(--row-height);
+  width: var(--button-height-l);
+  height: var(--button-height-l);
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -415,9 +416,10 @@ html[data-platform='linux'] .w-sidebar__titlebar {
 .w-toolbar__item {
   -webkit-app-region: no-drag;
 }
+/* An icon-only button: the square of the icon variant of Button (theme/button.css). */
 .w-toolbar__icon-button {
-  width: var(--row-height);
-  height: var(--row-height);
+  width: var(--button-height-l);
+  height: var(--button-height-l);
   flex: none;
   display: inline-flex;
   align-items: center;

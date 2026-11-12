@@ -48,8 +48,8 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
 }
 /* The button that hides and shows the sidebar, as in the toolbar (.w-toolbar__icon-button). */
 .w-focus__icon-button {
-  width: var(--row-height);
-  height: var(--row-height);
+  width: var(--button-height-l);
+  height: var(--button-height-l);
   flex: none;
   display: inline-flex;
   align-items: center;

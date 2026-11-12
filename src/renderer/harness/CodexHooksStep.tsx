@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { codexHooksCommand, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { invoke } from '../ipc'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 
 // The step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39; ADR-0094, risk 3). Codex
 // keeps a plugin's hooks off after each install or update of it until the user approves them in Codex
@@ -54,15 +54,6 @@ const styles = {
   },
   result: { margin: '0 0 var(--space-3)', fontSize: 'var(--text-12)', minHeight: 18 },
   footer: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 'var(--space-2)' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>
 
 /** What the step says after a check, by its answer; the tone of the line. */
@@ -169,13 +160,13 @@ export default function CodexHooksStep({ onClose, onStatus }: CodexHooksStepProp
           {checking ? 'Asking Codex…' : (result?.text ?? '')}
         </p>
         <div style={styles.footer}>
-          <button type="button" style={styles.secondary} onClick={onClose} disabled={checking} data-testid="codex-hooks-step-close">
+          <Button onClick={onClose} disabled={checking} data-testid="codex-hooks-step-close">
             {approved ? 'Done' : 'Close'}
-          </button>
+          </Button>
           {approved ? null : (
-            <PrimaryButton onClick={checkAgain} disabled={checking}>
+            <Button variant="primary" onClick={checkAgain} disabled={checking}>
               Check again
-            </PrimaryButton>
+            </Button>
           )}
         </div>
       </div>
@@ -196,9 +187,9 @@ function OpenCodex({ binary, copied, onCopy }: { binary: Binary; copied: boolean
         <code style={styles.commandText} data-testid="codex-hooks-step-command">
           {command}
         </code>
-        <button type="button" style={styles.secondary} aria-label="Copy the command" onClick={() => onCopy(command)}>
+        <Button aria-label="Copy the command" onClick={() => onCopy(command)}>
           {copied ? 'Copied' : 'Copy'}
-        </button>
+        </Button>
       </div>
     </>
   )

@@ -16,6 +16,7 @@ import { HistoryPopover } from '../../session/HistoryPopover'
 import { nodeSession, openSession, setView, useNavigation } from '../../session/navigation'
 import { NewSessionVendor } from '../../session/NewSessionVendor'
 import { ensureProject, isRunning, useSessionNodeViews } from '../../session/node-sessions'
+import { Button } from '../../theme/Button'
 import { StatusChip } from '../../theme/primitives'
 import { clearSessionRequest, forgetSessionRefusal, requestLive, requestSession, useSessionRequest } from '../session-request'
 import { projectsInScope, setRailBadge, useSidebarScope } from '../sidebar-scope'
@@ -88,25 +89,18 @@ const styles = {
     fontSize: 'var(--text-13)',
     textAlign: 'left',
   },
-  // The buttons of the actions row, as `.newbtns` of the sidebar prototype: they share the row.
+  // The buttons of the actions row, as `.newbtns` of the sidebar prototype: they share the row. Their
+  // look and height are Button's; a block box, so a long label ends in an ellipsis.
   newButton: {
     flex: '1 1 auto',
     minWidth: 0,
-    height: 26,
+    display: 'block',
     // The prototype's buttons have no padding of their own; 4 px keep a label off the border.
     padding: '0 4px',
-    boxSizing: 'border-box',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-button)',
-    background: 'var(--surface)',
-    color: 'var(--text-secondary)',
-    font: 'inherit',
     fontSize: 'var(--text-12)',
-    whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-  primary: { background: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--primary-text)', fontWeight: 600 },
   name: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   source: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
 } satisfies Record<string, CSSProperties>
@@ -237,9 +231,9 @@ function Sessions({ project, others }: SessionsProps) {
   // primary one, and "Product Session" — a Session apart from the development Sessions of the list.
   const actions = (
     <>
-      <button
-        type="button"
-        style={{ ...styles.newButton, ...styles.primary }}
+      <Button
+        variant="primary"
+        style={styles.newButton}
         data-testid="sidebar-new-session"
         aria-haspopup="menu"
         aria-expanded={vendorOpen}
@@ -248,16 +242,15 @@ function Sessions({ project, others }: SessionsProps) {
         {...writeAction(readOnly, () => setVendorOpen((open) => !open), "A new Session in the Project's root, on the Vendor you pick")}
       >
         New session
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         style={styles.newButton}
         aria-label="New Product Session"
         data-testid="sidebar-new-product-session"
         {...writeAction(readOnly, () => void newProductSession(), "A new Product Session: the Product owner's advisor, on Claude Code")}
       >
         Product Session
-      </button>
+      </Button>
     </>
   )
 

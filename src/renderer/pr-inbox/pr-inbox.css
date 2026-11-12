@@ -643,7 +643,7 @@
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  height: 24px;
+  height: var(--button-height-m);
   padding: 0 9px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-button);
@@ -652,23 +652,12 @@
   font: inherit;
   font-size: var(--text-12);
 }
-.w-pr-inbox-button--primary {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-text);
-  font-weight: 600;
-}
-.w-pr-inbox-button--primary:disabled {
-  border-color: var(--border-strong);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  font-weight: 400;
-}
+/* The primary one's colours are the Button variant's (theme/button.css). */
 .w-pr-inbox-button--link {
   text-decoration: none;
   cursor: default;
 }
-.w-pr-inbox-button:hover:where(:not(:disabled)) {
+.w-pr-inbox-button:hover:where(:not(:disabled, .w-pr-inbox-button--primary)) {
   border-color: var(--text-secondary);
 }
 .w-pr-inbox-button:disabled {

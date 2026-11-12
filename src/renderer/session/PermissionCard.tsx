@@ -3,6 +3,7 @@ import type { AgentEvent, PermissionOptionKind } from '../../shared/agent/events
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
+import { Button } from '../theme/Button'
 import { useSessionLog } from './store'
 
 // A permission request in the transcript (ticket 21, BRIEF.md Screen 2): what is asked about, its
@@ -35,12 +36,11 @@ const RESOLVED: Record<PermissionOptionKind, string> = {
   deny: 'Denied',
 }
 
-/** How a button of each kind looks, and its test id. */
-const BUTTON: Record<PermissionOptionKind, { className: string; testId: string }> = {
-  // The primary action's look (theme/primitives.tsx, PrimaryButton).
-  allow: { className: 'w-primary', testId: 'permission-allow' },
-  allow_always: { className: 'w-permission__button', testId: 'permission-always-allow' },
-  deny: { className: 'w-permission__button w-permission__button--deny', testId: 'permission-deny' },
+/** The Button variant of each kind, and its test id. */
+const BUTTON: Record<PermissionOptionKind, { variant: 'primary' | 'secondary' | 'danger'; testId: string }> = {
+  allow: { variant: 'primary', testId: 'permission-allow' },
+  allow_always: { variant: 'secondary', testId: 'permission-always-allow' },
+  deny: { variant: 'danger', testId: 'permission-deny' },
 }
 
 /**
@@ -152,12 +152,17 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
           {open ? (
             <div className="w-permission__actions">
               {request.options.map((option) => (
-                <button key={option.id} type="button" className={option.kind === 'allow_always' && request.productWrite !== undefined ? `${BUTTON[option.kind].className} w-permission__button--folder` : BUTTON[option.kind].className} data-testid={BUTTON[option.kind].testId} data-option-id={option.id}
+                <Button
+                  key={option.id}
+                  variant={BUTTON[option.kind].variant}
+                  className={option.kind === 'allow_always' && request.productWrite !== undefined ? 'w-permission__button--folder' : undefined}
+                  data-testid={BUTTON[option.kind].testId}
+                  data-option-id={option.id}
                   disabled={sending}
                   {...writeAction(readOnly, () => void answer(option.id), option.kind === 'allow_always' ? alwaysTooltip(request) : undefined)}
                 >
                   {option.label}
-                </button>
+                </Button>
               ))}
             </div>
           ) : (

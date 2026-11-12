@@ -365,9 +365,10 @@
   pointer-events: none;
 }
 
-/* The buttons of the popover and the card. */
+/* The buttons of the popover and the card. The colours of the primary and danger ones are the Button
+   variants' (theme/button.css). */
 .w-qbtn {
-  height: 24px;
+  height: var(--button-height-m);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -382,7 +383,7 @@
   cursor: pointer;
 }
 
-.w-qbtn:hover:not(:disabled) {
+.w-qbtn:hover:where(:not(:disabled, .w-qbtn--primary, .w-qbtn--danger)) {
   color: var(--text);
   box-shadow: var(--hover-shadow);
 }
@@ -391,44 +392,15 @@
   cursor: default;
 }
 
-.w-qbtn--primary {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-text);
-  box-shadow: var(--shadow-primary);
-  font-weight: 500;
-}
-
-.w-qbtn--primary:hover:not(:disabled) {
-  color: var(--primary-text);
-}
-
 .w-qbtn--primary .w-qkbd {
   border-color: color-mix(in srgb, var(--primary-text) 35%, transparent);
   background: transparent;
   color: inherit;
 }
 
-.w-qbtn--primary:disabled {
-  border-color: var(--border-strong);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  box-shadow: none;
-}
-
 .w-qbtn--ghost {
   border-color: transparent;
   background: transparent;
-}
-
-.w-qbtn--danger {
-  border-color: transparent;
-  background: transparent;
-  color: var(--blocked-text);
-}
-
-.w-qbtn--danger:hover:not(:disabled) {
-  color: var(--blocked-text);
 }
 
 /* The card of a comment under the pointer. */
