@@ -64,6 +64,7 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 - [ ] lint, typecheck, unit и contract test-ы затронутых модулей, gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
   - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · 41c125d0949c093b7dd5c9444e1e07f05e948e37
+  - evidence: gate pass · `gate fast` exit 0 (round 2, rebased on main after #1820) · mac - · e20e99538c35f7d3ea27aaac35c2c4b94ca8b86f
 
 ## Где в коде
 
