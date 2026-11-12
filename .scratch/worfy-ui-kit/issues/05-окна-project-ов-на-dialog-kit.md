@@ -30,11 +30,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
 
 - [ ] Unit test-ы окон: Tab не уходит из окна; после закрытия фокус на кнопке, которая окно открыла; Esc во вложенном
       окне закрывает только его.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 17f70594f922871813b0acde0a0c16b058f60987
 - [ ] Существующие unit test-ы и e2e `projects-connect.spec.ts`, `edit-profile.spec.ts` зелёные без правок ролей и
       `data-testid`.
 - [ ] Своих focus trap, backdrop и inline `zIndex` в этих шести окнах нет.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/layers.test.tsx) · mac - · 17f70594f922871813b0acde0a0c16b058f60987
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 17f70594f922871813b0acde0a0c16b058f60987
 
 ## Где в коде
 
