@@ -70,8 +70,12 @@ export class GettingStartedProgress {
 
   constructor(private readonly sources: ProgressSources) {}
 
-  /** Subscribes to the sources and opens the Stages when the demo is there; answers the stop. */
-  start(): () => void {
+  /**
+   * Subscribes to the sources and opens the Stages when the demo is there; answers the stop. The
+   * stop unsubscribes at once and resolves when the queued work has ended, the close of the demo's
+   * Stages included (never rejects), so nothing of it runs or logs after the awaited stop.
+   */
+  start(): () => Promise<void> {
     const stops = [
       this.sources.state.onChange(() => this.sync()),
       this.sources.projects.onChange(() => this.sync()),
@@ -81,6 +85,7 @@ export class GettingStartedProgress {
     return () => {
       for (const stop of stops) stop()
       this.subscribe(null)
+      return this.settled()
     }
   }
 

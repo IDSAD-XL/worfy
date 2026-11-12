@@ -6,7 +6,7 @@
 // over real Orchestrators on the fake agent, and step 1 from the `firstRun.checks` handler.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
@@ -260,7 +260,7 @@ describe('startGettingStarted, in the app', () => {
       gettingStartedState().markStep('1')
       expect(electron.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}gettingStarted.changed`, payload: expect.objectContaining({ user: 'new', steps: { '1': expect.any(String) as string } }) as unknown }])
     } finally {
-      stop()
+      await stop()
     }
     gettingStartedState().markStep('2')
     expect(electron.sent).toHaveLength(1)
@@ -269,7 +269,7 @@ describe('startGettingStarted, in the app', () => {
   it('WORFY_GETTING_STARTED_AUTO=0: a new user starts with the section hidden', async () => {
     process.env.WORFY_GETTING_STARTED_AUTO = '0'
     const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
-    startGettingStarted()()
+    await startGettingStarted()()
     expect(onDisk()).toMatchObject({ user: 'new', section: 'hidden' })
   })
 
@@ -278,7 +278,7 @@ describe('startGettingStarted, in the app', () => {
   it('an existing user, with a Project in the app\'s list at the start, is not made to go through Getting started: existing, the section hidden', async () => {
     projectsJson([{ id: 'mine-id', name: 'mine', path: join(data, 'mine') }])
     const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
-    startGettingStarted()()
+    await startGettingStarted()()
     expect(onDisk()).toMatchObject({ user: 'existing', section: 'hidden' })
   })
 
@@ -289,7 +289,7 @@ describe('startGettingStarted, in the app', () => {
     ])
     writeFileSync(file(), `${JSON.stringify({ demo: DEMO })}\n`)
     const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
-    startGettingStarted()()
+    await startGettingStarted()()
     expect(onDisk()).toMatchObject({ user: 'existing', section: 'hidden', demo: DEMO })
   })
 
@@ -297,14 +297,35 @@ describe('startGettingStarted, in the app', () => {
     projectsJson([{ id: DEMO.projectId, name: 'worfy-demo', path: DEMO.path }])
     writeFileSync(file(), `${JSON.stringify({ demo: DEMO })}\n`)
     const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
-    startGettingStarted()()
+    await startGettingStarted()()
     expect(onDisk()).toMatchObject({ user: 'new', section: 'shown' })
+  })
+
+  it('the stop resolves once the Stages of the demo are closed: the read of the demo\'s workflow has logged and nothing is left watched', async () => {
+    // worfy-polish ticket 47: a stop that returned at once left this read running past the file's
+    // last test, and its late console.warn failed the Windows job with vitest's EnvironmentTeardownError.
+    projectsJson([{ id: DEMO.projectId, name: 'worfy-demo', path: DEMO.path }])
+    writeFileSync(file(), `${JSON.stringify({ demo: DEMO })}\n`)
+    const warn = vi.spyOn(console, 'warn')
+    try {
+      const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
+      const { stageHub } = await import('../../src/main/ipc/pipeline')
+      const { workflowHub } = await import('../../src/main/ipc/workflow')
+      const stop = startGettingStarted()
+      expect(workflowHub.roots).toEqual([resolve(DEMO.path)])
+      await stop()
+      expect(stageHub.roots).toEqual([])
+      expect(workflowHub.roots).toEqual([])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(`[workflow] ${resolve(DEMO.path)}: `))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('a Project list that does not read is set aside, and its user counts as existing', async () => {
     writeFileSync(join(data, 'projects.json'), '{"projects": [')
     const { startGettingStarted } = await import('../../src/main/ipc/getting-started')
-    startGettingStarted()()
+    await startGettingStarted()()
     expect(readdirSync(data).filter((name) => name.startsWith('projects.json.unreadable-'))).toHaveLength(1)
     expect(onDisk()).toMatchObject({ user: 'existing', section: 'hidden' })
   })
@@ -388,7 +409,7 @@ describe('the demo Orchestrator: step 3 over real Orchestrators on the fake agen
       await turn(demo.sessionId)
       expect(state.read().steps['3']).toBeDefined()
     } finally {
-      stop()
+      await stop()
     }
   })
 })

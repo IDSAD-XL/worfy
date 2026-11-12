@@ -539,6 +539,16 @@ quarantine 2 из 15); причина неизвестна и повторяет
   тогда был на C: (до #1703).
 - `test/contract/getting-started-state.test.ts` — все test-ы зелёные, job красный от `EnvironmentTeardownError: Closing rpc
   while "onUserConsoleLog" was pending` vitest, run 42146001813, 2026-11-06 01:46Z.
+  - 2026-11-13, ветка `worfy-polish/47-getting-started-teardown`: повторился на `main` в run 43297854918 (2026-11-12,
+    `windows (1/3) / full-suite`, попытка 1). Причина найдена по журналу: после последнего test-а файла шла строка
+    `stderr | unknown test` — `[workflow] …\worfy-demo: Full mode …` из `logOnce` (`src/main/workflow/folder.ts:107`).
+    Test-ы `startGettingStarted` с демо в списке Project-ов открывали настоящий `stageHub` на демо, а stop
+    (`GettingStartedProgress.start`, `src/main/getting-started/progress.ts`) возвращался сразу: чтение профиля демо и
+    закрытие Stages доходили до `console.warn` уже после конца файла. Правка: stop отвечает Promise, который
+    разрешается, когда очередь, вместе с закрытием Stages демо, отработала; `startGettingStarted` отдаёт его наружу,
+    test-ы файла ждут его. Новый test «the stop resolves once the Stages of the demo are closed…»: со старым кодом
+    красный (`workflowHub.roots` после stop не пуст, а строка без имени test-а в журнале есть), с правкой зелёный;
+    файл 20 раз подряд — exit 0 все 20, строк без имени test-а нет.
 
 Красные только на ветках PR (`product-guard.test.ts:83/89`, `mind-map-tools.test.ts:114`, `projects.test.ts:1409`,
 `product-watch.test.ts:224`, `harness-evals.test.ts:244/463`, `auto-approve-*.test.ts`, `harness-hook-stdin.test.ts`,
