@@ -1,0 +1,155 @@
+/* The chip «MCP n/m» of the Session header and its popover (McpChip.tsx, worfy-mcp-live ticket 04).
+   Values come from tokens.css only. The chip has the shape of the header's permission mode chip
+   (.w-session__mode): 18 px, radius 4 px, 11 px semibold on surface raised; it warns in the blocked
+   colours with the warning icon, never by colour alone. The popover has the look of the Modes menu
+   (.w-modes__menu): surface, 1 px border, radius 10 px, node shadow. */
+
+.w-mcp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-11);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-mcp-chip:hover {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.w-mcp-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-mcp-chip--warn {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-mcp-chip__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.w-mcp {
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: max-content;
+  min-width: 360px;
+  max-width: min(560px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 80px));
+  overflow-y: auto;
+  padding: var(--space-2);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  font-size: var(--text-13);
+}
+.w-mcp:focus {
+  outline: none;
+}
+.w-mcp__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-1) var(--space-1);
+}
+.w-mcp__title {
+  font-weight: 600;
+}
+.w-mcp__summary {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+.w-mcp__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-mcp__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  border-top: 1px solid var(--border);
+}
+.w-mcp__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 22px;
+}
+.w-mcp__name {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-12);
+}
+.w-mcp__tools,
+.w-mcp__source {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+.w-mcp__spacer {
+  flex: 1;
+  min-width: var(--space-2);
+}
+.w-mcp__line .w-action[aria-busy='true'] {
+  cursor: progress;
+}
+.w-mcp__error,
+.w-mcp__note {
+  margin: 0;
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+.w-mcp__error {
+  color: var(--blocked-text);
+}
+.w-mcp__note {
+  color: var(--text-muted);
+}
+.w-mcp__group {
+  margin-top: var(--space-1);
+}
+.w-mcp__heading {
+  margin: 0;
+  padding: var(--space-1) var(--space-1) 2px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 600;
+}
+
+/* The status beside each name of the Profile's MCP list (Edit profile). */
+.w-mcp-profile {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-12);
+}
+.w-mcp-profile__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

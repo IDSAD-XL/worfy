@@ -17,6 +17,7 @@ import { promptHistory } from './history'
 import { ExternalSessionPanel } from './ExternalSessionPanel'
 import { dropRefusal, useChatDrop } from './chat-drop'
 import { draftKey } from './drafts'
+import { SessionMcpChip } from './McpChip'
 import { MessageInput, type MessageInputHandle, type OutgoingMessage } from './MessageInput'
 import { useOpenedSession } from './navigation'
 import { useWaitingRequests } from './open-requests'
@@ -40,7 +41,7 @@ import './session.css'
 
 // The Session view (the Session side of the toolbar's Canvas / Session switch): one Session in
 // full. A header with its state, the Vendor of a Session Node's agent (VendorBadge.tsx), model,
-// effort, permission mode and cost, and an Interrupt button; the transcript; the input field; and on the right the rail, made of the blocks in
+// effort, permission mode, cost and the chip of its MCP servers (McpChip.tsx), and an Interrupt button; the transcript; the input field; and on the right the rail, made of the blocks in
 // rail/ (rail/index.ts). It shows the Session a double click on its Node opened (navigation.ts),
 // or else the active Project's Orchestrator.
 //
@@ -416,6 +417,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
               </span>
               <span className="w-session__fact-label">this session</span>
             </span>
+            {/* The Session's MCP servers, once main has them (McpChip.tsx, worfy-mcp-live ticket 04). */}
+            <SessionMcpChip sessionId={sessionId} projectId={projectId} orchestrator={orchestrator !== undefined} />
           </>
         )}
         {/* The share of the advisor's advice the Product owner accepted (worfy-product-session ticket 14). */}

@@ -20,7 +20,10 @@
 //   header does not show the model before the pick as the current one (worfy-week ticket 12);
 // - a `narration` event (the live summary of a Product Session's turn, worfy-product-session ticket 32) is
 //   not part of the transcript: the store keeps the latest lines, and a new message (`prompt`) or the end
-//   of the turn (`result`) drops them.
+//   of the turn (`result`) drops them;
+// - an `mcp` event (the Session's MCP servers, worfy-mcp-live ticket 04) is not part of the transcript
+//   either: the store keeps the latest rows, for the chip of the Session header (McpChip.tsx), and asks
+//   main for them (`agent.mcp`) when a view needs them before any arrived.
 //
 // Nothing here is saved: the transcript file is the record of the Session (ADR 0002, ADR 0005).
 // A view of a Session that has a transcript — a resumed one, the Orchestrator after a restart —
@@ -29,6 +32,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { typedText } from '../../shared/agent/attachments'
 import type { AgentEvent, AgentEventEnvelope, ContextUsage, QueueSnapshot } from '../../shared/agent/events'
+import type { McpServerRow } from '../../shared/agent/mcp-status'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
 import { toolsHiddenRenamed } from './transcript-view'
@@ -59,6 +63,17 @@ export interface SessionLog {
   context: ContextUsage | null
   /** The live summary of the running turn, by the last `narration` event: its lines, oldest first, and the number of the first; absent: none. */
   narration?: NarrationLines
+  /**
+   * The Session's MCP servers, by the last `mcp` event or the answer of `agent.mcp`, and when they came
+   * (Date.now()); null in `servers`: main has no data. Absent: nothing came yet.
+   */
+  mcp?: SessionMcp
+}
+
+/** The MCP servers of a Session as the store keeps them (SessionLog.mcp). */
+export interface SessionMcp {
+  servers: readonly McpServerRow[] | null
+  at: number
 }
 
 interface LogsStore {
@@ -124,6 +139,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             modelPick,
             context: after?.context ?? before.context,
             narration: after?.narration ?? before.narration ?? NO_NARRATION,
+            ...((after?.mcp ?? before.mcp) === undefined ? {} : { mcp: after?.mcp ?? before.mcp }),
           },
         },
       }
@@ -138,6 +154,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
         return { ...log, context: event.usage }
       case 'narration':
         return { ...log, narration: { lines: event.lines, first: event.first } }
+      case 'mcp':
+        return { ...log, mcp: { servers: event.servers, at: event.at ?? Date.now() } }
       case 'settings': {
         const picked = log.settings !== null && event.settings.model !== log.settings.model
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
@@ -173,6 +191,21 @@ export async function loadControls(sessionId: string): Promise<void> {
     return
   }
   update(sessionId, (log) => ({ ...log, queue: log.queue ?? result.value.queue, settings: log.settings ?? result.value.settings }))
+}
+
+/** Takes the MCP servers main answered for a Session (an action's answer): newer than any event before it. */
+export function acceptMcpServers(sessionId: string, servers: readonly McpServerRow[]): void {
+  update(sessionId, (log) => ({ ...log, mcp: { servers, at: Date.now() } }))
+}
+
+/** Asks main for a Session's MCP servers, for a view that opened after their last event went out; an event that came meanwhile stays. */
+export async function loadMcp(sessionId: string): Promise<void> {
+  const result = await invoke('agent.mcp', { sessionId })
+  if (!result.ok) {
+    console.warn(`agent.mcp ${sessionId} failed:`, result.error)
+    return
+  }
+  update(sessionId, (log) => (log.mcp !== undefined ? log : { ...log, mcp: { servers: result.value.servers, at: Date.now() } }))
 }
 
 /**
@@ -332,4 +365,31 @@ export function useSessionControls(sessionId: string | null): Pick<SessionLog, '
 export function useSessionContext(sessionId: string | null): ContextUsage | null {
   useEffect(ensureAgentEvents, [])
   return useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.context ?? null)))
+}
+
+/** A Session's MCP servers, by its last `mcp` event; asks main once when none came yet. Null: no data. */
+export function useSessionMcp(sessionId: string | null): readonly McpServerRow[] | null {
+  useEffect(ensureAgentEvents, [])
+  const mcp = useSessionLogs((store) => (sessionId === null ? undefined : store.logs[sessionId]?.mcp))
+  const missing = sessionId !== null && mcp === undefined
+  useEffect(() => {
+    if (missing) void loadMcp(sessionId)
+  }, [sessionId, missing])
+  return mcp?.servers ?? null
+}
+
+/**
+ * The MCP servers of the newest of `sessionIds` that has any, by when they came; null when none has. It
+ * asks nothing of main: a Session no view showed has its rows from its own `mcp` events.
+ */
+export function useLatestMcp(sessionIds: readonly string[]): readonly McpServerRow[] | null {
+  useEffect(ensureAgentEvents, [])
+  return useSessionLogs((store) => {
+    let found: SessionMcp | undefined
+    for (const id of sessionIds) {
+      const mcp = store.logs[id]?.mcp
+      if (mcp !== undefined && mcp.servers !== null && (found === undefined || mcp.at > found.at)) found = mcp
+    }
+    return found?.servers ?? null
+  })
 }
