@@ -35,8 +35,12 @@
 // of a driver whose mcp part `restarts` are done here, the same for every Vendor. The process is closed
 // — a running turn interrupted first, as Interrupt does, the queue held — and the Session starts a new
 // one that resumes the same Vendor session once the old one has exited (begin(), ADR-0064): the same
-// Session, so its id, its windows and its owner (an Orchestrator, a Session Node) stay. What a person
-// sends meanwhile waits for the new process. Turn off keeps the server in the Session's own set
+// Session, so its windows and its owner (an Orchestrator, a Session Node) stay, and so does its id once
+// a turn has run. Before the first turn there is no conversation to resume: the new process starts a
+// new Vendor session under a new id, and the Session is `renamed`, as after a process that died before
+// its first turn (newSessionId). Two Restarts at once, or a close while a Restart waits for the
+// interrupted turn, start no second process: only the Restart whose process is still current goes
+// on. What a person sends meanwhile waits for the new process. Turn off keeps the server in the Session's own set
 // (`mcpOff`): every process of the Session starts without it (SessionStart.mcpOff), and its row stays,
 // `disabled`, offering Turn on; neither the Profile nor the Vendor's config changes, and a new Session
 // gets every server again. An unattended Session (Autopilot) refuses all three: its set of servers is
@@ -594,8 +598,10 @@ export class Session {
   /**
    * The rows of the MCP servers of the live process, asked now (agent.mcp); sent as an `mcp` event when
    * they changed. null: no data — no process runs, the driver reads no status, or the ask failed.
+   * `pickUp`: the driver takes in servers added to the Vendor's config first (agent.mcp from the chip's
+   * popover, worfy-mcp-live ticket 03).
    */
-  async mcp(): Promise<McpServerRow[] | null> {
+  async mcp(read: { pickUp?: boolean } = {}): Promise<McpServerRow[] | null> {
     const handle = this.run?.handle ?? null
     const status = this.parts.mcp?.status
     if (handle === null || status === undefined) return null
@@ -603,7 +609,7 @@ export class Session {
     const events = this.mcpEvents
     let servers: McpServerRow[] | null = null
     try {
-      servers = await status.call(this.parts.mcp, handle)
+      servers = await status.call(this.parts.mcp, handle, { pickUp: read.pickUp === true })
     } catch (error) {
       console.warn(`[agent] could not read the MCP servers of ${this.current}: ${messageOf(error)}`)
     }
@@ -672,8 +678,10 @@ export class Session {
       this.permissions.cancelAll()
       await this.interruptTurn(handle, HALT_TURN_MS)
     }
-    // Closed, halted or restarted while the turn was ending: nothing more to do here.
-    if (this.closing || this.halted || this.run !== run) return
+    // Closed (close() clears the run), halted or restarted by another Restart while the turn was
+    // ending: a new process here would be a second one on the same conversation (ADR-0064).
+    if (this.halted || this.run !== run) return
+    // The old process is closed first: begin() then only waits for its exit, never kills it at the limit.
     this.run = null
     try {
       handle.close()

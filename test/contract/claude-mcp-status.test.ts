@@ -155,6 +155,19 @@ describe('the mcp event of a Claude Session', () => {
     expect(h.ofType('mcp')).toHaveLength(1)
   })
 
+  it('agent.mcp takes in new servers (reloadPlugins) only when asked with pickUp: the chip’s popover, not its first read', async () => {
+    const h = await harness('mcp-status')
+    const id = await h.start()
+    const reloads = () => h.calls.filter((each) => each.kind === 'reloadPlugins')
+    await h.ok('agent.mcp', { sessionId: id })
+    await h.ok('agent.mcp', { sessionId: id, pickUp: false })
+    expect(reloads()).toEqual([])
+    expect(await h.ok('agent.mcp', { sessionId: id, pickUp: true })).toEqual({ servers: [NOTES, WORFY_CANVAS] })
+    expect(reloads()).toHaveLength(1)
+    const refused = await h.call('agent.mcp', { sessionId: id, pickUp: 'yes' })
+    expect(refused.ok).toBe(false)
+  })
+
   it('a script that sets no MCP answer reports no servers, once and quietly, and the turn goes on as before', async () => {
     const warn = vi.spyOn(console, 'warn')
     const h = await harness('turn')

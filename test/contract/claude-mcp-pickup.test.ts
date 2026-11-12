@@ -2,7 +2,8 @@
 // of ticket 01 found that Claude Code does not take in a server written into the user's config by
 // itself (F:allowed-status-5s-after-write-no-call), and that reloadPlugins() takes in one the
 // Project's list allows, in the same query (F:allowed-reload-plugins). The Claude driver calls it when
-// a window reads the status (agent.mcp) and no turn runs; the new server then comes in the `mcp`
+// a person asks for the status — the chip's popover opens: agent.mcp with `pickUp` — and no turn runs;
+// a window's plain read takes in nothing. The new server then comes in the `mcp`
 // event, with no new Session and no new process. A Session of Autopilot (unattended) takes in nothing
 // in the middle of a Wave, and its rows offer no Restart, Turn off or Turn on. Never the real Claude Code.
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -68,15 +69,19 @@ const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => 
 const ATTENDED_ACTIONS: McpServerAction[] = ['turn-off']
 
 describe('a server added while a Claude Session runs', () => {
-  it('is not there by itself; a status read between turns takes it in with reloadPlugins(), in the same process', async () => {
+  it('is not there by itself, nor after a plain read; a read with pickUp between turns takes it in with reloadPlugins(), in the same process', async () => {
     const h = harness()
     await h.midTurn()
     await h.endTurn()
     // After system/init and after the turn: what Claude Code had without a call (F:allowed-status-5s-after-write-no-call).
-    expect(h.mcpEvents().at(-1)).toEqual({ type: 'mcp', servers: [row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })] })
+    const before = [row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })]
+    expect(h.mcpEvents().at(-1)).toEqual({ type: 'mcp', servers: before })
+    expect(h.reloads()).toEqual([])
+    // A window's plain read (the chip before its first event) is cheap: no reloadPlugins().
+    expect(await h.session.mcp()).toEqual(before)
     expect(h.reloads()).toEqual([])
 
-    const servers = await h.session.mcp()
+    const servers = await h.session.mcp({ pickUp: true })
     // reloadPlugins() took it in (F:allowed-reload-plugins): `dynamic`, shown as user config.
     const picked = [row('example-notes', { actions: ATTENDED_ACTIONS }), row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })]
     expect(servers).toEqual(picked)
@@ -91,10 +96,10 @@ describe('a server added while a Claude Session runs', () => {
   it('a status read while a turn runs takes in nothing: the tools of a running turn stay as they are', async () => {
     const h = harness()
     await h.midTurn()
-    expect(await h.session.mcp()).toEqual([row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })])
+    expect(await h.session.mcp({ pickUp: true })).toEqual([row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })])
     expect(h.reloads()).toEqual([])
     await h.endTurn()
-    expect((await h.session.mcp())?.map((server) => server.name)).toEqual(['example-notes', 'worfy-canvas'])
+    expect((await h.session.mcp({ pickUp: true }))?.map((server) => server.name)).toEqual(['example-notes', 'worfy-canvas'])
     expect(h.reloads()).toHaveLength(1)
   })
 })
@@ -104,8 +109,8 @@ describe('an unattended Session (Autopilot)', () => {
     const h = harness({ unattended: true })
     await h.midTurn()
     await h.endTurn()
-    expect(await h.session.mcp()).toEqual([row('worfy-canvas', { source: 'worfy' })])
-    expect(await h.session.mcp()).toEqual([row('worfy-canvas', { source: 'worfy' })])
+    expect(await h.session.mcp({ pickUp: true })).toEqual([row('worfy-canvas', { source: 'worfy' })])
+    expect(await h.session.mcp({ pickUp: true })).toEqual([row('worfy-canvas', { source: 'worfy' })])
     expect(h.reloads()).toEqual([])
     for (const event of h.mcpEvents()) for (const server of event.servers ?? []) expect(server.actions).toEqual([])
   })

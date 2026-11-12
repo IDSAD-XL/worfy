@@ -7,8 +7,8 @@
 // `account` once accountInfo() answers (the Session is `starting` until then), `context` after each
 // `result` and each compaction (getContextUsage), `mcp` after each system/init and each `result`
 // (mcpServerStatus, worfy-mcp-live ticket 02), and the end of its events when Claude Code is gone.
-// A read of the MCP servers a window asks for (readMcp, ticket 03) takes in a server added to the
-// user's config first, between turns of an attended Session (src/main/vendors/claude/mcp.ts); every ask
+// A read of the MCP servers a person asks for (readMcp with pickUp, ticket 03) takes in a server added
+// to the user's config first, between turns of an attended Session (src/main/vendors/claude/mcp.ts); every ask
 // of the handle is numbered, and an answer to any but the latest is dropped.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
@@ -356,13 +356,13 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     return this.queryValue
   }
 
-  /** The rows of the MCP servers asked now (ClaudeMcpLive.readMcp): a new server taken in first between turns of an attended Session. */
-  async readMcp(): Promise<McpServerRow[] | null> {
+  /** The rows of the MCP servers asked now (ClaudeMcpLive.readMcp): with `pickUp`, a new server taken in first between turns of an attended Session. */
+  async readMcp(pickUp: boolean): Promise<McpServerRow[] | null> {
     const query = this.queryValue
     if (query === null || this.done) return null
     ++this.mcpAsks
     const attended = this.attended()
-    return claudeMcpStatus(query, this.initServers, this.label, { attended, pickUp: attended && !this.turning })
+    return claudeMcpStatus(query, this.initServers, this.label, { attended, pickUp: pickUp && attended && !this.turning })
   }
 
   /** Starts the query; rejects when Claude Code cannot be started. */

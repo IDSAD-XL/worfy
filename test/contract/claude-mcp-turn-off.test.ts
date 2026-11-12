@@ -19,13 +19,14 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
+import { EXIT_WAIT_MS, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { McpServerRow } from '../../src/shared/agent/mcp-status'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { AGENT_SCRIPTS } from './autopilot-faults-setup'
+import { ms } from '../time-scale'
 import { StubProcesses } from './claude-process-stub'
 
 const mocks = vi.hoisted(() => ({ agentEnv: vi.fn() }))
@@ -91,12 +92,15 @@ interface SdkStart {
  * The app's chain over the fake agent: `allowlist` is the Profile's list, and the canvas attaches
  * worfy-canvas. null: a Session outside every Project — no canvas, so no list and no worfy server, the
  * one case worfy passes no managedSettings. `script` picks the fake agent's script for the n-th process.
+ * `processes: false` leaves the stub processes out: nothing is alive for begin() to wait for, so a
+ * second process would start at once — the case a Restart's own guard must cover.
  */
-function harness(allowlist: readonly string[] | null, script: (n: number) => string = () => 'mcp-restart') {
+function harness(allowlist: readonly string[] | null, script: (n: number) => string = () => 'mcp-restart', processes = true) {
   const calls: FakeCall[] = []
   const starts: SdkStart[] = []
   const requests = new Map<unknown, QueryRequest>()
-  const fake = fakeQueryFactory({ scriptsDir: AGENT_SCRIPTS, script: () => script(starts.length), record: (call) => calls.push(call) })
+  const releases = new FakeReleases()
+  const fake = fakeQueryFactory({ scriptsDir: AGENT_SCRIPTS, script: () => script(starts.length), releases, record: (call) => calls.push(call) })
   const attached: CanvasSession = {
     attachment: { server: { type: 'sdk', name: CANVAS_SERVER_NAME } as never, cardsDir: join(scratch, 'cards'), instructions: 'canvas' },
     observe: (query) => query,
@@ -117,12 +121,11 @@ function harness(allowlist: readonly string[] | null, script: (n: number) => str
   })
   const stub = new StubProcesses(() => 'exit-at-once')
   stubs.push(stub)
-  const registry = new SessionRegistry(
-    stub.wrap((request) => {
-      requests.set(request.prompt, request)
-      return factory(request)
-    }),
-  )
+  const remembered: typeof factory = (request) => {
+    requests.set(request.prompt, request)
+    return factory(request)
+  }
+  const registry = new SessionRegistry(processes ? stub.wrap(remembered) : remembered)
   registries.push(registry)
   const events: AgentEvent[] = []
   const session = registry.start(cwd, undefined, (_id, event) => events.push(event))
@@ -137,7 +140,7 @@ function harness(allowlist: readonly string[] | null, script: (n: number) => str
   }
   const toggles = () => calls.filter((call) => call.kind === 'toggleMcpServer')
   const processStarts = () => calls.filter((call) => call.kind === 'start')
-  return { calls, starts, stub, registry, session, events, ofType, turn, toggles, processStarts }
+  return { calls, starts, stub, releases, registry, session, events, ofType, turn, toggles, processStarts }
 }
 
 const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => ({ name, status: 'connected', tools: 1, error: null, source: 'user', sourceWord: null, actions: ['turn-off'], ...fields })
@@ -157,12 +160,17 @@ describe('restart: the same conversation in a new Claude Code process', () => {
     const id = h.session.id
     expect(sdkId).not.toBeNull()
 
+    const asked = Date.now()
     const answer = await h.session.mcpAction('example-notes', 'restart')
+    const took = Date.now() - asked
     expect(answer.error).toBeNull()
     expect(answer.servers).toEqual([NOTES, CANVAS])
     // The old process exited before the new one started; never two at once.
     expect(h.stub.order().map((each) => each.split(' ').slice(0, 2).join(' '))).toEqual(['spawn 1', 'exit 1', 'spawn 2'])
     expect(h.stub.maxAlive()).toBe(1)
+    // It was closed first and exited of that close: no SIGKILL at the limit, no wait for it.
+    expect(h.stub.order().filter((each) => each.includes('SIGKILL'))).toEqual([])
+    expect(took).toBeLessThan(EXIT_WAIT_MS)
     expect(h.starts.map((start) => start.resume)).toEqual([undefined, sdkId])
     // The same Session goes on: its id, the registry's one live Session, no error on the way.
     expect(h.session.id).toBe(id)
@@ -208,6 +216,76 @@ describe('restart: the same conversation in a new Claude Code process', () => {
   })
 })
 
+describe('restart while the interrupted turn has not ended yet', () => {
+  /** A Session whose first turn ignores Interrupt (mcp-restart-hold): a Restart waits for its end. */
+  async function waitingRestart(processes = true) {
+    const h = harness(LIST, (n) => (n === 1 ? 'mcp-restart-hold' : 'mcp-restart'), processes)
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    h.session.send('long')
+    await vi.waitFor(() => expect(h.ofType('init')).toHaveLength(1))
+    const restart = h.session.mcpAction('example-notes', 'restart')
+    // The Restart stands at the turn's end; nothing is closed or started yet.
+    await new Promise((done) => setTimeout(done, 50))
+    expect(h.session.state).toBe('busy')
+    return { h, restart }
+  }
+
+  it.each([true, false])('the Session closed meanwhile starts no new process: one process in all, the Session stays closed (stub processes: %s)', async (processes) => {
+    const { h, restart } = await waitingRestart(processes)
+    h.session.close()
+    await restart
+    await new Promise((done) => setTimeout(done, 100))
+    expect(h.processStarts()).toHaveLength(1)
+    if (processes) expect(h.stub.order().filter((each) => each.startsWith('spawn'))).toEqual(['spawn 1'])
+    expect(h.session.state).toBe('closed')
+    expect(h.ofType('state').at(-1)?.state).toBe('closed')
+  })
+
+  it.each([true, false])('a second Restart meanwhile starts no second process: when the turn ends, one new process (stub processes: %s)', async (processes) => {
+    const { h, restart } = await waitingRestart(processes)
+    const second = h.session.mcpAction('example-notes', 'restart')
+    await new Promise((done) => setTimeout(done, 50))
+    h.releases.release('turn')
+    await Promise.all([restart, second])
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    await new Promise((done) => setTimeout(done, 100))
+    expect(h.processStarts()).toHaveLength(2)
+    if (processes) {
+      expect(h.stub.order().filter((each) => each.startsWith('spawn'))).toEqual(['spawn 1', 'spawn 2'])
+      expect(h.stub.maxAlive()).toBe(1)
+    }
+  })
+
+  it('a Session halted meanwhile (Stop in Autopilot, Start now) starts no new process: its owner closes it and starts the next', async () => {
+    const { h, restart } = await waitingRestart(false)
+    const halted = h.session.halt(ms(5000))
+    await new Promise((done) => setTimeout(done, 50))
+    h.releases.release('turn')
+    await Promise.all([restart, halted])
+    await new Promise((done) => setTimeout(done, 100))
+    expect(h.processStarts()).toHaveLength(1)
+    expect(h.session.state).toBe('idle')
+  })
+})
+
+describe('restart before the first turn', () => {
+  it('has no conversation to resume: the new process starts a new one under a new id, and the Session is renamed to it', async () => {
+    const h = harness(LIST)
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    const before = h.session.id
+    expect(h.session.sdkId).toBeNull()
+    await h.session.mcpAction('example-notes', 'restart')
+    expect(h.starts.map((start) => start.resume)).toEqual([undefined, undefined])
+    expect(h.starts[0]?.sessionId).toBe(before)
+    expect(h.starts[1]?.sessionId).toBe(h.session.id)
+    expect(h.session.id).not.toBe(before)
+    expect(h.ofType('renamed')).toEqual([{ type: 'renamed', from: before }])
+    expect(h.registry.get(h.session.id)).toBe(h.session)
+    await h.turn('one')
+    expect(h.ofType('init').at(-1)?.sdkSessionId).toBe(h.session.id)
+  })
+})
+
 describe('turn-off and turn-on for this Session', () => {
   it('turn-off restarts without the server in the Profile list; turn-on brings it back; toggleMcpServer never; .claude.json byte for byte the same', async () => {
     const h = harness(LIST)
@@ -219,6 +297,7 @@ describe('turn-off and turn-on for this Session', () => {
     expect(off).toEqual({ servers: [CANVAS, NOTES_OFF], error: null })
     // After the old process exited, the same conversation, and no example-notes in the list (F:turnoff-restart-allowlist-without).
     expect(h.stub.order().map((each) => each.split(' ').slice(0, 2).join(' '))).toEqual(['spawn 1', 'exit 1', 'spawn 2'])
+    expect(h.stub.order().filter((each) => each.includes('SIGKILL'))).toEqual([])
     expect(h.starts[1]?.resume).toBe(sdkId)
     expect(h.starts[1]?.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: CANVAS_SERVER_NAME }] })
     expect(Object.keys(h.starts[1]?.mcpServers ?? {})).toEqual([CANVAS_SERVER_NAME])

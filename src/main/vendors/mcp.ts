@@ -20,9 +20,11 @@ export interface McpPart {
   /**
    * The rows of the MCP servers of the live Session `session`, a handle of this driver's; null: no
    * data — the Vendor's answer failed, or its process is gone. A failed answer does not reject.
-   * Absent: the driver reads no status yet (Codex until worfy-mcp-live ticket 06).
+   * Absent: the driver reads no status yet (Codex until worfy-mcp-live ticket 06). `read.pickUp`
+   * (ticket 03): a person asked to take in servers added to the Vendor's config first, where the driver
+   * can and no turn runs; ignored otherwise.
    */
-  status?(session: SessionHandle): Promise<McpServerRow[] | null>
+  status?(session: SessionHandle, read?: { pickUp?: boolean }): Promise<McpServerRow[] | null>
   /**
    * Does `action` on the server `name` of the live Session `session`. Rejects with McpActionRefused
    * for an action the driver does not do, before anything reaches the Vendor; with the Vendor's own

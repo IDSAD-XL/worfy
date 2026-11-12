@@ -342,7 +342,7 @@ export function agentHandlers(
     }),
     defineHandler(agentModels, async ({ sessionId }) => ({ models: await registry().get(sessionId).models() })),
     defineHandler(agentCapabilities, ({ sessionId }) => registry().get(sessionId).capabilities()),
-    defineHandler(agentMcp, async ({ sessionId }) => ({ servers: await registry().get(sessionId).mcp() })),
+    defineHandler(agentMcp, async ({ sessionId, pickUp }) => ({ servers: await registry().get(sessionId).mcp({ pickUp: pickUp === true }) })),
     defineHandler(agentMcpAction, ({ sessionId, name, action }) => {
       const session = registry().get(sessionId)
       // The server's name is the user's own: the journal of an Autopilot run gets the action alone.

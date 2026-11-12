@@ -10,8 +10,9 @@
 //
 // Ticket 03: a server the Project's list allows, added to the user's config while the query runs, is
 // taken in by reloadPlugins() (the spike of ticket 01, F:allowed-reload-plugins), called before the
-// status is read when a window asks for it (status()) and no turn runs — never after each turn by
-// itself, and never in a running turn, whose tools stay as they are. Its prompt-cache cost comes only
+// status is read when a person asks for it — the chip's popover opens (agent.mcp with `pickUp`) — and
+// no turn runs: never after each turn by itself, never on a window's plain read, and never in a
+// running turn, whose tools stay as they are. Its prompt-cache cost comes only
 // when the set of servers changed, which is what the person added the server for: no confirmation is
 // asked (holdOnCacheImpact is not used). Turn off, Turn on and Restart are a Restart of the Session
 // with the same conversation (Session.mcpAction; `restarts`), which starts Claude Code without the
@@ -69,11 +70,11 @@ export interface ClaudeMcpLive {
   /** The live query; null before it started and once Claude Code is gone. */
   readonly query: QueryHandle | null
   /**
-   * The rows of the query's servers, asked now — taking in a new server first between turns of an
-   * attended Session. It counts as the handle's latest ask: an `mcp` event asked before it is not sent.
-   * null: no data, or Claude Code is gone.
+   * The rows of the query's servers, asked now — with `pickUp`, taking in a new server first between
+   * turns of an attended Session. It counts as the handle's latest ask: an `mcp` event asked before it
+   * is not sent. null: no data, or Claude Code is gone.
    */
-  readMcp(): Promise<McpServerRow[] | null>
+  readMcp(pickUp: boolean): Promise<McpServerRow[] | null>
 }
 
 /** What the Claude driver holds of `session` for the mcp part; null for a handle that is not its own. */
@@ -88,10 +89,10 @@ export const claudeMcp: McpPart = {
   delivery: 'inProcess',
   // Turn off, Turn on and Restart: the Session restarts Claude Code without the servers turned off (options.ts).
   restarts: true,
-  status(session) {
+  status(session, read) {
     const live = mcpLive(session)
     if (live === null) return Promise.reject(new PartNotWired('claude', 'mcp.status', NOT_OURS))
-    return live.readMcp()
+    return live.readMcp(read?.pickUp === true)
   },
   async act(session, name, action) {
     // Only Reconnect: Turn off and Turn on would need toggleMcpServer (see above) and are the Session's Restart; Allow and Sign in come with ticket 05.
