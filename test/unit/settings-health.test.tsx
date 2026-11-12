@@ -155,6 +155,24 @@ describe('Settings → Health: the section', () => {
     expect(within(rowOf(health, 'jq')).getByRole('button', { name: 'Copy brew install jq' })).toBeTruthy()
   })
 
+  it('the status chips are the Chip of F-SPEC\'s look, a word alone: OK ready, Warning quiet blocked, Failed blocked in its ring (worfy-ui-kit ticket 16)', async () => {
+    renderApp()
+    act(() => openSettings('HealthSection'))
+    const look = (chip: Element | null) => (chip === null ? null : { classes: ['w-chip--ready', 'w-chip--working', 'w-chip--blocked', 'w-chip--bordered', 'w-chip--quiet'].filter((name) => chip.classList.contains(name)), icons: chip.children.length })
+    const LOOK = {
+      ok: { classes: ['w-chip--ready', 'w-chip--bordered'], icons: 0 },
+      warn: { classes: ['w-chip--blocked', 'w-chip--quiet'], icons: 0 },
+      fail: { classes: ['w-chip--blocked', 'w-chip--bordered'], icons: 0 },
+    }
+    expect(look(within(settings()).getByTestId('first-run-summary'))).toEqual({ classes: ['w-chip--working', 'w-chip--bordered'], icons: 0 })
+    const health = await openHealth()
+    const rows = rowsOf(health)
+    expect(new Set(rows.map((each) => each.dataset.status))).toEqual(new Set(['ok', 'warn', 'fail']))
+    for (const each of rows) expect(look(each.querySelector('.w-chip')), each.dataset.check).toEqual(LOOK[each.dataset.status as keyof typeof LOOK])
+    // "3 failed · 2 warnings": the fail look.
+    expect(look(within(health).getByTestId('first-run-summary'))).toEqual(LOOK.fail)
+  })
+
   it('Copy puts the command on the clipboard and says so in a success toast; the label stays "Copy"', async () => {
     const written: string[] = []
     const clipboard = { writeText: (text: string) => (written.push(text), Promise.resolve()) }

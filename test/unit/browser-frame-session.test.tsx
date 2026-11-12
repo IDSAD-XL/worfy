@@ -94,6 +94,16 @@ describe('the frame of a Browser a Session opened', () => {
     expect(frame.getAttribute('data-family')).toBeNull()
   })
 
+  it('says «Claude is driving» as working status text: the working Chip, plain, with its icon (worfy-ui-kit ticket 16)', async () => {
+    drawBrowser()
+    const drives = await screen.findByTestId('browser-claude-drives')
+    for (const name of ['w-chip', 'w-chip--working', 'w-chip--plain', 'w-browser-frame__drive']) expect(drives.classList.contains(name), name).toBe(true)
+    expect(drives.getAttribute('data-status')).toBe('working')
+    expect(drives.getAttribute('role')).toBe('status')
+    expect(drives.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(drives.textContent).toBe('Claude is driving')
+  })
+
   it('loses «Claude is driving» when main says nobody drives it any more', async () => {
     drawBrowser()
     const frame = await screen.findByTestId('browser-frame')

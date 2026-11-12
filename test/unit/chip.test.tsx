@@ -44,24 +44,6 @@ function value(selector: string, property: string): string {
   throw new Error(`no rule of chip.css sets ${property} for ${selector}`)
 }
 
-/**
- * The value of the object literal `const <name> … = { … }` of a source file: the table a place maps its states to Chip
- * props with. The component files may export components only (react-refresh), so the test reads the table there.
- */
-function table(path: string, name: string): unknown {
-  const text = source(path)
-  const start = text.indexOf(`const ${name}`)
-  if (start < 0) throw new Error(`no const ${name} in ${path}`)
-  const open = text.indexOf('= {', start) + 2
-  let depth = 0
-  let end = open
-  for (; end < text.length; end++) {
-    if (text[end] === '{') depth++
-    if (text[end] === '}' && --depth === 0) break
-  }
-  return new Function(`return (${text.slice(open, end + 1)})`)() as unknown
-}
-
 const STATUSES: readonly Status[] = ['ready', 'working', 'blocked', 'done', 'stopped']
 const VARIANTS: readonly ChipVariant[] = [...STATUSES, 'neutral']
 
@@ -71,6 +53,9 @@ describe('Chip', () => {
     const chip = screen.getByTestId('chip')
     expect(chip.textContent).toBe('gate green')
     expect(chip.classList.contains('w-chip')).toBe(true)
+    // The colour class of its own variant, and of no other one.
+    const colour = (each: ChipVariant): string => `w-chip--${each === 'neutral' ? 'open' : each}`
+    expect([...chip.classList].filter((name) => VARIANTS.some((each) => colour(each) === name))).toEqual([colour(variant)])
     expect(chip.getAttribute('data-status')).toBe(variant === 'neutral' ? null : variant)
     const icon = chip.firstElementChild
     expect(icon === null ? null : icon.matches('svg, .w-chip__dot'), 'the first child is the icon').toBe(true)
@@ -189,36 +174,6 @@ describe('the look of the variants (chip.css)', () => {
   })
 })
 
-describe('the chips of the places moved onto Chip', () => {
-  it('First run keeps the looks F-SPEC gives its status chips, each a word alone', () => {
-    expect(table('shell/FirstRunChecks.tsx', 'FIRST_RUN_CHIP')).toEqual({
-      ok: { variant: 'ready', label: 'OK', bordered: true },
-      warn: { variant: 'blocked', label: 'Warning', quiet: true },
-      fail: { variant: 'blocked', label: 'Failed', bordered: true },
-      running: { variant: 'working', label: 'Running…', bordered: true },
-      checking: { variant: 'working', label: 'Checking…', bordered: true },
-    })
-  })
-
-  it('the PR inbox facts: ready and blocked as they were, open neutral, a problem blocked in the problem colour', () => {
-    expect(table('pr-inbox/PrInboxView.tsx', 'FACT_CHIP')).toEqual({
-      ready: { variant: 'ready' },
-      blocked: { variant: 'blocked' },
-      open: { variant: 'neutral' },
-      problem: { variant: 'blocked', className: 'w-pr-inbox-chip--problem' },
-    })
-    expect(source('pr-inbox/pr-inbox.css')).toMatch(/\.w-chip\.w-pr-inbox-chip--problem\s*\{[^}]*color:\s*var\(--span-problem\);/)
-  })
-
-  it('Connect project: Running… working, Failed blocked with its ring, the repository kind neutral with a border', () => {
-    expect(table('projects/ConnectProject.tsx', 'CONNECT_CHIP')).toEqual({
-      working: { variant: 'working' },
-      blocked: { variant: 'blocked', bordered: true },
-      neutral: { variant: 'neutral', bordered: true, icon: null },
-    })
-  })
-
-  it('a Mode of Start Autopilot: on in the ready colours, off and unknown neutral (F-SPEC, "Modes")', () => {
-    expect(table('autopilot/StartAutopilotModal.tsx', 'MODE_CHIP')).toEqual({ true: 'ready', false: 'neutral', null: 'neutral' })
-  })
-})
+// The chips of the places moved onto Chip are rendered in their own tests: settings-health (First run),
+// pr-inbox-view (the facts), connect-project (the steps), start-autopilot-modal (Modes),
+// browser-frame-session («Claude is driving»), checks-badges and vendor-badge.
