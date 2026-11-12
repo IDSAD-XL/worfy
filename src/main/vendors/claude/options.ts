@@ -688,6 +688,19 @@ function claudeEffort(setting: string | null): EffortChoice | null {
   return setting !== null && (EFFORT_LEVELS as readonly string[]).includes(setting) ? (setting as EffortChoice) : null
 }
 
+/**
+ * The options of the query of the MCP inventory (worfy-mcp-live ticket 05, mcp-inventory.ts): the user's
+ * settings as a Session reads them (settingSources user, project and local), and nothing of worfy's — no
+ * managedSettings, so no Profile list cuts a server; no mcpServers and no plugins of worfy; no permission
+ * callback, since no message ever reaches the model. As the spike of ticket 01 ran it (F:inventory-status).
+ */
+export function inventoryOptions(input: { cwd: string; env: Env; runtime: RuntimeInfo }): Options {
+  const options: Options = { cwd: input.cwd, env: input.env, settingSources: ['user', 'project', 'local'] }
+  const executable = claudeExecutablePath(input.runtime)
+  if (executable !== undefined) options.pathToClaudeCodeExecutable = executable
+  return options
+}
+
 /** The environment of a Session's Claude Code: `env`, the Run's variables over it, and the kind of a Product Session. */
 function sessionEnv(input: SessionOptionsInput): Env {
   const kind: Env = input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}

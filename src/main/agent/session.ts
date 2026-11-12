@@ -46,6 +46,13 @@
 // gets every server again. An unattended Session (Autopilot) refuses all three: its set of servers is
 // fixed for the Wave.
 //
+// Allow (worfy-mcp-live ticket 05) of a server whose row offers it: the caller's writer puts its name on the
+// Profile's list (`McpActionDeps.allow`: agent.mcpAction writes through bin/profile-set), then the Session
+// restarts with the same conversation, as above, and the new process starts with the new list. The rows are
+// asked until the server is out of `pending` (ALLOW_SETTLE_MS at most), so the answer shows it without
+// another turn. A refused write changes nothing in the Session. An unattended Session gets the write but no
+// Restart: the server joins from the next Wave, whose Session reads the list at its start.
+//
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
 // the Session is `needs_permission` while a request is open. Interrupt, close and a crash cancel
@@ -138,6 +145,17 @@ export const STATIC_CLAUDE_PARTS: SessionVendorParts = {
   mcp: claudeMcp,
 }
 
+/** What an action on an MCP server may need beyond the Session (worfy-mcp-live ticket 05). */
+export interface McpActionDeps {
+  /** Puts the server on the Profile's list of the Session's Project (Allow); rejects with the reason it was not written. */
+  allow?: (name: string) => Promise<void>
+}
+
+/** How long Allow asks for the rows after its Restart, until the server has left `pending`. */
+export const ALLOW_SETTLE_MS = 10_000
+/** How often it asks meanwhile. */
+const ALLOW_POLL_MS = 250
+
 /** What an action on an MCP server answers: the rows after it (null: no data), and the Vendor's error when it refused the action. */
 export interface McpActionAnswer {
   servers: McpServerRow[] | null
@@ -197,6 +215,8 @@ export class Session {
   private mcpAsks = 0
   /** The agent's `mcp` events so far: an answer asked before the latest of them is not taken. */
   private mcpEvents = 0
+  /** A read that takes in new servers first (`pickUp`) and has not answered yet: a plain read waits for it. */
+  private pickingUp: Promise<unknown> | null = null
   /**
    * The servers turned off for this Session (worfy-mcp-live ticket 03), each with the row it is shown
    * as: `disabled`, offering Turn on. Every process of the Session starts without them.
@@ -605,11 +625,22 @@ export class Session {
     const handle = this.run?.handle ?? null
     const status = this.parts.mcp?.status
     if (handle === null || status === undefined) return null
+    // A plain read asked while servers are being taken in would answer before them and, being the latest
+    // ask, hide the answer that has them: it reads after that one instead.
+    if (read.pickUp !== true && this.pickingUp !== null) await this.pickingUp.catch(() => undefined)
+    if (this.run?.handle !== handle) return this.mcpValue
     const ask = ++this.mcpAsks
     const events = this.mcpEvents
     let servers: McpServerRow[] | null = null
+    const asking = status.call(this.parts.mcp, handle, { pickUp: read.pickUp === true })
+    if (read.pickUp === true) {
+      const picking = asking.finally(() => {
+        if (this.pickingUp === picking) this.pickingUp = null
+      })
+      this.pickingUp = picking
+    }
     try {
-      servers = await status.call(this.parts.mcp, handle, { pickUp: read.pickUp === true })
+      servers = await asking
     } catch (error) {
       console.warn(`[agent] could not read the MCP servers of ${this.current}: ${messageOf(error)}`)
     }
@@ -625,11 +656,14 @@ export class Session {
    * process runs, or the driver does not do the action (McpActionRefused); the Vendor's own refusal is
    * answered as `error`, with the rows after it.
    */
-  async mcpAction(name: string, action: McpServerAction): Promise<McpActionAnswer> {
+  async mcpAction(name: string, action: McpServerAction, deps: McpActionDeps = {}): Promise<McpActionAnswer> {
     this.assertOpen()
     if (action === 'turn-off' || action === 'turn-on' || action === 'restart') return this.restartFor(name, action)
+    if (action === 'allow') return this.allow(name, deps.allow)
     const part = this.parts.mcp
     if (part?.act === undefined) throw new McpActionRefused(action)
+    // Sign in opens a page in the browser: only for a server whose row offers it (needs-auth, ticket 05).
+    if (action === 'sign-in' && this.mcpValue?.find((each) => each.name === name)?.actions.includes('sign-in') !== true) throw new McpActionRefused(action)
     const handle = this.run?.handle ?? null
     if (handle === null) throw new Error("The Session's agent is not running")
     let error: string | null = null
@@ -640,6 +674,32 @@ export class Session {
       error = messageOf(failure)
     }
     return { servers: await this.mcp(), error }
+  }
+
+  /**
+   * Allow (worfy-mcp-live ticket 05): `write` puts `name` on the Profile's list, then the process restarts
+   * with the same conversation and the rows are asked until the server has left `pending`. Refused —
+   * nothing written — when no row of the server offers Allow or there is no writer; a write that fails
+   * rejects with its reason and the Session stays as it was. An unattended or halted Session gets the
+   * write without a Restart: the list holds from its next start (the next Wave).
+   */
+  private async allow(name: string, write: ((name: string) => Promise<void>) | undefined): Promise<McpActionAnswer> {
+    const row = this.mcpValue?.find((each) => each.name === name)
+    if (write === undefined || row === undefined || !row.actions.includes('allow')) throw new McpActionRefused('allow')
+    await write(name)
+    if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true || (this.run?.handle ?? null) === null) return { servers: await this.mcp(), error: null }
+    await this.restartProcess()
+    const until = Date.now() + ALLOW_SETTLE_MS
+    let servers = await this.mcp()
+    const settled = (rows: McpServerRow[] | null): boolean => {
+      const now = rows?.find((each) => each.name === name)
+      return now !== undefined && now.status !== 'pending' && now.status !== 'not-allowed'
+    }
+    while (!settled(servers) && Date.now() < until && this.run !== null) {
+      await new Promise((done) => setTimeout(done, ALLOW_POLL_MS))
+      servers = await this.mcp()
+    }
+    return { servers, error: null }
   }
 
   /**

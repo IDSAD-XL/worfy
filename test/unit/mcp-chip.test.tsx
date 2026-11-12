@@ -34,7 +34,7 @@ vi.mock('../../src/renderer/toast/toasts', () => ({
   },
 }))
 
-const { McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
+const { CONNECTOR_HINT, McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
 const { mcpCount } = await import('../../src/renderer/session/header-facts')
 const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
 
@@ -121,6 +121,8 @@ describe('the popover', () => {
     const group = within(popover).getByTestId('mcp-not-allowed')
     expect(within(group).getByText('Not allowed in this Project')).toBeTruthy()
     expect(within(group).getAllByTestId('mcp-row').map((each) => each.dataset.name)).toEqual(['example-wiki'])
+    // Under them, how to allow a claude.ai connector the inventory may not list (ticket 05).
+    expect(within(group).getByTestId('mcp-connector-hint').textContent).toBe(CONNECTOR_HINT)
 
     const tracker = rowOf(popover, 'example-tracker')
     expect(tracker.dataset.status).toBe('failed')
@@ -141,6 +143,13 @@ describe('the popover', () => {
     const drive = within(rowOf(popover, 'example-drive')).getByTestId('mcp-row-source')
     expect(drive.textContent).toBe('user config')
     expect(drive.getAttribute('title')).toBe('user config (managed)')
+  })
+
+  it('has no group and no line about connectors while every server is allowed', () => {
+    render(<McpChip sessionId="s" rows={[row('example-notes'), row('worfy-canvas', { source: 'worfy' })]} autopilot={false} />)
+    const popover = open()
+    expect(within(popover).queryByTestId('mcp-not-allowed')).toBeNull()
+    expect(within(popover).queryByTestId('mcp-connector-hint')).toBeNull()
   })
 
   it('draws a button for each action of a row, and only those', () => {

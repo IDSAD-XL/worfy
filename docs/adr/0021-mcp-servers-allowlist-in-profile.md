@@ -41,3 +41,41 @@ Ticket, которому нужен сервер вне списка, в worfy �
 - Список в настройках worfy, а не в Profile. Отвергнуто: набор серверов — факт о работе Project,
   а не об одном приложении; Harness и другие Session-ы Project его бы не видели.
 - Список разрешённых в Profile, по умолчанию `qmd` и `worfy-canvas` (выбрано).
+
+## Amendments
+
+- 2026-11-12 — список на ходу (Epic `worfy-mcp-live`, Ticket 05; spec `.scratch/worfy-mcp-live/spec.md`, решения
+  владельца Q1, Q6, Q8, Q11; spike Ticket-а 01 — `.scratch/worfy-mcp-live/spike-mcp-live.md`). Решение «по умолчанию
+  Session получает только серверы списка» не меняется; меняется то, как список правится и как Session его видит.
+  - **Allow из Session.** Сервер пользователя вне списка виден в списке серверов Session как «не разрешён в этом
+    Project» с кнопкой Allow (только Session Claude). Allow дописывает имя в `mcp.allowed` Profile-а тем же путём, что
+    окно Edit profile: `bin/profile-set --field mcp.allowed`, чтение и одна запись с `--expect` отпечатка. Profile без
+    списка получает список по умолчанию с этим именем. Отказ записи (чужой отпечаток, занятый Profile, старый Harness)
+    ничего не меняет в Session.
+  - **Query инвентаря.** Claude Code не сообщает сервер, который отсёк policy tier (`allowedMcpServers`). Имена и
+    статус серверов вне списка worfy берёт из своего служебного query Claude Code: настройки пользователя как у Session,
+    без `managedSettings`, без серверов worfy, без единого сообщения модели. Он идёт при старте Session со
+    списком и при открытии списка серверов, один на Project Machine за раз: Session в worktree Project-а и Session в
+    его main checkout делят один query (корень Project-а — как main определяет Project по папке); ответ — только в
+    памяти main, не в Journal, не в Flight recorder, не в лог. Цена: этот query на несколько секунд поднимает и те
+    серверы пользователя, которые список Profile-а не разрешает (процессы stdio-серверов, соединения с удалёнными), —
+    при старте каждой Session со списком, Session Autopilot тоже. Вызов `agent.mcp` с `pickUp` из окна связанной
+    Machine (Linked machine, только чтение) тоже может запустить этот query на этой Machine; это записано, а не
+    закрыто по правилу владельца о соразмерной защите: связанную Machine подключает сам пользователь, и query поднимает
+    только его же серверы.
+  - **Connector-ы claude.ai.** Перечисляет ли query инвентаря connector-ы claude.ai, ждёт живой проверки владельца.
+    Запасной путь уже есть: имя connector-а вписывается в `mcp.allowed` вручную в Project settings, и группа «не
+    разрешён» говорит об этом строкой.
+  - **Без новой Session.** Сервер, который список разрешает и который добавлен в конфигурацию пользователя на ходу,
+    подхватывается в той же Session (`reloadPlugins`, Ticket 03). Policy tier работающего query не меняется ни одним
+    вызовом SDK, поэтому Allow включает сервер Restart-ом Session с тем же разговором: старый процесс выходит, новый
+    продолжает тот же разговор с новым списком, как relaunch по ADR-0064. Turn off for this Session — такой же
+    Restart без сервера; `toggleMcpServer` worfy не зовёт, он пишет `.claude.json` пользователя.
+  - **Autopilot.** Набор серверов Session без человека фиксирован в начале каждой Wave: Allow в ней пишет Profile, а
+    сервер появляется со следующей Wave; подхвата и Restart посреди Wave нет.
+  - **Codex.** К серверам пользователя в Codex список пока не применяется (Q8): Codex показывает их как есть, без
+    «не разрешён» и Allow.
+  - **Что не измерено.** Форма policy tier только с `deniedMcpServers`, без списка Profile (так Turn off выключает
+    сервер Session вне Project), на настоящем Claude Code не проверялась: spike посылал её вместе со списком. Вход
+    OAuth через `mcpAuthenticate` — метод SDK без документации; `test/contract/sdk-compat.test.ts` держит его форму, а
+    без него строка говорит, где войти.

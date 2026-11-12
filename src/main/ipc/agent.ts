@@ -67,6 +67,8 @@ import { acceptedEpics } from '../../shared/workflow/accepted-epics'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { waveTickets } from '../../shared/workflow/wave-plan'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
+import { profileSetRunner, type ProfileSetRunner } from './pipeline'
+import { allowMcpServer } from './profile-edit'
 
 /** Sends one event to every client of the app; tests pass their own clients. */
 export type Broadcast = (send: (target: EventTarget) => void) => void
@@ -222,6 +224,8 @@ export function agentHandlers(
   clients: Broadcast = toEveryWindow,
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
   chat: ChatCommandDeps = appChatCommands,
+  /** `bin/profile-set`, for Allow; the app's (profileSetRunner) when absent. */
+  profileSet: () => ProfileSetRunner = () => profileSetRunner(claudeHome(), harnessScriptEnv),
 ): HandlerModule {
   const sink = everyClientSink(clients)
   // The link adapter refuses a call, and a link client an event, of a Session in a Project local to
@@ -347,7 +351,8 @@ export function agentHandlers(
       const session = registry().get(sessionId)
       // The server's name is the user's own: the journal of an Autopilot run gets the action alone.
       registry().noteInput(sessionId, `asked for ${action} of an MCP server`)
-      return session.mcpAction(name, action)
+      // Allow writes the Profile's list of the Session's Project through bin/profile-set (worfy-mcp-live ticket 05).
+      return session.mcpAction(name, action, { allow: (server) => allowMcpServer(profileSet(), session.cwd, server) })
     }),
     defineHandler(agentQueueRemove, ({ sessionId, id }) => {
       const session = registry().get(sessionId)

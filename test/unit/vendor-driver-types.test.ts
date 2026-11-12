@@ -178,8 +178,10 @@ describe('the Claude driver over today\'s code', () => {
   it('session: starts Claude Code with the query factory queryFactoryFromEnv makes, observed by the Limits, made once', async () => {
     const factory = vi.fn<QueryFactory>(() => Promise.reject(new Error('not started')))
     const queryFactoryFromEnv = vi.fn(() => factory)
+    // The MCP inventory's query (worfy-mcp-live ticket 05): made with the factory, never started by a Session start.
+    const inventoryStarterFromEnv = vi.fn(() => () => Promise.reject(new Error('no inventory in this test')))
     const observe = vi.fn((given: QueryFactory) => given)
-    vi.doMock(CLAUDE_QUERY, () => ({ queryFactoryFromEnv }))
+    vi.doMock(CLAUDE_QUERY, () => ({ queryFactoryFromEnv, inventoryStarterFromEnv }))
     vi.doMock(LIMITS, () => ({ appLimits: () => ({ observe }) }))
     const { DEFAULT_SETTINGS } = await import('../../src/shared/agent/settings')
     const opts: SessionStart = {
@@ -197,6 +199,7 @@ describe('the Claude driver over today\'s code', () => {
     await expect(session.resume('s-0', opts)).rejects.toThrow('not started')
     expect(queryFactoryFromEnv).toHaveBeenCalledTimes(1)
     expect(queryFactoryFromEnv).toHaveBeenCalledWith()
+    expect(inventoryStarterFromEnv).toHaveBeenCalledTimes(1)
     expect(observe).toHaveBeenCalledWith(factory)
     expect(factory.mock.calls.map(([request]) => [request.cwd, request.sessionId, request.resume])).toEqual([
       ['/p', 's-1', undefined],

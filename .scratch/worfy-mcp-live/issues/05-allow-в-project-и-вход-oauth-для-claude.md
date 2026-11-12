@@ -1,7 +1,7 @@
 # 05 — Allow in Project, query инвентаря и вход OAuth для Claude; поправка к ADR-0021
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T04:59Z
 Blocked by: 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения владельца» Q1, Q5, Q6, Q8, Q11; «Решения по реализации»
 (query инвентаря, Allow, ADR, Autopilot, приватность); «Решено без владельца» 5; «Риски» (query инвентаря, вход OAuth,
@@ -52,18 +52,30 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
 - [ ] Contract test `test/contract/claude-mcp-inventory.test.ts` над fake query: query инвентаря идёт без allowlist-а и
       без сообщения модели; сервер вне списка — строка `not-allowed` с `allow`; второй запуск при идущем первом не
       стартует; ответ не попадает в Journal. Красный до правки — в «Итог».
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-inventory.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test `test/contract/claude-mcp-allow.test.ts` над fake query и stub `bin/profile-set`: `allow` пишет
       `mcp.allowed` одним вызовом `profile-set` и включает сервер в Session (или даёт строку с `restart`); конфликт
       записи не меняет Session.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-allow.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test: в unattended Session `allow` пишет Profile, набор Session не меняется.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-allow.test.ts, unattended case) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test `sign-in`: по выбранному пути spike-а; браузер и OAuth — stub без сети.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-sign-in.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] E2e `test/e2e/session-mcp.spec.ts` дополнен: клик Allow — строка уходит из группы «не разрешён». Зелёный на
       macOS и Windows runner-е.
 - [ ] (manual) Connector claude.ai вне списка: по итогу живой проверки владельца — строка «не разрешён» с Allow или
       подсказка о ручном вводе в Project settings; что выбрано — в «Итог».
 - [ ] ADR-0021 дополнен поправкой; `pnpm lint` (проверка документов) — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (docs/adr/0021 amendment) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/ipc/profile-edit.ts` зелёные; lint,
       typecheck и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · ab8809060
 
 ## Где в коде
 
@@ -82,3 +94,40 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
 
 - Allow и «не разрешён» для Codex: их нет (Q8); применение списка к Codex — «Не в этом Epic-е» spec-а.
 - Удаление сервера из `mcp.allowed` из popover-а: это делает Edit profile.
+
+## Итог
+
+- Красный до правки (новые и изменённые test-ы на исходниках `origin/main` c42427221): `vitest run
+  test/contract/claude-mcp-inventory.test.ts test/contract/claude-mcp-allow.test.ts test/contract/claude-mcp-sign-in.test.ts
+  test/contract/claude-mcp-pickup.test.ts test/unit/mcp-chip.test.tsx` — exit 1, 18 из 46 красные: нет query
+  инвентаря и строк `not-allowed`, `allow` и `sign-in` отклоняются «not available», у needs-auth нет Sign in, нет
+  строки про connector-ы, простое чтение статуса, спрошенное во время подхвата (`pickUp`), прятало подхваченный сервер.
+- **Query инвентаря** — `src/main/vendors/claude/mcp-inventory.ts`: query Claude Code с `settingSources` Session,
+  без `managedSettings`, `mcpServers` и plugin-ов worfy, вход которого не отдаёт ни одного сообщения
+  (`inventoryOptions`, `sdkInventoryStarter`). Ждёт выхода серверов из `pending` (до 10 с), читает
+  `mcpServerStatus()`, закрывается. Идёт, когда Session со списком стартует и когда открывается popover (`agent.mcp` с
+  `pickUp`); один на Project Machine за раз (ключ — корень Project-а, `repositoryRoot`: Session-ы в worktree-ах
+  одного Project-а делят один query; раунд 2 review), ответ — в памяти main. Строка `not-allowed` с `allow` — сервер пользователя
+  (источник не worfy), которого нет в списке, с которым стартовал процесс (`QueryRequest.mcpListed`), нет в строках
+  Session и нет среди выключенных. Session без списка (вне Project) инвентарь не запускает.
+- **Allow** — `Session.mcpAction(name, 'allow', { allow })`: строка должна предлагать Allow; запись —
+  `allowMcpServer` в `src/main/ipc/profile-edit.ts`: `bin/profile-set --field mcp.allowed --read`, затем один `--set`
+  с `--expect`. Profile без списка получает список по умолчанию плюс имя. Конфликт, занятый Profile, старый Harness —
+  ошибка с причиной (toast), Session не меняется. Потом Restart с тем же разговором (путь Ticket-а 03) и чтение строк,
+  пока сервер не выйдет из `pending` (до 10 с), — ответ уже показывает сервер, без нового хода. Unattended Session
+  пишет Profile без Restart: сервер со следующей Wave.
+- **Замечание ревью 03 (session.ts:618)**: простое чтение статуса во время чтения с `pickUp` теперь ждёт его и читает
+  после; оба ответа содержат подхваченный сервер (test в `claude-mcp-pickup.test.ts`).
+- **Sign in** — путь spike-а: `mcpAuthenticate(name)` (метод SDK без документации, читается с query во время работы),
+  страница открывается `shell.openExternal` (только http/https), Claude Code сам слушает callback на localhost.
+  Действие ждёт, пока сервер выйдет из needs-auth (до 10 мин, опрос 0,5 с), failed после входа — Reconnect.
+  Connector claude.ai (`callbackExpected: false`) — действие кончается после открытия страницы. needs-auth предлагает
+  Sign in и Reconnect; без `mcpAuthenticate` — только Reconnect и текст, где войти. Адрес страницы не пишется в лог и
+  события; токен worfy не видит. `sdk-compat.test.ts` держит метод в `sdk.mjs` установленного SDK.
+- **Connector-ы claude.ai**: итога живой проверки владельца к claim-у нет — построен запасной путь: группа «Not allowed
+  in this Project» кончается строкой «A claude.ai connector missing here: add its name to MCP servers in Project
+  settings (Edit profile).». Строка видна только при непустой группе. Пункт (manual) остаётся открытым до итога.
+- ADR-0021 — раздел `## Amendments` от 2026-11-12. Форма только с `deniedMcpServers` там названа неизмеренной.
+- Fake agent: `FakeQueryOptions.mcpAllowlist` (ответы без серверов вне списка, как policy tier), `fakeInventoryStarter`,
+  `mcpAuthenticate` с выпуском `sign-in:<name>`; в приложении — `WORFY_AGENT_MCP_ALLOWLIST=profile`. Сценарии
+  `mcp-allow.jsonl`, `mcp-sign-in.jsonl`.

@@ -35,7 +35,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
-import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
+import { fakeInventoryStarter, fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { LimitsTracker, observeSessionLimits } from '../../src/main/agent/limits'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest } from '../../src/main/agent/session'
@@ -45,6 +45,7 @@ import { openRun } from '../../src/main/autopilot/journal'
 import { Autopilot, type TasksClock } from '../../src/main/autopilot/run'
 import { ghRunner, PrTracker } from '../../src/main/github/prs'
 import { LayoutStore } from '../../src/main/layout/store'
+import { McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
@@ -129,6 +130,12 @@ export interface FaultRunOptions {
   autoContinue?: boolean
   /** Gets each view the Orchestrators publish (the app gives it to Auto-continue of a manual turn, worfy-retry ticket 08). */
   publish?: (view: OrchestratorView) => void
+  /**
+   * The Profile's list of MCP servers of every Claude Session (worfy-mcp-live ticket 05): the fake agent leaves
+   * out what it does not name, and the Claude driver runs the MCP inventory over the first unattended script.
+   * Absent: no list, no inventory.
+   */
+  mcpAllowlist?: readonly string[]
 }
 
 // ── the clock of the test ────────────────────────────────────────────────────
@@ -334,7 +341,14 @@ export function faultRun(options: FaultRunOptions = {}) {
     const query = ++queries
     const unattended = request.unattended === true
     const script = unattended ? unattendedScripts[Math.min(unattendedQueries++, unattendedScripts.length - 1)]! : attendedScript
-    const fake = fakeQueryFactory({ scriptsDir: script.dir, script: script.name, releases, record: (call) => calls.push({ query, unattended, call }) })
+    const listed = options.mcpAllowlist
+    const fake = fakeQueryFactory({
+      scriptsDir: script.dir,
+      script: script.name,
+      releases,
+      record: (call) => calls.push({ query, unattended, call }),
+      ...(listed === undefined ? {} : { mcpAllowlist: () => Promise.resolve(listed) }),
+    })
     return (processes === null ? fake : processes.wrap(fake))(request)
   })
 
@@ -370,7 +384,9 @@ export function faultRun(options: FaultRunOptions = {}) {
     })
   })
 
-  const claude = claudeSessions(claudeFactory)
+  const inventoryScript = unattendedScripts[0]!
+  const inventory = options.mcpAllowlist === undefined ? null : new McpInventory(fakeInventoryStarter({ scriptsDir: inventoryScript.dir, script: inventoryScript.name }))
+  const claude = claudeSessions(claudeFactory, {}, inventory)
   const registry = new SessionRegistry({
     sessionsOf: (each) => (each === 'codex' ? codex : claude),
     partsOf: (each) => (each === 'codex' ? { capabilities: codexCapabilities, commands: codexCommands } : STATIC_CLAUDE_PARTS),

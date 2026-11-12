@@ -24,7 +24,8 @@ import './mcp-chip.css'
 // and source — and a button for each action main put in the row. main builds the rows and decides the
 // actions (src/shared/agent/mcp-status.ts); this file only draws them and sends a click to
 // `agent.mcpAction`, whatever the Vendor. The servers not allowed in the Project stand in a group of
-// their own under the others. While an action runs its row's buttons wait; a refusal is a toast. In the
+// their own under the others, with a line on how to allow a claude.ai connector the group may not list
+// (ticket 05). While an action runs its row's buttons wait; a refusal is a toast. In the
 // Session Autopilot runs (the Orchestrator while a run of its Project goes on), Allow says it takes
 // effect from the next Wave: the set of servers is fixed for a Wave.
 //
@@ -66,6 +67,12 @@ const ACTION_LABELS: Readonly<Record<McpServerAction, string>> = {
   'sign-in': 'Sign in',
   restart: 'Restart Session with the same conversation',
 }
+
+/**
+ * Under the servers not allowed (worfy-mcp-live ticket 05; spec, Q11): main finds them with a query of Claude
+ * Code that may not list the claude.ai connectors, so a connector missing here is allowed by its name.
+ */
+export const CONNECTOR_HINT = 'A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit profile).'
 
 /** The gap between the chip and its popover. */
 const POPOVER_GAP = 4
@@ -292,6 +299,9 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
                 <section className="w-mcp__group" data-testid="mcp-not-allowed" aria-label="Not allowed in this Project">
                   <h2 className="w-mcp__heading">Not allowed in this Project</h2>
                   <ul className="w-mcp__list">{notAllowed.map(draw)}</ul>
+                  <p className="w-mcp__note" data-testid="mcp-connector-hint">
+                    {CONNECTOR_HINT}
+                  </p>
                 </section>
               )}
             </div>,

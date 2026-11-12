@@ -216,7 +216,13 @@ n/m» counts the Session's MCP servers: n are connected, m are all of them but t
 blocked colours with a warning icon while a server failed or needs auth, and is absent while main has no data. A click
 opens a popover with a row per server — name, status, number of tools, error, source (claude.ai, user config, Project,
 worfy) — and a button for each action main offers for that row, such as Reconnect on a failed server; the servers not
-allowed stand in a group of their own below. A refused action is a toast. Opening the popover lets main take in a server
+allowed stand in a group of their own below. main finds those of a Claude Session with a query of Claude Code that has the
+user's settings but not the Profile's list and sends no message, when the Session starts and when the popover opens; the
+group ends with a line on adding a claude.ai connector by name in Project settings, since that query may not list
+connectors. Allow puts the server on the Profile's list through the Harness, as Edit profile does, and restarts the
+Session with the same conversation; in an Autopilot Session it only writes the list, and the server joins from the next
+Wave. Sign in, on a server that needs auth, opens its sign-in page in the system browser; Claude Code takes the
+sign-in itself. A refused action is a toast. Opening the popover lets main take in a server
 allowed in the Project since the Session started, with no new process; it never does so while a turn runs or in an
 Autopilot Session. Edit profile shows the same status beside each
 name of the MCP servers list, from the newest Session of the Project on this Machine. A Product

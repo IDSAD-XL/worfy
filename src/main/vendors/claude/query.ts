@@ -30,7 +30,7 @@ import { app } from 'electron'
 import { productFolder } from '../../../shared/product/paths'
 import { autoCompactWindowFor } from '../../../shared/settings/app-settings'
 import { agentEnv, type Env } from '../../agent/env'
-import { fakeQueryFactory, type FakePreToolUse } from '../../agent/fake-query'
+import { fakeInventoryStarter, fakeQueryFactory, type FakeQueryOptions, type FakePreToolUse } from '../../agent/fake-query'
 import type { ProductWriteList } from '../../agent/product-guard'
 import type { QueryFactory, QueryHandle, QueryRequest } from '../../agent/session'
 import { readUserAutoCompactWindow } from '../../claude-home/user-model'
@@ -41,11 +41,13 @@ import { mindMapForSession, type MindMapResolver, type MindMapSession } from '..
 import { privateFolder, reviewerSkill } from '../../projects/review-offer'
 import { addProductWriteFolder, readProjectSettings } from '../../projects/settings'
 import { projectStore, type ProjectStore } from '../../projects/store'
+import { harnessScriptEnv } from '../../harness/script-env'
 import { appSettingsStore } from '../../settings/store'
 import { claudeHome, dataRoot, harnessHome } from '../../storage/paths'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
-import { productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
+import type { InventoryQueryStarter } from './mcp-inventory'
+import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
 async function canvasOrNull(canvas: CanvasResolver, request: QueryRequest): Promise<CanvasSession | null> {
@@ -340,6 +342,8 @@ export function sdkQueryFactory(
     // server could not be made. worfy-mind-map likewise, whatever the list names.
     const withBrowser = listed !== null && browserSession !== null ? withBrowserServer(listed) : listed
     const allowlist = withBrowser !== null && mindMapSession !== null ? withMindMapServer(withBrowser) : withBrowser
+    // The driver tells a server of the user outside this list as not allowed (worfy-mcp-live ticket 05).
+    request.mcpListed?.(allowlist)
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
@@ -379,11 +383,17 @@ export function sdkQueryFactory(
   }
 }
 
-/** Claude Code through the Agent SDK (sdkQueryFactory), or the fake agent under WORFY_AGENT=fake. */
-export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
-  if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
+/** `env` without its unset variables. */
+const definedOnly = (env: Readonly<Record<string, string | undefined>>): Env => Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined))
+
+/**
+ * The fake agent's options under WORFY_AGENT=fake. WORFY_AGENT_MCP_ALLOWLIST=profile: the fake agent leaves
+ * out the servers the Profile's list (read as a Session's is) does not name, as Claude Code's policy tier
+ * does (worfy-mcp-live ticket 05); otherwise it lists every server its script names.
+ */
+function fakeOptionsFromEnv(env: NodeJS.ProcessEnv): FakeQueryOptions {
   const log = env.WORFY_AGENT_LOG
-  return fakeQueryFactory({
+  return {
     scriptsDir: env.WORFY_AGENT_SCRIPTS ?? join(app.getAppPath(), 'test', 'fixtures', 'agent-scripts'),
     script: env.WORFY_AGENT_SCRIPT ?? 'turn',
     record: log ? (call) => appendFileSync(log, `${JSON.stringify(call)}\n`) : undefined,
@@ -391,5 +401,32 @@ export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): Query
     registryHome: env.WORFY_AGENT_REGISTRY === '1' ? env.WORFY_CLAUDE_HOME : undefined,
     // A Product Session's guard, which Claude Code would run before canUseTool (worfy-polish ticket 82).
     preToolUse: (request) => (request.kind === 'product' ? productHooks(request).then(fakePreToolUse) : undefined),
-  })
+    ...(env.WORFY_AGENT_MCP_ALLOWLIST === 'profile' ? { mcpAllowlist: async (request: QueryRequest) => profileAllowlist(request.cwd, definedOnly(await harnessScriptEnv())) } : {}),
+  }
+}
+
+/** Claude Code through the Agent SDK (sdkQueryFactory), or the fake agent under WORFY_AGENT=fake. */
+export function queryFactoryFromEnv(env: NodeJS.ProcessEnv = process.env): QueryFactory {
+  if (env.WORFY_AGENT !== 'fake') return sdkQueryFactory()
+  return fakeQueryFactory(fakeOptionsFromEnv(env))
+}
+
+/**
+ * The query of the MCP inventory (worfy-mcp-live ticket 05, mcp-inventory.ts): Claude Code with the
+ * user's settings as a Session reads them, but without the Profile's list, without worfy's own servers and
+ * without a single message, so no model is called: its input never yields. `loadSdk`: the
+ * Agent SDK by default, a test's query() otherwise.
+ */
+export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk): InventoryQueryStarter {
+  return async (cwd, prompt) => {
+    const [{ query }, environment] = await Promise.all([loadSdk(), agentEnv()])
+    const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
+    return query({ prompt, options: inventoryOptions({ cwd, env: environment.env, runtime }) }) as QueryHandle
+  }
+}
+
+/** The query of the MCP inventory: Claude Code through the Agent SDK, or the fake agent under WORFY_AGENT=fake. */
+export function inventoryStarterFromEnv(env: NodeJS.ProcessEnv = process.env): InventoryQueryStarter {
+  if (env.WORFY_AGENT !== 'fake') return sdkInventoryStarter()
+  return fakeInventoryStarter(fakeOptionsFromEnv(env))
 }

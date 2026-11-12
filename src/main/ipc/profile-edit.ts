@@ -16,6 +16,9 @@
 //
 // A window of a Linked machine with full access calls these handlers through the link, as `ecoMode`
 // does: the root it sends must be a Project of this Machine, and the Profile is written here.
+//
+// Allow in Project (worfy-mcp-live ticket 05, allowMcpServer) writes one name onto `mcp.allowed` through the
+// same script, for agent.mcpAction (src/main/ipc/agent.ts): a Session's row of a server its list keeps out.
 import { resolve } from 'node:path'
 import type { SessionState } from '../../shared/agent/events'
 import { pipelineFingerprintSchema } from '../../shared/ipc/pipeline'
@@ -41,7 +44,7 @@ import { realpathOrSelf } from '../projects/real-path'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { projectLayouts, type LayoutCache } from '../workflow/folder'
-import { HarnessScriptStartError, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
+import { DEFAULT_MCP_SERVERS, HarnessScriptStartError, MCP_ALLOWED_FIELD, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
 import type { WorkflowHub } from '../workflow/watch'
 import { defineHandler, type HandlerModule } from './index'
 import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileSetRunner } from './pipeline'
@@ -65,6 +68,35 @@ async function runOrTooOld(run: ProfileSetRunner, args: readonly string[], stdin
     if (error instanceof HarnessScriptStartError && error.code === 'ENOENT') return null
     throw error
   }
+}
+
+/** Why Allow wrote nothing: another write changed the list between its read and its write. */
+export const ALLOW_CONFLICT = 'The profile changed while Allow wrote it; nothing was written. Press Allow again.'
+/** Why Allow wrote nothing: another write held the Profile for the whole wait. */
+export const ALLOW_BUSY = 'Another change of this profile is being written. Press Allow again in a moment.'
+
+/**
+ * Allow in Project (worfy-mcp-live ticket 05): puts the MCP server `name` on the list `mcp.allowed` of the
+ * Profile of the Project at `root` — the field Edit profile writes, through the same `bin/profile-set`:
+ * `--read` of the field, then one `--set` with `--expect` of its fingerprint, so a list changed in between is
+ * not written over. A Profile with no list has the default one (DEFAULT_MCP_SERVERS, ADR-0021): the name is
+ * added to that. A name already on the list writes nothing. Rejects with the reason, as Edit profile would
+ * say it, when nothing was written: a Harness too old, a conflict, a busy Profile, a refused value.
+ */
+export async function allowMcpServer(run: ProfileSetRunner, root: string, name: string): Promise<void> {
+  const args = ['-C', root, '--field', MCP_ALLOWED_FIELD]
+  const read = await runOrTooOld(run, [...args, '--read'])
+  if (read === null) throw new Error(PROFILE_SET_TOO_OLD)
+  if (read.code !== 0) throw failure(read, '--read')
+  const { fields, fingerprint } = readFields(read)
+  const now = fields[MCP_ALLOWED_FIELD]
+  const listed = now === null || now === undefined ? [...DEFAULT_MCP_SERVERS] : stringsOf(now)
+  if (listed.includes(name)) return
+  const set = await run([...args, '--expect', fingerprint, '--set', '-'], JSON.stringify({ [MCP_ALLOWED_FIELD]: [...listed, name] }))
+  if (set.code === PROFILE_SET_CONFLICT) throw new Error(ALLOW_CONFLICT)
+  if (set.code === PROFILE_SET_BUSY) throw new Error(ALLOW_BUSY)
+  if (set.code === 1) throw new Error(reasonOf(set))
+  if (set.code !== 0) throw failure(set, '--set')
 }
 
 /** The reason "Move" is refused on a Harness whose `bin/profile-set` has no `--move`. */
