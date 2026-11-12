@@ -35,10 +35,14 @@ shortcuts и Guide ловят Esc и Tab в capture phase на window, свой 
 
 - [ ] Заметка `.scratch/worfy-ui-kit/spike-base-ui.md`: ответ на каждый пункт шагов 2–4 с тем, как проверено
       (команда, test или запись экрана), выбранное решение для `Select` и итог «да» или «нет».
+  - evidence: test-run pass · `gh workflow run ci.yml --ref spike/worfy-ui-kit-01-base-ui -f job=full-macos` run 43137894411, test/e2e/spike-base-ui.spec.ts in macos-e2e (1/2), answers in the note · mac - · f59c324b8d709e543667ec7ba59b17a6d12b6860
 - [ ] Разница размера сборки и времени старта записана числами; e2e test бюджета старта на ветке spike-а прогнан, exit
       code в заметке.
+  - evidence: test-run pass · `pnpm test:e2e` on CI run 43137894411 macos-e2e (2/2), epic-frame.spec.ts:1113 start budget exit 0 (5092 ms, budget 7300 ms) · mac - · f59c324b8d709e543667ec7ba59b17a6d12b6860
 - [ ] Ветка spike-а не влита; в PR Ticket-а только заметка.
+  - evidence: commit pass · Spike worfy-ui-kit 01: Base UI in Electron, answers and verdict · - - · f59c324b8d709e543667ec7ba59b17a6d12b6860
 - [ ] lint и gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; `gate fast` exit 0 with nothing ran (docs only) · mac - · f59c324b8d709e543667ec7ba59b17a6d12b6860
 
 ## Где в коде
 
