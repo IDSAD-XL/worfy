@@ -1,7 +1,8 @@
 # 03 — Подхват сервера на ходу, Restart с тем же разговором и Turn off for this Session
 
 Type: task
-Status: claimed 2026-11-12T01:27Z
+Status: done 2026-11-12T06:44Z
+PR: #1816
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения владельца» Q3, Q6, Q10; «Решения по реализации»
 (Restart, Autopilot); «Решено без владельца» 2 (поправка 2026-11-12), 4, 5; «Риски» (живой подхват невозможен); истории 1, 2, 11; возражение 2
@@ -76,6 +77,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/agent/` зелёные; lint, typecheck и
       gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 4622920d448180ad0b87f8f01a60e0b3406c0359
+  - evidence: ci-check pass · CI green on PR #1816 (ci-ok, e2e jobs included) · mac - · 96f902227663eb2c0704aeb971c05ce1a55a2773
 
 ## Где в коде
 
