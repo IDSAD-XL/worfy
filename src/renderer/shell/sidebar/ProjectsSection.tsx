@@ -15,6 +15,7 @@ import { useGateQueue } from '../../projects/useGateQueue'
 import { pulseOf, pulseParts, useProjectPulse } from '../../projects/useProjectPulse'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { Dialog } from '../../theme/kit/Dialog'
+import { Tooltip } from '../../theme/kit/Tooltip'
 import { StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
 import { ProjectSettings } from '../ProjectSettings'
@@ -42,6 +43,8 @@ export function RailIcon() {
 
 /** The height of a Project's card with its live state, in px; a row without it keeps --row-height. */
 const CARD_HEIGHT = 44
+/** The width of the « · » between two parts of a card's live line: the 6 px gaps around the dot of the prototype. */
+const PULSE_SEPARATOR = 15
 
 const styles = {
   iconButton: {
@@ -64,17 +67,26 @@ const styles = {
   groupName: { flex: 1, minWidth: 0, display: 'flex' },
   unavailable: { background: 'var(--surface-raised)', color: 'var(--text-muted)' },
   // The card of a Project, `.pcard` of the sidebar prototype: two lines in one button, CARD_HEIGHT high
-  // (5 + 18 + 2 + 14 + 5), a little denser than the prototype's.
-  card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, height: CARD_HEIGHT, padding: '5px 8px' },
-  // Fixed line heights, so the card is CARD_HEIGHT whatever the platform's font metrics.
+  // (5 + 18 + 2 + 14 + 5), a little denser than the prototype's; higher by 16 px for each line more that the live
+  // line wraps to (worfy-polish ticket 113).
+  card: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 2, height: 'auto', minHeight: CARD_HEIGHT, padding: '5px 8px' },
+  // Fixed line heights, so the card is CARD_HEIGHT whatever the platform's font metrics (14 px for each line of the
+  // live line).
   cardLine: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 18, lineHeight: '18px', overflow: 'hidden' },
   // The branch gives way to the name: it shrinks, never takes more than half of the line, and a long one is cut
   // with an ellipsis on one line (worfy-polish ticket 111). The shared `.w-row__trailing` stays as it is: the chips
   // of the other rows must not be cut.
   branchBox: { flex: '0 1 auto', minWidth: 0, maxWidth: '50%' },
   branch: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  // Under the name: the icon's width and the gap after it.
-  pulse: { display: 'flex', alignItems: 'center', gap: 6, height: 14, paddingLeft: 21, fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' },
+  // Under the name: the icon's width and the gap after it. No part is ever cut (worfy-polish ticket 113): the parts
+  // that do not fit move whole to the next line. Each part but the first carries its « · » before it, and the row
+  // starts one separator to the left of the clipping box, so the separator of a part that starts a line falls
+  // outside it; only that separator is clipped, never a word.
+  pulse: { display: 'block', paddingLeft: 21, fontSize: 'var(--text-11)', lineHeight: '14px', color: 'var(--text-muted)' },
+  pulseClip: { display: 'block', overflow: 'hidden' },
+  pulseRow: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', rowGap: 2, marginLeft: -PULSE_SEPARATOR },
+  pulseItem: { display: 'flex', alignItems: 'center', minWidth: 0 },
+  separator: { flex: 'none', width: PULSE_SEPARATOR, textAlign: 'center' },
   busy: { display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--working-text)' },
   needs: { color: 'var(--blocked-text)' },
   menu: {
@@ -330,7 +342,11 @@ interface RowsProps {
 
 const busyDot = <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--working-dot)', flex: 'none' }} aria-hidden="true" />
 
-/** The second line of a card: the live state, each part in its colour, or «quiet». */
+/**
+ * The second line of a card: the live state, each part in its colour, or «quiet». A part that does not fit moves
+ * whole to the next line, without the separator before it (see `styles.pulse`). Each part's tooltip says what it
+ * counts; its empty `title` keeps the row's native tooltip, the Project's path, from showing over it.
+ */
 function PulseLine({ pulse }: { pulse: ProjectPulse }) {
   const parts = pulseParts(pulse)
   return (
@@ -338,15 +354,27 @@ function PulseLine({ pulse }: { pulse: ProjectPulse }) {
       {parts.length === 0 ? (
         <span>quiet</span>
       ) : (
-        parts.map((part, index) => (
-          <span key={part.key} style={{ display: 'contents' }}>
-            {index > 0 ? <span aria-hidden="true">·</span> : null}
-            <span style={part.tone === 'busy' ? styles.busy : styles.needs} data-pulse={part.key}>
-              {part.tone === 'busy' ? busyDot : null}
-              {part.text}
-            </span>
+        <span style={styles.pulseClip}>
+          <span style={styles.pulseRow}>
+            {parts.map((part, index) => (
+              <span key={part.key} style={styles.pulseItem}>
+                {index > 0 ? (
+                  <span style={styles.separator} aria-hidden="true" data-pulse-separator="">
+                    ·
+                  </span>
+                ) : (
+                  <span style={styles.separator} aria-hidden="true" />
+                )}
+                <Tooltip label={part.hint}>
+                  <span style={part.tone === 'busy' ? styles.busy : styles.needs} data-pulse={part.key} title="">
+                    {part.tone === 'busy' ? busyDot : null}
+                    {part.text}
+                  </span>
+                </Tooltip>
+              </span>
+            ))}
           </span>
-        ))
+        </span>
       )}
     </span>
   )

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,10 +18,12 @@ import { nodeScript } from '../harness-node'
 // and the switcher's menu cut with an ellipsis and which leaves its name in place (worfy-polish ticket 111).
 // Under «All Projects» the Sessions and the ADRs of every Project show too, each under its name, and the Projects are
 // cards with their live state (worfy-polish ticket 99): live Sessions of «orchard» and «harbor» in the registry of the
-// Claude home, ADRs in both.
+// Claude home, ADRs in both. A Ticket of «harbor» is blocked, so its card reads «1 busy · 1 waits»: in a narrow sidebar
+// the second part moves whole to the next line, without the « · » before it, and each part has a tooltip that says
+// what it counts (worfy-polish ticket 113).
 // WORFY_SNAPSHOT_DIR, when set, also gets the screenshots of the tickets, each dark and light: the Epics under «All» and
 // under one Project, the Sessions, the Projects with the long name in the pill, the open menu (94); the Projects as
-// cards, the Sessions and the ADRs of both Projects under «All» (99).
+// cards, the Sessions and the ADRs of both Projects under «All» (99); the wrapped live line of a card (113).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -303,6 +305,11 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
   writeAdr('orchard', '0001-billing-in-cents.md', 'Billing in cents')
   writeAdr('harbor', '0001-one-queue-per-dock.md', 'One queue per dock')
   writeAdr('harbor', '0002-tides-from-a-file.md', 'Tides from a file')
+  // A Ticket of harbor in work and blocked: it waits for a person, so harbor's card counts it in «waits» (113).
+  const harborModel = join(claudeHome, 'harbor.json')
+  const model = JSON.parse(readFileSync(harborModel, 'utf8')) as { tickets: object[] }
+  model.tickets.push({ epic: 'harbor-docks', num: 2, slug: 't2', title: '02 — Ticket 2', statusRaw: 'blocked', state: 'blocked', statusAt: stamp(HOUR), blockedRaw: '—', blockedNums: [], blockedParsed: true })
+  writeFileSync(harborModel, JSON.stringify(model))
   const launched = await launch()
   try {
     const { window } = launched
@@ -311,7 +318,7 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
 
     // The Projects: a card of two lines each, the live state under the name and the branch.
     await expect(card(ORCHARD)).toHaveText('1 busy')
-    await expect(card(HARBOR)).toHaveText('1 busy')
+    await expect(card(HARBOR)).toHaveText('1 busy·1 waits')
     await expect(card(MEADOW)).toHaveText('quiet')
     // The long branch of meadow: one line, cut inside the card, at most half of it; the name keeps the rest (worfy-polish ticket 111).
     const meadow = window.locator(`[data-testid="project-row"][data-project-id="${MEADOW}"] button`)
@@ -340,6 +347,61 @@ test('«All Projects» lists the Sessions and the ADRs of both Projects, each un
     expect(layout.branch.top).toBeGreaterThanOrEqual(layout.card.top)
     expect(layout.branch.bottom).toBeLessThanOrEqual(layout.card.bottom)
     await ticketShots(window, 'projects-cards', '99')
+
+    // The live line wraps a part that does not fit to the next line, whole and without the « · » before it (113).
+    const harborParts = card(HARBOR).locator('[data-pulse]')
+    await expect(harborParts.nth(0)).toHaveAttribute('aria-description', '1 Session is in a turn')
+    await expect(harborParts.nth(1)).toHaveAttribute('aria-description', '1 Ticket waits: blocked, or waiting for a person, not an agent')
+    // The sidebar narrowed by just enough that «1 busy · 1 waits» no longer fits on one line, each part still does.
+    await card(HARBOR).evaluate((line) => {
+      const items = [...line.querySelectorAll('[data-pulse]')].map((part) => part.parentElement)
+      const width = (element: { getBoundingClientRect(): { width: number } } | null | undefined) => element?.getBoundingClientRect().width ?? 0
+      // The row starts one separator left of the clipping box, so it has that much more room than the box.
+      const room = width(items[0]?.parentElement)
+      const needed = Math.max(...items.map(width))
+      const root = line.ownerDocument.documentElement
+      const sidebar = Number.parseFloat((globalThis as unknown as { getComputedStyle(of: unknown): { getPropertyValue(name: string): string } }).getComputedStyle(root).getPropertyValue('--sidebar-width'))
+      root.style.setProperty('--sidebar-width', `${Math.floor(sidebar - (room - needed) + 1)}px`)
+    })
+    const wrapped = await card(HARBOR).evaluate((line) => {
+      type Box = { left: number; right: number; top: number; bottom: number; height: number }
+      const box = (element: { getBoundingClientRect(): Box } | null | undefined): Box => {
+        if (element === null || element === undefined) throw new Error('no element')
+        const { left, right, top, bottom, height } = element.getBoundingClientRect()
+        return { left, right, top, bottom, height }
+      }
+      const parts = [...line.querySelectorAll('[data-pulse]')]
+      const separator = line.querySelector('[data-pulse-separator]')
+      const clip = parts[0]?.parentElement?.parentElement?.parentElement
+      return {
+        card: box(line.closest('button')),
+        clip: box(clip),
+        parts: parts.map((part) => ({ ...box(part), text: part.textContent, cut: part.scrollWidth > part.clientWidth })),
+        separator: box(separator),
+      }
+    })
+    const [busyPart, waitsPart] = wrapped.parts
+    if (busyPart === undefined || waitsPart === undefined) throw new Error('two parts expected')
+    expect([busyPart.text, waitsPart.text]).toEqual(['1 busy', '1 waits'])
+    // Two lines: the second part below the first, both whole and inside the card.
+    expect(waitsPart.top).toBeGreaterThanOrEqual(busyPart.bottom)
+    for (const part of wrapped.parts) {
+      expect(part.cut).toBe(false)
+      expect(part.left).toBeGreaterThanOrEqual(wrapped.clip.left - 0.5)
+      expect(part.right).toBeLessThanOrEqual(wrapped.clip.right + 0.5)
+      expect(part.bottom).toBeLessThanOrEqual(wrapped.card.bottom)
+    }
+    // The « · » before «1 waits» lies left of the clipping box: no line starts with it.
+    expect(wrapped.separator.right).toBeLessThanOrEqual(wrapped.clip.left + 0.5)
+    // The card grew by one line of the live line and the gap between the lines: 14 + 2 px.
+    expect(Math.round(wrapped.card.height)).toBe(44 + 16)
+    await ticketShots(window, 'projects-wrapped', '113')
+    // The pointer resting on a part shows what it counts.
+    await harborParts.nth(1).hover()
+    await expect(window.getByRole('tooltip')).toHaveText('1 Ticket waits: blocked, or waiting for a person, not an agent')
+    await parkPointer(window)
+    await expect(window.getByRole('tooltip')).toHaveCount(0)
+    await card(HARBOR).evaluate((line) => line.ownerDocument.documentElement.style.removeProperty('--sidebar-width'))
 
     // The rail button of the Sessions counts the busy Sessions of both Projects, in the tone of work.
     const badge = tab(window, 'Sessions').getByTestId('sidebar-rail-badge')

@@ -59,18 +59,33 @@ export function pulseOf(state: ProjectPulseState | undefined, projectId: string)
   return state?.projects.find((project) => project.projectId === projectId)
 }
 
-/** One part of the live line of a card: its words and its colour. */
+/** One part of the live line of a card: its words, its colour and its tooltip, which says what it counts. */
 export interface PulsePart {
   key: string
   text: string
   tone: 'busy' | 'needs'
+  /**
+   * What the part counts, in plain words (worfy-polish ticket 113): the line's own words, as the prototype has
+   * them, are too short to say it. The pull requests and the Tickets are worded as the badges of the rail buttons
+   * of their sections (shell/sidebar/PullRequestsSection.tsx, PipelineSection.tsx).
+   */
+  hint: string
 }
+
+/** The pull requests counted in `prNeedYou` (src/shared/ipc/project-pulse.ts). */
+const PR_KINDS = 'a review, an answer or a fix'
+/** The Tickets counted in `waits` (waitsForPerson, src/shared/ipc/project-pulse.ts). */
+const WAITS_KINDS = 'blocked, or waiting for a person, not an agent'
 
 /** The live line of a Project's card in the Projects section, as the sidebar prototype words it; empty for a quiet Project. */
 export function pulseParts(pulse: Pick<ProjectPulse, 'busy' | 'prNeedYou' | 'waits'>): PulsePart[] {
   const parts: PulsePart[] = []
-  if (pulse.busy > 0) parts.push({ key: 'busy', text: `${pulse.busy} busy`, tone: 'busy' })
-  if (pulse.prNeedYou !== null && pulse.prNeedYou > 0) parts.push({ key: 'pr', text: `${pulse.prNeedYou} PR need you`, tone: 'needs' })
-  if (pulse.waits !== null && pulse.waits > 0) parts.push({ key: 'waits', text: `${pulse.waits} waits`, tone: 'needs' })
+  const { busy, prNeedYou, waits } = pulse
+  if (busy > 0) parts.push({ key: 'busy', text: `${busy} busy`, tone: 'busy', hint: busy === 1 ? '1 Session is in a turn' : `${busy} Sessions are in a turn` })
+  if (prNeedYou !== null && prNeedYou > 0) {
+    const hint = prNeedYou === 1 ? `1 pull request needs you: ${PR_KINDS}` : `${prNeedYou} pull requests need you: ${PR_KINDS}`
+    parts.push({ key: 'pr', text: `${prNeedYou} PR need you`, tone: 'needs', hint })
+  }
+  if (waits !== null && waits > 0) parts.push({ key: 'waits', text: `${waits} waits`, tone: 'needs', hint: waits === 1 ? `1 Ticket waits: ${WAITS_KINDS}` : `${waits} Tickets wait: ${WAITS_KINDS}` })
   return parts
 }
