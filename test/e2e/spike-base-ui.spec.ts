@@ -201,63 +201,67 @@ test('a menu on a Node does not stop the Node from being dragged', async () => {
   const { window } = await start()
   const node = window.locator('.react-flow__node[data-id="n1"]')
   const header = node.locator('.w-note__header')
+  // Straight down and back up: the note has empty Canvas under it, and no neighbour pushes it.
+  let down = true
+  const what = (x: number, y: number): Promise<string> =>
+    window.evaluate(
+      ([px, py]) => {
+        const hit = (globalThis as unknown as { document: { elementFromPoint(x: number, y: number): { className: string; dataset: Record<string, string>; tagName: string } | null } }).document.elementFromPoint(px!, py!)
+        return hit === null ? 'nothing' : (hit.dataset.testid ?? `${hit.tagName.toLowerCase()}.${String(hit.className)}`)
+      },
+      [x, y],
+    )
+  async function dragFrom(target: Locator): Promise<{ dy: number; pressedOn: string }> {
+    const before = await box(node)
+    const from = await box(target)
+    const x = from.x + Math.min(40, from.width / 2)
+    const y = from.y + from.height / 2
+    const pressedOn = await what(x, y)
+    await window.mouse.move(x, y)
+    await window.mouse.down()
+    await window.mouse.move(x, y + (down ? 90 : -90), { steps: 12 })
+    await window.mouse.up()
+    await settle(window)
+    down = !down
+    const after = await box(node)
+    return { dy: Math.round(after.y - before.y), pressedOn }
+  }
 
-  const results: Record<string, unknown> = {}
+  const results: Record<string, unknown> = { control: await dragFrom(header) }
   for (const variant of ['menu', 'menu-nm'] as const) {
     const id = `spike-canvas-n1-${variant}`
     await window.getByTestId(`${id}-trigger`).click()
     const popup = window.getByTestId(`${id}-popup`)
     await expect(popup).toBeVisible()
-    const before = await box(node)
-    const from = await box(header)
-    await window.mouse.move(from.x + 40, from.y + from.height / 2)
-    await window.mouse.down()
-    await window.mouse.move(from.x + 140, from.y + 60, { steps: 12 })
-    await window.mouse.up()
-    await settle(window)
-    const after = await box(node)
-    const moved = { dx: Math.round(after.x - before.x), dy: Math.round(after.y - before.y) }
-    const stillOpen = (await popup.count()) > 0
-    // A second drag with the menu closed, to tell "the first press only closed the menu" apart.
-    let secondDrag: { dx: number; dy: number } | null = null
-    if (moved.dx === 0 && moved.dy === 0) {
-      if (stillOpen) await window.keyboard.press('Escape')
-      const start2 = await box(node)
-      const from2 = await box(header)
-      await window.mouse.move(from2.x + 40, from2.y + from2.height / 2)
-      await window.mouse.down()
-      await window.mouse.move(from2.x + 140, from2.y + 60, { steps: 12 })
-      await window.mouse.up()
-      await settle(window)
-      const end2 = await box(node)
-      secondDrag = { dx: Math.round(end2.x - start2.x), dy: Math.round(end2.y - start2.y) }
-    }
-    results[variant] = { firstDragWithMenuOpen: moved, menuOpenAfterDrag: stillOpen, secondDrag }
+    const first = await dragFrom(header)
+    const openAfterFirst = (await popup.count()) > 0
+    const second = await dragFrom(header)
+    const openAfterSecond = (await popup.count()) > 0
+    results[variant] = { first, openAfterFirst, second, openAfterSecond }
     if ((await popup.count()) > 0) await window.keyboard.press('Escape')
+    await expect(popup).toHaveCount(0)
   }
 
   // Base UI #6150: a press on the trigger itself (no nodrag) that turns into a drag.
   const grip = window.getByTestId('spike-canvas-n1-grip-trigger')
-  const before = await box(node)
   const g = await box(grip)
+  const before = await box(node)
   await window.mouse.move(g.x + g.width / 2, g.y + g.height / 2)
   await window.mouse.down()
+  await settle(window, 100)
   const openOnPress = (await window.getByTestId('spike-canvas-n1-grip-popup').count()) > 0
-  await window.mouse.move(g.x + 120, g.y + 80, { steps: 12 })
+  await window.mouse.move(g.x + g.width / 2, g.y + g.height / 2 + (down ? 90 : -90), { steps: 12 })
   await window.mouse.up()
   await settle(window)
   const after = await box(node)
-  results.gripDrag = {
-    menuOpenOnPress: openOnPress,
-    nodeMoved: { dx: Math.round(after.x - before.x), dy: Math.round(after.y - before.y) },
-    menuOpenAfterDrop: (await window.getByTestId('spike-canvas-n1-grip-popup').count()) > 0,
-  }
+  results.gripDrag = { menuOpenOnPress: openOnPress, dy: Math.round(after.y - before.y), menuOpenAfterDrop: (await window.getByTestId('spike-canvas-n1-grip-popup').count()) > 0 }
   say('node drag with menu', results)
-  const modal = results.menu as { firstDragWithMenuOpen: { dx: number }; secondDrag: { dx: number } | null }
-  const nonModal = results['menu-nm'] as { firstDragWithMenuOpen: { dx: number } }
-  expect.soft(nonModal.firstDragWithMenuOpen.dx, 'a non-modal menu: the drag moves the Node at once').toBeGreaterThan(50)
-  expect.soft(Math.max(modal.firstDragWithMenuOpen.dx, modal.secondDrag?.dx ?? 0), 'a modal menu: the Node moves, at the latest on the next drag').toBeGreaterThan(50)
+  const moved = (entry: unknown, key: 'first' | 'second'): number => Math.abs((entry as Record<string, { dy: number }>)[key]!.dy)
+  expect.soft(Math.abs((results.control as { dy: number }).dy), 'control: a drag with no menu moves the Node').toBeGreaterThan(50)
+  expect.soft(moved(results['menu-nm'], 'first'), 'a non-modal menu open: the first drag moves the Node').toBeGreaterThan(50)
+  expect.soft(Math.max(moved(results.menu, 'first'), moved(results.menu, 'second')), 'a modal menu open: the Node moves, at the latest on the second drag').toBeGreaterThan(50)
 })
+
 
 test('next to a Terminal: the focus stays near xterm when a popup closes, a tooltip takes no focus', async () => {
   const { window } = await start()
@@ -324,7 +328,8 @@ test('a press inside the Browser <webview> and a popup of the Canvas', async () 
     })
 
   const results: Record<string, unknown> = {}
-  for (const probe of ['spike-popover', 'spike-popover-blur', 'spike-menu', 'spike-canvas-b1-popover', 'spike-canvas-b1-popover-blur'] as const) {
+  // The probes of the toolbar: the Browser frame's own probe strip lies under the Canvas pane.
+  for (const probe of ['spike-popover', 'spike-popover-blur', 'spike-menu'] as const) {
     // Back to the app's page before each probe.
     await window.getByTestId('spike-toolbar').click({ position: { x: 2, y: 2 } })
     await settle(window, 150)
@@ -339,11 +344,10 @@ test('a press inside the Browser <webview> and a popup of the Canvas', async () 
     const reasons = (await spikeLog(window)).log.slice(before).map((entry) => `${entry.probe}:${entry.reason}`)
     const embedderHasFocus = await window.evaluate(() => (globalThis as unknown as { document: { hasFocus(): boolean } }).document.hasFocus())
     results[probe] = { openAfterPressInWebview: open, reasons, guestHasFocus: await guestFocused(), embedderHasFocus }
+    say(`webview press ${probe}`, results[probe])
     if (open) await window.keyboard.press('Escape')
   }
-  say('webview press', results)
   expect.soft((results['spike-popover-blur'] as { openAfterPressInWebview: boolean }).openAfterPressInWebview, 'with the close on window blur the popover closes').toBe(false)
-  expect.soft((results['spike-canvas-b1-popover-blur'] as { openAfterPressInWebview: boolean }).openAfterPressInWebview).toBe(false)
 })
 
 test('in focus mode: a popup of a tile is drawn over the layer, Esc closes the popup and not focus mode', async () => {
@@ -390,6 +394,11 @@ test('over Settings: a popover and a menu are on top, Esc closes only the top la
     const popup = window.getByTestId(`${probe}-popup`)
     await expect(popup).toBeVisible()
     const top = await onTop(popup)
+    const hitAtCentre = await popup.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const hit = element.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) as { dataset?: Record<string, string>; tagName: string; className: string } | null
+      return { rect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)], hit: hit === null ? null : (hit.dataset?.testid ?? `${hit.tagName}.${String(hit.className)}`) }
+    })
     const focusInPopup = await popup.evaluate((element) => element.contains(element.ownerDocument.activeElement))
     const before = await spikeLog(window)
     await window.keyboard.press('Escape')
@@ -401,7 +410,7 @@ test('over Settings: a popover and a menu are on top, Esc closes only the top la
     await window.keyboard.press('Escape')
     await settle(window)
     const secondEscClosesSettings = (await settings.count()) === 0
-    results[probe] = { onTop: top, focusInPopup, popupClosed, settingsStays, close: closeEntry, escReachedWindow: after.escapes.slice(before.escapes.length), secondEscClosesSettings }
+    results[probe] = { onTop: top, hitAtCentre, focusInPopup, popupClosed, settingsStays, close: closeEntry, escReachedWindow: after.escapes.slice(before.escapes.length), secondEscClosesSettings }
     expect.soft(top).toBe(true)
     expect.soft(popupClosed).toBe(true)
     expect.soft(settingsStays).toBe(true)
