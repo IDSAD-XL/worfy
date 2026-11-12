@@ -26,7 +26,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
 3. Command request Terminal AI и карточка Mind map переходят, если Popover kit держит их раскладку; иначе остаются
    своими, и Ticket записывает почему.
 4. E2e `test/e2e/layers-popover.spec.ts` дописывается: popover composer-а у края окна, History в sidebar поверх
-   Settings.
+   Settings; Esc в popover-е внутри элемента со своим Esc — одно нажатие, одно действие (правило Ticket-а 03,
+   пункт 6). Пример — Queued messages и Effort в composer-е: при ходе агента Esc закрывает popover и не прерывает
+   ход.
 
 ## Готово, когда
 

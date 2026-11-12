@@ -1,7 +1,8 @@
 # 01 — Spike Base UI в Electron
 
 Type: spike
-Status: open
+Status: claimed 2026-11-11T23:54Z
+PR: #1819
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения по реализации» (`Select` внутри окна kit, Esc); «Риски»
 (spike ответит «нет», `<webview>`, перетаскивание Node-а, размер); истории 24 и 32;
@@ -35,10 +36,14 @@ shortcuts и Guide ловят Esc и Tab в capture phase на window, свой 
 
 - [ ] Заметка `.scratch/worfy-ui-kit/spike-base-ui.md`: ответ на каждый пункт шагов 2–4 с тем, как проверено
       (команда, test или запись экрана), выбранное решение для `Select` и итог «да» или «нет».
+  - evidence: test-run pass · `gh workflow run ci.yml --ref spike/worfy-ui-kit-01-base-ui -f job=full-macos` run 43137894411, test/e2e/spike-base-ui.spec.ts in macos-e2e (1/2), answers in the note · mac - · b72e47ba78550b5dd2d55279b7485a20d765f27f
 - [ ] Разница размера сборки и времени старта записана числами; e2e test бюджета старта на ветке spike-а прогнан, exit
       code в заметке.
+  - evidence: test-run pass · `pnpm test:e2e` on CI run 43137894411 macos-e2e (2/2), epic-frame.spec.ts:1113 start budget exit 0 (5092 ms, budget 7300 ms) · mac - · b72e47ba78550b5dd2d55279b7485a20d765f27f
 - [ ] Ветка spike-а не влита; в PR Ticket-а только заметка.
+  - evidence: commit pass · worfy-ui-kit 01: review round 1 — Esc rule into tickets 03/10/11, main run ids, modal menu source · - - · b72e47ba78550b5dd2d55279b7485a20d765f27f
 - [ ] lint и gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint` exit 0; `gate fast` exit 0 with nothing ran (docs only) · mac - · b72e47ba78550b5dd2d55279b7485a20d765f27f
 
 ## Где в коде
 

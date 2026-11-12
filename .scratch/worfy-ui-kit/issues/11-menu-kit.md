@@ -25,8 +25,13 @@ Seam 2); истории 3, 8, 10, 13, 15, 16, 25; заметка темы `docs/
    кнопку; переворот у края; слой из шкалы; общая часть из `theme/kit/layer.ts`.
 2. Шесть menu переходят на Menu kit. `ActionMenu` становится обёрткой над Menu kit или уходит, если места вызова
    берут Menu kit сами.
-3. Menu на Node-е (Browser) открывается так, что Node по-прежнему тащится (ответ spike-а про Base UI #6150).
-4. E2e `test/e2e/layers-menu.spec.ts`: menu поверх Canvas, на Node-е, который тащат, поверх Settings, у края окна.
+3. Menu на Node-ах, которые тащат (Browser, «⋯» Autopilot и «Open PR»), — `modal={false}`: модальное menu Base UI
+   кладёт `InternalBackdrop` на всё окно (`MenuPositioner`), и Node не тащится, пока menu открыто. С `modal={false}`
+   первое же перетаскивание двигает Node и закрывает menu; кнопка остаётся с `nodrag` (spike, заметка
+   `spike-base-ui.md`, шаг 2, пункт 3; Base UI #6150).
+4. E2e `test/e2e/layers-menu.spec.ts`: menu поверх Canvas, на Node-е, который тащат, поверх Settings, у края окна;
+   Esc в menu внутри элемента со своим Esc — одно нажатие, одно действие (правило Ticket-а 03, пункт 6). Пример —
+   «Modes» в composer-е: при открытом menu Esc не прерывает ход агента в поле ввода.
 
 ## Готово, когда
 
