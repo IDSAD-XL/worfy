@@ -223,7 +223,10 @@ test.describe('first-run screen', () => {
       // The toolbar item read `not-installed` when the window opened (worfy-harness ticket 40).
       const toolbar = toolbarHarness(launched.window)
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
-      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
+      // First run is a modal window of the kit (worfy-ui-kit ticket 06): the page behind it, the toolbar
+      // included, is hidden from a screen reader (aria-hidden), so its accessible name reads "" while
+      // the window is open. The name is read from the attribute it comes from.
+      await expect(toolbar.getByTestId('harness-action')).toHaveAttribute('aria-label', 'Install')
       await listenForHarnessChanged(launched.window)
 
       // Install → one dialog with Confirm → the dependency and the Harness are installed and both rows are ok.
@@ -322,8 +325,12 @@ test.describe('first-run screen', () => {
       await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness error: install', { timeout: ms(30_000) })
       await expect(toolbar.getByTestId('harness-text')).toHaveAttribute('title', /plugin install worfy@worfy-harness --scope user failed/)
-      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Retry')
       expect(calls()).toContain('claude plugin install worfy@worfy-harness --scope user')
+      // First run is a modal window of the kit (worfy-ui-kit ticket 06): the toolbar behind it is hidden
+      // from a screen reader while it is open. The person reads Retry once the window is closed.
+      await dialog.getByRole('button', { name: 'Close' }).click()
+      await expect(dialog).toBeHidden()
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Retry')
     } finally {
       await launched.close()
     }
@@ -345,9 +352,13 @@ test.describe('first-run screen', () => {
       await expect(install).toBeEnabled({ timeout: ms(30_000) })
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
       await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
-      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
       expect(await heardHarnessChanged(launched.window)).toEqual([])
       expect(calls().filter((line) => /^claude plugin (marketplace add|install|update)/.test(line))).toEqual([])
+      // First run is a modal window of the kit (worfy-ui-kit ticket 06): the toolbar behind it is hidden
+      // from a screen reader while it is open. The person reads Install once the window is closed.
+      await dialog.getByRole('button', { name: 'Close' }).click()
+      await expect(dialog).toBeHidden()
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
     } finally {
       await launched.close()
     }

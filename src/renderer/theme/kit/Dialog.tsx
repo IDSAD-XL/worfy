@@ -96,7 +96,8 @@ export function Dialog(props: DialogProps) {
     return () => {
       const back = previous.current
       previous.current = null
-      if (back?.isConnected === true) back.focus()
+      // Without scrolling: a transcript scrolled away from the opener stays where it is.
+      if (back?.isConnected === true) back.focus({ preventScroll: true })
     }
   }, [open])
 

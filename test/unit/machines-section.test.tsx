@@ -846,6 +846,12 @@ describe('worfy-link ticket 37, review round', () => {
       fireEvent.click(opener)
       await flushFrames()
       const dialog = screen.getByRole('dialog')
+      // Drawn on the layer of the toasts (z 120), above the dialog layer of Settings (110), which
+      // "Remove" of Settings → Machines opens over.
+      let layer: HTMLElement = dialog
+      while (layer.parentElement !== null && layer.parentElement !== document.body) layer = layer.parentElement
+      expect(layer.parentElement).toBe(document.body)
+      expect(getComputedStyle(layer).zIndex).toBe('120')
       const inside = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input')]
       const first = inside[0]!
       const last = inside.at(-1)!

@@ -148,6 +148,17 @@ describe('the modal window of the kit', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it('gives the focus back without scrolling: a transcript scrolled away from the opener does not jump (worfy-ui-kit ticket 06)', async () => {
+    const { opener } = await openFromOpener()
+    const focus = vi.spyOn(opener, 'focus')
+    pressKey(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(probe()).toBeNull()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(focus.mock.calls.every(([options]) => options?.preventScroll === true)).toBe(true)
+    expect(document.activeElement).toBe(opener)
+  })
+
   it('Esc closes only the top layer and is marked handled: the open list of a Select first, then the window', async () => {
     const { window } = await openFromOpener()
     const heard = vi.fn()

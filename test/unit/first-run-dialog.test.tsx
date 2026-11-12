@@ -100,6 +100,24 @@ describe('First run on the kit\'s Dialog', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it('"Next" on the concepts page takes away the button that had the focus: the focus goes to the window, not to the page', async () => {
+    const answers = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel: string, input?: unknown) =>
+      channel === 'firstRun.startup' ? Promise.resolve({ ok: true, value: { show: true, firstTime: true, report: null } }) : answers(channel, input),
+    )
+    const { FirstRun } = await import('../../src/renderer/shell/FirstRun')
+    render(<FirstRun />)
+    const dialog = await screen.findByRole('dialog', { name: 'Welcome to worfy' })
+    await flush()
+    const next = within(dialog).getByRole('button', { name: 'Next' })
+    act(() => next.focus())
+    fireEvent.click(next)
+    await flush()
+    expect(dialog.getAttribute('data-page')).toBe('checks')
+    expect(next.isConnected).toBe(false)
+    expect(document.activeElement).toBe(dialog)
+  })
+
   it('a click outside leaves it open', async () => {
     const { dialog } = await renderPage()
     const backdrop = dialog.parentElement!

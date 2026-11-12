@@ -445,6 +445,11 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(link).toHaveCount(0)
     await expect(focus).toBeVisible()
+    // The kit's Dialog gives the focus back to "Link a machine…" in the sidebar (worfy-ui-kit ticket
+    // 06), and an Esc pressed with the focus in the sidebar is the sidebar's, not focus mode's
+    // (FocusMode.tsx, escapePress). The person comes back to the layer before leaving it.
+    await expect(window.getByTestId('link-machine-button')).toBeFocused()
+    await focus.focus()
     await escape()
     await expect(focus).toHaveCount(0)
   } finally {

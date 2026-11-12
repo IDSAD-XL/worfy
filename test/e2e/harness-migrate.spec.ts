@@ -171,7 +171,10 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
   try {
     const { window } = launched
     const item = window.getByTestId('harness-status')
-    await expect(item.getByTestId('harness-migrate')).toHaveAccessibleName('Move old Harness…')
+    // First run opens by itself at this start, a modal window of the kit (worfy-ui-kit ticket 06): the
+    // page behind it, the toolbar included, is hidden from a screen reader (aria-hidden), so the
+    // accessible name reads "" while it is open. The name is read from the attribute it comes from.
+    await expect(item.getByTestId('harness-migrate')).toHaveAttribute('aria-label', 'Move old Harness…')
 
     const screen = window.getByTestId('first-run')
     await expect(screen).toBeVisible({ timeout: ms(30_000) })

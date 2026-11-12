@@ -297,6 +297,40 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     }
   })
 
+  it('Ctrl+Enter on macOS is not the start: the window stays and starts nothing (worfy-ui-kit ticket 06)', async () => {
+    expect(document.documentElement.dataset.platform).toBe('mac')
+    const dialog = await openWindow()
+    const key = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })
+    act(() => {
+      within(dialog).getByTestId('start-autopilot-cancel').dispatchEvent(key)
+    })
+    expect(key.defaultPrevented).toBe(false)
+    await settle()
+    expect(screen.getByRole('dialog', { name: 'Start Autopilot' })).toBe(dialog)
+    expect(starts()).toEqual([])
+  })
+
+  it('a click on the backdrop does nothing: the window stays, nothing starts and nothing is cancelled (worfy-ui-kit ticket 06)', async () => {
+    const dialog = await openWindow()
+    const backdrop = dialog.parentElement!
+    fireEvent.mouseDown(backdrop)
+    fireEvent.click(backdrop)
+    await settle()
+    expect(screen.getByRole('dialog', { name: 'Start Autopilot' })).toBe(dialog)
+    expect(starts()).toEqual([])
+  })
+
+  it('the window is drawn on the layer of the toasts (z 120), above the kit\'s dialog layer of Settings (worfy-ui-kit ticket 06)', async () => {
+    const { LAYERS } = await import('../../src/renderer/theme/layers')
+    const dialog = await openWindow()
+    let layer: HTMLElement = dialog
+    while (layer.parentElement !== null && layer.parentElement !== document.body) layer = layer.parentElement
+    expect(layer.parentElement).toBe(document.body)
+    expect(getComputedStyle(layer).zIndex).toBe('120')
+    expect(Number(getComputedStyle(layer).zIndex)).toBe(LAYERS.toast)
+    expect(Number(getComputedStyle(layer).zIndex)).toBeGreaterThan(LAYERS.dialog)
+  })
+
   it('a ⌘ key that is not the window\'s own is not taken: ⌘A keeps its default (worfy-ui-kit ticket 06)', async () => {
     const dialog = await openWindow()
     const key = new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true, cancelable: true })
