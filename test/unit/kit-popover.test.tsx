@@ -3,8 +3,9 @@
 // what does not — a blur of the window closes it, a press on the toasts does not — and the in-node
 // mark of a popover of a Node on the Canvas.
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Dialog } from '../../src/renderer/theme/kit/Dialog'
 import { Popover, type PopoverProps } from '../../src/renderer/theme/kit/Popover'
 import { insideNodePopup } from '../../src/renderer/theme/kit/layer'
 import { LAYERS } from '../../src/renderer/theme/layers'
@@ -266,6 +267,111 @@ describe('a kit Popover without a trigger, and what its place may keep open (wor
     act(() => screen.getByRole('textbox', { name: 'Search or run' }).focus())
     await flush()
     expect(shown()).toBeNull()
+  })
+
+  /**
+   * The Command palette as the toolbar draws it (palette/CommandPalette.tsx): ⌘K on the window opens a
+   * modal window of the kit, and its field takes the focus.
+   */
+  function Palette() {
+    const [open, setOpen] = useState(false)
+    const field = useRef<HTMLInputElement | null>(null)
+    useEffect(() => {
+      const onKeyDown = (event: globalThis.KeyboardEvent) => {
+        if (event.key === 'k' && event.metaKey) setOpen(true)
+      }
+      window.addEventListener('keydown', onKeyDown)
+      return () => window.removeEventListener('keydown', onKeyDown)
+    }, [])
+    return (
+      <Dialog open={open} onClose={() => setOpen(false)} label="Command palette" className="palette" initialFocus={() => field.current}>
+        <input ref={field} aria-label="Search or run" />
+      </Dialog>
+    )
+  }
+  const palette = () => screen.queryByRole('dialog', { name: 'Command palette' })
+
+  /**
+   * ⌘K pressed where the focus is, outside act(): React renders the palette and runs its effects on its
+   * own schedule, as in the app. Inside act() the popover closes before Base UI's own focus-out check
+   * runs, and that check alone keeps the focus where it went; the app has no act().
+   */
+  async function commandK(): Promise<void> {
+    const environment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    const had = environment.IS_REACT_ACT_ENVIRONMENT
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    try {
+      document.activeElement!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }))
+      await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    } finally {
+      environment.IS_REACT_ACT_ENVIRONMENT = had
+    }
+  }
+
+  /**
+   * What's new under the version chip: its place gives the focus back to the chip (`finalFocus`) and takes
+   * the popover out as it closes. Without `finalFocus`, a quote comment's popover placed against the quote.
+   */
+  function Returning({ final = true }: { final?: boolean }) {
+    const [open, setOpen] = useState(true)
+    const chip = useRef<HTMLButtonElement | null>(null)
+    const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null)
+    return (
+      <>
+        <button
+          type="button"
+          ref={(element) => {
+            chip.current = element
+            setAnchor(element)
+          }}
+        >
+          Chip
+        </button>
+        <Palette />
+        {anchor !== null && open ? (
+          <Popover open onOpenChange={setOpen} label="What's new" anchor={anchor} initialFocus="popup" {...(final ? { finalFocus: chip } : {})}>
+            <button type="button">Update</button>
+          </Popover>
+        ) : null}
+      </>
+    )
+  }
+
+  it.each([true, false])('closed by the focus going to the palette, it leaves the focus there (finalFocus: %s): the next Esc closes the palette', async (final) => {
+    render(<Returning final={final} />)
+    await flush()
+    expect(document.activeElement).toBe(shown())
+    await commandK()
+    await flush()
+    expect(shown()).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search or run' }))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(palette()).toBeNull()
+  })
+
+  it('Esc in it gives the focus to its finalFocus', async () => {
+    render(<Returning />)
+    await flush()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(shown()).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Chip' }))
+  })
+
+  it('a popover with a trigger closed by the focus going to the palette leaves the focus there too', async () => {
+    render(
+      <>
+        <Trash />
+        <Palette />
+      </>,
+    )
+    trigger().focus()
+    await openIt()
+    await commandK()
+    await flush()
+    expect(popover()).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search or run' }))
   })
 
   /** An Esc pressed on `target`, as a key press of the keyboard reaches the page. */

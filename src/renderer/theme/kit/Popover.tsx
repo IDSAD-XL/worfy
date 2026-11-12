@@ -2,7 +2,8 @@
  * The kit's Popover (worfy-ui-kit ticket 09, ADR-0106): a non-modal popup with a name, opened by its
  * trigger. Base UI gives the behaviour:
  * - the popup is a `dialog` named by `label`; the trigger gets `aria-expanded` and `aria-haspopup`;
- * - opening moves the focus into the popup, closing gives it back to the trigger;
+ * - opening moves the focus into the popup, closing gives it back to the trigger — unless the focus
+ *   went elsewhere, which closed it: then it stays there;
  * - a press outside closes it, but a press on the toasts does not: they are not what the user works
  *   with in the popup (toast/ToastRegion.tsx);
  * - the focus going to anything else of the window closes it too (the wrapper's own listener, ticket 10);
@@ -75,7 +76,7 @@ export interface PopoverProps {
   anchor?: PopupAnchor
   /** Where the focus goes on opening; by default the first field or button inside; `'popup'` — the popup itself. */
   initialFocus?: RefObject<HTMLElement | null> | 'popup'
-  /** Where the focus goes on closing; by default back to the trigger. */
+  /** Where the focus goes on closing; by default back to the trigger. A close caused by the focus going elsewhere leaves it there. */
   finalFocus?: RefObject<HTMLElement | null>
   /**
    * Asked before a press outside, the focus leaving, an Esc pressed outside the popup, a blur of the
@@ -155,6 +156,19 @@ export function Popover({
     return () => document.removeEventListener('focusin', onFocusIn)
   }, [open])
 
+  // Closing gives the focus back — to `finalFocus`, or else the trigger — only when it is in the popup
+  // (Esc, a button inside) or lost to the page (the popup taken out under it). A close caused by the focus
+  // going elsewhere leaves it there: the Command palette's field keeps it on ⌘K, so its own Esc reaches
+  // it. Base UI keeps it there only for a `finalFocus` of `true`: a ref as `finalFocus` pulls it back
+  // whatever has it, and its own focus-out check, the only other guard, runs after React may have taken
+  // the popup out (FloatingFocusManager, Base UI 1.9.0). Base UI asks this as the popup closes.
+  const returnFocus = (): HTMLElement | null | false => {
+    const active = document.activeElement
+    const lost = active === null || active === document.body || popup.current?.contains(active) === true
+    if (!lost) return false
+    return finalFocus?.current ?? null
+  }
+
   const change = (next: boolean, details: BasePopover.Root.ChangeEventDetails) => {
     // A press on the toasts is not a press outside, nor one on the element the popover is placed
     // against: that element's own click opens and closes it (the version chip of What's new).
@@ -198,7 +212,7 @@ export function Popover({
             data-testid={testId}
             onKeyDown={onKeyDown}
             {...(initialFocus !== undefined ? { initialFocus: initialFocus === 'popup' ? popup : initialFocus } : {})}
-            {...(finalFocus !== undefined ? { finalFocus } : {})}
+            finalFocus={returnFocus}
             {...(passOutsideEscape ? { [PASS_ESCAPE_ATTRIBUTE]: '' } : {})}
             {...(inNode ? { onClick: keepFromNode, onDoubleClick: keepFromNode } : {})}
           >
