@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MigrationPlan, MigrationResult, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import { MigrationFormView } from '../../src/renderer/harness/MigrationForm'
 import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import { expectFocusKeptIn, flush } from './kit-window'
 
 // worfy-harness ticket 14: the form that moves the old Harness out of ~/.claude. Rows by group, a
 // "Remove / Keep" switch on each, CLAUDE.md and the Profile files as a diff, Move with the choices,
@@ -245,5 +247,69 @@ describe('HarnessStatusView: the move button', () => {
     rerender(<HarnessStatusView status={status} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={onMigrate} />)
     fireEvent.click(screen.getByTestId('harness-migrate'))
     expect(onMigrate).toHaveBeenCalledOnce()
+  })
+})
+
+// worfy-ui-kit ticket 07: the form is a modal window of the kit (theme/kit/Dialog.tsx).
+describe('MigrationFormView as a window of the kit', () => {
+  /** A page with the button that opens the form, as the Harness item has. */
+  function Page({ busy = false, onClose }: { busy?: boolean; onClose?: () => void }) {
+    const [open, setOpen] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Move old Harness…
+        </button>
+        {open ? (
+          <MigrationFormView
+            plan={plan()}
+            busy={busy}
+            result={undefined}
+            onMove={() => undefined}
+            onClose={() => {
+              onClose?.()
+              setOpen(false)
+            }}
+          />
+        ) : null}
+      </>
+    )
+  }
+
+  async function openForm(props: { busy?: boolean; onClose?: () => void } = {}): Promise<{ opener: HTMLElement; form: HTMLElement }> {
+    render(<Page {...props} />)
+    const opener = screen.getByRole('button', { name: 'Move old Harness…' })
+    opener.focus()
+    fireEvent.click(opener)
+    await flush()
+    return { opener, form: screen.getByRole('dialog', { name: 'Move the old Harness out of ~/.claude' }) }
+  }
+
+  it('takes the focus on opening, keeps Tab inside, and gives the focus back to its button on Esc and on Cancel', async () => {
+    const { opener, form } = await openForm()
+    expect(form.dataset.testid).toBe('migration-form')
+    await expectFocusKeptIn(form)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+
+    fireEvent.click(opener)
+    await flush()
+    fireEvent.click(screen.getByTestId('migration-close'))
+    await flush()
+    expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('while main moves, neither Esc nor a press on the backdrop closes it', async () => {
+    const onClose = vi.fn()
+    const { form } = await openForm({ busy: true, onClose })
+    fireEvent.keyDown(form, { key: 'Escape' })
+    const backdrop = form.parentElement!
+    fireEvent.mouseDown(backdrop)
+    await flush()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('migration-form')).toBe(form)
   })
 })

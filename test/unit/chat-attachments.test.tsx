@@ -15,6 +15,7 @@ import { documentKind, formatLabel } from '../../src/renderer/session/attachment
 import type { MessageInputHandle } from '../../src/renderer/session/MessageInput'
 import { Transcript } from '../../src/renderer/session/Transcript'
 import { parseTranscriptLine } from '../../src/shared/transcript/parse'
+import { expectFocusKeptIn, flush } from './kit-window'
 
 // The window's Machine (null: this one) and the read-only hint of the screen, as the test sets them.
 const screenState = vi.hoisted(() => ({ machine: null as string | null, readOnly: null as string | null }))
@@ -149,6 +150,23 @@ describe('a sent message with attachments', () => {
     expect(screen.getByTestId('image-overlay')).toBeTruthy()
     fireEvent.click(screen.getByTestId('image-overlay'))
     expect(screen.queryByTestId('image-overlay')).toBeNull()
+  })
+
+  it('the full-size image is a window of the kit: Tab stays on its Close, and the focus goes back to the thumbnail (worfy-ui-kit ticket 07)', async () => {
+    render(<Transcript events={[sent('x', [shot])]} />)
+    const thumbnail = screen.getByTestId('message-image')
+    thumbnail.focus()
+    fireEvent.click(thumbnail)
+    await flush()
+    const overlay = screen.getByRole('dialog', { name: 'shot.png' })
+    expect(overlay.dataset.testid).toBe('image-overlay')
+    expect(document.activeElement).toBe(overlay)
+    await expectFocusKeptIn(overlay)
+    expect(document.activeElement).toBe(screen.getByTestId('image-overlay-close'))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('image-overlay')).toBeNull()
+    expect(document.activeElement).toBe(thumbnail)
   })
 
   it.each([

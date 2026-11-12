@@ -104,9 +104,14 @@ const mainCaughtUp = (window: Page): Promise<unknown> =>
 interface PageElement {
   contains(other: unknown): boolean
   closest(selector: string): unknown
+  parentElement: PageElement | null
+  tabIndex: number
+  disabled?: boolean
+  querySelectorAll(selector: string): Iterable<PageElement>
+  getClientRects(): { length: number }
 }
 interface PageGlobals {
-  document: { activeElement: unknown; elementFromPoint(x: number, y: number): PageElement | null }
+  document: { activeElement: unknown; body: PageElement; elementFromPoint(x: number, y: number): PageElement | null; querySelector(selector: string): PageElement | null }
   innerWidth: number
   innerHeight: number
   getComputedStyle(element: unknown): { zIndex: string }
@@ -121,9 +126,36 @@ interface PageControl {
   addEventListener(type: string, listener: () => void, options: { once: boolean }): void
 }
 
-const zIndexOf = (locator: Locator): Promise<number> => locator.evaluate((element) => Number((globalThis as unknown as PageGlobals).getComputedStyle(element).zIndex))
 const focusIsIn = (locator: Locator): Promise<boolean> =>
   locator.evaluate((element) => (element as unknown as PageElement).contains((globalThis as unknown as PageGlobals).document.activeElement))
+/** Whether the focus is on the first stop of Tab inside `locator`. */
+const focusIsOnFirstStop = (locator: Locator): Promise<boolean> =>
+  locator.evaluate((element) => {
+    const stops = [...(element as unknown as PageElement).querySelectorAll('button, [href], input, select, textarea, [tabindex]')].filter(
+      (each) => each.tabIndex >= 0 && each.disabled !== true && each.closest('[hidden], [inert]') === null && each.getClientRects().length > 0,
+    )
+    return stops[0] !== undefined && stops[0] === (globalThis as unknown as PageGlobals).document.activeElement
+  })
+/**
+ * The layers of the page (the elements right under <body>) that hold the move form, the Settings
+ * window and the toasts: whether the form shares the window's, and the z-index of each.
+ */
+const formLayers = (window: Page): Promise<{ sameAsSettings: boolean; settings: number; toasts: number }> =>
+  window.evaluate(() => {
+    const page = globalThis as unknown as PageGlobals
+    const layerOf = (selector: string): PageElement => {
+      let layer = page.document.querySelector(selector)
+      if (layer === null) throw new Error(`no ${selector}`)
+      while (layer.parentElement !== null && layer.parentElement !== page.document.body) layer = layer.parentElement
+      return layer
+    }
+    const settings = layerOf('.w-settings__backdrop')
+    return {
+      sameAsSettings: layerOf('[data-testid="migration-form"]') === settings,
+      settings: Number(page.getComputedStyle(settings).zIndex),
+      toasts: Number(page.getComputedStyle(layerOf('[data-testid="toasts"]')).zIndex),
+    }
+  })
 
 test('Settings → Health shows the checks of the First run dialog; closing Settings writes no mark, closing the dialog does', async () => {
   const launched = await launch()
@@ -210,10 +242,12 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
     const form = window.getByTestId('migration-form')
     // The form as it is once main answered with the plan: its buttons are in.
     await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: ms(30_000) })
-    // Above the window: its layer is higher, and it is what the middle of the window shows.
-    const formLayer = await zIndexOf(form.locator('xpath=..'))
-    // The layer of the Settings window sits on the portal around its backdrop (theme/kit/layer.ts).
-    expect(formLayer).toBeGreaterThan(await zIndexOf(window.locator('.w-settings__backdrop').locator('xpath=..')))
+    // Above the window: the form is a window of the kit opened inside Settings, so Base UI draws it
+    // into the layer of Settings (the portal around its backdrop, theme/kit/layer.ts), after the
+    // window; it is what the middle of the window shows. The toasts' layer stays above both.
+    const layers = await formLayers(window)
+    expect(layers.sameAsSettings, 'the form is drawn in the layer of Settings').toBe(true)
+    expect(layers.toasts).toBeGreaterThan(layers.settings)
     expect(
       await window.evaluate(() => {
         const page = globalThis as unknown as PageGlobals
@@ -230,16 +264,16 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
       expect(await focusIsIn(form), key).toBe(true)
     }
 
-    // A click on text of the form, which takes no focus, does not hand the keyboard to the window
-    // under it: the focus is back on the control that had it, and Tab still turns inside the form.
+    // A click on text of the form does not hand the keyboard to the window under it: the focus goes
+    // to the form itself (a window of the kit), and the next Tab lands on its first control.
     const heading = form.getByRole('heading', { level: 2 })
     const keep = form.getByRole('button', { name: 'Keep' })
     const cancel = form.getByTestId('migration-close')
     await cancel.focus()
     await heading.click()
-    await expect(cancel).toBeFocused()
+    expect(await focusIsIn(form), 'a click on the heading').toBe(true)
     await window.keyboard.press('Tab')
-    expect(await focusIsIn(form), 'Tab after a click on the heading').toBe(true)
+    expect(await focusIsOnFirstStop(form), 'Tab after a click on the heading').toBe(true)
 
     // A click on a control of the form puts the focus on it, as anywhere.
     await keep.click()

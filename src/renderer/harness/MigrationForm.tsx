@@ -1,5 +1,4 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import type {
   MigrationChoice,
   MigrationFileDiff,
@@ -13,6 +12,7 @@ import type {
 } from '../../shared/ipc/harness-migration'
 import { invoke } from '../ipc'
 import { Button } from '../theme/Button'
+import { Dialog } from '../theme/kit/Dialog'
 import { SegmentedControl } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
@@ -21,6 +21,11 @@ import { Select } from '../theme/Select'
 // Profile, each with "Remove" or "Keep" (for what moves: "Move" or "Keep"). CLAUDE.md and the files of
 // the Profiles show as a diff. Move asks main (harnessMigration.apply), which shows the consent
 // dialog, makes the backup and moves; the form then shows the backup and the command that undoes it.
+//
+// The form is a modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 07): the focus
+// trap, Esc, the backdrop and the focus given back are the kit's. Opened from a section of Settings
+// (Pipeline, Health), it is drawn inside the layer of the Settings window, above it, and is the top
+// window of the kit, so its keys are its own: Esc closes the form and leaves Settings open.
 
 const GROUPS: { group: MigrationGroup; title: string; hint: string }[] = [
   { group: 'files', title: 'Harness files', hint: 'The plugin worfy carries these now.' },
@@ -41,9 +46,10 @@ const LABELS: Record<MigrationGroup, Record<MigrationChoice, string>> = {
 }
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 760,
+    // The window itself takes the focus on opening; the ring would mark the whole window.
+    outline: 'none',
     maxWidth: 'calc(100vw - 32px)',
     maxHeight: 'calc(100vh - 48px)',
     display: 'flex',
@@ -273,9 +279,50 @@ export interface MigrationFormViewProps {
   onClose: () => void
 }
 
-/** The form for a given plan; exported for tests. */
-export function MigrationFormView({ plan, busy, result, onMove, onClose }: MigrationFormViewProps) {
+/** The form for a given plan, in its window; exported for tests. */
+export function MigrationFormView(props: MigrationFormViewProps) {
+  return <MigrationWindow {...props} />
+}
+
+/**
+ * The window of the form: while main reads the plan, what it is doing (or why it could not), then the
+ * form. One window for both, so the focus and the place in the kit's stack of windows stay when the
+ * plan comes.
+ */
+function MigrationWindow({ plan, failure, busy, result, onMove, onClose }: Omit<MigrationFormViewProps, 'plan'> & { plan: MigrationPlan | undefined; failure?: string }) {
   const titleId = useId()
+  return (
+    <Dialog
+      open
+      // Nothing closes the form while main moves: neither Esc nor a press on the backdrop.
+      onClose={() => {
+        if (!busy) onClose()
+      }}
+      closeOnBackdrop={!busy}
+      label={plan === undefined ? 'Move the old Harness' : undefined}
+      labelledBy={plan === undefined ? undefined : titleId}
+      className=""
+      style={plan === undefined ? { ...styles.dialog, padding: 'var(--space-4)' } : styles.dialog}
+      data-testid="migration-form"
+    >
+      {plan === undefined ? (
+        <>
+          <p style={failure === undefined ? styles.hint : styles.warning}>{failure ?? 'Reading ~/.claude…'}</p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={onClose} data-testid="migration-close">
+              Cancel
+            </Button>
+          </div>
+        </>
+      ) : (
+        <PlanForm titleId={titleId} plan={plan} busy={busy} result={result} onMove={onMove} onClose={onClose} />
+      )}
+    </Dialog>
+  )
+}
+
+/** The rows of a plan, what the move came to, Cancel and Move. */
+function PlanForm({ titleId, plan, busy, result, onMove, onClose }: MigrationFormViewProps & { titleId: string }) {
   const [choices, setChoices] = useState(() => initialChoices(plan))
   const [fields, setFields] = useState<Record<string, ProfileFields>>(() => Object.fromEntries(plan.profiles.map((profile) => [profile.name, profile.fields])))
   const choose = (id: string) => (choice: MigrationChoice) => setChoices((current) => ({ ...current, [id]: choice }))
@@ -288,19 +335,7 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
   }))
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      style={styles.dialog}
-      data-testid="migration-form"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape' && !busy) {
-          event.stopPropagation()
-          onClose()
-        }
-      }}
-    >
+    <>
       <div style={styles.header}>
         <h2 id={titleId} style={styles.title}>
           Move the old Harness out of ~/.claude
@@ -376,7 +411,7 @@ export function MigrationFormView({ plan, busy, result, onMove, onClose }: Migra
           </Button>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -384,12 +419,10 @@ export interface MigrationFormProps {
   onClose: () => void
   /** Called once a move is done (the toolbar reads its offer again). */
   onMoved: () => void
-  /** The z-index of the form's backdrop, for a caller drawn above the default 100 (the Settings window). */
-  layer?: number
 }
 
 /** The form over the app: reads the plan from main and moves through it. */
-export default function MigrationForm({ onClose, onMoved, layer }: MigrationFormProps) {
+export default function MigrationForm({ onClose, onMoved }: MigrationFormProps) {
   const [plan, setPlan] = useState<MigrationPlan>()
   const [failure, setFailure] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -420,26 +453,5 @@ export default function MigrationForm({ onClose, onMoved, layer }: MigrationForm
     })
   }
 
-  return createPortal(
-    <div
-      style={layer === undefined ? styles.backdrop : { ...styles.backdrop, zIndex: layer }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose()
-      }}
-    >
-      {plan === undefined ? (
-        <div role="dialog" aria-modal="true" aria-label="Move the old Harness" style={{ ...styles.dialog, padding: 'var(--space-4)' }} data-testid="migration-form">
-          <p style={failure === undefined ? styles.hint : styles.warning}>{failure ?? 'Reading ~/.claude…'}</p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button onClick={onClose} data-testid="migration-close">
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <MigrationFormView plan={plan} busy={busy} result={result} onMove={move} onClose={onClose} />
-      )}
-    </div>,
-    document.body,
-  )
+  return <MigrationWindow plan={plan} failure={failure} busy={busy} result={result} onMove={move} onClose={onClose} />
 }

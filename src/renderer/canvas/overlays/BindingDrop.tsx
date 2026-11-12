@@ -22,6 +22,7 @@ import { agentOfNode, dropTargetAt, type DropCandidate } from '../../binding/dro
 import { bindManually, manualOf, removeManualBinding, useManualBindings } from '../../binding/store'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { KIT_DIALOG_ATTRIBUTE } from '../../theme/kit/Dialog'
 import type { CanvasFlowNode } from '../nodes'
 import type { SubagentNodeData } from '../sources/subagents'
 import { applyLayoutOp } from '../useLayout'
@@ -190,12 +191,15 @@ function BindingDropFor({ projectId }: { projectId: string }) {
     }
   }, [flow, store, projectId])
 
-  // The menu closes on Escape and on a press anywhere outside it.
+  // The menu closes on Escape and on a press anywhere outside it. An Escape pressed in a window of the
+  // kit opened over the menu ("?" for Keyboard shortcuts, ⌘, for Settings) is that window's: it closes
+  // the window, and the menu under it stays.
   useEffect(() => {
     if (menu === null) return
     const close = (event: Event) => {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return
       if (event.target instanceof Element && event.target.closest('[data-testid="binding-menu"]')) return
+      if (event instanceof KeyboardEvent && event.target instanceof Element && event.target.closest(`[${KIT_DIALOG_ATTRIBUTE}]`)) return
       // The press that closes the menu does nothing else (the Esc of an active Node, of Focus mode).
       if (event instanceof KeyboardEvent) event.preventDefault()
       setMenu(null)

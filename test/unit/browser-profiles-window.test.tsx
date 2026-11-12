@@ -4,9 +4,11 @@
 // delete names how many Browser Nodes of the Canvas use the profile — Browser Nodes only.
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider, type Node } from '@xyflow/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BrowserProfile } from '../../src/shared/browser/profiles'
 import type { LayoutNode } from '../../src/shared/layout/types'
+import { expectFocusKeptIn, flush } from './kit-window'
 
 const PROJECT = { id: 'p1', name: 'alpha' }
 const profiles: BrowserProfile[] = [
@@ -89,6 +91,48 @@ describe('the window «Browser profiles…»', () => {
     const question = within(window).getByTestId('browser-profile-delete-question')
     expect(within(question).getByTestId('browser-profile-delete-usage').textContent).toBe('2 Browsers on this Canvas use it and will ask for another Browser profile.')
     expect(main.invoke).not.toHaveBeenCalled()
+  })
+
+  it('is a window of the kit: takes the focus on opening, keeps Tab inside, and gives the focus back to the button that opened it (worfy-ui-kit ticket 07)', async () => {
+    const { BrowserProfiles } = await import('../../src/renderer/browser/BrowserProfiles')
+    const frame = vi.fn()
+    function Frame() {
+      const [open, setOpen] = useState(false)
+      return (
+        // The Browser frame the window opens from: its own presses do not reach it.
+        <div onClick={frame} onMouseDown={frame} onKeyDown={frame}>
+          <button type="button" onClick={() => setOpen(true)}>
+            admin
+          </button>
+          {open ? <BrowserProfiles project={PROJECT} selected="admin-aaaaaa" onClose={() => setOpen(false)} /> : null}
+        </div>
+      )
+    }
+    render(
+      <div style={{ width: 800, height: 600 }}>
+        <ReactFlowProvider>
+          <ReactFlow nodes={[]} edges={[]} nodeTypes={nodeTypes}>
+            <Frame />
+          </ReactFlow>
+        </ReactFlowProvider>
+      </div>,
+    )
+    const opener = screen.getByRole('button', { name: 'admin' })
+    opener.focus()
+    fireEvent.click(opener)
+    frame.mockClear()
+    await flush()
+    const window = screen.getByRole('dialog', { name: 'Browser profiles' })
+    expect(document.activeElement).toBe(window)
+    await expectFocusKeptIn(window)
+    fireEvent.click(within(window).getAllByTestId('browser-profile-row')[0]!)
+    fireEvent.mouseDown(window)
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' })
+    expect(frame).not.toHaveBeenCalled()
+    fireEvent.click(within(window).getByTestId('browser-profiles-close'))
+    await flush()
+    expect(screen.queryByTestId('browser-profiles')).toBeNull()
+    expect(document.activeElement).toBe(opener)
   })
 
   it('names the Browser profile in its subtitle', async () => {
