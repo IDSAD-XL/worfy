@@ -1,7 +1,8 @@
 # 02 — Статус MCP-серверов Claude Session и Reconnect
 
 Type: task
-Status: claimed 2026-11-11T22:38Z
+Status: done 2026-11-12T04:20Z
+PR: #1811
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения владельца» Q10; «Решения по реализации» (одна форма
 строки, seam, событие `mcp`, каналы, приватность); «Решения по test-ам»; «Решено без владельца» 2, 3; истории 3, 5, 6,
@@ -57,6 +58,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения 
       gate fast — exit 0.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
   - evidence: gate pass · `gate fast` exit 0 · mac - · a12fb58b1a3edc071d19c36fcb6de98504b22b66
+  - evidence: ci-check pass · CI green on PR #1811 (ci-ok, e2e jobs included) · mac - · 62c3b5887f2e32d855f224b6d3d47075cfc97c3c
 
 ## Где в коде
 

@@ -1,7 +1,7 @@
 # 01 — Spike Base UI в Electron
 
 Type: spike
-Status: claimed 2026-11-11T23:54Z
+Status: done 2026-11-12T04:20Z
 PR: #1819
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 01; «Решения по реализации» (`Select` внутри окна kit, Esc); «Риски»
@@ -44,6 +44,7 @@ shortcuts и Guide ловят Esc и Tab в capture phase на window, свой 
   - evidence: commit pass · worfy-ui-kit 01: review round 1 — Esc rule into tickets 03/10/11, main run ids, modal menu source · - - · b72e47ba78550b5dd2d55279b7485a20d765f27f
 - [ ] lint и gate fast — exit 0.
   - evidence: test-run pass · `pnpm lint` exit 0; `gate fast` exit 0 with nothing ran (docs only) · mac - · b72e47ba78550b5dd2d55279b7485a20d765f27f
+  - evidence: ci-check pass · CI green on PR #1819 (ci-ok, e2e jobs included) · mac - · 274b8024a70b1822099009cd3f59cd6912b06700
 
 ## Где в коде
 
