@@ -210,7 +210,7 @@ describe("the countdown in the Orchestrator's chat (worfy-retry ticket 07)", () 
     for (const name of ['Retry now', 'Cancel']) {
       const button = screen.getByRole('button', { name })
       expect(button.getAttribute('aria-disabled')).toBe('true')
-      expect(button.getAttribute('title')).toBe(readOnly.hint)
+      expect(button.getAttribute('data-kit-hint')).toBe(readOnly.hint)
       fireEvent.click(button)
     }
     await settle()

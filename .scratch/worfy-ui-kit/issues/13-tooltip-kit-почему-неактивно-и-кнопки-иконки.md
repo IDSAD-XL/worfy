@@ -1,7 +1,7 @@
 # 13 — Tooltip kit: подсказки «почему неактивно» и кнопки-иконки
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:18Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения по реализации» (Tooltip kit); истории 5, 6; заметка темы
 `docs/product/ui-overhaul/notes/inventory-overlays.md`, раздел 4

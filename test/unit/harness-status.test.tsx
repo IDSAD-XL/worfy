@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -28,6 +28,20 @@ const STATES: HarnessState[] = [
 
 afterEach(cleanup)
 
+/**
+ * The tooltip of an icon button: the Tooltip kit's (theme/kit/Tooltip.tsx, worfy-ui-kit ticket 13),
+ * read as the keyboard focus shows it; the button carries no native title beside it.
+ */
+async function tooltipOf(button: HTMLElement): Promise<string> {
+  expect(button.hasAttribute('title')).toBe(false)
+  fireEvent.keyDown(document.body, { key: 'Tab' })
+  act(() => button.focus())
+  const text = (await screen.findByRole('tooltip')).textContent ?? ''
+  act(() => button.blur())
+  await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull())
+  return text
+}
+
 describe('HarnessStatusView', () => {
   it.each(STATES)('in a dev build without WORFY_CLAUDE_HOME shows the state "$kind" and no install button', (state) => {
     render(<HarnessStatusView status={status(state, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
@@ -38,18 +52,18 @@ describe('HarnessStatusView', () => {
     expect(screen.queryByTestId('harness-action')).toBeNull()
   })
 
-  it('with the install offered: Install, Update Harness and Retry are icon buttons with their names, and call the action', () => {
+  it('with the install offered: Install, Update Harness and Retry are icon buttons with their names, and call the action', async () => {
     const labels = { 'not-installed': 'Install', outdated: 'Update Harness', error: 'Retry' } as Record<string, string>
     for (const state of STATES) {
       const onInstall = vi.fn()
       render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={onInstall} />)
       const button = screen.getByRole('button', { name: labels[state.kind] })
       expect(button.getAttribute('data-testid')).toBe('harness-action')
-      // An icon, not a word: the name is the aria-label, the tooltip is the title.
+      // An icon, not a word: the name is the aria-label, the tooltip is the Tooltip kit's.
       expect(button.textContent).toBe('')
       expect(button.querySelector('svg')).not.toBeNull()
       expect(button.className).toContain('w-toolbar__icon-button')
-      expect(button.getAttribute('title')).not.toBe('')
+      expect(await tooltipOf(button)).not.toBe('')
       fireEvent.click(button)
       expect(onInstall).toHaveBeenCalledTimes(1)
       cleanup()
@@ -187,7 +201,7 @@ describe('HarnessStatusView', () => {
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('claude plugin marketplace add … exited with 1')
   })
 
-  it('an error of `dependency install` names the step, and the hint of Retry tells of no command to run by hand', () => {
+  it('an error of `dependency install` names the step, and the hint of Retry tells of no command to run by hand', async () => {
     const state: HarnessState = { kind: 'error', step: 'dependency install', reason: 'the Harness needs example-skills@claude-plugins-official, and Claude Code does not list it as installed' }
     const onInstall = vi.fn()
     render(<HarnessStatusView status={{ ...status(state, true), dependencies: [{ id: 'example-skills@claude-plugins-official', status: 'missing', version: null }] }} busy={false} failure={undefined} onInstall={onInstall} />)
@@ -195,7 +209,7 @@ describe('HarnessStatusView', () => {
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe(state.reason)
     const retry = screen.getByTestId('harness-action')
     expect(retry.getAttribute('aria-label')).toBe('Retry')
-    const hint = retry.getAttribute('title') ?? ''
+    const hint = await tooltipOf(retry)
     expect(hint).not.toContain('claude plugin install')
     expect(hint).not.toMatch(/install it with|by hand|yourself|first/i)
     // Retry installs what is missing: the hint says so.
@@ -204,29 +218,29 @@ describe('HarnessStatusView', () => {
     expect(onInstall).toHaveBeenCalledTimes(1)
   })
 
-  it('the Install icon names the version and the folder it installs into in its tooltip', () => {
+  it('the Install icon names the version and the folder it installs into in its tooltip', async () => {
     render(<HarnessStatusView status={status(STATES[0]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
-    expect(screen.getByRole('button', { name: 'Install' }).getAttribute('title')).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/someone/.claude/worfy-harness/plugin')
+    expect(await tooltipOf(screen.getByRole('button', { name: 'Install' }))).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/someone/.claude/worfy-harness/plugin')
   })
 
-  it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', () => {
+  it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', async () => {
     render(<HarnessStatusView status={status(STATES[1]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.1.0+aaaaaaa')
     const update = screen.getByRole('button', { name: 'Update Harness' })
-    expect(update.getAttribute('title')).toBe('Update Harness: 0.1.0+aaaaaaa → 0.2.0+bbbbbbb')
+    expect(await tooltipOf(update)).toBe('Update Harness: 0.1.0+aaaaaaa → 0.2.0+bbbbbbb')
     // An icon, not the words "Update Harness": the name lives only in aria-label and the tooltip.
     expect(update.textContent).toBe('')
     expect(update.querySelector('svg')).not.toBeNull()
   })
 
   // worfy-harness ticket 67: the same semver from another commit has no order, so nothing says "update" or "→".
-  it('the same version from another commit: "Replace Harness" with a tooltip that says worfy cannot tell which is newer, and no arrow', () => {
+  it('the same version from another commit: "Replace Harness" with a tooltip that says worfy cannot tell which is newer, and no arrow', async () => {
     const same: HarnessState = { kind: 'outdated', from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb', sameVersion: true }
     render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa')
     expect(screen.queryByRole('button', { name: 'Update Harness' })).toBeNull()
     const replace = screen.getByRole('button', { name: 'Replace Harness' })
-    expect(replace.getAttribute('title')).toBe('Replace Harness 0.3.0+aaaaaaa with 0.3.0+bbbbbbb: the same version from another commit, and worfy cannot tell which one is newer')
+    expect(await tooltipOf(replace)).toBe('Replace Harness 0.3.0+aaaaaaa with 0.3.0+bbbbbbb: the same version from another commit, and worfy cannot tell which one is newer')
     cleanup()
     render(<HarnessStatusView status={status(same, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.3.0+aaaaaaa, this build 0.3.0+bbbbbbb')
@@ -241,13 +255,13 @@ describe('HarnessStatusView', () => {
     expect(update.textContent).toBe('')
   })
 
-  it('the same version from another commit that is behind the copy (harnessBehind): "Update Harness: FROM → TO" with the accent and a dot, and the same action', () => {
+  it('the same version from another commit that is behind the copy (harnessBehind): "Update Harness: FROM → TO" with the accent and a dot, and the same action', async () => {
     const same: HarnessState = { kind: 'outdated', from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb', sameVersion: true }
     const onInstall = vi.fn()
     render(<HarnessStatusView status={status(same, true)} busy={false} failure={undefined} onInstall={onInstall} harnessBehind={{ from: '0.3.0+aaaaaaa', to: '0.3.0+bbbbbbb' }} />)
     expect(screen.queryByRole('button', { name: 'Replace Harness' })).toBeNull()
     const update = screen.getByRole('button', { name: 'Update Harness' })
-    expect(update.getAttribute('title')).toBe('Update Harness: 0.3.0+aaaaaaa → 0.3.0+bbbbbbb')
+    expect(await tooltipOf(update)).toBe('Update Harness: 0.3.0+aaaaaaa → 0.3.0+bbbbbbb')
     expect(update.classList.contains('w-toolbar__icon-button--accent')).toBe(true)
     expect(update.querySelector('.w-update-dot')).not.toBeNull()
     fireEvent.click(update)
@@ -287,12 +301,12 @@ describe('HarnessStatusView', () => {
     }
   })
 
-  it('"Move old Harness…" is an icon button with that name and tooltip', () => {
+  it('"Move old Harness…" is an icon button with that name and tooltip', async () => {
     const onMigrate = vi.fn()
     render(<HarnessStatusView status={status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={onMigrate} />)
     const move = screen.getByRole('button', { name: 'Move old Harness…' })
     expect(move.getAttribute('data-testid')).toBe('harness-migrate')
-    expect(move.getAttribute('title')).toBe('Move old Harness…')
+    expect(await tooltipOf(move)).toBe('Move old Harness…')
     expect(move.textContent).toBe('')
     fireEvent.click(move)
     expect(onMigrate).toHaveBeenCalledTimes(1)

@@ -301,7 +301,7 @@ describe('the Projects of Linked machines', () => {
     fireEvent.contextMenu(within(mini!).getAllByTestId('project-row')[0]!)
     const remove = screen.getByRole('menuitem', { name: 'Remove from list' })
     expect(remove.getAttribute('aria-disabled')).toBe('true')
-    expect(remove.getAttribute('title')).toBe('Mini gives this Machine read-only access')
+    expect(remove.getAttribute('data-kit-hint')).toBe('Mini gives this Machine read-only access')
     fireEvent.click(remove)
     expect(calls.filter(([channel, input]) => channel === 'linked.invoke' && (input as { channel: string }).channel === 'projects.remove')).toEqual([])
     fireEvent.keyDown(screen.getByRole('menu', { name: 'Project' }), { key: 'Escape' })

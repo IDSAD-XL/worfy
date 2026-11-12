@@ -426,7 +426,7 @@ describe('a chip', () => {
       const view = renderShelf(id)
       const chip = screen.getByRole('button', { name: 'Expand a, 2 of 2 done' })
       expect(chip.getAttribute('aria-disabled')).toBe('true')
-      expect(chip.getAttribute('title')).toBe('Studio gives this Machine read-only access')
+      expect(chip.getAttribute('data-kit-hint')).toBe('Studio gives this Machine read-only access')
       chip.click()
       await act(async () => {})
       view.unmount()

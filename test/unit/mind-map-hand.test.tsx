@@ -247,7 +247,7 @@ describe('MindMap by hand', () => {
     expect(placeOf('who-pays')).toEqual(before)
     const fold = within(nodeOf('idea-teams')!).getByRole('button', { name: 'Fold the branch' })
     expect(fold.getAttribute('aria-disabled')).toBe('true')
-    expect(fold.title).toBe('Studio gives this Machine read-only access')
+    expect(fold.getAttribute('data-kit-hint')).toBe('Studio gives this Machine read-only access')
     fireEvent.click(fold)
     fireEvent.keyDown(nodeOf('idea-teams')!, { key: 'ArrowLeft' })
     expect(layoutCalls()).toEqual([])

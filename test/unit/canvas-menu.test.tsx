@@ -243,7 +243,7 @@ describe('the Canvas menu', () => {
     for (const name of ['Tidy up', 'Arrange by Epic', 'Re-pack']) {
       const item = screen.getByRole('menuitem', { name })
       expect(item.getAttribute('aria-disabled'), name).toBe('true')
-      expect(item.getAttribute('title'), name).toBe(HINT)
+      expect(item.getAttribute('data-kit-hint'), name).toBe(HINT)
       fireEvent.click(item)
     }
     expect(tidyUp.run).not.toHaveBeenCalled()

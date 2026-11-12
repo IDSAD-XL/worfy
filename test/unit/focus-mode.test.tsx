@@ -606,7 +606,8 @@ describe('inside the window shell', () => {
     const hide = within(layer()).getByRole('button', { name: 'Hide sidebar' })
     expect(bar.firstElementChild).toBe(hide)
     expect(hide.getAttribute('aria-pressed')).toBe('true')
-    expect(hide.getAttribute('title')).toBe('Hide sidebar (⌘B)')
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13); a screen reader hears it as the description.
+    expect(hide.getAttribute('aria-description')).toBe('Hide sidebar (⌘B)')
     fireEvent.click(hide)
     expect(screen.queryByRole('navigation', { name: 'Sidebar' })).toBeNull()
     expect(bar.dataset.sidebar).toBe('hidden')

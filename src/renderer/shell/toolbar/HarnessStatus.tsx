@@ -5,6 +5,7 @@ import CodexHooksStep from '../../harness/CodexHooksStep'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
 import { invoke, subscribe } from '../../ipc'
+import { Tooltip } from '../../theme/kit/Tooltip'
 import { useUpdate } from '../../update/store'
 import UpdateChip from '../../update/UpdateChip'
 
@@ -83,7 +84,7 @@ interface IconButtonProps {
   icon: keyof typeof ICONS
   /** The accessible name. */
   label: string
-  /** The native tooltip; the label when omitted. */
+  /** The tooltip (Tooltip kit); the label when omitted. */
   title?: string
   onClick: () => void
   testId: string
@@ -94,10 +95,12 @@ interface IconButtonProps {
 function IconButton({ icon, label, title, onClick, testId, accent = false }: IconButtonProps) {
   const className = `w-toolbar__icon-button w-toolbar__icon-button--compact${accent ? ' w-toolbar__icon-button--accent' : ''}`
   return (
-    <button type="button" className={className} aria-label={label} title={title ?? label} onClick={onClick} data-testid={testId}>
-      {ICONS[icon]}
-      {accent ? <span className="w-update-dot" aria-hidden="true" /> : null}
-    </button>
+    <Tooltip label={title ?? label}>
+      <button type="button" className={className} aria-label={label} onClick={onClick} data-testid={testId}>
+        {ICONS[icon]}
+        {accent ? <span className="w-update-dot" aria-hidden="true" /> : null}
+      </button>
+    </Tooltip>
   )
 }
 

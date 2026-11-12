@@ -1,0 +1,23 @@
+/* Tooltip kit (theme/kit/Tooltip.tsx, worfy-ui-kit ticket 13): a short line of text next to its element,
+   on the raised surface with its border, as the shared chip. It never takes a pointer: a press or a
+   hover goes to what lies under it, so it never stands in the way of the next click. */
+.w-tooltip {
+  max-width: 320px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-control);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 16px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* The element it belongs to has left the screen (scrolled away, or gone from the DOM): no tooltip
+   pointing at nothing. */
+.w-tooltip-positioner[data-anchor-hidden] {
+  visibility: hidden;
+}

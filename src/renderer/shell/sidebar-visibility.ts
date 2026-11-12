@@ -16,6 +16,7 @@ import { followMenuCommand } from '../menu-command'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { ariaKeys, label } from '../shortcuts/match'
+import { Tooltip } from '../theme/kit/Tooltip'
 
 /** Which of the two saved answers counts: the one of focus mode while it is on screen. */
 export type SidebarMode = 'normal' | 'focus'
@@ -89,7 +90,7 @@ export const SIDEBAR_TOGGLE_SELECTOR = '[data-sidebar-toggle]'
 /** The button that hides and shows the sidebar: the same in the sidebar, in the toolbar and in the focus mode bar. */
 export function SidebarToggle({ visible, onToggle, className }: SidebarToggleProps): ReactElement {
   const name = visible ? 'Hide sidebar' : 'Show sidebar'
-  return createElement(
+  const button = createElement(
     'button',
     {
       type: 'button',
@@ -98,7 +99,6 @@ export function SidebarToggle({ visible, onToggle, className }: SidebarTogglePro
       'aria-pressed': visible,
       // ⌘B on macOS, Ctrl+B elsewhere: the accelerator of View ▸ Toggle Sidebar (src/main/menu.ts).
       'aria-keyshortcuts': ariaKeys(SHORTCUTS.toggleSidebar),
-      title: `${name} (${label(SHORTCUTS.toggleSidebar)})`,
       'data-sidebar-toggle': '',
       onClick: onToggle,
     },
@@ -109,4 +109,5 @@ export function SidebarToggle({ visible, onToggle, className }: SidebarTogglePro
       createElement('path', { d: 'M6 2.75v10.5' }),
     ),
   )
+  return createElement(Tooltip, { label: `${name} (${label(SHORTCUTS.toggleSidebar)})`, children: button })
 }
