@@ -84,23 +84,6 @@ export function ListRow({ label, icon, trailing, selected = false, onSelect, mon
   )
 }
 
-export interface PrimaryButtonProps {
-  children: ReactNode
-  icon?: ReactNode
-  onClick?: () => void
-  disabled?: boolean
-}
-
-/** The one main action of a place (Run wave, Ship ticket, Allow). */
-export function PrimaryButton({ children, icon, onClick, disabled = false }: PrimaryButtonProps) {
-  return (
-    <button type="button" className="w-primary" onClick={onClick} disabled={disabled}>
-      {icon}
-      {children}
-    </button>
-  )
-}
-
 export interface SegmentOption<T extends string> {
   value: T
   label: string

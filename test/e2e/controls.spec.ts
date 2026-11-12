@@ -21,6 +21,16 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 
 const PROJECT = 'alpha-0000000a'
 
+/** The variants of Button as its markup, drawn into the app's document by the probe below. */
+const BUTTON_PROBES = [
+  '<button type="button" class="w-button w-button--primary" data-testid="probe-button-primary">Save</button>',
+  '<button type="button" class="w-button w-button--secondary" data-testid="probe-button-secondary">Cancel</button>',
+  '<button type="button" class="w-button w-button--danger" data-testid="probe-button-danger">Delete</button>',
+  '<button type="button" class="w-button w-button--link" data-testid="probe-button-link">Open</button>',
+  '<button type="button" class="w-button w-button--icon" aria-label="Close" data-testid="probe-button-icon">×</button>',
+  '<button type="button" class="w-button w-button--primary" aria-disabled="true" title="Read-only: a Linked machine" data-testid="probe-button-inactive">Save</button>',
+].join('')
+
 /** What a click can act on; the same list as the control rules of tokens.css. */
 const CONTROLS = [
   'button',
@@ -244,15 +254,33 @@ for (const scheme of ['light', 'dark'] as const) {
     // a Linked machine or a Harness profile) and the label of a disabled checkbox (the Autopilot box
     // of a read-only Browser profile). Drawn into the app's own document, so the app's own
     // stylesheets style them.
-    await window.evaluate(() => {
+    await window.evaluate((buttons: string) => {
       const probe = (globalThis as unknown as { document: { createElement: (tag: string) => { innerHTML: string; style: { cssText: string } }; body: { append: (node: unknown) => void } } }).document
       const holder = probe.createElement('div')
       holder.style.cssText = 'position: fixed; left: 360px; top: 120px; z-index: 100000; display: flex; gap: 8px; padding: 8px; background: var(--surface)'
-      holder.innerHTML = '<button type="button" class="w-action" disabled data-testid="probe-action">Up</button><label data-testid="probe-label"><input type="checkbox" disabled> Available to Autopilot</label>'
+      holder.innerHTML = '<button type="button" class="w-action" disabled data-testid="probe-action">Up</button><label data-testid="probe-label"><input type="checkbox" disabled> Available to Autopilot</label>' + buttons
       probe.body.append(holder)
-    })
+    }, BUTTON_PROBES)
     await expectInactive(window, window.getByTestId('probe-action'), 'a disabled .w-action button')
     await expectInactive(window, window.getByTestId('probe-label'), 'the label of a disabled checkbox')
+    // The variants of Button (theme/Button.tsx, worfy-ui-kit ticket 15): each one a control with the
+    // veil, aria-disabled an inactive one that keeps its tooltip, and the keyboard focus ring.
+    for (const variant of ['primary', 'secondary', 'danger', 'link', 'icon']) await expectControl(window, window.getByTestId(`probe-button-${variant}`), `the ${variant} Button`)
+    const inactive = window.getByTestId('probe-button-inactive')
+    await expectInactive(window, inactive, 'a Button with aria-disabled')
+    await expect(inactive, 'a Button with aria-disabled keeps its tooltip').toHaveAttribute('title', 'Read-only: a Linked machine')
+    const secondary = window.getByTestId('probe-button-secondary')
+    await secondary.focus()
+    await window.keyboard.press('Shift+Tab')
+    const primary = window.getByTestId('probe-button-primary')
+    await expect(primary).toBeFocused()
+    const buttonRing = await primary.evaluate((element) => {
+      const focused = element as PageElement
+      if (!focused.matches(':focus-visible')) return 'no keyboard focus'
+      const style = (globalThis as unknown as PageGlobals).getComputedStyle(focused)
+      return `${style.outlineStyle} ${style.outlineWidth}`
+    })
+    expect(buttonRing, 'the keyboard focus ring of the primary Button').toBe('solid 2px')
     await window.evaluate(() => (globalThis as unknown as { document: { querySelector: (selector: string) => { parentElement: { remove: () => void } } | null } }).document.querySelector('[data-testid="probe-action"]')?.parentElement.remove())
 
     // The selection toolbar of a selected Note: its buttons, and its own ground that is not one.

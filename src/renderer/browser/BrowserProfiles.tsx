@@ -14,7 +14,7 @@ import { BROWSER_KIND, browserProfileUsage } from '../canvas/nodes/browser-frame
 import type { CanvasFlowNode } from '../canvas/nodes'
 import { invoke } from '../ipc'
 import { useReadOnly } from '../projects/useProjects'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 import { useBrowserProfiles } from './profiles'
 
 export interface BrowserProfilesProps {
@@ -76,24 +76,6 @@ const styles = {
   error: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
   confirm: { margin: 'var(--space-3) 0 0', padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-button)', border: '1px solid var(--blocked-ring)' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
-  danger: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--blocked-ring)',
-    background: 'var(--surface)',
-    color: 'var(--blocked-text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>
 
 /**
@@ -230,13 +212,13 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
         </p>
       ) : null}
       <div style={styles.actions}>
-        <button type="button" style={styles.danger} disabled={locked} title={readOnly ?? undefined} data-testid="browser-profile-delete" onClick={() => setConfirming(true)}>
+        <Button variant="danger" quiet disabled={locked} title={readOnly ?? undefined} data-testid="browser-profile-delete" onClick={() => setConfirming(true)}>
           Delete…
-        </button>
+        </Button>
         <span style={{ flex: 1 }} />
-        <PrimaryButton disabled={locked || !changed || error !== undefined || signIn.error !== undefined || nameError !== undefined} onClick={() => void save()}>
+        <Button variant="primary" disabled={locked || !changed || error !== undefined || signIn.error !== undefined || nameError !== undefined} onClick={() => void save()}>
           Save
-        </PrimaryButton>
+        </Button>
       </div>
       {confirming ? (
         <div style={styles.confirm} role="alertdialog" aria-label={`Delete ${profile.name}`} data-testid="browser-profile-delete-question">
@@ -248,12 +230,12 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
           </p>
           <div style={styles.actions}>
             <span style={{ flex: 1 }} />
-            <button type="button" style={styles.secondary} onClick={() => setConfirming(false)}>
+            <Button onClick={() => setConfirming(false)}>
               Cancel
-            </button>
-            <button type="button" style={styles.danger} disabled={locked} data-testid="browser-profile-delete-confirm" onClick={() => void remove()}>
+            </Button>
+            <Button variant="danger" quiet disabled={locked} data-testid="browser-profile-delete-confirm" onClick={() => void remove()}>
               Delete
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -359,9 +341,9 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
               if (event.key === 'Enter') void create()
             }}
           />
-          <button type="button" style={styles.secondary} disabled={readOnly !== null || creating || newName.trim() === ''} title={readOnly ?? undefined} data-testid="browser-profiles-create" onClick={() => void create()}>
+          <Button disabled={readOnly !== null || creating || newName.trim() === ''} title={readOnly ?? undefined} data-testid="browser-profiles-create" onClick={() => void create()}>
             Create
-          </button>
+          </Button>
         </div>
         {failure ? (
           <p role="alert" style={{ ...styles.error, margin: '0 0 var(--space-3)' }}>
@@ -388,9 +370,9 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
 
         <div style={{ ...styles.actions, marginTop: 'var(--space-4)' }}>
           <span style={{ flex: 1 }} />
-          <button type="button" style={styles.secondary} data-testid="browser-profiles-close" onClick={onClose}>
+          <Button data-testid="browser-profiles-close" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </div>,

@@ -1,0 +1,143 @@
+/*
+ * Button (theme/Button.tsx, worfy-ui-kit ticket 15): the variants primary, secondary, danger, link and
+ * icon, and one scale of button heights. The pointer, the hover veil and the focus ring stay the shared
+ * rules of tokens.css; a variant that draws its own shadow (primary) draws its own hover.
+ */
+
+/* The scale of button heights, on the row height of tokens.css: s — the actions on a Node; m — popovers,
+   cards, the PR inbox; l — windows, dialogs and Session bars. Area styles take their heights from here. */
+:root {
+  --button-height-s: calc(var(--row-height) - 8px);
+  --button-height-m: calc(var(--row-height) - 4px);
+  --button-height-l: var(--row-height);
+}
+
+/* `.w-primary`: the class of the former PrimaryButton, still written by update/WhatsNew.tsx. */
+.w-button,
+.w-primary {
+  --button-height: var(--button-height-l);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: var(--button-height);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-button);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-13);
+  white-space: nowrap;
+}
+.w-button__icon {
+  display: inline-flex;
+  flex: none;
+}
+/* An inactive Button is dimmed to 50 %, as a write action of a read-only screen (F-SPEC, "Read only");
+   aria-disabled keeps the tooltip and the focus. No rule here sets the opacity back. */
+.w-button:disabled,
+.w-button[aria-disabled='true'],
+.w-primary:disabled {
+  opacity: 0.5;
+}
+
+/* Secondary: every action of a place but the main one. */
+.w-button--secondary {
+  --button-height: var(--button-height-l);
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/*
+ * Primary: the one main action of a place. The selectors after the first two are the area buttons
+ * whose markup has not moved to Button yet: their area styles keep the size, the hover and the
+ * inactive look F-SPEC gives them, and take the colours from here. Two classes each, so this rule
+ * wins over the area's own base rule whichever file loads first.
+ */
+.w-button--primary,
+.w-primary,
+.w-composer__send:not(.w-composer__send--text),
+.w-action.w-action--primary,
+.w-apstart__button.w-apstart__button--primary,
+.w-qbtn.w-qbtn--primary,
+.w-pr-inbox-button.w-pr-inbox-button--primary {
+  --button-height: var(--button-height-l);
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+/* The raised ones: the Node actions and the PR inbox have no shadow. */
+.w-button--primary,
+.w-primary,
+.w-composer__send:not(.w-composer__send--text),
+.w-apstart__button.w-apstart__button--primary,
+.w-qbtn.w-qbtn--primary {
+  box-shadow: var(--shadow-primary);
+}
+:is(
+    .w-button--primary,
+    .w-primary,
+    .w-composer__send:not(.w-composer__send--text),
+    .w-apstart__button.w-apstart__button--primary,
+    .w-qbtn.w-qbtn--primary
+  ):hover:not(:disabled, [aria-disabled='true']) {
+  color: var(--primary-text);
+  box-shadow: var(--shadow-primary), var(--hover-shadow);
+}
+/* The compact primary buttons of the send bar, quote comments and the PR inbox: grey while disabled. */
+:is(.w-composer__send:not(.w-composer__send--text), .w-qbtn.w-qbtn--primary, .w-pr-inbox-button.w-pr-inbox-button--primary):disabled {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-weight: 400;
+  box-shadow: none;
+}
+
+/*
+ * Danger, two looks. The fill (F-SPEC, "Buttons of the window"): an action that stops someone's work,
+ * "Interrupt and start"; `--danger` and `--danger-text` live in autopilot/autopilot-modal.css. Quiet
+ * (`quiet` of Button): red text and a red ring on the surface, for Deny, Decline and Delete beside a
+ * primary action, where a fill would outshout it. The area selectors: as for primary.
+ */
+.w-button--danger,
+.w-apstart__button.w-apstart__button--danger {
+  --button-height: var(--button-height-l);
+  border-color: transparent;
+  background: var(--danger);
+  color: var(--danger-text);
+  font-weight: 600;
+}
+.w-button--danger.w-button--quiet,
+.w-qbtn.w-qbtn--danger {
+  border-color: var(--blocked-ring);
+  background: var(--surface);
+  color: var(--blocked-text);
+  font-weight: 400;
+}
+
+/* Link: text in the accent colour, no box. */
+.w-button--link {
+  --button-height: var(--button-height-m);
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+}
+.w-button--link:hover:not(:disabled, [aria-disabled='true']) {
+  text-decoration: underline;
+}
+
+/* Icon: a square of the button height, the glyph alone; its name is its aria-label. */
+.w-button--icon {
+  --button-height: var(--button-height-l);
+  width: var(--button-height);
+  padding: 0;
+  border: 0;
+  color: var(--text-secondary);
+}
+.w-button--icon:hover:not(:disabled, [aria-disabled='true']) {
+  background: var(--surface-raised);
+}

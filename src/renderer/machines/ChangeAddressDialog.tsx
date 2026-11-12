@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { formatLinkAddress, parseLinkAddress } from '../../shared/ipc/link'
 import { focusablesOf } from '../settings/settings-window'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 import { dialogStyles } from './machine-dialogs'
 import { setMachineAddress } from './useMachines'
 
@@ -156,12 +156,12 @@ export function ChangeAddressDialog({ machine, onClose }: ChangeAddressDialogPro
       </div>
       <div style={dialogStyles.actions}>
         <span style={{ flex: 1 }} />
-        <button type="button" style={dialogStyles.secondary} onClick={onClose}>
+        <Button onClick={onClose}>
           Cancel
-        </button>
-        <PrimaryButton disabled={saving || address.trim() === ''} onClick={() => void save()}>
+        </Button>
+        <Button variant="primary" disabled={saving || address.trim() === ''} onClick={() => void save()}>
           {saving ? 'Checking…' : 'Save'}
-        </PrimaryButton>
+        </Button>
       </div>
     </MachineDialogFrame>
   )

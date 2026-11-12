@@ -59,13 +59,4 @@ export const dialogStyles = {
   hint: { color: 'var(--text-muted)', fontSize: 'var(--text-12)' },
   error: { color: 'var(--blocked-text)', fontSize: 'var(--text-12)', overflowWrap: 'anywhere' },
   actions: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)' },
-  secondary: {
-    height: 'var(--row-height)',
-    padding: '0 var(--space-3)',
-    borderRadius: 'var(--radius-button)',
-    border: '1px solid var(--border-strong)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-13)',
-  },
 } satisfies Record<string, CSSProperties>

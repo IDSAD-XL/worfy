@@ -8,7 +8,7 @@
 // when connected, else on its next connection); linking it again takes a new code. Nothing is
 // called before the user confirms.
 import { useEffect, useRef, useState } from 'react'
-import { PrimaryButton } from '../theme/primitives'
+import { Button } from '../theme/Button'
 import { ChangeAddressDialog, MachineDialogFrame } from './ChangeAddressDialog'
 import { closeMachineDialog, dialogStyles, useMachineDialog } from './machine-dialogs'
 import { revokeMachine, useMachines } from './useMachines'
@@ -62,12 +62,12 @@ export function RemoveMachineDialog({ machine, last, onClose }: RemoveMachineDia
       ) : null}
       <div style={dialogStyles.actions}>
         <span style={{ flex: 1 }} />
-        <button ref={cancel} type="button" style={dialogStyles.secondary} onClick={onClose}>
+        <Button ref={cancel} onClick={onClose}>
           Cancel
-        </button>
-        <PrimaryButton disabled={removing} onClick={() => void remove()}>
+        </Button>
+        <Button variant="primary" disabled={removing} onClick={() => void remove()}>
           Remove
-        </PrimaryButton>
+        </Button>
       </div>
     </MachineDialogFrame>
   )
