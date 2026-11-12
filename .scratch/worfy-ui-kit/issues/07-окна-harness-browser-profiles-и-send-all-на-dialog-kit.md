@@ -39,11 +39,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
 
 - [ ] Unit test-ы окон: при открытии фокус в окне; Tab не уходит из окна; после закрытия фокус на кнопке, которая окно
       открыла.
+  - evidence: test-run pass · `pnpm test` on test/unit harness-migration-form, codex-hooks-step, browser-profiles-window, draft-thread, chat-attachments (82 files of the touched modules) exit 0 · mac - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
 - [ ] Существующие unit test-ы и e2e `harness-migrate.spec.ts`, `codex-hooks-step.spec.ts`, `browser-profile.spec.ts`,
       `pr-inbox.spec.ts`, `chat-attachments.spec.ts` зелёные без правок ролей и `data-testid`.
 - [ ] Своих focus trap и backdrop в этих пяти окнах нет.
+  - evidence: commit pass · Harness forms, Browser profiles, Send all and the full-size image on the kit's Dialog (worfy-ui-kit 07) · - - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
 
 ## Где в коде
 
