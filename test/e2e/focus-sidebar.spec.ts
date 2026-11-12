@@ -713,7 +713,9 @@ test('View ▸ Toggle Sidebar works wherever the keyboard focus is — a Termina
   try {
     const { app, window } = launched
     await expect(window.getByTestId('note-node')).toHaveCount(2)
-    const sidebar = sidebarOf(window)
+    // includeHidden: under the modal Command palette the sidebar is hidden from a screen reader. A
+    // hidden sidebar is not on the page at all, so the count still says whether it is shown.
+    const sidebar = window.getByRole('navigation', { name: 'Sidebar', includeHidden: true })
     /** One click of the item, and the sidebar is the other way round. */
     const toggle = async (): Promise<void> => {
       const shown = (await sidebar.count()) > 0
