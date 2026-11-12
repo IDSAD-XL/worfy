@@ -7,7 +7,8 @@
  * What every popup gets here:
  * - it closes when the window loses the focus (a press inside a Browser Node's <webview> takes the
  *   focus out of the renderer, and Base UI does not see it as a press outside: Base UI #5410) and
- *   when the view of the shell switches, so it never hangs over another view;
+ *   when the view of the shell switches, so it never hangs over another view; a modal window of the
+ *   kit (`modal`, theme/kit/Dialog.tsx) does neither: it is over the whole app, not over a view;
  * - Esc pressed in the popup or on its trigger is taken in React's phase, there: it closes the popup
  *   and is marked handled (`preventDefault`, `stopPropagation`), so an ancestor in the React tree
  *   with its own Esc (the rail panel of session/ProductSessionPanel.tsx) does not act on the same
@@ -55,6 +56,12 @@ export interface KitLayerOptions {
   close: () => void
   /** The popup is drawn for a Node on the Canvas. */
   inNode?: boolean
+  /**
+   * A modal window over the whole app (theme/kit/Dialog.tsx): it stays open when the window of the
+   * app loses the focus — the person comes back to it — and when the view of the shell switches
+   * under it. Its backdrop takes every press, so a press inside a <webview> cannot happen.
+   */
+  modal?: boolean
 }
 
 /** The props a kit wrapper spreads on its Base UI popup element. */
@@ -76,12 +83,12 @@ export interface KitLayer {
   trigger: KitTriggerProps
 }
 
-/** The shared part of a kit popup: closing on a blur of the window and on a view switch, and the props of the popup and its trigger. */
-export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): KitLayer {
+/** The shared part of a kit popup: closing on a blur of the window and on a view switch (not for a modal window), and the props of the popup and its trigger. */
+export function useKitLayer({ open, close, inNode = false, modal = false }: KitLayerOptions): KitLayer {
   const closeNow = useEffectEvent(close)
 
   useEffect(() => {
-    if (!open) return
+    if (!open || modal) return
     const onBlur = () => closeNow()
     // A view switch sets `hidden` on the view left and takes it off the view shown.
     const views = new MutationObserver((records) => {
@@ -93,7 +100,7 @@ export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): K
       window.removeEventListener('blur', onBlur)
       views.disconnect()
     }
-  }, [open])
+  }, [open, modal])
 
   const onPopupKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape' || event.nativeEvent.isComposing) return

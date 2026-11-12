@@ -236,6 +236,37 @@ describe('Esc in a kit popup: one press, one action', () => {
       expect(close).toHaveBeenCalledTimes(1)
     })
 
+    it.each(['bare', 'bare-trigger'])('Esc on %s while an input method composes is left alone: the popup stays and the panel gets it', (where) => {
+      const panelEscape = vi.fn()
+      const close = vi.fn()
+      render(
+        <Panel onEscape={panelEscape}>
+          <Bare open close={close} />
+        </Panel>,
+      )
+      const free = fireEvent.keyDown(screen.getByTestId(where), { key: 'Escape', isComposing: true })
+      expect(free).toBe(true)
+      expect(close).not.toHaveBeenCalled()
+      expect(panelEscape).toHaveBeenCalledTimes(1)
+    })
+
+    it('Esc on the trigger that something under the panel already took (preventDefault) leaves the popup open', () => {
+      const panelEscape = vi.fn()
+      const close = vi.fn()
+      render(
+        <Panel onEscape={panelEscape}>
+          {/* Takes Esc in the capture phase, before the trigger's own handler. */}
+          <div onKeyDownCapture={(event) => event.key === 'Escape' && event.preventDefault()}>
+            <Bare open close={close} />
+          </div>
+        </Panel>,
+      )
+      fireEvent.keyDown(screen.getByTestId('bare-trigger'), { key: 'Escape' })
+      expect(close).not.toHaveBeenCalled()
+      // Not the trigger's press: it goes on, and the one who took it decides.
+      expect(panelEscape).toHaveBeenCalledTimes(1)
+    })
+
     it('Esc on the trigger of a closed popup is the ancestor\'s', () => {
       const panelEscape = vi.fn()
       const close = vi.fn()

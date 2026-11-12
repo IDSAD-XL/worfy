@@ -1,7 +1,7 @@
 # 04 — Dialog kit: Settings, Keyboard shortcuts и Guide одним шагом, без трёх guard-ов
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:18Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения по реализации» (Settings, Keyboard shortcuts и Guide;
 toast-ы; `Select` внутри окна kit); «Решения по test-ам» (Seam 1, Seam 2); истории 1, 2, 3, 9, 11, 14, 25;
@@ -33,14 +33,18 @@ toast-ы; `Select` внутри окна kit); «Решения по test-ам»
 - [ ] Unit test `test/unit/kit-dialog.test.tsx`: роль и имя; Tab не уходит из окна; фокус возвращается к кнопке, которая
       открыла окно; Esc закрывает только верхний слой и отмечен как обработанный; клик по области toast-ов окно не
       закрывает; blur окна приложения не закрывает модальное окно.
+  - evidence: test-run pass · `pnpm exec vitest run --project jsdom test/unit/kit-dialog.test.tsx test/unit/layers.test.tsx` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
 - [ ] Guard-ов в `settings-window.ts`, `shortcuts-window.ts`, `guide/store.ts` нет; `settings-dialog`,
       `shortcuts-overlay`, `guide-window` unit test-ы и e2e `settings`, `shortcuts`, `guide` зелёные без правок ролей и
       `data-testid`.
+  - evidence: test-run pass · `pnpm exec vitest run --project jsdom test/unit/settings-dialog.test.tsx test/unit/shortcuts-overlay.test.tsx test/unit/guide-window.test.tsx` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
 - [ ] `Select` в Settings: выбор мышью, Esc на открытом списке закрывает только список, список виден screen reader-у —
       unit test `select.test.tsx` и e2e `select.spec.ts`.
+  - evidence: test-run pass · `pnpm exec vitest run --project jsdom test/unit/select.test.tsx` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
 - [ ] E2e `test/e2e/layers-dialog.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6a29f9b78317633b9997a3165545420fb29bef03
 
 ## Где в коде
 

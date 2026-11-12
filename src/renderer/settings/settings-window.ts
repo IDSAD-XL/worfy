@@ -1,12 +1,10 @@
 // The state of the Settings window (SettingsDialog.tsx) outside React: whether it is open and
 // which section it shows. The app menu's "Settings…" (`menu.command`) and the command palette open
-// it through openSettings() without importing the window.
-//
-// The window is modal, and this file also keeps the rest of the app from the keyboard while it is
-// open (the listeners at the end): the app's shortcuts listen on `window` (⌘K, ⌘F, ⌘↩, Esc of focus
-// mode, the Canvas's keys), where a handler on the dialog itself cannot stop them.
+// it through openSettings() without importing the window. The window is a modal Dialog of the kit
+// (theme/kit/Dialog.tsx), which also keeps the rest of the app from the keyboard while it is open.
 import { create } from 'zustand'
 import { followMenuCommand } from '../menu-command'
+import { LAYERS } from '../theme/layers'
 
 export interface SettingsWindowState {
   open: boolean
@@ -17,11 +15,12 @@ export interface SettingsWindowState {
 export const useSettingsWindow = create<SettingsWindowState>(() => ({ open: false, section: null }))
 
 /**
- * The z-index of the window's backdrop: above every other dialog of the app (90–101). Focus mode's
- * layer is drawn inside the main area of the window shell, a stacking context of its own (focus.css),
- * so the window opens above focus mode too and leaves it as it was.
+ * The z-index of the window's layer: the dialog layer of the scale (theme/layers.ts), the same as the
+ * Keyboard shortcuts and the Guide. Focus mode's layer is drawn inside the main area of the window
+ * shell, a stacking context of its own (focus.css), so the window opens above focus mode too and
+ * leaves it as it was. A form a section opens over the window sits above this value.
  */
-export const SETTINGS_LAYER = 110
+export const SETTINGS_LAYER = LAYERS.dialog
 
 /**
  * Opens the window on section `sectionId` (e.g. "GeneralSection"); an id no file has shows the
@@ -52,93 +51,12 @@ export function followMenuCommands(): () => void {
   return followMenuCommand('settings', openSettings)
 }
 
-// The modal guard. While the window is on screen:
-// - a key pressed with the focus outside it (on the page, after the focused element went away)
-//   reaches nothing behind: Esc closes the window, Tab brings the focus into it;
-// - a ⌘/Ctrl shortcut pressed inside it reaches no listener of the app; the key's own default
-//   (copy, paste, undo in a field) still happens, and so do the accelerators of the app menu;
-// - any other key pressed inside it goes to the window's own controls and stops at `document`,
-//   before the listeners on `window`;
-// - the focus cannot move to anything behind it (a dialog that opened under it).
-// A layer drawn above the window (the open list of a Select, a dialog a section opens) keeps its
-// keys and its focus.
-
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-/** The controls of `dialog` that Tab stops at, in order. */
+/**
+ * The controls of `dialog` that Tab stops at, in order. The modal windows that are not on the kit yet
+ * keep their focus with it (worfy-ui-kit tickets 05–07 move them onto the kit's Dialog).
+ */
 export function focusablesOf(dialog: HTMLElement): HTMLElement[] {
   return [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)]
-}
-
-let dialogElement: HTMLElement | null = null
-let lastFocused: HTMLElement | null = null
-
-/** SettingsDialog names its dialog element while it is on screen, and null when it leaves. */
-export function setSettingsDialogElement(element: HTMLElement | null): void {
-  dialogElement = element
-  lastFocused = null
-}
-
-function activeDialog(): HTMLElement | null {
-  return useSettingsWindow.getState().open && dialogElement !== null && dialogElement.isConnected ? dialogElement : null
-}
-
-/** The z-index of the layer `element` is in: of its ancestor right under `body`; NaN without one. */
-function layerOf(element: Element): number {
-  let layer = element
-  while (layer.parentElement !== null && layer.parentElement !== document.body) layer = layer.parentElement
-  if (layer.parentElement !== document.body) return Number.NaN
-  return Number.parseInt(getComputedStyle(layer).zIndex, 10)
-}
-
-const isAbove = (target: EventTarget | null): boolean => target instanceof Element && layerOf(target) > SETTINGS_LAYER
-
-/** On `window`, capture phase, added when this file loads: before every listener a component adds. */
-function guardKeys(event: KeyboardEvent): void {
-  const dialog = activeDialog()
-  if (dialog === null) return
-  const target = event.target
-  if (target instanceof Node && dialog.contains(target)) {
-    // Some of the app's shortcuts listen in the capture phase on `window` (⌘↩ of focus mode), so
-    // they are stopped here; only propagation stops, not what the key itself does.
-    if (event.metaKey || event.ctrlKey) event.stopImmediatePropagation()
-    return
-  }
-  if (isAbove(target)) return
-  event.stopImmediatePropagation()
-  if (event.metaKey || event.ctrlKey || event.altKey) return
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    closeSettings()
-  } else if (event.key === 'Tab') {
-    event.preventDefault()
-    const focusable = focusablesOf(dialog)
-    ;((event.shiftKey ? focusable.at(-1) : focusable[0]) ?? dialog).focus()
-  }
-}
-
-/** On `document`, bubble phase, added when this file loads: before the listeners on `window`. */
-function stopKeysAtDocument(event: KeyboardEvent): void {
-  if (activeDialog() === null || isAbove(event.target)) return
-  event.stopImmediatePropagation()
-}
-
-/** Takes the focus back when something behind the window got it. */
-function keepFocus(event: FocusEvent): void {
-  const dialog = activeDialog()
-  if (dialog === null) return
-  const target = event.target
-  if (target instanceof HTMLElement && dialog.contains(target)) {
-    lastFocused = target
-    return
-  }
-  if (isAbove(target)) return
-  const back = lastFocused !== null && dialog.contains(lastFocused) ? lastFocused : (focusablesOf(dialog)[0] ?? dialog)
-  back.focus()
-}
-
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  window.addEventListener('keydown', guardKeys, true)
-  document.addEventListener('keydown', stopKeysAtDocument)
-  document.addEventListener('focusin', keepFocus)
 }

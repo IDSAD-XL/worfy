@@ -22,6 +22,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 2. Слой из шкалы вместо `MACHINE_DIALOG_LAYER` и z-index рамки `.w-apstart` (`autopilot/autopilot-modal.css:23`).
 3. Правила окон сохраняются: First run не закрывается по Esc во время переноса; радио и режимы окна Start Autopilot
    не трогаются (их переносит Ticket 14).
+4. ⌘↩ окна Start Autopilot (`autopilot/StartAutopilotModal.tsx:18`, `:406`) погасит guard клавиш с ⌘/Ctrl внутри окна
+   kit (`theme/kit/Dialog.tsx`, функция `guardKeys`): он останавливает такие клавиши в capture на window, чтобы до них
+   не дошли shortcut-ы приложения. Dialog kit получает opt-in для клавиш-модификаторов (prop окна: какие сочетания
+   окно берёт само), и Start Autopilot им пользуется. Test: ⌘↩ в окне запускает Autopilot, ⌘K в нём не открывает
+   Command palette.
 
 ## Готово, когда
 

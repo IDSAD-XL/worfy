@@ -2292,7 +2292,7 @@ body.w-split-dragging * {
   color: var(--text-muted);
 }
 
-/* Above the app's dialogs (90–101), under the Settings window (110). */
+/* Above the app's dialogs (90–101), under the modal windows of the kit (--z-dialog, tokens.css). */
 .w-image-overlay {
   position: fixed;
   inset: 0;

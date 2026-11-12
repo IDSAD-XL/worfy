@@ -22,6 +22,18 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
 2. Свои backdrop, Esc, listener на window и inline `zIndex` удаляются; z-index Image overlay из `session/session.css`
    уходит.
 3. Inline confirm «Delete profile» в Browser profiles (`role="alertdialog"`) остаётся inline.
+4. Формы, которые открываются из Settings → Pipeline, — «Move old Harness…» (`harness/MigrationForm.tsx:44`) и
+   «Approve hooks» (`harness/CodexHooksStep.tsx:23`), обе на z-index 100, — встают на шкалу выше окна kit
+   (`LAYERS.dialog`, 110), как форма раздела Health (`settings/HealthSection.tsx:15`). Сейчас они под окном Settings, и
+   guard клавиш (`theme/kit/Dialog.tsx`, функция `above`, строгое `>`) считает их слоем ниже: клавиши в них
+   гасятся, Esc закрывает Settings. Так было и до Ticket 04 (Settings на 110). Test: форма поверх открытого Settings
+   получает свои клавиши, Esc закрывает форму, а не Settings.
+5. Esc меню после drop binding-а (`canvas/overlays/BindingDrop.tsx:196-204`: capture-listener `keydown` на window,
+   `preventDefault`) под открытым окном kit. Сценарий: меню открыто, «?» открывает Keyboard shortcuts (или ⌘, —
+   Settings); первый Esc закрывает меню под окном, окно закрывается только вторым. До Ticket 04 так вёл себя только
+   Settings; Keyboard shortcuts и Guide брали Esc первыми. Исправление: listener меню пропускает клавишу, у которой
+   target внутри окна kit (`[data-kit-dialog]`, `KIT_DIALOG_ATTRIBUTE`). Test: меню открыто, окно kit открыто, Esc в
+   окне закрывает окно, меню остаётся.
 
 ## Готово, когда
 
@@ -41,6 +53,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
 - `src/renderer/pr-inbox/DraftThread.tsx`
 - `src/renderer/session/MessageAttachments.tsx`
 - `src/renderer/session/session.css`
+- `src/renderer/canvas/overlays/BindingDrop.tsx`
 - `test/unit/harness-migration-form.test.tsx`
 - `test/unit/codex-hooks-step.test.tsx`
 - `test/unit/browser-profiles-window.test.tsx`

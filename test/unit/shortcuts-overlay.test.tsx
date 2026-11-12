@@ -11,10 +11,12 @@ import { CommandPalette } from '../../src/renderer/palette/CommandPalette'
 import type { Platform } from '../../src/renderer/platform'
 import { SettingsDialogView } from '../../src/renderer/settings/SettingsDialog'
 import { settingsSections } from '../../src/renderer/settings/sections'
-import { closeSettings, openSettings, useSettingsWindow } from '../../src/renderer/settings/settings-window'
+import { closeSettings, openSettings, SETTINGS_LAYER, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { label } from '../../src/renderer/shortcuts/match'
 import { ShortcutsOverlay } from '../../src/renderer/shortcuts/ShortcutsOverlay'
 import { closeShortcuts, openShortcuts, useShortcutsWindow } from '../../src/renderer/shortcuts/shortcuts-window'
+import { LAYERS } from '../../src/renderer/theme/layers'
+import { pressTab } from './tab-key'
 
 const globals = globalThis as { worfy?: WorfyBridge }
 
@@ -199,13 +201,15 @@ describe('the window', () => {
     expect(rows.every(([, , keys]) => !/[⌘⇧⌥⏎]/.test(keys))).toBe(true)
   })
 
-  it('Esc closes it and reaches no listener of the window, capture phase included; the focus goes back', () => {
+  it('Esc closes it, marked handled, and reaches no listener of the window after the window\'s own; the focus goes back', () => {
     const { plane } = renderPage()
     plane.focus()
     press(plane, { key: '?', shiftKey: true })
     expect(shortcutsWindow()).not.toBeNull()
     expect(document.activeElement?.closest('[role="dialog"]')).toBe(shortcutsWindow())
-    // Focus mode listens for Esc on window in the capture phase (FocusMode.tsx), added after this file loaded.
+    // Focus mode reads an Esc on window in the capture phase and acts on it in the bubble phase, unless
+    // it was taken (defaultPrevented, FocusMode.tsx). A key pressed in a kit window passes the capture
+    // phase (a control inside, the list of a Select, may take it) and stops at the window.
     const reached: string[] = []
     const capture = (event: KeyboardEvent) => reached.push(`capture ${event.key}`)
     const bubble = (event: KeyboardEvent) => reached.push(`bubble ${event.key}`)
@@ -215,18 +219,18 @@ describe('the window', () => {
       const event = press(document.activeElement!, { key: 'Escape' })
       expect(event.defaultPrevented).toBe(true)
       expect(shortcutsWindow()).toBeNull()
-      expect(reached).toEqual([])
+      expect(reached).toEqual(['capture Escape'])
       expect(document.activeElement).toBe(plane)
       // Closed, the window keeps nothing: the next Esc is the app's again.
       press(plane, { key: 'Escape' })
-      expect(reached).toEqual(['capture Escape', 'bubble Escape'])
+      expect(reached).toEqual(['capture Escape', 'capture Escape', 'bubble Escape'])
     } finally {
       window.removeEventListener('keydown', capture, true)
       window.removeEventListener('keydown', bubble)
     }
   })
 
-  it('while it is open the shortcuts of the app reach nobody, and Tab goes round the list and Close', () => {
+  it('while it is open the shortcuts of the app reach nobody, and Tab goes round the list and Close', async () => {
     renderPage()
     act(() => openShortcuts())
     const dialog = shortcutsWindow()!
@@ -241,11 +245,11 @@ describe('the window', () => {
       const list = dialog.querySelector('.w-shortcuts__body')
       const close = within(dialog).getByRole('button', { name: 'Close' })
       expect(document.activeElement).toBe(list)
-      press(document.activeElement!, { key: 'Tab' })
+      await pressTab()
       expect(document.activeElement).toBe(close)
-      press(document.activeElement!, { key: 'Tab' })
+      await pressTab()
       expect(document.activeElement).toBe(list)
-      press(document.activeElement!, { key: 'Tab', shiftKey: true })
+      await pressTab(true)
       expect(document.activeElement).toBe(close)
       fireEvent.click(close)
       expect(shortcutsWindow()).toBeNull()
@@ -263,12 +267,14 @@ describe('the window', () => {
     expect(shortcutsWindow()).toBeNull()
   })
 
-  it('is drawn in the layer of the Settings window, a child of <body>', () => {
+  it('is drawn in the layer of the Settings window, the dialog layer of the scale, on <body>', () => {
     renderPage()
     act(() => openShortcuts())
-    const backdrop = screen.getByTestId('shortcuts-backdrop')
-    expect(backdrop.parentElement).toBe(document.body)
-    expect(backdrop.style.zIndex).toBe('110')
+    // The layer sits on the portal around the backdrop, a child of <body> (theme/kit/layer.ts).
+    const portal = screen.getByTestId('shortcuts-backdrop').parentElement!
+    expect(portal.parentElement).toBe(document.body)
+    expect(portal.style.zIndex).toBe(String(SETTINGS_LAYER))
+    expect(SETTINGS_LAYER).toBe(LAYERS.dialog)
   })
 })
 

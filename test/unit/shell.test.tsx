@@ -250,7 +250,8 @@ describe('the sidebar, hidden and shown', () => {
     return { setFocusActive: (active) => act(() => setFocusActive(active)), setFocusActiveUnrendered: setFocusActive }
   }
 
-  const sidebar = () => screen.queryByRole('navigation', { name: 'Sidebar' })
+  // `hidden: true`: with Settings open the page behind the window is hidden from a screen reader.
+  const sidebar = () => screen.queryByRole('navigation', { name: 'Sidebar', hidden: true })
   const shown = () => sidebar() !== null
   const toggleButton = () => screen.getByRole('button', { name: /^(Hide|Show) sidebar$/ })
   const click = () => fireEvent.click(toggleButton())

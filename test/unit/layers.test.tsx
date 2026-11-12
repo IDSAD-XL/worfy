@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PINNED_Z_INDEX } from '../../src/renderer/canvas/pinning'
+import { dialogStyles } from '../../src/renderer/machines/machine-dialogs'
+import { SETTINGS_LAYER } from '../../src/renderer/settings/settings-window'
 import { LAYERS } from '../../src/renderer/theme/layers'
 
 const read = (path: string): string => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8')
@@ -26,7 +28,7 @@ describe('the scale of layers', () => {
   it('keeps the order the layers had: panel < popover < dialog < toast < a menu over a dialog < the top', () => {
     expect(LAYERS.panel).toBeLessThan(LAYERS.popover)
     expect(LAYERS.popover).toBeLessThan(LAYERS.dialog)
-    // The Settings window (110) is a dialog too: the toasts stay above it.
+    // The modal windows of the kit (Settings among them) are the dialog layer: the toasts stay above it.
     expect(LAYERS.dialog).toBeLessThan(LAYERS.toast)
     expect(LAYERS.toast).toBeGreaterThan(110)
     // The list of a Select opens over a dialog, over focus mode and over the Binding menu (2000).
@@ -52,5 +54,28 @@ describe('the places on the scale', () => {
   it('none of them keeps a number of its own', () => {
     expect(read('toast/toast.css')).not.toMatch(/z-index: \d/)
     expect(read('theme/select.css')).not.toMatch(/z-index: \d/)
+  })
+})
+
+describe('the modal windows of the kit among the layers that are not on the scale yet', () => {
+  /** Every `zIndex: <n>` of a file of inline styles. */
+  const inlineLayers = (path: string): number[] => [...read(path).matchAll(/zIndex: (\d+)/g)].map((match) => Number(match[1]))
+  const commandPalette = Math.max(...inlineLayers('palette/CommandPalette.tsx'))
+  const imageOverlay = Number(/\.w-image-overlay \{[^}]*z-index: (\d+);/.exec(read('session/session.css'))?.[1])
+
+  it('Settings, Keyboard shortcuts and the Guide sit on the dialog layer', () => {
+    expect(SETTINGS_LAYER).toBe(LAYERS.dialog)
+  })
+
+  it('a kit window is above the Command palette and a full-screen image: ⌘, over either opens the window on top', () => {
+    expect(commandPalette).toBe(101)
+    expect(imageOverlay).toBe(105)
+    expect(LAYERS.dialog).toBeGreaterThan(commandPalette)
+    expect(LAYERS.dialog).toBeGreaterThan(imageOverlay)
+  })
+
+  it('a kit window is under the toasts and the dialogs of a Linked machine, which open over Settings', () => {
+    expect(LAYERS.dialog).toBeLessThan(LAYERS.toast)
+    expect(LAYERS.dialog).toBeLessThan(dialogStyles.backdrop.zIndex)
   })
 })

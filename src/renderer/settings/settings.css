@@ -3,7 +3,7 @@
 .w-settings__backdrop {
   position: fixed;
   inset: 0;
-  /* z-index: SETTINGS_LAYER (settings-window.ts), set inline; the modal guard compares layers with it. */
+  /* The layer (SETTINGS_LAYER, settings-window.ts) sits on the portal around it (theme/kit/Dialog.tsx). */
   display: flex;
   align-items: center;
   justify-content: center;

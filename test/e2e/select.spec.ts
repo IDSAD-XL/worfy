@@ -7,6 +7,7 @@ import { expect, test, type Locator } from '@playwright/test'
 import { claudePluginStub } from './claude-plugin-stub'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { legacyClaudeHome } from './legacy-claude-home'
+import { clickMenuItem } from './menu'
 import { ms } from '../time-scale'
 
 // The shared Select (src/renderer/theme/Select.tsx) in the two forms that had a native select:
@@ -183,6 +184,45 @@ test('the Profile fields of the move form: chosen through the Select, inactive w
     await mode.click({ force: true })
     await expect(window.getByRole('listbox')).toHaveCount(0)
     await shoot(launched, [fields], 'select-disabled')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a Select of Settings: its list is drawn inside the window, a screen reader sees it, a mouse choice keeps the window open, and Esc closes the list before the window', async () => {
+  // The list of a Select inside a window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 04):
+  // drawn into the window, so the modal window counts it as its own.
+  const dataDir = join(scratch, 'data')
+  mkdirSync(dataDir, { recursive: true })
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const { app, window } = launched
+    // SETTINGS_MENU_ITEM_ID of src/main/menu.ts, which needs Electron and is not imported here.
+    await clickMenuItem(app, 'app.settings')
+    const settings = window.getByRole('dialog', { name: 'Settings' })
+    await expect(settings).toBeVisible()
+    const field = settings.getByRole('combobox', { name: 'Fold Epics without work after' })
+    const before = await field.getAttribute('data-value')
+    const pick = before === '30d' ? '7d' : '30d'
+
+    await field.click()
+    // getByRole skips what is hidden from a screen reader: the list is found inside the window.
+    const list = settings.getByRole('listbox')
+    await expect(list).toBeVisible()
+    await shoot(launched, [settings, list], 'select-in-settings')
+    await list.locator(`[data-value="${pick}"]`).click()
+    await expect(list).toHaveCount(0)
+    await expect(field).toHaveAttribute('data-value', pick)
+    await expect(settings).toBeVisible()
+
+    await field.press('ArrowDown')
+    await expect(list).toBeVisible()
+    await window.keyboard.press('Escape')
+    await expect(list).toHaveCount(0)
+    await expect(settings).toBeVisible()
+    await expect(field).toBeFocused()
+    await window.keyboard.press('Escape')
+    await expect(settings).toHaveCount(0)
   } finally {
     await launched.close()
   }

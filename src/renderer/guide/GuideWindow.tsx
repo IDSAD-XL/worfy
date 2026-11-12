@@ -1,5 +1,5 @@
-// The window of the worfy Guide (worfy-guide ticket 03, ADR-0090): a modal dialog over the app
-// window, drawn in the layer of the Settings window. The list of Topics on the left, the Topic on the
+// The window of the worfy Guide (worfy-guide ticket 03, ADR-0090): a modal Dialog of the kit
+// (theme/kit/Dialog.tsx) over the app window, in the layer of the Settings window. The list of Topics on the left, the Topic on the
 // right: its diagram, a short text, Under the hood folded below — a data-flow diagram when the Topic
 // has one (Flow.tsx), more text, the main files, the limits — and Full page. The header has the EN / RU switch, the one place of worfy that is not
 // English only; the choice goes to the app settings of this Machine.
@@ -8,17 +8,17 @@
 // Guide's own chunk: GuideHost.tsx loads it with React.lazy the first time the Guide opens, so the
 // start of the app does not load it. Nothing in it needs a Project or the network; the GitHub
 // links open in the system's browser (`shell.openExternal`).
-import { useId, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useId, useRef, type MouseEvent, type ReactNode } from 'react'
 import { GUIDE_LANGUAGES, type GuideLanguage } from '../../shared/settings/app-settings'
 import '../canvas/actions/actions.css'
-import { SETTINGS_LAYER } from '../settings/settings-window'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
+import { Dialog } from '../theme/kit/Dialog'
+import { SegmentedControl } from '../theme/primitives'
 import { GUIDE_CONTENT, GUIDE_STRINGS, type GuideStrings, type GuideTopic } from './content'
 import { guideLanguage } from './language'
 import { githubFileUrl, openInBrowser } from './links'
 import { shownTopics } from './registry'
-import { closeGuide, selectGuideTopic, setGuideDialogElement, useGuide } from './store'
+import { closeGuide, selectGuideTopic, useGuide } from './store'
 import './guide.css'
 
 /** Opens `url` in the system's browser instead of in the window. */
@@ -119,7 +119,6 @@ export default function GuideWindow() {
   const language = guideLanguage(chosen, navigator.languages)
   const strings = GUIDE_STRINGS[language]
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLElement>(null)
 
   const topics = shownTopics(packaged).flatMap((entry) => {
@@ -128,86 +127,66 @@ export default function GuideWindow() {
   })
   const current = topics.find((topic) => topic.id === selected) ?? topics[0]
 
-  // On opening: the guard learns the dialog and the focus goes to the Topic on screen in the list;
-  // on closing it goes back to what had it before, if that is still on the page. A layout effect:
-  // no key may fall between the dialog appearing and the guard knowing it.
-  useLayoutEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setGuideDialogElement(dialog.current)
-    ;(list.current?.querySelector<HTMLElement>('[aria-current="true"]') ?? dialog.current)?.focus()
-    return () => {
-      setGuideDialogElement(null)
-      if (previous?.isConnected) previous.focus()
-    }
-  }, [])
+  const chooseLanguage = (each: GuideLanguage): void =>
+    void setAppSettings({ guideLanguage: each }).then((problem) => problem !== undefined && console.error('appSettings.set failed:', problem))
 
-  return createPortal(
-    <div
-      className="w-guide__backdrop"
-      style={{ zIndex: SETTINGS_LAYER }}
-      data-testid="guide-backdrop"
-      // A press on the backdrop closes the Guide and does not take the focus out of it first.
-      onMouseDown={(event) => {
-        if (event.target !== event.currentTarget) return
-        event.preventDefault()
-        closeGuide()
-      }}
+  return (
+    <Dialog
+      open
+      onClose={closeGuide}
+      labelledBy={titleId}
+      className="w-guide"
+      backdropClassName="w-guide__backdrop"
+      backdropTestId="guide-backdrop"
+      // The Topic on screen in the list.
+      initialFocus={() => list.current?.querySelector<HTMLElement>('[aria-current="true"]')}
+      data-testid="guide"
+      data-language={language}
     >
-      <div ref={dialog} className="w-guide" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} data-testid="guide" data-language={language}>
-        <header className="w-guide__header">
-          <h2 id={titleId} className="w-guide__title">
-            {strings.title}
-          </h2>
-          <div className="w-guide__languages" role="group" aria-label={strings.language}>
-            {GUIDE_LANGUAGES.map((each) => (
-              <button
-                key={each}
-                type="button"
-                className="w-guide__language"
-                aria-pressed={each === language}
-                data-testid={`guide-language-${each}`}
-                onClick={() => void setAppSettings({ guideLanguage: each }).then((problem) => problem !== undefined && console.error('appSettings.set failed:', problem))}
-              >
-                {each.toUpperCase()}
-              </button>
+      <header className="w-guide__header">
+        <h2 id={titleId} className="w-guide__title">
+          {strings.title}
+        </h2>
+        <SegmentedControl
+          label={strings.language}
+          options={GUIDE_LANGUAGES.map((each) => ({ value: each, label: each.toUpperCase(), testId: `guide-language-${each}` }))}
+          value={language}
+          onChange={chooseLanguage}
+        />
+        <button type="button" className="w-action" data-testid="guide-close" onClick={closeGuide}>
+          {strings.close}
+        </button>
+      </header>
+      <div className="w-guide__body">
+        <nav ref={list} className="w-guide__list" aria-label={strings.topics}>
+          <h3 className="w-guide__heading">{strings.topics}</h3>
+          <ul>
+            {topics.map((topic) => (
+              <li key={topic.id}>
+                <button
+                  type="button"
+                  className="w-guide__list-item"
+                  aria-current={topic === current}
+                  data-testid="guide-topic-item"
+                  data-topic={topic.id}
+                  onClick={() => selectGuideTopic(topic.id)}
+                >
+                  {topic.text[language].title}
+                </button>
+              </li>
             ))}
-          </div>
-          <button type="button" className="w-action" data-testid="guide-close" onClick={closeGuide}>
-            {strings.close}
-          </button>
-        </header>
-        <div className="w-guide__body">
-          <nav ref={list} className="w-guide__list" aria-label={strings.topics}>
-            <h3 className="w-guide__heading">{strings.topics}</h3>
-            <ul>
-              {topics.map((topic) => (
-                <li key={topic.id}>
-                  <button
-                    type="button"
-                    className="w-guide__list-item"
-                    aria-current={topic === current}
-                    data-testid="guide-topic-item"
-                    data-topic={topic.id}
-                    onClick={() => selectGuideTopic(topic.id)}
-                  >
-                    {topic.text[language].title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="w-guide__content">
-            {current === undefined ? (
-              <p className="w-guide__text" data-testid="guide-empty">
-                {strings.noTopics}
-              </p>
-            ) : (
-              <TopicView key={current.id} topic={current} language={language} strings={strings} version={version} />
-            )}
-          </div>
+          </ul>
+        </nav>
+        <div className="w-guide__content">
+          {current === undefined ? (
+            <p className="w-guide__text" data-testid="guide-empty">
+              {strings.noTopics}
+            </p>
+          ) : (
+            <TopicView key={current.id} topic={current} language={language} strings={strings} version={version} />
+          )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </Dialog>
   )
 }

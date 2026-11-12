@@ -18,7 +18,8 @@ test('the memory figure shows by default; the switch in Settings hides it in eve
   const launched = await launchApp()
   try {
     const { app, window } = launched
-    const figure = window.getByRole('banner').getByTestId('app-memory')
+    // includeHidden: the toolbar is hidden from a screen reader while the modal Settings window is open.
+    const figure = window.getByRole('banner', { includeHidden: true }).getByTestId('app-memory')
     await expect(figure).toHaveText(FIGURE)
     await expect(figure).toHaveAttribute('title', /^Memory used by worfy's own processes \(not counting terminal sessions\)\nMain \d+(\.\d)? (MB|GB) · Windows /)
     // On the line of the app version, after it.
@@ -62,7 +63,7 @@ test('the memory figure shows by default; the switch in Settings hides it in eve
     await expect(figure).toHaveCount(0)
     await expect(secondFigure).toHaveCount(0)
     // The version keeps its place.
-    await expect(window.getByRole('banner').getByTestId('app-version')).toBeVisible()
+    await expect(window.getByRole('banner', { includeHidden: true }).getByTestId('app-version')).toBeVisible()
     expect(JSON.parse(readFileSync(join(launched.dataDir, 'app-settings.json'), 'utf8'))).toMatchObject({ memoryIndicator: false })
 
     await toggle.click()

@@ -17,7 +17,7 @@
   }
 }
 
-/* Above the Settings window (110) and in the layer of the windows of a Linked machine (120). */
+/* Above the modal windows of the kit (--z-dialog, Settings among them) and in the layer of the windows of a Linked machine (120). */
 .w-apstart-backdrop {
   position: fixed;
   inset: 0;

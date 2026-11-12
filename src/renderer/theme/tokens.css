@@ -42,8 +42,8 @@
      with the ticket that moves its place onto the kit. */
   --z-panel: 80; /* a panel over the view: Getting started */
   --z-popover: 90; /* a popover or a menu of the window: the Canvas menu, the sidebar's menus */
-  --z-dialog: 100; /* a modal dialog with its backdrop; the Settings window sits at 110 */
-  --z-toast: 120; /* the toasts: over the dialogs and the Settings window */
+  --z-dialog: 110; /* a modal window of the kit with its backdrop (Settings, Keyboard shortcuts, the Guide): above the Command palette (100–101) and a full-screen image (105) */
+  --z-toast: 120; /* the toasts: over the dialogs, the windows of the kit included */
   /* Over the Canvas plane: a pinned Node over the other Nodes, focus mode over the main area. Both live
      inside the main area of the window, a stacking context of its own (shell.css), so this value orders
      layers in there only, and everything drawn on <body> above — dialogs, toasts — stays over them. */

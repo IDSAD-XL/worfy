@@ -10,6 +10,7 @@ import { SettingsDialogView } from '../../src/renderer/settings/SettingsDialog'
 import { collectSections } from '../../src/renderer/settings/sections'
 import { closeSettings, openSettings, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { AppShell } from '../../src/renderer/shell/AppShell'
+import { pressTab } from './tab-key'
 
 // The Settings window (worfy-ui ticket 2): a modal dialog with its sections on the left, found by
 // file. Two stub sections stand in for the real files, their `order` against their file names.
@@ -152,14 +153,14 @@ describe('Settings window', () => {
     expect(document.activeElement).toBe(opener)
   })
 
-  it('keeps Tab inside the window', () => {
+  it('keeps Tab inside the window', async () => {
     renderWithOpener()
     act(() => openSettings())
     const close = within(dialog()).getByRole('button', { name: 'Close' })
     close.focus()
-    fireEvent.keyDown(close, { key: 'Tab' })
+    await pressTab()
     expect(document.activeElement).toBe(rows()[0])
-    fireEvent.keyDown(rows()[0]!, { key: 'Tab', shiftKey: true })
+    await pressTab(true)
     expect(document.activeElement).toBe(close)
   })
 })
@@ -294,7 +295,7 @@ describe('Settings window: modal', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('a layer above the window keeps its focus and its keys; a layer under it cannot take the focus', () => {
+  it('a layer above the window keeps its focus and its keys; a layer under it gets no key, and Tab brings the focus back', () => {
     renderWithOpener()
     const { heard, stop } = listenBehind()
     try {
@@ -302,11 +303,17 @@ describe('Settings window: modal', () => {
       fireEvent.keyDown(rows()[0]!, { key: 'ArrowDown' })
       expect(document.activeElement).toBe(rows()[1])
 
-      // Under the window (First run is at 90): the focus comes back to where it was inside.
+      // Under the window (First run is at 90): a key pressed there reaches nobody, and Tab brings the
+      // focus into the window. The focus trap is Base UI's, through Tab; nothing pulls a focus given
+      // from code back.
       const under = layer(90)
       under.parentElement!.dataset.testLayer = ''
       act(() => under.focus())
-      expect(document.activeElement).toBe(rows()[1])
+      heard.capture.mockClear()
+      press(under, { key: 'k', metaKey: true })
+      expect(heard.capture).not.toHaveBeenCalled()
+      expect(press(under, { key: 'Tab' }).defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(rows()[0])
 
       // Above it (the list of a Select is at 3000): the focus stays, the keys go on to the page.
       const above = layer(3000)

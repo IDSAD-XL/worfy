@@ -55,6 +55,8 @@ export interface SegmentOption<T extends string> {
   disabled?: boolean
   /** The tooltip, when it says more than the label (a disabled segment says why). */
   title?: string
+  /** The `data-testid` of the segment. */
+  testId?: string
 }
 
 export interface SegmentedControlProps<T extends string> {
@@ -83,6 +85,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           aria-label={option.label}
           title={option.title ?? option.label}
           disabled={option.disabled}
+          data-testid={option.testId}
         >
           {option.icon}
           <span className="w-segmented__label">{option.label}</span>

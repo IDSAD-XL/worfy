@@ -291,7 +291,8 @@ entry: Ctrl on macOS, the Windows key on Windows.
 | Matching a press, the label, text fields and Terminal Nodes | `src/renderer/shortcuts/match.ts` |
 | The system, the primary key, the key of a press, the writing of a combination | `src/renderer/platform.ts` |
 | The window and the list | `src/renderer/shortcuts/ShortcutsOverlay.tsx`, `src/renderer/settings/ShortcutsSection.tsx` |
-| Its state and its modal guard on `window` | `src/renderer/shortcuts/shortcuts-window.ts` |
+| Its state | `src/renderer/shortcuts/shortcuts-window.ts` |
+| The modal window it is drawn in, and the keys of the app while it is open | `src/renderer/theme/kit/Dialog.tsx` |
 
 Main tests: `test/unit/shortcuts.test.tsx`, `test/unit/shortcuts-overlay.test.tsx`, `test/unit/platform-shortcuts.test.tsx`,
 `test/unit/platform-keys.test.ts`, `test/e2e/shortcuts.spec.ts`.
@@ -367,7 +368,9 @@ Main tests: `test/contract/view-menu.test.ts`, `test/unit/menu-command.test.tsx`
 Settings are the settings of worfy itself on this Machine. The window opens from "Settings…" of the app menu (⌘,) and from
 the palette. It is modal, with its sections in a column on the left. Esc or Close closes it, and the focus goes back where it
 was. ↑ and ↓ move through the sections, and Tab goes round the controls of the window. While it is open, ⌘K, ⌘F and ⌘↩ do
-nothing.
+nothing. A press beside the window leaves it open, and so does a press on a toast. Settings, Keyboard shortcuts and the
+Guide are one modal window of the app's own kit: the app behind it is hidden from a screen reader, the toasts are not, and
+they stay above the window.
 
 | Section | What it holds |
 |---|---|
@@ -477,7 +480,8 @@ settings are applied in worfy on the Machine of the Project.
 | The `appSettings` channels, all `local` | `src/shared/ipc/app-settings.ts`, `src/main/ipc/app-settings.ts` |
 | The scale as the zoom of every window | `src/main/settings/interface-scale.ts` |
 | The renderer's copy of the settings | `src/renderer/settings/useAppSettings.ts` |
-| The window and its modal guard | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
+| The window and its state | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
+| The modal window, its focus and the keys of the app while it is open | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/kit/layer.ts` |
 | The list of sections | `src/renderer/settings/sections.ts` |
 | The scale on `<html>` | `src/renderer/settings/interface-scale.ts` |
 
@@ -542,7 +546,8 @@ part of `pnpm lint`: a lag does not fail a PR. The decisions are in ADR-0090.
 | What | Where |
 |---|---|
 | The registry of Topics, read by the palette | `src/renderer/guide/registry.ts` |
-| Open, closed, the Topic on screen; the modal guard | `src/renderer/guide/store.ts` |
+| Open, closed, the Topic on screen | `src/renderer/guide/store.ts` |
+| The modal window it is drawn in | `src/renderer/theme/kit/Dialog.tsx` |
 | Loading the window on the first opening | `src/renderer/guide/GuideHost.tsx` |
 | The window | `src/renderer/guide/GuideWindow.tsx`, `src/renderer/guide/guide.css` |
 | The texts and Topics | `src/renderer/guide/content.ts`, `src/renderer/guide/strings/en.json`, `src/renderer/guide/topics/skeleton/topic.json` |
