@@ -1,7 +1,8 @@
 # 05 — Allow in Project, query инвентаря и вход OAuth для Claude; поправка к ADR-0021
 
 Type: task
-Status: claimed 2026-11-12T04:59Z
+Status: done 2026-11-12T06:44Z
+PR: #1822
 Blocked by: 03, 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения владельца» Q1, Q5, Q6, Q8, Q11; «Решения по реализации»
 (query инвентаря, Allow, ADR, Autopilot, приватность); «Решено без владельца» 5; «Риски» (query инвентаря, вход OAuth,
@@ -67,6 +68,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] E2e `test/e2e/session-mcp.spec.ts` дополнен: клик Allow — строка уходит из группы «не разрешён». Зелёный на
       macOS и Windows runner-е.
+  - evidence: ci-check pass · CI green on PR #1822 (ci-ok, e2e jobs included) · mac - · 924d6064d6e4dae89c7bbbe6e80f61af3a9cff40
 - [ ] (manual) Connector claude.ai вне списка: по итогу живой проверки владельца — строка «не разрешён» с Allow или
       подсказка о ручном вводе в Project settings; что выбрано — в «Итог».
 - [ ] ADR-0021 дополнен поправкой; `pnpm lint` (проверка документов) — exit 0.
