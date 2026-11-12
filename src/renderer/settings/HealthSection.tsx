@@ -6,13 +6,10 @@
 // dialog's own Close.
 import type { CSSProperties } from 'react'
 import { FirstRunChecks } from '../shell/FirstRunChecks'
-import { closeSettings, SETTINGS_LAYER } from './settings-window'
+import { closeSettings } from './settings-window'
 
 export const order = 20
 export const title = 'Health'
-
-/** The move form of the old Harness opens over this window: one layer above it, whatever the window's layer is. */
-const FORM_LAYER = SETTINGS_LAYER + 10
 
 const styles = {
   // Stays in sight while the rows scroll: the result of an action pressed far down shows here.
@@ -23,7 +20,7 @@ const styles = {
 
 export default function HealthSection() {
   return (
-    <FirstRunChecks checkOnShow formLayer={FORM_LAYER} onTerminalOpened={closeSettings}>
+    <FirstRunChecks checkOnShow onTerminalOpened={closeSettings}>
       {({ summary, list, message, checkAgain }) => (
         <div data-testid="settings-health">
           <div style={styles.head}>

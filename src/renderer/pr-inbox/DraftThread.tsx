@@ -10,10 +10,10 @@
 // and posts it once. An edit is kept with `prInbox.saveDraft` when the field loses the focus; Discard is
 // `prInbox.discard`. The drafts live on the machine of the Project only: a window of a Linked machine shows none.
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import type { PrInboxComment, PrReplyDrafts, PrReplyItem, PrReplyRef, PrReplySendResult } from '../../shared/ipc/pr-inbox'
 import { hasPreloadBridge, invoke, readableReason, windowMachine } from '../ipc'
+import { Dialog } from '../theme/kit/Dialog'
 import { CommentBody } from './CommentBody'
 
 /** How often the drafts of an open PR are read again: the Session writes them while the user looks. */
@@ -429,7 +429,6 @@ export function DraftThread({ item, place, comments = [], repo = null, text, bus
 // ── Send all ─────────────────────────────────────────────────────────────────
 
 const dialogStyles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 560,
     maxWidth: 'calc(100vw - 32px)',
@@ -462,62 +461,40 @@ export interface SendAllDialogProps {
   onCancel: () => void
 }
 
-/** The dialog of Send all: every text exactly as it goes, Send all and Cancel. Nothing goes without Send all. */
+/**
+ * The dialog of Send all: every text exactly as it goes, Send all and Cancel. Nothing goes without Send
+ * all. A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 07): the focus trap, Esc,
+ * the backdrop and the focus given back are the kit's.
+ */
 export function SendAllDialog({ repo, number, replies, onSend, onCancel }: SendAllDialogProps) {
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    dialog.current?.focus()
-  }, [])
-  return createPortal(
-    <div
-      style={dialogStyles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
-    >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={dialogStyles.dialog}
-        data-testid="pr-send-all-dialog"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onCancel()
-          }
-        }}
-      >
-        <div style={dialogStyles.header}>
-          <h2 id={titleId} style={dialogStyles.title}>
-            Send {replies.length} {replies.length === 1 ? 'reply' : 'replies'} to {repo}#{number}?
-          </h2>
-        </div>
-        <div style={dialogStyles.body}>
-          <p style={dialogStyles.muted}>Each text is posted exactly as shown, once, from the account of the Project, one after another.</p>
-          {replies.map((reply, at) => (
-            <section key={at} data-testid="pr-send-all-reply">
-              <p style={dialogStyles.muted}>{reply.place}</p>
-              <p style={dialogStyles.text} data-testid="pr-send-all-text">
-                {reply.text}
-              </p>
-            </section>
-          ))}
-        </div>
-        <div style={dialogStyles.footer}>
-          <button type="button" className="w-action" data-testid="pr-send-all-cancel" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="w-action w-action--primary" data-testid="pr-send-all-confirm" onClick={onSend}>
-            Send all
-          </button>
-        </div>
+  return (
+    <Dialog open onClose={onCancel} labelledBy={titleId} className="" style={dialogStyles.dialog} data-testid="pr-send-all-dialog">
+      <div style={dialogStyles.header}>
+        <h2 id={titleId} style={dialogStyles.title}>
+          Send {replies.length} {replies.length === 1 ? 'reply' : 'replies'} to {repo}#{number}?
+        </h2>
       </div>
-    </div>,
-    document.body,
+      <div style={dialogStyles.body}>
+        <p style={dialogStyles.muted}>Each text is posted exactly as shown, once, from the account of the Project, one after another.</p>
+        {replies.map((reply, at) => (
+          <section key={at} data-testid="pr-send-all-reply">
+            <p style={dialogStyles.muted}>{reply.place}</p>
+            <p style={dialogStyles.text} data-testid="pr-send-all-text">
+              {reply.text}
+            </p>
+          </section>
+        ))}
+      </div>
+      <div style={dialogStyles.footer}>
+        <button type="button" className="w-action" data-testid="pr-send-all-cancel" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="w-action w-action--primary" data-testid="pr-send-all-confirm" onClick={onSend}>
+          Send all
+        </button>
+      </div>
+    </Dialog>
   )
 }
 
