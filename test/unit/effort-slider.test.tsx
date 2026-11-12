@@ -105,6 +105,21 @@ const open = (): void => {
   expect(popover()).not.toBeNull()
 }
 
+/**
+ * Lets the kit Popover (theme/kit/Popover.tsx) finish what Base UI does after the event: it moves the
+ * focus in and back, and hears a press outside and the focus leaving, in effects and timers of its own.
+ */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+
+/** A pointer press as a browser sends it: Base UI hears a press outside by its pointerdown. */
+function pointerPress(element: Element): void {
+  fireEvent.pointerDown(element, { button: 0, pointerType: 'mouse' })
+  fireEvent.mouseDown(element, { button: 0 })
+  fireEvent.pointerUp(element, { button: 0, pointerType: 'mouse' })
+  fireEvent.mouseUp(element, { button: 0 })
+  fireEvent.click(element, { button: 0 })
+}
+
 describe('the marks of the effort slider', () => {
   it('are "default" and the levels of the picked model', async () => {
     await mount({ settings: { model: 'sonnet' } })
@@ -185,6 +200,7 @@ describe('the button of the effort picker', () => {
   it('opens the popover with the focus on the slider; a second click closes it', async () => {
     await mount()
     open()
+    await settle()
     expect(button().getAttribute('aria-expanded')).toBe('true')
     expect(button().getAttribute('aria-controls')).toBe(popover()?.id)
     expect(document.activeElement).toBe(slider())
@@ -245,7 +261,7 @@ describe('what the effort slider sends to agent.configure', () => {
   it.each([
     ['Esc', () => press('Escape')],
     ['Enter', () => press('Enter')],
-    ['a press outside', () => fireEvent.mouseDown(document.body)],
+    ['a press outside', () => pointerPress(document.body)],
     ['a click on the button', () => fireEvent.click(button())],
   ])('three presses of → and closing the popover with %s send one value', async (_name, close) => {
     await mount()
@@ -256,6 +272,7 @@ describe('what the effort slider sends to agent.configure', () => {
     // Neither a press of an arrow nor the native slider's events send anything by themselves.
     expect(configured()).toEqual([])
     close()
+    await settle()
     expect(popover()).toBeNull()
     expect(configured()).toEqual([sent({ effort: 'high' })])
   })
@@ -550,6 +567,7 @@ describe('what closes the effort popover', () => {
       act(() => {
         slider().dispatchEvent(event)
       })
+      await settle()
       expect(popover()).toBeNull()
       expect(event.defaultPrevented).toBe(true)
       expect(onWindowEsc).not.toHaveBeenCalled()
@@ -574,12 +592,21 @@ describe('what closes the effort popover', () => {
     await mount()
     render(<input data-testid="elsewhere" />)
     open()
-    fireEvent.mouseDown(screen.getByTestId('effort-current'))
-    fireEvent.mouseDown(slider())
+    await settle()
+    pointerPress(screen.getByTestId('effort-current'))
+    pointerPress(slider())
+    await settle()
     expect(popover()).not.toBeNull()
-    fireEvent.mouseDown(screen.getByTestId('elsewhere'))
+    // A press on a field takes the focus there, as a browser's press does once the press's own
+    // events (and their microtasks) are over.
+    pointerPress(screen.getByTestId('elsewhere'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    act(() => screen.getByTestId('elsewhere').focus())
+    await settle()
     expect(popover()).toBeNull()
-    expect(document.activeElement).not.toBe(button())
+    expect(document.activeElement).toBe(screen.getByTestId('elsewhere'))
   })
 
   it('a press on the popover next to the slider does not take the focus from the slider', async () => {
@@ -602,10 +629,12 @@ describe('what closes the effort popover', () => {
     await mount()
     render(<input data-testid="elsewhere" />)
     open()
+    await settle()
     press('ArrowRight')
     act(() => {
       screen.getByTestId('elsewhere').focus()
     })
+    await settle()
     expect(popover()).toBeNull()
     expect(configured()).toEqual([sent({ effort: 'low' })])
     expect(document.activeElement).toBe(screen.getByTestId('elsewhere'))
@@ -630,16 +659,18 @@ describe('what closes the effort popover', () => {
     expect(popover()).toBeNull()
   })
 
-  it('the listener of presses outside lives only while the popover is open', async () => {
+  it('the listeners of presses outside live only while the popover is open', async () => {
     await mount()
     const add = vi.spyOn(document, 'addEventListener')
     const remove = vi.spyOn(document, 'removeEventListener')
-    const presses = (spy: typeof add): unknown[][] => spy.mock.calls.filter(([type]) => type === 'mousedown')
+    const presses = (spy: typeof add): unknown[][] => spy.mock.calls.filter(([type]) => type === 'mousedown' || type === 'pointerdown')
     try {
       open()
-      expect(presses(add)).toHaveLength(1)
+      await settle()
+      expect(presses(add).length).toBeGreaterThan(0)
       press('Escape')
-      expect(presses(remove)).toEqual(presses(add))
+      await settle()
+      for (const call of presses(add)) expect(presses(remove)).toContainEqual(call)
     } finally {
       add.mockRestore()
       remove.mockRestore()

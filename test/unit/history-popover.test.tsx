@@ -4,7 +4,8 @@
 // or main's view of a running Session does. `sdk-cli` is `claude -p` in a terminal, never worfy's.
 // A finished `sdk-ts` Session no Node names any more (an earlier conversation of the Orchestrator,
 // a removed Node) stays «worfy»; a live one worfy does not run is not worfy's, as in the sidebar.
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { HistorySession } from '../../src/shared/ipc/claude-home'
@@ -152,5 +153,90 @@ describe('History: a Codex thread', () => {
     expect(created.op).toMatchObject({ op: 'create', node: { data: { sessionId: 'C-term', origin: 'external', vendor: 'codex', cwd: `${ROOT}/src` } } })
     expect(calls.find((call) => call.channel === 'sessions.resume')?.input).toEqual({ projectId: PROJECT.id, sessionId: 'C-term' })
     expect(calls.filter((call) => call.channel === 'sessions.resumable').every((call) => !(call.input as { sessionIds: string[] }).sessionIds.includes('C-term'))).toBe(true)
+  })
+})
+
+describe('History: the popover of the sidebar (the kit Popover, worfy-ui-kit ticket 10)', () => {
+  /** A pointer press as a browser sends it. */
+  function press(element: Element): void {
+    fireEvent.pointerDown(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(element, { button: 0 })
+    fireEvent.pointerUp(element, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseUp(element, { button: 0 })
+    fireEvent.click(element, { button: 0 })
+  }
+  const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+
+  /** The section's History button and the element the popover hangs from, as shell/sidebar/SessionsSection.tsx draws them. */
+  async function renderSection(): Promise<void> {
+    const { HistoryButton } = await import('../../src/renderer/session/HistoryPopover')
+    function Section() {
+      const [open, setOpen] = useState(false)
+      const anchor = useRef<HTMLSpanElement>(null)
+      return (
+        <section aria-label="Sessions">
+          <HistoryButton
+            project={PROJECT}
+            open={open}
+            onOpenChange={setOpen}
+            anchor={anchor}
+            trigger={
+              <button type="button" data-testid="sidebar-history">
+                History
+              </button>
+            }
+          />
+          <span ref={anchor} />
+          <button type="button">New session</button>
+        </section>
+      )
+    }
+    render(<Section />)
+  }
+  const button = () => screen.getByTestId('sidebar-history')
+  const popover = () => screen.queryByRole('dialog', { name: 'History' })
+
+  async function openIt(): Promise<HTMLElement> {
+    act(() => button().focus())
+    press(button())
+    await flush()
+    return screen.getByRole('dialog', { name: 'History' })
+  }
+
+  it('takes the focus in, and Esc inside closes it and gives the focus back to History', async () => {
+    await renderSection()
+    expect(button().getAttribute('aria-expanded')).toBe('false')
+    const dialog = await openIt()
+    expect(dialog.getAttribute('data-testid')).toBe('history-popover')
+    expect(button().getAttribute('aria-expanded')).toBe('true')
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(popover()).toBeNull()
+    expect(document.activeElement).toBe(button())
+  })
+
+  it('Esc with the focus outside it closes it too', async () => {
+    await renderSection()
+    await openIt()
+    act(() => screen.getByRole('button', { name: 'New session' }).focus())
+    act(() => {
+      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    })
+    await flush()
+    expect(popover()).toBeNull()
+  })
+
+  it('a press outside closes it; Close closes it and gives the focus back', async () => {
+    await renderSection()
+    await openIt()
+    press(screen.getByRole('button', { name: 'New session' }))
+    await flush()
+    expect(popover()).toBeNull()
+    const dialog = await openIt()
+    press(within(dialog).getByRole('button', { name: 'Close' }))
+    await flush()
+    expect(popover()).toBeNull()
+    expect(document.activeElement).toBe(button())
   })
 })

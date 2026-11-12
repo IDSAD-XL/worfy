@@ -6,10 +6,12 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, innerSize, launchApp, parkPointer, repoRoot, type LaunchedApp } from './helpers'
+import { canvasReady, innerSize, launchApp, parkPointer, repoRoot, showSidebarSection, type LaunchedApp } from './helpers'
+import { clickMenuItem } from './menu'
 import { printJoined } from './terminal-shell'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
+import { settled } from './wait'
 
 // The popovers of the kit on the Canvas in the built app (worfy-ui-kit ticket 09, ADR-0106): Trash,
 // the Archive and the history of a Ticket («N sessions»), each a Popover of theme/kit/Popover.tsx.
@@ -24,6 +26,20 @@ import { ms } from '../time-scale'
 //   not focus mode, and the next Esc leaves focus mode.
 // - Next to a Terminal and a Browser: a press inside the Browser's <webview> closes the popover (the
 //   blur of the window: Base UI #5410), and a press on the Terminal's screen closes it and reaches xterm.
+// The popovers of the rest of the window (worfy-ui-kit ticket 10), on the same kit Popover:
+// - In the composer of a Session view: Queued messages and Effort stand at the bottom edge of the
+//   window, so each flips over its button and stays inside the window, on top.
+// - Esc in a composer popover while the agent's turn runs (ADR-0106, the e2e case of tickets 10 and
+//   11): with the focus in the popover or on its button, Esc closes the popover and the turn goes on;
+//   the next Esc in the input field interrupts the turn. No popover of this ticket opens with the focus
+//   left in the field; that case is the unit test `the chat field keeps the focus while a kit popup is
+//   open` (test/unit/kit-layer.test.tsx).
+// - History of the sidebar and Settings: the Settings window is modal and covers the whole window, so
+//   History cannot be opened over it. History opened first closes when Settings takes the focus (a
+//   non-modal popover closes when the focus leaves it), and Settings is on top; once Settings is closed,
+//   History opens again on top of the sidebar and the Canvas.
+// The composer cases run on the fake agent with test/fixtures/agent-scripts/session-view.jsonl: turn 1
+// answers at once, turn 2 holds until it is interrupted (as test/e2e/session-controls.spec.ts).
 // The Project is a temporary git repository; `bin/epic-status` in a temporary WORFY_CLAUDE_HOME
 // answers with one Epic of two Tickets, and a manual Binding ties an archived Session to Ticket 01.
 // The Browser's page comes from a server this file starts on 127.0.0.1: no outside site.
@@ -340,4 +356,158 @@ test('next to a Terminal and a Browser: a press inside the <webview> closes the 
   await window.keyboard.type(printJoined('layers', '-typed'))
   await window.keyboard.press('Enter')
   await expect(terminal.getByTestId('terminal-screen')).toContainText('layers-typed', { timeout: ms(10_000) })
+})
+
+const SESSION_PROJECT = 'alpha-0000c10a'
+
+/** The app over a plain Project folder, its Sessions on the fake agent; answers the Orchestrator's Session view, idle. */
+async function startSession(): Promise<{ window: Page; view: Locator }> {
+  const dataDir = join(scratch, 'data')
+  const claudeHome = join(scratch, 'claude-home')
+  const path = join(scratch, 'alpha')
+  mkdirSync(claudeHome, { recursive: true })
+  mkdirSync(path)
+  mkdirSync(join(dataDir, SESSION_PROJECT), { recursive: true })
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: SESSION_PROJECT, name: 'alpha', path }], activeId: SESSION_PROJECT }))
+  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: join(scratch, 'agent.log') } })
+  const { window } = launched
+  const node = window.getByTestId('orchestrator-node')
+  await expect(node.getByTestId('orchestrator-state')).toHaveText('idle', { timeout: ms(20_000) })
+  await node.locator('.w-orchestrator__header').dblclick()
+  const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+  await expect(view).toBeVisible()
+  await expect(view.getByTestId('session-state')).toHaveText('idle')
+  return { window, view }
+}
+
+/** Starts the turn that holds until it is interrupted, and queues one message behind it. Answers the input field. */
+async function busyWithQueue(view: Locator): Promise<Locator> {
+  const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+  await field.fill('first')
+  await field.press('Enter')
+  await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+  await field.fill('hold')
+  await field.press('Enter')
+  await expect(view.getByTestId('session-state')).toHaveText('busy')
+  await field.fill('queued one')
+  await field.press('Enter')
+  await expect(view.getByTestId('queue-chip')).toHaveText('1 queued')
+  return field
+}
+
+test('in the composer: Queued messages and Effort, at the bottom edge of the window, flip over their buttons and stay inside the window, on top', async () => {
+  const { window, view } = await startSession()
+  await busyWithQueue(view)
+  const page = await innerSize(window)
+
+  const chip = view.getByTestId('queue-chip')
+  const queue = window.getByRole('dialog', { name: 'Queued messages' })
+  await chip.click()
+  await expect(queue).toBeVisible()
+  await expect(queue).toHaveAttribute('data-testid', 'queue-list')
+  await expect(chip).toHaveAttribute('aria-expanded', 'true')
+  // No room under the chip: it is on the last lines of the window.
+  const chipBox = await box(chip)
+  expect(page.height - (chipBox.y + chipBox.height)).toBeLessThan((await box(queue)).height)
+  await expect(queue).toHaveAttribute('data-side', 'top')
+  expect((await box(queue)).y + (await box(queue)).height).toBeLessThanOrEqual(chipBox.y + 1)
+  expect(await insideWindow(window, queue)).toBe(true)
+  expect(await onTop(queue)).toBe(true)
+  await window.keyboard.press('Escape')
+  await expect(queue).toHaveCount(0)
+
+  const effort = view.getByTestId('picker-effort')
+  const popover = window.getByRole('dialog', { name: 'Effort' })
+  await effort.click()
+  await expect(popover).toBeVisible()
+  await expect(popover).toHaveAttribute('data-testid', 'effort-popover')
+  const effortBox = await box(effort)
+  expect(page.height - (effortBox.y + effortBox.height)).toBeLessThan((await box(popover)).height)
+  await expect(popover).toHaveAttribute('data-side', 'top')
+  expect((await box(popover)).y + (await box(popover)).height).toBeLessThanOrEqual(effortBox.y + 1)
+  expect(await insideWindow(window, popover)).toBe(true)
+  expect(await onTop(popover)).toBe(true)
+  await window.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+})
+
+test('Esc in a composer popover during a turn closes the popover and leaves the turn running; the next Esc in the input field interrupts it', async () => {
+  const { window, view } = await startSession()
+  const field = await busyWithQueue(view)
+  const state = view.getByTestId('session-state')
+  /** The turn goes on: main had every request the renderer sent, and the Session is still busy. */
+  const turnRuns = async (): Promise<void> => {
+    await settled(window)
+    await expect(state).toHaveText('busy')
+    await expect(view.getByTestId('input-interrupt')).toBeVisible()
+  }
+
+  // Queued messages, the focus in the popover.
+  const chip = view.getByTestId('queue-chip')
+  const queue = window.getByRole('dialog', { name: 'Queued messages' })
+  await chip.click()
+  await expect(queue).toBeVisible()
+  expect(await focusInside(queue)).toBe(true)
+  await window.keyboard.press('Escape')
+  await expect(queue).toHaveCount(0)
+  await expect(chip).toBeFocused()
+  await turnRuns()
+
+  // Queued messages, the focus back on its chip while the popover is open.
+  await chip.click()
+  await expect(queue).toBeVisible()
+  await chip.focus()
+  await expect(queue).toBeVisible()
+  await window.keyboard.press('Escape')
+  await expect(queue).toHaveCount(0)
+  await turnRuns()
+
+  // Effort, the focus on its slider.
+  const effort = view.getByTestId('picker-effort')
+  const popover = window.getByRole('dialog', { name: 'Effort' })
+  await effort.click()
+  await expect(popover).toBeVisible()
+  await expect(window.getByTestId('effort-slider')).toBeFocused()
+  await window.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(effort).toBeFocused()
+  await turnRuns()
+  // Nothing of the queue went either.
+  await expect(chip).toHaveText('1 queued')
+
+  // No popover open: Esc in the input field is the field's, and interrupts the turn.
+  await field.focus()
+  await window.keyboard.press('Escape')
+  await expect(state).toHaveText('idle')
+})
+
+test('History of the sidebar and Settings: Settings taking the focus closes History and is on top; after Settings, History opens on top of the sidebar and the Canvas', async () => {
+  const { window, app } = await start({ workflow: false })
+  await showSidebarSection(window, 'Sessions')
+  const button = window.getByTestId('sidebar-history')
+  const history = window.getByRole('dialog', { name: 'History' })
+
+  await button.click()
+  await expect(history).toBeVisible()
+  await expect(history).toHaveAttribute('data-testid', 'history-popover')
+  expect(await focusInside(history)).toBe(true)
+  expect(await onTop(history)).toBe(true)
+
+  // Settings, from the app menu as a person opens it: the focus goes into its window, History closes.
+  await clickMenuItem(app, 'app.settings')
+  const settings = window.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  await expect(history).toHaveCount(0)
+  expect(await focusInside(settings)).toBe(true)
+  await window.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
+
+  // History again: on top of everything, inside the window; Esc closes it and gives the focus back.
+  await button.click()
+  await expect(history).toBeVisible()
+  expect(await onTop(history)).toBe(true)
+  expect(await insideWindow(window, history)).toBe(true)
+  await window.keyboard.press('Escape')
+  await expect(history).toHaveCount(0)
+  await expect(button).toBeFocused()
 })

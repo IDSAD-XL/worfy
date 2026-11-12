@@ -56,6 +56,8 @@ afterEach(() => {
 })
 
 const chip = (): HTMLElement => screen.getByTestId('app-version')
+/** Lets Base UI's effects and timers run. */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
 const items = (): string[] => screen.getAllByRole('menuitem').map((item) => item.textContent ?? '')
 
 /** Opens the chip's menu and chooses "What's new"; answers the popover once main has answered. */
@@ -196,14 +198,43 @@ describe("What's new", () => {
     expect(screen.getByRole('dialog')).toBeTruthy()
     act(() => field.focus())
     expect(screen.queryByRole('dialog')).toBeNull()
+    // The field keeps the focus: the chip does not take it back, so the palette's own Esc reaches the palette.
+    await settle()
+    expect(document.activeElement).toBe(field)
   })
 
   it('Escape closes it and gives the focus back to the chip', async () => {
     fakeBridge({ ok: true, value: ANSWER })
     render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
     const popover = await openWhatsNew()
-    fireEvent.keyDown(popover, { key: 'Escape' })
+    // The kit Popover (theme/kit/Popover.tsx) moves the focus in, and back out, after the event.
+    await settle()
+    // The popover itself has the focus, not its button.
+    expect(document.activeElement).toBe(popover)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await settle()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(chip())
+  })
+
+  it('stays open when the window loses the focus, as a PR opening in the browser takes it; a press on the chip closes it, as it would the menu', async () => {
+    fakeBridge({ ok: true, value: ANSWER })
+    render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
+    await openWhatsNew()
+    await settle()
+    await act(async () => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(screen.getByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeTruthy()
+    // The chip's own press (its kit Menu, UpdateChip.tsx) closes it, not the popover's press outside: the menu stays closed too.
+    fireEvent.pointerDown(chip(), { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(chip(), { button: 0 })
+    fireEvent.pointerUp(chip(), { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseUp(chip(), { button: 0 })
+    fireEvent.click(chip(), { button: 0 })
+    await settle()
+    expect(screen.queryByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })

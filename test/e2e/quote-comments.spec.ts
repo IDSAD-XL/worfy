@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp } from './helpers'
+import { canvasReady, launchApp } from './helpers'
 
 // Comments on quotes of an agent's message (worfy-polish ticket 102) against the built app, on the
 // fake agent (test/fixtures/agent-scripts/message-input.jsonl, which answers «Hello from the fake
@@ -11,6 +11,8 @@ import { launchApp } from './helpers'
 // popover takes the comment, the tray above the field lists it, and Send sends the round with the
 // field's text as one message: the agent gets the quote, the comment and the general text in the
 // round's format, and the user's bubble draws a quote block. The quote stays lit, dimly, afterwards.
+// The same in a Product Session's chat (worfy-ui-kit ticket 10): there the pointer resting on the lit
+// quote shows the comment's card (the kit's PreviewCard), and the comment goes with the next message.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -47,8 +49,9 @@ const messages = (): Call[] =>
     ? readFileSync(log, 'utf8')
         .split('\n')
         .filter((line) => line.trim() !== '')
-        .map((line) => JSON.parse(line) as Call)
-        .filter((call) => call.kind === 'message')
+        .map((line) => JSON.parse(line) as Call & { narrator?: boolean })
+        // The Live summary's fake agent writes to the same log, marked: its calls are not the Session's.
+        .filter((call) => call.kind === 'message' && call.narrator !== true)
     : []
 
 /** Opens the Orchestrator's Session view with a double click on its Node, once it is idle. */
@@ -205,5 +208,68 @@ test('a part of an answer selected by a mouse drag gets the button, and its comm
     await expect.poll(() => lit(window, 'worfy-quote')).toBe(true)
   } finally {
     await app.close()
+  }
+})
+
+test('in a Product Session: comment on a part of the advisor\'s answer, see its card on the quote, send it with the next message', async () => {
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'message-input', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1400, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('new product session')
+    await expect(window.locator('[data-testid="palette-option"][data-command="new:product-session"]')).toHaveAttribute('data-active', 'true')
+    await window.keyboard.press('Enter')
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view).toBeVisible()
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('hello')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('Hello from the fake agent')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expect(view.locator('[data-quote-anchor]')).toHaveCount(1)
+
+    // The selection gets its button; the popover takes the comment.
+    const point = await selectInAnswer(window, QUOTE)
+    expect(point).not.toBeNull()
+    const button = window.getByTestId('quote-button')
+    await expect(button).toContainText('Comment')
+    await button.click()
+    const popover = window.getByRole('dialog', { name: 'Comment on the quote' })
+    await expect(popover.getByTestId('quote-popover-quote')).toHaveText(QUOTE)
+    await popover.getByTestId('quote-popover-text').fill('Say it shorter.')
+    await popover.getByTestId('quote-popover-save').click()
+    await expect(popover).toHaveCount(0)
+    await expect.poll(() => lit(window, 'worfy-quote')).toBe(true)
+    await expect(view.getByTestId('quote-tray').getByTestId('quote-chip')).toHaveText([/«from the fake agent»/])
+
+    // The pointer resting on the lit quote shows the comment's card; leaving the quote and the card hides it.
+    await window.evaluate(`document.getSelection().removeAllRanges()`)
+    const card = window.getByRole('dialog', { name: 'Comment' })
+    await window.mouse.move(point!.x - 4, point!.y)
+    await window.mouse.move(point!.x, point!.y, { steps: 4 })
+    await expect(card).toBeVisible()
+    await expect(card).toHaveAttribute('data-testid', 'quote-card')
+    await expect(card).toContainText('Say it shorter.')
+    await expect(card.getByTestId('quote-card-edit')).toBeVisible()
+    const fieldBox = (await field.boundingBox())!
+    await window.mouse.move(fieldBox.x + fieldBox.width / 2, fieldBox.y + fieldBox.height / 2, { steps: 4 })
+    await expect(card).toHaveCount(0)
+
+    // The comment goes with the next message, in the round's format, and the bubble draws its block.
+    await field.fill('Thanks.')
+    await field.press('Enter')
+    await expect.poll(() => messages().at(-1)?.text ?? '').toMatch(/General:\nThanks\.$/)
+    expect(messages().at(-1)?.text).toMatch(/Comments on parts of your messages \(1\):\n\n1\. > «from the fake agent» \(your message( \d\d:\d\d)?\)\n {3}Say it shorter\.\n\nGeneral:\nThanks\.$/)
+    await expect(view.getByTestId('quote-tray')).toHaveCount(0)
+    const block = view.getByTestId('quoted-prompt-block')
+    await expect(block).toHaveCount(1)
+    await expect(block.getByTestId('quoted-prompt-quote')).toHaveText(QUOTE)
+    await expect(block.getByTestId('quoted-prompt-comment')).toHaveText('Say it shorter.')
+    await expect.poll(() => lit(window, 'worfy-quote-sent')).toBe(true)
+  } finally {
+    await launched.close()
   }
 })

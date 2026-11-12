@@ -116,18 +116,19 @@ test('the pickers change the live Session and survive a restart; the queue sends
     // The effort is a slider in the popover of its button: its marks are the levels of the picked
     // model, and the popover opens over the button, inside the window.
     await effort.click()
-    const popover = view.getByTestId('effort-popover')
-    const slider = view.getByTestId('effort-slider')
+    // The popover is a Popover of the kit (worfy-ui-kit ticket 10), drawn into the page's body, not the view.
+    const popover = window.getByTestId('effort-popover')
+    const slider = popover.getByTestId('effort-slider')
     await expect(popover).toBeVisible()
     await expect(slider).toBeFocused()
-    expect(await view.getByTestId('effort-mark').evaluateAll((marks) => marks.map((mark) => mark.getAttribute('data-mark')))).toEqual(['default', 'low', 'medium', 'high', 'max'])
+    expect(await popover.getByTestId('effort-mark').evaluateAll((marks) => marks.map((mark) => mark.getAttribute('data-mark')))).toEqual(['default', 'low', 'medium', 'high', 'max'])
     await expect(slider).toHaveAttribute('aria-valuetext', 'default')
     const [popoverBox, effortBox] = [await popover.boundingBox(), await effort.boundingBox()]
     expect(popoverBox !== null && effortBox !== null && popoverBox.y >= -PX_TOLERANCE && popoverBox.y + popoverBox.height <= effortBox.y + PX_TOLERANCE).toBe(true)
     // → moves the thumb to the next mark; the level goes to Claude Code once, not on the key press.
     await window.keyboard.press('ArrowRight')
     await expect(slider).toHaveAttribute('aria-valuetext', 'low')
-    await expect(view.getByTestId('effort-current')).toHaveText('low')
+    await expect(popover.getByTestId('effort-current')).toHaveText('low')
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
       await window.screenshot({ path: test.info().outputPath(`effort-slider-${scheme}.png`) })
@@ -175,13 +176,14 @@ test('the pickers change the live Session and survive a restart; the queue sends
 
     // One is removed before it is sent.
     await view.getByTestId('queue-chip').click()
-    await expect(view.getByTestId('queue-item')).toHaveCount(3)
+    // The list is a Popover of the kit, drawn into the page's body.
+    await expect(window.getByTestId('queue-list').getByTestId('queue-item')).toHaveCount(3)
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
       await window.screenshot({ path: test.info().outputPath(`session-queue-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })
-    await view.getByRole('button', { name: 'Remove queued message 2' }).click()
+    await window.getByTestId('queue-list').getByRole('button', { name: 'Remove queued message 2' }).click()
     await expect(view.getByTestId('queue-chip')).toHaveText('2 queued')
 
     // Interrupt stops the turn and holds the queue: nothing goes by itself.

@@ -1,7 +1,7 @@
 # 10 — Остальные popover-ы и hover card комментария к цитате
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T16:33Z
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения по реализации» (kit, PreviewCard); истории 13, 16, 25;
 заметка темы `docs/product/ui-overhaul/notes/inventory-overlays.md`, разделы 2.1 и 5
@@ -34,12 +34,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
 
 - [ ] Unit test `test/unit/kit-preview-card.test.tsx`: карточка открывается наведением и фокусом, закрывается уходом и
       Esc.
+  - evidence: test-run pass · `pnpm test test/unit/kit-preview-card.test.tsx` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Unit test-ы мест: History и Queued messages закрываются по Esc и нажатию снаружи; фокус входит и возвращается.
+  - evidence: test-run pass · `pnpm test test/unit/history-popover.test.tsx test/unit/composer-popovers.test.tsx` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Существующие test-ы мест и e2e `quote-comments.spec.ts` зелёные без правок ролей и `data-testid`; дописанный
       `layers-popover.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] В «Итог» — какие места остались своими и почему.
+  - evidence: commit pass · Remaining popovers on the kit Popover; a kit PreviewCard for the quote hover card (worfy-ui-kit 10) · - - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · aad21245d0eaa725fcfb579afef23fd6b7c8db84
 
 ## Где в коде
 
@@ -66,3 +70,52 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
 
 - Inline confirm «Resume the Session» в `HistoryPopover.tsx` остаётся inline.
 - Context menu действий с выделенным текстом (тот же `QuoteCommentParts.tsx`): Ticket 12.
+
+## Итог
+
+- Popover kit (`theme/kit/Popover.tsx`) получил то, что нужно местам без своей кнопки: `trigger` необязателен, `anchor`
+  — элемент или прямоугольник на экране; `initialFocus` и `finalFocus`; `onDismiss(reason)` — место может оставить
+  popover открытым при нажатии снаружи, уходе фокуса, blur окна и смене вида (Esc закрывает всегда); `popupProps` — свои
+  клавиши и drag-and-drop места, их `onKeyDown` идёт раньше kit-а. Нажатие по самому `anchor` — не нажатие снаружи.
+  Фокус, ушедший в любой другой элемент окна (поле Command palette по ⌘K, кнопка другой панели), закрывает popover:
+  Base UI закрывает его сам только при уходе по Tab. `theme/kit/layer.ts`: `close` получает причину (`escape`, `blur`,
+  `view`).
+- `theme/kit/PreviewCard.tsx` — новая обёртка PreviewCard Base UI: `dialog` с именем, открывается наведением и фокусом
+  на trigger-е, закрывается уходом, Esc, нажатием снаружи, blur окна и сменой вида; без trigger-а ставится по `anchor`.
+- History в sidebar (`HistoryButton` в `session/HistoryPopover.tsx`), Queued messages, Effort, What's new и
+  комментарий к цитате — на Popover kit; роли и `data-testid` прежние. History висит на элементе во всю ширину секции
+  под её действиями (как и до kit-а, ширина — `--anchor-width`); теперь закрывается по Esc при любом фокусе и по
+  нажатию снаружи, фокус входит и возвращается на кнопку History. What's new — на слое `top`, blur окна его не
+  закрывает (PR открывается в браузере). Комментарий к цитате: Esc отменяет; нажатие снаружи с несохранённым текстом
+  оставляет его открытым и просит Save или Cancel, как раньше; уход фокуса и смена вида закрывают только неизменённый;
+  blur окна не закрывает никакой (второй раунд ревью: «Add image» открывает системный выбор файла, он забирает фокус
+  окна, и без popover-а картинка терялась).
+- Hover card комментария к цитате — на PreviewCard kit с якорем-прямоугольником: Base UI его принимает. Подсветка
+  цитаты — CSS Highlight, не элемент, поэтому наведение по-прежнему считают таймеры `session/QuoteComments.tsx`
+  (280 и 220 мс), а kit даёт роль `dialog` «Comment», слой, Esc, нажатие снаружи, blur и смену вида.
+- Остались своими:
+  - Command request Terminal AI (`canvas/nodes/TerminalAiRequest.tsx`): панель стоит внутри Node-а поверх экрана
+    терминала, под его первой строкой (`top` в пикселях экрана), масштабируется вместе с Canvas и не имеет trigger-а
+    (⌘I с клавиатуры). Popover kit рисует popup в `document.body` у края элемента: панель вышла бы из zoom Node-а и
+    перестала бы закрывать строку shell-а. Esc и возврат фокуса в xterm у неё уже свои.
+  - Карточка узла Mind map (`product/MindMap.tsx`): её место считает `cardPlace` внутри панели карты, а не окна, и
+    она идёт за камерой карты при pan и zoom. Kit ставит popup у краёв окна и закрывает его нажатием снаружи — то есть
+    перетаскиванием карты. Esc, «×» и клик по пустой карте у неё уже свои.
+- Esc в popover-е composer-а при ходе агента закрывает popover и не прерывает ход; следующий Esc в поле прерывает
+  (unit test `test/unit/composer-popovers.test.tsx`, e2e `layers-popover.spec.ts`). Popover-а, который открывается с
+  фокусом в поле ввода, в этом Ticket-е нет: этот случай держит unit test `test/unit/kit-layer.test.tsx` › `the chat
+  field keeps the focus while a kit popup is open`. В Product Session Queued messages и Effort не показываются
+  (`PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS`), поэтому случая внутри `ProductSessionPanel` нет.
+- E2e, которые искали popup внутри вида Session (`session-controls.spec.ts`, `session-two-windows.spec.ts`), ищут его
+  в странице: kit рисует popup в `document.body`. `focus-sidebar.spec.ts` описывает новое поведение History.
+- Дополнение владельца: e2e `quote-comments.spec.ts` получил случай Product Session — выделение в ответе advisor-а,
+  комментарий, hover card на цитате (`dialog` «Comment»), комментарий уходит со следующим сообщением. Fake agent
+  `message-input`, без настоящей модели. Product Session поддерживает комментарии к цитатам тем же `SessionPanel`
+  (`session/SessionView.tsx`, `useQuoteComments`; строки advisor-а несут `data-quote-anchor`, `Transcript.tsx`).
+- Второй раунд ревью. Esc, нажатый вне popover-а kit-а, теперь идёт через `onDismiss('escape-outside')`, а Esc,
+  который уже взяло поле (поле сообщения прерывает ход), popover не закрывает: одно нажатие — одно действие.
+  Popover комментария к цитате (`passOutsideEscape`) и hover card помечены `data-kit-pass-escape`:
+  `escapeBelongsToPopup` (`theme/open-layers.ts`) их пропускает, поэтому Esc в поле занятой Session прерывает ход, как
+  до kit-а, а черновик комментария остаётся. Без хода Esc снаружи для комментария — то же, что нажатие снаружи:
+  неизменённый закрывается, с текстом — подсказка и встряска. Список «N queued» берёт фокус сам, не «×» первого
+  сообщения. Кнопка у выделения (`.w-qfab`) — на слое `--z-panel`, под карточкой и popover-ом комментария.

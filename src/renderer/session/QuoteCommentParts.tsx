@@ -1,8 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react'
 import { machineLabel } from '../../shared/cards/bridge'
 import { attachmentImageUrl } from '../../shared/images'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { windowMachine } from '../ipc'
+import { Popover as KitPopover, type AnchorBox, type DismissReason } from '../theme/kit/Popover'
+import { PreviewCard } from '../theme/kit/PreviewCard'
 import { matches as matchesShortcut } from '../shortcuts/match'
 import { clockOf, squash, type CommentImage, type QuoteComment, type SentQuote } from './quote-comments'
 import { imageDataOf } from './quote-store'
@@ -74,6 +76,16 @@ function useFloating(ref: RefObject<HTMLElement | null>, rect: { top: number; bo
     element.style.top = `${place.top}px`
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, rect, ...deps])
+}
+
+/** A box on the screen the kit places a popup against, read anew from `rect` each time it is asked. */
+function useBox(rect: () => DOMRect | null): AnchorBox {
+  const latest = useRef(rect)
+  useLayoutEffect(() => {
+    latest.current = rect
+  })
+  const [box] = useState<AnchorBox>(() => ({ getBoundingClientRect: () => latest.current() ?? new DOMRect() }))
+  return box
 }
 
 export function CommentIcon() {
@@ -249,48 +261,48 @@ export function CommentPopover({
   onDelete: (() => void) | null
   onOutside: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
   const chooser = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const box = rect()
-  useFloating(ref, box === null ? null : { top: box.top, bottom: box.bottom, left: box.left }, [popover.images.length, popover.error, popover.text.split('\n').length])
-  useEffect(() => {
-    const element = field.current
-    element?.focus({ preventScroll: true })
-    element?.setSelectionRange(element.value.length, element.value.length)
+  // The quote's box on the screen, read anew whenever the kit places the popover: the transcript scrolls under it.
+  const anchor = useBox(rect)
+  // The field takes the focus with the caret after its text once it is drawn: the kit draws the popup
+  // into the body a moment after the popover mounts.
+  const fieldDrawn = useCallback((element: HTMLTextAreaElement | null) => {
+    field.current = element
+    if (element === null) return
+    element.focus({ preventScroll: true })
+    element.setSelectionRange(element.value.length, element.value.length)
   }, [])
   useEffect(() => {
-    const element = ref.current
+    // The popup of the kit around the field.
+    const element = field.current?.closest<HTMLElement>('.w-qpop') ?? null
     if (element === null || shake === 0) return
     element.classList.remove('w-qpop--shake')
     void element.offsetWidth
     element.classList.add('w-qpop--shake')
   }, [shake])
-  // A click outside closes an unchanged popover; a changed one asks to be saved or cancelled first.
-  useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      if (event.target instanceof Element && event.target.closest('.w-qpop, .w-toast, [data-testid="toasts"]') !== null) return
-      if (event.target instanceof Node && ref.current?.contains(event.target)) return
-      onOutside()
-    }
-    document.addEventListener('mousedown', onDown, true)
-    return () => document.removeEventListener('mousedown', onDown, true)
-  }, [onOutside])
+  const changed = popover.text.trim() !== popover.was.text.trim() || popover.images.length !== popover.was.images
+  // A click outside closes an unchanged popover; a changed one asks to be saved or cancelled first
+  // (onOutside). An Esc pressed outside that no field took (the message field interrupts a running
+  // turn with it) is the same as a click outside. The focus going elsewhere or a switch of the view
+  // closes an unchanged one and keeps a changed one, without a word: the text is not lost. A blur of
+  // the window closes none: «Attach image» opens the system's file picker, which takes the focus of
+  // the window, and a drag from the Finder may too; the image it brings needs the popover.
+  const dismiss = (reason: DismissReason): boolean => {
+    if (reason === 'outside-press' || reason === 'escape-outside') onOutside()
+    else if (reason !== 'blur' && !changed) onCancel()
+    return false
+  }
+  // Esc pressed in the popover is the kit's: it closes the popover (onCancel) and goes no further.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      onCancel()
-      return
-    }
     if (matchesShortcut(event.nativeEvent, SHORTCUTS.quoteSave)) {
       event.preventDefault()
       onSave()
       return
     }
     if (event.key === 'Tab') {
-      const stops = Array.from(ref.current?.querySelectorAll<HTMLElement>('textarea, button:not(:disabled)') ?? [])
+      const stops = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('textarea, button:not(:disabled)'))
       const at = stops.indexOf(document.activeElement as HTMLElement)
       if (event.shiftKey && at <= 0) {
         event.preventDefault()
@@ -316,26 +328,36 @@ export function CommentPopover({
   }
   const empty = popover.text.trim() === '' && popover.images.length === 0
   return (
-    <div
-      ref={ref}
+    <KitPopover
+      open
+      onOpenChange={(next) => {
+        if (!next) onCancel()
+      }}
+      anchor={anchor}
+      label="Comment on the quote"
+      testId="quote-popover"
       className={`w-qpop${dragging ? ' w-qpop--drag' : ''}`}
-      role="dialog"
-      aria-label="Comment on the quote"
-      data-quote-float=""
-      data-testid="quote-popover"
-      onKeyDown={onKeyDown}
-      onDragEnter={(event) => drag(event, true)}
-      onDragOver={(event) => {
-        drag(event, true)
-        if (event.dataTransfer.types.includes('Files')) event.dataTransfer.dropEffect = 'copy'
-      }}
-      onDragLeave={(event) => {
-        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
-        drag(event, false)
-      }}
-      onDrop={(event) => {
-        drag(event, false)
-        if (event.dataTransfer.types.includes('Files')) onFiles([...event.dataTransfer.files])
+      align="start"
+      sideOffset={8}
+      initialFocus={field}
+      onDismiss={dismiss}
+      passOutsideEscape
+      popupProps={{
+        'data-quote-float': '',
+        onKeyDown,
+        onDragEnter: (event) => drag(event, true),
+        onDragOver: (event) => {
+          drag(event, true)
+          if (event.dataTransfer.types.includes('Files')) event.dataTransfer.dropEffect = 'copy'
+        },
+        onDragLeave: (event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+          drag(event, false)
+        },
+        onDrop: (event) => {
+          drag(event, false)
+          if (event.dataTransfer.types.includes('Files')) onFiles([...event.dataTransfer.files])
+        },
       }}
     >
       <div className="w-qpop__head">
@@ -349,7 +371,7 @@ export function CommentPopover({
         {squash(popover.quote)}
       </blockquote>
       <textarea
-        ref={field}
+        ref={fieldDrawn}
         className="w-qpop__text"
         rows={3}
         aria-label="Comment text"
@@ -418,7 +440,7 @@ export function CommentPopover({
           Drop the image to attach
         </div>
       ) : null}
-    </div>
+    </KitPopover>
   )
 }
 
@@ -432,12 +454,25 @@ export function HoverCard({ rect, comment, sent, onEnter, onLeave, onEdit, onDel
   onDelete: () => void
   onReply: () => void
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useFloating(ref, { top: rect.top, bottom: rect.bottom, left: rect.left }, [comment, sent])
+  // The light of the comment is a highlight of the text, not an element: the card is placed against
+  // its box, and the place (QuoteComments.tsx) opens it after the pointer rests on the light and closes
+  // it after the pointer left both. Esc, a press elsewhere, a blur of the window and a switch of the
+  // view close it too (the kit's PreviewCard).
+  const anchor = useBox(() => rect)
   const text = comment?.text ?? sent?.text ?? ''
   const images = comment?.images ?? []
   return (
-    <div ref={ref} className="w-qcard" data-quote-float="" data-testid="quote-card" onMouseEnter={onEnter} onMouseLeave={onLeave}>
+    <PreviewCard
+      open
+      onOpenChange={(next) => {
+        if (!next) onLeave()
+      }}
+      anchor={anchor}
+      label="Comment"
+      testId="quote-card"
+      className="w-qcard"
+      popupProps={{ 'data-quote-float': '', onMouseEnter: onEnter, onMouseLeave: onLeave }}
+    >
       <div className="w-qcard__meta">
         <span className="w-qcard__badge">{sent !== null ? 'answered' : 'draft'}</span>
         {sent !== null ? 'sent' : 'not sent yet'}
@@ -466,6 +501,6 @@ export function HoverCard({ rect, comment, sent, onEnter, onLeave, onEdit, onDel
           </>
         )}
       </div>
-    </div>
+    </PreviewCard>
   )
 }

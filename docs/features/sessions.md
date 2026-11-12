@@ -83,12 +83,13 @@ size there; the open window keeps it whole.
 
 **Queue.** A message sent during a turn waits in a queue in main. The hint beside the send button says "Return to queue"
 then. Messages go one per turn, each after the `result` of the previous turn. The chip "N queued" opens the list, where ×
-removes a message. An Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing
+removes a message; Esc or a click elsewhere closes the list. An Interrupt or a crash holds the queue: the list title changes to "Held after Interrupt", and nothing
 goes until "Send queued". An empty queue is never held. A queue does not outlive its Session. The exception is the
 Orchestrator, whose queue moves to the new process when Autopilot gives it back.
 
 **Interrupt.** The Session view's button, or Esc in its input field, works in `busy` and `needs_permission`. An Esc that
-closes a popup of the field, such as the slash menu, only closes the popup and leaves the turn running. Interrupt holds
+closes a popup of the field, such as the slash menu, the "N queued" list or the Effort slider, only closes the popup and
+leaves the turn running; the next Esc in the field interrupts. Interrupt holds
 the queue, cancels open permission requests and questions, and asks Claude Code to stop the turn.
 
 **A crash.** The Session goes to `error`. The queue is held, open requests are cancelled and the background tasks are
@@ -174,11 +175,14 @@ request either, the chat says the Session waits for an answer this window cannot
 commented on. A button next to the selection says "Comment ⇧⌘M"; a right click (a two-finger click on a trackpad) opens
 "Comment" and "Copy"; ⇧⌘M (Ctrl+Shift+M) does the same. A selection across two messages says "Select inside one message
 to comment". The popover shows the quote, takes a text and up to 3 images (a file from "Add image", ⌘V, or a drop), and
-saves with ⌘↵; Esc cancels. A comment may be images alone. The images of one message's comments are 10 at most, and an
-image's long side is scaled down to 1568 pixels before main checks it.
+saves with ⌘↵; Esc in it cancels. A click outside, or an Esc pressed outside it, closes a popover left unchanged; with a
+text or an image added it stays and asks to save or cancel first. An Esc in the input field of a busy Session interrupts
+the turn and leaves the popover as it is. A comment may be images alone. The images of one message's comments are 10
+at most, and an image's long side is scaled down to 1568 pixels before main checks it.
 
 - The quote gets a light green ground and a green underline: the accent in the dark theme, the ready dot's green in the
-  light one. Hovering it shows the comment with Edit and Delete; Delete offers Undo.
+  light one. Hovering it shows the comment with Edit and Delete; Delete offers Undo. Esc closes that card, unless the
+  input field of a busy Session takes it to interrupt the turn.
 - A new selection may not overlap a comment not sent yet: the button says "Overlaps a comment · Open it". Right next to
   one, or over a sent quote, it may.
 - The tray above the input field says "N comments on M messages", with a chip per comment in text order and Clear. A

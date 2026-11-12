@@ -49,11 +49,17 @@ export function insideNodePopup(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(`[${IN_NODE_ATTRIBUTE}]`) !== null
 }
 
+/** What closed a popup here: Esc in it or on its trigger, a blur of the window, a switch of the view. */
+export type KitCloseReason = 'escape' | 'blur' | 'view'
+
 export interface KitLayerOptions {
   /** Whether the popup is open. */
   open: boolean
-  /** Closes the popup: the wrapper's own state, the same as Base UI's onOpenChange(false). */
-  close: () => void
+  /**
+   * Closes the popup: the wrapper's own state, the same as Base UI's onOpenChange(false). `reason` says
+   * what closed it, so a wrapper can let its place keep the popup open on a blur or a view switch.
+   */
+  close: (reason: KitCloseReason) => void
   /** The popup is drawn for a Node on the Canvas. */
   inNode?: boolean
   /**
@@ -89,10 +95,10 @@ export function useKitLayer({ open, close, inNode = false, modal = false }: KitL
 
   useEffect(() => {
     if (!open || modal) return
-    const onBlur = () => closeNow()
+    const onBlur = () => closeNow('blur')
     // A view switch sets `hidden` on the view left and takes it off the view shown.
     const views = new MutationObserver((records) => {
-      if (records.some((record) => record.target instanceof Element && record.target.matches(VIEW_SELECTOR))) closeNow()
+      if (records.some((record) => record.target instanceof Element && record.target.matches(VIEW_SELECTOR))) closeNow('view')
     })
     window.addEventListener('blur', onBlur)
     views.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'] })
@@ -112,7 +118,7 @@ export function useKitLayer({ open, close, inNode = false, modal = false }: KitL
       return
     }
     event.preventDefault()
-    close()
+    close('escape')
   }
 
   // On the trigger only while the popup is open: with it closed, Esc on the trigger is its
@@ -121,7 +127,7 @@ export function useKitLayer({ open, close, inNode = false, modal = false }: KitL
     if (!open || event.key !== 'Escape' || event.nativeEvent.isComposing || event.defaultPrevented) return
     event.stopPropagation()
     event.preventDefault()
-    close()
+    close('escape')
   }
 
   return {

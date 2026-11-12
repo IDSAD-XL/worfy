@@ -20,6 +20,12 @@ export const LAYER_SELECTOR = LAYER_ROLES.map((role) => `[role="${role}"]`).join
 export const KIT_POPUP_ATTRIBUTE = 'data-kit-popup'
 
 /**
+ * The mark of a kit popup that leaves an Esc pressed outside it to the field with the focus: a hover
+ * card, a quote comment's popover (theme/kit/Popover.tsx, `passOutsideEscape`).
+ */
+export const PASS_ESCAPE_ATTRIBUTE = 'data-kit-pass-escape'
+
+/**
  * A Base UI popup that is closing: Base UI keeps it in the DOM while it animates out (`data-ending-style`)
  * and, kept mounted, after that (`data-closed`). It is no longer a layer.
  */
@@ -49,10 +55,11 @@ export function openLayers(root: ParentNode = document): Element[] {
  * Whether Esc pressed in `field` belongs to an open popup of the kit, one `field` is not inside. A
  * field that keeps the focus while such a popup is open (the chat's message field) asks this before
  * its own Esc action: Base UI closes the popup on that same press, but only later, on the document,
- * so `defaultPrevented` is still false when React hands the press to the field (ADR-0106).
+ * so `defaultPrevented` is still false when React hands the press to the field (ADR-0106). A popup
+ * marked to pass an outside Esc (`PASS_ESCAPE_ATTRIBUTE`) leaves the press to the field.
  */
 export function escapeBelongsToPopup(field: Element): boolean {
-  return [...document.querySelectorAll(`[${KIT_POPUP_ATTRIBUTE}]`)].some((popup) => open(popup) && !popup.contains(field))
+  return [...document.querySelectorAll(`[${KIT_POPUP_ATTRIBUTE}]`)].some((popup) => open(popup) && !popup.contains(field) && !popup.hasAttribute(PASS_ESCAPE_ATTRIBUTE))
 }
 
 /** The layer `target` (of a key press, say) lies in — itself or the nearest one around it — or null. */
