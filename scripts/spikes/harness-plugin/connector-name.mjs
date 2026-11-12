@@ -14,6 +14,8 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from '
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import process from 'node:process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 
 /** The Claude Code binary of the SDK's platform package: the one worfy runs. */
@@ -88,7 +90,7 @@ for (const [variant, managedSettings] of Object.entries(variants)) {
   try {
     let list = await q.mcpServerStatus()
     for (let i = 0; i < 20 && list.some((server) => server.status === 'pending'); i++) {
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      await sleep(500)
       list = await q.mcpServerStatus()
     }
     listed = list.map((server) => `${server.name} [${server.status}]`)
