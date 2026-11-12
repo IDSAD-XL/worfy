@@ -40,10 +40,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
       `mcpServerStatus/list`; уведомление `mcpServer/startupStatus/updated` меняет строку; `reconnect` зовёт
       `config/mcpServer/reload`; `sign-in` зовёт `mcpServer/oauth/login` и завершается по уведомлению; ни у одной
       строки нет `not-allowed` и `allow`. Красный до правки — в «Итог».
+  - evidence: test-run pass · `vitest run test/contract/codex-mcp-status.test.ts` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
 - [ ] Существующие `test/contract/codex-session-mcp.test.ts` и `test/contract/codex-mcp-app.test.ts` зелёные.
+  - evidence: test-run pass · `vitest run test/contract/codex-session-mcp.test.ts test/unit/codex-mcp-app.test.ts` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
 - [ ] `test/contract/codex-compat.test.ts` держит форму этих запросов и уведомлений версии 0.166.0.
+  - evidence: test-run pass · `vitest run test/contract/codex-compat.test.ts test/contract/codex-fake.test.ts` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
 - [ ] Ни один test не запускает настоящий Codex; `WORFY_CODEX=fake` с временным `CODEX_HOME`.
+  - evidence: test-run pass · `vitest run test/contract/codex-fake.test.ts` exit 0 (launch.ts starts only the fake under the tests) · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
 - [ ] Все unit и contract test-ы модуля `src/main/vendors/codex/` зелёные; lint, typecheck и gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · a040aea2e1af09d515615f2b03e9967b4fcabe20
+  - evidence: gate pass · `gate fast` exit 0 · mac - · cc1d8b766c2844cc1fc093048345b772ccf362c3
 
 ## Где в коде
 
