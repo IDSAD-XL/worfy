@@ -117,6 +117,8 @@ export interface CodexServerOptions {
   mcp?: CodexMcpResolver
   /** Opens the sign-in page of an MCP server (worfy-mcp-live ticket 06): Electron's shell.openExternal by default; tests replace it. */
   openUrl?: (url: string) => Promise<void>
+  /** How long the sign-in to an MCP server may wait for its completion; MCP_LOGIN_TIMEOUT_MS by default. */
+  mcpLoginTimeoutMs?: number
   /**
    * GH_TOKEN of the GitHub account of the Profile at `cwd`, or null when there is none; may reject with
    * a reason that holds no token. Without it the process gets the environment as it is.
@@ -268,6 +270,8 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource,
     private readonly recordLimits: (windows: readonly LimitWindow[]) => void = () => undefined,
     /** Opens the sign-in page of an MCP server (CodexServerOptions.openUrl). */
     private readonly openUrl: (url: string) => Promise<void> = openWithShell,
+    /** How long a sign-in to an MCP server waits for its completion (CodexServerOptions.mcpLoginTimeoutMs). */
+    private readonly mcpLoginTimeoutMs: number = MCP_LOGIN_TIMEOUT_MS,
   ) {
     // Effort is not part of thread/start: the thread starts on Codex's own, and the first turn names the Session's.
     this.told = { model: opts.settings.model, effort: null, preset }
@@ -837,7 +841,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource,
           const found = login.completions.find((completion) => login.loginId === null || completion.loginId === undefined || completion.loginId === null || completion.loginId === login.loginId)
           if (found !== undefined) resolve(found)
         }
-        timer = setTimeout(() => reject(new Error(`The sign-in was not completed within ${Math.round(MCP_LOGIN_TIMEOUT_MS / 60_000)} minutes`)), MCP_LOGIN_TIMEOUT_MS)
+        timer = setTimeout(() => reject(new Error(`The sign-in was not completed within ${Math.round(this.mcpLoginTimeoutMs / 1000)} s`)), this.mcpLoginTimeoutMs)
         timer.unref?.()
         wake()
       })
@@ -906,7 +910,7 @@ class CodexSession implements SessionHandle, CodexModelSource, CodexSkillSource,
 async function open(options: CodexServerOptions, opts: SessionStart, resume: string | undefined): Promise<SessionHandle> {
   const preset = codexPresetFor(opts.settings.permissionMode)
   if (preset === undefined) throw new Error(`${opts.settings.permissionMode} is no permission preset of Codex`)
-  const session = new CodexSession(opts, preset.id, options.limits, options.openUrl)
+  const session = new CodexSession(opts, preset.id, options.limits, options.openUrl, options.mcpLoginTimeoutMs)
   const { CodexAppServer, OUTPUT_AFTER_EXIT_MS } = await import('./app-server')
   const spawnProcess = options.spawnProcess ?? spawn
   // The servers' token goes to the process through its environment only (mcp.ts, MCP_TOKEN_ENV).

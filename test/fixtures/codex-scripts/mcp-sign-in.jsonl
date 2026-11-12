@@ -1,0 +1,13 @@
+{"expect":"initialize","result":{"codexHome":"/fake/codex-home","platformFamily":"unix","platformOs":"macos","userAgent":"worfy-fake-app-server/0.166.0"}}
+{"expect":"initialized"}
+{"expect":"thread/start","result":{"approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"/fake/project","model":"gpt-5.5-codex","modelProvider":"openai","reasoningEffort":null,"sandbox":{"type":"workspaceWrite"},"thread":{"id":"thr_fake_1","sessionId":"ses_thr_fake_1","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"notify":"thread/started","params":{"thread":{"id":"thr_fake_1","sessionId":"ses_thr_fake_1","cliVersion":"0.166.0","createdAt":1793000000,"updatedAt":1793000000,"cwd":"/fake/project","ephemeral":false,"modelProvider":"openai","model":"gpt-5.5-codex","originator":"worfy","preview":"","projectId":null,"source":"appServer","status":{"type":"idle"},"turns":[]}}}
+{"expect":"mcpServer/oauth/login","result":{"authorizationUrl":"file:///tmp/example-sign-in.html","loginId":"login_file"}}
+{"expect":"mcpServer/oauth/login","result":{"authorizationUrl":"x-example-app://sign-in?state=fake","loginId":"login_scheme"}}
+{"expect":"mcpServer/oauth/login","result":{"authorizationUrl":"https://wiki.example/authorize?state=fake-3","loginId":"login_3"}}
+{"notify":"mcpServer/oauthLogin/completed","params":{"name":"example-wiki","threadId":"thr_fake_1","loginId":"login_other","success":true}}
+{"notify":"mcpServer/oauthLogin/completed","params":{"name":"example-other","threadId":"thr_fake_1","loginId":"login_3","success":true}}
+{"notify":"mcpServer/oauthLogin/completed","params":{"name":"example-wiki","threadId":"thr_other","loginId":"login_3","success":true}}
+{"expect":"config/mcpServer/reload","result":{}}
+{"expect":"config/mcpServer/reload","result":{}}
+{"notify":"mcpServer/oauthLogin/completed","params":{"name":"example-wiki","threadId":"thr_fake_1","loginId":"login_3","success":true}}

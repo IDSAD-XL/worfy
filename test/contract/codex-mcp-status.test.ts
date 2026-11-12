@@ -7,7 +7,7 @@
 // The Session runs on the fake app-server (WORFY_CODEX=fake with an empty CODEX_HOME of its own, which
 // test/setup-contract.ts sets) under scriptNode(), through the spawn stand-in of the session part, as in
 // test/contract/codex-session-mcp.test.ts. The scripts are test/fixtures/codex-scripts/mcp-status.jsonl
-// and mcp-action.jsonl, with made-up server names; what worfy sent is read from the fake's log
+// mcp-action.jsonl, mcp-sign-in.jsonl and mcp-sign-in-wait.jsonl, with made-up server names; what worfy sent is read from the fake's log
 // (WORFY_CODEX_LOG). No real Codex, no browser: the sign-in page goes to a stand-in of openUrl.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { mkdtempSync, readFileSync, realpathSync } from 'node:fs'
@@ -90,7 +90,7 @@ const canvasGiven: CodexMcpResolver = () =>
     close: () => undefined,
   })
 
-function fake(script: string, options: { mcp?: CodexMcpResolver } = {}): Fake {
+function fake(script: string, options: { mcp?: CodexMcpResolver; mcpLoginTimeoutMs?: number } = {}): Fake {
   const root = mkdtempSync(join(realpathSync(tmpdir()), 'worfy-codex-mcp-status-'))
   roots.push(root)
   const log = join(root, 'codex.log')
@@ -113,6 +113,7 @@ function fake(script: string, options: { mcp?: CodexMcpResolver } = {}): Fake {
         return Promise.resolve()
       },
       ...(options.mcp === undefined ? {} : { mcp: options.mcp }),
+      ...(options.mcpLoginTimeoutMs === undefined ? {} : { mcpLoginTimeoutMs: options.mcpLoginTimeoutMs }),
     }),
   )
   const logged = (): Logged[] => {
@@ -217,6 +218,60 @@ describe('a Codex Session: the status of its MCP servers', () => {
 
     await expect(codexMcp.act!(session.handle, 'example-wiki', 'sign-in')).rejects.toThrow('the sign-in was denied')
     expect(at.opened).toHaveLength(2)
+  })
+
+  it('Sign in opens only a web page: a file: or another scheme Codex names is refused, its address in no error, and nothing is opened', async () => {
+    // A short wait for the completion: a sign-in that went on to wait would fail here with the timeout, not the refusal.
+    const at = fake('mcp-sign-in', { mcpLoginTimeoutMs: ms(2_000) })
+    const session = await live(at)
+    await eventually(() => session.events.some((event) => event.type === 'account'), 'the thread')
+    for (const scheme of ['file:', 'x-example-app:']) {
+      const refused = await codexMcp.act!(session.handle, 'example-wiki', 'sign-in').then(
+        () => null,
+        (error: unknown) => error as Error,
+      )
+      expect(refused?.message, scheme).toBe('Codex gave a sign-in page that is not a web page')
+      expect(refused?.message).not.toContain(scheme)
+    }
+    expect(at.opened).toEqual([])
+  })
+
+  it('a sign-in is over only by the completion of its own login, server and thread; the others leave it waiting', async () => {
+    const at = fake('mcp-sign-in')
+    const session = await live(at)
+    await eventually(() => session.events.some((event) => event.type === 'account'), 'the thread')
+    // The two refused pages of the script first.
+    for (let page = 0; page < 2; page++) await expect(codexMcp.act!(session.handle, 'example-wiki', 'sign-in')).rejects.toThrow('not a web page')
+    let over: 'waiting' | 'signed in' | Error = 'waiting'
+    const signIn = codexMcp.act!(session.handle, 'example-wiki', 'sign-in').then(
+      () => (over = 'signed in'),
+      (error: unknown) => (over = error as Error),
+    )
+    await eventually(() => at.opened.length === 1, 'the sign-in page opened')
+    // The fake sent the completions of another login, another server and another thread before it answers
+    // this reload: once the answer is here, they were all read, and the right one is not sent yet.
+    await codexMcp.act!(session.handle, 'example-tracker', 'reconnect')
+    expect(over).toBe('waiting')
+    await codexMcp.act!(session.handle, 'example-tracker', 'reconnect')
+    await signIn
+    expect(over).toBe('signed in')
+  })
+
+  it('a sign-in still waiting is refused when the Session closes, and when its wait runs out', async () => {
+    const closing = fake('mcp-sign-in-wait')
+    const closed = await live(closing)
+    await eventually(() => closed.events.some((event) => event.type === 'account'), 'the thread')
+    const waiting = codexMcp.act!(closed.handle, 'example-wiki', 'sign-in')
+    await eventually(() => closing.opened.length === 1, 'the sign-in page opened')
+    closed.handle.close()
+    await expect(waiting).rejects.toThrow('The Session was closed before the sign-in was over')
+
+    // unscaled: a bound the test expects to run out.
+    const timing = fake('mcp-sign-in-wait', { mcpLoginTimeoutMs: 300 })
+    const timed = await live(timing)
+    await eventually(() => timed.events.some((event) => event.type === 'account'), 'the thread')
+    await expect(codexMcp.act!(timed.handle, 'example-wiki', 'sign-in')).rejects.toThrow('The sign-in was not completed within')
+    expect(timing.opened).toEqual(['https://wiki.example/authorize?state=fake-wait'])
   })
 
   it('refuses Allow, Turn off, Turn on and Restart before anything reaches Codex', async () => {
