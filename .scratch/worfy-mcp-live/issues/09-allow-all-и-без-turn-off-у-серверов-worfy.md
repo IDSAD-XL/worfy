@@ -42,17 +42,24 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 
 - [ ] Unit/contract test: строка источника `worfy` без `turn-off`; `agent.mcpAction` `turn-off` такого сервера —
       отказ, Session не перезапускается.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-turn-off, claude-mcp-allow worfy over IPC) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] Contract test Allow all: N имён — одна запись `profile-set --set`, один Restart, все имена в списке; отказ
       записи — ошибка, Session не меняется; unattended — без Restart.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-allow: Allow all) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] Unit test: кнопка «Allow all» есть только при ≥2 строках с Allow и неактивна, пока идёт действие; ошибка
       остаётся в группе.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (mcp-chip.test.tsx: Allow all) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] Unit test элемента composer-а: chip в строке под полем ввода Orchestrator-а и Session Node, нет в Product
       Session и в шапке; popover открывается вверх.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (session-view.test.tsx, mcp-chip.test.tsx) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] Test-ы низких замечаний #1826 и #1822; ключ Project-а после сбоя git не кэшируется.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (claude-mcp-allow, claude-mcp-inventory, mcp-chip) · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] E2e `test/e2e/session-mcp.spec.ts`: у worfy-canvas нет кнопок; chip ищется в строке под полем ввода; снимок —
       строка под полем с открытым popover-ом. Зелёный в CI (локальный e2e не запускается, правило владельца).
 - [ ] Страницы Feature en и ru обновлены; каждое утверждение сверено с кодом.
+  - evidence: commit pass · worfy-mcp-live 09: Allow all, no Turn off for worfy's own servers, MCP chip under the input field · - - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 - [ ] lint, typecheck, unit и contract test-ы затронутых модулей, gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 46a7db01bf77a2adbdcb24c49776e943447902dc
 
 ## Где в коде
 
