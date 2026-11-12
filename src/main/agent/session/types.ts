@@ -132,6 +132,12 @@ export interface QueryRequest {
    * driver tells a server outside the list as `not-allowed` by it (worfy-mcp-live ticket 05). Absent: not told.
    */
   mcpListed?: ((allowlist: readonly string[] | null) => void) | undefined
+  /**
+   * The addresses of the user's remote MCP servers, by name, from the MCP inventory's last answer
+   * (worfy-mcp-live ticket 12): an allowed one goes into the Profile's list by its address (sessionOptions).
+   * Main only: never in a row, a log or the Journal. Absent: no answer yet.
+   */
+  mcpAddresses?: ReadonlyMap<string, string> | undefined
   /** The model, effort and permission mode the query starts with. */
   settings: SessionSettings
   /** Answers Claude Code's permission requests: the Claude driver's canUseTool over the Session's gate (permissions.ts). */

@@ -15,16 +15,21 @@
 // the rows of the Session (notAllowedRows). A failure is logged by its kind alone, with no server in it.
 //
 // The query starts the user's servers for those seconds: an stdio server's process runs, then stops with it.
-// Whether it lists the claude.ai connectors waits for the owner's live check (spike-mcp-live.md); without them
-// the person types a connector's name into the list in Project settings (McpChip.tsx says so).
+// It lists the claude.ai connectors too (the owner's live fact, the spike of ticket 11). Next to the rows it keeps
+// the address of each remote server (`config.url`, mcp-addresses.ts), in memory only: a Session's start takes
+// them (addresses), so an allowed remote server, a connector too, goes into its list by its address (ticket 12).
 //
 // A server the list names that the inventory finds but the Session's own status lacks is a row `not-started`
-// (notStartedRows): Claude Code left it out of the Session, and without a row it would be shown nowhere.
+// (notStartedRows): Claude Code left it out of the Session, and without a row it would be shown nowhere. Its
+// reason says whether a Restart helps: a remote server whose address the Session's start did not have yet
+// (added after the inventory's answer) starts with the next start; one Claude Code can allow neither by its
+// name nor by an address does not.
 import { resolve } from 'node:path'
 import { repositoryRoot } from '../../mcp/canvas-server'
 import type { QueryHandle } from '../../agent/session/types'
 import type { McpServerRow } from '../../../shared/agent/mcp-status'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
+import { allowableByName, remoteAddressesOf, serverUrlPattern, type McpAddresses } from './mcp-addresses'
 
 /** Starts the query of the inventory in the folder `cwd` with `prompt` as its input: one that never yields a message. */
 export type InventoryQueryStarter = (cwd: string, prompt: AsyncIterable<never>) => Promise<QueryHandle>
@@ -71,6 +76,8 @@ function beforeLimit<T>(promise: Promise<T>, limit: number): Promise<T> {
 export class McpInventory {
   /** The last answer of each Project, as rows; in memory only. */
   private readonly answers = new Map<string, McpServerRow[]>()
+  /** The addresses of the remote servers of each Project's last answer, by name; in memory only, never in a row. */
+  private readonly found = new Map<string, McpAddresses>()
   /** The run of each Project that has not ended yet. */
   private readonly running = new Map<string, Promise<McpServerRow[] | null>>()
   /** The Project of each folder asked about, once known: what latest() reads. */
@@ -88,6 +95,12 @@ export class McpInventory {
   latest(cwd: string): readonly McpServerRow[] | null {
     const folder = resolve(cwd)
     return this.answers.get(this.projects.get(folder) ?? folder) ?? null
+  }
+
+  /** The addresses of the remote servers in the Project of the folder `cwd` by the last run that answered; null before any did. */
+  addresses(cwd: string): McpAddresses | null {
+    const folder = resolve(cwd)
+    return this.found.get(this.projects.get(folder) ?? folder) ?? null
   }
 
   /**
@@ -139,14 +152,18 @@ export class McpInventory {
       const status = query.mcpServerStatus
       if (status === undefined) return null
       const asked = query
-      const read = async (): Promise<McpServerRow[] | null> => mcpServerRowsOf(await beforeLimit(status.call(asked), limit))
+      let answer: unknown = null
+      const read = async (): Promise<McpServerRow[] | null> => mcpServerRowsOf((answer = await beforeLimit(status.call(asked), limit)))
       const until = Date.now() + this.timing.settleMs
       let rows = await read()
       while (rows !== null && rows.some((row) => row.status === 'pending') && Date.now() < until) {
         await delay(this.timing.pollMs)
         rows = await read()
       }
-      if (rows !== null) this.answers.set(key, rows)
+      if (rows !== null) {
+        this.answers.set(key, rows)
+        this.found.set(key, remoteAddressesOf(answer))
+      }
       return rows
     } catch (error) {
       // The kind alone: a message may name the user's servers.
@@ -173,10 +190,39 @@ export interface SessionSet {
   off: readonly string[]
   /** A person may act on the Session: a server Claude Code did not start offers a Restart. False: an unattended Session. */
   attended?: boolean
+  /** The addresses of the remote servers the Session's query started with (QueryRequest.mcpAddresses); null or absent: none. */
+  addressesAtStart?: McpAddresses | null
+  /** The addresses of the remote servers by the inventory's last answer (McpInventory.addresses); null or absent: none. */
+  addressesNow?: McpAddresses | null
 }
 
 /** Why a server of the Session's list has no row of the Session's own: what the person reads in its row. */
 export const MCP_NOT_STARTED = 'Allowed in this Project, but Claude Code did not start it in this Session.'
+/**
+ * The reason of a remote server whose address the Session's start did not have (added after the inventory's
+ * answer, or its address changed): the next start has it. An attended Session's row says to restart.
+ */
+export const MCP_NOT_STARTED_FOUND_LATER = 'Found after this Session started: restart the Session to start it.'
+/** The same for an unattended Session (Autopilot), whose set of servers is fixed for the Wave: no Restart. */
+export const MCP_NOT_STARTED_FOUND_LATER_UNATTENDED = 'Found after this Session started: the next Session starts it.'
+/**
+ * The reason of a server Claude Code can allow neither by its name (a dot or a space: every claude.ai connector)
+ * nor by an address, since the inventory gave none: a Restart would send the same list, so the row offers none.
+ */
+export const MCP_NOT_ALLOWABLE =
+  "Claude Code cannot allow a server by a name with a dot or a space, and it gave no address for this one, so a Session with the Project's list does not start it."
+
+/** The reason and the actions of a row `not-started` of the server `name`. */
+function notStartedReason(name: string, session: SessionSet): Pick<McpServerRow, 'error' | 'actions'> {
+  const restart = session.attended === true ? ['restart' as const] : []
+  const now = session.addressesNow?.get(name)
+  const byAddress = now !== undefined && serverUrlPattern(now) !== null
+  if (byAddress && session.addressesAtStart?.get(name) !== now) {
+    return { error: session.attended === true ? MCP_NOT_STARTED_FOUND_LATER : MCP_NOT_STARTED_FOUND_LATER_UNATTENDED, actions: restart }
+  }
+  if (!byAddress && !allowableByName(name)) return { error: MCP_NOT_ALLOWABLE, actions: [] }
+  return { error: MCP_NOT_STARTED, actions: restart }
+}
 
 /**
  * The rows `not-allowed` of the servers of `inventory` that the Session's list keeps out: a server of the
@@ -196,9 +242,10 @@ export function notAllowedRows(inventory: readonly McpServerRow[] | null, sessio
 /**
  * The rows `not-started` of the servers of `inventory` that the Session's list names but that Claude Code
  * left out of the Session's own status: without them such a server would be in neither group of the popover
- * (a claude.ai connector allowed by its name that Claude Code does not pass to the Session, or one connected
- * after the process started). An attended Session's row offers a Restart with the same conversation, which starts
- * Claude Code again with the list; worfy's own servers and plugins' never get such a row.
+ * (a remote server added after the inventory's answer the Session started with, a claude.ai connector the
+ * inventory gave no address for, or one connected after the process started). An attended Session's row offers a
+ * Restart with the same conversation, which starts Claude Code again with the list, unless the server can be
+ * allowed neither by its name nor by an address (notStartedReason); worfy's own servers and plugins' never get such a row.
  */
 export function notStartedRows(inventory: readonly McpServerRow[] | null, session: SessionSet): McpServerRow[] {
   if (inventory === null) return []
@@ -206,5 +253,5 @@ export function notStartedRows(inventory: readonly McpServerRow[] | null, sessio
   const known = new Set([...session.off, ...session.rows.map((row) => row.name)])
   return inventory
     .filter((row) => row.source !== 'worfy' && listed.has(row.name) && !known.has(row.name))
-    .map((row) => ({ ...row, status: 'not-started' as const, tools: null, error: MCP_NOT_STARTED, actions: session.attended === true ? ['restart' as const] : [] }))
+    .map((row) => ({ ...row, status: 'not-started' as const, tools: null, ...notStartedReason(row.name, session) }))
 }
