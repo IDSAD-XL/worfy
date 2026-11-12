@@ -29,12 +29,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
 
 - [ ] Unit test `test/unit/kit-tooltip.test.tsx`: подсказка видна при фокусе с клавиатуры и при наведении; Esc
       скрывает; кнопка `aria-disabled` с подсказкой её показывает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/kit-tooltip.test.tsx` exit 0 · mac - · 4ba8e9d05fea0cbe295a9a27161137065a70bd8c
 - [ ] Unit test Linked machine (`linked-read-only.test.tsx`): у неактивного действия подсказка «почему» видна при
       фокусе; e2e `linked-read-only.spec.ts` зелёный.
 - [ ] У кнопок-иконок toolbar, sidebar, Harness status и focus mode нет `title`, подсказка — Tooltip kit; имя кнопки
       прежнее (`getByRole` test-ы без правок).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/harness-status.test.tsx test/unit/shell.test.tsx test/unit/focus-mode.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 4ba8e9d05fea0cbe295a9a27161137065a70bd8c
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 4ba8e9d05fea0cbe295a9a27161137065a70bd8c
 
 ## Где в коде
 
