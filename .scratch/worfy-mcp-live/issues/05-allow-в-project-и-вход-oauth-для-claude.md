@@ -53,23 +53,29 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
       без сообщения модели; сервер вне списка — строка `not-allowed` с `allow`; второй запуск при идущем первом не
       стартует; ответ не попадает в Journal. Красный до правки — в «Итог».
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-inventory.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test `test/contract/claude-mcp-allow.test.ts` над fake query и stub `bin/profile-set`: `allow` пишет
       `mcp.allowed` одним вызовом `profile-set` и включает сервер в Session (или даёт строку с `restart`); конфликт
       записи не меняет Session.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-allow.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test: в unattended Session `allow` пишет Profile, набор Session не меняется.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-allow.test.ts, unattended case) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Contract test `sign-in`: по выбранному пути spike-а; браузер и OAuth — stub без сети.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (test/contract/claude-mcp-sign-in.test.ts) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] E2e `test/e2e/session-mcp.spec.ts` дополнен: клик Allow — строка уходит из группы «не разрешён». Зелёный на
       macOS и Windows runner-е.
 - [ ] (manual) Connector claude.ai вне списка: по итогу живой проверки владельца — строка «не разрешён» с Allow или
       подсказка о ручном вводе в Project settings; что выбрано — в «Итог».
 - [ ] ADR-0021 дополнен поправкой; `pnpm lint` (проверка документов) — exit 0.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (docs/adr/0021 amendment) · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 (round 2) · mac - · ab8809060
 - [ ] Все unit и contract test-ы модулей `src/main/vendors/claude/` и `src/main/ipc/profile-edit.ts` зелёные; lint,
       typecheck и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 597f0283f0c34b9adfc9d17c37273e14c2c250d9
+  - evidence: gate pass · `gate fast` exit 0 (round 2) · mac - · ab8809060
 
 ## Где в коде
 
