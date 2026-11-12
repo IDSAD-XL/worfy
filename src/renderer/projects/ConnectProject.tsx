@@ -25,6 +25,7 @@ import { PROFILE_COMMANDS } from '../../shared/ipc/profile-edit'
 import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssue, type GithubChoice, type ProfileDraft, type ProjectsState, type ProjectView } from '../../shared/ipc/projects'
 import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../shared/temp-folder'
 import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
+import { Chip, type ChipVariant } from '../theme/Chip'
 import { StatusChip } from '../theme/primitives'
 import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
@@ -131,9 +132,6 @@ const styles = {
   footer: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: 'var(--space-3) var(--space-4)', borderTop: '1px solid var(--border)' },
   footerMessage: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
   footerError: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--blocked-text)', overflowWrap: 'anywhere' },
-  chipWorking: { background: 'var(--working-bg)', color: 'var(--working-text)' },
-  chipBlocked: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', borderColor: 'var(--blocked-ring)' },
-  chipNeutral: { background: 'var(--surface-raised)', color: 'var(--text-secondary)' },
 } satisfies Record<string, CSSProperties>
 
 const STEPS = ['Folder', 'Mode', 'Harness', 'Draft', 'Review'] as const
@@ -158,13 +156,13 @@ function formPaths(draft: ProfileDraft): string[] {
   ]
 }
 
-function Chip({ tone, children }: { tone: 'working' | 'blocked' | 'neutral'; children: ReactNode }) {
-  const style = tone === 'working' ? styles.chipWorking : tone === 'blocked' ? styles.chipBlocked : styles.chipNeutral
-  return (
-    <span className={tone === 'working' ? 'w-chip' : 'w-chip w-chip--bordered'} style={style}>
-      {children}
-    </span>
-  )
+type ChipTone = 'working' | 'blocked' | 'neutral'
+
+/** The chips of the steps: Running… working, Failed blocked inside its ring, the repository kind neutral with a border and no icon. */
+const CONNECT_CHIP: Record<ChipTone, { variant: ChipVariant; bordered?: true; icon?: null }> = {
+  working: { variant: 'working' },
+  blocked: { variant: 'blocked', bordered: true },
+  neutral: { variant: 'neutral', bordered: true, icon: null },
 }
 
 /** How long an edit waits for the next one before the Harness checks the draft. */
@@ -340,7 +338,7 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
     <section style={styles.section} aria-label="Folder">
       <h3 style={styles.sectionTitle}>Folder</h3>
       <div style={styles.folderLine}>
-        <Chip tone="neutral">{multi ? `${folder.repos.length} repositories` : 'Git repository'}</Chip>
+        <Chip {...CONNECT_CHIP.neutral} label={multi ? `${folder.repos.length} repositories` : 'Git repository'} />
         <span style={styles.mono} data-testid="connect-folder">
           {folder.root}
         </span>
@@ -453,7 +451,7 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
           <section style={styles.section} aria-label="Draft">
             <h3 style={styles.sectionTitle}>Draft</h3>
             <div style={styles.status}>
-              <Chip tone="working">{step.stopping ? 'Stopping…' : 'Running…'}</Chip>
+              <Chip {...CONNECT_CHIP.working} label={step.stopping ? 'Stopping…' : 'Running…'} />
               <span style={styles.secondary}>Claude reads the project and drafts its Profile. It changes nothing.</span>
             </div>
             <p style={{ ...styles.mono, margin: 0, color: 'var(--text-secondary)' }} data-testid="connect-activity" aria-live="polite">
@@ -478,7 +476,7 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
           <section style={styles.section} aria-label="Harness">
             <h3 style={styles.sectionTitle}>Harness</h3>
             <div style={styles.status}>
-              <Chip tone="blocked">Failed</Chip>
+              <Chip {...CONNECT_CHIP.blocked} label="Failed" />
               <span role="alert" data-testid="connect-harness">
                 {step.reason}
               </span>
@@ -508,7 +506,7 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
           <section style={styles.section} aria-label="Draft">
             <h3 style={styles.sectionTitle}>Draft</h3>
             <div style={styles.status}>
-              <Chip tone="blocked">Failed</Chip>
+              <Chip {...CONNECT_CHIP.blocked} label="Failed" />
               <span role="alert" data-testid="connect-failed">
                 {step.reason}
               </span>

@@ -509,6 +509,31 @@ describe('the view of a snapshot', () => {
   })
 })
 
+describe('the chips of the facts are the Chip of their tone, each with its icon (worfy-ui-kit ticket 16)', () => {
+  it.each([
+    ['CLEAN', 'Mergeable', 'w-chip--ready', null],
+    ['BEHIND', 'Behind the base', 'w-chip--blocked', null],
+    ['BLOCKED', 'Blocked', 'w-chip--open', null],
+    ['DIRTY', 'Conflicts', 'w-chip--blocked', 'w-pr-inbox-chip--problem'],
+  ] as const)('the merge state %s: «%s», %s', async (status, word, variant, extra) => {
+    const review = { ...ROWS.review, mergeStateStatus: status }
+    await body(snapshotOf('web-00000001', { groups: [{ group: 'needs-review', rows: [review] }] }), TICKETS, { selected: `${WEB}#41` })
+    const chip = within(fact('merge')).getByTestId('pr-inbox-merge').querySelector<HTMLElement>('.w-chip')!
+    expect(chip.textContent).toBe(word)
+    expect(chip.classList.contains(variant)).toBe(true)
+    if (extra !== null) expect(chip.classList.contains(extra)).toBe(true)
+    expect(chip.firstElementChild?.matches('svg, .w-chip__dot')).toBe(true)
+  })
+
+  it('a review still owed is the neutral Chip with the open circle', async () => {
+    await body(snapshotOf('web-00000001'), TICKETS, { selected: `${WEB}#41` })
+    const chip = within(fact('review')).getByTestId('pr-inbox-review').querySelector<HTMLElement>('.w-chip')!
+    expect(chip.textContent).toBe('Review required')
+    expect(chip.classList.contains('w-chip--open')).toBe(true)
+    expect(chip.querySelector('svg circle')).not.toBeNull()
+  })
+})
+
 describe('the pure parts of the two panes', () => {
   const load = async () => import('../../src/renderer/pr-inbox/usePrInbox')
 

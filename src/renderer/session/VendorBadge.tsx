@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { vendorIcon, vendorLabel } from '../../shared/vendors/vendor'
+import { Chip } from '../theme/Chip'
 
 // The Vendor whose agent runs a Session (worfy-multi-vendor ticket 24): its logo in the text colour and
 // its text label (owner, 2026-11-03: the real Claude and OpenAI marks, reversing Q10 of the spec, which
@@ -20,38 +21,33 @@ export interface VendorBadgeProps {
   testId?: string
 }
 
+/** The badge's own size: 11 px text on a 16 px line in the weight around it, the logo 4 px before it, never shrunk. */
 const styles = {
-  badge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 4,
-    flex: 'none',
-    minWidth: 0,
-    fontSize: 'var(--text-11)',
-    lineHeight: '16px',
-    whiteSpace: 'nowrap',
-  },
+  badge: { gap: 4, flex: 'none', minWidth: 0, fontSize: 'var(--text-11)', fontWeight: 'inherit', lineHeight: '16px' },
   icon: { flex: 'none', display: 'block' },
 } satisfies Record<string, CSSProperties>
 
-/** The badge of `vendor`: its logo and label; the whole name is its tooltip when the label is short or absent. */
+/** The badge of `vendor`: its logo and label as a plain neutral Chip; the whole name is its tooltip when the label is short or absent. */
 export function VendorBadge({ vendor, form = 'name', muted = false, testId = 'vendor-badge' }: VendorBadgeProps) {
   const name = vendorLabel(vendor)
   const label = form === 'icon' ? null : vendorLabel(vendor, form)
   return (
-    <span
+    <Chip
+      variant="neutral"
+      plain
       style={{ ...styles.badge, color: muted ? 'var(--text-muted)' : 'var(--text-secondary)' }}
       title={label === name ? undefined : name}
       role={label === null ? 'img' : undefined}
       aria-label={label === null ? name : undefined}
       data-testid={testId}
       data-vendor={vendor}
-    >
-      {/* Decoration beside the label; the badge itself is named when there is no label. */}
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" style={styles.icon} data-testid="vendor-badge-icon">
-        <path d={vendorIcon(vendor)} />
-      </svg>
-      {label === null ? null : <span>{label}</span>}
-    </span>
+      // Decoration beside the label; the badge itself is named when there is no label.
+      icon={
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" style={styles.icon} data-testid="vendor-badge-icon">
+          <path d={vendorIcon(vendor)} />
+        </svg>
+      }
+      label={label === null ? null : <span>{label}</span>}
+    />
   )
 }

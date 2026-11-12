@@ -22,6 +22,7 @@ import MigrationForm from '../harness/MigrationForm'
 import { invoke } from '../ipc'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { setView } from '../session/navigation'
+import { Chip, type Status } from '../theme/Chip'
 import { showToast } from '../toast/toasts'
 import { elapsedText, useTicking } from '../update/store'
 import { checkAgain, useFirstRun } from './first-run-store'
@@ -33,7 +34,6 @@ const TERMINAL_SIZE = { w: 560, h: 340 }
 const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'worfy', 'Harness', 'qmd']
 
 type ChipState = CheckStatus | 'running' | 'checking'
-const CHIP_LABEL: Record<ChipState, string> = { ok: 'OK', warn: 'Warning', fail: 'Failed', running: 'Running…', checking: 'Checking…' }
 
 /**
  * What a pressed button says while its action runs (worfy-polish ticket 77), in place of its label.
@@ -112,21 +112,22 @@ const styles = {
   error: { flex: 1, minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--blocked-text)', whiteSpace: 'pre-wrap' },
 } satisfies Record<string, CSSProperties>
 
-/** The status chip: the shared chip's shape (F-SPEC "Shape"), the colors of the status roles, and always a label. */
-const CHIP_STYLE: Record<ChipState, CSSProperties> = {
-  ok: { background: 'var(--ready-bg)', color: 'var(--ready-text)', borderColor: 'transparent' },
-  warn: { background: 'var(--surface-raised)', color: 'var(--blocked-text)', borderColor: 'var(--border)' },
-  fail: { background: 'var(--blocked-bg)', color: 'var(--blocked-text)', borderColor: 'var(--blocked-ring)' },
-  running: { background: 'var(--working-bg)', color: 'var(--working-text)', borderColor: 'transparent' },
-  checking: { background: 'var(--working-bg)', color: 'var(--working-text)', borderColor: 'transparent' },
+/**
+ * The status chips of F-SPEC ("First run", "Status chips"): the shared chip's shape, each a word alone, all
+ * with a 1 px border (transparent where the status has no ring), so a row's chips are one size.
+ */
+const FIRST_RUN_CHIP: Record<ChipState, { variant: Status; label: string; bordered?: true; quiet?: true }> = {
+  ok: { variant: 'ready', label: 'OK', bordered: true },
+  warn: { variant: 'blocked', label: 'Warning', quiet: true },
+  fail: { variant: 'blocked', label: 'Failed', bordered: true },
+  running: { variant: 'working', label: 'Running…', bordered: true },
+  checking: { variant: 'working', label: 'Checking…', bordered: true },
 }
 
+const CHIP_FACE = { flex: 'none', width: 72, justifyContent: 'center' } satisfies CSSProperties
+
 function StatusChip({ state }: { state: ChipState }) {
-  return (
-    <span className="w-chip w-chip--bordered" data-chip={state} style={{ ...CHIP_STYLE[state], flex: 'none', width: 72, justifyContent: 'center' }}>
-      {CHIP_LABEL[state]}
-    </span>
-  )
+  return <Chip {...FIRST_RUN_CHIP[state]} icon={null} data-chip={state} style={CHIP_FACE} />
 }
 
 /**
@@ -549,9 +550,7 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, formLaye
       {children({
         summary:
           summary !== '' ? (
-            <span className="w-chip w-chip--bordered" data-testid="first-run-summary" style={checking ? CHIP_STYLE.running : failed > 0 ? CHIP_STYLE.fail : warned > 0 ? CHIP_STYLE.warn : CHIP_STYLE.ok}>
-              {summary}
-            </span>
+            <Chip {...FIRST_RUN_CHIP[checking ? 'running' : failed > 0 ? 'fail' : warned > 0 ? 'warn' : 'ok']} icon={null} data-testid="first-run-summary" label={summary} />
           ) : null,
         list: GROUPS.map((group) => {
           const rows = checks.filter((each) => each.group === group)

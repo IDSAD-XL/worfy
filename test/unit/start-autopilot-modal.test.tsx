@@ -276,6 +276,19 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     expect(toasts.getState().toasts).toMatchObject([{ kind: 'error', text: reason, testId: 'autopilot-start-refused' }])
   })
 
+  it('a Mode chip is the ready Chip while the Mode is on and the neutral one while it is off, each with its dot (worfy-ui-kit ticket 16)', async () => {
+    const dialog = await openWindow()
+    const modes = within(dialog).getByTestId('start-autopilot-modes')
+    await vi.waitFor(() => expect(modes.querySelectorAll('.w-chip[data-on]')).toHaveLength(3))
+    const chip = (word: string) => [...modes.querySelectorAll<HTMLElement>('.w-chip')].find((each) => each.textContent?.startsWith(word))!
+    expect([chip('Eco'), chip('Auto-approval'), chip('Auto-continue')].map((each) => [each.dataset.on, each.classList.contains('w-chip--ready'), each.classList.contains('w-chip--open')])).toEqual([
+      ['false', false, true],
+      ['true', true, false],
+      ['true', true, false],
+    ])
+    for (const each of [chip('Eco'), chip('Auto-approval')]) expect(each.firstElementChild?.classList.contains('w-chip__dot')).toBe(true)
+  })
+
   it('facts that cannot be read say so; the start still goes', async () => {
     fake.prepared = 'The Project has no Epic demo'
     const dialog = await openWindow()

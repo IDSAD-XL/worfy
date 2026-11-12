@@ -82,7 +82,34 @@ describe('the Folder step', () => {
   })
 })
 
-const NO_ORIGIN: GithubAccountsStep = { status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' }
+// worfy-ui-kit ticket 16: the chips of the steps are the Chip of their state.
+describe('the chips of the steps', () => {
+  const chipOf = (section: string): HTMLElement => screen.getByRole('region', { name: section }).querySelector<HTMLElement>('.w-chip')!
+
+  it('the repository kind is the neutral Chip with a border and no icon', () => {
+    open()
+    const chip = chipOf('Folder')
+    expect(chip.textContent).toBe('Git repository')
+    expect(['w-chip--open', 'w-chip--bordered'].every((name) => chip.classList.contains(name))).toBe(true)
+    expect(chip.children).toHaveLength(0)
+  })
+
+  it('a draft that runs is the working Chip with its icon; one that failed is the blocked Chip in its ring, with its icon', async () => {
+    let fail: (value: unknown) => void = () => undefined
+    ipc.invoke.mockImplementation((channel: string) => (channel === 'projects.connect.draft' ? new Promise((resolve) => (fail = resolve)) : new Promise(() => undefined)))
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
+    await waitFor(() => expect(chipOf('Draft').textContent).toBe('Running…'))
+    expect(chipOf('Draft').classList.contains('w-chip--working')).toBe(true)
+    expect(chipOf('Draft').querySelector('svg')).not.toBeNull()
+    await act(async () => fail({ ok: false, error: 'the Session stopped' }))
+    await waitFor(() => expect(chipOf('Draft').textContent).toBe('Failed'))
+    expect(['w-chip--blocked', 'w-chip--bordered'].every((name) => chipOf('Draft').classList.contains(name))).toBe(true)
+    expect(chipOf('Draft').querySelector('svg')).not.toBeNull()
+  })
+})
+
+const NO_ORIGIN: GithubAccountsStep ={ status: 'no-origin', reason: 'No GitHub origin: shop has no origin remote.' }
 
 /** The dialog in its form: the draft, the account step's answer, and the check that answer started. */
 async function toForm(issues: { path: string; kind: string; message: string }[], accounts: GithubAccountsStep | Promise<GithubAccountsStep> = NO_ORIGIN, mode: 'silent' | 'full' = 'silent') {

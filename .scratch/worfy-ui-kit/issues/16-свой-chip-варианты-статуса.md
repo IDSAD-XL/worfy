@@ -1,7 +1,7 @@
 # 16 — Свой Chip: варианты статуса
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T02:10Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 16; «Решения по реализации» (Button и Chip); история 22; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, разделы 2 и 2.1
@@ -26,9 +26,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 16; «Решения 
 ## Готово, когда
 
 - [ ] Unit test `test/unit/chip.test.tsx`: каждый вариант — с иконкой и подписью; цвет без подписи не бывает.
+  - evidence: test-run pass · `pnpm test test/unit/chip.test.tsx` exit 0 · mac - · b30c1148a5f352bb4305548d437a59b309030840
 - [ ] Своих компонентов chip-ов статуса из списка выше нет; существующие `checks-badges`, `vendor-badge` unit test-ы и
       e2e `checks-badges.spec.ts` зелёные без правок ролей и `data-testid`.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · b30c1148a5f352bb4305548d437a59b309030840
 
 ## Где в коде
 

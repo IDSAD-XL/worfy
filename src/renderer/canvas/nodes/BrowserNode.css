@@ -291,7 +291,7 @@
 }
 
 /* A Browser a Session drives (worfy-browser ticket 04): an accent border, and «Claude is driving»
-   at the right end of the header, where it covers no part of the page; after the user took the
+   (working status text, theme/Chip.tsx) at the right end of the header, where it covers no part of the page; after the user took the
    Browser over, the same place offers «Return control to Claude». */
 .w-browser-frame--driven.w-node-surface {
   border-color: var(--accent);
@@ -309,16 +309,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-}
-.w-browser-frame__drive--claude {
-  color: var(--accent);
-  font-weight: 600;
-}
-.w-browser-frame__drive-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 
 /* An Asleep Browser (worfy-browser ticket 05): no page lies under its body, so the body shows the

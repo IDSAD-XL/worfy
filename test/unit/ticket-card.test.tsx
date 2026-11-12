@@ -30,8 +30,8 @@ function rulesFor(source: string, parts: readonly string[]): { selector: string;
 }
 
 describe('the card CSS cuts nothing', () => {
-  // primitives.css holds the base `.w-chip` of the Ready, repository and check chips.
-  const sheets = ['canvas/epic-frame.css', 'pipeline/stepper.css', 'canvas/badges/checks-badges.css', 'theme/primitives.css']
+  // chip.css holds the base `.w-chip` of the Ready, repository and check chips (theme/Chip.tsx).
+  const sheets = ['canvas/epic-frame.css', 'pipeline/stepper.css', 'canvas/badges/checks-badges.css', 'theme/chip.css']
   const parts = ['.w-ticket', '.w-stepper', '.w-checks', '.w-chip']
   const WRAPPING_ROWS = ['.w-ticket__top', '.w-ticket__title', '.w-ticket__meta', '.w-ticket__reason', '.w-ticket__slots', '.w-stepper', '.w-checks']
 

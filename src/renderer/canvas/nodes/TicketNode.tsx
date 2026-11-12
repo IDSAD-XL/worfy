@@ -8,7 +8,7 @@ import { invoke } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import Stepper from '../../pipeline/Stepper'
 import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
-import { StatusChip } from '../../theme/primitives'
+import { Chip } from '../../theme/Chip'
 import { showRevealed } from '../../toast/revealed'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
@@ -45,21 +45,14 @@ export const defaultHeight = 138 satisfies typeof TICKET_MIN_HEIGHT
 function StateChip({ ticket }: { ticket: Ticket }) {
   switch (ticket.state) {
     case 'done':
-      return <StatusChip status="done" label="done" />
+      return <Chip variant="done" label="done" />
     case 'work':
-      return <StatusChip status="working" label="claimed" />
+      return <Chip variant="working" label="claimed" />
     case 'blocked':
-      return <StatusChip status="blocked" label="blocked" />
+      return <Chip variant="blocked" label="blocked" />
     case 'open':
     case 'none':
-      return (
-        <span className="w-chip w-chip--open" data-status="open">
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="8" cy="8" r="5" />
-          </svg>
-          {ticket.state === 'none' ? 'no status' : 'open'}
-        </span>
-      )
+      return <Chip variant="neutral" data-status="open" label={ticket.state === 'none' ? 'no status' : 'open'} />
   }
 }
 
@@ -73,14 +66,15 @@ function RepoChip({ root, ticket }: { root: string; ticket: Pick<Ticket, 'repo' 
   const name = repoChipText(ticket) || null
   const several = reposOfTicket(ticket).length > 1
   return (
-    <span
-      className="w-chip w-chip--open w-mono w-ticket__repo"
+    <Chip
+      variant="neutral"
+      icon={null}
+      className="w-mono w-ticket__repo"
       data-testid="ticket-repo"
       data-repo={name ?? undefined}
       title={name ? `${several ? 'repositories' : 'repository'} ${name}` : 'no repository: the Ticket has no Repo: line'}
-    >
-      {name ?? 'no repo'}
-    </span>
+      label={name ?? 'no repo'}
+    />
   )
 }
 
@@ -158,10 +152,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
         {stage !== null && snapshot !== undefined ? <Stepper pipeline={snapshot.pipeline} stage={stage} narrow={narrow} /> : <StateChip ticket={ticket} />}
         {placed.ready ? (
           // In the ready Wave: marked here, not by the Ticket's place in its column (ADR-0037).
-          <span className="w-chip w-chip--ready w-ticket__ready" data-status="ready" data-testid="ticket-ready">
-            <span className="w-chip__dot" aria-hidden="true" />
-            Ready
-          </span>
+          <Chip variant="ready" className="w-ticket__ready" data-testid="ticket-ready" label="Ready" />
         ) : null}
         {inFocus ? (
           <button
