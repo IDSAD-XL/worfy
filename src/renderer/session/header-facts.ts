@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { McpServerRow } from '../../shared/agent/mcp-status'
 import type { ModelOption } from '../../shared/agent/settings'
 import { invoke } from '../ipc'
 
@@ -65,4 +66,18 @@ export function useCodexModels(sessionId: string | null, vendor: string | null, 
     }
   }, [asks, sessionId, model])
   return asks && found !== null && found.sessionId === sessionId ? found.models : []
+}
+
+/**
+ * The numbers of the header's chip «MCP n/m» (McpChip.tsx, worfy-mcp-live ticket 04): n the servers that
+ * are connected, m every server of the Session but those not allowed in the Project, and whether the chip
+ * warns: a server failed or needs auth.
+ */
+export function mcpCount(rows: readonly McpServerRow[]): { connected: number; total: number; warn: boolean } {
+  const counted = rows.filter((row) => row.status !== 'not-allowed')
+  return {
+    connected: counted.filter((row) => row.status === 'connected').length,
+    total: counted.length,
+    warn: counted.some((row) => row.status === 'failed' || row.status === 'needs-auth'),
+  }
 }

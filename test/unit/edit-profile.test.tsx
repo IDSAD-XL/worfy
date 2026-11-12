@@ -5,7 +5,9 @@
 // Profile again with "The profile changed since you opened it", and the GitHub account changes through
 // the account step of "Add project", where only a pick changes the form. A Project shared read-only or of a
 // Linked machine shows the form without Save. main is replaced: what it answers is set by each test, and what
-// it was asked is recorded; the check answers as bin/profile-set --check does.
+// it was asked is recorded; the check answers as bin/profile-set --check does. Beside the MCP servers list
+// stands the status of each name in the newest Session of the Project on this Machine (worfy-mcp-live
+// ticket 04): the rows of the `mcp` events this window got.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PROFILE_CHANGED, PROFILE_EDIT_FIELDS, type ProfileEditRead } from '../../src/shared/ipc/profile-edit'
@@ -21,6 +23,8 @@ const main = vi.hoisted(() => ({
   calls: [] as { machine: string | null | undefined; channel: string; input: unknown }[],
   /** What useReadOnly says: the reason a Project is shared read-only, or null. */
   readOnly: null as string | null,
+  /** What useProjects says: the Projects of this Machine. */
+  projects: { projects: [] as { id: string; path: string }[], activeId: null as string | null },
 }))
 const answer = (machine: string | null | undefined, channel: string, input: unknown): Promise<Answer> => {
   main.calls.push({ machine, channel, input })
@@ -36,9 +40,12 @@ vi.mock('../../src/renderer/ipc', () => ({
   windowMachine: () => null,
   hasPreloadBridge: () => (globalThis as { worfy?: unknown }).worfy !== undefined,
 }))
-vi.mock('../../src/renderer/projects/useProjects', () => ({ useReadOnly: () => main.readOnly }))
+vi.mock('../../src/renderer/projects/useProjects', () => ({ useReadOnly: () => main.readOnly, useProjects: () => main.projects }))
 
 const { ProjectSettings } = await import('../../src/renderer/shell/ProjectSettings')
+const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
+const { acceptOrchestratorView } = await import('../../src/renderer/canvas/nodes/orchestrator-view')
+const { acceptSessionNodeView } = await import('../../src/renderer/session/node-sessions')
 
 const FP = `sha256:${'a'.repeat(64)}`
 const FP2 = `sha256:${'b'.repeat(64)}`
@@ -88,6 +95,7 @@ const SILENT_READ: ProfileEditRead = { ...READ, fixed: { mode: 'silent', 'workfl
 beforeEach(() => {
   main.calls.length = 0
   main.readOnly = null
+  main.projects = { projects: [{ id: PROJECT.id, path: PROJECT.path }], activeId: PROJECT.id }
   main.answers = {
     'projects.settings.get': { ok: true, value: { actionTemplates: { shipTicket: '', runWave: '', gateQueue: '', prReply: '' } } },
     'terminal.shells': { ok: true, value: [] },
@@ -97,7 +105,10 @@ beforeEach(() => {
     'profileEdit.write': { ok: true, value: { status: 'saved', fingerprint: FP2, warning: null } },
   }
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  useSessionLogs.setState({ logs: {} })
+})
 
 /** Project settings, then "Edit profile…", and the Profile read. */
 async function openForm(machine?: string): Promise<HTMLElement> {
@@ -530,5 +541,50 @@ describe('Edit profile', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit profile…' }))
     expect((await screen.findByTestId('edit-profile-failed')).textContent).toContain('update the Harness')
     expect(screen.queryByLabelText('Title')).toBeNull()
+  })
+
+  describe('the status beside the MCP servers list', () => {
+    /** A row of an MCP server of a Session (src/shared/agent/mcp-status.ts); the names are made up. */
+    const row = (name: string, status: 'connected' | 'failed' | 'needs-auth') => ({ name, status, tools: null, error: null, source: 'user' as const, sourceWord: null, actions: [] })
+    /** The Project's Orchestrator runs Session `orch-1`, and a Session Node of it runs `node-1`. */
+    function sessionsOfTheProject(): void {
+      acceptOrchestratorView({ projectId: PROJECT.id, nodeId: 'orch', sessionId: 'orch-1', state: 'idle', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
+      acceptSessionNodeView({ projectId: PROJECT.id, nodeId: 'node', vendor: 'claude', sessionId: 'node-1', sdkSessionId: null, state: 'idle', error: null, cwd: PROJECT.path, model: null, version: 1 })
+    }
+    const READ_MCP: ProfileEditRead = { ...READ, values: { ...VALUES, 'mcp.allowed': ['plugin_worfy_qmd', 'example-notes', 'example-tracker'] } }
+
+    it('each name has its status in the newest Session of the Project; a name that Session lacks has none', async () => {
+      main.answers['profileEdit.read'] = { ok: true, value: READ_MCP }
+      sessionsOfTheProject()
+      acceptAgentEvent({ sessionId: 'orch-1', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'failed'), row('example-notes', 'failed')], at: 1000 } })
+      acceptAgentEvent({ sessionId: 'node-1', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'connected'), row('example-notes', 'needs-auth')], at: 2000 } })
+      // A Session of another Project says nothing here, however new.
+      acceptAgentEvent({ sessionId: 'elsewhere', event: { type: 'mcp', servers: [row('example-tracker', 'connected')], at: 3000 } })
+      const form = await openForm()
+      const list = within(form).getByTestId('profile-mcp-status')
+      const items = [...list.querySelectorAll<HTMLElement>('li')].map((item) => [item.dataset.name, item.dataset.status ?? null, item.textContent])
+      expect(items).toEqual([
+        ['plugin_worfy_qmd', 'connected', 'plugin_worfy_qmdconnected'],
+        ['example-notes', 'needs-auth', 'example-notesneeds auth'],
+        ['example-tracker', null, 'example-tracker'],
+      ])
+      // The list follows the field as it is edited.
+      fireEvent.change(input(form, 'MCP servers'), { target: { value: 'example-notes' } })
+      expect([...within(form).getByTestId('profile-mcp-status').querySelectorAll<HTMLElement>('li')].map((item) => item.dataset.name)).toEqual(['example-notes'])
+      // The existing field keeps its label and value.
+      expect(input(form, 'MCP servers').value).toBe('example-notes')
+    })
+
+    it('without a Session of the Project on this Machine there is no status, and a Project of a Linked machine shows none', async () => {
+      main.answers['profileEdit.read'] = { ok: true, value: READ_MCP }
+      let form = await openForm()
+      expect(within(form).queryByTestId('profile-mcp-status')).toBeNull()
+      cleanup()
+
+      sessionsOfTheProject()
+      acceptAgentEvent({ sessionId: 'orch-1', event: { type: 'mcp', servers: [row('plugin_worfy_qmd', 'connected')], at: 1000 } })
+      form = await openForm('pc-1')
+      expect(within(form).queryByTestId('profile-mcp-status')).toBeNull()
+    })
   })
 })

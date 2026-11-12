@@ -13,6 +13,9 @@
 // (MoveWorkflow.tsx, `profileEdit.move`, ticket 81), after which the form reads the Profile again; the name
 // holds the Profile's folder and stays.
 //
+// Beside the MCP servers list stands the status of each name in the newest Session of the Project on this
+// Machine (session/McpChip.tsx, McpProfileStatus; worfy-mcp-live ticket 04); without one, no status.
+//
 // The look follows the "Add project" dialog: a dialog over Project settings on a backdrop, header,
 // scrolling body, footer with the shared action buttons; colours only from the token roles.
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -30,6 +33,7 @@ import {
 } from '../../shared/ipc/profile-edit'
 import type { GithubChoice } from '../../shared/ipc/projects'
 import { invoke, invokeOn, windowMachine } from '../ipc'
+import { McpProfileStatus } from '../session/McpChip'
 import { GithubAccount } from './GithubAccount'
 import { MoveWorkflow } from './MoveWorkflow'
 import { fieldStyles, issuesAt, text } from './profile-fields'
@@ -95,8 +99,10 @@ const TEXT_REQUIRED = new Set(['commands.verify', 'tickets.path'])
 
 export function EditProfile({ project, machine, readOnly, onClose, onSaved }: EditProfileProps) {
   const call: typeof invoke = machine === undefined ? invoke : (channel, ...args) => invokeOn(machine, channel, ...args)
+  /** The Project is of this Machine, not of a Linked machine: its Sessions are the ones this window has. */
+  const thisMachine = (machine === undefined ? windowMachine() : machine) === null
   /** Why the form is only shown, without Save: the Project is shared read-only, or it is of a Linked machine; null — editable. */
-  const viewOnly = readOnly ?? ((machine === undefined ? windowMachine() : machine) === null ? null : LINKED_NOTE)
+  const viewOnly = readOnly ?? (thisMachine ? null : LINKED_NOTE)
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   /** Bumped to read the Profile again (after a refused fingerprint). */
   const [reads, setReads] = useState(0)
@@ -395,7 +401,12 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
             {choice('parallel', 'Parallel', ['worktrees', 'single'])}
             {listField('review.lenses', 'Review lenses')}
             {listField('review.ticket_lenses', 'Ticket lenses')}
-            {listField('mcp.allowed', 'MCP servers')}
+            {/* One cell of the grid: the list, and under it the status of each name in the newest Session of the
+                Project, on this Machine only (worfy-mcp-live ticket 04). */}
+            <div key="mcp.allowed">
+              {listField('mcp.allowed', 'MCP servers')}
+              {thisMachine ? <McpProfileStatus path={project.path} names={values['mcp.allowed']} /> : null}
+            </div>
             {listField('skills.allowed', 'Skills allowed', 'Empty and never set: all of them')}
           </>,
         )}

@@ -209,8 +209,15 @@ image's long side is scaled down to 1568 pixels before main checks it.
   comments, a notice says they stay in this window until it closes.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
-and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, Hide tools and Interrupt. Cost shows
-a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. A Product
+and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, the
+chip «MCP n/m», Hide tools and Interrupt. Cost shows
+a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. The chip «MCP
+n/m» counts the Session's MCP servers: n are connected, m are all of them but those not allowed in the Project; it takes the
+blocked colours with a warning icon while a server failed or needs auth, and is absent while main has no data. A click
+opens a popover with a row per server — name, status, number of tools, error, source (claude.ai, user config, Project,
+worfy) — and a button for each action main offers for that row, such as Reconnect on a failed server; the servers not
+allowed stand in a group of their own below. A refused action is a toast. Edit profile shows the same status beside each
+name of the MCP servers list, from the newest Session of the Project on this Machine. A Product
 Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
 decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its
 status, and the objections of every critic's review in `critic/` by their `Owner decision:` lines; advice still waiting
