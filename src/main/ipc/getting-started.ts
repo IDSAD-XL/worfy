@@ -287,9 +287,10 @@ export function orchestratorMatcher(lookup: () => OrchestratorLookup): (projectI
  * Starts Getting started in main, once, before the first window: reads the state (the first read
  * decides a new or an existing user, decision 7, before the user can add a Project), sends
  * `gettingStarted.changed` to every window after each change, and marks the steps from the app's
- * sources. Answers the stop.
+ * sources. Answers the stop, which resolves once the Stages of the demo are closed
+ * (GettingStartedProgress.start); never rejects.
  */
-export function startGettingStarted(): () => void {
+export function startGettingStarted(): () => Promise<void> {
   const state = gettingStartedState()
   state.read()
   const stopChanged = state.onChange(() => {
@@ -305,8 +306,9 @@ export function startGettingStarted(): () => void {
     isOrchestratorOf: orchestratorMatcher(() => ({ layout: layoutStore(), orchestrators: sharedOrchestrators(), registry: sharedRegistry() })),
   }).start()
   return () => {
-    stopProgress()
+    const stopped = stopProgress()
     stopChanged()
+    return stopped
   }
 }
 
