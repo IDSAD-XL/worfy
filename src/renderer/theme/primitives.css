@@ -1,58 +1,6 @@
 /* Styles of the primitives in primitives.tsx. Values come from tokens.css only. */
 
-/* Status chip */
-.w-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 18px;
-  padding: 0 6px;
-  box-sizing: border-box;
-  border-radius: var(--radius-chip);
-  font-size: var(--text-12);
-  font-weight: 500;
-  white-space: nowrap;
-}
-/* A chip with a 1 px border: the border leaves 16 px of the 18 px box, so the chip has its own 16 px
-   line; the line it would inherit (17 px on body) stands out of the border. A chip without a border
-   keeps the inherited line: 16 px in its 18 px would move the text by half a pixel. The open state
-   chip (epic-frame.css) is one of them. A chip of another border colour sets only `border-color`. */
-.w-chip--bordered,
-.w-chip--open {
-  border: 1px solid var(--border);
-  line-height: 16px;
-}
-.w-chip__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 3px;
-  display: inline-block;
-}
-.w-chip--ready {
-  background: var(--ready-bg);
-  color: var(--ready-text);
-}
-.w-chip--ready .w-chip__dot {
-  background: var(--ready-dot);
-}
-.w-chip--working {
-  background: var(--working-bg);
-  color: var(--working-text);
-}
-.w-chip--blocked {
-  background: var(--blocked-bg);
-  color: var(--blocked-text);
-}
-.w-chip--done {
-  background: var(--done-bg);
-  color: var(--done-text);
-}
-/* Neutral grey like done; the pause mark and the label tell them apart (ADR-0085). */
-.w-chip--stopped {
-  background: var(--done-bg);
-  color: var(--done-text);
-  box-shadow: inset 0 0 0 1px var(--border);
-}
+/* The status chip lives in chip.css (theme/Chip.tsx). */
 
 /* List row, 28 px */
 .w-row {

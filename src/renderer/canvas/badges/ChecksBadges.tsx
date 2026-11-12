@@ -3,7 +3,7 @@ import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../../shared/temp-fol
 import type { Ticket } from '../../../shared/workflow/types'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useWorkflow } from '../../workflow/useWorkflow'
-import { StatusChip, type Status } from '../../theme/primitives'
+import { Chip, type Status } from '../../theme/Chip'
 import type { SlotProps } from './index'
 import { useChecks, useProjectRepos } from './use-checks'
 import '../epic-frame.css'
@@ -23,18 +23,16 @@ export const order = 10
 
 // ── the chips ────────────────────────────────────────────────────────────────
 
+/** A neutral chip that names no state: no icon, so the row keeps the width ticket-card.ts gives it room for. */
 function Neutral({ label, title, testId }: { label: string; title?: string; testId: string }) {
-  return (
-    <span className="w-chip w-chip--open" data-testid={testId} title={title}>
-      {label}
-    </span>
-  )
+  return <Chip variant="neutral" icon={null} label={label} data-testid={testId} title={title} />
 }
 
-function Chip({ status, label, testId, value, title }: { status: Status; label: string; testId: string; value?: string; title?: string }) {
+/** A status chip in the box that carries its test id and its value: the tests read the face inside it. */
+function Badge({ status, label, testId, value, title }: { status: Status; label: string; testId: string; value?: string; title?: string }) {
   return (
     <span data-testid={testId} data-value={value} title={title}>
-      <StatusChip status={status} label={label} />
+      <Chip variant={status} label={label} />
     </span>
   )
 }
@@ -49,12 +47,12 @@ function GateBadge({ outcome, path }: { outcome: GateOutcome; path: string }) {
   // The tooltip adds the worktree's path to the label; the label itself is never cut (checks-badges.css).
   if (outcome === 'none') return <Neutral label="gate: no data" title={`gate: no data — ${path}`} testId="checks-gate" />
   const { status, label } = GATE[outcome]
-  return <Chip status={status} label={label} testId="checks-gate" value={outcome} title={`${label} — ${path}`} />
+  return <Badge status={status} label={label} testId="checks-gate" value={outcome} title={`${label} — ${path}`} />
 }
 
 /** The worktree lies inside %TEMP% of Windows (worfy-windows ticket 61): the sign of the "Add project" Folder step. */
 function TempBadge({ path }: { path: string }) {
-  return <Chip status="working" label={TEMP_FOLDER_LABEL} testId="checks-temp" title={`${TEMP_FOLDER_WARNING} — ${path}`} />
+  return <Badge status="working" label={TEMP_FOLDER_LABEL} testId="checks-temp" title={`${TEMP_FOLDER_WARNING} — ${path}`} />
 }
 
 const CI: Record<NonNullable<PullRequest['ci']>, Status> = { passing: 'ready', failing: 'blocked', running: 'working' }
@@ -66,8 +64,8 @@ function PullBadges({ pull }: { pull: PullRequest }) {
       <span className="w-checks__pr" data-testid="checks-pr" data-value={pull.state} title={pull.url}>
         {label}
       </span>
-      {pull.ci ? <Chip status={CI[pull.ci]} label={`CI ${pull.ci}`} testId="checks-ci" value={pull.ci} /> : null}
-      {pull.verdict ? <Chip status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} title={`${pull.verdict} — the review mark on the PR's head commit`} /> : null}
+      {pull.ci ? <Badge status={CI[pull.ci]} label={`CI ${pull.ci}`} testId="checks-ci" value={pull.ci} /> : null}
+      {pull.verdict ? <Badge status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} title={`${pull.verdict} — the review mark on the PR's head commit`} /> : null}
     </>
   )
 }

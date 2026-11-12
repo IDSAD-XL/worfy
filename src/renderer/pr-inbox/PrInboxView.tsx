@@ -20,7 +20,7 @@ import { useNow } from '../limits/useLimits'
 import { ticketRef } from '../pipeline/board'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { layerOf } from '../theme/open-layers'
-import { StatusChip } from '../theme/primitives'
+import { Chip, type ChipVariant } from '../theme/Chip'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { CommentBody } from './CommentBody'
 import { DraftRepliesButton, PrDrafts } from './DraftThread'
@@ -156,18 +156,30 @@ function TicketChip({ ticket }: { ticket: Ticket | undefined }) {
   if (ticket === undefined) return null
   const ref = ticketRef(ticket)
   return (
-    <span className="w-chip w-chip--open w-mono w-pr-inbox-ticket" data-testid="pr-inbox-ticket" title={`${ref} — ${ticketTitle(ticket)}`}>
-      <span className="w-pr-inbox-ticket__epic" data-testid="pr-inbox-ticket-epic">
-        {ticket.epic}
-      </span>
-      <span className="w-pr-inbox-ticket__number">{ref.slice(ticket.epic.length)}</span>
-    </span>
+    <Chip
+      variant="neutral"
+      icon={null}
+      className="w-mono w-pr-inbox-ticket"
+      data-testid="pr-inbox-ticket"
+      title={`${ref} — ${ticketTitle(ticket)}`}
+      label={
+        <>
+          <span className="w-pr-inbox-ticket__epic" data-testid="pr-inbox-ticket-epic">
+            {ticket.epic}
+          </span>
+          <span className="w-pr-inbox-ticket__number">{ref.slice(ticket.epic.length)}</span>
+        </>
+      }
+    />
   )
 }
 
-function FactChip({ label, tone }: { label: string; tone: FactTone }) {
-  if (tone === 'ready' || tone === 'blocked') return <StatusChip status={tone} label={label} />
-  return <span className={tone === 'open' ? 'w-chip w-chip--open' : 'w-chip w-pr-inbox-chip--problem'}>{label}</span>
+/** The chip of a fact of the pane: its status variant; a problem (Conflicts) is blocked in the problem colour of pr-inbox.css. */
+const FACT_CHIP: Record<FactTone, { variant: ChipVariant; className?: string }> = {
+  ready: { variant: 'ready' },
+  blocked: { variant: 'blocked' },
+  open: { variant: 'neutral' },
+  problem: { variant: 'blocked', className: 'w-pr-inbox-chip--problem' },
 }
 
 function Comment({ comment, repo, now }: { comment: PrInboxComment; repo: string; now: number }) {
@@ -442,7 +454,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   <Fact name="Review">
                     {review !== null ? (
                       <span data-testid="pr-inbox-review" data-value={row.reviewDecision ?? undefined}>
-                        <FactChip label={review.label} tone={review.status ?? 'open'} />
+                        <Chip {...FACT_CHIP[review.status ?? 'open']} label={review.label} />
                       </span>
                     ) : (
                       <span className="w-pr-inbox-muted">None yet</span>
@@ -451,7 +463,7 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                   <Fact name="Merge">
                     {merge !== null ? (
                       <span data-testid="pr-inbox-merge" data-value={row.mergeStateStatus ?? undefined}>
-                        <FactChip label={merge.label} tone={merge.tone} />
+                        <Chip {...FACT_CHIP[merge.tone]} label={merge.label} />
                       </span>
                     ) : (
                       <span className="w-pr-inbox-muted">Unknown</span>

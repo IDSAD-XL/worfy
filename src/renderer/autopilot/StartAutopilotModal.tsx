@@ -57,6 +57,7 @@ import { useAutoContinue } from '../session/modes/auto-continue'
 import { useEcoMode } from '../session/modes/eco-mode'
 import { focusablesOf } from '../settings/settings-window'
 import { useAppSettings } from '../settings/useAppSettings'
+import { Chip, type ChipVariant } from '../theme/Chip'
 import { QueueList, type QueueFacts, type QueueRow } from './QueueList'
 import { agentTimeUp, askFromAgent, openOrchestratorModes, useStartModal, type OpenStart } from './start-modal'
 import './autopilot-modal.css'
@@ -210,14 +211,12 @@ function Fact({ name, testId, children }: { name: string; testId: string; childr
   )
 }
 
-/** A Mode chip: on in the ready colours, off neutral, `…` while it is read. */
-function Chip({ label, on, title }: { label: string; on: boolean | null; title: string }) {
-  return (
-    <span className={`w-apstart__chip${on === true ? ' w-apstart__chip--on' : ''}`} title={title} data-on={on === null ? undefined : String(on)}>
-      <span className="w-apstart__dot" aria-hidden="true" />
-      {label}
-    </span>
-  )
+/** A Mode is on: the ready colours; off, or not known yet, neutral (F-SPEC, "Modes"). */
+const MODE_CHIP: Record<`${boolean | null}`, ChipVariant> = { true: 'ready', false: 'neutral', null: 'neutral' }
+
+/** A Mode chip: on in the ready colours with the ready dot, off neutral with a muted dot, `…` while it is read. */
+function ModeChip({ label, on, title }: { label: string; on: boolean | null; title: string }) {
+  return <Chip variant={MODE_CHIP[`${on}`]} icon={<span className="w-chip__dot" aria-hidden="true" />} label={label} title={title} data-on={on === null ? undefined : String(on)} />
 }
 
 function ModesFact({ projectId, onChange, off }: { projectId: string; onChange: () => void; off: boolean }) {
@@ -229,9 +228,9 @@ function ModesFact({ projectId, onChange, off }: { projectId: string; onChange: 
   const word = (on: boolean | null, reading: boolean): string => (on === null ? unknown(reading) : on ? 'on' : 'off')
   return (
     <Fact name="Modes" testId="start-autopilot-modes">
-      <Chip label={`Eco ${word(eco.on, eco.reading)}`} on={eco.on} title={eco.unavailable ?? eco.title} />
-      <Chip label={`Auto-approval ${auto.mode === null ? unknown(auto.reading) : AUTO_APPROVAL_LABELS[auto.mode]}`} on={auto.mode === null ? null : auto.mode !== 'off'} title={auto.unavailable ?? (auto.mode === null ? 'Auto-approval' : AUTO_APPROVAL_TITLES[auto.mode])} />
-      <Chip label={`Auto-continue ${word(cont.on, cont.reading)}`} on={cont.on} title={cont.unavailable ?? cont.title} />
+      <ModeChip label={`Eco ${word(eco.on, eco.reading)}`} on={eco.on} title={eco.unavailable ?? eco.title} />
+      <ModeChip label={`Auto-approval ${auto.mode === null ? unknown(auto.reading) : AUTO_APPROVAL_LABELS[auto.mode]}`} on={auto.mode === null ? null : auto.mode !== 'off'} title={auto.unavailable ?? (auto.mode === null ? 'Auto-approval' : AUTO_APPROVAL_TITLES[auto.mode])} />
+      <ModeChip label={`Auto-continue ${word(cont.on, cont.reading)}`} on={cont.on} title={cont.unavailable ?? cont.title} />
       <button type="button" className="w-apstart__link" data-testid="start-autopilot-change-modes" disabled={off} onClick={onChange}>
         change in Modes
       </button>

@@ -1,7 +1,7 @@
 # 16 — Свой Chip: варианты статуса
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T02:10Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 16; «Решения по реализации» (Button и Chip); история 22; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, разделы 2 и 2.1

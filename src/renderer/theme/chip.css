@@ -1,0 +1,94 @@
+/*
+ * Chip (theme/Chip.tsx, worfy-ui-kit ticket 16): the compact status rectangle of F-SPEC — 18 px, radius
+ * 4 px, 12 px text — in the status roles of tokens.css and a neutral one. The class names are the ones the
+ * bare `.w-chip` markup of the areas already writes, so these rules colour it too. No rule here sets an
+ * opacity: a chip on a read-only screen is dimmed by projects/read-only.css like everything else.
+ */
+
+.w-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-chip);
+  font-size: var(--text-12);
+  font-weight: 500;
+  white-space: nowrap;
+}
+/* A chip with a 1 px border: the border leaves 16 px of the 18 px box, so the chip has its own 16 px
+   line; the line it would inherit (17 px on body) stands out of the border. A chip without a border
+   keeps the inherited line: 16 px in its 18 px would move the text by half a pixel. The neutral chip
+   (`w-chip--open`) is one of them. A chip of another border colour sets only `border-color`. */
+.w-chip--bordered,
+.w-chip--open {
+  border: 1px solid var(--border);
+  line-height: 16px;
+}
+.w-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.w-chip--ready {
+  background: var(--ready-bg);
+  color: var(--ready-text);
+}
+.w-chip--ready .w-chip__dot {
+  background: var(--ready-dot);
+}
+.w-chip--working {
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+.w-chip--blocked {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+/* A bordered chip of a status without a ring keeps the 1 px border, unseen, so it is as big as its
+   neighbours ("OK" and "Running…" of First run); "Failed" of First run and Connect project: the blocked
+   ground inside the blocked ring. */
+.w-chip--bordered.w-chip--ready,
+.w-chip--bordered.w-chip--working {
+  border-color: transparent;
+}
+.w-chip--bordered.w-chip--blocked {
+  border-color: var(--blocked-ring);
+}
+.w-chip--done {
+  background: var(--done-bg);
+  color: var(--done-text);
+}
+/* Neutral grey like done; the pause mark and the label tell them apart (ADR-0085). */
+.w-chip--stopped {
+  background: var(--done-bg);
+  color: var(--done-text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+/* Neutral: no status colour — an open Ticket, "gate: no data", a name. Its dot is muted (a Mode that is off). */
+.w-chip--open {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.w-chip--open .w-chip__dot {
+  background: var(--text-muted);
+}
+
+/* Quiet: the status text on surface raised inside the hairline, not on the status ground (First run "Warning"). */
+.w-chip.w-chip--quiet {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  line-height: 16px;
+}
+
+/* Plain: status text — the icon and the label in the variant's colour, without the box. */
+.w-chip.w-chip--plain {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}

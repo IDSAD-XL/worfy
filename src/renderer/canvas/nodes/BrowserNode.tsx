@@ -9,6 +9,7 @@ import { useBrowserProfiles } from '../../browser/profiles'
 import { useInFocusTile, useSeeThroughTile } from '../../focus/focus-tile'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { Chip } from '../../theme/Chip'
 import { useEdgeFocus } from '../edge-focus'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
@@ -255,10 +256,7 @@ function DriveBadge({ projectId, id, mode }: { projectId: string; id: string; mo
   const readOnly = useReadOnly()
   if (mode === 'claude') {
     return (
-      <span className="w-browser-frame__drive w-browser-frame__drive--claude" data-testid="browser-claude-drives" role="status" title="Click or type in this Browser to take over">
-        <span className="w-browser-frame__drive-dot" aria-hidden="true" />
-        Claude is driving
-      </span>
+      <Chip variant="working" plain className="w-browser-frame__drive" data-testid="browser-claude-drives" role="status" title="Click or type in this Browser to take over" label="Claude is driving" />
     )
   }
   return (
