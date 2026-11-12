@@ -189,6 +189,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.commands',
     'agent.controls',
     'agent.list',
+    // The MCP servers of a Session and how each one is (worfy-mcp-live ticket 02): reading, as the Session's events.
+    'agent.mcp',
     'agent.models',
     // The open permission and question requests, for a window that did not see them go out (worfy-product-session ticket 30).
     'agent.requests',
@@ -301,6 +303,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.close',
     'agent.configure',
     'agent.interrupt',
+    // Reconnects an MCP server of a Session (worfy-mcp-live ticket 02): it acts on the agent's process.
+    'agent.mcpAction',
     'agent.permission',
     'agent.queueRemove',
     'agent.queueSend',

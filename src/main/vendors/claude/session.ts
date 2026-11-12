@@ -5,7 +5,8 @@
 // pushes the user's messages into; the query is not recreated between turns. The handle turns every
 // SDK message into worfy's events (src/shared/vendors/claude/events.ts) and adds three of its own:
 // `account` once accountInfo() answers (the Session is `starting` until then), `context` after each
-// `result` and each compaction (getContextUsage), and the end of its events when Claude Code is gone.
+// `result` and each compaction (getContextUsage), `mcp` after each system/init and each `result`
+// (mcpServerStatus, worfy-mcp-live ticket 02), and the end of its events when Claude Code is gone.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
 //
@@ -49,12 +50,14 @@ import type {
   ToolUseFacts,
 } from '../../agent/session/types'
 import type { SlashCommand } from '../../../shared/agent/commands'
+import type { McpServerRow } from '../../../shared/agent/mcp-status'
 import type { AgentEvent, PermissionOption } from '../../../shared/agent/events'
 import { ASK_USER_QUESTION, parseQuestions } from '../../../shared/agent/questions'
 import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
-import { contextUsageOf, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
+import { contextUsageOf, initMcpServers, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
+import { claudeMcpStatus, type ClaudeMcpLive } from './mcp'
 import { claudeSettings } from './options'
 import { queryFactoryFromEnv } from './query'
 
@@ -319,7 +322,7 @@ export function claudeLive(session: SessionHandle): ClaudeLiveSession | null {
 }
 
 /** One query() of Claude Code behind worfy's SessionHandle. */
-class ClaudeSession implements SessionHandle, ClaudeLiveSession {
+class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
   private queryValue: QueryHandle | null = null
   private readonly input = new InputQueue<ClaudeUserMessage>()
   private readonly out = new InputQueue<AgentEvent>()
@@ -330,6 +333,10 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession {
   private underway = false
   /** Asks for the context usage so far; an answer to any but the latest is dropped. */
   private contextAsks = 0
+  /** Asks for the MCP servers; an answer to any but the latest is dropped. */
+  private mcpAsks = 0
+  /** The MCP servers of the last system/init: the status of a query without mcpServerStatus(). */
+  private initServers: McpServerRow[] | null = null
 
   constructor(
     readonly catalog: CommandCatalog,
@@ -340,6 +347,10 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession {
 
   get query(): QueryHandle | null {
     return this.queryValue
+  }
+
+  get initMcpServers(): readonly McpServerRow[] | null {
+    return this.initServers
   }
 
   /** Starts the query; rejects when Claude Code cannot be started. */
@@ -466,10 +477,15 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession {
     this.catalog.observe(message)
     // A compaction empties most of the window while the turn may go on for long.
     if (isCompactBoundary(message)) this.askContext()
+    this.initServers = initMcpServers(message) ?? this.initServers
     for (const event of sdkMessageToEvents(message)) {
       if (event.type === 'init') this.underway = true
       this.out.push(event)
-      if (event.type === 'result') this.askContext()
+      if (event.type === 'init') this.askMcp()
+      if (event.type === 'result') {
+        this.askContext()
+        this.askMcp()
+      }
     }
   }
 
@@ -510,6 +526,21 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession {
       if (ask !== this.contextAsks || this.done) return
       this.out.push({ type: 'context', usage })
     })()
+  }
+
+  /**
+   * Asks the query for its MCP servers (claudeMcpStatus): an `mcp` event with their rows, or with
+   * null — no data — when the ask failed, never a failed turn. An answer is dropped when a newer ask
+   * was made or the handle is done.
+   */
+  private askMcp(): void {
+    const query = this.queryValue
+    if (query === null) return
+    const ask = ++this.mcpAsks
+    void claudeMcpStatus(query, this.initServers, this.label).then((servers) => {
+      if (ask !== this.mcpAsks || this.done) return
+      this.out.push({ type: 'mcp', servers })
+    })
   }
 
   /** Claude Code is gone, or its start was never confirmed: the events end with `error`. */

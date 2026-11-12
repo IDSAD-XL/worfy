@@ -24,10 +24,14 @@
 //
 // worfy-flight-recorder ticket 22: an Autopilot command typed in a chat starts Autopilot instead of
 // reaching the agent, and `agent.send` answers what became of it.
+//
+// worfy-mcp-live ticket 02: `agent.mcp` reads the MCP servers of the Session, the `mcp` event brings
+// their changes, and `agent.mcpAction` does what a server's row offers (Reconnect).
 import { z } from 'zod'
 import { attachmentSchema, attachmentSourceSchema, attachResultSchema, MAX_ATTACHMENTS } from '../agent/attachments'
 import { slashCommandSchema } from '../agent/commands'
 import { agentEventEnvelope, openRequestEvent, permissionOptionIdSchema, queueSnapshotSchema, sessionState } from '../agent/events'
+import { mcpServerActionSchema, mcpServerRowSchema } from '../agent/mcp-status'
 import { questionPickSchema } from '../agent/questions'
 import { modelOptionSchema, sessionSettingsSchema, settingsChangeSchema } from '../agent/settings'
 import { capabilitiesSchema } from '../vendors/capabilities'
@@ -157,6 +161,28 @@ export const agentAnswerQuestion = invokeChannel(
   'write',
 )
 
+const mcpServers = z.array(mcpServerRowSchema).nullable()
+
+/**
+ * The MCP servers of the Session as they are now, asked of its agent (worfy-mcp-live ticket 02);
+ * `servers` null: no data — no process runs, or its agent did not answer. A change also goes out as an
+ * `mcp` event.
+ */
+export const agentMcp = invokeChannel('agent.mcp', z.object({ sessionId }), z.object({ servers: mcpServers }), 'project', 'read')
+
+/**
+ * Does `action` on the MCP server `name` of the Session: one its row offers. Ticket 02 does
+ * `reconnect`; any other action is refused with an error, and an action the schema does not know is
+ * no valid input. Answers the rows after it and, when the agent refused the action, its `error`.
+ */
+export const agentMcpAction = invokeChannel(
+  'agent.mcpAction',
+  z.object({ sessionId, name: z.string().min(1), action: mcpServerActionSchema }),
+  z.object({ servers: mcpServers, error: z.string().nullable() }),
+  'project',
+  'write',
+)
+
 export const agentEvent = eventChannel('agent.event', agentEventEnvelope, 'project', 'read')
 
 declare module './channels' {
@@ -178,6 +204,8 @@ declare module './channels' {
     'agent.queueSend': typeof agentQueueSend
     'agent.permission': typeof agentPermission
     'agent.answerQuestion': typeof agentAnswerQuestion
+    'agent.mcp': typeof agentMcp
+    'agent.mcpAction': typeof agentMcpAction
     'agent.event': typeof agentEvent
   }
 }

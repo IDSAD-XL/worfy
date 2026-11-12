@@ -83,6 +83,16 @@ export interface QueryHandle extends AsyncIterable<unknown> {
    * optional, as a query that lacks it reports no usage.
    */
   getContextUsage?(opts?: { detail?: 'summary' | 'full' }): Promise<unknown>
+  /**
+   * The MCP servers of the query and how each one is (worfy-mcp-live ticket 02), read leniently
+   * (mcpServerRowsOf); optional, as a query that lacks it reports the servers of its last system/init.
+   */
+  mcpServerStatus?(): Promise<unknown>
+  /**
+   * Connects the MCP server `serverName` again (worfy-mcp-live ticket 02). Its neighbour
+   * toggleMcpServer is left out on purpose: it writes the user's .claude.json, so worfy never calls it.
+   */
+  reconnectMcpServer?(serverName: string): Promise<void>
 }
 
 export interface QueryRequest {

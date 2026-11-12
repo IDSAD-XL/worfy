@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { messageAttachmentSchema } from './attachments'
 import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from './auto-approval'
 import { limitStateSchema, limitWindowSchema } from './limits'
+import { mcpServerRowSchema } from './mcp-status'
 import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'
 
@@ -137,6 +138,13 @@ export const agentEvent = z.discriminatedUnion('type', [
    * no data (the ask failed). Sent only when it differs from the Session's last one.
    */
   timed({ type: z.literal('context'), usage: contextUsageSchema.nullable() }),
+  /**
+   * The MCP servers of the Session (worfy-mcp-live ticket 02, src/shared/agent/mcp-status.ts), asked
+   * after each system/init, each `result`, each action on a server and when a window asks (agent.mcp);
+   * `servers` null: no data (the ask failed). Sent only when it differs from the Session's last one.
+   * Shown on the user's screen only: no journal or log writes it.
+   */
+  timed({ type: z.literal('mcp'), servers: z.array(mcpServerRowSchema).nullable() }),
   /**
    * The live summary of a Product Session's turn (worfy-product-session ticket 32, src/main/agent/narrator.ts):
    * the lines to show under the status line now, oldest first; empty when the turn ended. `first` numbers the first

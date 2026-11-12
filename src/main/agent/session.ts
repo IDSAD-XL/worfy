@@ -25,6 +25,10 @@
 // A message may carry attachments (ticket 20, attachments.ts): the driver gives them to its agent.
 // The slash menu's commands and the model picker's rows come from the handle.
 //
+// The MCP servers of the Session (worfy-mcp-live ticket 02) come from the mcp part of the Vendor's
+// driver: the handle sends them as `mcp` events, a window asks for them (mcp()), and an action on a
+// server (mcpAction()) goes to the driver, then the rows are asked again. Only a change goes out.
+//
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
 // the Session is `needs_permission` while a request is open. Interrupt, close and a crash cancel
@@ -74,6 +78,9 @@ import {
 import { CLAUDE_CAPABILITIES, type Capabilities } from '../../shared/vendors/capabilities'
 import type { VendorDriver } from '../vendors/driver'
 import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
+import { sameMcpRows, type McpServerAction, type McpServerRow } from '../../shared/agent/mcp-status'
+import { claudeMcp } from '../vendors/claude/mcp'
+import { McpActionRefused } from '../vendors/mcp'
 import { shownAttachments } from './attachments'
 import { PermissionGate } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
@@ -103,14 +110,21 @@ export { SessionRegistry } from './session/registry'
 /**
  * What a Session reads of its Vendor's driver besides the session part (worfy-multi-vendor ticket 25):
  * the capabilities — the pickers' presets and effort levels, which a settings change must keep to — and
- * the rows of the slash menu.
+ * the rows of the slash menu; and the MCP servers of the Session (worfy-mcp-live ticket 02), when given.
  */
-export type SessionVendorParts = Pick<VendorDriver, 'capabilities' | 'commands'>
+export type SessionVendorParts = Pick<VendorDriver, 'capabilities' | 'commands'> & Partial<Pick<VendorDriver, 'mcp'>>
 
-/** Claude Code's capabilities as such, and the rows the handle itself lists: a Session started without its driver's parts. */
+/** Claude Code's capabilities as such, the rows the handle itself lists and its MCP servers: a Session started without its driver's parts. */
 export const STATIC_CLAUDE_PARTS: SessionVendorParts = {
   capabilities: () => Promise.resolve(CLAUDE_CAPABILITIES),
   commands: { list: (handle) => handle.commands() },
+  mcp: claudeMcp,
+}
+
+/** What an action on an MCP server answers: the rows after it (null: no data), and the Vendor's error when it refused the action. */
+export interface McpActionAnswer {
+  servers: McpServerRow[] | null
+  error: string | null
 }
 
 /** Why `change` is not one the Vendor of `capabilities` offers, or null when it is. */
@@ -160,6 +174,8 @@ export class Session {
   private liveTaskList: BackgroundTask[] = []
   /** The context usage last sent; null: none, or the last ask failed. */
   private contextValue: ContextUsage | null = null
+  /** The MCP servers last sent; null: none, or the last ask failed. */
+  private mcpValue: McpServerRow[] | null = null
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   /** The Session's permission requests and the subjects "Always allow" covers, across its processes. */
   private readonly permissions = new PermissionGate(
@@ -548,6 +564,47 @@ export class Session {
     return handle === null ? Promise.resolve([]) : this.parts.commands.list(handle)
   }
 
+  /**
+   * The rows of the MCP servers of the live process, asked now (agent.mcp); sent as an `mcp` event when
+   * they changed. null: no data — no process runs, the driver reads no status, or the ask failed.
+   */
+  async mcp(): Promise<McpServerRow[] | null> {
+    const handle = this.run?.handle ?? null
+    const status = this.parts.mcp?.status
+    if (handle === null || status === undefined) return null
+    let servers: McpServerRow[] | null = null
+    try {
+      servers = await status.call(this.parts.mcp, handle)
+    } catch (error) {
+      console.warn(`[agent] could not read the MCP servers of ${this.current}: ${messageOf(error)}`)
+    }
+    // An answer of a process that is gone since says nothing of the Session now.
+    if (this.run?.handle === handle) this.takeMcp(servers)
+    return servers
+  }
+
+  /**
+   * Does `action` on the MCP server `name` of the live process through the Vendor's driver, then asks
+   * for the rows again (mcp()). Throws — nothing reaching the agent — when the Session is closed, no
+   * process runs, or the driver does not do the action (McpActionRefused); the Vendor's own refusal is
+   * answered as `error`, with the rows after it.
+   */
+  async mcpAction(name: string, action: McpServerAction): Promise<McpActionAnswer> {
+    this.assertOpen()
+    const part = this.parts.mcp
+    if (part?.act === undefined) throw new McpActionRefused(action)
+    const handle = this.run?.handle ?? null
+    if (handle === null) throw new Error("The Session's agent is not running")
+    let error: string | null = null
+    try {
+      await part.act(handle, name, action)
+    } catch (failure) {
+      if (failure instanceof McpActionRefused) throw failure
+      error = messageOf(failure)
+    }
+    return { servers: await this.mcp(), error }
+  }
+
   close(): void {
     if (this.closing) return
     this.closing = true
@@ -780,6 +837,9 @@ export class Session {
         this.contextValue = event.usage
         this.emit(event)
         return
+      case 'mcp':
+        this.takeMcp(event.servers)
+        return
       case 'init':
         this.sdkSessionId = event.sdkSessionId
         this.initModel = event.model
@@ -807,6 +867,13 @@ export class Session {
         this.emit(event)
         if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
     }
+  }
+
+  /** Keeps the rows of the MCP servers; tells the subscribers when they changed. */
+  private takeMcp(servers: McpServerRow[] | null): void {
+    if (sameMcpRows(servers, this.mcpValue)) return
+    this.mcpValue = servers
+    this.emit({ type: 'mcp', servers })
   }
 
   /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */

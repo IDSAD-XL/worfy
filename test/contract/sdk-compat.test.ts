@@ -11,6 +11,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type {
+  McpServerStatus,
   Query,
   SDKAssistantMessage,
   SDKCompactBoundaryMessage,
@@ -25,6 +26,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import type { QueryHandle } from '../../src/main/agent/session'
 import type { ClaudeUserMessage } from '../../src/main/agent/session/types'
+import { mcpServerRowsOf } from '../../src/shared/vendors/claude/events'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const CAPTURED = join(ROOT, 'test', 'fixtures', 'sdk-messages')
@@ -276,6 +278,8 @@ const HANDLE_METHODS = [
   'supportedModels',
   'supportedCommands',
   'getContextUsage',
+  'mcpServerStatus',
+  'reconnectMcpServer',
 ] as const satisfies readonly (keyof QueryHandle)[]
 
 type HandleMethod = Exclude<keyof QueryHandle, typeof Symbol.asyncIterator>
@@ -317,8 +321,45 @@ describe('the SDK Query against worfy’s QueryHandle', () => {
     expectTypeOf<ArgumentMismatch<QueryWith<'setModel', (model: string) => Promise<void>>>>().toEqualTypeOf<'setModel'>()
     expectTypeOf<ArgumentMismatch<QueryWith<'getContextUsage', (opts?: { detail?: 'full' }) => Promise<unknown>>>>().toEqualTypeOf<'getContextUsage'>()
     expectTypeOf<ResultMismatch<QueryWith<'supportedModels', () => Promise<string[]>>>>().toEqualTypeOf<'supportedModels'>()
+    expectTypeOf<ArgumentMismatch<QueryWith<'reconnectMcpServer', (serverName: number) => Promise<void>>>>().toEqualTypeOf<'reconnectMcpServer'>()
+    expectTypeOf<ResultMismatch<QueryWith<'reconnectMcpServer', (serverName: string) => Promise<string>>>>().toEqualTypeOf<'reconnectMcpServer'>()
     // @ts-expect-error a Query without getContextUsage is no QueryLike
     expectTypeOf<ArgumentMismatch<Omit<Query, 'getContextUsage'>>>().toBeNever()
+    // @ts-expect-error a Query without mcpServerStatus is no QueryLike
+    expectTypeOf<ArgumentMismatch<Omit<Query, 'mcpServerStatus'>>>().toBeNever()
+  })
+})
+
+describe('the MCP calls of the SDK against what worfy reads of them (worfy-mcp-live ticket 02)', () => {
+  it('mcpServerStatus() answers rows with the fields a row of worfy shows, of the types it reads them as (tsc)', () => {
+    expectTypeOf<McpServerStatus['name']>().toEqualTypeOf<string>()
+    // The statuses worfy knows (mcpServerRowsOf leaves out a row of any other): a new one fails here first.
+    expectTypeOf<McpServerStatus['status']>().toEqualTypeOf<'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled'>()
+    expectTypeOf<McpServerStatus['error']>().toEqualTypeOf<string | undefined>()
+    expectTypeOf<McpServerStatus['source']>().toEqualTypeOf<string | undefined>()
+    expectTypeOf<NonNullable<McpServerStatus['tools']>>().toExtend<readonly unknown[]>()
+    expectTypeOf<ReturnType<Query['mcpServerStatus']>>().toEqualTypeOf<Promise<McpServerStatus[]>>()
+    expectTypeOf<Parameters<Query['reconnectMcpServer']>>().toEqualTypeOf<[serverName: string]>()
+    expectTypeOf<ReturnType<Query['reconnectMcpServer']>>().toEqualTypeOf<Promise<void>>()
+  })
+
+  it('the manifest of the pinned SDK has both calls with these signatures', () => {
+    expect(manifest.queryMethods['mcpServerStatus'], RECAPTURE).toBe('mcpServerStatus(): Promise<McpServerStatus[]>;')
+    expect(manifest.queryMethods['reconnectMcpServer'], RECAPTURE).toBe('reconnectMcpServer(serverName: string): Promise<void>;')
+  })
+
+  it('every server of every recorded answer of the spike becomes a row: none is left out as unreadable', () => {
+    const dir = join(ROOT, 'test', 'fixtures', 'mcp-live')
+    const lists = readdirSync(dir)
+      .filter((name) => name.endsWith('.json'))
+      .flatMap((name) => {
+        const value = JSON.parse(readFileSync(join(dir, name), 'utf8')) as unknown
+        const record = value as { status_after?: unknown; answer?: { mcpServers?: unknown } }
+        const found = [Array.isArray(value) ? value : null, record.status_after, record.answer?.mcpServers].filter((list): list is unknown[] => Array.isArray(list) && list.length > 0 && typeof list[0] === 'object' && list[0] !== null && 'status' in list[0])
+        return found.map((list) => ({ name, list }))
+      })
+    expect(lists.length).toBeGreaterThan(10)
+    for (const { name, list } of lists) expect(mcpServerRowsOf(list)?.length, name).toBe(list.length)
   })
 })
 
