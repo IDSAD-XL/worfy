@@ -89,13 +89,21 @@ function expectOver(form: HTMLElement, settings: HTMLElement): void {
   expect(settings.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 }
 
-/** Esc in the form closes it alone, the focus goes back to its button; the next Esc closes Settings. */
+/** Esc in the form closes it alone, the focus goes back to its button; the next Esc closes Settings (after the button's tooltip, if it shows). */
 async function expectEscapeClosesFormFirst(testId: string, opener: HTMLElement, settings: HTMLElement): Promise<void> {
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   await flush()
   expect(screen.queryByTestId(testId)).toBeNull()
   expect(screen.getByRole('dialog', { name: 'Settings' })).toBe(settings)
   expect(document.activeElement).toBe(opener)
+  // An icon button of the kit shows its tooltip while it has the focus: that layer is above Settings,
+  // and its Esc comes first.
+  if (screen.queryByRole('tooltip') !== null) {
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBe(settings)
+  }
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   await flush()
   expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull()
