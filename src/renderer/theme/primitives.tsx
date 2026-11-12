@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Chip, type Status } from './Chip'
+import { ToggleGroup, ToggleGroupItem } from './kit/ToggleGroup'
 import './primitives.css'
 
 /*
@@ -64,26 +65,29 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void
 }
 
-/** macOS-style segmented control: one pressed segment out of a few. */
+/**
+ * macOS-style segmented control: one pressed segment out of a few, on the ToggleGroup of the kit
+ * (theme/kit/ToggleGroup.tsx, worfy-ui-kit ticket 14): Tab enters it in one step, the arrows move the
+ * focus along it, Home and End go to its ends, Space or Enter presses. A press on the pressed segment
+ * calls `onChange` with its value, as a press on any other does.
+ */
 export function SegmentedControl<T extends string>({ label, options, value, onChange }: SegmentedControlProps<T>) {
   return (
-    <div role="group" aria-label={label} className="w-segmented">
+    <ToggleGroup aria-label={label} className="w-segmented" value={value} onValueChange={(next: T | null) => onChange(next ?? value)}>
       {options.map((option) => (
-        <button
+        <ToggleGroupItem
           key={option.value}
-          type="button"
+          value={option.value}
           className="w-segmented__item"
-          aria-pressed={option.value === value}
           // The name stays the label when a narrow place shows the icon alone (shell.css, the View switch).
           aria-label={option.label}
           title={option.title ?? option.label}
           disabled={option.disabled}
-          onClick={() => onChange(option.value)}
         >
           {option.icon}
           <span className="w-segmented__label">{option.label}</span>
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   )
 }

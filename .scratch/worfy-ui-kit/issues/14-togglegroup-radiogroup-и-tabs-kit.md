@@ -1,7 +1,8 @@
 # 14 — ToggleGroup, RadioGroup и Tabs kit вместо своих групп
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T14:52Z
+Branch: worfy-ui-kit/14
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения по реализации» (группы); история 7; заметка темы
 `docs/product/ui-overhaul/notes/inventory-foundation.md`, раздел 2

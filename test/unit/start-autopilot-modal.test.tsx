@@ -199,6 +199,29 @@ describe('the Autopilot button opens the Start Autopilot window', () => {
     expect(hint.textContent).toBe('New Waves start only inside the window; the daily budget too, when it is on. Start window 23:00–07:00: a Wave usually takes up to 50 min')
   })
 
+  it('the modes are one Tab stop, on the chosen one; the arrows move the choice (worfy-ui-kit ticket 14)', async () => {
+    const dialog = await openWindow()
+    const radios = within(dialog).getAllByRole('radio')
+    const chosen = radios[1]!
+    // Tab from the control before the modes lands on the chosen mode, the next Tab leaves the group.
+    const stops = [...dialog.querySelectorAll<HTMLElement>('button, input, [tabindex]')].filter((each) => each.tabIndex >= 0 && !(each as HTMLButtonElement).disabled)
+    const before = stops[stops.indexOf(chosen) - 1]!
+    act(() => before.focus())
+    fireEvent.keyDown(before, { key: 'Tab' })
+    expect(document.activeElement).toBe(chosen)
+    fireEvent.keyDown(chosen, { key: 'Tab' })
+    expect(radios).not.toContain(document.activeElement)
+    expect(document.activeElement?.tagName).toBe('BUTTON')
+    act(() => chosen.focus())
+    await act(async () => {
+      fireEvent.keyDown(chosen, { key: 'ArrowRight' })
+      await Promise.resolve()
+    })
+    expect(document.activeElement).toBe(radios[2])
+    expect(radios.map((radio) => radio.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true'])
+    expect(within(dialog).getByTestId('start-autopilot-mode-hint').textContent).toMatch(/^New Waves start only inside the window/)
+  })
+
   it('the focus is on Cancel when it opens, and Tab and Shift+Tab go round the window only', async () => {
     const dialog = await openWindow()
     const cancel = within(dialog).getByTestId('start-autopilot-cancel')

@@ -308,6 +308,34 @@ describe('the question card', () => {
     expect(answered()).toEqual([])
   })
 
+  it('the options of a single choice are one Tab stop; the arrows, Home and End move the choice; arrows in "Other" stay in the field (worfy-ui-kit ticket 14)', async () => {
+    const card = await renderCard([request()])
+    const group = within(card).getByRole('radiogroup', { name: DATABASE.question })
+    const stops = () => [...group.querySelectorAll<HTMLElement>('button, input')].filter((each) => each.tabIndex >= 0)
+    expect(stops()).toEqual([options(card)[0]])
+    const arrow = async (element: Element, name: string) => {
+      await key(element as HTMLElement, name)
+      // Base UI moves the focus in a microtask.
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    await arrow(options(card)[0]!, 'ArrowDown')
+    expect(document.activeElement).toBe(options(card)[1])
+    expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    expect(stops()).toEqual([options(card)[1]])
+    await arrow(options(card)[1]!, 'Home')
+    expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+    await arrow(options(card)[0]!, 'End')
+    expect(options(card).map((each) => each.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    // The "Other" field is outside the group: an arrow there moves the caret, not the focus.
+    const other = within(card).getByTestId('question-other')
+    expect(group.contains(other)).toBe(false)
+    act(() => other.focus())
+    await arrow(other, 'ArrowUp')
+    expect(document.activeElement).toBe(other)
+  })
+
   it('answersWithEnter: an option and the "Other" field only', async () => {
     const { answersWithEnter } = await import('../../src/renderer/session/question-keys')
     const card = await renderCard([request([LAYOUT, CHECKS])])

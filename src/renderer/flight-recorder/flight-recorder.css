@@ -536,7 +536,7 @@
   border-radius: 5px 5px 0 0;
   padding: 2px var(--space-2);
 }
-.w-fr-detail__tab.is-on {
+.w-fr-detail__tab[aria-selected='true'] {
   color: var(--text);
   background: var(--bg);
   border-color: var(--border);

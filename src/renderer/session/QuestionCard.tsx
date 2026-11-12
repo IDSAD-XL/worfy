@@ -6,6 +6,7 @@ import { Markdown } from '../markdown/Markdown'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
 import { Button } from '../theme/Button'
+import { Radio, RadioGroup } from '../theme/kit/RadioGroup'
 import type { QuestionRequestEvent } from './open-requests'
 import { answersWithEnter } from './question-keys'
 import { useSessionLog } from './store'
@@ -23,7 +24,9 @@ import './question-card.css'
 //
 // Keys, while the focus is in the card: 1–4 pick an option of the question shown; Enter on an option
 // or in the "Other" field goes to the next question or, with every question answered, submits (on
-// any other button Enter presses that button); Tab moves between the options. On a
+// any other button Enter presses that button). The options of a single-choice question are the
+// kit's RadioGroup (worfy-ui-kit ticket 14): Tab enters them in one step, the arrows move the choice,
+// Home and End choose the first and the last; Tab moves between the switches of a multiSelect one. On a
 // read-only screen (worfy-link ticket 25) the card shows and nothing in it answers.
 
 type Resolution = Extract<AgentEvent, { type: 'question_resolved' }>
@@ -69,6 +72,22 @@ function withOther(question: Question, pick: QuestionPick, text: string): Questi
 
 /** The picks as main takes them: blank "Other" text is none. */
 const sent = (picks: readonly QuestionPick[]): QuestionPick[] => picks.map(({ selected, other }) => ({ selected, other: other !== null && other.trim() !== '' ? other : null }))
+
+/** The text of an option button: its key, its mark, its label and description. */
+function OptionText({ option, index, multi }: { option: Question['options'][number]; index: number; multi: boolean }) {
+  return (
+    <>
+      <span className="w-question__key w-mono" aria-hidden="true">
+        {index < 4 ? index + 1 : ''}
+      </span>
+      <span className="w-question__mark" aria-hidden="true" data-multi={multi} />
+      <span className="w-question__label">
+        <span className="w-question__name">{option.label}</span>
+        {option.description !== '' ? <span className="w-question__description">{option.description}</span> : null}
+      </span>
+    </>
+  )
+}
 
 export function QuestionCard({ request, sessionId, projectId }: QuestionCardProps) {
   const resolution = useResolution(sessionId, request.requestId)
@@ -168,6 +187,17 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
   // the pointer came over it would leave the pointer, and the preview would blink.
   const previews = question.options.some((option) => option.preview !== null)
   const hint = readOnly
+  /** What every option button carries, a radio or a switch. */
+  const optionProps = (label: string, chosen: boolean) => ({
+    className: 'w-question__option',
+    'data-testid': 'question-option',
+    'data-chosen': chosen,
+    disabled: sending,
+    onMouseEnter: () => setPointed(label),
+    onMouseLeave: () => setPointed(null),
+    onFocus: () => setPointed(label),
+    onBlur: () => setPointed(null),
+  })
   return (
     <div className="w-tr__row" data-testid="question-card" data-request-id={request.requestId} data-resolution="open">
       <div className="w-tr__who w-mono w-tr__who--assistant">ask</div>
@@ -201,37 +231,51 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
             {question.question}
           </div>
           <div className={`w-question__body${previews ? ' w-question__body--preview' : ''}`}>
-            <div className="w-question__options" role={question.multiSelect ? 'group' : 'radiogroup'} aria-label={question.question}>
-              {question.options.map((option, index) => {
-                const chosen = pick.selected.includes(option.label)
-                return (
-                  <button
-                    key={option.label}
-                    ref={index === 0 ? firstOption : undefined}
-                    type="button"
-                    className="w-question__option"
-                    data-testid="question-option"
-                    data-chosen={chosen}
-                    role={question.multiSelect ? 'checkbox' : 'radio'}
-                    aria-checked={chosen}
-                    disabled={sending}
-                    onMouseEnter={() => setPointed(option.label)}
-                    onMouseLeave={() => setPointed(null)}
-                    onFocus={() => setPointed(option.label)}
-                    onBlur={() => setPointed(null)}
-                    {...writeAction(hint, () => change(toggled(question, pick, option.label)))}
-                  >
-                    <span className="w-question__key w-mono" aria-hidden="true">
-                      {index < 4 ? index + 1 : ''}
-                    </span>
-                    <span className="w-question__mark" aria-hidden="true" data-multi={question.multiSelect} />
-                    <span className="w-question__label">
-                      <span className="w-question__name">{option.label}</span>
-                      {option.description !== '' ? <span className="w-question__description">{option.description}</span> : null}
-                    </span>
-                  </button>
-                )
-              })}
+            {/* The options and the "Other" field, one column. The options are a group of their own, in the
+                same column class, so the arrows of the group never reach the field (worfy-ui-kit ticket 14). */}
+            <div className="w-question__options">
+              {question.multiSelect ? (
+                <div className="w-question__options" role="group" aria-label={question.question}>
+                  {question.options.map((option, index) => {
+                    const chosen = pick.selected.includes(option.label)
+                    return (
+                      <button
+                        key={option.label}
+                        ref={index === 0 ? firstOption : undefined}
+                        type="button"
+                        {...optionProps(option.label, chosen)}
+                        role="checkbox"
+                        aria-checked={chosen}
+                        {...writeAction(hint, () => change(toggled(question, pick, option.label)))}
+                      >
+                        <OptionText option={option} index={index} multi />
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                // One choice: the kit's RadioGroup, Tab enters it in one step and the arrows move the choice.
+                <RadioGroup
+                  className="w-question__options"
+                  aria-label={question.question}
+                  value={pick.selected[0] ?? null}
+                  readOnly={hint !== null}
+                  onValueChange={(label: string) => change(toggled(question, pick, label))}
+                >
+                  {question.options.map((option, index) => (
+                    <Radio
+                      key={option.label}
+                      ref={index === 0 ? firstOption : undefined}
+                      value={option.label}
+                      {...optionProps(option.label, pick.selected.includes(option.label))}
+                      // The choice goes through the group; writeAction gives the read-only marks and tooltip.
+                      {...writeAction(hint, () => undefined)}
+                    >
+                      <OptionText option={option} index={index} multi={false} />
+                    </Radio>
+                  ))}
+                </RadioGroup>
+              )}
               <label className="w-question__other">
                 <span className="w-question__other-label">Other</span>
                 <input
