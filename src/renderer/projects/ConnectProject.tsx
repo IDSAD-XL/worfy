@@ -16,8 +16,11 @@
 // The look follows the first-run screen (docs/design/F-SPEC.md, "First run"): a dialog over the
 // window on a backdrop of black at 25%, header, scrolling body, footer with the shared action
 // buttons; colours only from the token roles.
+//
+// A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc
+// and its backdrop. A press on the backdrop closes it only on the first step, Esc on every step but
+// while Connect writes. FolderBrowser is drawn inside it and over it.
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import './connect-project.css'
 import { failureReason } from '../../shared/ipc/channels'
@@ -26,6 +29,7 @@ import { withGithubAccount, type ConnectFolder, type ConnectMode, type DraftIssu
 import { TEMP_FOLDER_LABEL, TEMP_FOLDER_WARNING } from '../../shared/temp-folder'
 import { invoke, invokeOn, subscribe, subscribeOn } from '../ipc'
 import { Chip, type ChipVariant } from '../theme/Chip'
+import { Dialog } from '../theme/kit/Dialog'
 import { StatusChip } from '../theme/primitives'
 import { FolderBrowser } from './FolderBrowser'
 import { GithubAccount } from './GithubAccount'
@@ -65,7 +69,6 @@ type Step =
   | { kind: 'form' }
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 640,
     maxWidth: 'calc(100vw - 32px)',
@@ -190,14 +193,9 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
   const [readingAccounts, setReadingAccounts] = useState(true)
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
   const drafting = step.kind === 'drafting' ? step.draftId : null
   // The edit the last check was asked for: an older answer that arrives later is dropped.
   const checkSeq = useRef(0)
-
-  useEffect(() => {
-    dialog.current?.focus()
-  }, [])
 
   // The last action of the draft Session, while it runs.
   useEffect(() => {
@@ -662,49 +660,38 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
     }
   }
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && step.kind === 'mode') close()
-      }}
+  return (
+    <Dialog
+      open
+      onClose={close}
+      labelledBy={titleId}
+      className=""
+      // On the first step only, as the window always did.
+      closeOnBackdrop={step.kind === 'mode'}
+      style={styles.dialog}
+      data-testid="connect-project"
+      data-step={step.kind}
     >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={styles.dialog}
-        data-testid="connect-project"
-        data-step={step.kind}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            close()
-          }
-        }}
-      >
-        <div style={styles.header}>
-          <h2 id={titleId} style={styles.title}>
-            Add project
-          </h2>
-          {remote ? (
-            <p style={{ ...styles.secondary, margin: '0 0 var(--space-2)' }} data-testid="connect-machine">
-              On {otherName}: the Project, its Profile and its draft Session are there.
-            </p>
-          ) : null}
-          <ol style={styles.steps} aria-label="Steps">
-            {STEPS.map((name, index) => (
-              <li key={name} style={name === current ? styles.stepCurrent : undefined} aria-current={name === current ? 'step' : undefined}>
-                {index + 1} {name}
-              </li>
-            ))}
-          </ol>
-        </div>
-        <div style={styles.body}>{body}</div>
-        <div style={styles.footer}>{footer}</div>
+      <div style={styles.header}>
+        <h2 id={titleId} style={styles.title}>
+          Add project
+        </h2>
+        {remote ? (
+          <p style={{ ...styles.secondary, margin: '0 0 var(--space-2)' }} data-testid="connect-machine">
+            On {otherName}: the Project, its Profile and its draft Session are there.
+          </p>
+        ) : null}
+        <ol style={styles.steps} aria-label="Steps">
+          {STEPS.map((name, index) => (
+            <li key={name} style={name === current ? styles.stepCurrent : undefined} aria-current={name === current ? 'step' : undefined}>
+              {index + 1} {name}
+            </li>
+          ))}
+        </ol>
       </div>
+      <div style={styles.body}>{body}</div>
+      <div style={styles.footer}>{footer}</div>
+      {/* A window of its own, drawn inside this one in the React tree: Esc there closes it alone. */}
       {browsing && typeof machine === 'string' ? (
         <FolderBrowser
           machine={machine}
@@ -718,7 +705,6 @@ export function ConnectProject({ folder, machine, machineName, harnessHome, onCl
           }}
         />
       ) : null}
-    </div>,
-    document.body,
+    </Dialog>
   )
 }

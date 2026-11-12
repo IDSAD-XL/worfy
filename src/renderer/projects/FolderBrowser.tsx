@@ -8,14 +8,19 @@
 // it only goes on by `path` and `parent` of an answer and chooses `path` as it came, so it works
 // with a Machine on another OS (`C:\Users\you` passes as it is).
 //
-// The look follows the "Add project" dialog (ConnectProject.tsx), one layer above it: a dialog on a
-// backdrop of black at 25%, the shared rows of the sidebar, colours only from the token roles.
+// A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc
+// and its backdrop. Opened from the "Add project" dialog (ConnectProject.tsx) for the Workflow
+// folder, it is drawn inside that window and over it: Esc closes this one alone, and the focus goes
+// back to the button there that opened it.
+//
+// The look follows the "Add project" dialog: a dialog on a backdrop of black at 25%, the shared rows
+// of the sidebar, colours only from the token roles.
 import { useEffect, useEffectEvent, useId, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import type { BrowseAnswer } from '../../shared/ipc/projects'
 import { invokeOn, readableReason } from '../ipc'
+import { Dialog } from '../theme/kit/Dialog'
 import { ListRow } from '../theme/primitives'
 
 export interface FolderBrowserProps {
@@ -32,7 +37,6 @@ export interface FolderBrowserProps {
 }
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 96, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 560,
     maxWidth: 'calc(100vw - 32px)',
@@ -76,7 +80,6 @@ export function FolderBrowser({ machine, machineName, title, hint, onChoose, onC
   const [loading, setLoading] = useState(true)
   const [showHidden, setShowHidden] = useState(false)
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
   // The folder the last click asked for: an older answer that comes later is dropped.
   const seq = useRef(0)
 
@@ -103,7 +106,6 @@ export function FolderBrowser({ machine, machineName, title, hint, onChoose, onC
   // On opening: the home folder of the Machine (`loading` starts true).
   const open = useEffectEvent(() => ask(null))
   useEffect(() => {
-    dialog.current?.focus()
     open()
   }, [])
 
@@ -163,64 +165,48 @@ export function FolderBrowser({ machine, machineName, title, hint, onChoose, onC
     )
   }
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
+  return (
+    <Dialog
+      open
+      onClose={onCancel}
+      labelledBy={titleId}
+      className=""
+      style={styles.dialog}
+      data-testid="folder-browser"
+      data-loading={loading ? 'yes' : 'no'}
     >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={styles.dialog}
-        data-testid="folder-browser"
-        data-loading={loading ? 'yes' : 'no'}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            // Only this layer: the "Add project" dialog under it stays open.
-            event.stopPropagation()
-            onCancel()
-          }
-        }}
-      >
-        <div style={styles.header}>
-          <h2 id={titleId} style={styles.title}>
-            {title}
-          </h2>
-          <p style={styles.hint}>
-            {hint} The folders of {machineName}.
-          </p>
-        </div>
-        <div style={styles.bar}>
-          <button type="button" className="w-action" disabled={parent === null || loading} onClick={() => parent !== null && go(parent)}>
-            Up
-          </button>
-          <button type="button" className="w-action" disabled={loading} onClick={() => go(null)}>
-            Home
-          </button>
-          <span style={styles.path} data-testid="folder-browser-path">
-            {answer?.path ?? ''}
-          </span>
-        </div>
-        <div style={styles.body}>{content}</div>
-        <div style={styles.footer}>
-          <label style={styles.hidden}>
-            <input type="checkbox" checked={showHidden} onChange={(event) => setShowHidden(event.target.checked)} />
-            Show hidden folders
-          </label>
-          <button type="button" className="w-action" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="w-action w-action--primary" disabled={!canChoose} aria-disabled={canChoose ? undefined : 'true'} onClick={() => answer?.ok === true && canChoose && onChoose(answer.path)}>
-            Choose
-          </button>
-        </div>
+      <div style={styles.header}>
+        <h2 id={titleId} style={styles.title}>
+          {title}
+        </h2>
+        <p style={styles.hint}>
+          {hint} The folders of {machineName}.
+        </p>
       </div>
-    </div>,
-    document.body,
+      <div style={styles.bar}>
+        <button type="button" className="w-action" disabled={parent === null || loading} onClick={() => parent !== null && go(parent)}>
+          Up
+        </button>
+        <button type="button" className="w-action" disabled={loading} onClick={() => go(null)}>
+          Home
+        </button>
+        <span style={styles.path} data-testid="folder-browser-path">
+          {answer?.path ?? ''}
+        </span>
+      </div>
+      <div style={styles.body}>{content}</div>
+      <div style={styles.footer}>
+        <label style={styles.hidden}>
+          <input type="checkbox" checked={showHidden} onChange={(event) => setShowHidden(event.target.checked)} />
+          Show hidden folders
+        </label>
+        <button type="button" className="w-action" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="w-action w-action--primary" disabled={!canChoose} aria-disabled={canChoose ? undefined : 'true'} onClick={() => answer?.ok === true && canChoose && onChoose(answer.path)}>
+          Choose
+        </button>
+      </div>
+    </Dialog>
   )
 }

@@ -405,8 +405,8 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await escape()
     await expect(focus).toHaveCount(0)
 
-    // A menu or a modal dialog that has lost the focus to the layer (Tab can walk out of it) does
-    // not react to Esc. It is not in the way: the press leaves focus mode, and it stays open.
+    // A menu that has lost the focus to the layer does not react to Esc. It is not in the way: the
+    // press leaves focus mode, and the menu stays open.
     await again()
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await expect(menu).toBeVisible()
@@ -421,16 +421,18 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await menu.getByRole('menuitem', { name: 'Project settings…' }).click()
     await expect(settings).toBeVisible()
-    // The dialog takes the focus when its settings are read, a moment after it is shown. Moved
-    // away before that, the focus would come back to the dialog, and the press would close it.
+    // Project settings is a modal window of the kit (worfy-ui-kit ticket 05): while it is open, a key
+    // pressed with the focus fallen behind it is the window's (theme/kit/Dialog.tsx). Esc closes the
+    // window, and focus mode under it stays. The dialog takes the focus when its settings are read, a
+    // moment after it is shown: the focus is moved away after that.
     await expect.poll(() => holdsFocus(settings)).toBe(true)
     await focus.focus()
     await escape()
-    await expect(focus).toHaveCount(0)
-    await expect(settings).toBeVisible()
-    await settings.locator('input, button').first().focus()
-    await escape()
     await expect(settings).toHaveCount(0)
+    await expect(focus).toBeVisible()
+    await intoLayer()
+    await escape()
+    await expect(focus).toHaveCount(0)
 
     // Link a machine, a modal dialog of the Machines section, which the test shows first.
     const link = window.getByTestId('link-machine-dialog')

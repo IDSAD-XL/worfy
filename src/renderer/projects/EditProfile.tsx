@@ -18,8 +18,12 @@
 //
 // The look follows the "Add project" dialog: a dialog over Project settings on a backdrop, header,
 // scrolling body, footer with the shared action buttons; colours only from the token roles.
+//
+// A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc
+// and its backdrop. It is drawn inside Project settings and over it: Esc closes this one alone, and
+// the focus goes back to "Edit profile…" there. While a save or a move runs, neither Esc nor the
+// backdrop closes it.
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { failureReason } from '../../shared/ipc/channels'
 import {
@@ -34,6 +38,7 @@ import {
 import type { GithubChoice } from '../../shared/ipc/projects'
 import { invoke, invokeOn, windowMachine } from '../ipc'
 import { McpProfileStatus } from '../session/McpChip'
+import { Dialog } from '../theme/kit/Dialog'
 import { GithubAccount } from './GithubAccount'
 import { MoveWorkflow } from './MoveWorkflow'
 import { fieldStyles, issuesAt, text } from './profile-fields'
@@ -51,7 +56,6 @@ export interface EditProfileProps {
 }
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 640,
     maxWidth: 'calc(100vw - 32px)',
@@ -118,12 +122,7 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
   const [readingAccounts, setReadingAccounts] = useState(false)
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null)
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
   const checkSeq = useRef(0)
-
-  useEffect(() => {
-    dialog.current?.focus()
-  }, [])
 
   useEffect(() => {
     let active = true
@@ -459,52 +458,37 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
       </span>
     )
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving && !moving) onClose()
-      }}
+  return (
+    <Dialog
+      open
+      // Not while a save or a move runs.
+      onClose={() => !saving && !moving && onClose()}
+      labelledBy={titleId}
+      className=""
+      style={styles.dialog}
+      data-testid="edit-profile"
     >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={styles.dialog}
-        data-testid="edit-profile"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            // Project settings under it stays open.
-            event.stopPropagation()
-            if (!saving && !moving) onClose()
-          }
-        }}
-      >
-        <div style={styles.header}>
-          <h2 id={titleId} style={styles.title}>
-            Edit profile
-          </h2>
-          <p style={styles.subtitle}>
-            {project.name} · the Harness checks each value and writes the profile on Save, with a commit in its own history.
-          </p>
-        </div>
-        <div style={styles.body}>{body}</div>
-        <div style={styles.footer}>
-          {footerText}
-          <button type="button" className="w-action" aria-disabled={saving || moving ? 'true' : undefined} onClick={() => !saving && !moving && onClose()}>
-            {viewOnly === null ? 'Cancel' : 'Close'}
-          </button>
-          {viewOnly === null ? (
-            <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={() => void save()}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          ) : null}
-        </div>
+      <div style={styles.header}>
+        <h2 id={titleId} style={styles.title}>
+          Edit profile
+        </h2>
+        <p style={styles.subtitle}>
+          {project.name} · the Harness checks each value and writes the profile on Save, with a commit in its own history.
+        </p>
       </div>
-    </div>,
-    document.body,
+      <div style={styles.body}>{body}</div>
+      <div style={styles.footer}>
+        {footerText}
+        <button type="button" className="w-action" aria-disabled={saving || moving ? 'true' : undefined} onClick={() => !saving && !moving && onClose()}>
+          {viewOnly === null ? 'Cancel' : 'Close'}
+        </button>
+        {viewOnly === null ? (
+          <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={() => void save()}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        ) : null}
+      </div>
+    </Dialog>
   )
 }
 

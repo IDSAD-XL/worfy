@@ -3,13 +3,15 @@
 // (`projects.removeProject`, src/main/projects/remove.ts, through `project-connect --remove`); the
 // dialog only reads the preview, asks, and shows the answer. "Remove from list" stays a choice here
 // too: the Project leaves worfy's list only, as the menu row of that name does.
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+//
+// A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc
+// and its backdrop. While the removal runs, neither Esc nor the backdrop closes it.
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react'
 import type { ProjectsState, ProjectView, RemovalPreview } from '../../shared/ipc/projects'
 import { invoke, readableReason } from '../ipc'
+import { Dialog } from '../theme/kit/Dialog'
 
 const styles = {
-  backdrop: { position: 'fixed', inset: 0, zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 520,
     maxWidth: 'calc(100vw - 32px)',
@@ -79,14 +81,12 @@ function stays(project: ProjectView, preview: Extract<RemovalPreview, { status: 
 
 export function RemoveProject({ project, onCancel, onRemoveFromList, onRemoved }: RemoveProjectProps) {
   const titleId = useId()
-  const dialog = useRef<HTMLDivElement>(null)
   const [phase, setPhase] = useState<Phase>({ kind: 'reading' })
   const [busy, setBusy] = useState(false)
   /** The refusal of the last try, and the Workflow folder it names when that folder holds the tickets. */
   const [refusal, setRefusal] = useState<{ reason: string; workflowFolder: string | null } | null>(null)
 
   useEffect(() => {
-    dialog.current?.focus()
     let live = true
     void invoke('projects.removal.preview', { id: project.id }).then((result) => {
       if (!live) return
@@ -118,98 +118,84 @@ export function RemoveProject({ project, onCancel, onRemoveFromList, onRemoved }
   // A refusal of the preview or of the try that names the Workflow folder holding the tickets.
   const heldFolder = refusal?.workflowFolder ?? (held ? (ready?.workflowFolder?.path ?? null) : null)
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel()
-      }}
+  return (
+    <Dialog
+      open
+      // Not while the removal runs.
+      onClose={() => !busy && onCancel()}
+      labelledBy={titleId}
+      className=""
+      style={styles.dialog}
+      data-testid="remove-project"
     >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={styles.dialog}
-        data-testid="remove-project"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape' && !busy) {
-            event.stopPropagation()
-            onCancel()
-          }
-        }}
-      >
-        <div style={styles.header}>
-          <h2 id={titleId} style={styles.title}>
-            Remove {project.name}?
-          </h2>
-        </div>
-        <div style={styles.body}>
-          {phase.kind === 'reading' ? <p style={styles.muted}>Reading what the Harness of this Machine holds for it…</p> : null}
-          {phase.kind === 'failed' ? (
-            <p role="alert" style={styles.error} data-testid="remove-project-refused">
-              {phase.reason}
-            </p>
-          ) : null}
-          {preview?.status === 'refused' ? (
-            <p role="alert" style={styles.error} data-testid="remove-project-refused">
-              {preview.reason}
-            </p>
-          ) : null}
-          {ready !== null ? (
-            <>
-              <p style={styles.heading}>Removed from the Harness of this Machine:</p>
-              <ul style={styles.list} data-testid="remove-project-goes">
-                {goes(ready).map((item, at) => (
-                  <li key={at}>{item}</li>
-                ))}
-              </ul>
-              <p style={styles.heading}>Stays:</p>
-              <ul style={styles.list} data-testid="remove-project-stays">
-                {stays(project, ready).map((item, at) => (
-                  <li key={at}>{item}</li>
-                ))}
-              </ul>
-              <p style={styles.muted}>worfy closes the Project&apos;s Orchestrator and Sessions first. Remove from list keeps all of the above and only takes the Project out of worfy&apos;s list.</p>
-            </>
-          ) : null}
-          {held && refusal === null ? (
-            <p role="alert" style={styles.error} data-testid="remove-project-refused">
-              The Workflow folder {ready.workflowFolder?.path} holds the project&apos;s own files (its tickets). worfy never deletes them: move the folder{' '}
-              {ready.workflowFolder?.path} out of {ready.profileDir} first, then remove the project.
-            </p>
-          ) : null}
-          {refusal !== null ? (
-            <p role="alert" style={styles.error} data-testid="remove-project-refused">
-              {refusal.reason}
-            </p>
-          ) : null}
-        </div>
-        <div style={styles.footer}>
-          {heldFolder !== null ? (
-            <button type="button" className="w-action" data-testid="remove-project-reveal" onClick={() => void reveal()}>
-              {showInFileManager()}
-            </button>
-          ) : null}
-          <button type="button" className="w-action" disabled={busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="button" className="w-action" disabled={busy} data-testid="remove-project-list-only" onClick={onRemoveFromList}>
-            Remove from list
-          </button>
-          <button
-            type="button"
-            className="w-action w-action--primary"
-            disabled={busy || ready === null || held}
-            data-testid="remove-project-confirm"
-            onClick={() => void remove()}
-          >
-            {busy ? 'Removing…' : 'Remove project'}
-          </button>
-        </div>
+      <div style={styles.header}>
+        <h2 id={titleId} style={styles.title}>
+          Remove {project.name}?
+        </h2>
       </div>
-    </div>,
-    document.body,
+      <div style={styles.body}>
+        {phase.kind === 'reading' ? <p style={styles.muted}>Reading what the Harness of this Machine holds for it…</p> : null}
+        {phase.kind === 'failed' ? (
+          <p role="alert" style={styles.error} data-testid="remove-project-refused">
+            {phase.reason}
+          </p>
+        ) : null}
+        {preview?.status === 'refused' ? (
+          <p role="alert" style={styles.error} data-testid="remove-project-refused">
+            {preview.reason}
+          </p>
+        ) : null}
+        {ready !== null ? (
+          <>
+            <p style={styles.heading}>Removed from the Harness of this Machine:</p>
+            <ul style={styles.list} data-testid="remove-project-goes">
+              {goes(ready).map((item, at) => (
+                <li key={at}>{item}</li>
+              ))}
+            </ul>
+            <p style={styles.heading}>Stays:</p>
+            <ul style={styles.list} data-testid="remove-project-stays">
+              {stays(project, ready).map((item, at) => (
+                <li key={at}>{item}</li>
+              ))}
+            </ul>
+            <p style={styles.muted}>worfy closes the Project&apos;s Orchestrator and Sessions first. Remove from list keeps all of the above and only takes the Project out of worfy&apos;s list.</p>
+          </>
+        ) : null}
+        {held && refusal === null ? (
+          <p role="alert" style={styles.error} data-testid="remove-project-refused">
+            The Workflow folder {ready.workflowFolder?.path} holds the project&apos;s own files (its tickets). worfy never deletes them: move the folder{' '}
+            {ready.workflowFolder?.path} out of {ready.profileDir} first, then remove the project.
+          </p>
+        ) : null}
+        {refusal !== null ? (
+          <p role="alert" style={styles.error} data-testid="remove-project-refused">
+            {refusal.reason}
+          </p>
+        ) : null}
+      </div>
+      <div style={styles.footer}>
+        {heldFolder !== null ? (
+          <button type="button" className="w-action" data-testid="remove-project-reveal" onClick={() => void reveal()}>
+            {showInFileManager()}
+          </button>
+        ) : null}
+        <button type="button" className="w-action" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="w-action" disabled={busy} data-testid="remove-project-list-only" onClick={onRemoveFromList}>
+          Remove from list
+        </button>
+        <button
+          type="button"
+          className="w-action w-action--primary"
+          disabled={busy || ready === null || held}
+          data-testid="remove-project-confirm"
+          onClick={() => void remove()}
+        >
+          {busy ? 'Removing…' : 'Remove project'}
+        </button>
+      </div>
+    </Dialog>
   )
 }

@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import {
   ACTION_LABELS,
   ACTIONS,
@@ -17,6 +16,7 @@ import { EditProfile } from '../projects/EditProfile'
 import { useReadOnly } from '../projects/useProjects'
 import { SettingSwitch } from '../settings/controls'
 import { Button } from '../theme/Button'
+import { Dialog } from '../theme/kit/Dialog'
 import { Select } from '../theme/Select'
 
 export interface ProjectSettingsProps {
@@ -31,15 +31,6 @@ export interface ProjectSettingsProps {
 }
 
 const styles = {
-  backdrop: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 100,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(0, 0, 0, 0.25)',
-  },
   dialog: {
     width: 480,
     maxWidth: 'calc(100vw - 32px)',
@@ -118,7 +109,11 @@ const VENDOR_OPTIONS: readonly { value: VendorChoice; label: string }[] = [
  *
  * "Edit profile…" (worfy-polish ticket 78) opens the fields of the Project's Profile over this window
  * (EditProfile.tsx): they are the Harness's, written by its `bin/profile-set` on their own Save, not with
- * the settings of this window.
+ * the settings of this window. Edit profile is drawn inside this window and over it: Esc there closes
+ * it alone, and the focus comes back to "Edit profile…".
+ *
+ * A modal window of the kit (theme/kit/Dialog.tsx, worfy-ui-kit ticket 05): its focus trap, its Esc,
+ * its backdrop, and the focus back on what opened it.
  */
 export function ProjectSettings({ project, machine, onClose }: ProjectSettingsProps) {
   // The calls go to the Project's Machine.
@@ -142,12 +137,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   // "Edit profile" is open over the window; the line its Save left.
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileSaved, setProfileSaved] = useState<string>()
-  // Focus goes back to "Edit profile…" when its dialog closes, so the keyboard stays where it was.
-  const editProfileButton = useRef<HTMLButtonElement>(null)
-  const closeProfile = (): void => {
-    setEditingProfile(false)
-    editProfileButton.current?.focus()
-  }
+  // The window gives the focus back to "Edit profile…" when it closes (theme/kit/Dialog.tsx).
+  const closeProfile = (): void => setEditingProfile(false)
   // A Project of a Linked machine that shares it read-only (worfy-link ticket 25): the settings show, Save is off.
   const readOnly = useReadOnly(machine === undefined ? windowMachine() : machine)
   const titleId = useId()
@@ -224,198 +215,180 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
     } else setFailure(result.error)
   }
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        style={styles.dialog}
-        data-testid="project-settings"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onClose()
-          }
-        }}
-      >
-        <h2 id={titleId} style={styles.title}>
-          Project settings
-        </h2>
-        <p style={styles.subtitle}>
-          {project.name} · the message each action sends. Empty means the action is not configured.
-        </p>
+  return (
+    <Dialog open onClose={onClose} labelledBy={titleId} className="" style={styles.dialog} data-testid="project-settings">
+      <h2 id={titleId} style={styles.title}>
+        Project settings
+      </h2>
+      <p style={styles.subtitle}>
+        {project.name} · the message each action sends. Empty means the action is not configured.
+      </p>
 
-        {templates
-          ? ACTIONS.map((action, index) => {
-              const id = `${fieldId}-${action}`
-              const error = errors[action]
-              return (
-                <div key={action} style={styles.field}>
-                  <label htmlFor={id} style={styles.label}>
-                    {ACTION_LABELS[action]}
-                  </label>
-                  <input
-                    ref={index === 0 ? firstField : undefined}
-                    id={id}
-                    type="text"
-                    spellCheck={false}
-                    autoComplete="off"
-                    style={styles.input}
-                    value={templates[action]}
-                    placeholder="Not configured"
-                    aria-invalid={error !== undefined}
-                    aria-describedby={error ? `${id}-error` : undefined}
-                    onChange={(event) => setTemplates({ ...templates, [action]: event.target.value })}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void save()
-                    }}
-                  />
-                  {error ? (
-                    <span id={`${id}-error`} role="alert" style={styles.error}>
-                      {error}
-                    </span>
-                  ) : null}
-                </div>
-              )
-            })
-          : !failure && <p style={styles.hint}>Loading…</p>}
+      {templates
+        ? ACTIONS.map((action, index) => {
+            const id = `${fieldId}-${action}`
+            const error = errors[action]
+            return (
+              <div key={action} style={styles.field}>
+                <label htmlFor={id} style={styles.label}>
+                  {ACTION_LABELS[action]}
+                </label>
+                <input
+                  ref={index === 0 ? firstField : undefined}
+                  id={id}
+                  type="text"
+                  spellCheck={false}
+                  autoComplete="off"
+                  style={styles.input}
+                  value={templates[action]}
+                  placeholder="Not configured"
+                  aria-invalid={error !== undefined}
+                  aria-describedby={error ? `${id}-error` : undefined}
+                  onChange={(event) => setTemplates({ ...templates, [action]: event.target.value })}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void save()
+                  }}
+                />
+                {error ? (
+                  <span id={`${id}-error`} role="alert" style={styles.error}>
+                    {error}
+                  </span>
+                ) : null}
+              </div>
+            )
+          })
+        : !failure && <p style={styles.hint}>Loading…</p>}
 
-        {templates && shells.length > 0 ? (
-          <div style={styles.field}>
-            <label htmlFor={shellId} style={styles.label}>
-              Terminal shell
-            </label>
-            {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
-            <Select<TerminalShellSetting>
-              id={shellId}
-              style={styles.input}
-              value={terminalShell ?? 'powershell'}
-              options={shells.map((shell) => ({ value: shell.id, label: shell.found ? shell.label : `${shell.label} — not found on this machine` }))}
-              onChange={setTerminalShell}
-              data-testid="project-settings-shell"
-            />
-            <span style={styles.hint}>Applies to the next shell: Restart a Terminal, or open a new one.</span>
-          </div>
-        ) : null}
-
-        {templates ? (
-          <div style={styles.field}>
-            <label htmlFor={vendorId} style={styles.label}>
-              Default vendor
-            </label>
-            {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
-            <Select<VendorChoice> id={vendorId} style={styles.input} value={vendor} options={VENDOR_OPTIONS} onChange={setVendor} data-testid="project-settings-vendor" />
-            <span style={styles.hint}>
-              Listed first in New session. The Orchestrator runs on it from its next start: New Orchestrator Session, or the next start of worfy. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)}{' '}
-              whatever is chosen here.
-            </span>
-          </div>
-        ) : null}
-
-        {templates ? (
-          <section style={styles.field} aria-label="Product Session may also write here" data-testid="product-write-folders">
-            <span style={styles.label}>Product Session may also write here</span>
-            {folders.length === 0 ? (
-              <span style={styles.hint} data-testid="product-write-folders-empty">
-                No folders yet.
-              </span>
-            ) : (
-              <ul style={styles.folders}>
-                {folders.map((folder) => (
-                  <li key={folder} style={styles.folder} data-testid="product-write-folder">
-                    <code className="w-mono" style={styles.folderPath} title={folder}>
-                      {folder}
-                    </code>
-                    <Button aria-label={`Remove ${folder}`} disabled={readOnly !== null} onClick={() => setFolders(folders.filter((each) => each !== folder))}>
-                      Remove
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <span style={styles.hint}>
-              A Product Session writes outside its own folder only after it asks; "Always allow in" a folder adds it here, and it then writes there without asking. A removal applies on Save.
-            </span>
-          </section>
-        ) : null}
-
-        {templates ? (
-          <section style={styles.field} aria-label="Pull requests" data-testid="project-settings-pr-inbox">
-            <div style={styles.toggle}>
-              <span style={styles.label}>Read pull requests from GitHub</span>
-              <SettingSwitch label="Read pull requests from GitHub" checked={inbox} onChange={setInbox} disabled={readOnly !== null} title={readOnly ?? undefined} testId="project-settings-pr-inbox-switch" />
-            </div>
-            <span style={styles.hint}>
-              The Pull requests view and its sidebar section: the open PRs and review requests of the Project&apos;s repositories, searched every 5 minutes. Off, worfy runs no gh for them.
-            </span>
-          </section>
-        ) : null}
-
-        {project.path === undefined ? null : (
-          <section style={styles.field} aria-label="Profile" data-testid="project-settings-profile">
-            <span style={styles.label}>Profile</span>
-            <span style={styles.hint}>The Harness&apos;s profile of the Project: commands, ticket paths, review lenses, languages, worktrees.</span>
-            <div style={styles.actions}>
-              <Button ref={editProfileButton} onClick={() => setEditingProfile(true)}>
-                Edit profile…
-              </Button>
-            </div>
-            {profileSaved === undefined ? null : (
-              <span role="status" style={styles.hint} data-testid="project-settings-profile-saved">
-                {profileSaved}
-              </span>
-            )}
-          </section>
-        )}
-
-        <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={() => {
-            if (edited) return false
-            onClose()
-            return true
-          }}
-        />
-
-        <p style={{ ...styles.hint, margin: '0 0 var(--space-1)' }}>Placeholders</p>
-        <ul style={styles.placeholders} aria-label="Placeholders">
-          {PLACEHOLDERS.map((name) => (
-            <li key={name} style={{ display: 'contents' }}>
-              <code className="w-mono">{`{${name}}`}</code>
-              <span style={styles.hint}>{PLACEHOLDER_DESCRIPTIONS[name]}</span>
-            </li>
-          ))}
-        </ul>
-
-        {readOnly !== null ? (
-          <p className="w-read-only-note" style={{ margin: '0 0 var(--space-3)' }} data-testid="project-settings-read-only">
-            {readOnly}
-          </p>
-        ) : null}
-
-        {failure ? (
-          <p role="alert" style={{ ...styles.error, margin: '0 0 var(--space-3)' }}>
-            {failure}
-          </p>
-        ) : null}
-
-        <div style={styles.actions}>
-          <Button disabled={!templates} onClick={() => void resetToDefault()}>
-            Reset to default
-          </Button>
-          <span style={{ flex: 1 }} />
-          <Button onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={!templates || invalid || saving || readOnly !== null} onClick={() => void save()}>
-            Save
-          </Button>
+      {templates && shells.length > 0 ? (
+        <div style={styles.field}>
+          <label htmlFor={shellId} style={styles.label}>
+            Terminal shell
+          </label>
+          {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
+          <Select<TerminalShellSetting>
+            id={shellId}
+            style={styles.input}
+            value={terminalShell ?? 'powershell'}
+            options={shells.map((shell) => ({ value: shell.id, label: shell.found ? shell.label : `${shell.label} — not found on this machine` }))}
+            onChange={setTerminalShell}
+            data-testid="project-settings-shell"
+          />
+          <span style={styles.hint}>Applies to the next shell: Restart a Terminal, or open a new one.</span>
         </div>
+      ) : null}
+
+      {templates ? (
+        <div style={styles.field}>
+          <label htmlFor={vendorId} style={styles.label}>
+            Default vendor
+          </label>
+          {/* Named by the label above; Esc on its open list closes the list alone, not this window. */}
+          <Select<VendorChoice> id={vendorId} style={styles.input} value={vendor} options={VENDOR_OPTIONS} onChange={setVendor} data-testid="project-settings-vendor" />
+          <span style={styles.hint}>
+            Listed first in New session. The Orchestrator runs on it from its next start: New Orchestrator Session, or the next start of worfy. Ship ticket runs on {vendorLabel(SHIP_TICKET_VENDOR)}{' '}
+            whatever is chosen here.
+          </span>
+        </div>
+      ) : null}
+
+      {templates ? (
+        <section style={styles.field} aria-label="Product Session may also write here" data-testid="product-write-folders">
+          <span style={styles.label}>Product Session may also write here</span>
+          {folders.length === 0 ? (
+            <span style={styles.hint} data-testid="product-write-folders-empty">
+              No folders yet.
+            </span>
+          ) : (
+            <ul style={styles.folders}>
+              {folders.map((folder) => (
+                <li key={folder} style={styles.folder} data-testid="product-write-folder">
+                  <code className="w-mono" style={styles.folderPath} title={folder}>
+                    {folder}
+                  </code>
+                  <Button aria-label={`Remove ${folder}`} disabled={readOnly !== null} onClick={() => setFolders(folders.filter((each) => each !== folder))}>
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <span style={styles.hint}>
+            A Product Session writes outside its own folder only after it asks; "Always allow in" a folder adds it here, and it then writes there without asking. A removal applies on Save.
+          </span>
+        </section>
+      ) : null}
+
+      {templates ? (
+        <section style={styles.field} aria-label="Pull requests" data-testid="project-settings-pr-inbox">
+          <div style={styles.toggle}>
+            <span style={styles.label}>Read pull requests from GitHub</span>
+            <SettingSwitch label="Read pull requests from GitHub" checked={inbox} onChange={setInbox} disabled={readOnly !== null} title={readOnly ?? undefined} testId="project-settings-pr-inbox-switch" />
+          </div>
+          <span style={styles.hint}>
+            The Pull requests view and its sidebar section: the open PRs and review requests of the Project&apos;s repositories, searched every 5 minutes. Off, worfy runs no gh for them.
+          </span>
+        </section>
+      ) : null}
+
+      {project.path === undefined ? null : (
+        <section style={styles.field} aria-label="Profile" data-testid="project-settings-profile">
+          <span style={styles.label}>Profile</span>
+          <span style={styles.hint}>The Harness&apos;s profile of the Project: commands, ticket paths, review lenses, languages, worktrees.</span>
+          <div style={styles.actions}>
+            <Button onClick={() => setEditingProfile(true)}>
+              Edit profile…
+            </Button>
+          </div>
+          {profileSaved === undefined ? null : (
+            <span role="status" style={styles.hint} data-testid="project-settings-profile-saved">
+              {profileSaved}
+            </span>
+          )}
+        </section>
+      )}
+
+      <TeamReviewerSection projectId={project.id} machine={machine} readOnly={readOnly !== null} onBuilt={() => {
+          if (edited) return false
+          onClose()
+          return true
+        }}
+      />
+
+      <p style={{ ...styles.hint, margin: '0 0 var(--space-1)' }}>Placeholders</p>
+      <ul style={styles.placeholders} aria-label="Placeholders">
+        {PLACEHOLDERS.map((name) => (
+          <li key={name} style={{ display: 'contents' }}>
+            <code className="w-mono">{`{${name}}`}</code>
+            <span style={styles.hint}>{PLACEHOLDER_DESCRIPTIONS[name]}</span>
+          </li>
+        ))}
+      </ul>
+
+      {readOnly !== null ? (
+        <p className="w-read-only-note" style={{ margin: '0 0 var(--space-3)' }} data-testid="project-settings-read-only">
+          {readOnly}
+        </p>
+      ) : null}
+
+      {failure ? (
+        <p role="alert" style={{ ...styles.error, margin: '0 0 var(--space-3)' }}>
+          {failure}
+        </p>
+      ) : null}
+
+      <div style={styles.actions}>
+        <Button disabled={!templates} onClick={() => void resetToDefault()}>
+          Reset to default
+        </Button>
+        <span style={{ flex: 1 }} />
+        <Button onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={!templates || invalid || saving || readOnly !== null} onClick={() => void save()}>
+          Save
+        </Button>
       </div>
+      {/* A window of its own, drawn inside this one in the React tree: Esc there closes it alone. */}
       {editingProfile && project.path !== undefined ? (
         <EditProfile
           project={{ name: project.name, path: project.path }}
@@ -428,8 +401,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           }}
         />
       ) : null}
-    </div>,
-    document.body,
+    </Dialog>
   )
 }
 

@@ -3,9 +3,11 @@
 // `projects.browse` of Machine M goes out as `linked.invoke` and is answered from a table of folders.
 // The paths of the table are in Windows form on purpose: the screen must not parse or rewrite them.
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { BrowseAnswer } from '../../src/shared/ipc/projects'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 const M = '22222222-2222-4222-8222-222222222222'
 
@@ -172,5 +174,50 @@ describe('FolderBrowser', () => {
     fireEvent.keyDown(screen.getByTestId('folder-browser'), { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(cancelled).toHaveBeenCalledTimes(2)
+  })
+})
+
+// The window on the kit's Dialog (worfy-ui-kit ticket 05).
+describe('FolderBrowser is a window of the kit', () => {
+  async function openFromButton() {
+    const { FolderBrowser } = await import('../../src/renderer/projects/FolderBrowser')
+    function Page() {
+      const [shown, setShown] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setShown(true)}>
+            Browse…
+          </button>
+          {shown ? <FolderBrowser machine={M} machineName="Mini" title="Add project" hint="Choose a folder." onChoose={() => setShown(false)} onCancel={() => setShown(false)} /> : null}
+        </>
+      )
+    }
+    render(<Page />)
+    const opener = screen.getByRole('button', { name: 'Browse…' })
+    opener.focus()
+    fireEvent.click(opener)
+    await settled()
+    await flush()
+    return { opener, window: screen.getByRole('dialog', { name: 'Add project' }) }
+  }
+
+  it('a modal dialog named by its title, on the dialog layer, that takes the focus; Tab does not leave it', async () => {
+    const { window } = await openFromButton()
+    expectKitWindow(window)
+    expect(document.activeElement).toBe(window)
+    await expectTabStaysIn(window)
+  })
+
+  it('Esc, Cancel and Choose close it, and the focus goes back to the button that opened it', async () => {
+    const { opener } = await openFromButton()
+    for (const close of [() => fireEvent.keyDown(document.activeElement!, { key: 'Escape' }), () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })), () => fireEvent.click(screen.getByRole('button', { name: 'Choose' }))]) {
+      close()
+      await flush()
+      expect(screen.queryByTestId('folder-browser')).toBeNull()
+      expect(document.activeElement).toBe(opener)
+      fireEvent.click(opener)
+      await settled()
+      await flush()
+    }
   })
 })

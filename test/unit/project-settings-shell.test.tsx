@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectSettings } from '../../src/renderer/shell/ProjectSettings'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 // The shell of a Project's Terminals in "Project settings…" (worfy-windows ticket 10). The field is
 // there only when the Machine of the Project has shells to choose from (terminal.shells): on Windows.
@@ -140,9 +142,10 @@ describe('the shell of the Terminals in Project settings', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('a press on the open list of shells does not close the window, though the list is drawn outside it', async () => {
+  it('a press on the open list of shells does not close the window; the list is drawn inside the window', async () => {
     const { onClose } = await open()
     fireEvent.click(shell())
+    expect(screen.getByTestId('project-settings').contains(shellList())).toBe(true)
     fireEvent.mouseDown(screen.getByRole('option', { name: 'Git Bash' }))
     fireEvent.click(screen.getByRole('option', { name: 'Git Bash' }))
     expect(onClose).not.toHaveBeenCalled()
@@ -436,5 +439,72 @@ describe('the folders a Product Session may also write in, in Project settings',
     await open({ machine: 'mini-machine' })
     expect(rows()).toEqual(FOLDERS)
     expect((within(list()).getByRole('button', { name: `Remove ${FOLDERS[0]}` }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+// The window on the kit's Dialog (worfy-ui-kit ticket 05): the trap of the focus, the focus back on
+// what opened it, the dialog layer of the scale.
+describe('Project settings is a window of the kit', () => {
+  function Page() {
+    const [shown, setShown] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setShown(true)}>
+          Open settings
+        </button>
+        {shown ? <ProjectSettings project={PROJECT} onClose={() => setShown(false)} /> : null}
+      </>
+    )
+  }
+
+  async function openFromButton(): Promise<{ opener: HTMLElement; window: HTMLElement }> {
+    render(<Page />)
+    const opener = screen.getByRole('button', { name: 'Open settings' })
+    opener.focus()
+    fireEvent.click(opener)
+    await act(async () => {})
+    await flush()
+    return { opener, window: screen.getByRole('dialog', { name: 'Project settings' }) }
+  }
+
+  afterEach(async () => {
+    cleanup()
+    await flush()
+  })
+
+  it('a modal dialog named by its title, on the dialog layer, with the first field focused once the settings are there', async () => {
+    const { window } = await openFromButton()
+    expectKitWindow(window)
+    expect(document.activeElement).toBe(within(window).getAllByRole('textbox')[0])
+  })
+
+  it('Tab does not leave the window', async () => {
+    const { window } = await openFromButton()
+    await expectTabStaysIn(window)
+  })
+
+  it('Esc and Cancel close it, and the focus goes back to the button that opened it', async () => {
+    const { opener } = await openFromButton()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Project settings' })).toBeNull()
+    expect(document.activeElement).toBe(opener)
+
+    fireEvent.click(opener)
+    await act(async () => {})
+    await flush()
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Project settings' })).getByRole('button', { name: 'Cancel' }))
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Project settings' })).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('a press on the backdrop closes it, a press inside does not', async () => {
+    const { window } = await openFromButton()
+    fireEvent.mouseDown(window)
+    expect(screen.getByRole('dialog', { name: 'Project settings' })).toBe(window)
+    fireEvent.mouseDown(window.parentElement!)
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Project settings' })).toBeNull()
   })
 })

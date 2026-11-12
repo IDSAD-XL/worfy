@@ -8,9 +8,11 @@
 // the Session's value — the value the person picks is written as picked, and the mode cannot change
 // under a draft.
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConnectFolder, GithubAccountsStep, ProfileDraft } from '../../src/shared/ipc/projects'
 import { ms } from '../time-scale'
+import { expectKitWindow, expectTabStaysIn, flush } from './kit-window'
 
 const ipc = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -348,5 +350,116 @@ describe('the GitHub account step', () => {
     expect(screen.getByRole('button', { name: 'First-run checks…' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign in with gh' })).toBeNull()
     expect(checkedDrafts().at(-1)?.profile).toMatchObject({ github: { account: null }, workflow: { finish: 'local-green' } })
+  })
+})
+
+// The window on the kit's Dialog (worfy-ui-kit ticket 05), and FolderBrowser opened from it.
+describe('Add project is a window of the kit', () => {
+  /** A page with a button that opens the window; `machine` — a Linked machine. */
+  function Page({ machine, onClose }: { machine?: string; onClose: () => void }) {
+    const [shown, setShown] = useState(false)
+    const close = (): void => {
+      onClose()
+      setShown(false)
+    }
+    return (
+      <>
+        <button type="button" onClick={() => setShown(true)}>
+          Add…
+        </button>
+        {shown ? (
+          <ConnectProject folder={folder} machine={machine} machineName="Mini" harnessHome="/h" onClose={close} onConnected={() => undefined} onPickAnother={() => undefined} onFirstRun={() => undefined} />
+        ) : null}
+      </>
+    )
+  }
+
+  async function openFromButton(machine?: string) {
+    const onClose = vi.fn()
+    render(<Page machine={machine} onClose={onClose} />)
+    const opener = screen.getByRole('button', { name: 'Add…' })
+    opener.focus()
+    fireEvent.click(opener)
+    await flush()
+    return { onClose, opener, window: screen.getByRole('dialog', { name: 'Add project' }) }
+  }
+
+  beforeEach(() => {
+    ipc.invokeOn.mockReset()
+    ipc.invokeOn.mockImplementation((_machine: string, channel: string) =>
+      Promise.resolve(channel === 'projects.browse' ? { ok: true, value: { ok: true, path: '/home/someone', parent: null, truncated: false, folders: [] } } : { ok: false, error: `unexpected ${channel}` }),
+    )
+  })
+
+  afterEach(flush)
+
+  it('a modal dialog named by its title, on the dialog layer, that takes the focus; Tab does not leave it', async () => {
+    const { window } = await openFromButton()
+    expectKitWindow(window)
+    expect(document.activeElement).toBe(window)
+    await expectTabStaysIn(window)
+  })
+
+  it('Esc closes it, and the focus goes back to the button that opened it', async () => {
+    const { onClose, opener } = await openFromButton()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('connect-project')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('a press on the backdrop closes it on the first step only', async () => {
+    ipc.invoke.mockImplementation((channel: string) =>
+      Promise.resolve(channel === 'projects.connect.draft' ? { ok: true, value: { status: 'draft', draft, issues: [] } } : channel === 'projects.connect.accounts' ? { ok: true, value: NO_ORIGIN } : { ok: true, value: { issues: [] } }),
+    )
+    const first = await openFromButton()
+    fireEvent.mouseDown(first.window.parentElement!)
+    await flush()
+    expect(first.onClose).toHaveBeenCalledOnce()
+    cleanup()
+    const later = await openFromButton()
+    fireEvent.click(screen.getByRole('button', { name: 'Write draft' }))
+    await screen.findByLabelText('Name')
+    await checked()
+    fireEvent.mouseDown(later.window.parentElement!)
+    await flush()
+    expect(later.onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId('connect-project')).toBe(later.window)
+  })
+
+  it('FolderBrowser of a Linked machine opens over it: Esc there closes it alone and the focus goes back to Choose…; the next Esc closes Add project', async () => {
+    const { onClose, window } = await openFromButton('mini-machine')
+    const choose = screen.getByRole('button', { name: 'Choose…' })
+    choose.focus()
+    fireEvent.click(choose)
+    const browser = await screen.findByTestId('folder-browser')
+    await waitFor(() => expect(browser.getAttribute('data-loading')).toBe('no'))
+    await flush()
+    expectKitWindow(browser)
+    expect(document.activeElement).toBe(browser)
+    await expectTabStaysIn(browser)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('folder-browser')).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(choose)
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flush()
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(window.isConnected).toBe(false)
+  })
+
+  it('with FolderBrowser open, an Esc with the focus fallen to the page closes FolderBrowser alone', async () => {
+    const { onClose } = await openFromButton('mini-machine')
+    fireEvent.click(screen.getByRole('button', { name: 'Choose…' }))
+    await screen.findByTestId('folder-browser')
+    await flush()
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await flush()
+    expect(screen.queryByTestId('folder-browser')).toBeNull()
+    expect(screen.getByTestId('connect-project')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

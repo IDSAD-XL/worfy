@@ -79,3 +79,28 @@ describe('the modal windows of the kit among the layers that are not on the scal
     expect(LAYERS.dialog).toBeLessThan(dialogStyles.backdrop.zIndex)
   })
 })
+
+// The windows of the Projects (worfy-ui-kit ticket 05) on the kit's Dialog. Before it they kept a
+// layer of their own: 95 (Remove project, the Machine step and the connect dialog of "Add project"),
+// 96 (the folder browser), 100 (Project settings), 110 (Edit profile); the Command palette (101) and a
+// full-screen image (105) were above the first four. Now all six are on the dialog layer, above both,
+// as the test of the kit windows above pins; the palette does not open over a kit window, which keeps
+// the ⌘ keys of the app (theme/kit/Dialog.tsx).
+describe('the windows of the Projects on the dialog layer', () => {
+  const WINDOWS = ['shell/ProjectSettings.tsx', 'shell/sidebar/ProjectsSection.tsx', 'projects/RemoveProject.tsx', 'projects/ConnectProject.tsx', 'projects/FolderBrowser.tsx', 'projects/EditProfile.tsx']
+
+  it.each(WINDOWS)('%s draws its windows in the Dialog of the kit, with no portal, backdrop or role of its own', (path) => {
+    const source = read(path)
+    expect(source).toMatch(/import \{ Dialog \} from '(\.\.\/)+theme\/kit\/Dialog'/)
+    expect(source).not.toContain('createPortal')
+    expect(source).not.toContain('role="dialog"')
+    expect(source).not.toMatch(/backdrop: \{/)
+  })
+
+  // ProjectsSection.tsx keeps both for the context menu of a Project, which ticket 12 moves onto the kit.
+  it.each(WINDOWS.filter((path) => path !== 'shell/sidebar/ProjectsSection.tsx'))('%s keeps no z-index and no Esc of its own', (path) => {
+    const source = read(path)
+    expect(source).not.toMatch(/zIndex/)
+    expect(source).not.toContain("'Escape'")
+  })
+})
