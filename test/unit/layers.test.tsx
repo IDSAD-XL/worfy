@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PINNED_Z_INDEX } from '../../src/renderer/canvas/pinning'
-import { dialogStyles } from '../../src/renderer/machines/machine-dialogs'
+import { AUTOPILOT_WINDOW_LAYER } from '../../src/renderer/autopilot/StartNowModal'
+import { MACHINE_WINDOW_LAYER } from '../../src/renderer/machines/machine-dialogs'
 import { SETTINGS_LAYER } from '../../src/renderer/settings/settings-window'
 import { LAYERS } from '../../src/renderer/theme/layers'
 
@@ -81,9 +82,37 @@ describe('the modal windows of the kit among the layers that are not on the scal
     expect(imageOverlay).toBeGreaterThan(LAYERS.palette)
   })
 
-  it('a kit window is under the toasts and the dialogs of a Linked machine, which open over Settings', () => {
+  it('a kit window is under the toasts', () => {
     expect(LAYERS.dialog).toBeLessThan(LAYERS.toast)
-    expect(LAYERS.dialog).toBeLessThan(dialogStyles.backdrop.zIndex)
+  })
+})
+
+describe('the kit windows that take a layer other than the dialog layer (worfy-ui-kit ticket 06)', () => {
+  it('the windows of a Linked machine and of Autopilot keep z 120: above Settings, which Remove of Settings → Machines opens over', () => {
+    for (const layer of [MACHINE_WINDOW_LAYER, AUTOPILOT_WINDOW_LAYER] as const) {
+      expect(LAYERS[layer]).toBe(120)
+      expect(LAYERS[layer]).toBeGreaterThan(SETTINGS_LAYER)
+    }
+  })
+
+  it('they share the layer of the toasts and are drawn after them, so they stay over the toasts as before', () => {
+    expect(LAYERS[MACHINE_WINDOW_LAYER]).toBe(LAYERS.toast)
+    expect(LAYERS[AUTOPILOT_WINDOW_LAYER]).toBe(LAYERS.toast)
+  })
+
+  it('none of them keeps a number of its own', () => {
+    expect(read('machines/machine-dialogs.ts')).not.toMatch(/zIndex|MACHINE_DIALOG_LAYER/)
+    expect(read('autopilot/autopilot-modal.css')).not.toMatch(/z-index/)
+    for (const path of ['machines/LinkMachineDialog.tsx', 'shell/FirstRun.tsx', 'autopilot/StartNowModal.tsx', 'autopilot/StartAutopilotModal.tsx', 'machines/ChangeAddressDialog.tsx']) {
+      expect(read(path)).not.toMatch(/zIndex: \d/)
+    }
+  })
+
+  it('Link a machine (100 before) and First run (90 before) are on the dialog layer now: above the Command palette and a full-screen image, which no key opens over a kit window', () => {
+    expect(LAYERS.dialog).toBeGreaterThan(101)
+    expect(LAYERS.dialog).toBeGreaterThan(105)
+    expect(read('machines/LinkMachineDialog.tsx')).not.toMatch(/layer=/)
+    expect(read('shell/FirstRun.tsx')).not.toMatch(/\slayer=/)
   })
 })
 

@@ -13,6 +13,7 @@ import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LinkState, LinkedMachineView } from '../../src/shared/ipc/link'
 import type { LinkedState } from '../../src/shared/ipc/linked'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
+import { pressTab } from './tab-key'
 
 const THIS = '11111111-1111-4111-8111-111111111111'
 const MINI = '22222222-2222-4222-8222-222222222222'
@@ -94,6 +95,8 @@ afterEach(() => {
 
 /** Lets the answers of the fake preload, which are resolved promises, reach the components. */
 const settle = () => act(async () => undefined)
+/** Lets Base UI's effects and frames run (the kit's Dialog, theme/kit/Dialog.tsx). */
+const flushFrames = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
 
 // ── The sidebar section ───────────────────────────────────────────────────────────────────────
 
@@ -836,24 +839,54 @@ describe('worfy-link ticket 37, review round', () => {
   })
 
   for (const kind of ['Change address of Mini', 'Remove Mini'] as const) {
-    it(`${kind}: Tab and Shift+Tab stay inside the window, focus behind it comes back, and Esc still closes it`, async () => {
+    it(`${kind}: Tab and Shift+Tab stay inside the window, the page behind is hidden, and Esc closes it with the focus back on its button (worfy-ui-kit ticket 06)`, async () => {
       await mountWithDialogs(linkState(1, { linked: [machine(MINI, 'Mini', 'unavailable')] }))
-      fireEvent.click(within(rowOf(MINI)).getByRole('button', { name: kind }))
+      const opener = within(rowOf(MINI)).getByRole('button', { name: kind })
+      opener.focus()
+      fireEvent.click(opener)
+      await flushFrames()
       const dialog = screen.getByRole('dialog')
+      // Drawn on the layer of the toasts (z 120), above the dialog layer of Settings (110), which
+      // "Remove" of Settings → Machines opens over.
+      let layer: HTMLElement = dialog
+      while (layer.parentElement !== null && layer.parentElement !== document.body) layer = layer.parentElement
+      expect(layer.parentElement).toBe(document.body)
+      expect(getComputedStyle(layer).zIndex).toBe('120')
       const inside = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input')]
       const first = inside[0]!
       const last = inside.at(-1)!
-      last.focus()
-      fireEvent.keyDown(last, { key: 'Tab' })
+      act(() => last.focus())
+      await pressTab()
       expect(document.activeElement).toBe(first)
-      fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+      await pressTab(true)
       expect(document.activeElement).toBe(last)
-      // Something behind the window takes the focus: it comes back inside.
-      within(rowOf(MINI)).getByRole('button', { name: 'Reconnect Mini' }).focus()
-      expect(dialog.contains(document.activeElement)).toBe(true)
+      // The page behind is hidden from a screen reader while the window is open.
+      expect(screen.queryByRole('button', { name: 'Reconnect Mini' })).toBeNull()
       fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      await flushFrames()
       expect(screen.queryByRole('dialog')).toBeNull()
+      expect(document.activeElement).toBe(opener)
       expect(main.calls).toStrictEqual([])
     })
   }
+
+  it('Link a machine: the focus is in the address field, Tab stays inside the window, and Esc closes it with the focus back on "Link a machine…" (worfy-ui-kit ticket 06)', async () => {
+    await mountWithDialogs(linkState(1, { linking: { open: true, code: '482913', expiresAt: Date.now() + 60_000, linked: null, failure: null } }))
+    const opener = screen.getByTestId('link-machine-button')
+    opener.focus()
+    fireEvent.click(opener)
+    await flushFrames()
+    const dialog = screen.getByRole('dialog', { name: 'Link a machine' })
+    expect(document.activeElement?.tagName).toBe('INPUT')
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    const stops = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input')]
+    for (let step = 0; step < stops.length + 2; step += 1) {
+      await pressTab()
+      expect(dialog.contains(document.activeElement)).toBe(true)
+    }
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await flushFrames()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
 })

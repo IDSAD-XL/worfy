@@ -27,13 +27,12 @@ export function RemoveMachineDialog({ machine, last, onClose }: RemoveMachineDia
   const cancel = useRef<HTMLButtonElement>(null)
   const open = useRef(true)
 
-  useEffect(() => {
-    // Cancel first: Enter right after opening does not remove.
-    cancel.current?.focus()
-    return () => {
+  useEffect(
+    () => () => {
       open.current = false
-    }
-  }, [])
+    },
+    [],
+  )
 
   const remove = async (): Promise<void> => {
     if (removing) return
@@ -47,7 +46,11 @@ export function RemoveMachineDialog({ machine, last, onClose }: RemoveMachineDia
   }
 
   return (
-    <MachineDialogFrame title={`Remove ${machine.name}?`} testId="remove-machine-dialog" onClose={onClose}>
+    <MachineDialogFrame title={`Remove ${machine.name}?`} testId="remove-machine-dialog"
+      onClose={onClose}
+      // Cancel first: Enter right after opening does not remove.
+      initialFocus={() => cancel.current}
+    >
       <p style={dialogStyles.text}>
         {`${machine.name} will be forgotten here now, and on ${machine.name} the next time it connects to this computer.`}
         {last

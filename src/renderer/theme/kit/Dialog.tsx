@@ -25,7 +25,8 @@
  * stop them. So while a window of the kit is open, the listeners at the end of this file — added when
  * the file loads, before every listener a component adds — keep them quiet: a ⌘ or Ctrl key pressed
  * in the window reaches no listener of the app (what the key does itself — copy, paste — still
- * happens, and so do the accelerators of the app menu); any other key goes to the window's own
+ * happens, and so do the accelerators of the app menu), unless the window takes it as a shortcut of
+ * its own (`onModifierKey`, ⌘↩ of Start Autopilot); any other key goes to the window's own
  * controls and stops at `document`; a key pressed with the focus outside the window (it fell to the
  * page) reaches nothing behind: Esc closes the window, Tab brings the focus into it. A layer drawn
  * above the window keeps its keys. These listeners never move the focus while it is inside the
@@ -62,16 +63,25 @@ export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role'
   initialFocus?: (window: HTMLElement) => HTMLElement | null | undefined
   /** The layer of the scale; `dialog` by default. */
   layer?: LayerName
+  /**
+   * The ⌘ and Ctrl keys the window takes as shortcuts of its own (⌘↩ of Start Autopilot). Called
+   * for each such key pressed in the window, or with the focus fallen to the page, before any
+   * listener of the app and of the window's own controls: those never get a ⌘ or Ctrl key while
+   * the window is open (see the head of the file). Returns whether it took the key; a key taken is
+   * marked handled (`preventDefault`). Without it the window takes none.
+   */
+  onModifierKey?: (event: globalThis.KeyboardEvent) => boolean
   children: ReactNode
 }
 
 /** A modal window of the kit; see the head of the file. */
 export function Dialog(props: DialogProps) {
-  const { open, onClose, label, labelledBy, className, backdropClassName, backdropTestId, closeOnBackdrop = true, initialFocus, layer = 'dialog', children, onKeyDown, ...rest } = props
+  const { open, onClose, label, labelledBy, className, backdropClassName, backdropTestId, closeOnBackdrop = true, initialFocus, layer = 'dialog', onModifierKey, children, onKeyDown, ...rest } = props
   const [popup, setPopup] = useState<HTMLDivElement | null>(null)
   const kit = useKitLayer({ open, close: onClose, modal: true })
   const closeNow = useEffectEvent(onClose)
   const firstFocus = useEffectEvent((element: HTMLElement): HTMLElement => initialFocus?.(element) ?? element)
+  const takeKey = useEffectEvent((event: globalThis.KeyboardEvent): boolean => onModifierKey?.(event) ?? false)
 
   // What had the focus before the window opened: it gets it back on closing. Read in a layout effect,
   // before the focus moves into the window; given back in a passive one, after the commit that
@@ -86,14 +96,15 @@ export function Dialog(props: DialogProps) {
     return () => {
       const back = previous.current
       previous.current = null
-      if (back?.isConnected === true) back.focus()
+      // Without scrolling: a transcript scrolled away from the opener stays where it is.
+      if (back?.isConnected === true) back.focus({ preventScroll: true })
     }
   }, [open])
 
   // Base UI draws the window into its portal a render after `open`: the window is known here then.
   useLayoutEffect(() => {
     if (!open || popup === null) return
-    const shown: OpenDialog = { element: popup, close: () => closeNow(), layer: LAYERS[layer] }
+    const shown: OpenDialog = { element: popup, close: () => closeNow(), takeKey: (event) => takeKey(event), layer: LAYERS[layer] }
     openDialogs.push(shown)
     firstFocus(popup).focus()
     return () => {
@@ -164,6 +175,8 @@ export function Dialog(props: DialogProps) {
 interface OpenDialog {
   element: HTMLElement
   close: () => void
+  /** The window's `onModifierKey`: whether it took a ⌘ or Ctrl key as a shortcut of its own. */
+  takeKey: (event: globalThis.KeyboardEvent) => boolean
   /** The z-index of the window's layer. */
   layer: number
 }
@@ -214,16 +227,20 @@ function guardKeys(event: globalThis.KeyboardEvent): void {
   const dialog = topDialog()
   if (dialog === undefined) return
   const target = event.target
-  if (target instanceof Node && dialog.element.contains(target)) {
+  const inside = target instanceof Node && dialog.element.contains(target)
+  if (!inside && above(target, dialog)) return
+  if (event.metaKey || event.ctrlKey) {
     // Some of the app's shortcuts listen in the capture phase on `window` (⌘↩ of focus mode), so
-    // they are stopped here; only propagation stops, not what the key itself does.
-    if (event.metaKey || event.ctrlKey) event.stopImmediatePropagation()
+    // they are stopped here; only propagation stops, not what the key itself does — unless the
+    // window takes the key as a shortcut of its own.
+    event.stopImmediatePropagation()
+    if (!event.isComposing && dialog.takeKey(event)) event.preventDefault()
     return
   }
-  if (above(target, dialog)) return
+  if (inside) return
   // The focus fell out of the window, to the page: the key is the window's or nobody's.
   event.stopImmediatePropagation()
-  if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return
+  if (event.altKey || event.isComposing) return
   if (event.key === 'Escape') {
     event.preventDefault()
     dialog.close()

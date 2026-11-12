@@ -13,6 +13,7 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { defaultAppSettings } from '../../src/shared/settings/app-settings'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { pressTab } from './tab-key'
 
 const ROOT = '/work/demo'
 const PROJECT = 'demo-0000000e'
@@ -80,6 +81,44 @@ describe('the "Start now?" window', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Interrupt and start' }))
     expect(onStart).toHaveBeenCalledTimes(1)
     expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('on the kit\'s Dialog: Tab and Shift+Tab go round its two buttons, a click outside and Esc while starting do nothing, and closed it gives the focus back to its opener (worfy-ui-kit ticket 06)', async () => {
+    const { StartNowModal } = await import('../../src/renderer/autopilot/StartNowModal')
+    const onCancel = vi.fn()
+    const busy: Busy = { turn: true, queued: 0, tasks: [] }
+    const page = (open: boolean, starting = false) => (
+      <>
+        <button type="button">Start now</button>
+        {open ? <StartNowModal epic="worfy-faults" busy={busy} starting={starting} onCancel={onCancel} onStart={() => undefined} /> : null}
+      </>
+    )
+    const view = render(page(false))
+    const opener = screen.getByRole('button', { name: 'Start now' })
+    opener.focus()
+    view.rerender(page(true))
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    const dialog = screen.getByRole('dialog', { name: 'Start now?' })
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
+    const start = within(dialog).getByRole('button', { name: 'Interrupt and start' })
+    expect(document.activeElement).toBe(cancel)
+    await pressTab()
+    expect(document.activeElement).toBe(start)
+    await pressTab()
+    expect(document.activeElement).toBe(cancel)
+    await pressTab(true)
+    expect(document.activeElement).toBe(start)
+    fireEvent.mouseDown(dialog.parentElement!)
+    expect(onCancel).not.toHaveBeenCalled()
+    view.rerender(page(true, true))
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(onCancel).not.toHaveBeenCalled()
+    view.rerender(page(true))
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    view.rerender(page(false))
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    expect(document.activeElement).toBe(opener)
   })
 })
 

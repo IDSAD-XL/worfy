@@ -4,82 +4,37 @@
 // shown in the window as main words it, and the address stays as it was.
 //
 // The frame of this window (MachineDialogFrame) is the frame of the Remove confirmation too
-// (MachineDialogs.tsx): a modal above every other layer, Settings included, closed by Esc or a click
-// outside.
+// (MachineDialogs.tsx): a modal Dialog of the kit above Settings, closed by Esc or a click outside.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { formatLinkAddress, parseLinkAddress } from '../../shared/ipc/link'
-import { focusablesOf } from '../settings/settings-window'
 import { Button } from '../theme/Button'
-import { dialogStyles } from './machine-dialogs'
+import { Dialog } from '../theme/kit/Dialog'
+import { dialogStyles, MACHINE_WINDOW_LAYER } from './machine-dialogs'
 import { setMachineAddress } from './useMachines'
 
 export interface MachineDialogFrameProps {
   title: string
   testId: string
   onClose: () => void
+  /** The control that gets the focus when the window opens; the window itself without one. */
+  initialFocus?: () => HTMLElement | null
   children: ReactNode
 }
 
 /**
- * A modal window of a Linked machine: Esc and a click outside close it, as "Link a machine" does.
- * The focus stays inside, as in the Settings window (settings-window.ts): Tab and Shift+Tab go round
- * its controls, and focus that lands behind it (a click on the backdrop) comes back, so Esc still
- * reaches it.
+ * A modal window of a Linked machine on the kit's Dialog (theme/kit/Dialog.tsx): Esc and a click
+ * outside close it, as "Link a machine" does; Tab stays inside, and the focus goes back to what
+ * opened it. Its layer is above Settings (MACHINE_WINDOW_LAYER).
  */
-export function MachineDialogFrame({ title, testId, onClose, children }: MachineDialogFrameProps) {
+export function MachineDialogFrame({ title, testId, onClose, initialFocus, children }: MachineDialogFrameProps) {
   const titleId = useId()
-  const frame = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const keep = (event: FocusEvent): void => {
-      const dialog = frame.current
-      if (dialog === null || (event.target instanceof Node && dialog.contains(event.target))) return
-      ;(focusablesOf(dialog)[0] ?? dialog).focus()
-    }
-    document.addEventListener('focusin', keep)
-    return () => document.removeEventListener('focusin', keep)
-  }, [])
-
-  return createPortal(
-    <div
-      style={dialogStyles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        ref={frame}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        style={dialogStyles.dialog}
-        data-testid={testId}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onClose()
-          } else if (event.key === 'Tab') {
-            const focusable = focusablesOf(event.currentTarget)
-            const first = focusable[0]
-            const last = focusable.at(-1)
-            if (first === undefined || last === undefined) return
-            const active = document.activeElement
-            if (event.shiftKey ? active === first || active === event.currentTarget : active === last) {
-              event.preventDefault()
-              ;(event.shiftKey ? last : first).focus()
-            }
-          }
-        }}
-      >
-        <h2 id={titleId} style={dialogStyles.title}>
-          {title}
-        </h2>
-        {children}
-      </div>
-    </div>,
-    document.body,
+  return (
+    <Dialog open onClose={onClose} labelledBy={titleId} className="w-machine-dialog" style={dialogStyles.dialog} layer={MACHINE_WINDOW_LAYER} initialFocus={initialFocus} data-testid={testId}>
+      <h2 id={titleId} style={dialogStyles.title}>
+        {title}
+      </h2>
+      {children}
+    </Dialog>
   )
 }
 
@@ -97,12 +52,12 @@ export function ChangeAddressDialog({ machine, onClose }: ChangeAddressDialogPro
   // An answer after the window closed changes nothing on screen; main has kept or refused it anyway.
   const open = useRef(true)
 
-  useEffect(() => {
-    field.current?.focus()
-    return () => {
+  useEffect(
+    () => () => {
       open.current = false
-    }
-  }, [])
+    },
+    [],
+  )
 
   const save = async (): Promise<void> => {
     if (saving) return
@@ -120,7 +75,7 @@ export function ChangeAddressDialog({ machine, onClose }: ChangeAddressDialogPro
   }
 
   return (
-    <MachineDialogFrame title={`Change address of ${machine.name}`} testId="change-address-dialog" onClose={onClose}>
+    <MachineDialogFrame title={`Change address of ${machine.name}`} testId="change-address-dialog" onClose={onClose} initialFocus={() => field.current}>
       <div style={dialogStyles.field}>
         <label htmlFor={fieldId} style={dialogStyles.label}>
           Address

@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
-import { createPortal } from 'react-dom'
 import { formatLinkAddress, isTailscaleHost, parseLinkAddress, type DiscoveredMachineView, type TailscalePeerView } from '../../shared/ipc/link'
 import { invoke } from '../ipc'
 import { Button } from '../theme/Button'
+import { Dialog } from '../theme/kit/Dialog'
 import { closeLinking, openLinking, pairWith, useMachines } from './useMachines'
 
 export interface LinkMachineDialogProps {
@@ -10,15 +10,6 @@ export interface LinkMachineDialogProps {
 }
 
 const styles = {
-  backdrop: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 100,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(0, 0, 0, 0.25)',
-  },
   dialog: {
     width: 480,
     maxWidth: 'calc(100vw - 32px)',
@@ -100,6 +91,8 @@ const checkIcon = (
  * own code and address, and on either one the user picks the other worfy — found by Bonjour, or by
  * an address typed by hand — and types the code the other one shows. While it is open the server
  * listens and Bonjour searches; closing it (Close, Esc, a click outside) closes linking again.
+ * It is a modal Dialog of the kit (theme/kit/Dialog.tsx), on the dialog layer: Tab stays in it, and
+ * the focus goes back to the button that opened it.
  *
  * While "Link through Tailscale" is on it also lists the machines of the user's tailnet (worfy-link
  * ticket 30), when main finds the Tailscale CLI: picking an online one puts its address in the field,
@@ -295,218 +288,207 @@ export function LinkMachineDialog({ onClose }: LinkMachineDialogProps) {
     </li>
   )
 
-  return createPortal(
-    <div
-      style={styles.backdrop}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      labelledBy={titleId}
+      className="w-link-machine"
+      style={styles.dialog}
+      // The field of the address, or of the code once a machine is chosen (the effect above).
+      initialFocus={() => (target === undefined ? addressField.current : codeField.current)}
+      data-testid="link-machine-dialog"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        style={styles.dialog}
-        data-testid="link-machine-dialog"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation()
-            onClose()
-          }
-        }}
-      >
-        <h2 id={titleId} style={styles.title}>
-          Link a machine
-        </h2>
-        <p style={styles.subtitle}>Open Link a machine on both worfy, then on one of them choose the other and type the code it shows.</p>
+      <h2 id={titleId} style={styles.title}>
+        Link a machine
+      </h2>
+      <p style={styles.subtitle}>Open Link a machine on both worfy, then on one of them choose the other and type the code it shows.</p>
 
-        {linked ? (
-          <>
-            <div style={{ ...styles.panel, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }} data-testid="link-success" role="status">
-              <span className="w-chip w-chip--ready">{checkIcon}Linked</span>
-              <span>
-                Linked with <strong>{linked.name}</strong>. It is listed under Machines.
-              </span>
-            </div>
-            <div style={styles.actions}>
-              <span style={{ flex: 1 }} />
-              <Button variant="primary" onClick={onClose}>Done</Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={styles.panel} aria-label="This Machine">
-              <p style={styles.caption}>{machine ? `Code for ${machine.name}` : 'This Machine'}</p>
-              {linking?.code ? (
-                <p style={styles.code} data-testid="link-code" aria-label="Pairing code">
-                  {linking.code}
-                </p>
-              ) : linking?.pausedUntil !== undefined ? (
-                <p role="alert" data-testid="link-paused" style={{ ...styles.error, margin: 'var(--space-2) 0' }}>
-                  {`Linking is paused until ${new Date(linking.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} after repeated failed attempts. Restart worfy to link sooner.`}
-                </p>
-              ) : (
-                <p style={{ ...styles.hint, margin: 'var(--space-2) 0' }}>{problem ? '' : 'Opening…'}</p>
-              )}
-              {state && state.addresses.length > 0 ? (
-                <p style={styles.caption}>
-                  Address{' '}
-                  {state.addresses.map((each, index) => (
-                    <span key={each} data-testid="link-own-address-entry">
-                      {index > 0 ? ', ' : ''}
-                      <span style={styles.mono} data-testid="link-own-address">
-                        {each}
-                      </span>
-                      {isTailscaleOwn(each) ? (
-                        <span
-                          className="w-chip"
-                          style={styles.mark}
-                          data-testid="link-tailscale-mark"
-                          title={
-                            state.tailscale
-                              ? 'The address of this Machine in your tailnet: the other worfy can type it, or this Machine\'s MagicDNS name, with this port'
-                              : 'The address of this Machine in your tailnet. To link through it, turn on Link through Tailscale in Settings → Machines on both worfy'
-                          }
-                        >
-                          Tailscale
-                        </span>
-                      ) : null}
-                    </span>
-                  ))}
-                </p>
-              ) : null}
-              {linking?.failure ? (
-                <p role="alert" data-testid="link-failure" style={{ ...styles.error, margin: 'var(--space-1) 0 0' }}>
-                  {linking.failure}
-                </p>
-              ) : null}
-              {problem ? (
-                <p role="alert" data-testid="link-problem" style={{ ...styles.error, margin: 'var(--space-1) 0 0' }}>
-                  {problem}
-                </p>
-              ) : null}
-            </div>
-
-            {target === undefined ? (
-              <>
-                <h3 style={styles.section}>Link with another worfy</h3>
-                {state?.bonjour ? (
-                  state.discovered.length > 0 || foundLinked.length > 0 ? (
-                    <ul style={styles.list} aria-label="Found in the network">
-                      {state.discovered.map(foundRow)}
-                      {foundLinked.map(linkedRow)}
-                    </ul>
-                  ) : (
-                    <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Looking for worfy in the local network…</p>
-                  )
-                ) : (
-                  <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Search in the network is off. Type the address the other worfy shows.</p>
-                )}
-                {peers.length > 0 ? (
-                  <>
-                    <p style={{ ...styles.caption, margin: '0 0 var(--space-1)' }}>In your tailnet</p>
-                    <ul style={styles.list} aria-label="In your tailnet" data-testid="link-tailscale-list">
-                      {peers.map(peerRow)}
-                    </ul>
-                  </>
-                ) : null}
-                <div style={styles.field}>
-                  <label htmlFor={addressId} style={styles.label}>
-                    Address
-                  </label>
-                  <input
-                    ref={addressField}
-                    id={addressId}
-                    type="text"
-                    spellCheck={false}
-                    autoComplete="off"
-                    style={styles.input}
-                    value={address}
-                    placeholder="192.168.1.20:52000"
-                    data-testid="link-address-input"
-                    aria-invalid={addressError !== undefined}
-                    aria-describedby={addressError ? `${addressId}-hint ${addressId}-error` : `${addressId}-hint`}
-                    onChange={(event) => {
-                      setAddress(event.target.value)
-                      setAddressError(undefined)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') next()
-                    }}
-                  />
-                  <span id={`${addressId}-hint`} data-testid="link-address-hint" style={styles.hint}>
-                    The address and its port are under the code in Link a machine on the other worfy.
-                    {state?.tailscale ? ' Through Tailscale, type its MagicDNS name or Tailscale address with that port, like pc:52000.' : ''}
-                  </span>
-                  {addressError ? (
-                    <span id={`${addressId}-error`} role="alert" data-testid="link-address-error" style={styles.error}>
-                      {addressError}
-                    </span>
-                  ) : null}
-                </div>
-                <div style={styles.actions}>
-                  <span style={{ flex: 1 }} />
-                  <Button onClick={onClose}>
-                    Close
-                  </Button>
-                  <Button variant="primary" disabled={address.trim() === ''} onClick={next}>
-                    Next
-                  </Button>
-                </div>
-              </>
+      {linked ? (
+        <>
+          <div style={{ ...styles.panel, display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }} data-testid="link-success" role="status">
+            <span className="w-chip w-chip--ready">{checkIcon}Linked</span>
+            <span>
+              Linked with <strong>{linked.name}</strong>. It is listed under Machines.
+            </span>
+          </div>
+          <div style={styles.actions}>
+            <span style={{ flex: 1 }} />
+            <Button variant="primary" onClick={onClose}>Done</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={styles.panel} aria-label="This Machine">
+            <p style={styles.caption}>{machine ? `Code for ${machine.name}` : 'This Machine'}</p>
+            {linking?.code ? (
+              <p style={styles.code} data-testid="link-code" aria-label="Pairing code">
+                {linking.code}
+              </p>
+            ) : linking?.pausedUntil !== undefined ? (
+              <p role="alert" data-testid="link-paused" style={{ ...styles.error, margin: 'var(--space-2) 0' }}>
+                {`Linking is paused until ${new Date(linking.pausedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} after repeated failed attempts. Restart worfy to link sooner.`}
+              </p>
             ) : (
-              <>
-                <h3 style={styles.section}>Link with {targetLabel}</h3>
-                <div style={styles.field}>
-                  <label htmlFor={codeId} style={styles.label}>
-                    Code shown on {target.name ?? 'the other worfy'}
-                  </label>
-                  <input
-                    ref={codeField}
-                    id={codeId}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    spellCheck={false}
-                    autoComplete="off"
-                    style={{ ...styles.input, width: 120, fontSize: 'var(--text-15)', letterSpacing: '0.18em' }}
-                    value={code}
-                    placeholder="000000"
-                    data-testid="link-code-input"
-                    aria-invalid={pairError !== undefined}
-                    aria-describedby={pairError ? `${codeId}-error` : undefined}
-                    onChange={(event) => {
-                      setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
-                      setPairError(undefined)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') void link()
-                    }}
-                  />
-                  {pairError ? (
-                    <span id={`${codeId}-error`} role="alert" data-testid="link-error" style={styles.error}>
-                      {pairError}
-                    </span>
-                  ) : null}
-                </div>
-                <div style={styles.actions}>
-                  <Button disabled={pairing} onClick={() => setTarget(undefined)}>
-                    Back
-                  </Button>
-                  <span style={{ flex: 1 }} />
-                  <Button onClick={onClose}>
-                    Close
-                  </Button>
-                  <Button variant="primary" disabled={pairing || code.length !== 6} onClick={() => void link()}>
-                    {pairing ? 'Linking…' : 'Link'}
-                  </Button>
-                </div>
-              </>
+              <p style={{ ...styles.hint, margin: 'var(--space-2) 0' }}>{problem ? '' : 'Opening…'}</p>
             )}
-          </>
-        )}
-      </div>
-    </div>,
-    document.body,
+            {state && state.addresses.length > 0 ? (
+              <p style={styles.caption}>
+                Address{' '}
+                {state.addresses.map((each, index) => (
+                  <span key={each} data-testid="link-own-address-entry">
+                    {index > 0 ? ', ' : ''}
+                    <span style={styles.mono} data-testid="link-own-address">
+                      {each}
+                    </span>
+                    {isTailscaleOwn(each) ? (
+                      <span
+                        className="w-chip"
+                        style={styles.mark}
+                        data-testid="link-tailscale-mark"
+                        title={
+                          state.tailscale
+                            ? 'The address of this Machine in your tailnet: the other worfy can type it, or this Machine\'s MagicDNS name, with this port'
+                            : 'The address of this Machine in your tailnet. To link through it, turn on Link through Tailscale in Settings → Machines on both worfy'
+                        }
+                      >
+                        Tailscale
+                      </span>
+                    ) : null}
+                  </span>
+                ))}
+              </p>
+            ) : null}
+            {linking?.failure ? (
+              <p role="alert" data-testid="link-failure" style={{ ...styles.error, margin: 'var(--space-1) 0 0' }}>
+                {linking.failure}
+              </p>
+            ) : null}
+            {problem ? (
+              <p role="alert" data-testid="link-problem" style={{ ...styles.error, margin: 'var(--space-1) 0 0' }}>
+                {problem}
+              </p>
+            ) : null}
+          </div>
+
+          {target === undefined ? (
+            <>
+              <h3 style={styles.section}>Link with another worfy</h3>
+              {state?.bonjour ? (
+                state.discovered.length > 0 || foundLinked.length > 0 ? (
+                  <ul style={styles.list} aria-label="Found in the network">
+                    {state.discovered.map(foundRow)}
+                    {foundLinked.map(linkedRow)}
+                  </ul>
+                ) : (
+                  <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Looking for worfy in the local network…</p>
+                )
+              ) : (
+                <p style={{ ...styles.hint, margin: '0 0 var(--space-3)' }}>Search in the network is off. Type the address the other worfy shows.</p>
+              )}
+              {peers.length > 0 ? (
+                <>
+                  <p style={{ ...styles.caption, margin: '0 0 var(--space-1)' }}>In your tailnet</p>
+                  <ul style={styles.list} aria-label="In your tailnet" data-testid="link-tailscale-list">
+                    {peers.map(peerRow)}
+                  </ul>
+                </>
+              ) : null}
+              <div style={styles.field}>
+                <label htmlFor={addressId} style={styles.label}>
+                  Address
+                </label>
+                <input
+                  ref={addressField}
+                  id={addressId}
+                  type="text"
+                  spellCheck={false}
+                  autoComplete="off"
+                  style={styles.input}
+                  value={address}
+                  placeholder="192.168.1.20:52000"
+                  data-testid="link-address-input"
+                  aria-invalid={addressError !== undefined}
+                  aria-describedby={addressError ? `${addressId}-hint ${addressId}-error` : `${addressId}-hint`}
+                  onChange={(event) => {
+                    setAddress(event.target.value)
+                    setAddressError(undefined)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') next()
+                  }}
+                />
+                <span id={`${addressId}-hint`} data-testid="link-address-hint" style={styles.hint}>
+                  The address and its port are under the code in Link a machine on the other worfy.
+                  {state?.tailscale ? ' Through Tailscale, type its MagicDNS name or Tailscale address with that port, like pc:52000.' : ''}
+                </span>
+                {addressError ? (
+                  <span id={`${addressId}-error`} role="alert" data-testid="link-address-error" style={styles.error}>
+                    {addressError}
+                  </span>
+                ) : null}
+              </div>
+              <div style={styles.actions}>
+                <span style={{ flex: 1 }} />
+                <Button onClick={onClose}>
+                  Close
+                </Button>
+                <Button variant="primary" disabled={address.trim() === ''} onClick={next}>
+                  Next
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3 style={styles.section}>Link with {targetLabel}</h3>
+              <div style={styles.field}>
+                <label htmlFor={codeId} style={styles.label}>
+                  Code shown on {target.name ?? 'the other worfy'}
+                </label>
+                <input
+                  ref={codeField}
+                  id={codeId}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  spellCheck={false}
+                  autoComplete="off"
+                  style={{ ...styles.input, width: 120, fontSize: 'var(--text-15)', letterSpacing: '0.18em' }}
+                  value={code}
+                  placeholder="000000"
+                  data-testid="link-code-input"
+                  aria-invalid={pairError !== undefined}
+                  aria-describedby={pairError ? `${codeId}-error` : undefined}
+                  onChange={(event) => {
+                    setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    setPairError(undefined)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void link()
+                  }}
+                />
+                {pairError ? (
+                  <span id={`${codeId}-error`} role="alert" data-testid="link-error" style={styles.error}>
+                    {pairError}
+                  </span>
+                ) : null}
+              </div>
+              <div style={styles.actions}>
+                <Button disabled={pairing} onClick={() => setTarget(undefined)}>
+                  Back
+                </Button>
+                <span style={{ flex: 1 }} />
+                <Button onClick={onClose}>
+                  Close
+                </Button>
+                <Button variant="primary" disabled={pairing || code.length !== 6} onClick={() => void link()}>
+                  {pairing ? 'Linking…' : 'Link'}
+                </Button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </Dialog>
   )
 }
