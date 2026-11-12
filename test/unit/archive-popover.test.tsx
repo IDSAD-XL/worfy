@@ -246,12 +246,21 @@ describe('the Archive popover', () => {
   it('Esc closes it, and that press does nothing else', async () => {
     fireEvent.click(await renderCanvas(recordingOps().ops))
     expect(screen.getByRole('dialog', { name: 'Archive' })).toBeTruthy()
+    // The press goes where the keyboard focus is, as a key does; the window (the Esc of an active
+    // Node, of focus mode) does not get it (worfy-ui-kit ticket 09: the popover is the kit's).
+    const reachedWindow = vi.fn()
+    window.addEventListener('keydown', reachedWindow)
     const press = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-    act(() => {
-      window.dispatchEvent(press)
-    })
+    try {
+      await act(async () => {
+        ;(document.activeElement ?? document.body).dispatchEvent(press)
+      })
+    } finally {
+      window.removeEventListener('keydown', reachedWindow)
+    }
     expect(press.defaultPrevented).toBe(true)
-    expect(screen.queryByRole('dialog', { name: 'Archive' })).toBeNull()
+    expect(reachedWindow).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archive' })).toBeNull())
   })
 
   it('on a read-only screen the list is shown and Restore is inactive', async () => {
@@ -287,10 +296,76 @@ describe("a Ticket's history", () => {
     expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
     fireEvent.click(badge)
     expect(screen.getByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeTruthy()
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    // Where the keyboard focus is, as a key does (the popover is the kit's, worfy-ui-kit ticket 09).
+    await act(async () => {
+      ;(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     })
-    expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull())
+  })
+
+  it('the history is a popover of its Ticket: Show leaves the active Ticket active, neither selects nor opens it, and runs once (worfy-ui-kit ticket 09)', async () => {
+    const { ops, sent } = recordingOps()
+    const { default: ArchivePopover } = await import('../../src/renderer/canvas/overlays/ArchivePopover')
+    const { default: SessionHistory } = await import('../../src/renderer/canvas/badges/SessionHistory')
+    const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
+    const { insideNodePopup } = await import('../../src/renderer/theme/kit/layer')
+    const ticket = MODEL.tickets[0]!
+    // The Ticket's Node draws its badges, as TicketNode.tsx does.
+    const nodeTypes = { ticket: () => <SessionHistory subject={{ kind: 'ticket', projectId: PROJECT, root: ROOT, ticket }} /> }
+    const nodes = [{ id: 'ticket:demo/1', type: 'ticket', position: { x: 0, y: 0 }, data: {} }]
+    // The Canvas's rule of the active Node (canvas/Canvas.tsx): a click on a Node makes it active, a
+    // press outside the active Node ends the activity, unless it lands inside a kit popup of a Node.
+    let active: string | null = null
+    const ended: string[] = []
+    const onNodeClick = vi.fn((_event: unknown, node: { id: string }) => (active = node.id))
+    const onNodeDoubleClick = vi.fn()
+    const outside = (event: PointerEvent) => {
+      if (active === null || insideNodePopup(event.target)) return
+      const node = event.target instanceof Element ? event.target.closest('.react-flow__node') : null
+      if (node?.getAttribute('data-id') === active) return
+      ended.push(active)
+      active = null
+    }
+    window.addEventListener('pointerdown', outside, true)
+    try {
+      render(
+        <div style={{ width: 800, height: 600 }}>
+          <LayoutOpsContext.Provider value={ops}>
+            <ReactFlowProvider>
+              <ReactFlow nodes={nodes} edges={[]} nodeTypes={nodeTypes} onNodeClick={onNodeClick} onNodeDoubleClick={onNodeDoubleClick}>
+                <ArchivePopover />
+              </ReactFlow>
+            </ReactFlowProvider>
+          </LayoutOpsContext.Provider>
+        </div>,
+      )
+      // React Flow keeps a Node it has not measured hidden (jsdom measures nothing): found by its test id.
+      const badge = await screen.findByTestId('ticket-sessions-button')
+      expect(badge.getAttribute('aria-label')).toBe('1 session archived of ticket demo/01')
+      const flowNode = badge.closest('.react-flow__node')!
+      fireEvent.pointerDown(flowNode, { button: 0, pointerType: 'mouse' })
+      fireEvent.click(flowNode)
+      expect(active).toBe('ticket:demo/1')
+      onNodeClick.mockClear()
+      fireEvent.pointerDown(badge, { button: 0, pointerType: 'mouse' })
+      fireEvent.click(badge)
+      const history = screen.getByRole('dialog', { name: 'Archived sessions of demo/01' })
+      // A double click inside the popover does not open the Ticket.
+      fireEvent.doubleClick(within(history).getByText('Archived sessions of demo/01'))
+      const show = within(history).getByRole('button', { name: 'Show Ship ticket one' })
+      fireEvent.pointerDown(show, { button: 0, pointerType: 'mouse' })
+      fireEvent.mouseDown(show, { button: 0 })
+      fireEvent.pointerUp(show, { button: 0, pointerType: 'mouse' })
+      fireEvent.mouseUp(show, { button: 0 })
+      fireEvent.click(show, { button: 0 })
+      await waitFor(() => expect(sent).toEqual(restoreOf('session:b1')))
+      expect(ended).toEqual([])
+      expect(active).toBe('ticket:demo/1')
+      expect(onNodeClick).not.toHaveBeenCalled()
+      expect(onNodeDoubleClick).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('pointerdown', outside, true)
+    }
   })
 
   it('on a read-only screen Show is inactive', async () => {

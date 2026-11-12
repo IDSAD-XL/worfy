@@ -3,20 +3,21 @@
 // title, Restore on each row and «Restore all from today». There is no time limit: a Session stays
 // here until it is restored. The Sessions with a Binding are in the history of their Ticket
 // (badges/SessionHistory.tsx) and of their Epic (actions/EpicSessionHistory.tsx), which draw the
-// same rows through SessionHistoryPopover (../session-history.tsx).
+// same rows through SessionHistoryButton (../session-history.tsx).
 //
 // This overlay also builds the Project's archive list (../archive-list.ts) once for the Canvas and
 // publishes it, so a badge on each Ticket only reads its group. Show and Restore go through the
 // Canvas's LayoutOps: each is a step of ⌘Z. On a read-only screen (worfy-link ticket 25) the lists
 // can be read and every Show and Restore is inactive, with the reason.
 import { Panel } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { create } from 'zustand'
 import type { BindingTarget } from '../../../shared/binding/resolve'
 import { manualRead, refreshSessionSignals, sessionSignalsOf, storedBindings, useBindingsStore, useManualBindings } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { Popover } from '../../theme/kit/Popover'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import {
   archivedSessionNodes,
@@ -29,7 +30,6 @@ import {
   type ArchivedSession,
 } from '../archive-list'
 import { Rows } from '../session-history'
-import { useDismiss } from '../use-dismiss'
 import { currentLayout, useLayout, useLayoutOps } from '../useLayout'
 import './archive.css'
 
@@ -112,10 +112,11 @@ function Archive({ projectId, root }: { projectId: string; root: string }) {
   const [query, setQuery] = useState('')
   /** The time the popover was opened at: «today» and the times are counted from it. */
   const [openedAt, setOpenedAt] = useState(0)
-  const box = useRef<HTMLDivElement>(null)
-  const close = useCallback(() => setOpen(false), [])
-  const inside = useMemo(() => [box], [])
-  useDismiss(open, close, inside)
+  // A press elsewhere, Esc, a blur of the window or a switch of the view closes it (theme/kit/Popover.tsx).
+  const openChange = useCallback((next: boolean) => {
+    if (next) setOpenedAt(Date.now())
+    setOpen(next)
+  }, [])
 
   // Nothing left to list: closed, so it does not open again by itself when a Session is archived later.
   if (unbound.length === 0 && open) setOpen(false)
@@ -128,56 +129,57 @@ function Archive({ projectId, root }: { projectId: string; root: string }) {
   const today = archivedToday(unbound, openedAt)
   return (
     <Panel position="bottom-center" className="w-archive w-archive--panel nodrag nopan nowheel">
-      <div ref={box} className="w-archive__root">
-        {open ? (
-          <div className="w-archive__popover" role="dialog" aria-label="Archive" data-testid="archive-popover">
-            <div className="w-archive__heading">Archive</div>
-            <div className="w-archive__tools">
-              <input
-                type="search"
-                className="w-archive__search"
-                placeholder="Search by title"
-                aria-label="Search the archive by title"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              <button
-                type="button"
-                className="w-archive__action"
-                {...(pending.length > 0
-                  ? { 'aria-disabled': 'true' as const, title: 'The Bindings of the archived Sessions are still being read' }
-                  : today.length === 0
-                    ? { 'aria-disabled': 'true' as const, title: 'Nothing was archived today' }
-                    : writeAction(readOnly, () => void restoreFrom(today), `Restore the ${today.length} Sessions archived today`))}
-              >
-                Restore all from today
-              </button>
-            </div>
-            {found.length === 0 ? <div className="w-archive__empty">No Session matches</div> : null}
-            {pending.length > 0 ? (
-              <div className="w-archive__empty" data-testid="archive-pending">
-                Reading the Bindings of {pending.length} more {pending.length === 1 ? 'Session' : 'Sessions'}…
-              </div>
-            ) : null}
-            <Rows sessions={found} action="Restore" readOnly={readOnly} now={openedAt} run={(session) => void restoreFrom([session])} />
+      <Popover
+        open={open}
+        onOpenChange={openChange}
+        label="Archive"
+        testId="archive-popover"
+        className="w-archive w-archive__popover"
+        side="top"
+        align="end"
+        sideOffset={8}
+        trigger={
+          <button
+            type="button"
+            className="w-archive__button"
+            aria-label={`Archive: ${unbound.length} archived ${unbound.length === 1 ? 'Session' : 'Sessions'} without a Binding`}
+            title="Archived Sessions without a Binding"
+            data-testid="archive-button"
+          >
+            Archive<span className="w-archive__count">{unbound.length}</span>
+          </button>
+        }
+      >
+        <div className="w-archive__heading">Archive</div>
+        <div className="w-archive__tools">
+          <input
+            type="search"
+            className="w-archive__search"
+            placeholder="Search by title"
+            aria-label="Search the archive by title"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button
+            type="button"
+            className="w-archive__action"
+            {...(pending.length > 0
+              ? { 'aria-disabled': 'true' as const, title: 'The Bindings of the archived Sessions are still being read' }
+              : today.length === 0
+                ? { 'aria-disabled': 'true' as const, title: 'Nothing was archived today' }
+                : writeAction(readOnly, () => void restoreFrom(today), `Restore the ${today.length} Sessions archived today`))}
+          >
+            Restore all from today
+          </button>
+        </div>
+        {found.length === 0 ? <div className="w-archive__empty">No Session matches</div> : null}
+        {pending.length > 0 ? (
+          <div className="w-archive__empty" data-testid="archive-pending">
+            Reading the Bindings of {pending.length} more {pending.length === 1 ? 'Session' : 'Sessions'}…
           </div>
         ) : null}
-        <button
-          type="button"
-          className="w-archive__button"
-          aria-expanded={open}
-          aria-haspopup="dialog"
-          aria-label={`Archive: ${unbound.length} archived ${unbound.length === 1 ? 'Session' : 'Sessions'} without a Binding`}
-          title="Archived Sessions without a Binding"
-          data-testid="archive-button"
-          onClick={() => {
-            setOpenedAt(Date.now())
-            setOpen((value) => !value)
-          }}
-        >
-          Archive<span className="w-archive__count">{unbound.length}</span>
-        </button>
-      </div>
+        <Rows sessions={found} action="Restore" readOnly={readOnly} now={openedAt} run={(session) => void restoreFrom([session])} />
+      </Popover>
     </Panel>
   )
 }

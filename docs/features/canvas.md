@@ -137,6 +137,11 @@ Binding are in the history of their Ticket or Epic. A Session that resumes comes
 old place if clear, otherwise to the nearest clear place. The palette's "Archive finished sessions now" is one step of
 ⌘Z, and uses 24 h while the setting is Never.
 
+The Trash, the Archive and the history of a Ticket or an Epic are popovers. Opening one moves the focus into it, and
+closing gives it back to its button. Esc, a press outside, leaving the window (a press inside a Browser's page too) and
+a switch of the view close it; a press on a toast does not. Where the window has no room, it flips to the other side
+of its button or slides along the edge. A press inside a Ticket's or an Epic's history leaves that Node active.
+
 **Camera.** Pan and zoom are saved per Project and per Machine, shared by all windows, and are saved only when they
 changed.
 
@@ -221,6 +226,7 @@ keeps the highest revision. A refused operation puts the Nodes back at main's pl
 - `test/unit/history.test.ts`, `test/e2e/trash-undo.spec.ts`: undo.
 - `test/unit/tidy.test.tsx`, `test/unit/arrange-by-epic.test.ts`: layout commands.
 - `test/contract/trash.test.ts`, `test/contract/layout-archive.test.ts`: the Trash and the archive.
+- `test/unit/kit-popover.test.tsx`, `test/e2e/layers-popover.spec.ts`: the popovers of the Trash, the Archive and a history.
 - `test/unit/pinning.test.tsx`, `test/e2e/pin-tags.spec.ts`: pins and tags.
 - `test/contract/viewport-store.test.ts`: the camera.
 

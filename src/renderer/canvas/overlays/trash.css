@@ -1,4 +1,4 @@
-/* The Trash button and popover at the bottom centre of the Canvas (TrashPopover.tsx). Values come from tokens.css. */
+/* The Trash button at the bottom centre of the Canvas and its popover, drawn over it (TrashPopover.tsx). Values come from tokens.css. */
 .w-trash {
   font-family: var(--font-ui);
   font-size: var(--text-12);
@@ -31,16 +31,9 @@
   color: var(--text-muted);
   font-size: var(--text-11);
 }
+/* The popover is the kit's (theme/kit/popover.css): its frame, its height and its place over the button come from there. */
 .w-trash__popover {
   width: 320px;
-  max-height: 360px;
-  overflow: auto;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-popover);
-  background: var(--surface);
-  box-shadow: var(--shadow-control);
 }
 .w-trash__heading {
   padding: 0 var(--space-1) var(--space-1);
@@ -94,9 +87,4 @@
 .w-trash__error {
   padding: var(--space-1);
   color: var(--blocked-text);
-}
-.w-trash__root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
 }

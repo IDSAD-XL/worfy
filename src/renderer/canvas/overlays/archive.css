@@ -12,11 +12,6 @@
 .react-flow__panel.bottom.center.w-archive--panel {
   transform: translateX(calc(-100% - 56px));
 }
-.w-archive__root {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
 .w-archive__button {
   display: inline-flex;
   align-items: center;
@@ -44,23 +39,14 @@
   color: var(--text-muted);
   font-size: var(--text-11);
 }
+/* Both popovers are the kit's (theme/kit/popover.css): their frame, their height and their place
+   next to the button come from there. The Archive's stands over its button, right edges lined up. */
 .w-archive__popover {
   width: 360px;
-  max-height: 360px;
-  overflow: auto;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-popover);
-  background: var(--surface);
-  box-shadow: var(--shadow-control);
 }
-/* The history of a Ticket or an Epic: drawn into document.body, under its button. */
+/* The history of a Ticket or an Epic: under its button. */
 .w-archive__popover--history {
-  position: fixed;
-  z-index: 1000;
   width: 320px;
-  margin: 0;
 }
 .w-archive__heading {
   padding: 0 var(--space-1) var(--space-1);

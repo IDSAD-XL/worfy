@@ -8,7 +8,7 @@
 // as the placeholder while the rest of the Canvas still renders. Nothing is written into src/,
 // and which test file Vite transforms the real registry for first does not matter.
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ComponentType } from 'react'
+import { useState, type ComponentType } from 'react'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutState } from '../../src/shared/layout/types'
@@ -982,6 +982,46 @@ describe('the active Node and a popup of a Node (worfy-ui-kit ticket 03)', () =>
       expect(active()).toBe(false)
     } finally {
       popup.unmount()
+      canvas.cleanup()
+    }
+  })
+
+  it('the first click inside a kit Popover of a Node does its action and leaves the Node active (worfy-ui-kit ticket 09)', async () => {
+    const { Popover } = await import('../../src/renderer/theme/kit/Popover')
+    const restore = vi.fn()
+    // Opened, as the history of a Ticket is after a click on its «N sessions»; drawn on <body>.
+    function NodePopover() {
+      const [open, setOpen] = useState(true)
+      return (
+        <Popover open={open} onOpenChange={setOpen} label="Archived sessions" inNode trigger={<button type="button">1 session</button>}>
+          <button type="button" onClick={restore}>
+            Show
+          </button>
+        </Popover>
+      )
+    }
+    const canvas = await renderCanvas('kit-popover-000', [node('n', 'note', 0, { text: '' })])
+    let popover: ReturnType<typeof render> | undefined
+    try {
+      const active = () => flowNode('n').classList.contains('w-node--active')
+      await act(async () => {
+        fireEvent.click(flowNode('n'))
+      })
+      await waitFor(() => expect(active()).toBe(true))
+      // Opened after the click on the Node: that click is a press outside a popover open before it.
+      popover = render(<NodePopover />)
+      const show = await screen.findByRole('button', { name: 'Show' })
+      await act(async () => {
+        fireEvent.pointerDown(show, { button: 0, pointerType: 'mouse' })
+        fireEvent.mouseDown(show, { button: 0 })
+        fireEvent.pointerUp(show, { button: 0, pointerType: 'mouse' })
+        fireEvent.mouseUp(show, { button: 0 })
+        fireEvent.click(show, { button: 0 })
+      })
+      expect(restore).toHaveBeenCalledTimes(1)
+      expect(active()).toBe(true)
+    } finally {
+      popover?.unmount()
       canvas.cleanup()
     }
   })

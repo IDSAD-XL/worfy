@@ -2,12 +2,13 @@
 // from this Project's Canvas in the last three days, newest first, each with Restore. The entries
 // live in main (src/main/layout/trash.ts); this asks for them when it mounts and again whenever
 // main reports a change of the Project's trash.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Panel } from '@xyflow/react'
 import type { TrashEntry } from '../../../shared/ipc/trash'
 import { invoke, subscribe } from '../../ipc'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { Popover } from '../../theme/kit/Popover'
 import './trash.css'
 
 export const order = 30
@@ -57,27 +58,14 @@ export default function TrashPopover() {
   /** The time the popover was opened at: the entries' ages are counted from it. */
   const [openedAt, setOpenedAt] = useState(0)
   const [error, setError] = useState<string>()
-  const root = useRef<HTMLDivElement>(null)
-
-  // A click elsewhere or Escape closes it.
-  useEffect(() => {
-    if (!open) return
-    const outside = (event: MouseEvent) => {
-      if (event.target instanceof Node && root.current?.contains(event.target) !== true) setOpen(false)
+  // A press elsewhere, Esc, a blur of the window or a switch of the view closes it (theme/kit/Popover.tsx).
+  const openChange = useCallback((next: boolean) => {
+    if (next) {
+      setError(undefined)
+      setOpenedAt(Date.now())
     }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      // The press that closes the popover does nothing else (the Esc of an active Node, of Focus mode).
-      event.preventDefault()
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', outside)
-    window.addEventListener('keydown', escape)
-    return () => {
-      document.removeEventListener('mousedown', outside)
-      window.removeEventListener('keydown', escape)
-    }
-  }, [open])
+    setOpen(next)
+  }, [])
 
   if (projectId === undefined) return null
 
@@ -90,46 +78,42 @@ export default function TrashPopover() {
 
   return (
     <Panel position="bottom-center" className="w-trash nodrag nopan nowheel">
-      <div ref={root} className="w-trash__root">
-        {open ? (
-          <div className="w-trash__popover" role="dialog" aria-label="Trash" data-testid="trash-popover">
-            <div className="w-trash__heading">Trash</div>
-            {entries.length === 0 ? <div className="w-trash__empty">Nothing deleted in the last 3 days</div> : null}
-            <ul className="w-trash__list">
-              {entries.map((entry) => (
-                <li key={entry.label} className="w-trash__entry" data-testid="trash-entry" data-node-id={entry.nodeId}>
-                  <span className="w-trash__kind">{KIND_NAMES[entry.kind] ?? entry.kind}</span>
-                  <span className="w-trash__title" title={entry.title ?? entry.nodeId}>
-                    {entry.title ?? entry.nodeId}
-                  </span>
-                  <span className="w-trash__time">{ago(entry.trashedAt, openedAt)}</span>
-                  <button type="button" className="w-trash__restore" {...writeAction(readOnly, () => restore(entry.label))}>
-                    Restore
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {error !== undefined ? (
-              <div className="w-trash__error" role="alert">
-                {error}
-              </div>
-            ) : null}
+      <Popover
+        open={open}
+        onOpenChange={openChange}
+        label="Trash"
+        testId="trash-popover"
+        className="w-trash w-trash__popover"
+        side="top"
+        sideOffset={8}
+        trigger={
+          <button type="button" className="w-trash__button" title="Deleted Nodes of the last 3 days">
+            Trash{entries.length > 0 ? <span className="w-trash__count">{entries.length}</span> : null}
+          </button>
+        }
+      >
+        <div className="w-trash__heading">Trash</div>
+        {entries.length === 0 ? <div className="w-trash__empty">Nothing deleted in the last 3 days</div> : null}
+        <ul className="w-trash__list">
+          {entries.map((entry) => (
+            <li key={entry.label} className="w-trash__entry" data-testid="trash-entry" data-node-id={entry.nodeId}>
+              <span className="w-trash__kind">{KIND_NAMES[entry.kind] ?? entry.kind}</span>
+              <span className="w-trash__title" title={entry.title ?? entry.nodeId}>
+                {entry.title ?? entry.nodeId}
+              </span>
+              <span className="w-trash__time">{ago(entry.trashedAt, openedAt)}</span>
+              <button type="button" className="w-trash__restore" {...writeAction(readOnly, () => restore(entry.label))}>
+                Restore
+              </button>
+            </li>
+          ))}
+        </ul>
+        {error !== undefined ? (
+          <div className="w-trash__error" role="alert">
+            {error}
           </div>
         ) : null}
-        <button
-          type="button"
-          className="w-trash__button"
-          aria-expanded={open}
-          title="Deleted Nodes of the last 3 days"
-          onClick={() => {
-            setError(undefined)
-            setOpenedAt(Date.now())
-            setOpen((value) => !value)
-          }}
-        >
-          Trash{entries.length > 0 ? <span className="w-trash__count">{entries.length}</span> : null}
-        </button>
-      </div>
+      </Popover>
     </Panel>
   )
 }
