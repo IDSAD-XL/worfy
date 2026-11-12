@@ -30,10 +30,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения 
 
 - [ ] Unit test `test/unit/kit-context-menu.test.tsx`: роль и имя; стрелки и typeahead; Esc закрывает и отмечен как
       обработанный; фокус возвращается туда, где был; место у края окна сдвигается внутрь.
+  - evidence: test-run pass · `pnpm test test/unit/kit-context-menu.test.tsx` exit 0 · mac - · 92d3045701e761986175fbf7c711dd7fc5bf5b55
 - [ ] Существующие `canvas-menu`, `machines-section`, `quote-comments-ui` unit test-ы зелёные без правок ролей и
       `data-testid`; дописанный `layers-menu.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 92d3045701e761986175fbf7c711dd7fc5bf5b55
 
 ## Где в коде
 
