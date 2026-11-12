@@ -1,7 +1,7 @@
 # 02 — Фундамент слоёв без Base UI: шкала z-index, helper «открытые слои», Esc поля ввода чата
 
 Type: task
-Status: open
+Status: claimed 2026-11-11T23:53Z
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 02; «Решения по реализации» (шкала слоёв, helper «открытые слои»,
 Esc); истории 4, 26, 27; [критик](../../../docs/product/critic/worfy-ui-kit-2026-11-11.md), возражение 2
@@ -33,11 +33,14 @@ Base UI здесь не нужен: всё это нужно при любом �
 
 - [ ] Unit test helper-а: открытые dialog, menu и listbox видны, закрытые — нет; шесть мест выше импортируют helper,
       своих проверок по ролям в них нет. Mutant (helper не знает `listbox`) роняет test.
+  - evidence: test-run pass · `pnpm test test/unit/open-layers.test.tsx test/unit/focus-mode.test.tsx test/unit/toasts-view.test.tsx` exit 0; mutant without listbox exit 1 · mac - · 0b4474c6f1848a0c40df1bdaef9cbb3052e43e25
 - [ ] Unit test поля ввода: Esc, который popup поля уже обработал (`preventDefault`), ход не прерывает; обычный Esc
       при занятом агенте прерывает, как раньше.
+  - evidence: test-run pass · `pnpm test test/unit/message-input-escape.test.tsx` exit 0 · mac - · 0b4474c6f1848a0c40df1bdaef9cbb3052e43e25
 - [ ] Tokens z-index лежат в `theme/tokens.css`; toast-ы, список `Select` и закреплённые Node-ы берут их; порядок слоёв
       прежний — `test/e2e/toast-placement.spec.ts`, `test/e2e/select.spec.ts`, `test/e2e/focus.spec.ts` зелёные.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0b4474c6f1848a0c40df1bdaef9cbb3052e43e25
 
 ## Где в коде
 

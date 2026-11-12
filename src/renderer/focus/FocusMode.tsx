@@ -48,6 +48,7 @@ import { isPrimary } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
 import { label, matches } from '../shortcuts/match'
+import { isOpenLayer, openLayers } from '../theme/open-layers'
 import { COVERED_ATTRIBUTE, keepFocusOutOfCover, keepShownOnly, SEE_THROUGH_SLOT, underFocusCover } from './cover'
 import { focusLayoutChanged, setFocusActive, useFocusState } from './focus-state'
 import { FocusTileContext, SeeThroughTileContext, type SetSeeThrough } from './focus-tile'
@@ -134,16 +135,16 @@ function focusIsElsewhere(layer: HTMLElement): boolean {
 }
 
 /**
- * Whether a menu or a dialog is open outside `layer`: in the page, and neither hidden nor under
- * the layer — what the layer covers is inert.
+ * Whether a layer — a dialog, a menu, a Select's list — is open outside `layer`: in the page, and
+ * neither hidden nor under the layer — what the layer covers is inert.
  */
 function isOpenOutside(popup: Element, layer: HTMLElement): boolean {
-  return popup.isConnected && !layer.contains(popup) && popup.closest('[hidden]') === null && !underFocusCover(popup)
+  return isOpenLayer(popup) && !layer.contains(popup) && !underFocusCover(popup)
 }
 
-/** The menus and dialogs open outside `layer`: of the sidebar, the command palette, the Settings window. */
+/** The layers open outside `layer` (theme/open-layers.ts): of the sidebar, the command palette, the Settings window, a Select's list. */
 function popupsOutside(layer: HTMLElement): Element[] {
-  return [...document.querySelectorAll('[role="dialog"], [role="menu"]')].filter((popup) => isOpenOutside(popup, layer))
+  return openLayers().filter((popup) => isOpenOutside(popup, layer))
 }
 
 /** A press of Esc that may be focus mode's, as the page was before anybody handled it. */

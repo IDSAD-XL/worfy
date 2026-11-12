@@ -31,11 +31,12 @@ import { useMemo, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState, type XYPosition } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode, LayoutOpInput, Viewport } from '../../shared/layout/types'
+import { LAYERS } from '../theme/layers'
 import { TICKETS_TOP } from './epic-layout'
 import { useElementSize } from './use-element-size'
 
-/** Pinned Nodes are drawn above the rest of the plane. */
-export const PINNED_Z_INDEX = 1000
+/** Pinned Nodes are drawn above the rest of the plane: the Canvas overlay layer of the scale (theme/layers.ts). */
+export const PINNED_Z_INDEX = LAYERS.canvasOverlay
 export const PINNED_CLASS = 'w-pinned'
 
 /**

@@ -13,6 +13,7 @@ import { shareRangeText, shareText } from '../../shared/autopilot/share-percent'
 import type { Span } from '../../shared/flight-recorder/spans'
 import type { RunListItem, RunView } from '../../shared/ipc/runs'
 import { setView, useNavigation } from '../session/navigation'
+import { layerOf, openLayers } from '../theme/open-layers'
 import { chooseRun, formatDuration, formatLocal, leaveRunHistory, useRunHistory } from './store'
 import { DetailPanel, GithubNotice } from './DetailPanel'
 import { epicsText, stopReasonText } from './span-words'
@@ -152,9 +153,6 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
   )
 }
 
-/** What takes an Esc before this screen: a dialog or a menu open on screen, or a place to type. */
-const ESCAPE_TAKERS = '[role="dialog"], [role="menu"]'
-
 /**
  * The screen of the view `history`. `activeProjectId` is the Project the window shows: when it changes,
  * the screen of another Project's Runs gives way to the Canvas.
@@ -192,16 +190,17 @@ export function RunHistoryView({ activeProjectId }: { activeProjectId?: string }
     target?.focus()
   }, [active, focusAsked, runs])
 
-  // Esc goes back to the Canvas, unless something else takes it: a dialog or a menu open (each closes on
-  // the same press, whether it is still in the document or already gone with the press), or a text field.
+  // Esc goes back to the Canvas, unless something else takes it: an open layer — a dialog, a menu, a
+  // Select's list (theme/open-layers.ts); each closes on the same press, whether it is still in the
+  // document or already gone with the press — or a text field.
   useEffect(() => {
     if (!active) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const target = event.target instanceof Element ? event.target : null
-      if (target?.closest(`${ESCAPE_TAKERS}, input, textarea, [contenteditable="true"], [contenteditable=""]`)) return
+      if (layerOf(target) !== null || target?.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) return
       // Only one on screen: the hidden views (AppShell keeps them mounted) may hold a dialog of their own.
-      if ([...document.querySelectorAll(ESCAPE_TAKERS)].some((popup) => popup.closest('[hidden]') === null)) return
+      if (openLayers().length > 0) return
       setView('canvas')
     }
     globalThis.addEventListener('keydown', onKey)

@@ -36,6 +36,21 @@
      divides it by --interface-scale, because the traffic lights do not scale with the interface. */
   --traffic-lights-room: 92px;
 
+  /* Layers: the z-index of what opens over the window (worfy-ui-kit ticket 02). Inline styles take
+     the same values from layers.ts; test/unit/layers.test.tsx keeps the two equal. The values keep
+     the order the layers had before the scale. A layer that is not on the scale yet moves onto it
+     with the ticket that moves its place onto the kit. */
+  --z-panel: 80; /* a panel over the view: Getting started */
+  --z-popover: 90; /* a popover or a menu of the window: the Canvas menu, the sidebar's menus */
+  --z-dialog: 100; /* a modal dialog with its backdrop; the Settings window sits at 110 */
+  --z-toast: 120; /* the toasts: over the dialogs and the Settings window */
+  /* Over the Canvas plane: a pinned Node over the other Nodes, focus mode over the main area. Both live
+     inside the main area of the window, a stacking context of its own (shell.css), so this value orders
+     layers in there only, and everything drawn on <body> above — dialogs, toasts — stays over them. */
+  --z-canvas-overlay: 1000;
+  --z-dialog-menu: 3000; /* a menu or a list over a dialog, over focus mode and the Binding menu: a Select's list */
+  --z-top: 4000; /* the topmost layer: the version chip's menu */
+
   /* Colour: light (palette E) */
   --bg: #f7f7f9;
   --canvas: #f7f7f9;

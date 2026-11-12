@@ -399,6 +399,18 @@ describe('inside the window shell', () => {
         )
       })
 
+      it('the list of a Select drawn on <body> that closes on the press gets it, and the next press leaves focus mode (worfy-ui-kit ticket 02)', async () => {
+        const harness = openInShell()
+        const list = openPopup('listbox', document.body, 'closes without preventDefault')
+        layer().focus()
+        pressEscape()
+        await afterThePress()
+        expect(isOpen(list)).toBe(false)
+        expect(harness.exits()).toBe(0)
+        expect(pressEscape().defaultPrevented).toBe(true)
+        expect(harness.exits()).toBe(1)
+      })
+
       it('a menu under the layer in what a Browser tile has hidden (not inert) is not outside: the press leaves at once (worfy-browser ticket 17)', () => {
         const harness = openInShell()
         // As focus mode covers the view while a tile shows a Browser: hidden, not inert.
