@@ -30,6 +30,17 @@ Ticket берут только после «да» spike-а (Ticket 01, заме
    `nowheel` и пометка «внутри Node», отметка keep-out для toast-ов. `canvas/Canvas.tsx`: обработчик, который
    снимает активность Node-а, пропускает нажатия внутри popup-ов с этой пометкой.
 5. `theme/open-layers.ts` (из Ticket-а 02) узнаёт popup Base UI, который ещё в DOM, но уже закрывается.
+6. Esc отмечается обработанным в фазе React (spike, заметка `spike-base-ui.md`, шаг 2, пункт 4). Base UI закрывает popup
+   и ставит `preventDefault` из своего слушателя на `document`, то есть после всех обработчиков React: React ловит
+   события на корне приложения, и portal не разрывает всплытие React. Поэтому:
+   - общая часть `theme/kit/layer.ts` вешает на сам popup `onKeyDown`: Esc закрывает popup, вызывает
+     `preventDefault()` и `stopPropagation()`. Так предок popup-а по дереву React со своим Esc его не получает (пример
+     в `main` — `session/ProductSessionPanel.tsx:289-293`, панель закрылась бы тем же нажатием);
+   - поле, в котором фокус остаётся при открытом popup-е, не полагается на `defaultPrevented` в своём `onKeyDown`, а
+     спрашивает helper «открытые слои». В `main` так ошибается `session/MessageInput.tsx:347`: при открытом popup-е
+     Base UI Esc прервёт ход агента и закроет popup одним нажатием;
+   - z-index слоя стоит на позиционированном элементе (portal с `position` или positioner). Иначе backdrop окна с
+     меньшим z-index закрывает popup (spike, run 43129431332, Popover над Settings).
 
 ## Готово, когда
 
@@ -40,6 +51,10 @@ Ticket берут только после «да» spike-а (Ticket 01, заме
 - [ ] Unit test общей части: blur окна и смена вида закрывают открытый popup; popup с пометкой «внутри Node» не
       снимает активность Node-а первым кликом.
 - [ ] Unit test helper-а: popup Base UI в состоянии закрытия не считается открытым слоем.
+- [ ] Unit test общей части: Esc в popup-е внутри элемента со своим обработчиком Esc в `onKeyDown` закрывает только
+      popup, обработчик элемента не срабатывает; поле с фокусом при открытом popup-е не выполняет своё действие по Esc.
+- [ ] E2e test в настоящем Electron: Esc в popup-е внутри элемента со своим Esc — одно нажатие, одно действие. Его
+      пишет первый Ticket, у которого такой popup появляется в приложении (10 или 11); здесь — сценарий и unit test.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0; e2e test бюджета старта зелёный.
 
 ## Где в коде
@@ -51,6 +66,7 @@ Ticket берут только после «да» spike-а (Ticket 01, заме
 - `src/renderer/theme/kit/layer.ts` (новый)
 - `src/renderer/theme/open-layers.ts` (из Ticket-а 02)
 - `src/renderer/canvas/Canvas.tsx`
+- `src/renderer/session/MessageInput.tsx` (Esc спрашивает helper «открытые слои»)
 - `test/unit/kit-layer.test.tsx` (новый)
 - `test/unit/open-layers.test.ts` (из Ticket-а 02)
 
