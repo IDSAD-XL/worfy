@@ -185,6 +185,19 @@ export const agentMcpAction = invokeChannel(
   'write',
 )
 
+/**
+ * Allow all (worfy-mcp-live ticket 09): puts every server of `names` — the rows of the group «Not allowed in
+ * this Project», each offering `allow` — on the Profile's list with one write, then restarts the Session once.
+ * Answers as agent.mcpAction does: the rows after it and, when a server did not join, the error.
+ */
+export const agentMcpAllowAll = invokeChannel(
+  'agent.mcpAllowAll',
+  z.object({ sessionId, names: z.array(z.string().min(1)).min(1).max(100) }),
+  z.object({ servers: mcpServers, error: z.string().nullable() }),
+  'project',
+  'write',
+)
+
 export const agentEvent = eventChannel('agent.event', agentEventEnvelope, 'project', 'read')
 
 declare module './channels' {
@@ -208,6 +221,7 @@ declare module './channels' {
     'agent.answerQuestion': typeof agentAnswerQuestion
     'agent.mcp': typeof agentMcp
     'agent.mcpAction': typeof agentMcpAction
+    'agent.mcpAllowAll': typeof agentMcpAllowAll
     'agent.event': typeof agentEvent
   }
 }

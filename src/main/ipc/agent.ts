@@ -50,6 +50,7 @@ import {
   agentList,
   agentMcp,
   agentMcpAction,
+  agentMcpAllowAll,
   agentModels,
   agentPermission,
   agentQueueRemove,
@@ -68,7 +69,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { waveTickets } from '../../shared/workflow/wave-plan'
 import { defineHandler, emit, type EventTarget, type HandlerModule } from './index'
 import { profileSetRunner, type ProfileSetRunner } from './pipeline'
-import { allowMcpServer } from './profile-edit'
+import { allowMcpServer, allowMcpServers } from './profile-edit'
 
 /** Sends one event to every client of the app; tests pass their own clients. */
 export type Broadcast = (send: (target: EventTarget) => void) => void
@@ -218,6 +219,15 @@ function configured(change: SettingsChange): string {
  * person takes on a live Session is told to the registry's input observers first (noteInput); a
  * message, when its turn among the Session's messages comes, right before the Session gets it.
  */
+/**
+ * The folder the Allow writes of a Session in `cwd` queue under (allowMcpServer): the root of the Project that
+ * holds it — a Session in a worktree under the Project's folder shares its main checkout's queue — or the
+ * folder itself outside every Project.
+ */
+export function allowQueueKey(cwd: string, projects: readonly { readonly path: string }[]): string {
+  return projects.find((each) => realInsideProjects(cwd, [each]) !== null)?.path ?? cwd
+}
+
 export function agentHandlers(
   registry: () => SessionRegistry,
   attachments: AttachDeps = appAttachDeps,
@@ -353,8 +363,15 @@ export function agentHandlers(
       registry().noteInput(sessionId, `asked for ${action} of an MCP server`)
       // Allow writes the Profile's list of the Session's Project through bin/profile-set (worfy-mcp-live ticket 05);
       // the Allows of one Project take turns, whichever of its folders (a worktree) the Session runs in.
-      const project = projects().find((each) => realInsideProjects(session.cwd, [each]) !== null)?.path ?? session.cwd
+      const project = allowQueueKey(session.cwd, projects())
       return session.mcpAction(name, action, { allow: (server) => allowMcpServer(profileSet(), session.cwd, server, project) })
+    }),
+    defineHandler(agentMcpAllowAll, ({ sessionId, names }) => {
+      const session = registry().get(sessionId)
+      registry().noteInput(sessionId, `asked for allow of ${names.length === 1 ? 'an MCP server' : `${names.length} MCP servers`}`)
+      // Allow all (ticket 09): one write with every name, in the same per-Project queue as Allow.
+      const project = allowQueueKey(session.cwd, projects())
+      return session.mcpAllowAll(names, { allowAll: (servers) => allowMcpServers(profileSet(), session.cwd, servers, project) })
     }),
     defineHandler(agentQueueRemove, ({ sessionId, id }) => {
       const session = registry().get(sessionId)

@@ -6,6 +6,7 @@ import { useOrchestratorViews } from '../canvas/nodes/orchestrator-view'
 import { invoke, subscribe } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
+import { Button } from '../theme/Button'
 import { StatusChip, type Status } from '../theme/primitives'
 import { showToast } from '../toast/toasts'
 import { useSessionNodeViews } from './node-sessions'
@@ -13,7 +14,7 @@ import { mcpCount } from './header-facts'
 import { acceptMcpServers, pickUpMcp, useLatestMcp, useSessionMcp } from './store'
 import './mcp-chip.css'
 
-// The chip «MCP n/m» of the Session header and its popover (worfy-mcp-live ticket 04; spec worfy-mcp-live,
+// The chip «MCP n/m» of a Session and its popover (worfy-mcp-live ticket 04; spec worfy-mcp-live,
 // Q2 and the first decision taken without the owner). n is the servers that are connected, m every server of the Session
 // but those not allowed in the Project. The chip takes the blocked colours, with its warning icon, while
 // a server failed or needs auth, and is not drawn while main has no rows (store.ts, useSessionMcp).
@@ -30,6 +31,15 @@ import './mcp-chip.css'
 // a silent click (the toast goes away in seconds). In the
 // Session Autopilot runs (the Orchestrator while a run of its Project goes on), Allow says it takes
 // effect from the next Wave: the set of servers is fixed for a Wave.
+//
+// Ticket 09 (owner 2026-11-12): the chip stands in the bar under the input field, beside the context meter
+// (composer/McpServers.tsx), no longer in the Session header, so its popover opens upward, over the field,
+// and keeps inside the window. The group «Not allowed in this Project» has «Allow all» in its heading while
+// it holds two rows offering Allow or more (one row has its own Allow): one call, `agent.mcpAllowAll`, puts
+// every name on the Profile's list and restarts the Session once. While it runs, those rows' buttons wait,
+// and it waits while any action of the popover runs; its refusal is a toast and stays written under the
+// heading until the next Allow all, as a row's does. worfy's own servers offer no Turn off for this Session
+// (main, ticket 09); their other actions (Reconnect, Sign in) stay.
 //
 // Project settings show the same status beside each name of the Profile's MCP list (EditProfile.tsx,
 // McpProfileStatus): the rows of the newest Session of the Project on this Machine.
@@ -78,10 +88,29 @@ const ACTION_LABELS: Readonly<Record<McpServerAction, string>> = {
  */
 export const CONNECTOR_HINT = 'A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit profile).'
 
+/** The button in the heading of the group «Not allowed in this Project» (ticket 09). */
+export const ALLOW_ALL_LABEL = 'Allow all'
+
 /** The gap between the chip and its popover. */
 const POPOVER_GAP = 4
 /** The popover keeps this far from the window's edges. */
 const WINDOW_MARGIN = 8
+/** The tallest the popover grows (its rows scroll past it), as mcp-chip.css had it; and the least it shrinks to. */
+const POPOVER_MAX_HEIGHT = 480
+const POPOVER_MIN_HEIGHT = 120
+
+/**
+ * Where the popover stands for a chip at `rect` (ticket 09): its bottom POPOVER_GAP over the chip, which is in
+ * the bar under the input field, and its height no more than the room above the chip.
+ */
+function popoverPlace(rect: DOMRect): CSSProperties {
+  return {
+    position: 'fixed',
+    left: rect.left,
+    bottom: window.innerHeight - rect.top + POPOVER_GAP,
+    maxHeight: Math.min(POPOVER_MAX_HEIGHT, Math.max(POPOVER_MIN_HEIGHT, rect.top - POPOVER_GAP - WINDOW_MARGIN)),
+  }
+}
 
 /** The chip's tooltip: the count in words, what is wrong (failed, needs auth, not started), and the servers not allowed. */
 function chipTitle(rows: readonly McpServerRow[]): string {
@@ -178,6 +207,33 @@ function ServerRow({ row, autopilot, running, failure, readOnly, onAction }: Row
   )
 }
 
+interface AllowAllProps {
+  /** The names of the group's rows that offer Allow. */
+  names: readonly string[]
+  /** Allow all of these names runs now. */
+  running: boolean
+  /** An action of the popover runs now: the button waits. */
+  waiting: boolean
+  readOnly: string | null
+  onAllowAll: (names: readonly string[]) => void
+}
+
+/** «Allow all» in the heading of the group «Not allowed in this Project» (ticket 09): the secondary Button. */
+function AllowAllButton({ names, running, waiting, readOnly, onAllowAll }: AllowAllProps) {
+  return (
+    <Button
+      className="w-mcp__allow-all"
+      data-testid="mcp-allow-all"
+      aria-busy={running ? 'true' : undefined}
+      {...(waiting
+        ? { onClick: () => undefined, 'aria-disabled': 'true' as const, title: running ? `${ALLOW_ALL_LABEL}…` : 'Wait for the action that runs now' }
+        : writeAction(readOnly, () => onAllowAll(names), `Put ${names.length} servers on the Project's list and restart the Session once`))}
+    >
+      {ALLOW_ALL_LABEL}
+    </Button>
+  )
+}
+
 export interface McpChipProps {
   /** The live Session the actions go to. */
   sessionId: string | null
@@ -196,6 +252,8 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
   const [running, setRunning] = useState<Readonly<Record<string, McpServerAction>>>({})
   /** Why the last action on each server failed, by name; kept in the row after its toast is gone. */
   const [failures, setFailures] = useState<Readonly<Record<string, string>>>({})
+  /** Why the last Allow all failed; kept under the group's heading after its toast is gone. */
+  const [allowAllFailure, setAllowAllFailure] = useState<string | null>(null)
   const runningNow = useRef(new Set<string>())
   const chip = useRef<HTMLButtonElement>(null)
   const popover = useRef<HTMLDivElement>(null)
@@ -206,6 +264,7 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
   }, [])
 
   // Once the popover shows: it moves left as far as the window's right edge makes it, and takes the focus.
+  // Its bottom stands over the chip and its height stops at the window's top (popoverPlace).
   useLayoutEffect(() => {
     const element = popover.current
     if (place === null || element === null) return
@@ -264,11 +323,40 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
       })
   }
 
+  /** Allow all (ticket 09): every name of `names` in one call; the rows wait meanwhile, as for their own Allow. */
+  const allowAll = (names: readonly string[]): void => {
+    if (sessionId === null || names.length === 0 || runningNow.current.size > 0) return
+    for (const name of names) runningNow.current.add(name)
+    setRunning((now) => ({ ...now, ...Object.fromEntries(names.map((name) => [name, 'allow' as const])) }))
+    const failed = (reason: string | null): void => {
+      setAllowAllFailure(reason === null ? null : `${ALLOW_ALL_LABEL} failed: ${reason}`)
+      if (reason !== null) showToast({ kind: 'error', key: `mcp:${sessionId}:allow-all`, testId: 'mcp-action-error', text: `${ALLOW_ALL_LABEL}: ${reason}` })
+    }
+    void invoke('agent.mcpAllowAll', { sessionId, names: [...names] })
+      .then((result) => {
+        if (!result.ok) return failed(failureReason('agent.mcpAllowAll', result.error))
+        if (result.value.servers !== null) acceptMcpServers(sessionId, result.value.servers)
+        failed(result.value.error)
+      })
+      .catch((error: unknown) => failed(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        for (const name of names) runningNow.current.delete(name)
+        setRunning((now) => {
+          const next = { ...now }
+          for (const name of names) delete next[name]
+          return next
+        })
+      })
+  }
+
   if (rows === null || rows.length === 0) return null
   const { connected, total, warn } = mcpCount(rows)
   const title = chipTitle(rows)
   const allowed = rows.filter((row) => row.status !== 'not-allowed')
   const notAllowed = rows.filter((row) => row.status === 'not-allowed')
+  /** The names Allow all puts on the list: the group's rows that offer Allow. With one, its own Allow does it. */
+  const allowable = notAllowed.filter((row) => row.actions.includes('allow')).map((row) => row.name)
+  const busy = Object.keys(running).length > 0
   const draw = (row: McpServerRow) => (
     <ServerRow key={row.name} row={row} autopilot={autopilot} running={running[row.name] ?? null} failure={failures[row.name] ?? null} readOnly={readOnly} onAction={act} />
   )
@@ -296,7 +384,7 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
         onClick={() => {
           if (place !== null) return close(false)
           const rect = chip.current?.getBoundingClientRect()
-          if (rect !== undefined) setPlace({ position: 'fixed', left: rect.left, top: rect.bottom + POPOVER_GAP })
+          if (rect !== undefined) setPlace(popoverPlace(rect))
           // The person looks at the servers now: main may take in one allowed since the Session started (ticket 03).
           if (sessionId !== null) void pickUpMcp(sessionId)
         }}
@@ -320,7 +408,17 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
               <ul className="w-mcp__list">{allowed.map(draw)}</ul>
               {notAllowed.length === 0 ? null : (
                 <section className="w-mcp__group" data-testid="mcp-not-allowed" aria-label="Not allowed in this Project">
-                  <h2 className="w-mcp__heading">Not allowed in this Project</h2>
+                  <div className="w-mcp__group-head">
+                    <h2 className="w-mcp__heading">Not allowed in this Project</h2>
+                    {allowable.length < 2 ? null : (
+                      <AllowAllButton names={allowable} running={allowable.every((name) => running[name] === 'allow')} waiting={busy} readOnly={readOnly} onAllowAll={allowAll} />
+                    )}
+                  </div>
+                  {allowAllFailure === null ? null : (
+                    <p className="w-mcp__error w-mcp__group-error" data-testid="mcp-allow-all-error" role="alert">
+                      {allowAllFailure}
+                    </p>
+                  )}
                   <ul className="w-mcp__list">{notAllowed.map(draw)}</ul>
                   <p className="w-mcp__note" data-testid="mcp-connector-hint">
                     {CONNECTOR_HINT}

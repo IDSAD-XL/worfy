@@ -6,16 +6,18 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 
-// The chip «MCP n/m» of the Session header and its popover (worfy-mcp-live ticket 04) against the built
+// The chip «MCP n/m» of a Session and its popover (worfy-mcp-live ticket 04) against the built
 // app, on the fake agent with test/fixtures/agent-scripts/session-mcp.jsonl: mcpServerStatus() answers
 // three made-up servers — example-notes and worfy-canvas connected, example-tracker failed. After the
-// first turn the header shows «MCP 2/3» in the warning look; the popover draws a row per server with its
-// status, tools, error and source, Reconnect on the failed one and Turn off for this Session on each
-// connected one (ticket 03); opening it lets main take in new servers (one reloadPlugins()). A click on
-// Reconnect goes to main (`agent.mcpAction`) and on to the agent: the fake records reconnectMcpServer("example-tracker") in
-// WORFY_AGENT_LOG and makes the server connected, so the chip reads «MCP 3/3» and stops warning. The
-// header with the open popover is shot in the light and the dark theme; with WORFY_EVIDENCE_DIR set, the
-// shots are copied there.
+// first turn the bar under the input field shows «MCP 2/3» in the warning look, beside the context meter
+// (ticket 09: the chip left the Session header); the popover opens upward and draws a row per server with
+// its status, tools, error and source, Reconnect on the failed one and Turn off for this Session on each
+// connected server of the user (ticket 03) — worfy-canvas, worfy's own, is status only (ticket 09); opening
+// it lets main take in new servers (one reloadPlugins()). A click on Reconnect goes to main
+// (`agent.mcpAction`) and on to the agent: the fake records reconnectMcpServer("example-tracker") in
+// WORFY_AGENT_LOG and makes the server connected, so the chip reads «MCP 3/3» and stops warning. The bar
+// with the open popover is shot in the light and the dark theme; with WORFY_EVIDENCE_DIR set, the shots
+// are copied there.
 //
 // Allow in Project (worfy-mcp-live ticket 05): the Project has a Profile whose list `mcp.allowed` names
 // example-notes and worfy-canvas, read through the repository's harness/bin/profile over a temporary Harness
@@ -76,13 +78,20 @@ async function openSession(window: Page): Promise<Locator> {
   return view
 }
 
-/** The header with the open popover in both themes, as <test output>/session-mcp/<name>-<scheme>.png, copied to the evidence folder (as <ticket>-<name>-<scheme>.png) when one is set. */
-async function shoot(window: Page, header: Locator, popover: Locator, name: string, ticket = '04'): Promise<void> {
+/**
+ * The bar under the input field with the popover open over it, in both themes, as
+ * <test output>/session-mcp/<name>-<scheme>.png, copied to the evidence folder (as <ticket>-<name>-<scheme>.png)
+ * when one is set.
+ */
+async function shoot(window: Page, bar: Locator, popover: Locator, name: string, ticket = '09'): Promise<void> {
   const folder = join(test.info().project.outputDir, 'snapshots', 'session-mcp')
   mkdirSync(folder, { recursive: true })
-  const [top, below] = [await header.boundingBox(), await popover.boundingBox()]
-  if (top === null || below === null) throw new Error('the header or the popover is not on screen')
-  const clip = { x: top.x, y: top.y, width: top.width, height: below.y + below.height - top.y + 8 }
+  const [under, over] = [await bar.boundingBox(), await popover.boundingBox()]
+  if (under === null || over === null) throw new Error('the bar or the popover is not on screen')
+  // The popover stands over the bar: the shot runs from its top to the bar's bottom, as wide as either reaches.
+  const x = Math.min(under.x, over.x)
+  const top = Math.max(0, over.y - 8)
+  const clip = { x, y: top, width: Math.max(under.x + under.width, over.x + over.width) - x, height: under.y + under.height - top }
   try {
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
@@ -98,13 +107,14 @@ async function shoot(window: Page, header: Locator, popover: Locator, name: stri
   }
 }
 
-test('the header shows «MCP n/m», its popover lists the servers, and Reconnect goes to the agent', async () => {
+test('the bar under the input field shows «MCP n/m», its popover lists the servers, and Reconnect goes to the agent', async () => {
   const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-mcp', WORFY_AGENT_LOG: log } })
   try {
     const { window } = app
     const view = await openSession(window)
-    const header = view.locator('.w-session__header')
-    const chip = header.getByTestId('session-mcp')
+    // Since ticket 09 the chip stands in the bar under the input field, beside the context meter.
+    const bar = view.getByTestId('message-input').locator('.w-composer__bar')
+    const chip = bar.getByTestId('session-mcp')
 
     await view.getByRole('textbox', { name: 'Message Orchestrator' }).fill('check the servers')
     await view.getByRole('textbox', { name: 'Message Orchestrator' }).press('Enter')
@@ -113,6 +123,7 @@ test('the header shows «MCP n/m», its popover lists the servers, and Reconnect
     // Two of three connected; one failed, so the chip warns.
     await expect(chip.getByTestId('session-mcp-count')).toHaveText('2/3')
     await expect(chip).toHaveAttribute('data-warn', 'true')
+    await expect(view.locator('.w-session__header').getByTestId('session-mcp')).toHaveCount(0)
 
     await chip.click()
     const popover = window.getByRole('dialog', { name: 'MCP servers' })
@@ -132,11 +143,15 @@ test('the header shows «MCP n/m», its popover lists the servers, and Reconnect
     await expect(notes.getByTestId('mcp-row-tools')).toHaveText('2 tools')
     await expect(canvas.getByTestId('mcp-row-source')).toHaveText('worfy')
     // Buttons only from the row's actions: the Claude driver offers Reconnect on a failed server, and Turn off
-    // for this Session on a connected one of an attended Session (ticket 03).
+    // for this Session on a connected server of the user in an attended Session (ticket 03); worfy's own
+    // server is status only (ticket 09).
     await expect(tracker.getByRole('button')).toHaveText(['Reconnect'])
     await expect(notes.getByRole('button')).toHaveText(['Turn off for this Session'])
-    await expect(canvas.getByRole('button')).toHaveText(['Turn off for this Session'])
-    await shoot(window, header, popover, 'mcp-popover')
+    await expect(canvas.getByRole('button')).toHaveCount(0)
+    // The popover opens upward, over the field, inside the window.
+    const [chipBox, popoverBox] = [await chip.boundingBox(), await popover.boundingBox()]
+    expect(popoverBox !== null && chipBox !== null && popoverBox.y + popoverBox.height <= chipBox.y && popoverBox.y >= 0).toBe(true)
+    await shoot(window, bar, popover, 'mcp-popover')
 
     await tracker.getByRole('button', { name: 'Reconnect' }).click()
     await expect.poll(() => calls().filter((call) => call.kind === 'reconnectMcpServer')).toEqual([{ kind: 'reconnectMcpServer', name: 'example-tracker' }])
@@ -200,8 +215,9 @@ test('Allow in Project: a server the Profile\'s list keeps out leaves «Not allo
   try {
     const { window } = app
     const view = await openSession(window)
-    const header = view.locator('.w-session__header')
-    const chip = header.getByTestId('session-mcp')
+    // Since ticket 09 the chip stands in the bar under the input field, beside the context meter.
+    const bar = view.getByTestId('message-input').locator('.w-composer__bar')
+    const chip = bar.getByTestId('session-mcp')
 
     await view.getByRole('textbox', { name: 'Message Orchestrator' }).fill('check the servers')
     await view.getByRole('textbox', { name: 'Message Orchestrator' }).press('Enter')
@@ -218,7 +234,9 @@ test('Allow in Project: a server the Profile\'s list keeps out leaves «Not allo
     await expect(tracker.getByTestId('mcp-row-status')).toHaveText('not allowed')
     await expect(tracker.getByRole('button')).toHaveText(['Allow'])
     await expect(group.getByTestId('mcp-connector-hint')).toBeVisible()
-    await shoot(window, header, popover, 'mcp-not-allowed', '05')
+    // One server outside the list: its own Allow, no «Allow all» (ticket 09: that needs two rows or more).
+    await expect(group.getByTestId('mcp-allow-all')).toHaveCount(0)
+    await shoot(window, bar, popover, 'mcp-not-allowed')
 
     await tracker.getByRole('button', { name: 'Allow' }).click()
     // The row leaves the group: the Session restarted with the list that names it.

@@ -1,8 +1,9 @@
-/* The chip «MCP n/m» of the Session header and its popover (McpChip.tsx, worfy-mcp-live ticket 04).
-   Values come from tokens.css only. The chip has the shape of the header's permission mode chip
-   (.w-session__mode): 18 px, radius 4 px, 11 px semibold on surface raised; it warns in the blocked
-   colours with the warning icon, never by colour alone. The popover has the look of the Modes menu
-   (.w-modes__menu): surface, 1 px border, radius 10 px, node shadow. */
+/* The chip «MCP n/m» of a Session and its popover (McpChip.tsx, worfy-mcp-live ticket 04), in the bar under
+   the input field beside the context meter since ticket 09. Values come from tokens.css only. The chip has the
+   shape of the header's permission mode chip (.w-session__mode): 18 px, radius 4 px, 11 px semibold on surface
+   raised; it warns in the blocked colours with the warning icon, never by colour alone. The popover has the look
+   of the Modes menu (.w-modes__menu): surface, 1 px border, radius 10 px, node shadow; it opens upward from the
+   chip, on the popover layer (--z-popover), its height kept to the room above the chip (McpChip.tsx). */
 
 .w-mcp-chip {
   display: inline-flex;
@@ -129,6 +130,26 @@
 }
 .w-mcp__group {
   margin-top: var(--space-1);
+}
+/* The group's heading and, while two rows or more offer Allow, «Allow all» (ticket 09) at its right end:
+   the secondary Button at the popover height of the scale (button.css), 12 px. */
+.w-mcp__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-right: var(--space-1);
+}
+.w-mcp__group-head .w-mcp__allow-all {
+  --button-height: var(--button-height-m);
+  padding: 0 var(--space-2);
+  font-size: var(--text-12);
+}
+.w-mcp__group-head .w-mcp__allow-all[aria-busy='true'] {
+  cursor: progress;
+}
+.w-mcp__group-error {
+  padding: 0 var(--space-1) var(--space-1);
 }
 .w-mcp__heading {
   margin: 0;

@@ -209,6 +209,53 @@ describe('one inventory at a time', () => {
     expect(await third).not.toBe(await first)
   })
 
+  it('two different Projects run two inventories at once, each with its own answer (review of #1822)', async () => {
+    const releases: (() => void)[] = []
+    const starts: string[] = []
+    const inventory = new McpInventory(
+      (at) => {
+        starts.push(at)
+        return new Promise((done) => {
+          releases.push(() => done({ close: () => undefined, mcpServerStatus: () => Promise.resolve([{ name: `example-of-${starts.indexOf(at)}`, status: 'connected', source: 'user' }]) } as unknown as QueryHandle))
+        })
+      },
+      { settleMs: 1_000, pollMs: 10 },
+      (folder) => Promise.resolve(folder),
+    )
+    const alpha = join(cwd, 'alpha')
+    const beta = join(cwd, 'beta')
+    const first = inventory.refresh(alpha)
+    const second = inventory.refresh(beta)
+    await vi.waitFor(() => expect(starts).toEqual([alpha, beta]))
+    for (const release of releases) release()
+    expect((await first)?.map((row) => row.name)).toEqual(['example-of-0'])
+    expect((await second)?.map((row) => row.name)).toEqual(['example-of-1'])
+    expect(inventory.latest(alpha)).not.toBe(inventory.latest(beta))
+  })
+
+  it('a folder whose Project git could not tell is asked again next time; a root found is kept (review of #1822)', async () => {
+    const asked: string[] = []
+    const answers: (string | null | Error)[] = [null, new Error('git failed'), join(cwd, 'root')]
+    const inventory = new McpInventory(
+      () => Promise.resolve({ close: () => undefined, mcpServerStatus: () => Promise.resolve([{ name: 'example-notes', status: 'connected', source: 'user' }]) } as unknown as QueryHandle),
+      { settleMs: 1_000, pollMs: 10 },
+      (folder) => {
+        asked.push(folder)
+        const answer = answers.shift() ?? null
+        return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer)
+      },
+    )
+    const folder = join(cwd, 'repo')
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await inventory.refresh(folder)
+    await inventory.refresh(folder)
+    await inventory.refresh(folder)
+    await inventory.refresh(folder)
+    // null, a failure, then the root: three asks, and the root is kept for the fourth.
+    expect(asked).toEqual([folder, folder, folder])
+    expect(inventory.latest(folder)).toEqual([{ name: 'example-notes', status: 'connected', tools: null, error: null, source: 'user', sourceWord: null, actions: [] }])
+  })
+
   it('two Sessions of one Project, in its main checkout and in a worktree of it, start one inventory, and both get its rows', async () => {
     const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd, stdio: 'pipe' })
     git('init', '-q', '-b', 'main')

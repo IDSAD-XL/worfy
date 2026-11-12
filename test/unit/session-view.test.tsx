@@ -1199,6 +1199,31 @@ describe('SessionPanel', () => {
       expect(input.querySelector('[data-item="Pickers"], [data-item="ContextMeter"], [data-item="Queue"]')).toBeNull()
     })
 
+    // worfy-mcp-live ticket 09 (owner 2026-11-12, Q9, Q10): the chip «MCP n/m» stands in the bar under the input
+    // field, beside the context meter, no longer in the header; a Product Session shows it nowhere, as before.
+    const MCP_ROWS = [{ name: 'example-notes', status: 'connected', tools: 1, error: null, source: 'user', sourceWord: null, actions: [] }]
+
+    it('a Session Node shows the chip «MCP n/m» in the bar under its input field, left of the context meter, not in its header', async () => {
+      answers['agent.mcp'] = () => ({ servers: MCP_ROWS })
+      await mountKind(undefined)
+      const input = screen.getByTestId('message-input')
+      const chip = await vi.waitFor(() => within(input).getByTestId('session-mcp'))
+      expect(within(chip).getByTestId('session-mcp-count').textContent).toBe('1/1')
+      expect(within(screen.getByRole('banner')).queryByTestId('session-mcp')).toBeNull()
+      const hint = input.querySelector('[data-line="hint"]')
+      const items = [...(hint?.querySelectorAll<HTMLElement>('[data-item]') ?? [])].map((each) => each.dataset.item)
+      expect(items.indexOf('McpServers')).toBeGreaterThanOrEqual(0)
+      expect(items.indexOf('McpServers')).toBe(items.indexOf('ContextMeter') - 1)
+    })
+
+    it('a Product Session shows no chip of MCP servers, neither in its header nor under its field', async () => {
+      answers['agent.mcp'] = () => ({ servers: MCP_ROWS })
+      await mountKind('product')
+      await act(async () => {})
+      expect(screen.queryByTestId('session-mcp')).toBeNull()
+      expect(screen.getByTestId('message-input').querySelector('[data-item="McpServers"]')).toBeNull()
+    })
+
     it('a plain Session keeps its header facts, Hide tools, the input field\'s bar and no chat heading', async () => {
       await mountKind(undefined)
       const header = screen.getByRole('banner')

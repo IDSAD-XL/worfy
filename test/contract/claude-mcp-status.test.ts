@@ -101,7 +101,8 @@ const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => 
   error: null,
   source: 'user',
   sourceWord: null,
-  actions: (fields.status ?? 'connected') === 'connected' ? ['turn-off'] : [],
+  // A connected server of the user offers Turn off; worfy's own never does (ticket 09).
+  actions: (fields.status ?? 'connected') === 'connected' && fields.source !== 'worfy' ? ['turn-off'] : [],
   ...fields,
 })
 

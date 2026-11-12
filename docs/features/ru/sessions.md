@@ -121,9 +121,11 @@ Interrupt его отклоняет.
 - Файлы, выбранные вне Project, и каждый брошенный файл копируются в папку данных Project, до 20 MB каждый.
 
 **Session view.** Второй view окна, рядом с Canvas. В шапке заголовок («Orchestrator» или «Session» и Project), chip состояния, Session picker,
-Model, Effort, Permissions, Cost, chip «MCP n/m», Hide tools и Interrupt. Cost показывает значение только для Orchestrator: `$0.00`, с
-четырьмя знаками ниже доллара. У остальных Session — прочерк. Chip «MCP n/m» считает MCP-серверы Session, n подключённых из
-m, и открывает popover с их статусом и действиями: Reconnect, Sign in, Turn off for this Session и Allow. Весь Feature,
+Model, Effort, Permissions, Cost, Hide tools и Interrupt. Cost показывает значение только для Orchestrator: `$0.00`, с
+четырьмя знаками ниже доллара. У остальных Session — прочерк. Chip «MCP n/m» стоит в строке под полем ввода, сразу слева
+от context meter (из шапки он ушёл: там стало тесно); у Product Session его нет. Он считает MCP-серверы Session, n
+подключённых из m, и открывает над собой popover с их статусом и действиями: Reconnect, Sign in, Turn off for this Session,
+Allow и Allow all. Весь Feature,
 с подхватом сервера, добавленного во время работы Session, и серверами, которые Project не разрешает, — на странице
 [MCP servers of a Session](mcp-servers.md). View показывает Session, открытую последней в этом Project, пока её Node на Canvas, а иначе
 Orchestrator. Память об этом выборе живёт столько же, сколько окно. Session picker показывает сначала Orchestrator, затем работающие Session,

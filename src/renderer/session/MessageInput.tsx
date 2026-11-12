@@ -44,7 +44,7 @@ import { useSlashMenu } from './SlashMenu'
 // target of the Getting started ring (worfy-onboarding ticket 14, getting-started/highlight.ts).
 //
 // A Product Session's field (`product`; worfy-product-session ticket 19, Q4) is one line under the text:
-// attaching, Interrupt while a turn runs, and Send. Its bar has no context meter, queue, pickers or hints
+// attaching, Interrupt while a turn runs, and Send. Its bar has no MCP chip, context meter, queue, pickers or hints
 // (PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS); Return still sends, and while a turn runs main still queues.
 //
 // What is typed and not sent is the field's draft (`draft`, drafts.ts; worfy-polish ticket 95): a field
@@ -491,7 +491,7 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
           {attachments}
           {fieldElement}
           <div className="w-composer__bar">
-            {/* The hint line: attach, the hints, the items that stand there (the context meter, the queue) and Interrupt. */}
+            {/* The hint line: attach, the hints, the items that stand there (the MCP chip, the context meter, the queue) and Interrupt. */}
             <div className="w-composer__line" data-line="hint">
               {attach}
               <span className="w-composer__hint w-mono">{composerHint()}</span>

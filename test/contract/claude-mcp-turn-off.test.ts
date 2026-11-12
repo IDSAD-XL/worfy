@@ -20,7 +20,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeReleases, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { EXIT_WAIT_MS, SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
+import { EXIT_WAIT_MS, SessionRegistry, STATIC_CLAUDE_PARTS, type QueryRequest, type SessionVendorParts } from '../../src/main/agent/session'
+import { claudeMcp } from '../../src/main/vendors/claude/mcp'
+import { claudeSessions } from '../../src/main/vendors/claude/session'
+import type { McpPart } from '../../src/main/vendors/mcp'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { McpServerRow } from '../../src/shared/agent/mcp-status'
@@ -95,7 +98,7 @@ interface SdkStart {
  * `processes: false` leaves the stub processes out: nothing is alive for begin() to wait for, so a
  * second process would start at once — the case a Restart's own guard must cover.
  */
-function harness(allowlist: readonly string[] | null, script: (n: number) => string = () => 'mcp-restart', processes = true) {
+function harness(allowlist: readonly string[] | null, script: (n: number) => string = () => 'mcp-restart', processes = true, parts?: SessionVendorParts) {
   const calls: FakeCall[] = []
   const starts: SdkStart[] = []
   const requests = new Map<unknown, QueryRequest>()
@@ -125,7 +128,8 @@ function harness(allowlist: readonly string[] | null, script: (n: number) => str
     requests.set(request.prompt, request)
     return factory(request)
   }
-  const registry = new SessionRegistry(processes ? stub.wrap(remembered) : remembered)
+  const queries = processes ? stub.wrap(remembered) : remembered
+  const registry = parts === undefined ? new SessionRegistry(queries) : new SessionRegistry({ sessionsOf: () => claudeSessions(queries), partsOf: () => parts })
   registries.push(registry)
   const events: AgentEvent[] = []
   const session = registry.start(cwd, undefined, (_id, event) => events.push(event))
@@ -145,9 +149,9 @@ function harness(allowlist: readonly string[] | null, script: (n: number) => str
 
 const row = (name: string, fields: Partial<McpServerRow> = {}): McpServerRow => ({ name, status: 'connected', tools: 1, error: null, source: 'user', sourceWord: null, actions: ['turn-off'], ...fields })
 const NOTES = row('example-notes')
-const CANVAS = row(CANVAS_SERVER_NAME, { source: 'worfy' })
+// worfy's own server: status only, no Turn off (ticket 09).
+const CANVAS = row(CANVAS_SERVER_NAME, { source: 'worfy', actions: [] })
 const NOTES_OFF = row('example-notes', { status: 'disabled', tools: null, actions: ['turn-on'] })
-const CANVAS_OFF = row(CANVAS_SERVER_NAME, { status: 'disabled', tools: null, source: 'worfy', actions: ['turn-on'] })
 
 const LIST = ['example-notes', CANVAS_SERVER_NAME]
 const allowedNames = (start: SdkStart | undefined) => start?.managedSettings?.allowedMcpServers?.map((each) => each.serverName)
@@ -311,14 +315,48 @@ describe('turn-off and turn-on for this Session', () => {
     expect(readFileSync(join(home, '.claude.json'), 'utf8')).toBe(CLAUDE_JSON)
   })
 
-  it("turn-off of worfy's own server: not passed in mcpServers, out of the list; the system prompt drops its instructions", async () => {
+  it("worfy's own server offers no Turn off, and turn-off of it is refused before anything restarts (ticket 09)", async () => {
     const h = harness(LIST)
     await h.turn('one')
-    const off = await h.session.mcpAction(CANVAS_SERVER_NAME, 'turn-off')
-    expect(off.servers).toEqual([NOTES, CANVAS_OFF])
-    expect(h.starts[1]?.mcpServers).toBeUndefined()
-    expect(allowedNames(h.starts[1])).toEqual(['example-notes'])
+    expect((await h.session.mcp())?.find((each) => each.name === CANVAS_SERVER_NAME)?.actions).toEqual([])
+    await expect(h.session.mcpAction(CANVAS_SERVER_NAME, 'turn-off')).rejects.toThrow(/not available/)
+    expect(h.processStarts()).toHaveLength(1)
+    expect(Object.keys(h.starts[0]?.mcpServers ?? {})).toEqual([CANVAS_SERVER_NAME])
+    expect(await h.session.mcp()).toEqual([NOTES, CANVAS])
     expect(h.toggles()).toEqual([])
+  })
+
+  it("the Session refuses turn-off of a server of source worfy even when a driver's row offers it", async () => {
+    // A driver that, by mistake, puts Turn off in worfy's own row: the Session's own rule still holds.
+    const status = claudeMcp.status
+    if (status === undefined) throw new Error('the Claude driver reads no MCP status')
+    const offering: McpPart = {
+      ...claudeMcp,
+      status: async (handle, read) => (await status.call(claudeMcp, handle, read))?.map((each) => (each.source === 'worfy' ? { ...each, actions: ['turn-off' as const] } : each)) ?? null,
+    }
+    const h = harness(LIST, undefined, true, { ...STATIC_CLAUDE_PARTS, mcp: offering })
+    await h.turn('one')
+    expect((await h.session.mcp())?.find((each) => each.name === CANVAS_SERVER_NAME)?.actions).toEqual(['turn-off'])
+    await expect(h.session.mcpAction(CANVAS_SERVER_NAME, 'turn-off')).rejects.toThrow(/not available/)
+    expect(h.processStarts()).toHaveLength(1)
+    expect(h.session.state).toBe('idle')
+  })
+
+  it('a server of source worfy that worfy did not register (a plugin the user installed) keeps Turn off, and the Session does it', async () => {
+    const status = claudeMcp.status
+    if (status === undefined) throw new Error('the Claude driver reads no MCP status')
+    // example-notes stands for a plugin's server here: Claude Code reports such a server as `plugin`, shown as worfy.
+    const asPlugin: McpPart = {
+      ...claudeMcp,
+      status: async (handle, read) => (await status.call(claudeMcp, handle, read))?.map((each) => (each.name === 'example-notes' ? { ...each, source: 'worfy' as const } : each)) ?? null,
+    }
+    const h = harness(LIST, undefined, true, { ...STATIC_CLAUDE_PARTS, mcp: asPlugin })
+    await h.turn('one')
+    expect((await h.session.mcp())?.find((each) => each.name === 'example-notes')?.actions).toEqual(['turn-off'])
+    const off = await h.session.mcpAction('example-notes', 'turn-off')
+    expect(off.error).toBeNull()
+    expect(h.processStarts()).toHaveLength(2)
+    expect(allowedNames(h.starts[1])).toEqual([CANVAS_SERVER_NAME])
   })
 
   it('with no Profile list (a Session outside every Project) the server is named in deniedMcpServers, in the form the spike recorded, and no list is added', async () => {

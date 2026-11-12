@@ -2,8 +2,8 @@
 
 One Feature. The **MCP servers of a Session** are the servers whose tools the agent of a running Session gets: the
 user's own (from the user's config, a Project's `.mcp.json` or claude.ai connectors) and worfy's (`worfy-canvas`,
-`worfy-browser`, `worfy-mind-map` and the Harness plugin's server). This page covers the chip «MCP n/m» in the Session
-header, its popover, the actions on a server, taking in a server added while the Session runs, the servers the Project
+`worfy-browser`, `worfy-mind-map` and the Harness plugin's server). This page covers the chip «MCP n/m» in the bar under
+a Session's input field, its popover, the actions on a server, taking in a server added while the Session runs, the servers the Project
 does not allow, and the same status in Project settings. Which servers a Session gets at its start is on
 [Sessions](sessions.md#how-it-works); Claude Code and Codex are on [Vendors](vendors.md). New to the terms: start with
 [Concepts](concepts.md).
@@ -14,20 +14,26 @@ does not allow, and the same status in Project settings. Which servers a Session
 
 #### The chip and its popover
 
-- The chip «MCP n/m» stands in the header of the Session view, after Cost, for a Claude Code and a Codex Session alike.
-  n are the servers that are connected, m all the servers of the Session except those not allowed in the Project. While
+- The chip «MCP n/m» stands in the bar under the input field of the Session view, on the hint line just left of the
+  context meter, for a Claude Code and a Codex Session alike, in an Orchestrator and a Session Node. It moved there from
+  the Session header, which had grown too crowded. n are the servers that are connected, m all the servers of the Session except those not allowed in the Project. While
   a server has failed, needs a sign-in or was not started, the chip takes the blocked colours and a warning icon. It is absent while main
   has no data, for a Session with no server, and in a Product Session. Its tooltip says the count in words, then how many
   failed, need auth or were not started, then how many more are not allowed: "3 of 4 MCP servers connected: 1 failed.
   2 more not allowed in this Project".
-- A click opens a popover under the chip, titled "MCP servers" with "n/m connected". Each server has a row: its name,
+- A click opens a popover above the chip, over the input field, titled "MCP servers" with "n/m connected". It stays
+  inside the window: its height is at most what fits above the chip, and its rows scroll past that. Each server has a row: its name,
   its status (connected, failed, needs auth, pending, disabled, not allowed, not started), the number of its tools when the Vendor
   gave it, the error in the Vendor's words, and its source: claude.ai, user config, Project or worfy. A source worfy does
   not know by name (`managed`, `enterprise`, `agent` or a new one) shows as user config, with the Vendor's word in the
   tooltip. A status Claude Code reports that worfy does not know shows as disabled, with Claude Code's word in the
   error. The servers not allowed in the Project stand in a group of their own below, "Not allowed in this Project".
-- A row has a button for each action main offers for it; the window adds none of its own. While an action runs, the
-  buttons of its row wait. A refused action shows a toast that names the action, the server and the reason, and the
+- While two rows or more of that group offer Allow, its heading has "Allow all" at the right end. With one such row
+  there is no "Allow all": the row's own Allow does the same.
+- A row has a button for each action main offers for it; the window adds none of its own. A row of worfy's own
+  servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) has no Turn off for this Session; a failed one still
+  offers Reconnect. While an action runs, the
+  buttons of its row wait, and "Allow all" waits too. A refused action shows a toast that names the action, the server and the reason, and the
   reason stays in the row ("Allow failed: …") until the next action there succeeds; the rows after an action come with
   its answer.
 - Esc closes the popover and does not interrupt the turn. A press outside it, a resize of the window and the window
@@ -39,18 +45,21 @@ does not allow, and the same status in Project settings. Which servers a Session
 |---|---|---|
 | Reconnect | failed; needs auth on Claude Code, and on Codex where Sign in is not offered | Reconnects the server in the running process. On needs auth it is for after a sign-in done elsewhere. |
 | Sign in | needs auth, when the Vendor can start the sign-in | Opens the server's sign-in page in the system browser and waits for the sign-in. |
-| Turn off for this Session | connected, Claude Code, a person at the Session | Restarts the Session with the same conversation without the server. Its row stays, disabled, with Turn on. |
+| Turn off for this Session | connected, Claude Code, a person at the Session, not one of worfy's own servers | Restarts the Session with the same conversation without the server. Its row stays, disabled, with Turn on. |
 | Turn on | turned off for this Session | Restarts the Session with the same conversation with the server back. |
 | Allow | not allowed, Claude Code | Puts the server on the Profile's list and restarts the Session with the same conversation. |
+| Allow all | the heading of "Not allowed in this Project", while two rows or more offer Allow | Puts every server of the group on the Profile's list with one write and restarts the Session once. |
 | Restart Session with the same conversation | not started, Claude Code, a person at the Session | Restarts the Session with the same conversation, so Claude Code starts again with the list. |
 
-- **Restart with the same conversation.** Turn off, Turn on, Allow and the Restart of a not started row end the Session's process and start a new one that
+- **Restart with the same conversation.** Turn off, Turn on, Allow, Allow all and the Restart of a not started row end the Session's process and start a new one that
   resumes the same conversation, in the same Session. A turn that runs is interrupted first, as Interrupt does, and the
   queue is held. The Session is `starting` meanwhile, and what is sent to it waits for the new process. After a turn has
   run the Session keeps its id; before the first turn there is no conversation to resume, so the new process starts a new
   one under a new id. Only a not started row has a Restart button of its own.
 - **Turn off for this Session** changes neither the Profile nor the user's config: a new Session gets the server again.
-  worfy's own servers can be turned off too.
+  worfy's own servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) are never turned off: their rows offer no Turn
+  off, and main refuses a Turn off of such a server asked for all the same, before anything restarts. A server of a
+  plugin the user installed shows the source worfy too, and keeps Turn off.
 - **Allow** writes the Profile through the Harness, as Edit profile does. A Profile with no list gets the default list
   with the name added. The Allows of one Project take turns, whichever of its folders the Session runs in: each reads
   the list after the write before it, so Allow pressed on many servers at once writes them all. When a write from
@@ -61,6 +70,13 @@ does not allow, and the same status in Project settings. Which servers a Session
   when the new process lacks the server. After the Restart the answer waits, 10 seconds at most, until the server has
   left pending, so the popover shows it without another turn. When the new process still does not have the server, the
   answer is an error: the name is on the list, but Claude Code did not start the server in this Session.
+- **Allow all** sends the names of the group's rows that offer Allow in one call. main writes them with one write of the
+  Profile, in the same turn-taking of the Project as Allow, adding the names the list lacks in their order; then it
+  restarts the Session once, whatever the number of names, and waits for the servers as Allow does. While it runs, the
+  rows' Allow buttons wait. A refused write gives the reason in a toast and in a line under the group's heading ("Allow
+  all failed: …"), which stays through new rows until the next Allow all answers; the Session stays as it was. When the
+  new process lacks some of the servers, the error names them. In an Autopilot Session it writes the Profile without a
+  Restart.
 - **Sign in** in a Claude Code Session opens the page Claude Code gives, only an http or https one; Claude Code itself
   takes the callback on localhost and the token, and worfy never sees it. The action ends once the server is out of
   needs auth, 10 minutes at most; a server that failed after the sign-in is reconnected once. A claude.ai connector signs
@@ -101,7 +117,7 @@ live check.
 
 The set of servers of an Autopilot Session is fixed when the Session starts, for the Wave. It takes in no new server, and
 its rows offer no Turn off; Turn off, Turn on and a Restart are refused. Reconnect and Sign in work, since they do not
-change the set. Allow writes the Profile without a Restart, and the server joins from the next Wave. In the
+change the set. Allow and Allow all write the Profile without a Restart, and the servers join from the next Wave. In the
 Orchestrator's popover, while Autopilot of its Project runs, an Allow row says "Allow takes effect from the next Wave".
 
 #### Codex
@@ -171,31 +187,33 @@ have shows without a status; with no Session, nothing shows. The form is on [Pro
 | Codex: rows, Reconnect, Sign in | `src/main/vendors/codex/mcp.ts`, `src/main/vendors/codex/session.ts` |
 | Restart, Turn off, Turn on, Allow | `src/main/agent/session.ts`, `src/main/vendors/claude/options.ts` |
 | Allow's write of the Profile | `src/main/ipc/profile-edit.ts` |
-| Channels `agent.mcp`, `agent.mcpAction` and their handlers | `src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts` |
+| Channels `agent.mcp`, `agent.mcpAction`, `agent.mcpAllowAll` and their handlers | `src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts` |
 | The chip, the popover, the status in Edit profile | `src/renderer/session/McpChip.tsx`, `src/renderer/session/mcp-chip.css`, `src/renderer/session/header-facts.ts`, `src/renderer/session/store.ts`, `src/renderer/projects/EditProfile.tsx` |
+| The chip's place in the bar under the input field | `src/renderer/session/composer/McpServers.tsx`, `src/renderer/session/product-session.ts` |
 | The test agent's MCP answers | `src/main/agent/fake-query.ts` |
 
 **Data flow.** The driver of the Session's Vendor sends its rows as an `mcp` event. The Session adds the rows of the
 servers turned off for it and sends only a change on `agent.event`; the renderer store keeps the latest rows of each
 Session apart from the transcript. The chip asks `agent.mcp` once when it has no rows yet, and with `pickUp` each time the
-popover opens. A button calls `agent.mcpAction`, which answers the rows after the action, or the Vendor's error.
-`agent.mcp` is a read channel and `agent.mcpAction` a write channel, so read-only access on a Linked machine may read but
-not act.
+popover opens. A button calls `agent.mcpAction`, which answers the rows after the action, or the Vendor's error; "Allow
+all" calls `agent.mcpAllowAll` with the names, which answers the same way. `agent.mcp` is a read channel, `agent.mcpAction`
+and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine may read but not act.
 
 #### Tests
 
 | Test | Covers |
 |---|---|
-| `test/unit/mcp-status-row.test.ts` | The source of each SDK word and the rows of a recorded answer. |
-| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, the ask with `pickUp` on opening. |
+| `test/unit/mcp-status-row.test.ts` | The source of each SDK word, the rows of a recorded answer, no Turn off for worfy's own servers while a plugin's server keeps it. |
+| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, "Allow all", the popover opening upward, the ask with `pickUp` on opening. |
+| `test/unit/session-view.test.tsx` | The chip in the bar under the input field, not in the header, and none in a Product Session. |
 | `test/unit/edit-profile.test.tsx` | The status beside each name of the MCP servers list in Edit profile, none without a Session, none for a Project of a Linked machine. |
 | `test/unit/codex-mcp-row.test.ts` | The rows of Codex: each status, Sign in only for an HTTP server, the tools, the source, never not allowed. |
 | `test/contract/claude-mcp-status.test.ts` | The `mcp` event of a Claude Code Session over the fake agent, `agent.mcp`, Reconnect and the order of answers. |
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
-| `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, Restart before the first turn. |
+| `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
 | `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory and the rows not allowed. |
-| `test/contract/claude-mcp-allow.test.ts` | Allow through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have. |
+| `test/contract/claude-mcp-allow.test.ts` | Allow and Allow all through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have, the queue key of a worktree, a Turn off of worfy-canvas refused over IPC. |
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, the claude.ai connector, nothing logged, a Claude Code without the sign-in. |
 | `test/contract/codex-mcp-status.test.ts` | A Codex Session on the fake app-server: notifications, the list, Reconnect, Sign in, the refused actions. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |
-| `test/e2e/session-mcp.spec.ts` | The chip and the popover in the built app, Reconnect, Allow in the same Session. |
+| `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session. |

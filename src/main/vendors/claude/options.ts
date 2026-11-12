@@ -25,8 +25,9 @@
 // cover servers passed in `mcpServers`, so `worfy-canvas` is passed only when the list names it.
 // Checked against Claude Code 2.1.289 / SDK 0.3.289 (the ticket's summary).
 // A server turned off for one Session (worfy-mcp-live ticket 03, `mcpOff`) is left out of that list —
-// with no list, named in `deniedMcpServers` —, and worfy's own is not passed; Claude Code's
-// toggleMcpServer is never used for it: it writes the user's .claude.json.
+// with no list, named in `deniedMcpServers`; Claude Code's toggleMcpServer is never used for it: it
+// writes the user's .claude.json. A server of the Harness plugin, passed in `mcpServers`, is not passed;
+// worfy's own servers are never turned off (ticket 09).
 // The Browser server `worfy-browser` (worfy-browser ticket 04, src/main/mcp/browser-server.ts) is
 // passed the same way, only when the list names it; a Profile list that names `worfy-canvas` names
 // it too (withBrowserServer, the owner's decision 6: the existing lists get it without an edit).
@@ -307,8 +308,9 @@ export interface SessionOptionsInput {
   mcpAllowlist?: readonly string[] | null | undefined
   /**
    * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
-   * left out of the Profile's list, or — with no list — named in `deniedMcpServers`; worfy's own are not
-   * passed at all. Absent or empty: none.
+   * left out of the Profile's list, or — with no list — named in `deniedMcpServers`, and a server of the
+   * Harness plugin is not passed in `mcpServers`. worfy's own servers are never among them (ticket 09).
+   * Absent or empty: none.
    */
   mcpOff?: readonly string[] | undefined
   /**
@@ -745,7 +747,7 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (input.allowedTools !== undefined && input.allowedTools.length > 0) options.allowedTools = [...input.allowedTools]
   const allowlist = input.mcpAllowlist ?? null
   const off = input.mcpOff ?? []
-  const allowed = (name: string): boolean => (allowlist === null || allowlist.includes(name)) && !off.includes(name)
+  const allowed = (name: string): boolean => allowlist === null || allowlist.includes(name)
   if (allowlist !== null) {
     options.managedSettings = { allowManagedMcpServersOnly: true, allowedMcpServers: allowlist.filter((name) => !off.includes(name)).map((serverName) => ({ serverName })) }
   } else if (off.length > 0) {
@@ -782,7 +784,8 @@ export function sessionOptions(input: SessionOptionsInput): Options {
     options.plugins = [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }]
     const warn = input.warn ?? ((message: string) => console.warn(message))
     for (const [name, server] of Object.entries(pluginMcpServers(input.harnessPlugin, warn))) {
-      if (allowed(name)) servers[name] = server
+      // Passed here, out of reach of the policy tier: one turned off for this Session must be left out by name.
+      if (allowed(name) && !off.includes(name)) servers[name] = server
     }
   }
   if (Object.keys(servers).length > 0) options.mcpServers = servers
