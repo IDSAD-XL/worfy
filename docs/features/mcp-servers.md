@@ -16,18 +16,20 @@ does not allow, and the same status in Project settings. Which servers a Session
 
 - The chip «MCP n/m» stands in the header of the Session view, after Cost, for a Claude Code and a Codex Session alike.
   n are the servers that are connected, m all the servers of the Session except those not allowed in the Project. While
-  a server has failed or needs a sign-in, the chip takes the blocked colours and a warning icon. It is absent while main
+  a server has failed, needs a sign-in or was not started, the chip takes the blocked colours and a warning icon. It is absent while main
   has no data, for a Session with no server, and in a Product Session. Its tooltip says the count in words, then how many
   failed or need auth, then how many more are not allowed: "3 of 4 MCP servers connected: 1 failed. 2 more not allowed
   in this Project".
 - A click opens a popover under the chip, titled "MCP servers" with "n/m connected". Each server has a row: its name,
-  its status (connected, failed, needs auth, pending, disabled, not allowed), the number of its tools when the Vendor
+  its status (connected, failed, needs auth, pending, disabled, not allowed, not started), the number of its tools when the Vendor
   gave it, the error in the Vendor's words, and its source: claude.ai, user config, Project or worfy. A source worfy does
   not know by name (`managed`, `enterprise`, `agent` or a new one) shows as user config, with the Vendor's word in the
-  tooltip. The servers not allowed in the Project stand in a group of their own below, "Not allowed in this Project".
+  tooltip. A status Claude Code reports that worfy does not know shows as disabled, with Claude Code's word in the
+  error. The servers not allowed in the Project stand in a group of their own below, "Not allowed in this Project".
 - A row has a button for each action main offers for it; the window adds none of its own. While an action runs, the
-  buttons of its row wait. A refused action shows a toast that names the action, the server and the reason; the rows
-  after an action come with its answer.
+  buttons of its row wait. A refused action shows a toast that names the action, the server and the reason, and the
+  reason stays in the row ("Allow failed: …") until the next action there succeeds; the rows after an action come with
+  its answer.
 - Esc closes the popover and does not interrupt the turn. A press outside it, a resize of the window and the window
   losing focus close it too.
 
@@ -40,18 +42,23 @@ does not allow, and the same status in Project settings. Which servers a Session
 | Turn off for this Session | connected, Claude Code, a person at the Session | Restarts the Session with the same conversation without the server. Its row stays, disabled, with Turn on. |
 | Turn on | turned off for this Session | Restarts the Session with the same conversation with the server back. |
 | Allow | not allowed, Claude Code | Puts the server on the Profile's list and restarts the Session with the same conversation. |
+| Restart Session with the same conversation | not started, Claude Code, a person at the Session | Restarts the Session with the same conversation, so Claude Code starts again with the list. |
 
-- **Restart with the same conversation.** Turn off, Turn on and Allow end the Session's process and start a new one that
+- **Restart with the same conversation.** Turn off, Turn on, Allow and the Restart of a not started row end the Session's process and start a new one that
   resumes the same conversation, in the same Session. A turn that runs is interrupted first, as Interrupt does, and the
   queue is held. The Session is `starting` meanwhile, and what is sent to it waits for the new process. After a turn has
   run the Session keeps its id; before the first turn there is no conversation to resume, so the new process starts a new
-  one under a new id. No row has a Restart button of its own.
+  one under a new id. Only a not started row has a Restart button of its own.
 - **Turn off for this Session** changes neither the Profile nor the user's config: a new Session gets the server again.
   worfy's own servers can be turned off too.
 - **Allow** writes the Profile through the Harness, as Edit profile does. A Profile with no list gets the default list
-  with the name added. When the write is refused (for example, the Profile changed since it was read, it is busy, or
-  the Harness is too old), the toast gives the reason and the Session stays as it was. After the Restart the answer
-  waits, 10 seconds at most, until the server has left pending, so the popover shows it without another turn.
+  with the name added. When another write changed the list between Allow's read and its write, Allow reads the list
+  again and adds the name to that, three tries in all: Allow pressed on several servers one after another writes them
+  all. When the write is refused (the list changed on every try, the Profile is busy, or the Harness is too old), the
+  row and a toast give the reason and the Session stays as it was. After the Restart the answer waits, 10 seconds at
+  most, until the server has left pending, so the popover shows it without another turn. When the new process still
+  does not have the server, the answer is an error: the name is on the list, but Claude Code did not start the server
+  in this Session.
 - **Sign in** in a Claude Code Session opens the page Claude Code gives, only an http or https one; Claude Code itself
   takes the callback on localhost and the token, and worfy never sees it. The action ends once the server is out of
   needs auth, 10 minutes at most; a server that failed after the sign-in is reconnected once. A claude.ai connector signs
@@ -79,6 +86,9 @@ live check.
 - A row "not allowed" is a server of the user, not worfy's or a plugin's, that the list does not name, that the Session
   does not have and that is not turned off for this Session. It offers Allow, and its number of tools, when the inventory
   knew it, says what Allow adds to each turn.
+- A row "not started" is a server the list names that the inventory finds but that the Session does not have: Claude
+  Code left it out (a claude.ai connector allowed by its name, or one connected after the process started). It stands
+  with the Session's servers, counts in m, and offers Restart with the same conversation in an attended Session.
 - The group ends with a line: "A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
   profile)." The inventory may not list claude.ai connectors, so a connector missing from the group is allowed by typing
   its name into the list.
@@ -181,7 +191,7 @@ not act.
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, Restart before the first turn. |
 | `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory and the rows not allowed. |
-| `test/contract/claude-mcp-allow.test.ts` | Allow through a stub `bin/profile-set`, and a refused write. |
+| `test/contract/claude-mcp-allow.test.ts` | Allow through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have. |
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, the claude.ai connector, nothing logged, a Claude Code without the sign-in. |
 | `test/contract/codex-mcp-status.test.ts` | A Codex Session on the fake app-server: notifications, the list, Reconnect, Sign in, the refused actions. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |

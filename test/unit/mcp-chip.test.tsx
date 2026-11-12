@@ -203,6 +203,40 @@ describe('the popover', () => {
     expect(main.toasts[1]).toEqual(expect.objectContaining({ kind: 'error', text: expect.stringContaining('Reconnect example-tracker: ') }))
   })
 
+  it('a failed Allow stays written in its row, not only in a toast that goes away; the next try clears it', async () => {
+    main.answers['agent.mcpAction'] = () => ({ ok: false, error: 'agent.mcpAction failed: The profile changed while Allow wrote it; nothing was written. Press Allow again.' })
+    render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
+    const popover = open()
+    const allow = () => within(rowOf(popover, 'example-wiki')).getByRole('button', { name: 'Allow' })
+    await act(async () => fireEvent.click(allow()))
+    expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: The profile changed while Allow wrote it; nothing was written. Press Allow again.')
+    expect(main.toasts).toHaveLength(1)
+
+    // Main wrote the list but the Session did not take the server: the answer's error stays in the row too.
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: null, error: 'Claude Code did not start it' } })
+    await act(async () => fireEvent.click(allow()))
+    expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: Claude Code did not start it')
+
+    // A call that never answered with a result (the bridge itself failed) is no silent click either.
+    main.answers['agent.mcpAction'] = () => Promise.reject(new Error('the window lost main'))
+    await act(async () => fireEvent.click(allow()))
+    expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: the window lost main')
+    expect(allow().getAttribute('aria-disabled')).toBeNull()
+
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: null, error: null } })
+    await act(async () => fireEvent.click(allow()))
+    expect(within(rowOf(popover, 'example-wiki')).queryByTestId('mcp-row-action-error')).toBeNull()
+  })
+
+  it('a server on the list that Claude Code did not start shows as not started, counts against the chip and warns', () => {
+    const rows = [row('example-notes'), row('example-docs', { status: 'not-started', tools: null, source: 'claudeai', error: 'not started here', actions: ['restart'] })]
+    expect(mcpCount(rows)).toEqual({ connected: 1, total: 2, warn: true })
+    render(<McpChip sessionId="s" rows={rows} autopilot={false} />)
+    const popover = open()
+    expect(within(rowOf(popover, 'example-docs')).getByTestId('mcp-row-status').textContent).toBe('not started')
+    expect(within(popover).queryByTestId('mcp-not-allowed')).toBeNull()
+  })
+
   it('Escape closes the popover and gives the focus back to the chip, and the press goes no further', () => {
     render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
     const popover = open()

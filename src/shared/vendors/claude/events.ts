@@ -447,9 +447,15 @@ export function isCompactBoundary(message: unknown): boolean {
 // `mcp_servers` of system/init, as the rows of src/shared/agent/mcp-status.ts. Only the fields a row
 // shows are read: the server's `config` (its URL and headers), `scope` and `serverInfo` go nowhere.
 
+/** The statuses of the SDK's McpServerStatus type. */
+const SDK_MCP_STATUSES = ['connected', 'failed', 'needs-auth', 'pending', 'disabled'] as const
+type SdkMcpStatus = (typeof SDK_MCP_STATUSES)[number]
+const isSdkMcpStatus = (status: string): status is SdkMcpStatus => (SDK_MCP_STATUSES as readonly string[]).includes(status)
+
 const sdkMcpServer = z.object({
   name: z.string().min(1),
-  status: z.enum(['connected', 'failed', 'needs-auth', 'pending', 'disabled']),
+  // Any word: Claude Code's mcp_status passes its own connection states through, not only the SDK type's five.
+  status: z.string().min(1),
   error: optStr,
   source: optStr,
   tools: z.array(z.unknown()).nullish(),
@@ -458,14 +464,17 @@ const sdkMcpServer = z.object({
 /**
  * The row of a server of Claude Code. Reconnect is offered to a failed server only; Turn off and
  * Turn on are not offered: Claude Code's toggleMcpServer writes the user's .claude.json, so they come
- * as a Restart of the Session (ticket 03), and worfy never calls it.
+ * as a Restart of the Session (ticket 03), and worfy never calls it. A status outside the SDK's type
+ * (Claude Code's own `blocked`, say) is a row all the same — disabled, with Claude Code's word in its
+ * error — so that the server does not vanish from the list.
  */
 function mcpRow(server: z.infer<typeof sdkMcpServer>): McpServerRow {
+  const known = isSdkMcpStatus(server.status) ? server.status : null
   return {
     name: server.name,
-    status: server.status,
+    status: known ?? 'disabled',
     tools: server.tools === null || server.tools === undefined ? null : server.tools.length,
-    error: orNull(server.error),
+    error: known === null ? `Claude Code reports this server as “${server.status}”.` : orNull(server.error),
     ...mcpSourceOf(server.source),
     actions: server.status === 'failed' ? ['reconnect'] : [],
   }
@@ -473,7 +482,7 @@ function mcpRow(server: z.infer<typeof sdkMcpServer>): McpServerRow {
 
 /**
  * The rows of an mcpServerStatus() answer (McpServerStatus[] of the SDK); null when the answer is no
- * list. An entry worfy cannot read — no name, a status it does not know — is left out.
+ * list. An entry worfy cannot read — no name, no status — is left out.
  */
 export function mcpServerRowsOf(answer: unknown): McpServerRow[] | null {
   if (!Array.isArray(answer)) return null

@@ -99,12 +99,20 @@ describe('the rows of a recorded answer', () => {
     expect(JSON.stringify(rows)).not.toMatch(/example-tracker|example-secret|config|scope|serverInfo/)
   })
 
-  it('an answer that is no list is no data; an entry worfy cannot read is left out', () => {
+  it('an answer that is no list is no data; an entry with no name or no status is left out', () => {
     expect(mcpServerRowsOf(null)).toBeNull()
     expect(mcpServerRowsOf({ servers: [] })).toBeNull()
-    expect(mcpServerRowsOf([{ name: 'example-notes' }, { status: 'connected' }, { name: 'example-new', status: 'some-new-status' }, withSource('user')])).toEqual([
+    expect(mcpServerRowsOf([{ name: 'example-notes' }, { status: 'connected' }, { name: 'example-new', status: 7 }, withSource('user')])).toEqual([
       expect.objectContaining({ name: 'example-notes', status: 'connected' }),
     ])
+  })
+
+  it('a status worfy does not know is a row all the same: disabled, with Claude Code\'s word in its error', () => {
+    // Claude Code's mcp_status passes its own connection states through (only `cached` becomes `pending`):
+    // a server it reports as, say, `blocked` must not vanish from both groups of the popover.
+    const [known, blocked] = mcpServerRowsOf([withSource('user'), { name: 'example-docs', status: 'blocked', source: 'claudeai', scope: 'claudeai' }]) ?? []
+    expect(known).toMatchObject({ name: 'example-notes', status: 'connected' })
+    expect(blocked).toEqual({ name: 'example-docs', status: 'disabled', tools: null, error: 'Claude Code reports this server as “blocked”.', source: 'claudeai', sourceWord: null, actions: [] })
   })
 })
 

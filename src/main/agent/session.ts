@@ -50,7 +50,8 @@
 // Profile's list (`McpActionDeps.allow`: agent.mcpAction writes through bin/profile-set), then the Session
 // restarts with the same conversation, as above, and the new process starts with the new list. The rows are
 // asked until the server is out of `pending` (ALLOW_SETTLE_MS at most), so the answer shows it without
-// another turn. A refused write changes nothing in the Session. An unattended Session gets the write but no
+// another turn; a server the new process still lacks then is answered as an error (allowNotStarted), not
+// as done. A refused write changes nothing in the Session. An unattended Session gets the write but no
 // Restart: the server joins from the next Wave, whose Session reads the list at its start.
 //
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
@@ -149,12 +150,20 @@ export const STATIC_CLAUDE_PARTS: SessionVendorParts = {
 export interface McpActionDeps {
   /** Puts the server on the Profile's list of the Session's Project (Allow); rejects with the reason it was not written. */
   allow?: (name: string) => Promise<void>
+  /** How long Allow asks for the rows after its Restart; ALLOW_SETTLE_MS by default. */
+  settleMs?: number
 }
 
 /** How long Allow asks for the rows after its Restart, until the server has left `pending`. */
 export const ALLOW_SETTLE_MS = 10_000
+
+/** The error of an Allow whose write landed but whose Restart did not bring the server: the person must not take it for done. */
+export const allowNotStarted = (name: string): string =>
+  `${name} is on the Project's list now, but Claude Code did not start it in this Session after the Restart.`
 /** How often it asks meanwhile. */
 const ALLOW_POLL_MS = 250
+/** The statuses of a row that is not a server of the Session's process. */
+const NOT_IN_SESSION: ReadonlySet<McpServerRow['status']> = new Set(['not-allowed', 'not-started'])
 
 /** What an action on an MCP server answers: the rows after it (null: no data), and the Vendor's error when it refused the action. */
 export interface McpActionAnswer {
@@ -659,7 +668,7 @@ export class Session {
   async mcpAction(name: string, action: McpServerAction, deps: McpActionDeps = {}): Promise<McpActionAnswer> {
     this.assertOpen()
     if (action === 'turn-off' || action === 'turn-on' || action === 'restart') return this.restartFor(name, action)
-    if (action === 'allow') return this.allow(name, deps.allow)
+    if (action === 'allow') return this.allow(name, deps.allow, deps.settleMs ?? ALLOW_SETTLE_MS)
     const part = this.parts.mcp
     if (part?.act === undefined) throw new McpActionRefused(action)
     // Sign in opens a page in the browser: only for a server whose row offers it (needs-auth, ticket 05).
@@ -678,28 +687,32 @@ export class Session {
 
   /**
    * Allow (worfy-mcp-live ticket 05): `write` puts `name` on the Profile's list, then the process restarts
-   * with the same conversation and the rows are asked until the server has left `pending`. Refused —
-   * nothing written — when no row of the server offers Allow or there is no writer; a write that fails
-   * rejects with its reason and the Session stays as it was. An unattended or halted Session gets the
-   * write without a Restart: the list holds from its next start (the next Wave).
+   * with the same conversation and the rows are asked until the server has a row of the new process out of
+   * `pending` — `settleMs` at most. Refused — nothing written — when no row of the server offers Allow or
+   * there is no writer; a write that fails rejects with its reason and the Session stays as it was. A server
+   * the restarted process still lacks (`not-allowed`, `not-started`, no row) is answered with an error: the
+   * list is written, but the Session did not take the server. An unattended or halted Session gets the write
+   * without a Restart: the list holds from its next start (the next Wave).
    */
-  private async allow(name: string, write: ((name: string) => Promise<void>) | undefined): Promise<McpActionAnswer> {
+  private async allow(name: string, write: ((name: string) => Promise<void>) | undefined, settleMs: number): Promise<McpActionAnswer> {
     const row = this.mcpValue?.find((each) => each.name === name)
     if (write === undefined || row === undefined || !row.actions.includes('allow')) throw new McpActionRefused('allow')
     await write(name)
     if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true || (this.run?.handle ?? null) === null) return { servers: await this.mcp(), error: null }
     await this.restartProcess()
-    const until = Date.now() + ALLOW_SETTLE_MS
+    const until = Date.now() + settleMs
     let servers = await this.mcp()
     const settled = (rows: McpServerRow[] | null): boolean => {
       const now = rows?.find((each) => each.name === name)
-      return now !== undefined && now.status !== 'pending' && now.status !== 'not-allowed'
+      return now !== undefined && now.status !== 'pending' && !NOT_IN_SESSION.has(now.status)
     }
     while (!settled(servers) && Date.now() < until && this.run !== null) {
       await new Promise((done) => setTimeout(done, ALLOW_POLL_MS))
       servers = await this.mcp()
     }
-    return { servers, error: null }
+    const now = servers?.find((each) => each.name === name)
+    const missing = servers !== null && (now === undefined || NOT_IN_SESSION.has(now.status))
+    return { servers, error: missing ? allowNotStarted(name) : null }
   }
 
   /**

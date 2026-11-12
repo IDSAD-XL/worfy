@@ -20,13 +20,13 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakeInventoryStarter, fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
-import { SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/main/agent/session'
+import { allowNotStarted, SessionRegistry, type QueryHandle, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { ProfileSetRunner } from '../../src/main/ipc/pipeline'
-import { ALLOW_CONFLICT, allowMcpServer, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
+import { ALLOW_CONFLICT, ALLOW_TRIES, allowMcpServer, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
-import { McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
+import { MCP_NOT_STARTED, McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { ProfileRun } from '../../src/main/workflow/profile'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -100,7 +100,9 @@ function profileSetStub(initial: readonly string[] | null) {
   let refuse: { code: number; stderr: string } | null = null
   /** A write of someone else between Allow's read and its write. */
   let between: (() => void) | null = null
-  const runner: ProfileSetRunner = (args, stdin) => {
+  const runner: ProfileSetRunner = async (args, stdin) => {
+    // A real bin/profile-set is a process of its own: each run answers in a later turn of the event loop.
+    await new Promise((settle) => setImmediate(settle))
     calls.push({ args: [...args], ...(stdin === undefined ? {} : { stdin }) })
     const done = (run: Partial<ProfileRun>): Promise<ProfileRun> => Promise.resolve({ code: 0, stdout: '', stderr: '', ...run })
     if (refuse !== null) return done({ code: refuse.code, stderr: refuse.stderr })
@@ -297,6 +299,45 @@ describe('Allow of a server outside the Profile’s list', () => {
   })
 })
 
+describe('several Allows, and an Allow Claude Code does not follow', () => {
+  it('two Allows at once both land on the list: the one whose write met the other’s reads the list again and adds its name', async () => {
+    const set = profileSetStub(LIST)
+    await Promise.all([allowMcpServer(set.runner, cwd, 'example-tracker'), allowMcpServer(set.runner, cwd, 'example-docs')])
+    expect([...(set.profile.allowed ?? [])].sort()).toEqual([...LIST, 'example-docs', 'example-tracker'].sort())
+    // Three writes: the first of each, one of them refused for the other's, and that one again over the new list.
+    expect(set.sets()).toHaveLength(3)
+  })
+
+  it('a list another write changed once between the read and the write: Allow reads it again and keeps both changes', async () => {
+    const set = profileSetStub(LIST)
+    let once = false
+    set.writeBetween(() => {
+      if (once) return
+      once = true
+      set.profile.allowed = [...LIST, 'example-other']
+    })
+    await allowMcpServer(set.runner, cwd, 'example-tracker')
+    expect(set.profile.allowed).toEqual([...LIST, 'example-other', 'example-tracker'])
+  })
+
+  it('a server the restarted process does not have: the answer says Allow did not take, and the row stays as not started', async () => {
+    // Claude Code leaves example-tracker out of the new process although the list names it (a claude.ai
+    // connector in the owner's live case): the Restart brings no row of it at all.
+    const h = await harness(LIST, (query, process) => {
+      if (process === 1) return query
+      const status = query.mcpServerStatus!.bind(query)
+      return Object.assign(query, { mcpServerStatus: async () => ((await status()) as { name: string }[]).filter((each) => each.name !== 'example-tracker') })
+    })
+    await withTrackerOutside(h)
+    const answer = await h.session.mcpAction('example-tracker', 'allow', { allow: (name) => allowMcpServer(h.set.runner, cwd, name), settleMs: 300 })
+    expect(h.set.profile.allowed).toEqual([...LIST, 'example-tracker'])
+    expect(answer.error).toBe(allowNotStarted('example-tracker'))
+    const tracker = { ...TRACKER, status: 'not-started' as const, tools: null, error: MCP_NOT_STARTED, actions: ['restart' as const] }
+    expect(answer.servers).toEqual([NOTES, CANVAS, tracker])
+    expect(h.ofType('mcp').at(-1)?.servers).toEqual([NOTES, CANVAS, tracker])
+  })
+})
+
 describe('a write the Profile refuses leaves the Session as it was', () => {
   const unchanged = (h: Awaited<ReturnType<typeof harness>>) => {
     expect(h.processStarts()).toHaveLength(1)
@@ -305,13 +346,15 @@ describe('a write the Profile refuses leaves the Session as it was', () => {
     expect(h.ofType('mcp').at(-1)?.servers).toEqual([NOTES, CANVAS, TRACKER_NOT_ALLOWED])
   }
 
-  it('a list changed between the read and the write: the conflict, as Edit profile has it, and no Restart', async () => {
+  it('a list changed between every read and its write: the conflict, as Edit profile has it, after ALLOW_TRIES tries, and no Restart', async () => {
     const h = await harness(LIST)
     await withTrackerOutside(h)
-    h.set.writeBetween(() => (h.set.profile.allowed = [...LIST, 'example-other']))
+    let other = 0
+    h.set.writeBetween(() => (h.set.profile.allowed = [...LIST, `example-other-${++other}`]))
     const refused = await h.allow('example-tracker')
     expect(refused).toEqual({ ok: false, error: expect.stringContaining(ALLOW_CONFLICT) as unknown as string })
-    expect(h.set.profile.allowed).toEqual([...LIST, 'example-other'])
+    expect(h.set.sets()).toHaveLength(ALLOW_TRIES)
+    expect(h.set.profile.allowed).toEqual([...LIST, `example-other-${ALLOW_TRIES}`])
     unchanged(h)
   })
 

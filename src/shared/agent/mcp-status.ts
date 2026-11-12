@@ -7,8 +7,12 @@
 // screen only; they are not written to the Autopilot journal or to a log.
 import { z } from 'zod'
 
-/** How the server is: the Vendor's statuses, and `not-allowed` for a server outside the Project's list (Claude, ticket 05). */
-export const MCP_SERVER_STATUSES = ['connected', 'failed', 'needs-auth', 'pending', 'disabled', 'not-allowed'] as const
+/**
+ * How the server is: the Vendor's statuses, `not-allowed` for a server outside the Project's list (Claude,
+ * ticket 05), and `not-started` for one the list names that the Vendor did not start in the Session at all
+ * (Claude: a server of the user the MCP inventory finds, absent from the Session's own status).
+ */
+export const MCP_SERVER_STATUSES = ['connected', 'failed', 'needs-auth', 'pending', 'disabled', 'not-allowed', 'not-started'] as const
 
 /** Where the server came from: a claude.ai connector, the user's config, the Project's, or worfy's own (and plugins'). */
 export const MCP_SERVER_SOURCES = ['claudeai', 'user', 'project', 'worfy'] as const

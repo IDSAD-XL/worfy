@@ -70,33 +70,47 @@ async function runOrTooOld(run: ProfileSetRunner, args: readonly string[], stdin
   }
 }
 
-/** Why Allow wrote nothing: another write changed the list between its read and its write. */
+/** Why Allow wrote nothing: other writes changed the list between each of its reads and its write. */
 export const ALLOW_CONFLICT = 'The profile changed while Allow wrote it; nothing was written. Press Allow again.'
 /** Why Allow wrote nothing: another write held the Profile for the whole wait. */
 export const ALLOW_BUSY = 'Another change of this profile is being written. Press Allow again in a moment.'
+/**
+ * How many times Allow reads the list and writes it when another write changed it in between. Allow only
+ * adds one name, so it may read the new list and add the name to that: a person who presses Allow on
+ * several servers one after another, each write still running, gets them all, not a conflict for each but
+ * the first.
+ */
+export const ALLOW_TRIES = 3
 
 /**
  * Allow in Project (worfy-mcp-live ticket 05): puts the MCP server `name` on the list `mcp.allowed` of the
  * Profile of the Project at `root` — the field Edit profile writes, through the same `bin/profile-set`:
  * `--read` of the field, then one `--set` with `--expect` of its fingerprint, so a list changed in between is
- * not written over. A Profile with no list has the default one (DEFAULT_MCP_SERVERS, ADR-0021): the name is
- * added to that. A name already on the list writes nothing. Rejects with the reason, as Edit profile would
- * say it, when nothing was written: a Harness too old, a conflict, a busy Profile, a refused value.
+ * not written over; then the list is read again and the name added to it, ALLOW_TRIES times in all. A Profile
+ * with no list has the default one (DEFAULT_MCP_SERVERS, ADR-0021): the name is added to that. A name already
+ * on the list writes nothing. Rejects with the reason, as Edit profile would say it, when nothing was written:
+ * a Harness too old, a conflict on every try, a busy Profile, a refused value.
  */
 export async function allowMcpServer(run: ProfileSetRunner, root: string, name: string): Promise<void> {
   const args = ['-C', root, '--field', MCP_ALLOWED_FIELD]
-  const read = await runOrTooOld(run, [...args, '--read'])
-  if (read === null) throw new Error(PROFILE_SET_TOO_OLD)
-  if (read.code !== 0) throw failure(read, '--read')
-  const { fields, fingerprint } = readFields(read)
-  const now = fields[MCP_ALLOWED_FIELD]
-  const listed = now === null || now === undefined ? [...DEFAULT_MCP_SERVERS] : stringsOf(now)
-  if (listed.includes(name)) return
-  const set = await run([...args, '--expect', fingerprint, '--set', '-'], JSON.stringify({ [MCP_ALLOWED_FIELD]: [...listed, name] }))
-  if (set.code === PROFILE_SET_CONFLICT) throw new Error(ALLOW_CONFLICT)
-  if (set.code === PROFILE_SET_BUSY) throw new Error(ALLOW_BUSY)
-  if (set.code === 1) throw new Error(reasonOf(set))
-  if (set.code !== 0) throw failure(set, '--set')
+  for (let attempt = 1; ; attempt += 1) {
+    const read = await runOrTooOld(run, [...args, '--read'])
+    if (read === null) throw new Error(PROFILE_SET_TOO_OLD)
+    if (read.code !== 0) throw failure(read, '--read')
+    const { fields, fingerprint } = readFields(read)
+    const now = fields[MCP_ALLOWED_FIELD]
+    const listed = now === null || now === undefined ? [...DEFAULT_MCP_SERVERS] : stringsOf(now)
+    if (listed.includes(name)) return
+    const set = await run([...args, '--expect', fingerprint, '--set', '-'], JSON.stringify({ [MCP_ALLOWED_FIELD]: [...listed, name] }))
+    if (set.code === 0) return
+    if (set.code === PROFILE_SET_CONFLICT) {
+      if (attempt < ALLOW_TRIES) continue
+      throw new Error(ALLOW_CONFLICT)
+    }
+    if (set.code === PROFILE_SET_BUSY) throw new Error(ALLOW_BUSY)
+    if (set.code === 1) throw new Error(reasonOf(set))
+    throw failure(set, '--set')
+  }
 }
 
 /** The reason "Move" is refused on a Harness whose `bin/profile-set` has no `--move`. */

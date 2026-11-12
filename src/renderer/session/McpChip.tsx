@@ -25,7 +25,9 @@ import './mcp-chip.css'
 // actions (src/shared/agent/mcp-status.ts); this file only draws them and sends a click to
 // `agent.mcpAction`, whatever the Vendor. The servers not allowed in the Project stand in a group of
 // their own under the others, with a line on how to allow a claude.ai connector the group may not list
-// (ticket 05). While an action runs its row's buttons wait; a refusal is a toast. In the
+// (ticket 05). While an action runs its row's buttons wait; a refusal — main's, or a call that failed on
+// the way — is a toast and stays written in its row until the next action there, so a failed Allow is never
+// a silent click (the toast goes away in seconds). In the
 // Session Autopilot runs (the Orchestrator while a run of its Project goes on), Allow says it takes
 // effect from the next Wave: the set of servers is fixed for a Wave.
 //
@@ -40,6 +42,7 @@ const STATUS_LABELS: Readonly<Record<McpServerRow['status'], string>> = {
   pending: 'pending',
   disabled: 'disabled',
   'not-allowed': 'not allowed',
+  'not-started': 'not started',
 }
 
 /** The status chip of a status; disabled and not allowed are neutral, with no icon. */
@@ -109,11 +112,13 @@ interface RowProps {
   autopilot: boolean
   /** The action of this row that runs now; null: none. */
   running: McpServerAction | null
+  /** Why the last action on this row failed; null: it did not, or none ran. */
+  failure: string | null
   readOnly: string | null
   onAction: (row: McpServerRow, action: McpServerAction) => void
 }
 
-function ServerRow({ row, autopilot, running, readOnly, onAction }: RowProps) {
+function ServerRow({ row, autopilot, running, failure, readOnly, onAction }: RowProps) {
   const source = SOURCE_LABELS[row.source]
   const note = autopilot && row.actions.includes('allow') ? 'Allow takes effect from the next Wave' : null
   return (
@@ -157,6 +162,11 @@ function ServerRow({ row, autopilot, running, readOnly, onAction }: RowProps) {
           {row.error}
         </p>
       )}
+      {failure === null ? null : (
+        <p className="w-mcp__error" data-testid="mcp-row-action-error" role="alert">
+          {failure}
+        </p>
+      )}
       {note === null ? null : (
         <p className="w-mcp__note" data-testid="mcp-row-note">
           {note}
@@ -182,6 +192,8 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
   const [place, setPlace] = useState<CSSProperties | null>(null)
   /** The action running on each server, by name. */
   const [running, setRunning] = useState<Readonly<Record<string, McpServerAction>>>({})
+  /** Why the last action on each server failed, by name; kept in the row after its toast is gone. */
+  const [failures, setFailures] = useState<Readonly<Record<string, string>>>({})
   const runningNow = useRef(new Set<string>())
   const chip = useRef<HTMLButtonElement>(null)
   const popover = useRef<HTMLDivElement>(null)
@@ -224,15 +236,22 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
     if (sessionId === null || runningNow.current.has(row.name)) return
     runningNow.current.add(row.name)
     setRunning((now) => ({ ...now, [row.name]: action }))
-    const refused = (reason: string): void => {
-      showToast({ kind: 'error', key: `mcp:${sessionId}:${row.name}`, testId: 'mcp-action-error', text: `${ACTION_LABELS[action]} ${row.name}: ${reason}` })
+    const failed = (reason: string | null): void => {
+      setFailures((now) => {
+        const next = { ...now }
+        if (reason === null) delete next[row.name]
+        else next[row.name] = `${ACTION_LABELS[action]} failed: ${reason}`
+        return next
+      })
+      if (reason !== null) showToast({ kind: 'error', key: `mcp:${sessionId}:${row.name}`, testId: 'mcp-action-error', text: `${ACTION_LABELS[action]} ${row.name}: ${reason}` })
     }
     void invoke('agent.mcpAction', { sessionId, name: row.name, action })
       .then((result) => {
-        if (!result.ok) return refused(failureReason('agent.mcpAction', result.error))
+        if (!result.ok) return failed(failureReason('agent.mcpAction', result.error))
         if (result.value.servers !== null) acceptMcpServers(sessionId, result.value.servers)
-        if (result.value.error !== null) refused(result.value.error)
+        failed(result.value.error)
       })
+      .catch((error: unknown) => failed(error instanceof Error ? error.message : String(error)))
       .finally(() => {
         runningNow.current.delete(row.name)
         setRunning((now) => {
@@ -248,7 +267,9 @@ export function McpChip({ sessionId, rows, autopilot }: McpChipProps) {
   const title = chipTitle(rows)
   const allowed = rows.filter((row) => row.status !== 'not-allowed')
   const notAllowed = rows.filter((row) => row.status === 'not-allowed')
-  const draw = (row: McpServerRow) => <ServerRow key={row.name} row={row} autopilot={autopilot} running={running[row.name] ?? null} readOnly={readOnly} onAction={act} />
+  const draw = (row: McpServerRow) => (
+    <ServerRow key={row.name} row={row} autopilot={autopilot} running={running[row.name] ?? null} failure={failures[row.name] ?? null} readOnly={readOnly} onAction={act} />
+  )
 
   const onKey = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'Escape') return
