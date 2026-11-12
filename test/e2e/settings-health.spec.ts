@@ -115,6 +115,7 @@ interface PageGlobals {
   innerWidth: number
   innerHeight: number
   getComputedStyle(element: unknown): { zIndex: string }
+  requestAnimationFrame(callback: () => void): void
 }
 interface PageNode {
   setAttribute(name: string, value: string): void
@@ -126,6 +127,13 @@ interface PageControl {
   addEventListener(type: string, listener: () => void, options: { once: boolean }): void
 }
 
+/**
+ * Resolves after the renderer has drawn a frame. Tab past either end of a kit window lands on a focus
+ * guard of Base UI, a tabbable element next to the window, and Base UI sends the focus on to the
+ * window's other end in the next frame (requestAnimationFrame): after this, the focus is there.
+ */
+const nextFrame = (window: Page): Promise<void> =>
+  window.evaluate(() => new Promise<void>((resolve) => (globalThis as unknown as PageGlobals).requestAnimationFrame(() => resolve())))
 const focusIsIn = (locator: Locator): Promise<boolean> =>
   locator.evaluate((element) => (element as unknown as PageElement).contains((globalThis as unknown as PageGlobals).document.activeElement))
 /** Whether the focus is on the first stop of Tab inside `locator`. */
@@ -261,6 +269,7 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
     expect(await focusIsIn(form)).toBe(true)
     for (const key of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
       await window.keyboard.press(key)
+      await nextFrame(window)
       expect(await focusIsIn(form), key).toBe(true)
     }
 
