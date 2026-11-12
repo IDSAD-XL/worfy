@@ -69,12 +69,20 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     const open = item.getByTestId('harness-migrate')
     await expect(open).toHaveAccessibleName('Move old Harness…')
-    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13): the pointer resting on the icon shows it.
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13), and the keyboard shows it: Tab onto the
+    // icon (from the control before it) opens it at once, Esc hides it. A single hover right after the
+    // launch did not open it in CI (run 43256327281), while the Tab focus is a real key press.
     await expect(open).not.toHaveAttribute('title', /./)
-    await open.hover()
+    await open.focus()
+    await window.keyboard.press('Shift+Tab')
+    await expect(open).not.toBeFocused()
+    await window.keyboard.press('Tab')
+    await expect(open).toBeFocused()
     await expect(window.getByRole('tooltip')).toHaveText('Move old Harness…')
-    await window.mouse.move(0, 0)
+    await window.keyboard.press('Escape')
     await expect(window.getByRole('tooltip')).toHaveCount(0)
+    // The shot of the toolbar below is taken as before: nothing focused in it.
+    await open.blur()
     await shoot(launched, window.getByRole('banner'), 'toolbar')
 
     await open.click()
