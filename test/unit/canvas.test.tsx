@@ -7,7 +7,7 @@
 // the new file, with no edit of nodes/index.ts or Canvas.tsx, and a Node of a kind nobody declares
 // as the placeholder while the rest of the Canvas still renders. Nothing is written into src/,
 // and which test file Vite transforms the real registry for first does not matter.
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ComponentType } from 'react'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -947,6 +947,41 @@ describe('the Canvas draws every Node whole at any zoom (worfy-canvas ticket 20)
       expect(root.hasAttribute('data-zoom-level')).toBe(false)
       expect(root.style.getPropertyValue('--w-zoom')).toBe('')
     } finally {
+      canvas.cleanup()
+    }
+  })
+})
+
+describe('the active Node and a popup of a Node (worfy-ui-kit ticket 03)', () => {
+  it('a press inside a kit popup of a Node leaves the Node active; a press elsewhere ends the activity', async () => {
+    const { useKitLayer } = await import('../../src/renderer/theme/kit/layer')
+    // A popup of the Node as a kit wrapper draws it: in a portal, outside the Node's element.
+    function NodePopup() {
+      const layer = useKitLayer({ open: true, close: () => {}, inNode: true })
+      return (
+        <div {...layer.popup} role="menu" aria-label="Node menu">
+          <button type="button">Item</button>
+        </div>
+      )
+    }
+    const canvas = await renderCanvas('kit-popup-0000', [node('n', 'note', 0, { text: '' })])
+    const popup = render(<NodePopup />)
+    try {
+      const active = () => flowNode('n').classList.contains('w-node--active')
+      await act(async () => {
+        fireEvent.click(flowNode('n'))
+      })
+      await waitFor(() => expect(active()).toBe(true))
+      await act(async () => {
+        fireEvent.pointerDown(screen.getByRole('button', { name: 'Item' }))
+      })
+      expect(active()).toBe(true)
+      await act(async () => {
+        fireEvent.pointerDown(document.body)
+      })
+      expect(active()).toBe(false)
+    } finally {
+      popup.unmount()
       canvas.cleanup()
     }
   })

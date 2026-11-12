@@ -74,6 +74,9 @@ const processBoundary = {
   },
 }
 
+// The message of the rule that keeps Base UI inside the kit (ADR-0106).
+const BASE_UI_ONLY_IN_KIT = 'Base UI is imported only under src/renderer/theme/kit/ (ADR-0106): take the kit wrapper instead.'
+
 // One plugin object for the local rules: flat config refuses a plugin name defined twice.
 const worfy = { rules: { 'process-boundary': processBoundary, 'no-cyrillic': noCyrillic } }
 
@@ -118,6 +121,32 @@ export default defineConfig(
     files: ['src/renderer/**/*.{ts,tsx,mjs,mts}', 'src/card-runtime/**/*.{ts,tsx,mjs,mts}', 'src/shared/**/*.{ts,tsx,mjs,mts}'],
     plugins: { worfy },
     rules: { 'worfy/process-boundary': 'error' },
+  },
+  {
+    // Base UI is imported only by the kit, src/renderer/theme/kit/ (ADR-0106): every other place takes
+    // a kit wrapper, so the behaviour of popups, menus and windows stays in one place.
+    files: ['src/**/*.{js,mjs,ts,mts,tsx}'],
+    ignores: ['src/renderer/theme/kit/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@base-ui/*', '@base-ui/**'],
+              message: BASE_UI_ONLY_IN_KIT,
+            },
+          ],
+        },
+      ],
+      // no-restricted-imports sees static imports and re-exports only: a dynamic import() and an
+      // import type (`typeof import(...)`) are caught here.
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'ImportExpression[source.value=/^@base-ui\\//]', message: BASE_UI_ONLY_IN_KIT },
+        { selector: 'TSImportType[argument.literal.value=/^@base-ui\\//]', message: BASE_UI_ONLY_IN_KIT },
+      ],
+    },
   },
   {
     // No Cyrillic in code (scripts/check-cyrillic.mjs says where it is allowed); the same script
