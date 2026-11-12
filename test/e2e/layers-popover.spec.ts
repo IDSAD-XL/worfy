@@ -247,13 +247,18 @@ test("at the edge of the window: a Ticket's history hangs under its button, and 
   // The Canvas pans down (the wheel pans it) until the button is 40 px over the bottom edge.
   const page = await innerSize(window)
   const pane = await box(window.locator('.react-flow'))
+  // How far the button moves per pixel of the wheel is measured on the way (React Flow's pan speed).
+  let perPixel = -1
   for (let step = 0; step < 8; step++) {
     const at = await box(badge)
     const off = page.height - 40 - (at.y + at.height)
     if (Math.abs(off) < 12) break
+    const delta = Math.max(-600, Math.min(600, off / perPixel))
     await window.mouse.move(pane.x + 8, pane.y + pane.height - 8)
-    await window.mouse.wheel(0, -off)
+    await window.mouse.wheel(0, delta)
     await canvasReady({ window }, { frames: 10 })
+    const moved = (await box(badge)).y - at.y
+    if (Math.abs(moved) > 1) perPixel = moved / delta
   }
   const near = await box(badge)
   expect(page.height - (near.y + near.height)).toBeLessThan(60)
