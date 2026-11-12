@@ -305,6 +305,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.interrupt',
     // Reconnects an MCP server of a Session (worfy-mcp-live ticket 02): it acts on the agent's process.
     'agent.mcpAction',
+    // Allow all of the servers not allowed in the Project (worfy-mcp-live ticket 09): writes the Profile, restarts the Session.
+    'agent.mcpAllowAll',
     'agent.permission',
     'agent.queueRemove',
     'agent.queueSend',

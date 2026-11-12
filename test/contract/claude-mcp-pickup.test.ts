@@ -74,7 +74,7 @@ describe('a server added while a Claude Session runs', () => {
     await h.midTurn()
     await h.endTurn()
     // After system/init and after the turn: what Claude Code had without a call (F:allowed-status-5s-after-write-no-call).
-    const before = [row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })]
+    const before = [row('worfy-canvas', { source: 'worfy' })]
     expect(h.mcpEvents().at(-1)).toEqual({ type: 'mcp', servers: before })
     expect(h.reloads()).toEqual([])
     // A window's plain read (the chip before its first event) is cheap: no reloadPlugins().
@@ -83,7 +83,7 @@ describe('a server added while a Claude Session runs', () => {
 
     const servers = await h.session.mcp({ pickUp: true })
     // reloadPlugins() took it in (F:allowed-reload-plugins): `dynamic`, shown as user config.
-    const picked = [row('example-notes', { actions: ATTENDED_ACTIONS }), row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })]
+    const picked = [row('example-notes', { actions: ATTENDED_ACTIONS }), row('worfy-canvas', { source: 'worfy' })]
     expect(servers).toEqual(picked)
     expect(h.mcpEvents().at(-1)).toEqual({ type: 'mcp', servers: picked })
     expect(h.reloads()).toHaveLength(1)
@@ -96,7 +96,7 @@ describe('a server added while a Claude Session runs', () => {
   it('a status read while a turn runs takes in nothing: the tools of a running turn stay as they are', async () => {
     const h = harness()
     await h.midTurn()
-    expect(await h.session.mcp({ pickUp: true })).toEqual([row('worfy-canvas', { source: 'worfy', actions: ATTENDED_ACTIONS })])
+    expect(await h.session.mcp({ pickUp: true })).toEqual([row('worfy-canvas', { source: 'worfy' })])
     expect(h.reloads()).toEqual([])
     await h.endTurn()
     expect((await h.session.mcp({ pickUp: true }))?.map((server) => server.name)).toEqual(['example-notes', 'worfy-canvas'])

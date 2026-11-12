@@ -209,11 +209,12 @@ image's long side is scaled down to 1568 pixels before main checks it.
   comments, a notice says they stay in this window until it closes.
 
 **Session view.** The second view of the window, beside the Canvas. Its header holds the title ("Orchestrator" or "Session"
-and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, the
-chip «MCP n/m», Hide tools and Interrupt. Cost shows
+and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost,
+Hide tools and Interrupt. Cost shows
 a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. The chip «MCP
-n/m» counts the Session's MCP servers, n connected of m, and opens a popover with their status and actions: Reconnect,
-Sign in, Turn off for this Session and Allow. The whole Feature, with taking in a server added while the Session runs and
+n/m» stands in the bar under the input field, just left of the context meter (it left the header, which had grown too
+crowded); a Product Session has none. It counts the Session's MCP servers, n connected of m, and opens a popover above it
+with their status and actions: Reconnect, Sign in, Turn off for this Session, Allow and Allow all. The whole Feature, with taking in a server added while the Session runs and
 the servers the Project does not allow, is on [MCP servers of a Session](mcp-servers.md). A Product
 Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
 decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its

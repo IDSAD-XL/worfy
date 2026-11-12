@@ -34,7 +34,7 @@ vi.mock('../../src/renderer/toast/toasts', () => ({
   },
 }))
 
-const { CONNECTOR_HINT, McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
+const { ALLOW_ALL_LABEL, CONNECTOR_HINT, McpChip, SessionMcpChip } = await import('../../src/renderer/session/McpChip')
 const { mcpCount } = await import('../../src/renderer/session/header-facts')
 const { acceptAgentEvent, useSessionLogs } = await import('../../src/renderer/session/store')
 
@@ -50,10 +50,11 @@ const row = (name: string, overrides: Partial<McpServerRow> = {}): McpServerRow 
 })
 
 const ROWS: McpServerRow[] = [
-  row('example-notes', { tools: 3 }),
+  row('example-notes', { tools: 3, actions: ['turn-off'] }),
   row('example-tracker', { status: 'failed', tools: null, error: 'connection refused by example-tracker', actions: ['reconnect'] }),
   row('example-calendar', { status: 'needs-auth', tools: null, source: 'claudeai', actions: ['sign-in'] }),
-  row('worfy-canvas', { source: 'worfy', tools: 5, actions: ['turn-off'] }),
+  // worfy's own server: main gives its row no action (ticket 09).
+  row('worfy-canvas', { source: 'worfy', tools: 5 }),
   row('example-wiki', { status: 'not-allowed', tools: null, source: 'project', actions: ['allow'] }),
   row('example-drive', { status: 'disabled', tools: null, source: 'user', sourceWord: 'managed', actions: ['turn-on', 'restart'] }),
 ]
@@ -155,10 +156,10 @@ describe('the popover', () => {
   it('draws a button for each action of a row, and only those', () => {
     render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
     const popover = open()
-    expect(buttonsOf(rowOf(popover, 'example-notes'))).toEqual([])
+    expect(buttonsOf(rowOf(popover, 'example-notes'))).toEqual(['Turn off for this Session'])
     expect(buttonsOf(rowOf(popover, 'example-tracker'))).toEqual(['Reconnect'])
     expect(buttonsOf(rowOf(popover, 'example-calendar'))).toEqual(['Sign in'])
-    expect(buttonsOf(rowOf(popover, 'worfy-canvas'))).toEqual(['Turn off for this Session'])
+    expect(buttonsOf(rowOf(popover, 'worfy-canvas'))).toEqual([])
     expect(buttonsOf(rowOf(popover, 'example-wiki'))).toEqual(['Allow'])
     expect(buttonsOf(rowOf(popover, 'example-drive'))).toEqual(['Turn on', 'Restart Session with the same conversation'])
     expect(within(popover).queryByText(/next Wave/)).toBeNull()
@@ -247,6 +248,33 @@ describe('the popover', () => {
     expect(within(popover).queryByTestId('mcp-not-allowed')).toBeNull()
   })
 
+  it('opens upward from the chip, in the bar under the input field, its height kept to the room above it', () => {
+    render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
+    const chip = screen.getByTestId('session-mcp')
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 600, bottom: 618, right: 100, width: 60, height: 18, x: 40, y: 600, toJSON: () => ({}) } as DOMRect)
+    const popover = open()
+    expect(popover.style.top).toBe('')
+    expect(popover.style.bottom).toBe(`${window.innerHeight - 600 + 4}px`)
+    expect(popover.style.maxHeight).toBe('480px')
+    fireEvent.click(chip)
+    vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 200, bottom: 218, right: 100, width: 60, height: 18, x: 40, y: 200, toJSON: () => ({}) } as DOMRect)
+    expect(open().style.maxHeight).toBe(`${200 - 4 - 8}px`)
+  })
+
+  it('a failed action stays written in its row when new rows come (review of #1826)', async () => {
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: null, error: 'connection refused again' } })
+    acceptAgentEvent({ sessionId: 'kept-error', event: { type: 'mcp', servers: ROWS } })
+    render(<SessionMcpChip sessionId="kept-error" projectId="alpha" orchestrator={false} />)
+    const popover = open()
+    await act(async () => fireEvent.click(within(rowOf(popover, 'example-tracker')).getByRole('button', { name: 'Reconnect' })))
+    // Rows with one more server, and the failed one changed: the reason stays until the next action there.
+    const more = [...ROWS.map((each) => (each.name === 'example-tracker' ? { ...each, error: 'still refused' } : each)), row('example-new', { tools: 1 })]
+    await act(async () => acceptAgentEvent({ sessionId: 'kept-error', event: { type: 'mcp', servers: more } }))
+    const shown = screen.getByRole('dialog', { name: 'MCP servers' })
+    expect(rowOf(shown, 'example-new')).toBeTruthy()
+    expect(within(rowOf(shown, 'example-tracker')).getByTestId('mcp-row-action-error').textContent).toBe('Reconnect failed: connection refused again')
+  })
+
   it('Escape closes the popover and gives the focus back to the chip, and the press goes no further', () => {
     render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
     const popover = open()
@@ -254,6 +282,81 @@ describe('the popover', () => {
     expect(free).toBe(false)
     expect(screen.queryByRole('dialog', { name: 'MCP servers' })).toBeNull()
     expect(document.activeElement).toBe(screen.getByTestId('session-mcp'))
+  })
+})
+
+// Ticket 09 (owner 2026-11-12, Q3): «Allow all» in the heading of the group «Not allowed in this Project».
+describe('Allow all', () => {
+  const OUTSIDE = [row('example-wiki', { status: 'not-allowed', tools: null, actions: ['allow'] }), row('example-docs', { status: 'not-allowed', tools: null, source: 'claudeai', actions: ['allow'] })]
+  const TWO = [...ROWS.filter((each) => each.status !== 'not-allowed'), ...OUTSIDE]
+  const allowAll = (popover: HTMLElement) => within(within(popover).getByTestId('mcp-not-allowed')).getByRole('button', { name: ALLOW_ALL_LABEL })
+  const calls = () => main.calls.filter((call) => call.channel === 'agent.mcpAllowAll')
+
+  it('is in the group\'s heading only while two rows or more offer Allow: one row has its own Allow', () => {
+    const { rerender } = render(<McpChip sessionId="s" rows={ROWS} autopilot={false} />)
+    const popover = open()
+    expect(within(popover).queryByTestId('mcp-allow-all')).toBeNull()
+    rerender(<McpChip sessionId="s" rows={TWO} autopilot={false} />)
+    const button = allowAll(popover)
+    expect(button.classList.contains('w-button--secondary')).toBe(true)
+    expect(button.closest('.w-mcp__group-head')?.querySelector('h2')?.textContent).toBe('Not allowed in this Project')
+    // A not-allowed row without Allow does not count.
+    rerender(<McpChip sessionId="s" rows={[...TWO.slice(0, -1), { ...OUTSIDE[1]!, actions: [] }]} autopilot={false} />)
+    expect(within(popover).queryByTestId('mcp-allow-all')).toBeNull()
+  })
+
+  it('sends every name in one call; the rows\' Allow and the button wait while it runs; the rows main answers are taken', async () => {
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcpAllowAll'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    render(<McpChip sessionId="all" rows={TWO} autopilot={false} />)
+    const popover = open()
+    fireEvent.click(allowAll(popover))
+    expect(calls()).toEqual([{ channel: 'agent.mcpAllowAll', input: { sessionId: 'all', names: ['example-wiki', 'example-docs'] } }])
+    expect(allowAll(popover).getAttribute('aria-disabled')).toBe('true')
+    expect(allowAll(popover).getAttribute('aria-busy')).toBe('true')
+    for (const name of ['example-wiki', 'example-docs']) expect(within(rowOf(popover, name)).getByRole('button', { name: 'Allow' }).getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(allowAll(popover))
+    fireEvent.click(within(rowOf(popover, 'example-wiki')).getByRole('button', { name: 'Allow' }))
+    expect(calls()).toHaveLength(1)
+    expect(main.calls.filter((call) => call.channel === 'agent.mcpAction')).toEqual([])
+    const after = TWO.map((each) => (each.status === 'not-allowed' ? { ...each, status: 'connected' as const, tools: 1, actions: [] } : each))
+    await act(async () => settle({ ok: true, value: { servers: after, error: null } }))
+    expect(useSessionLogs.getState().logs.all?.mcp?.servers).toEqual(after)
+    expect(main.toasts).toEqual([])
+  })
+
+  it('waits while an action of a row runs', async () => {
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcpAction'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    render(<McpChip sessionId="s" rows={TWO} autopilot={false} />)
+    const popover = open()
+    fireEvent.click(within(rowOf(popover, 'example-tracker')).getByRole('button', { name: 'Reconnect' }))
+    expect(allowAll(popover).getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(allowAll(popover))
+    expect(calls()).toEqual([])
+    await act(async () => settle({ ok: true, value: { servers: null, error: null } }))
+    expect(allowAll(popover).getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('a refusal is a toast and stays written under the heading, through new rows, until the next Allow all answers', async () => {
+    main.answers['agent.mcpAllowAll'] = () => ({ ok: false, error: 'agent.mcpAllowAll failed: The profile changed while Allow wrote it; nothing was written. Press Allow again.' })
+    acceptAgentEvent({ sessionId: 'refused-all', event: { type: 'mcp', servers: TWO } })
+    render(<SessionMcpChip sessionId="refused-all" projectId="alpha" orchestrator={false} />)
+    const popover = open()
+    await act(async () => fireEvent.click(allowAll(popover)))
+    const error = () => within(within(screen.getByRole('dialog', { name: 'MCP servers' })).getByTestId('mcp-not-allowed')).queryByTestId('mcp-allow-all-error')
+    expect(error()?.textContent).toBe('Allow all failed: The profile changed while Allow wrote it; nothing was written. Press Allow again.')
+    expect(main.toasts).toEqual([expect.objectContaining({ kind: 'error', text: 'Allow all: The profile changed while Allow wrote it; nothing was written. Press Allow again.' })])
+    // Main wrote the list, but a server did not join: its words stay too.
+    main.answers['agent.mcpAllowAll'] = () => ({ ok: true, value: { servers: null, error: 'example-docs did not start' } })
+    await act(async () => fireEvent.click(allowAll(popover)))
+    expect(error()?.textContent).toBe('Allow all failed: example-docs did not start')
+    await act(async () => acceptAgentEvent({ sessionId: 'refused-all', event: { type: 'mcp', servers: [...TWO, row('example-more', { status: 'not-allowed', tools: null, actions: ['allow'] })] } }))
+    expect(error()?.textContent).toBe('Allow all failed: example-docs did not start')
+    main.answers['agent.mcpAllowAll'] = () => ({ ok: true, value: { servers: null, error: null } })
+    await act(async () => fireEvent.click(allowAll(popover)))
+    expect(error()).toBeNull()
+    expect(calls().at(-1)?.input).toEqual({ sessionId: 'refused-all', names: ['example-wiki', 'example-docs', 'example-more'] })
   })
 })
 

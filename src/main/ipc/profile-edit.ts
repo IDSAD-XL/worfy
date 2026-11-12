@@ -19,6 +19,7 @@
 //
 // Allow in Project (worfy-mcp-live ticket 05, allowMcpServer) writes one name onto `mcp.allowed` through the
 // same script, for agent.mcpAction (src/main/ipc/agent.ts): a Session's row of a server its list keeps out.
+// Allow all (ticket 09, allowMcpServers) writes several names with one `--set`, for agent.mcpAllowAll.
 import { resolve } from 'node:path'
 import type { SessionState } from '../../shared/agent/events'
 import { pipelineFingerprintSchema } from '../../shared/ipc/pipeline'
@@ -96,11 +97,20 @@ const allowWrites = new Map<string, Promise<unknown>>()
  * old, a conflict on every try, a busy Profile, a refused value.
  */
 export function allowMcpServer(run: ProfileSetRunner, root: string, name: string, project: string = root): Promise<void> {
+  return allowMcpServers(run, root, [name], project)
+}
+
+/**
+ * Allow all (worfy-mcp-live ticket 09): allowMcpServer for every name of `names` with one `--set` — the list read,
+ * the names it lacks added in their order — in the same queue of the Project. Names on the list already write
+ * nothing; all of them there: no write at all.
+ */
+export function allowMcpServers(run: ProfileSetRunner, root: string, names: readonly string[], project: string = root): Promise<void> {
   const key = realpathOrSelf(resolve(project)).normalize('NFC')
   const before = allowWrites.get(key) ?? Promise.resolve()
   const mine = before.then(
-    () => writeAllowed(run, root, name),
-    () => writeAllowed(run, root, name),
+    () => writeAllowed(run, root, names),
+    () => writeAllowed(run, root, names),
   )
   allowWrites.set(key, mine)
   const forget = (): void => {
@@ -110,8 +120,8 @@ export function allowMcpServer(run: ProfileSetRunner, root: string, name: string
   return mine
 }
 
-/** One Allow's write: allowMcpServer, once the Allow before it in the Project has ended. */
-async function writeAllowed(run: ProfileSetRunner, root: string, name: string): Promise<void> {
+/** One Allow's write: allowMcpServers, once the Allow before it in the Project has ended. */
+async function writeAllowed(run: ProfileSetRunner, root: string, names: readonly string[]): Promise<void> {
   const args = ['-C', root, '--field', MCP_ALLOWED_FIELD]
   for (let attempt = 1; ; attempt += 1) {
     const read = await runOrTooOld(run, [...args, '--read'])
@@ -120,8 +130,9 @@ async function writeAllowed(run: ProfileSetRunner, root: string, name: string): 
     const { fields, fingerprint } = readFields(read)
     const now = fields[MCP_ALLOWED_FIELD]
     const listed = now === null || now === undefined ? [...DEFAULT_MCP_SERVERS] : stringsOf(now)
-    if (listed.includes(name)) return
-    const set = await run([...args, '--expect', fingerprint, '--set', '-'], JSON.stringify({ [MCP_ALLOWED_FIELD]: [...listed, name] }))
+    const added = [...new Set(names)].filter((name) => !listed.includes(name))
+    if (added.length === 0) return
+    const set = await run([...args, '--expect', fingerprint, '--set', '-'], JSON.stringify({ [MCP_ALLOWED_FIELD]: [...listed, ...added] }))
     if (set.code === 0) return
     if (set.code === PROFILE_SET_CONFLICT) {
       if (attempt < ALLOW_TRIES) continue

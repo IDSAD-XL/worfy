@@ -54,6 +54,11 @@
 // as done. A refused write changes nothing in the Session. An unattended Session gets the write but no
 // Restart: the server joins from the next Wave, whose Session reads the list at its start.
 //
+// Allow all (worfy-mcp-live ticket 09, owner's Q3): every server of the group «Not allowed in this Project»
+// at once — one write with all the names, then one Restart, the rest as Allow. worfy's own servers and
+// plugins' (source worfy) are never turned off for a Session (ticket 09, owner's Q2): their row offers no
+// Turn off, and the Session refuses one asked for all the same.
+//
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
 // the Session is `needs_permission` while a request is open. Interrupt, close and a crash cancel
@@ -150,6 +155,8 @@ export const STATIC_CLAUDE_PARTS: SessionVendorParts = {
 export interface McpActionDeps {
   /** Puts the server on the Profile's list of the Session's Project (Allow); rejects with the reason it was not written. */
   allow?: (name: string) => Promise<void>
+  /** Puts every server of `names` on that list in one write (Allow all, ticket 09); rejects with the reason nothing was written. */
+  allowAll?: (names: readonly string[]) => Promise<void>
   /** How long Allow asks for the rows after its Restart; ALLOW_SETTLE_MS by default. */
   settleMs?: number
 }
@@ -160,6 +167,11 @@ export const ALLOW_SETTLE_MS = 10_000
 /** The error of an Allow whose write landed but whose Restart did not bring the server: the person must not take it for done. */
 export const allowNotStarted = (name: string): string =>
   `${name} is on the Project's list now, but Claude Code did not start it in this Session after the Restart.`
+/** The same for Allow all, of the servers `names` the restarted process lacks (one name: allowNotStarted's words). */
+export const allowAllNotStarted = (names: readonly string[]): string =>
+  names.length === 1
+    ? allowNotStarted(names[0] ?? '')
+    : `${names.join(', ')} are on the Project's list now, but Claude Code did not start them in this Session after the Restart.`
 /** How often it asks meanwhile. */
 const ALLOW_POLL_MS = 250
 /** The statuses of a row that is not a server of the Session's process. */
@@ -668,7 +680,11 @@ export class Session {
   async mcpAction(name: string, action: McpServerAction, deps: McpActionDeps = {}): Promise<McpActionAnswer> {
     this.assertOpen()
     if (action === 'turn-off' || action === 'turn-on' || action === 'restart') return this.restartFor(name, action)
-    if (action === 'allow') return this.allow(name, deps.allow, deps.settleMs ?? ALLOW_SETTLE_MS)
+    if (action === 'allow') {
+      const write = deps.allow
+      if (write === undefined) throw new McpActionRefused('allow')
+      return this.allowNames([name], ([one]) => write(one ?? name), deps.settleMs ?? ALLOW_SETTLE_MS)
+    }
     const part = this.parts.mcp
     if (part?.act === undefined) throw new McpActionRefused(action)
     // Sign in opens a page in the browser: only for a server whose row offers it (needs-auth, ticket 05).
@@ -686,57 +702,94 @@ export class Session {
   }
 
   /**
-   * Allow (worfy-mcp-live ticket 05): `write` puts `name` on the Profile's list, then the process restarts
-   * with the same conversation and the rows are asked until the server has a row of the new process out of
-   * `pending` — `settleMs` at most. Refused — nothing written — when no row of the server offers Allow or
-   * there is no writer; a write that fails rejects with its reason and the Session stays as it was. A server
-   * the restarted process still lacks (`not-allowed`, `not-started`, no row) is answered with an error: the
-   * list is written, but the Session did not take the server. While another action's Restart starts a process
-   * (Allow pressed on several servers), Allow waits for that start and restarts again only when the new
-   * process lacks the server; with no process at all it answers the error. An unattended or halted Session
-   * gets the write without a Restart: the list holds from its next start (the next Wave).
+   * Allow all (worfy-mcp-live ticket 09): every server of `names` onto the Profile's list with one write
+   * (`deps.allowAll`), then one Restart with the same conversation, as Allow does for one. Refused — nothing
+   * written — when `names` is empty, a name repeats, a server's row does not offer Allow, or there is no
+   * writer. A server the restarted process still lacks is named in the answer's error.
    */
-  private async allow(name: string, write: ((name: string) => Promise<void>) | undefined, settleMs: number): Promise<McpActionAnswer> {
-    const row = this.mcpValue?.find((each) => each.name === name)
-    if (write === undefined || row === undefined || !row.actions.includes('allow')) throw new McpActionRefused('allow')
-    await write(name)
+  async mcpAllowAll(names: readonly string[], deps: McpActionDeps = {}): Promise<McpActionAnswer> {
+    this.assertOpen()
+    const write = deps.allowAll
+    if (write === undefined || names.length === 0 || new Set(names).size !== names.length) throw new McpActionRefused('allow')
+    return this.allowNames(names, write, deps.settleMs ?? ALLOW_SETTLE_MS)
+  }
+
+  /**
+   * Allow (worfy-mcp-live ticket 05) and Allow all (ticket 09): `write` puts `names` on the Profile's list, then
+   * the process restarts with the same conversation — once, whatever the number of names — and the rows are
+   * asked until each server has a row of the new process out of `pending`, `settleMs` at most. Refused —
+   * nothing written — when a server has no row offering Allow; a write that fails rejects with its reason
+   * and the Session stays as it was. A server the restarted process still lacks (`not-allowed`, `not-started`,
+   * no row) is answered with an error: the list is written, but the Session did not take the server. While
+   * another action's Restart starts a process (Allow pressed on several servers), Allow waits for that start
+   * and restarts again only when the new process lacks a server; with no process at all it answers the error.
+   * An unattended or halted Session gets the write without a Restart: the list holds from its next start (the
+   * next Wave).
+   */
+  private async allowNames(names: readonly string[], write: (names: readonly string[]) => Promise<void>, settleMs: number): Promise<McpActionAnswer> {
+    const offers = (name: string): boolean => this.mcpValue?.find((each) => each.name === name)?.actions.includes('allow') === true
+    if (!names.every(offers)) throw new McpActionRefused('allow')
+    await write(names)
     if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true) return { servers: await this.mcp(), error: null }
-    const inProcess = (rows: McpServerRow[] | null): boolean => {
-      const now = rows?.find((each) => each.name === name)
-      return now !== undefined && !NOT_IN_SESSION.has(now.status)
+    const missing = (rows: McpServerRow[] | null): string[] =>
+      names.filter((name) => {
+        const now = rows?.find((each) => each.name === name)
+        return now === undefined || NOT_IN_SESSION.has(now.status)
+      })
+    const answer = (rows: McpServerRow[] | null): McpActionAnswer => {
+      const lacking = rows === null ? [] : missing(rows)
+      return { servers: rows, error: lacking.length === 0 ? null : allowAllNotStarted(lacking) }
     }
     // Another action's Restart may be starting a process now, with a list read before this write: its start
-    // is waited for, and the process restarted again unless it has the server all the same.
+    // is waited for, and the process restarted again unless it has the servers all the same.
     while (this.pendingStarts.size > 0) await Promise.allSettled([...this.pendingStarts])
     if ((this.run?.handle ?? null) === null) {
       const rows = await this.mcp()
-      return { servers: rows, error: inProcess(rows) ? null : allowNotStarted(name) }
+      return { servers: rows, error: missing(rows).length === 0 ? null : allowAllNotStarted(missing(rows)) }
     }
-    if (!inProcess(await this.mcp())) await this.restartProcess()
+    // Asked of the process itself: mcp() answers what the Session holds when another ask overtakes this one
+    // (the other action's own read), and that may still be the rows of the process before (ticket 09).
+    if (missing(await this.rowsNow()).length > 0) await this.restartProcess()
     const until = Date.now() + settleMs
     let servers = await this.mcp()
-    const settled = (rows: McpServerRow[] | null): boolean => inProcess(rows) && rows?.find((each) => each.name === name)?.status !== 'pending'
+    const settled = (rows: McpServerRow[] | null): boolean => missing(rows).length === 0 && names.every((name) => rows?.find((each) => each.name === name)?.status !== 'pending')
     while (!settled(servers) && Date.now() < until && this.run !== null) {
       await new Promise((done) => setTimeout(done, ALLOW_POLL_MS))
       servers = await this.mcp()
     }
-    const now = servers?.find((each) => each.name === name)
-    const missing = servers !== null && (now === undefined || NOT_IN_SESSION.has(now.status))
-    return { servers, error: missing ? allowNotStarted(name) : null }
+    return answer(servers)
+  }
+
+  /**
+   * The rows of the live process as its driver answers them now, with the servers turned off for this Session;
+   * nothing is sent or kept. null: no process, no status, or the ask failed. For a decision that must not take
+   * the rows the Session holds for the process's own (allowNames).
+   */
+  private async rowsNow(): Promise<McpServerRow[] | null> {
+    const handle = this.run?.handle ?? null
+    const status = this.parts.mcp?.status
+    if (handle === null || status === undefined) return null
+    if (this.pickingUp !== null) await this.pickingUp.catch(() => undefined)
+    try {
+      return this.withOffRows(await status.call(this.parts.mcp, handle, { pickUp: false }))
+    } catch {
+      return null
+    }
   }
 
   /**
    * Turn off, Turn on and Restart (worfy-mcp-live ticket 03): the Session's set of servers turned off
    * changes, then its process is restarted with the same conversation (restartProcess). Refused —
    * nothing changes — for a driver that does not `restart`, an unattended or halted Session, a server
-   * whose row does not offer Turn off, and one not turned off for Turn on.
+   * whose row does not offer Turn off or that is worfy's own or a plugin's (source worfy, ticket 09: whatever
+   * a driver offered), and one not turned off for Turn on.
    */
   private async restartFor(name: string, action: 'turn-off' | 'turn-on' | 'restart'): Promise<McpActionAnswer> {
     if (this.parts.mcp?.restarts !== true || this.launch.unattended || this.halted) throw new McpActionRefused(action)
     if ((this.run?.handle ?? null) === null) throw new Error("The Session's agent is not running")
     if (action === 'turn-off') {
       const row = this.mcpValue?.find((each) => each.name === name)
-      if (row === undefined || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
+      if (row === undefined || row.source === 'worfy' || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
       this.mcpOff.set(name, { ...row, status: 'disabled', tools: null, error: null, actions: ['turn-on'] })
     } else if (action === 'turn-on') {
       if (!this.mcpOff.delete(name)) throw new McpActionRefused(action)

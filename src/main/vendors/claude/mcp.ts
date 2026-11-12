@@ -16,7 +16,8 @@
 // when the set of servers changed, which is what the person added the server for: no confirmation is
 // asked (holdOnCacheImpact is not used). Turn off, Turn on and Restart are a Restart of the Session
 // with the same conversation (Session.mcpAction; `restarts`), which starts Claude Code without the
-// servers turned off (options.ts, mcpOff); a connected server offers Turn off. An unattended Session
+// servers turned off (options.ts, mcpOff); a connected server of the user offers Turn off, worfy's own
+// servers and plugins' never do (ticket 09: their row is status only). An unattended Session
 // (Autopilot) takes in nothing in the middle of a Wave and offers neither: its set of servers is fixed
 // when it starts.
 //
@@ -154,8 +155,13 @@ async function signIn(query: QueryHandle, name: string, open: (url: string) => P
   throw new Error(`The sign-in was not completed within ${Math.round(SIGN_IN_WAIT_MS / 60_000)} minutes: sign in, then press Reconnect`)
 }
 
-/** A connected server of an attended Session offers Turn off for this Session (a Restart without it). */
-const withTurnOff = (row: McpServerRow): McpServerRow => (row.status === 'connected' && !row.actions.includes('turn-off') ? { ...row, actions: [...row.actions, 'turn-off'] } : row)
+/**
+ * A connected server of the user (claude.ai, user config, Project) in an attended Session offers Turn off for
+ * this Session (a Restart without it). worfy's own servers and plugins' (source worfy) never do: their row is
+ * status only (worfy-mcp-live ticket 09, owner's Q2) — a Session without worfy-canvas loses the Canvas tools.
+ */
+const withTurnOff = (row: McpServerRow): McpServerRow =>
+  row.status === 'connected' && row.source !== 'worfy' && !row.actions.includes('turn-off') ? { ...row, actions: [...row.actions, 'turn-off'] } : row
 
 /** What the mcp part reads of the SessionHandle of the Claude driver (ClaudeSession, session.ts). */
 export interface ClaudeMcpLive {

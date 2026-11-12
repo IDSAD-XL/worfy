@@ -104,19 +104,23 @@ export class McpInventory {
     return run
   }
 
-  /** The key of the folder's Project: its root, or the folder itself outside a repository. */
+  /**
+   * The key of the folder's Project: its root, or the folder itself outside a repository. Only a root found is
+   * kept for the next ask: no root (git failed, or the folder is not in a repository yet) is asked again next
+   * time (review of #1822), so a hiccup of git does not split a Project's inventory for the app's life.
+   */
   private projectOf(folder: string): Promise<string> {
-    let found = this.finding.get(folder)
-    if (found === undefined) {
-      found = this.rootOf(folder).then(
-        (root) => (root === null ? folder : resolve(root)),
-        () => folder,
-      ).then((key) => {
-        this.projects.set(folder, key)
-        return key
-      })
-      this.finding.set(folder, found)
-    }
+    const known = this.finding.get(folder)
+    if (known !== undefined) return known
+    const found = this.rootOf(folder).then(
+      (root) => (root === null ? null : resolve(root)),
+      () => null,
+    ).then((root) => {
+      this.projects.set(folder, root ?? folder)
+      if (root === null && this.finding.get(folder) === found) this.finding.delete(folder)
+      return root ?? folder
+    })
+    this.finding.set(folder, found)
     return found
   }
 

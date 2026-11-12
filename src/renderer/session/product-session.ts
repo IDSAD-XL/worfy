@@ -11,9 +11,10 @@ export const ProductSessionContext = createContext(false)
 /**
  * The items of the input field's bar (composer/index.ts) a Product Session leaves out (Q4 of the owner's
  * decisions of 2026-11-08, ticket 19): the context meter, the queue and the model, effort and permission
- * pickers. Its field keeps the text, Send, Interrupt and attaching a picture.
+ * pickers; and the chip of MCP servers, which a Product Session's header never had either (worfy-mcp-live
+ * ticket 09). Its field keeps the text, Send, Interrupt and attaching a picture.
  */
-export const PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS: readonly string[] = ['ContextMeter', 'Queue', 'Pickers']
+export const PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS: readonly string[] = ['ContextMeter', 'Queue', 'Pickers', 'McpServers']
 
 /**
  * Whether a Product Session's chat draws a row (Q1 of the owner's decisions of 2026-11-08, ticket 19): the
