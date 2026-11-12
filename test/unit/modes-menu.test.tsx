@@ -1133,8 +1133,13 @@ describe('Auto-continue in the menu', () => {
 // Modes menu opens from the bar under that field. Its keyboard handler is the field's own, and the focus
 // goes into the menu, so the press that closes the menu never reaches it.
 describe('Esc in the Modes menu of the composer while the agent works', () => {
-  it('closes the menu and leaves the turn running; the next Esc in the field interrupts it', async () => {
-    main = preload()
+  // Eco mode unavailable (a Harness without bin/profile-set, as on the Windows CI runner): the first
+  // item, which takes the focus, is inactive, and Base UI marks every key on it handled.
+  it.each([
+    ['Eco mode available', () => preload()],
+    ['Eco mode unavailable, the focus on an inactive item', () => preload({ eco: [{ available: false, reason: 'this Harness has no bin/profile-set --field' }] })],
+  ])('closes the menu and leaves the turn running; the next Esc in the field interrupts it (%s)', async (_case, made) => {
+    main = made()
     const { acceptOrchestratorView } = await import('../../src/renderer/canvas/nodes/orchestrator-view')
     const { acceptProjectsState } = await import('../../src/renderer/projects/useProjects')
     const { MessageInput } = await import('../../src/renderer/session/MessageInput')

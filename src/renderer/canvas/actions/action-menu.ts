@@ -70,7 +70,7 @@ export function ActionMenu({ label, text, title, testId, menuLabel, items }: Act
     align: 'end',
     inNode: true,
     children: items.map((item) =>
-      createElement(MenuItem, { key: item.testId, className: 'w-row', title: item.title, disabled: item.disabled, testId: item.testId, onClick: () => choose(item), children: item.label }),
+      createElement(MenuItem, { key: item.testId, className: 'w-row', title: item.title, disabled: item.disabled, 'aria-disabled': item.disabled ? 'true' : 'false', testId: item.testId, onClick: () => choose(item), children: item.label }),
     ),
   })
 }

@@ -179,6 +179,29 @@ describe('the kit Menu', () => {
     }
   })
 
+  it('Esc on an inactive item closes the menu too: Base UI marks every key on it handled, and that is not a field of the menu taking the press', async () => {
+    const panel = vi.fn()
+    render(
+      <div
+        onKeyDown={(event: KeyboardEvent) => {
+          if (event.key === 'Escape') panel()
+        }}
+      >
+        <Actions />
+      </div>,
+    )
+    await openIt()
+    fireEvent.keyDown(item('Run'), { key: 'ArrowDown' })
+    await flush()
+    expect(document.activeElement).toBe(item('Stop'))
+    const esc = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => void item('Stop').dispatchEvent(esc))
+    await flush()
+    expect(menu()).toBeNull()
+    expect(panel).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(trigger())
+  })
+
   it('a field outside that keeps the focus learns that Esc belongs to the open menu', async () => {
     render(
       <>

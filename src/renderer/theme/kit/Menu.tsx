@@ -63,6 +63,8 @@ export interface MenuProps {
 
 /** Every item of a menu, whatever its role. */
 const ITEMS = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
+/** An inactive item, which keeps the focus. */
+const INACTIVE_ITEM = ':is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"])[aria-disabled="true"]'
 
 /** Stops a click inside the menu from reaching the Node it was opened from, through React's tree: it must not select or open the Node. */
 const keepFromNode = (event: MouseEvent) => event.stopPropagation()
@@ -104,6 +106,14 @@ export function Menu({ open, onOpenChange, trigger, label, children, className, 
   }
 
   const onPopupKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Base UI marks every key but Tab on an inactive item handled (useFocusableWhenDisabled), so the
+    // shared part would take Esc there for a field of the menu that kept it, and the menu would stay.
+    // No field took it: Esc on an inactive item closes the menu as on any other.
+    if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.target instanceof Element && event.target.matches(INACTIVE_ITEM)) {
+      event.stopPropagation()
+      close()
+      return
+    }
     kit.popup.onKeyDown(event)
     if (event.key !== 'Tab' || event.defaultPrevented) return
     // The focus goes back to the trigger before the menu goes, so Tab moves on from there.
@@ -140,8 +150,11 @@ type ItemAttributes = Omit<HTMLAttributes<HTMLElement>, 'children' | 'onClick' |
   [data: `data-${string}`]: string | undefined
 }
 
-/** An active item carries no `aria-disabled` at all, as the menus before the kit drew it; an inactive one `"true"`. */
-const activeless = (disabled: boolean): 'true' | undefined => (disabled ? 'true' : undefined)
+/**
+ * An inactive item carries `aria-disabled="true"`; an active one what its caller gave (the Canvas's
+ * action menu says `"false"`), else none at all, as the menus before the kit drew it — not Base UI's `"false"`.
+ */
+const activeless = (disabled: boolean, own: ItemAttributes['aria-disabled']): ItemAttributes['aria-disabled'] => (disabled ? 'true' : own)
 
 interface ItemCommon extends ItemAttributes {
   children: ReactNode
@@ -164,7 +177,7 @@ export interface MenuItemProps extends ItemCommon {
  */
 export function MenuItem({ children, disabled = false, testId, onClick, closeOnClick = true, ...rest }: MenuItemProps) {
   return (
-    <BaseMenu.Item data-testid={testId} {...rest} disabled={disabled} aria-disabled={activeless(disabled)} closeOnClick={closeOnClick} onClick={onClick}>
+    <BaseMenu.Item data-testid={testId} {...rest} disabled={disabled} aria-disabled={activeless(disabled, rest['aria-disabled'])} closeOnClick={closeOnClick} onClick={onClick}>
       {children}
     </BaseMenu.Item>
   )
@@ -185,7 +198,7 @@ export function MenuCheckboxItem({ children, disabled = false, testId, checked, 
       data-testid={testId}
       {...rest}
       disabled={disabled}
-      aria-disabled={activeless(disabled)}
+      aria-disabled={activeless(disabled, rest['aria-disabled'])}
       closeOnClick={closeOnClick}
       checked={checked}
       onCheckedChange={(next) => onCheckedChange(next)}
@@ -237,7 +250,7 @@ export interface MenuRadioItemProps extends ItemCommon {
 /** A `menuitemradio` of a MenuRadioGroup. */
 export function MenuRadioItem({ children, disabled = false, testId, value, onClick, closeOnClick = false, ...rest }: MenuRadioItemProps) {
   return (
-    <BaseMenu.RadioItem data-testid={testId} {...rest} disabled={disabled} aria-disabled={activeless(disabled)} closeOnClick={closeOnClick} value={value} onClick={onClick}>
+    <BaseMenu.RadioItem data-testid={testId} {...rest} disabled={disabled} aria-disabled={activeless(disabled, rest['aria-disabled'])} closeOnClick={closeOnClick} value={value} onClick={onClick}>
       {children}
     </BaseMenu.RadioItem>
   )
