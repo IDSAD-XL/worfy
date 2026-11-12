@@ -3,12 +3,16 @@
 // themselves; they take the helper now.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { Popover } from '@base-ui/react/popover'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isOpenLayer, layerOf, openLayers } from '../../src/renderer/theme/open-layers'
+import { escapeBelongsToPopup, isOpenLayer, KIT_POPUP_ATTRIBUTE, layerOf, openLayers } from '../../src/renderer/theme/open-layers'
 
 const added: Element[] = []
 
 afterEach(() => {
+  cleanup()
   for (const element of added.splice(0)) element.remove()
 })
 
@@ -55,6 +59,42 @@ describe('open layers', () => {
     expect(isOpenLayer(list)).toBe(false)
   })
 
+  it.each(['data-ending-style', 'data-closed'])('a Base UI popup still in the page but closing (%s) is not an open layer (ticket 03)', (mark) => {
+    const open = put('menu')
+    const closing = put('dialog')
+    closing.setAttribute(mark, '')
+    expect(openLayers()).toEqual([open])
+    expect(isOpenLayer(closing)).toBe(false)
+  })
+
+  it('a real Base UI Popover kept in the page after it closed is not an open layer', async () => {
+    function Kept() {
+      const [shown, setShown] = useState(true)
+      return (
+        <Popover.Root open={shown} onOpenChange={setShown} modal={false}>
+          <Popover.Trigger>Open</Popover.Trigger>
+          <Popover.Portal keepMounted>
+            <Popover.Positioner>
+              <Popover.Popup aria-label="Kept" data-testid="kept">
+                <button type="button" onClick={() => setShown(false)}>
+                  Done
+                </button>
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+      )
+    }
+    render(<Kept />)
+    const popup = await screen.findByTestId('kept')
+    expect(isOpenLayer(popup)).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    expect(popup.isConnected).toBe(true)
+    expect(isOpenLayer(popup)).toBe(false)
+    expect(openLayers()).toEqual([])
+  })
+
   it('other roles are not layers', () => {
     const region = put('region')
     put('tooltip')
@@ -74,6 +114,50 @@ describe('open layers', () => {
     expect(layerOf(outside)).toBeNull()
     expect(layerOf(window)).toBeNull()
     expect(layerOf(null)).toBeNull()
+  })
+})
+
+describe('whether Esc in a field belongs to an open kit popup (ticket 03)', () => {
+  const field = (): HTMLElement => {
+    const element = document.body.appendChild(document.createElement('textarea'))
+    added.push(element)
+    return element
+  }
+  const kitPopup = (role = 'dialog', parent: Element = document.body): HTMLElement => {
+    const popup = put(role, parent)
+    popup.setAttribute(KIT_POPUP_ATTRIBUTE, '')
+    return popup
+  }
+
+  it('an open kit popup elsewhere takes the press; a popup of any role, or none, counts', () => {
+    const input = field()
+    const tooltip = document.body.appendChild(document.createElement('div'))
+    tooltip.setAttribute(KIT_POPUP_ATTRIBUTE, '')
+    added.push(tooltip)
+    expect(escapeBelongsToPopup(input)).toBe(true)
+  })
+
+  it('a closing, hidden or removed kit popup does not', () => {
+    const input = field()
+    const closing = kitPopup('menu')
+    closing.setAttribute('data-ending-style', '')
+    const hidden = kitPopup()
+    hidden.hidden = true
+    kitPopup().remove()
+    expect(escapeBelongsToPopup(input)).toBe(false)
+  })
+
+  it("the kit popup the field is in does not: the press is that popup's own", () => {
+    const popup = kitPopup()
+    const input = popup.appendChild(document.createElement('input'))
+    expect(escapeBelongsToPopup(input)).toBe(false)
+  })
+
+  it('a layer that is not a kit popup does not: its own Esc sits on the layer, not on the document', () => {
+    const input = field()
+    put('dialog')
+    put('listbox')
+    expect(escapeBelongsToPopup(input)).toBe(false)
   })
 })
 

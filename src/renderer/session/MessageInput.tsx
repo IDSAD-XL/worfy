@@ -3,6 +3,7 @@ import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useReadOnly } from '../projects/useProjects'
+import { escapeBelongsToPopup } from '../theme/open-layers'
 import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } from './attach-files'
 import { dropRefusal } from './chat-drop'
 import { composerItems } from './composer/index'
@@ -343,8 +344,10 @@ export function MessageInput({ nodeId, sessionId, busy, history, recipient, draf
     }
     // A press a popup of the field already took (it called preventDefault) closed that popup: one
     // press, one action, so the turn goes on (worfy-ui-kit ticket 02). The native event, because a
-    // listener outside React may have taken it before React saw the press.
-    if (event.key === 'Escape' && busy && !event.nativeEvent.defaultPrevented) {
+    // listener outside React may have taken it before React saw the press. An open kit popup takes
+    // the press later, in Base UI's listener on the document, so the field asks the open-layers
+    // helper about it (ticket 03, ADR-0106).
+    if (event.key === 'Escape' && busy && !event.nativeEvent.defaultPrevented && !escapeBelongsToPopup(event.currentTarget)) {
       event.preventDefault()
       onInterrupt()
       return

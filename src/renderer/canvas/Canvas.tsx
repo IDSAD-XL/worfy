@@ -61,6 +61,7 @@ import { invoke, windowMachine } from '../ipc'
 import { isMac } from '../platform'
 import { useReadOnly } from '../projects/useProjects'
 import { held, matches } from '../shortcuts/match'
+import { insideNodePopup } from '../theme/kit/layer'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { ownedKinds, toFlowNodes } from './flow-nodes'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
@@ -404,11 +405,12 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   // A press outside the active Node, or Esc nobody else took, ends the activity. Esc inside a
   // Terminal belongs to its shell. A press inside a Card's page never reaches this window, and it
-  // is inside the active Node anyway.
+  // is inside the active Node anyway. A popup of a Node is drawn in a portal, outside the Node's
+  // element: a press inside it is not a press outside (theme/kit/layer.ts, worfy-ui-kit ticket 03).
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const active = activeRef.current
-      if (active === null) return
+      if (active === null || insideNodePopup(event.target)) return
       const node = event.target instanceof Element ? event.target.closest('.react-flow__node') : null
       if (node?.getAttribute('data-id') === active) return
       activate(null)

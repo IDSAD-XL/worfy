@@ -1,0 +1,104 @@
+/**
+ * The shared part of every kit popup (worfy-ui-kit ticket 03, ADR-0106). A kit wrapper takes Base UI
+ * for the behaviour and spreads these props on its popup; the portal takes `layerStyle`. Base UI is
+ * imported only under theme/kit/ (the lint rule in eslint.config.js); this file needs none of it.
+ *
+ * What every popup gets here:
+ * - it closes when the window loses the focus (a press inside a Browser Node's <webview> takes the
+ *   focus out of the renderer, and Base UI does not see it as a press outside: Base UI #5410) and
+ *   when the view of the shell switches, so it never hangs over another view;
+ * - Esc is taken in React's phase, on the popup itself: it closes the popup and is marked handled
+ *   (`preventDefault`, `stopPropagation`). Base UI closes on Esc too, but in its listener on the
+ *   document, after every React handler: an ancestor with its own Esc (the rail panel of
+ *   session/ProductSessionPanel.tsx) would act on the same press;
+ * - toasts keep clear of it (`data-toast-keep-out`, toast/ToastRegion.tsx);
+ * - a popup of a Node on the Canvas carries `nodrag`, `nopan` and `nowheel` for React Flow and the
+ *   in-node mark: a press inside it leaves the Node active (canvas/Canvas.tsx).
+ */
+import { useEffect, useEffectEvent, type CSSProperties, type KeyboardEvent } from 'react'
+import { LAYERS } from '../layers'
+import { KIT_POPUP_ATTRIBUTE } from '../open-layers'
+
+/** The mark of a popup drawn for a Node on the Canvas. */
+const IN_NODE_ATTRIBUTE = 'data-kit-in-node'
+
+/** React Flow's classes: a press, a drag or the wheel inside the popup is not the Canvas's. */
+const IN_NODE_CLASSES = 'nodrag nopan nowheel'
+
+/** A view of the shell (shell/AppShell.tsx): the views stay mounted, the hidden ones carry `hidden`. */
+const VIEW_SELECTOR = '.w-shell__view'
+
+export type LayerName = keyof typeof LAYERS
+
+/**
+ * The style of a popup's portal: the layer of the scale (theme/layers.ts) on a positioned element.
+ * A z-index without `position` does nothing, and the backdrop of a window with a lower z-index then
+ * covers the popup (spike, .scratch/worfy-ui-kit/spike-base-ui.md, step 2 item 4).
+ */
+export function layerStyle(layer: LayerName): CSSProperties {
+  return { position: 'relative', zIndex: LAYERS[layer] }
+}
+
+/** Whether `target` (of a press, say) lies inside a kit popup drawn for a Node. */
+export function insideNodePopup(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${IN_NODE_ATTRIBUTE}]`) !== null
+}
+
+export interface KitLayerOptions {
+  /** Whether the popup is open. */
+  open: boolean
+  /** Closes the popup: the wrapper's own state, the same as Base UI's onOpenChange(false). */
+  close: () => void
+  /** The popup is drawn for a Node on the Canvas. */
+  inNode?: boolean
+}
+
+/** The props a kit wrapper spreads on its Base UI popup element. */
+export interface KitPopupProps {
+  className: string | undefined
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+  [KIT_POPUP_ATTRIBUTE]: ''
+  'data-toast-keep-out': ''
+  [IN_NODE_ATTRIBUTE]?: ''
+}
+
+/** The shared part of a kit popup: closing on a blur of the window and on a view switch, and the popup's props. */
+export function useKitLayer({ open, close, inNode = false }: KitLayerOptions): KitPopupProps {
+  const closeNow = useEffectEvent(close)
+
+  useEffect(() => {
+    if (!open) return
+    const onBlur = () => closeNow()
+    // A view switch sets `hidden` on the view left and takes it off the view shown.
+    const views = new MutationObserver((records) => {
+      if (records.some((record) => record.target instanceof Element && record.target.matches(VIEW_SELECTOR))) closeNow()
+    })
+    window.addEventListener('blur', onBlur)
+    views.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'] })
+    return () => {
+      window.removeEventListener('blur', onBlur)
+      views.disconnect()
+    }
+  }, [open])
+
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || event.nativeEvent.isComposing) return
+    event.stopPropagation()
+    if (event.defaultPrevented) {
+      // Something inside the popup took the press already (a field's own Esc): the popup stays.
+      // Base UI's own Esc handler on the popup runs after this one; this press skips it.
+      ;(event as { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
+      return
+    }
+    event.preventDefault()
+    close()
+  }
+
+  return {
+    className: inNode ? IN_NODE_CLASSES : undefined,
+    onKeyDown,
+    [KIT_POPUP_ATTRIBUTE]: '',
+    'data-toast-keep-out': '',
+    ...(inNode ? { [IN_NODE_ATTRIBUTE]: '' as const } : {}),
+  }
+}

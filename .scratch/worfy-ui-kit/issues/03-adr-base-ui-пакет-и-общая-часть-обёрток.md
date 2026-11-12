@@ -1,7 +1,7 @@
 # 03 — ADR о Base UI и правилах kit, пакет, lint на import мимо kit, общая часть обёрток
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T03:24Z
 Blocked by: 01, 02
 Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения по реализации» (библиотека, kit, Base UI импортирует только
 kit, helper, Esc); истории 15, 16, 17, 28, 30; [критик](../../../docs/product/critic/worfy-ui-kit-2026-11-11.md),

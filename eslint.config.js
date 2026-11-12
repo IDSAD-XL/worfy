@@ -120,6 +120,25 @@ export default defineConfig(
     rules: { 'worfy/process-boundary': 'error' },
   },
   {
+    // Base UI is imported only by the kit, src/renderer/theme/kit/ (ADR-0106): every other place takes
+    // a kit wrapper, so the behaviour of popups, menus and windows stays in one place.
+    files: ['src/**/*.{js,mjs,ts,mts,tsx}'],
+    ignores: ['src/renderer/theme/kit/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@base-ui/*', '@base-ui/**'],
+              message: 'Base UI is imported only under src/renderer/theme/kit/ (ADR-0106): take the kit wrapper instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // No Cyrillic in code (scripts/check-cyrillic.mjs says where it is allowed); the same script
     // checks the shell, extensionless and Markdown files ESLint does not read.
     files: ['src/**', 'scripts/**', 'test/**', 'harness/**'],
