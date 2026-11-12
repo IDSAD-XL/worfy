@@ -33,11 +33,15 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 
 - [ ] Unit test-ы окон: Tab не уходит из окна; после закрытия фокус на кнопке, которая окно открыла; First run во время
       переноса Esc не закрывает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/first-run-dialog.test.tsx test/unit/machines-section.test.tsx test/unit/start-autopilot-modal.test.tsx test/unit/start-now-modal.test.tsx test/unit/settings-health.test.tsx test/unit/kit-dialog.test.tsx` exit 0 · mac - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 - [ ] Существующие unit test-ы и e2e `linked-machines.spec.ts`, `autopilot-start-modal.spec.ts`, `first-run.spec.ts`
       зелёные без правок ролей и `data-testid`.
 - [ ] Своих focus trap в этих окнах нет; `MACHINE_DIALOG_LAYER` нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/layers.test.tsx` exit 0 · mac - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
+  - evidence: commit pass · Machine, Autopilot and First run windows on the kit's Dialog (worfy-ui-kit 06) · - - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 2833de80af0b7ebdd1325e04c9bbbfb74c1447e2
 
 ## Где в коде
 
