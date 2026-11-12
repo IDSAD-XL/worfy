@@ -284,14 +284,17 @@ export function CommentPopover({
   }, [shake])
   const changed = popover.text.trim() !== popover.was.text.trim() || popover.images.length !== popover.was.images
   // A click outside closes an unchanged popover; a changed one asks to be saved or cancelled first
-  // (onOutside). The focus going elsewhere, a blur of the window or a switch of the view closes an
-  // unchanged one and keeps a changed one, without a word: the text is not lost. Esc cancels (the kit).
+  // (onOutside). An Esc pressed outside that no field took (the message field interrupts a running
+  // turn with it) is the same as a click outside. The focus going elsewhere or a switch of the view
+  // closes an unchanged one and keeps a changed one, without a word: the text is not lost. A blur of
+  // the window closes none: «Attach image» opens the system's file picker, which takes the focus of
+  // the window, and a drag from the Finder may too; the image it brings needs the popover.
   const dismiss = (reason: DismissReason): boolean => {
-    if (reason === 'outside-press') onOutside()
-    else if (!changed) onCancel()
+    if (reason === 'outside-press' || reason === 'escape-outside') onOutside()
+    else if (reason !== 'blur' && !changed) onCancel()
     return false
   }
-  // Esc is the kit's: it closes the popover (onCancel) and goes no further.
+  // Esc pressed in the popover is the kit's: it closes the popover (onCancel) and goes no further.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (matchesShortcut(event.nativeEvent, SHORTCUTS.quoteSave)) {
       event.preventDefault()
@@ -338,6 +341,7 @@ export function CommentPopover({
       sideOffset={8}
       initialFocus={field}
       onDismiss={dismiss}
+      passOutsideEscape
       popupProps={{
         'data-quote-float': '',
         onKeyDown,

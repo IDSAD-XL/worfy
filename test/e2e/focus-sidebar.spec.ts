@@ -269,8 +269,10 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
 })
 
 // What the sidebar can open next to focus mode, and what Esc does with each. The rule: something
-// always happens. A popup that closes on Esc gets the first press and focus mode the second; one
-// that does not react to the press is not in the way, and the press leaves focus mode.
+// always happens. A popup that closes on Esc gets the first press; focus mode gets the next one
+// pressed outside the sidebar — History gives the focus back to its button in the sidebar, and an Esc
+// pressed in the sidebar is never focus mode's. A popup that does not react to the press is not in
+// the way, and the press leaves focus mode.
 test('Esc with a popup of the sidebar open next to focus mode: History, the ADR panel, the menu of a Project, Project settings, Link a machine', async () => {
   const launched = await launch()
   try {

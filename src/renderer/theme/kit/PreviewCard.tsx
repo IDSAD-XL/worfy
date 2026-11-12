@@ -15,10 +15,14 @@
  * on the card (`popupProps.onMouseEnter`, `onMouseLeave`).
  *
  * The card is a `dialog` named by `label`: it holds actions, and while it is open it is a layer over
- * the page (theme/open-layers.ts), so Esc closes it first.
+ * the page (theme/open-layers.ts), so Esc pressed in it closes it first. It opens under the pointer
+ * alone, so an Esc pressed elsewhere is not its own first: the field with the focus takes it (the
+ * chat's message field interrupts the running turn, `PASS_ESCAPE_ATTRIBUTE`), and only an Esc that no
+ * field took closes the card.
  */
 import { PreviewCard as BasePreviewCard } from '@base-ui/react/preview-card'
-import { useCallback, type HTMLAttributes, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useRef, type HTMLAttributes, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
+import { PASS_ESCAPE_ATTRIBUTE } from '../open-layers'
 import { layerStyle, useKitLayer, type LayerName } from './layer'
 import type { PopupAnchor } from './Popover'
 import './popover.css'
@@ -68,6 +72,16 @@ export function PreviewCard({
 }: PreviewCardProps) {
   const close = useCallback(() => onOpenChange(false), [onOpenChange])
   const kit = useKitLayer({ open, close })
+  const popup = useRef<HTMLDivElement | null>(null)
+  // One press, one action: an Esc pressed outside the card that a field took already leaves the card open.
+  const change = (next: boolean, details: BasePreviewCard.Root.ChangeEventDetails) => {
+    const target = details.event.target
+    if (!next && details.reason === 'escape-key' && details.event.defaultPrevented && target instanceof Node && popup.current?.contains(target) !== true) {
+      details.cancel()
+      return
+    }
+    onOpenChange(next)
+  }
   const popupClass = ['w-kit-popover', 'w-kit-preview-card', className].filter(Boolean).join(' ')
   const { onKeyDown: placeKeyDown, ...placeProps } = popupProps ?? {}
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -75,11 +89,11 @@ export function PreviewCard({
     kit.popup.onKeyDown(event)
   }
   return (
-    <BasePreviewCard.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+    <BasePreviewCard.Root open={open} onOpenChange={change}>
       {trigger !== undefined ? <BasePreviewCard.Trigger {...kit.trigger} delay={delay} closeDelay={closeDelay} render={trigger} /> : null}
       <BasePreviewCard.Portal style={layerStyle(layer)}>
         <BasePreviewCard.Positioner side={side} align={align} sideOffset={sideOffset} collisionPadding={8} {...(anchor !== undefined ? { anchor } : {})}>
-          <BasePreviewCard.Popup {...kit.popup} {...placeProps} className={popupClass} role="dialog" aria-label={label} data-testid={testId} onKeyDown={onKeyDown}>
+          <BasePreviewCard.Popup {...kit.popup} {...placeProps} {...{ [PASS_ESCAPE_ATTRIBUTE]: '' }} ref={popup} className={popupClass} role="dialog" aria-label={label} data-testid={testId} onKeyDown={onKeyDown}>
             {children}
           </BasePreviewCard.Popup>
         </BasePreviewCard.Positioner>

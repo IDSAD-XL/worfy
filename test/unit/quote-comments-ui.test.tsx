@@ -20,6 +20,7 @@ import { addDraft, flushQuotes, forgetQuotesInMemory, imageDataOf, readQuotes } 
 import { QuotedPrompt } from '../../src/renderer/session/QuotedPrompt'
 import { SentQuotesContext } from '../../src/renderer/session/sent-quotes'
 import { Transcript } from '../../src/renderer/session/Transcript'
+import { LAYERS } from '../../src/renderer/theme/layers'
 import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 
 // An image of a comment is read and scaled in the window (canvas, createImageBitmap), which jsdom has
@@ -158,6 +159,11 @@ describe('the page around the comments', () => {
   it('what floats over the transcript is fixed too: none of it adds to the page’s size', () => {
     // The popover and the card are popups of the kit (worfy-ui-kit ticket 10): Base UI's positioner places them.
     expect(rule('.w-qfab,\n.w-qmenu')).toMatch(/position:\s*fixed;/)
+  })
+
+  it('the button next to a selection is on the scale of layers, under the card and the popover of a comment', () => {
+    expect(rule('.w-qfab')).toMatch(/z-index:\s*var\(--z-panel\);/)
+    expect(LAYERS.panel).toBeLessThan(LAYERS.popover)
   })
 })
 
@@ -353,10 +359,45 @@ describe('the popover and the card on the kit (worfy-ui-kit ticket 10)', () => {
     expect(document.activeElement).toBe(field)
   })
 
-  it('unchanged, a blur of the window closes it', async () => {
-    await openPopover()
+  it('unchanged, a blur of the window keeps it and its file input: «Attach image» opens the system\'s file picker, which takes the focus of the window', async () => {
+    const popover = await openPopover()
+    const chooser = within(popover).getByTestId('quote-popover-file')
     await act(async () => {
       window.dispatchEvent(new Event('blur'))
+    })
+    await settle()
+    expect(screen.getByTestId('quote-popover')).toBe(popover)
+    expect(chooser.isConnected).toBe(true)
+    // The picker's answer still lands in the popover.
+    fireEvent.change(chooser, { target: { files: [new File(['x'], 'shot.png', { type: 'image/png' })] } })
+    await waitFor(() => expect(within(popover).getAllByTestId('quote-popover-image')).toHaveLength(1))
+  })
+
+  it('with a text written, an Esc pressed outside it asks to save or cancel and shakes it; the text stays', async () => {
+    const popover = await openPopover()
+    fireEvent.change(within(popover).getByTestId('quote-popover-text'), { target: { value: 'Not lost.' } })
+    const outside = document.createElement('textarea')
+    document.body.append(outside)
+    try {
+      act(() => outside.focus())
+      await settle()
+      act(() => {
+        outside.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      })
+      await settle()
+      const shown = screen.getByTestId('quote-popover')
+      expect((within(shown).getByTestId('quote-popover-text') as HTMLTextAreaElement).value).toBe('Not lost.')
+      expect(within(shown).getByTestId('quote-popover-error').textContent).toMatch(/^Save \(.+\) or Cancel \(Esc\) first\.$/)
+      expect(shown.classList.contains('w-qpop--shake')).toBe(true)
+    } finally {
+      outside.remove()
+    }
+  })
+
+  it('unchanged, an Esc pressed outside it closes it, as a press outside does', async () => {
+    await openPopover()
+    act(() => {
+      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
     })
     await settle()
     expect(screen.queryByTestId('quote-popover')).toBeNull()

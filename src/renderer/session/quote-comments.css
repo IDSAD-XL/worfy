@@ -118,9 +118,9 @@
   animation: w-quote-pop-in 0.12s ease-out;
 }
 
-/* The button next to a selection. */
+/* The button next to a selection: under the popover and the card of a comment (the popover layer). */
 .w-qfab {
-  z-index: 300;
+  z-index: var(--z-panel);
   border-radius: var(--radius-node);
 }
 

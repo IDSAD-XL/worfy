@@ -47,6 +47,9 @@ export default function Queue({ sessionId }: ComposerItemProps) {
         side="top"
         align="end"
         sideOffset={8}
+        // The list itself takes the focus, not the «×» of its first message: an Enter or a Space
+        // pressed twice on the chip would take that message out of the queue, and nothing brings it back.
+        initialFocus="popup"
         trigger={
           <button type="button" className="w-queue__chip w-mono" aria-label={`${queue.items.length} queued ${queue.items.length === 1 ? 'message' : 'messages'}`} data-testid="queue-chip">
             {queue.items.length} queued

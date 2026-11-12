@@ -14,7 +14,8 @@
  *
  * A popover without a trigger (worfy-ui-kit ticket 10) is opened by its place alone and placed against
  * its `anchor`: an element (the version chip of What's new) or a box on the screen (a quote of the
- * chat). Its place may keep it open on a press outside, a blur or a view switch (`onDismiss`).
+ * chat). Its place may keep it open on a press outside, an Esc outside it, a blur or a view switch
+ * (`onDismiss`).
  *
  * The popup is drawn into document.body: inside a Node the Canvas's zoom would scale it and an Epic
  * frame would cut it off. The Canvas does not get its presses, so it stays `modal={false}`, as every
@@ -22,6 +23,7 @@
  */
 import { Popover as BasePopover } from '@base-ui/react/popover'
 import { useCallback, useEffect, useEffectEvent, useRef, type HTMLAttributes, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, type RefObject } from 'react'
+import { PASS_ESCAPE_ATTRIBUTE } from '../open-layers'
 import { layerStyle, useKitLayer, type KitCloseReason, type LayerName } from './layer'
 import './popover.css'
 
@@ -42,7 +44,7 @@ export interface AnchorBox {
 export type PopupAnchor = Element | AnchorBox | RefObject<Element | null> | (() => Element | AnchorBox | null)
 
 /** What would close a popover its place may keep open (`onDismiss`). */
-export type DismissReason = 'outside-press' | 'focus-out' | 'blur' | 'view'
+export type DismissReason = 'outside-press' | 'focus-out' | 'escape-outside' | 'blur' | 'view'
 
 export interface PopoverProps {
   open: boolean
@@ -76,10 +78,17 @@ export interface PopoverProps {
   /** Where the focus goes on closing; by default back to the trigger. */
   finalFocus?: RefObject<HTMLElement | null>
   /**
-   * Asked before a press outside, the focus leaving, a blur of the window or a view switch closes the
-   * popover: `false` keeps it open, as a comment with unsaved text keeps its popover. Esc always closes it.
+   * Asked before a press outside, the focus leaving, an Esc pressed outside the popup, a blur of the
+   * window or a view switch closes the popover: `false` keeps it open, as a comment with unsaved text
+   * keeps its popover. Esc pressed in the popup or on its trigger always closes it.
    */
   onDismiss?: (reason: DismissReason) => boolean
+  /**
+   * An Esc pressed outside the popup is first the field's that has the focus: the chat's message field
+   * interrupts the running turn with it (`escapeBelongsToPopup`, theme/open-layers.ts, skips this
+   * popup). Only an Esc that no field took reaches the popover, as `onDismiss('escape-outside')`.
+   */
+  passOutsideEscape?: boolean
   /**
    * Props of the popup the place needs: its own keys, its drag and drop, its data attributes. Its
    * `onKeyDown` runs before the kit's: an Esc it marks handled leaves the popover open.
@@ -113,6 +122,7 @@ export function Popover({
   initialFocus,
   finalFocus,
   onDismiss,
+  passOutsideEscape = false,
   popupProps,
 }: PopoverProps) {
   const close = useCallback(
@@ -157,6 +167,15 @@ export function Popover({
       details.cancel()
       return
     }
+    // An Esc pressed outside the popup and its trigger reaches Base UI only in its listener on the
+    // document, after every React handler. One press, one action: a field that took it (the message
+    // field interrupting a turn) leaves the popover open; otherwise its place is asked.
+    if (!next && details.reason === 'escape-key' && target instanceof Element && !popup.current?.contains(target) && !triggerElement.current?.contains(target)) {
+      if (details.event.defaultPrevented || (onDismiss !== undefined && !onDismiss('escape-outside'))) {
+        details.cancel()
+        return
+      }
+    }
     onOpenChange(next)
   }
   const popupClass = ['w-kit-popover', kit.popup.className, className].filter(Boolean).join(' ')
@@ -180,6 +199,7 @@ export function Popover({
             onKeyDown={onKeyDown}
             {...(initialFocus !== undefined ? { initialFocus: initialFocus === 'popup' ? popup : initialFocus } : {})}
             {...(finalFocus !== undefined ? { finalFocus } : {})}
+            {...(passOutsideEscape ? { [PASS_ESCAPE_ATTRIBUTE]: '' } : {})}
             {...(inNode ? { onClick: keepFromNode, onDoubleClick: keepFromNode } : {})}
           >
             {children}

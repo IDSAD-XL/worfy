@@ -3,11 +3,11 @@
 // focus; it closes when the pointer leaves and on Esc, which goes no further. A card without a trigger
 // is placed against a box on the screen and opened by its place alone.
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useState } from 'react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PreviewCard, type PreviewCardProps } from '../../src/renderer/theme/kit/PreviewCard'
 import { LAYERS } from '../../src/renderer/theme/layers'
-import { openLayers } from '../../src/renderer/theme/open-layers'
+import { escapeBelongsToPopup, openLayers } from '../../src/renderer/theme/open-layers'
 
 /** Lets Base UI's effects and timers run: the delays below are 10 ms. */
 const flush = (ms = 40) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
@@ -129,6 +129,93 @@ describe('the kit PreviewCard', () => {
     })
     await flush()
     expect(card()).toBeNull()
+  })
+
+  it('Esc pressed in the card closes only the card: an ancestor with its own Esc and the window do not get it', async () => {
+    const reached: Event[] = []
+    const onWindowKey = (event: Event) => {
+      if ((event as KeyboardEvent).key === 'Escape') reached.push(event)
+    }
+    const panelEscape = vi.fn()
+    function Panel({ children }: { children: ReactNode }) {
+      const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Escape') panelEscape()
+      }
+      return (
+        <div role="region" aria-label="Panel" onKeyDown={onKeyDown}>
+          {children}
+        </div>
+      )
+    }
+    window.addEventListener('keydown', onWindowKey)
+    try {
+      render(
+        <Panel>
+          <Card />
+        </Panel>,
+      )
+      enter(trigger())
+      await flush()
+      const free = fireEvent.keyDown(screen.getByRole('button', { name: 'Edit' }), { key: 'Escape' })
+      await flush()
+      expect(free).toBe(false)
+      expect(card()).toBeNull()
+      expect(panelEscape).not.toHaveBeenCalled()
+      expect(reached).toHaveLength(0)
+    } finally {
+      window.removeEventListener('keydown', onWindowKey)
+    }
+  })
+
+  it('an Esc a control in the card takes for itself leaves the card open', async () => {
+    render(
+      <Card
+        popupProps={{
+          onKeyDown: (event) => {
+            if (event.key === 'Escape') event.preventDefault()
+          },
+        }}
+      />,
+    )
+    enter(trigger())
+    await flush()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Edit' }), { key: 'Escape' })
+    await flush()
+    expect(card()).not.toBeNull()
+  })
+
+  it('without a trigger it is placed at the box it is given: from its left edge, next to it', async () => {
+    const box = { getBoundingClientRect: () => new DOMRect(40, 60, 120, 16) }
+    render(
+      <PreviewCard open onOpenChange={() => {}} label="Comment" testId="card" anchor={box} sideOffset={8}>
+        <button type="button">Edit</button>
+      </PreviewCard>,
+    )
+    await flush()
+    // From the box's left edge, 8 px under its bottom (60 + 16 + 8) — or 8 px over its top (60 - 8):
+    // jsdom's window has no size, so Base UI may flip the card for want of room under the box.
+    expect((card()?.parentElement as HTMLElement).style.transform).toMatch(/^translate\(40px, (84|52)px\)$/)
+  })
+
+  it('leaves an Esc pressed in a field outside it to that field: one press, one action', async () => {
+    const field = document.createElement('textarea')
+    document.body.append(field)
+    try {
+      render(<Card />)
+      enter(trigger())
+      await flush()
+      expect(card()).not.toBeNull()
+      // The chat's message field interrupting a running turn: it asks first, then takes the press.
+      expect(escapeBelongsToPopup(field)).toBe(false)
+      field.addEventListener('keydown', (event) => event.preventDefault())
+      act(() => {
+        field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      })
+      await flush()
+      expect(card()).not.toBeNull()
+    } finally {
+      field.remove()
+    }
   })
 
   it('a blur of the window closes it', async () => {

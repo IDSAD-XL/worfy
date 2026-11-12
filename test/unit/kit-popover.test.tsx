@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Popover, type PopoverProps } from '../../src/renderer/theme/kit/Popover'
 import { insideNodePopup } from '../../src/renderer/theme/kit/layer'
 import { LAYERS } from '../../src/renderer/theme/layers'
-import { openLayers } from '../../src/renderer/theme/open-layers'
+import { escapeBelongsToPopup, openLayers } from '../../src/renderer/theme/open-layers'
 
 /** A pointer press as a browser sends it: pointerdown, mousedown, pointerup, mouseup, click. */
 function press(element: Element): void {
@@ -268,7 +268,16 @@ describe('a kit Popover without a trigger, and what its place may keep open (wor
     expect(shown()).toBeNull()
   })
 
-  it('onDismiss answering false keeps it open on a press outside, a blur of the window and the focus leaving; Esc closes it all the same', async () => {
+  /** An Esc pressed on `target`, as a key press of the keyboard reaches the page. */
+  function escapeOn(target: Element): globalThis.KeyboardEvent {
+    const pressed = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    act(() => {
+      target.dispatchEvent(pressed)
+    })
+    return pressed
+  }
+
+  it('onDismiss answering false keeps it open on a press outside, a blur of the window, the focus leaving and an Esc outside it', async () => {
     const onDismiss = vi.fn<(reason: string) => boolean>(() => false)
     render(<Anchored onDismiss={onDismiss} />)
     await flush()
@@ -278,12 +287,88 @@ describe('a kit Popover without a trigger, and what its place may keep open (wor
     })
     act(() => screen.getByRole('textbox', { name: 'Search or run' }).focus())
     await flush()
+    escapeOn(screen.getByRole('textbox', { name: 'Search or run' }))
+    await flush()
     expect(shown()).not.toBeNull()
-    expect(onDismiss.mock.calls.map(([reason]) => reason)).toEqual(expect.arrayContaining(['outside-press', 'blur', 'focus-out']))
-    act(() => {
-      document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    })
+    expect(onDismiss.mock.calls.map(([reason]) => reason)).toEqual(expect.arrayContaining(['outside-press', 'blur', 'focus-out', 'escape-outside']))
+  })
+
+  it('Esc pressed in the popup closes it without asking onDismiss', async () => {
+    const onDismiss = vi.fn<(reason: string) => boolean>(() => false)
+    render(<Anchored onDismiss={onDismiss} />)
+    await flush()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Update' }), { key: 'Escape' })
     await flush()
     expect(shown()).toBeNull()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('an Esc outside that a field took already leaves it open: one press, one action', async () => {
+    const onDismiss = vi.fn<(reason: string) => boolean>(() => true)
+    render(<Anchored onDismiss={onDismiss} />)
+    await flush()
+    const field = screen.getByRole('textbox', { name: 'Search or run' })
+    field.addEventListener('keydown', (event) => event.preventDefault())
+    escapeOn(field)
+    await flush()
+    expect(shown()).not.toBeNull()
+    expect(onDismiss).not.toHaveBeenCalledWith('escape-outside')
+    escapeOn(document.body)
+    await flush()
+    expect(shown()).toBeNull()
+  })
+
+  it('the focus going to the toasts leaves it open', async () => {
+    render(
+      <>
+        <section className="w-toasts" aria-label="Notifications">
+          <button type="button">Dismiss</button>
+        </section>
+        <Anchored />
+      </>,
+    )
+    await flush()
+    act(() => screen.getByRole('button', { name: 'Dismiss' }).focus())
+    await flush()
+    expect(shown()).not.toBeNull()
+  })
+})
+
+describe('passOutsideEscape: an Esc outside the popover is the field\'s first (worfy-ui-kit ticket 10)', () => {
+  function Passing() {
+    const [open, setOpen] = useState(true)
+    const [chip, setChip] = useState<HTMLButtonElement | null>(null)
+    return (
+      <>
+        <button type="button" ref={setChip}>
+          Quote
+        </button>
+        <textarea aria-label="Message" />
+        {chip !== null ? (
+          <Popover open={open} onOpenChange={setOpen} label="Comment" anchor={chip} passOutsideEscape>
+            <textarea aria-label="Comment text" />
+          </Popover>
+        ) : null}
+      </>
+    )
+  }
+
+  it('escapeBelongsToPopup leaves the press to the field; the popover still closes on its own Esc', async () => {
+    render(<Passing />)
+    await flush()
+    const message = screen.getByRole('textbox', { name: 'Message' })
+    expect(escapeBelongsToPopup(message)).toBe(false)
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Comment text' }), { key: 'Escape' })
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'Comment' })).toBeNull()
+  })
+
+  it('a popover without the mark takes an Esc pressed in another field', async () => {
+    render(<Trash />)
+    await openIt()
+    const field = document.createElement('textarea')
+    document.body.append(field)
+    expect(escapeBelongsToPopup(field)).toBe(true)
+    field.remove()
   })
 })
