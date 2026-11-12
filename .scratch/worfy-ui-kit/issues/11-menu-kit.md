@@ -38,10 +38,13 @@ Seam 2); истории 3, 8, 10, 13, 15, 16, 25; заметка темы `docs/
 
 - [ ] Unit test `test/unit/kit-menu.test.tsx`: роль и имя; стрелки, Home, End, typeahead; Esc закрывает только menu и
       отмечен как обработанный; фокус возвращается на кнопку; blur окна закрывает.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/kit-menu.test.tsx 15 tests) · mac - · d9b93ea28995f4080f7e20968848759bc063e8dc
 - [ ] Существующие `modes-menu`, `update-chip` unit test-ы и e2e мест зелёные без правок ролей и `data-testid`.
+  - evidence: test-run pass · `pnpm test` exit 0 (modes-menu, update-chip unit tests; roles and data-testid unchanged) · mac - · d9b93ea28995f4080f7e20968848759bc063e8dc
 - [ ] E2e `test/e2e/layers-menu.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d9b93ea28995f4080f7e20968848759bc063e8dc
 
 ## Где в коде
 
