@@ -1,0 +1,87 @@
+/* Spike worfy-ui-kit 01 (never merged): plain looks for the Base UI probes. */
+.w-spike-toolbar {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 900;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.w-spike-node {
+  position: absolute;
+  top: -30px;
+  right: 0;
+  display: flex;
+  gap: 4px;
+}
+.w-spike-button {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+}
+.w-spike-popup,
+.w-spike-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+  padding: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+}
+.w-spike-item {
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.w-spike-item[data-highlighted] {
+  background: var(--accent-soft, rgb(0 0 0 / 0.1));
+}
+.w-spike-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.3);
+}
+/* No transform: the Select list drawn inside the window uses position: fixed against the viewport. */
+.w-spike-dialog {
+  position: fixed;
+  top: 120px;
+  left: calc(50% - 200px);
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.w-spike-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.w-spike-title {
+  margin: 0;
+  font-size: 13px;
+}
+.w-spike-input {
+  font: inherit;
+}
+.w-spike-node[data-where='tile'] {
+  top: auto;
+  bottom: 8px;
+  right: 8px;
+  z-index: 5;
+}

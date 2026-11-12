@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from 'react'
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
+import { SelectPortalContext } from './select-portal'
 import './select.css'
 
 /*
@@ -94,6 +95,7 @@ function labelText(button: HTMLButtonElement | null): string | undefined {
 export function Select<V extends string = string>(props: SelectProps<V>): ReactElement {
   const { value, options, onChange, disabled = false, mono = false, onOpen, prefix, title, className, style } = props
   const base = useId()
+  const portalTarget = useContext(SelectPortalContext)
   const buttonId = props.id ?? `${base}-button`
   const listId = `${base}-list`
   const optionId = (index: number): string => `${base}-option-${index}`
@@ -370,7 +372,7 @@ export function Select<V extends string = string>(props: SelectProps<V>): ReactE
             )
           })}
         </div>,
-        document.body,
+        portalTarget ?? document.body,
       )
     : null
 

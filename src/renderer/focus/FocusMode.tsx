@@ -68,6 +68,7 @@ import {
   type TileTree,
 } from './split-tree'
 import './focus.css'
+import { SpikeNodeProbes } from '../spike/BaseUiSpike'
 
 export interface FocusModeProps {
   tree: TileTree
@@ -573,7 +574,10 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
                   <span aria-hidden="true">⠿</span>
                   {node ? titleOf(node) : tile.id}
                 </div>
-                <div className="w-focus__node">{node ? <TileNode node={node} setSeeThrough={seeThroughSetter(tile.id)} /> : null}</div>
+                <div className="w-focus__node">
+                  {node ? <TileNode node={node} setSeeThrough={seeThroughSetter(tile.id)} /> : null}
+                  {node ? <SpikeNodeProbes nodeId={node.id} where="tile" /> : null}
+                </div>
               </div>
             </section>
           )

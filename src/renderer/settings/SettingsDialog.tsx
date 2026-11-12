@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom'
 import '../canvas/actions/actions.css'
 import { ListRow } from '../theme/primitives'
 import './settings.css'
+import { SpikeSettingsProbes } from '../spike/BaseUiSpike'
 import { settingsSections, type SettingsSection } from './sections'
 import { closeSettings, focusablesOf, followMenuCommands, selectSection, setSettingsDialogElement, SETTINGS_LAYER, useSettingsWindow } from './settings-window'
 
@@ -124,6 +125,7 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
           ) : null}
         </div>
         <div className="w-settings__footer">
+          <SpikeSettingsProbes />
           <button type="button" className="w-action w-action--primary" data-testid="settings-close" onClick={closeSettings}>
             Close
           </button>

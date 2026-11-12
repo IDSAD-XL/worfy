@@ -15,6 +15,7 @@ import type { CanvasNodeProps } from './nodes'
 import { pinnedScreenPoint, screenToCanvas, usePinnedView } from './pinning'
 import { ReadOnlyTerminal } from './ReadOnlyTerminal'
 import './node-chrome.css'
+import { SpikeNodeProbes } from '../spike/BaseUiSpike'
 
 function TagStrip({ tags }: { tags: readonly string[] }) {
   if (tags.length === 0) return null
@@ -69,6 +70,7 @@ export function NodeChrome({ Component, ...props }: NodeChromeProps) {
     <>
       {content}
       <TagStrip tags={node.tags} />
+      <SpikeNodeProbes nodeId={props.id} where="canvas" />
     </>
   )
 }
