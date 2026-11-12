@@ -102,6 +102,17 @@ describe('a server added while a Claude Session runs', () => {
     expect((await h.session.mcp({ pickUp: true }))?.map((server) => server.name)).toEqual(['example-notes', 'worfy-canvas'])
     expect(h.reloads()).toHaveLength(1)
   })
+
+  it('a read with pickUp right after a message is sent, before its turn begins, takes in nothing either', async () => {
+    const h = harness()
+    await vi.waitFor(() => expect(h.session.state).toBe('idle'))
+    h.session.send('one')
+    // Asked in the same tick: Claude Code has not begun the turn (no system/init yet), but the message is with it.
+    await h.session.mcp({ pickUp: true })
+    expect(h.reloads()).toEqual([])
+    await vi.waitFor(() => expect(h.mcpEvents().length).toBeGreaterThan(0))
+    await h.endTurn()
+  })
 })
 
 describe('an unattended Session (Autopilot)', () => {
