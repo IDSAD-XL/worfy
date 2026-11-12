@@ -386,6 +386,23 @@ describe('the call that takes in a server added while the query runs (worfy-mcp-
   })
 })
 
+describe('the sign-in to an MCP server (worfy-mcp-live ticket 05)', () => {
+  it('the installed SDK’s query has mcpAuthenticate(serverName, …), a control request mcp_authenticate, though sdk.d.ts does not name it', () => {
+    // Undocumented: the Claude driver reads it off the query at run time (src/main/vendors/claude/mcp.ts) and
+    // offers no Sign in without it. A SDK that drops or renames it turns this red before the button breaks.
+    const code = readFileSync(join(installedSdk(), 'sdk.mjs'), 'utf8')
+    expect(code).toMatch(/mcpAuthenticate\(\w+,\w+,\w+\)\{return\(await this\.request\(\{subtype:"mcp_authenticate",serverName:\w+/u)
+    expect(readFileSync(join(installedSdk(), 'sdk.d.ts'), 'utf8')).not.toContain('mcpAuthenticate')
+  })
+
+  it('the recorded answer has what the driver reads of it: the page to open and whether Claude Code waits for the callback', () => {
+    const recorded = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'mcp-live', 'mcp-live-oauth-authenticate.json'), 'utf8')) as { answer: Record<string, unknown> }
+    // The scrub kept the page as its parts (origin, path, parameter names); the live answer has it as a string.
+    expect(Object.keys(recorded.answer).sort()).toEqual(['authUrl', 'callbackExpected', 'callbackPort', 'redirectScheme', 'requiresUserAction', 'state'])
+    expect(recorded.answer.callbackExpected).toBe(true)
+  })
+})
+
 describe('the SDK user message against the one worfy writes', () => {
   it('a ClaudeUserMessage is an SDKUserMessage, image blocks of an attachment included (tsc)', () => {
     // QueryRequest.prompt is typed loosely while src/main/projects/connect.ts still hands it the

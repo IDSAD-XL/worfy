@@ -103,6 +103,37 @@ describe('a server added while a Claude Session runs', () => {
     expect(h.reloads()).toHaveLength(1)
   })
 
+  it('a plain read asked while a read with pickUp takes the server in answers after it: neither hides the new server (ticket 05)', async () => {
+    let open: () => void = () => undefined
+    const gate = new Promise<void>((done) => (open = done))
+    const calls: FakeCall[] = []
+    const fake = fakeQueryFactory({ scriptsDir: AGENT_SCRIPTS, script: 'mcp-pickup', record: (call) => calls.push(call) })
+    // reloadPlugins() of this query answers only once the test opens the gate: a slow take-in.
+    const registry = new SessionRegistry(async (request) => {
+      const query = await fake(request)
+      const reload = query.reloadPlugins?.bind(query)
+      query.reloadPlugins = async () => {
+        await gate
+        return reload?.()
+      }
+      return query
+    })
+    registries.push(registry)
+    const events: AgentEvent[] = []
+    const session = registry.start(cwd, undefined, (_id, event) => events.push(event))
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    const picking = session.mcp({ pickUp: true })
+    const plain = session.mcp()
+    await new Promise((done) => setTimeout(done, 20))
+    open()
+    const names = (rows: McpServerRow[] | null) => rows?.map((each) => each.name)
+    expect(names(await picking)).toEqual(['example-notes', 'worfy-canvas'])
+    expect(names(await plain)).toEqual(['example-notes', 'worfy-canvas'])
+    const last = events.filter((event): event is Extract<AgentEvent, { type: 'mcp' }> => event.type === 'mcp').at(-1)
+    expect(names(last?.servers ?? null)).toEqual(['example-notes', 'worfy-canvas'])
+    expect(calls.filter((call) => call.kind === 'reloadPlugins')).toHaveLength(1)
+  })
+
   it('a read with pickUp right after a message is sent, before its turn begins, takes in nothing either', async () => {
     const h = harness()
     await vi.waitFor(() => expect(h.session.state).toBe('idle'))

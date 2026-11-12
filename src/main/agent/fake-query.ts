@@ -45,7 +45,16 @@
 //                                    list it (F:allowed-status-5s-after-write-no-call); the next
 //                                    reloadPlugins() answers the recorded `answer` and from then on
 //                                    mcpServerStatus() its `status_after` (F:allowed-reload-plugins).
-//                                    A reloadPlugins() with nothing added answers the servers as they are
+//                                    A reloadPlugins() with nothing added answers the servers as they are.
+//                                    With a Profile list (FakeQueryOptions.mcpAllowlist, worfy-mcp-live
+//                                    ticket 05) no answer names a server the list leaves out, as Claude
+//                                    Code's policy tier cut it (F:cut-status-start). mcpAuthenticate(name) of a
+//                                    server the last answer lists answers a sign-in page of the shape the
+//                                    spike recorded (F:oauth-authenticate), on a host that never resolves;
+//                                    a claude.ai connector's has no callback (callbackExpected false). The
+//                                    sign-in lands when a test releases `sign-in:<name>` (FakeReleases): a
+//                                    server in needs-auth is then `connected`, as Claude Code's own listener
+//                                    on localhost would make it. Any other name: "Server not found: <name>"
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
 //   {"fake":"permission","toolName":"Bash","toolUseId":"toolu_…","input":{...},"suggestions":[...]}
@@ -89,6 +98,10 @@
 // home folder (os.homedir()). After the last line the
 // script starts over, so one script serves any number of turns; it ends when the Session closes its
 // input.
+//
+// The query of the MCP inventory (fakeInventoryStarter, worfy-mcp-live ticket 05) reads no message and
+// plays nothing: mcpServerStatus() answers the first `mcp` line of the script — the user's servers as
+// they are, no Profile list cutting any — and it is recorded as `inventory`, not as `start`.
 //
 // With `registryHome` (FakeQueryOptions) the fake agent registers itself as Claude Code does as
 // soon as it starts, before any system/init (worfy-daily ticket 24): <registryHome>/sessions/<n>.json
@@ -142,6 +155,10 @@ export type FakeCall =
   | { kind: 'reloadPlugins' }
   /** close() while background tasks lived: Claude Code would have killed these (task ids). */
   | { kind: 'close'; backgroundTasks: string[] }
+  /** A query of the MCP inventory started (fakeInventoryStarter, worfy-mcp-live ticket 05): no message, no Profile list. */
+  | { kind: 'inventory'; cwd: string }
+  /** The sign-in to an MCP server began (mcpAuthenticate, worfy-mcp-live ticket 05). */
+  | { kind: 'mcpAuthenticate'; name: string }
 
 /** supportedModels() of the fake agent: the shape of SDK 0.3.322 (as in 0.3.289), extra keys included. */
 export const FAKE_MODELS: ModelInfoLike[] = [
@@ -429,6 +446,8 @@ class FakeQuery implements QueryHandle {
   private mcp: McpAnswer = { servers: [] }
   /** What the last `mcp_added` line wrote into the user's config, until reloadPlugins() takes it in. */
   private added: McpAdded | null = null
+  /** Ends the waits of sign-ins that close() cut short. */
+  private readonly signIns = new Set<() => void>()
   /** The query's PreToolUse hooks (FakeQueryOptions.preToolUse), made when the query starts; null: none. */
   private readonly preToolUse: Promise<FakePreToolUse | undefined> | null
 
@@ -440,6 +459,10 @@ class FakeQuery implements QueryHandle {
     private readonly releases: FakeReleases,
     registryHome: string | null,
     preToolUse: FakeQueryOptions['preToolUse'] = undefined,
+    /** The Profile's list of MCP servers the query starts with; null: none, every server is listed. */
+    private readonly listed: readonly string[] | null = null,
+    /** A query of the MCP inventory (fakeInventoryStarter): its servers from the start, recorded as `inventory`. */
+    inventory = false,
   ) {
     // A failure to make them leaves the query without hooks, as a Claude Code without them would run.
     this.preToolUse = preToolUse?.(request)?.catch(() => undefined) ?? null
@@ -453,6 +476,12 @@ class FakeQuery implements QueryHandle {
     this.commands = config.commands ?? initCommands(this.steps)
     this.model = request.settings.model
     this.permissionMode = request.settings.permissionMode
+    if (inventory) {
+      const first = this.steps.find((step) => step.kind === 'mcp')
+      if (first?.kind === 'mcp') this.mcp = first.answer
+      record({ kind: 'inventory', cwd: request.cwd })
+      return
+    }
     record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings }, ...(request.orchestrator === true ? { orchestrator: true as const } : {}) })
   }
 
@@ -508,10 +537,42 @@ class FakeQuery implements QueryHandle {
     return Promise.resolve({ commands: [], agents: [], plugins: [], mcpServers: this.withoutOff(servers), error_count: 0 })
   }
 
-  /** `servers` without those the request turned off (QueryRequest.mcpOff), copied. */
+  /** `servers` without those the request turned off (QueryRequest.mcpOff) and those the Profile's list leaves out, copied. */
   private withoutOff(servers: readonly Record<string, unknown>[]): Record<string, unknown>[] {
     const off = this.request.mcpOff ?? []
-    return structuredClone(servers.filter((server) => !off.includes(String(server.name))))
+    const listed = this.listed
+    return structuredClone(servers.filter((server) => !off.includes(String(server.name)) && (listed === null || listed.includes(String(server.name)))))
+  }
+
+  /**
+   * The sign-in to the server `serverName` (worfy-mcp-live ticket 05): the answer of the shape the spike
+   * recorded (F:oauth-authenticate), its page on a host that never resolves. Released as `sign-in:<name>`,
+   * a server in needs-auth becomes connected. Not part of QueryHandle: the SDK has it undocumented.
+   */
+  mcpAuthenticate(serverName: string): Promise<unknown> {
+    this.record({ kind: 'mcpAuthenticate', name: serverName })
+    const answer = this.mcp
+    const server = 'error' in answer ? undefined : this.withoutOff(answer.servers).find((each) => each.name === serverName)
+    if (server === undefined) return Promise.reject(new Error(`Server not found: ${serverName}`))
+    const connector = server.source === 'claudeai'
+    const state = randomUUID()
+    const port = 40_000 + Math.floor(Math.random() * 1000)
+    const page = new URL('https://auth.example.invalid/authorize')
+    const params = { client_id: 'fake-client', code_challenge: randomUUID(), code_challenge_method: 'S256', redirect_uri: `http://localhost:${port}/callback`, resource: 'https://mcp.example.invalid/mcp', response_type: 'code', state }
+    for (const [key, value] of Object.entries(params)) page.searchParams.set(key, value)
+    let stop: () => void = () => undefined
+    const cancel = (): void => stop()
+    this.signIns.add(cancel)
+    void this.releases
+      .wait(`sign-in:${serverName}`, { onCancel: (given) => (stop = given) })
+      .then(() => {
+        this.signIns.delete(cancel)
+        if (this.closed) return
+        const now = this.mcp
+        if ('error' in now) return
+        this.mcp = { servers: now.servers.map((each) => (each.name === serverName && each.status === 'needs-auth' ? { ...each, status: 'connected' } : each)) }
+      })
+    return Promise.resolve(connector ? { authUrl: page.toString(), requiresUserAction: true, callbackExpected: false } : { authUrl: page.toString(), requiresUserAction: true, callbackExpected: true, redirectScheme: 'localhost', state, callbackPort: port })
   }
 
   reconnectMcpServer(serverName: string): Promise<void> {
@@ -712,6 +773,8 @@ class FakeQuery implements QueryHandle {
     if (!this.closed && this.liveTasks.length > 0) this.record({ kind: 'close', backgroundTasks: [...this.liveTasks] })
     this.closed = true
     this.cancelRelease?.()
+    for (const stop of this.signIns) stop()
+    this.signIns.clear()
     this.abortRequests()
     this.wakeInterrupt?.()
     this.wake()
@@ -847,6 +910,12 @@ export interface FakeQueryOptions {
    * undefined — from the option or from its promise —, or absent: none.
    */
   preToolUse?: ((request: QueryRequest) => Promise<FakePreToolUse | undefined> | undefined) | undefined
+  /**
+   * The Profile's list of MCP servers of a request (worfy-mcp-live ticket 05): the fake agent's answers leave
+   * out every server it does not name, as Claude Code's policy tier does, and the request is told it
+   * (QueryRequest.mcpListed). Absent: no list, every server the script names; told null.
+   */
+  mcpAllowlist?: ((request: QueryRequest) => Promise<readonly string[] | null>) | undefined
 }
 
 /** One tool call as the PreToolUse hooks get it: the tool, its id, its input and the shell's folder. */
@@ -869,8 +938,32 @@ export function fakeQueryFactory(options: FakeQueryOptions): QueryFactory {
     ;(globalThis as { worfyFakeRelease?: (name: string) => void }).worfyFakeRelease = (name) => own.release(name)
   }
   const shared = releases
-  return (request) => {
+  return async (request) => {
     const name = typeof options.script === 'string' ? options.script : options.script(request)
-    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse))
+    const listed = options.mcpAllowlist === undefined ? null : await options.mcpAllowlist(request)
+    request.mcpListed?.(listed)
+    return new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, options.settingsHome ?? null, shared, options.registryHome ?? null, options.preToolUse, listed)
+  }
+}
+
+/**
+ * The query of the MCP inventory on the fake agent (worfy-mcp-live ticket 05; mcp-inventory.ts): the script
+ * of `options` read as the user's config — mcpServerStatus() answers its first `mcp` line, no Profile list
+ * applied —, no message read, nothing played; recorded as `inventory`. `prompt` is its input, never read.
+ */
+export function fakeInventoryStarter(options: FakeQueryOptions): (cwd: string, prompt: AsyncIterable<never>) => Promise<QueryHandle> {
+  const record = options.record ?? (() => {})
+  const releases = options.releases ?? new FakeReleases()
+  return (cwd, prompt) => {
+    const request: QueryRequest = {
+      prompt,
+      cwd,
+      resume: undefined,
+      stderr: () => undefined,
+      settings: { model: null, effort: null, permissionMode: 'default' },
+      canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'The inventory runs no tool.' }),
+    }
+    const name = typeof options.script === 'string' ? options.script : options.script(request)
+    return Promise.resolve(new FakeQuery(join(options.scriptsDir, `${name}.jsonl`), request, record, null, releases, null, undefined, null, true))
   }
 }

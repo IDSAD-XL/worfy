@@ -126,6 +126,12 @@ export interface QueryRequest {
    * without them (sessionOptions). Absent or empty: none.
    */
   mcpOff?: readonly string[] | undefined
+  /**
+   * Told the Profile's list of MCP servers the query starts with (ADR-0021), once the factory has read
+   * it: null — no list, a Session outside every Project, which gets every server of the user. The Claude
+   * driver tells a server outside the list as `not-allowed` by it (worfy-mcp-live ticket 05). Absent: not told.
+   */
+  mcpListed?: ((allowlist: readonly string[] | null) => void) | undefined
   /** The model, effort and permission mode the query starts with. */
   settings: SessionSettings
   /** Answers Claude Code's permission requests: the Claude driver's canUseTool over the Session's gate (permissions.ts). */

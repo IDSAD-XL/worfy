@@ -19,9 +19,21 @@
 // servers turned off (options.ts, mcpOff); a connected server offers Turn off. An unattended Session
 // (Autopilot) takes in nothing in the middle of a Wave and offers neither: its set of servers is fixed
 // when it starts.
+//
+// Ticket 05: a server the Profile's list keeps out is a row `not-allowed` with Allow, from the MCP inventory
+// (mcp-inventory.ts; the handle adds those rows, session.ts). Allow itself is the Session's: it writes the
+// list, then restarts the Session with the same conversation (Session.mcpAction). Sign in, for a server in
+// needs-auth, is Claude Code's mcpAuthenticate() — in the SDK's code, not in its documented types (the spike
+// of ticket 01): its sign-in page opens in the system browser, Claude Code itself listens for the callback on
+// localhost and takes the token, and the action ends once the server is out of needs-auth (connected, or
+// reconnected when it failed). worfy never sees a token; the page's address is neither logged nor sent
+// anywhere but to the browser. A claude.ai connector signs in on claude.ai, with no callback
+// (callbackExpected false): the action ends once the page is open, and the person presses Reconnect after.
+// A Claude Code without mcpAuthenticate offers no Sign in: the row says where to sign in, and Reconnect.
 import type { McpSdkServerConfigWithInstance, McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryHandle } from '../../agent/session/types'
 import type { McpServerRow } from '../../../shared/agent/mcp-status'
+import { z } from 'zod'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
 import { PartNotWired } from '../driver'
 import { McpActionRefused, type McpPart, type McpServer } from '../mcp'
@@ -59,7 +71,83 @@ export async function claudeMcpStatus(query: QueryHandle, initServers: readonly 
       return null
     }
   }
-  return rows === null || !read.attended ? rows : rows.map(withTurnOff)
+  if (rows === null) return null
+  const signs = typeof (query as Partial<ClaudeSignIn>).mcpAuthenticate === 'function'
+  return rows.map((row) => withSignIn(read.attended ? withTurnOff(row) : row, signs))
+}
+
+/** Where to sign in to a server in needs-auth when Claude Code cannot start the sign-in itself. */
+export const SIGN_IN_ELSEWHERE = 'Sign in with /mcp in Claude Code in a terminal (a claude.ai connector: in its settings on claude.ai), then press Reconnect.'
+
+/**
+ * A server in needs-auth offers Sign in, when Claude Code can start one, and Reconnect for after a sign-in
+ * that ended elsewhere (a claude.ai connector); without Sign in its row says where to sign in.
+ */
+function withSignIn(row: McpServerRow, signs: boolean): McpServerRow {
+  if (row.status !== 'needs-auth') return row
+  return signs ? { ...row, actions: ['sign-in', 'reconnect'] } : { ...row, error: row.error ?? SIGN_IN_ELSEWHERE, actions: ['reconnect'] }
+}
+
+/** Claude Code's sign-in to an MCP server: in the SDK's code (sdk.mjs), not in its types (sdk.d.ts). */
+interface ClaudeSignIn {
+  mcpAuthenticate(serverName: string): Promise<unknown>
+}
+
+/** What worfy reads of mcpAuthenticate()'s answer (F:oauth-authenticate); the rest — state, port — stays with Claude Code. */
+const signInAnswer = z.object({ authUrl: z.string().min(1).nullish(), callbackExpected: z.boolean().nullish() })
+
+/** How long Sign in waits for the sign-in in the browser to land, as Codex's does (codex/session.ts). */
+export const SIGN_IN_WAIT_MS = 10 * 60 * 1000
+/** How often it asks Claude Code meanwhile. */
+export const SIGN_IN_POLL_MS = 500
+
+/** Opens a sign-in page in the system browser. */
+const openWithShell = async (url: string): Promise<void> => {
+  const { shell } = await import('electron')
+  await shell.openExternal(url)
+}
+
+/** `url` when it is a web page (http or https): a sign-in page of another scheme is refused before anything opens it. */
+function webPage(url: string): string {
+  let protocol = ''
+  try {
+    protocol = new URL(url).protocol
+  } catch {
+    // Not a URL at all.
+  }
+  if (protocol !== 'https:' && protocol !== 'http:') throw new Error('Claude Code gave a sign-in page that is not a web page')
+  return url
+}
+
+const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
+
+/**
+ * Signs in to the server `name` of `query`: its page opened in the browser, then — when Claude Code waits for
+ * the callback — until the server is out of needs-auth, SIGN_IN_WAIT_MS at most; a server that failed after
+ * the sign-in is reconnected. Never logs the page's address.
+ */
+async function signIn(query: QueryHandle, name: string, open: (url: string) => Promise<void>): Promise<void> {
+  const authenticate = (query as Partial<ClaudeSignIn>).mcpAuthenticate
+  if (typeof authenticate !== 'function') throw new McpActionRefused('sign-in')
+  const answer = signInAnswer.safeParse(await authenticate.call(query, name))
+  if (!answer.success) throw new Error('Claude Code answered the sign-in with something worfy does not read')
+  const page = answer.data.authUrl
+  // No page: nothing to sign in to now — the server signed in meanwhile.
+  if (page === null || page === undefined) return
+  await open(webPage(page))
+  if (answer.data.callbackExpected !== true) return
+  const status = query.mcpServerStatus
+  if (status === undefined) return
+  const until = Date.now() + SIGN_IN_WAIT_MS
+  while (Date.now() < until) {
+    await pause(SIGN_IN_POLL_MS)
+    const row = mcpServerRowsOf(await status.call(query))?.find((each) => each.name === name)
+    if (row === undefined || row.status === 'connected') return
+    if (row.status === 'needs-auth' || row.status === 'pending') continue
+    if (query.reconnectMcpServer !== undefined) await query.reconnectMcpServer(name)
+    return
+  }
+  throw new Error(`The sign-in was not completed within ${Math.round(SIGN_IN_WAIT_MS / 60_000)} minutes: sign in, then press Reconnect`)
 }
 
 /** A connected server of an attended Session offers Turn off for this Session (a Restart without it). */
@@ -95,12 +183,13 @@ export const claudeMcp: McpPart = {
     return live.readMcp(read?.pickUp === true)
   },
   async act(session, name, action) {
-    // Only Reconnect: Turn off and Turn on would need toggleMcpServer (see above) and are the Session's Restart; Allow and Sign in come with ticket 05.
-    if (action !== 'reconnect') throw new McpActionRefused(action)
+    // Reconnect and Sign in: Turn off and Turn on would need toggleMcpServer (see above) and, with Allow, are the Session's own.
+    if (action !== 'reconnect' && action !== 'sign-in') throw new McpActionRefused(action)
     const live = mcpLive(session)
     if (live === null) throw new PartNotWired('claude', 'mcp.act', NOT_OURS)
     const query = live.query
     if (query === null) throw new Error('Claude Code is not running')
+    if (action === 'sign-in') return signIn(query, name, openWithShell)
     if (query.reconnectMcpServer === undefined) throw new McpActionRefused(action)
     await query.reconnectMcpServer(name)
   },

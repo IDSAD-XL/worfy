@@ -10,6 +10,10 @@
 // A read of the MCP servers a person asks for (readMcp with pickUp, ticket 03) takes in a server added
 // to the user's config first, between turns of an attended Session (src/main/vendors/claude/mcp.ts); every ask
 // of the handle is numbered, and an answer to any but the latest is dropped.
+// A Session whose query started with a Profile list (QueryRequest.mcpListed, ticket 05) runs the MCP
+// inventory (mcp-inventory.ts) when it starts and when a person opens the list of its servers: the rows of
+// the servers the list keeps out are added as `not-allowed`, offering Allow, and an `mcp` event goes out
+// once the inventory has answered.
 // It keeps the catalog of slash commands from system/init and system/commands_changed, which the
 // next handle of the same Session takes over (SessionStart.previous).
 //
@@ -61,8 +65,9 @@ import { contextUsageOf, initMcpServers, isCompactBoundary, sdkMessageToEvents }
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
 import { claudeMcpStatus, type ClaudeMcpLive } from './mcp'
+import { McpInventory, notAllowedRows } from './mcp-inventory'
 import { claudeSettings } from './options'
-import { queryFactoryFromEnv } from './query'
+import { inventoryStarterFromEnv, queryFactoryFromEnv } from './query'
 
 /** What the model reads when the user pressed "Deny". */
 export const DENIED_MESSAGE = 'The user denied this tool call in worfy.'
@@ -342,6 +347,8 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
   private turning = false
   /** The MCP servers of the last system/init: the status of a query without mcpServerStatus(). */
   private initServers: McpServerRow[] | null = null
+  /** The Profile's list the query started with (QueryRequest.mcpListed); null: none, or not told. */
+  private listed: readonly string[] | null = null
 
   constructor(
     readonly catalog: CommandCatalog,
@@ -350,6 +357,10 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     private readonly label: string,
     /** A person is at the Session (SessionStart.unattended, read each time): its rows offer Turn off, and new servers are taken in. */
     private readonly attended: () => boolean = () => true,
+    /** The MCP inventory of the app (ticket 05) and the folder it runs in; null: no rows `not-allowed`. */
+    private readonly inventory: { of: McpInventory; cwd: string } | null = null,
+    /** The servers turned off for this Session (SessionStart.mcpOff): neither listed nor `not-allowed`. */
+    private readonly off: readonly string[] = [],
   ) {}
 
   get query(): QueryHandle | null {
@@ -362,17 +373,36 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     if (query === null || this.done) return null
     ++this.mcpAsks
     const attended = this.attended()
-    return claudeMcpStatus(query, this.initServers, this.label, { attended, pickUp: pickUp && attended && !this.turning })
+    // The person looks at the list: the servers outside it are read again, and come as an `mcp` event.
+    if (pickUp) this.takeInventory()
+    return this.withNotAllowed(await claudeMcpStatus(query, this.initServers, this.label, { attended, pickUp: pickUp && attended && !this.turning }))
   }
 
-  /** Starts the query; rejects when Claude Code cannot be started. */
+  /** Starts the query; rejects when Claude Code cannot be started. Its first inventory runs once it has started. */
   async open(factory: QueryFactory, request: Omit<QueryRequest, 'prompt'>): Promise<void> {
     try {
-      this.queryValue = await factory({ ...request, prompt: this.input })
+      this.queryValue = await factory({ ...request, prompt: this.input, mcpListed: (listed) => (this.listed = listed) })
     } catch (error) {
       this.input.end()
       throw error
     }
+    this.takeInventory()
+  }
+
+  /** Runs the inventory of a Session with a list, then sends the rows with those outside the list. */
+  private takeInventory(): void {
+    const inventory = this.inventory
+    if (inventory === null || this.listed === null || this.done) return
+    void inventory.of.refresh(inventory.cwd).then((rows) => {
+      if (rows !== null && !this.done) this.askMcp()
+    })
+  }
+
+  /** `rows` and, after them, the servers the inventory found that the Session's list keeps out (mcp-inventory.ts). */
+  private withNotAllowed(rows: McpServerRow[] | null): McpServerRow[] | null {
+    const inventory = this.inventory
+    if (rows === null || inventory === null || this.listed === null) return rows
+    return [...rows, ...notAllowedRows(inventory.of.latest(inventory.cwd), { listed: this.listed, rows, off: this.off })]
   }
 
   /** Read once by the Session; reading starts the message loop and the start check. */
@@ -556,7 +586,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     const ask = ++this.mcpAsks
     void claudeMcpStatus(query, this.initServers, this.label, { attended: this.attended(), pickUp: false }).then((servers) => {
       if (ask !== this.mcpAsks || this.done) return
-      this.out.push({ type: 'mcp', servers })
+      this.out.push({ type: 'mcp', servers: this.withNotAllowed(servers) })
     })
   }
 
@@ -578,11 +608,18 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
  * The session part of the Claude driver over `factory`: the app's (claudeSession, below), or the fake
  * agent's in tests. `given`: readers of the user's own model and effort in place of settings.json's.
  */
-export function claudeSessions(factory: QueryFactory, given: Partial<UserDefaults> = {}): SessionPart {
+export function claudeSessions(factory: QueryFactory, given: Partial<UserDefaults> = {}, inventory: McpInventory | null = null): SessionPart {
   const user: UserDefaults = { ...USER_DEFAULTS, ...given }
   const open = async (opts: SessionStart, resume: string | undefined, sessionId: string | undefined): Promise<SessionHandle> => {
     const previous = opts.previous === undefined ? null : claudeLive(opts.previous)
-    const handle = new ClaudeSession(previous?.catalog ?? new CommandCatalog(), user, resume ?? sessionId ?? 'a new Session', () => !opts.unattended)
+    const handle = new ClaudeSession(
+      previous?.catalog ?? new CommandCatalog(),
+      user,
+      resume ?? sessionId ?? 'a new Session',
+      () => !opts.unattended,
+      inventory === null ? null : { of: inventory, cwd: opts.cwd },
+      opts.mcpOff ?? [],
+    )
     // The shell's folder of each tool call, for the approval policy of an unattended Session (worfy-auto-approve ticket 04).
     const folders = opts.unattended && opts.approval !== undefined ? new ToolUseFolders() : undefined
     await handle.open(factory, {
@@ -619,7 +656,7 @@ let appPart: SessionPart | null = null
 async function app(): Promise<SessionPart> {
   if (appPart === null) {
     const { appLimits } = await import('../../agent/limits')
-    appPart ??= claudeSessions(appLimits().observe(queryFactoryFromEnv()))
+    appPart ??= claudeSessions(appLimits().observe(queryFactoryFromEnv()), {}, new McpInventory(inventoryStarterFromEnv()))
   }
   return appPart
 }
