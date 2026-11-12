@@ -135,6 +135,12 @@ Node с transcript, прочитанным у Codex, и Resume продолжа�
 и Cards с `worfy.ask`) и `worfy-browser`, по HTTP на `127.0.0.1` с token-ом своего процесса. Подробности — на страницах
 [Cards](cards.md) и [Browser](browser.md).
 
+**MCP-серверы в Codex.** У Session Codex тот же chip «MCP n/m» и тот же popover, что у Session Claude Code, с Reconnect и
+Sign in. Собственные серверы пользователя показаны как есть: список Profile к ним в Codex не применяется, поэтому ни одна
+строка не «not allowed», и Allow нет ни у одной. Turn off for this Session нет, потому что Codex не умеет выключить сервер
+только для одного thread-а, а открытие popover-а новых серверов не подхватывает. Подробности — на странице
+[MCP servers of a Session](mcp-servers.md#codex).
+
 **Поиск.** «In transcripts» в Command palette ищет по thread-ам Codex этого Project-а вместе с transcript-ами Claude Code
 ([App shell](app-shell.md)).
 

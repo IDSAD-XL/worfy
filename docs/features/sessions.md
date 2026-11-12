@@ -212,20 +212,9 @@ image's long side is scaled down to 1568 pixels before main checks it.
 and the Project), the Vendor badge of a Session Node, the state chip, the Session picker, Model, Effort, Permissions, Cost, the
 chip «MCP n/m», Hide tools and Interrupt. Cost shows
 a figure for the Orchestrator only: `$0.00`, with four decimals below a dollar. Other Sessions show a dash. The chip «MCP
-n/m» counts the Session's MCP servers: n are connected, m are all of them but those not allowed in the Project; it takes the
-blocked colours with a warning icon while a server failed or needs auth, and is absent while main has no data. A click
-opens a popover with a row per server — name, status, number of tools, error, source (claude.ai, user config, Project,
-worfy) — and a button for each action main offers for that row, such as Reconnect on a failed server; the servers not
-allowed stand in a group of their own below. main finds those of a Claude Session with a query of Claude Code that has the
-user's settings but not the Profile's list and sends no message, when the Session starts and when the popover opens; the
-group ends with a line on adding a claude.ai connector by name in Project settings, since that query may not list
-connectors. Allow puts the server on the Profile's list through the Harness, as Edit profile does, and restarts the
-Session with the same conversation; in an Autopilot Session it only writes the list, and the server joins from the next
-Wave. Sign in, on a server that needs auth, opens its sign-in page in the system browser; Claude Code takes the
-sign-in itself. A refused action is a toast. Opening the popover lets main take in a server
-allowed in the Project since the Session started, with no new process; it never does so while a turn runs or in an
-Autopilot Session. Edit profile shows the same status beside each
-name of the MCP servers list, from the newest Session of the Project on this Machine. A Product
+n/m» counts the Session's MCP servers, n connected of m, and opens a popover with their status and actions: Reconnect,
+Sign in, Turn off for this Session and Allow. The whole Feature, with taking in a server added while the Session runs and
+the servers the Project does not allow, is on [MCP servers of a Session](mcp-servers.md). A Product
 Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
 decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its
 status, and the objections of every critic's review in `critic/` by their `Owner decision:` lines; advice still waiting
@@ -310,7 +299,8 @@ Session sends at most one notification in 10 seconds. A click opens that Session
   the default list when it has none. The list goes to Claude Code as a policy tier, so a Subagent gets the same set
   ([ADR-0021](../adr/0021-mcp-servers-allowlist-in-profile.md)). `worfy-canvas` is passed only when the list names it, and
   `worfy-browser` when the list names it or `worfy-canvas`. Plugins and skills follow the same idea through flag settings, to save the tokens of their descriptions
-  ([ADR-0084](../adr/0084-session-skills-and-plugins-by-profile-list.md)).
+  ([ADR-0084](../adr/0084-session-skills-and-plugins-by-profile-list.md)). How a running Session shows its servers,
+  takes in a new one and lets a person allow one the list keeps out is on [MCP servers of a Session](mcp-servers.md).
 - **The Harness goes inline** unless the old Harness is on the machine
   ([ADR-0040](../adr/0040-harness-delivery-local-marketplace.md),
   [ADR-0049](../adr/0049-worfy-sessions-without-inline-plugin-on-legacy-harness.md)).

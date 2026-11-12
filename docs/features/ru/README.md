@@ -35,6 +35,7 @@ Epic-ам и Ticket-ам.
 | [Workflow](workflow.md) | Ticket и Epic на Canvas, Pipeline, Binding |
 | [Evidence](evidence.md) | Evidence, privacy check, снимки и клипы |
 | [Sessions](sessions.md) | Session, Subagent |
+| [MCP servers of a Session](mcp-servers.md) | Chip «MCP n/m» и его popover, Reconnect, Sign in, Turn off for this Session, Allow, подхват нового сервера, query инвентаря, статус в Project settings |
 | [Product Session](product-session.md) | Product Session, Mind map, критик перед приёмкой spec-а, продуктовые идеи, доля принятых советов |
 | [Orchestrator modes](orchestrator-modes.md) | Меню Modes: Eco mode, Auto-approval, Auto-continue; продолжение ручного хода Orchestrator-а и его обратный отсчёт |
 | [Vendors](vendors.md) | Vendor: Claude Code и Codex, driver каждого |
@@ -43,7 +44,7 @@ Epic-ам и Ticket-ам.
 | [Pull requests](pr-inbox.md) | PR inbox: открытые PR пользователя и запросы ревью Project-а, нити ревью, раздел sidebar |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |
-| [App shell](app-shell.md) | Command palette, shortcuts, menu, Settings, theme |
+| [App shell](app-shell.md) | Sidebar, Command palette, shortcuts, menu, Settings, theme |
 | [Notifications](notifications.md) | уведомления |
 | [Onboarding](onboarding.md) | First run, Getting started, Demo project |
 | [Storage и диагностика](storage-and-diagnostics.md) | папка данных, diagnostics |
