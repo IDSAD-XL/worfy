@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-12T17:33Z
+PR: #1839
 Branch: worfy-ui-kit/06
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения по реализации» (остальные модальные окна); истории 1, 2, 9;
