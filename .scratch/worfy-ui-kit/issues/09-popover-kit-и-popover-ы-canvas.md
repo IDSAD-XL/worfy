@@ -33,11 +33,15 @@ test-ам» (Seam 1, Seam 2); истории 13, 15, 16, 17, 25; заметка 
 
 - [ ] Unit test `test/unit/kit-popover.test.tsx`: роль и имя; фокус в popover и обратно на кнопку; Esc закрывает только
       верхний слой и отмечен как обработанный; blur окна закрывает; клик по области toast-ов не закрывает.
+  - evidence: test-run pass · `pnpm test test/unit/kit-popover.test.tsx` exit 0 · mac - · 61b1e6a1b
 - [ ] Unit test: popover на Canvas не снимает активность Node-а первым кликом.
+  - evidence: test-run pass · `pnpm test test/unit/canvas.test.tsx` exit 0 · mac - · 61b1e6a1b
 - [ ] E2e `test/e2e/layers-popover.spec.ts` зелёный на macOS и Windows runner-е.
 - [ ] Существующие test-ы Trash, Archive и истории Session-ов зелёные без правок ролей и `data-testid`.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 61b1e6a1b
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 61b1e6a1b
 
 ## Где в коде
 
