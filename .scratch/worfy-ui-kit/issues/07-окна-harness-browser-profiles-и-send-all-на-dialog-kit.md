@@ -40,6 +40,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
 - [ ] Unit test-ы окон: при открытии фокус в окне; Tab не уходит из окна; после закрытия фокус на кнопке, которая окно
       открыла.
   - evidence: test-run pass · `pnpm test` on test/unit harness-migration-form, codex-hooks-step, browser-profiles-window, draft-thread, chat-attachments (82 files of the touched modules) exit 0 · mac - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
+  - evidence: test-run pass · `pnpm test` on the unit tests of the touched modules (87 files) after the rebase on ui-kit 06 exit 0 · mac - · 1e1478e8e41360a6b2fa0e030603508892e267cd
 - [ ] Существующие unit test-ы и e2e `harness-migrate.spec.ts`, `codex-hooks-step.spec.ts`, `browser-profile.spec.ts`,
       `pr-inbox.spec.ts`, `chat-attachments.spec.ts` зелёные без правок ролей и `data-testid`.
 - [ ] Своих focus trap и backdrop в этих пяти окнах нет.
@@ -47,6 +48,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 07 и уточнен�
 - [ ] Правка вида, если она есть, названа в PR отдельной строкой.
 - [ ] lint, typecheck, test-ы модуля и gate fast — exit 0.
   - evidence: gate pass · `gate fast` exit 0 · mac - · c19a05162c6f5a2d1b2ca71862f7a91da5d6eb45
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 1e1478e8e41360a6b2fa0e030603508892e267cd
 
 ## Где в коде
 
