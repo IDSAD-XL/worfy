@@ -6,6 +6,9 @@
 // worfy-mcp-live, the privacy decision). Names and errors of the user's servers are shown on the user's own
 // screen only; they are not written to the Autopilot journal or to a log.
 import { z } from 'zod'
+import { BROWSER_SERVER_NAME } from '../browser/tools'
+import { CANVAS_SERVER_NAME } from '../canvas/tools'
+import { MIND_MAP_SERVER_NAME } from '../product/tools'
 
 /**
  * How the server is: the Vendor's statuses, `not-allowed` for a server outside the Project's list (Claude,
@@ -48,10 +51,21 @@ const KNOWN_SOURCES: Readonly<Record<string, McpServerSource>> = {
   // A server of the user's config that Claude Code took in while it ran (reloadPlugins) says `dynamic`.
   dynamic: 'user',
   project: 'project',
-  // An in-process server of the host — worfy's own — and a plugin's (the Harness's qmd among them).
+  // An in-process server of the host — worfy's own (sdk) — and a server of a Claude Code plugin the user
+  // installed (plugin). The Harness's qmd server is neither: Claude Code reports it as `dynamic`, user config.
   sdk: 'worfy',
   plugin: 'worfy',
 }
+
+/** The MCP servers worfy itself registers in a Session: its in-process servers. */
+export const WORFY_SERVER_NAMES: readonly string[] = [CANVAS_SERVER_NAME, BROWSER_SERVER_NAME, MIND_MAP_SERVER_NAME]
+
+/**
+ * Whether `row` is one of worfy's own servers (worfy-mcp-live ticket 09, owner's Q2): source worfy and a name
+ * worfy registers. Such a server is never turned off for a Session. A server of a plugin the user installed
+ * shows as source worfy too, and keeps Turn off.
+ */
+export const isWorfyOwnServer = (row: Pick<McpServerRow, 'name' | 'source'>): boolean => row.source === 'worfy' && WORFY_SERVER_NAMES.includes(row.name)
 
 /**
  * The source of a server by the Vendor's word for it. A word worfy does not know by name (`managed`,

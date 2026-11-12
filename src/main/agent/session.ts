@@ -55,9 +55,10 @@
 // Restart: the server joins from the next Wave, whose Session reads the list at its start.
 //
 // Allow all (worfy-mcp-live ticket 09, owner's Q3): every server of the group «Not allowed in this Project»
-// at once — one write with all the names, then one Restart, the rest as Allow. worfy's own servers and
-// plugins' (source worfy) are never turned off for a Session (ticket 09, owner's Q2): their row offers no
-// Turn off, and the Session refuses one asked for all the same.
+// at once — one write with all the names, then one Restart, the rest as Allow. worfy's own servers
+// (isWorfyOwnServer: worfy-canvas, worfy-browser, worfy-mind-map) are never turned off for a Session (ticket
+// 09, owner's Q2): their row offers no Turn off, and the Session refuses one asked for all the same. A
+// server of a plugin the user installed keeps Turn off.
 //
 // Outside bypassPermissions the agent asks before tools (ticket 21): the Session's own
 // PermissionGate (permissions.ts) waits for the user's pick of the options the Vendor offers, and
@@ -108,7 +109,7 @@ import {
 import { CLAUDE_CAPABILITIES, type Capabilities } from '../../shared/vendors/capabilities'
 import type { VendorDriver } from '../vendors/driver'
 import type { AgentProcess, RefusalDetails, SessionHandle, SessionPart, SessionStart } from '../vendors/session'
-import { sameMcpRows, type McpServerAction, type McpServerRow } from '../../shared/agent/mcp-status'
+import { isWorfyOwnServer, sameMcpRows, type McpServerAction, type McpServerRow } from '../../shared/agent/mcp-status'
 import { claudeMcp } from '../vendors/claude/mcp'
 import { McpActionRefused } from '../vendors/mcp'
 import { shownAttachments } from './attachments'
@@ -781,15 +782,15 @@ export class Session {
    * Turn off, Turn on and Restart (worfy-mcp-live ticket 03): the Session's set of servers turned off
    * changes, then its process is restarted with the same conversation (restartProcess). Refused —
    * nothing changes — for a driver that does not `restart`, an unattended or halted Session, a server
-   * whose row does not offer Turn off or that is worfy's own or a plugin's (source worfy, ticket 09: whatever
-   * a driver offered), and one not turned off for Turn on.
+   * whose row does not offer Turn off or that is one of worfy's own (isWorfyOwnServer, ticket 09: whatever a
+   * driver offered), and one not turned off for Turn on.
    */
   private async restartFor(name: string, action: 'turn-off' | 'turn-on' | 'restart'): Promise<McpActionAnswer> {
     if (this.parts.mcp?.restarts !== true || this.launch.unattended || this.halted) throw new McpActionRefused(action)
     if ((this.run?.handle ?? null) === null) throw new Error("The Session's agent is not running")
     if (action === 'turn-off') {
       const row = this.mcpValue?.find((each) => each.name === name)
-      if (row === undefined || row.source === 'worfy' || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
+      if (row === undefined || isWorfyOwnServer(row) || !row.actions.includes('turn-off')) throw new McpActionRefused(action)
       this.mcpOff.set(name, { ...row, status: 'disabled', tools: null, error: null, actions: ['turn-on'] })
     } else if (action === 'turn-on') {
       if (!this.mcpOff.delete(name)) throw new McpActionRefused(action)

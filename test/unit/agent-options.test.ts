@@ -328,6 +328,15 @@ describe('the MCP servers of the Harness plugin', () => {
     expect(sessionOptions(input({ canvas, mcpAllowlist: [], harnessPlugin: dir }))).not.toHaveProperty('mcpServers')
   })
 
+  it('leaves out a server turned off for this Session (Turn off, worfy-mcp-live ticket 03): passed here, the policy tier would not stop it', () => {
+    const dir = made(QMD_JSON)
+    const inside = sessionOptions(input({ canvas, mcpAllowlist: DEFAULT_MCP_SERVERS, mcpOff: ['plugin_worfy_qmd'], harnessPlugin: dir }))
+    expect(Object.keys(inside.mcpServers ?? {})).toEqual([CANVAS_SERVER_NAME])
+    const outside = sessionOptions(input({ canvas: null, mcpAllowlist: null, mcpOff: ['plugin_worfy_qmd'], harnessPlugin: dir }))
+    expect(outside).not.toHaveProperty('mcpServers')
+    expect(outside.managedSettings).toEqual({ deniedMcpServers: [{ serverName: 'plugin_worfy_qmd' }] })
+  })
+
   it('registers them outside a Project too, where there is no allowlist', () => {
     const dir = made(QMD_JSON)
     const options = sessionOptions(input({ canvas: null, mcpAllowlist: null, harnessPlugin: dir }))

@@ -38,7 +38,8 @@ import './mcp-chip.css'
 // it holds two rows offering Allow or more (one row has its own Allow): one call, `agent.mcpAllowAll`, puts
 // every name on the Profile's list and restarts the Session once. While it runs, those rows' buttons wait,
 // and it waits while any action of the popover runs; its refusal is a toast and stays written under the
-// heading until the next Allow all, as a row's does. worfy's own servers offer no action at all (main, ticket 09).
+// heading until the next Allow all, as a row's does. worfy's own servers offer no Turn off for this Session
+// (main, ticket 09); their other actions (Reconnect, Sign in) stay.
 //
 // Project settings show the same status beside each name of the Profile's MCP list (EditProfile.tsx,
 // McpProfileStatus): the rows of the newest Session of the Project on this Machine.

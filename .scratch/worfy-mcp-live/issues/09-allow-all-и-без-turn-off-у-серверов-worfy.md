@@ -10,8 +10,8 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 
 ## Что происходит
 
-- В popover-е chip-а «MCP n/m» у строк серверов самого worfy (источник `worfy`: worfy-canvas, worfy-browser, сервер
-  plugin-а) есть «Turn off for this Session»: driver Claude даёт Turn off каждой подключённой строке attended Session
+- В popover-е chip-а «MCP n/m» у строк собственных серверов worfy (worfy-canvas, worfy-browser, worfy-mind-map) есть
+  «Turn off for this Session»: driver Claude даёт Turn off каждой подключённой строке attended Session
   (`withTurnOff`, `src/main/vendors/claude/mcp.ts`). Без worfy-canvas Session теряет инструменты холста.
 - Группа «Not allowed in this Project» даёт Allow по одной строке. Каждое Allow — своя запись Profile и свой Restart с
   тем же разговором; Allow по пяти серверам — пять Restart-ов подряд (очередь записей одного Project-а —
@@ -25,8 +25,8 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 
 ## Что делаем
 
-1. Q2: строки серверов с источником `worfy` — только статус, без «Turn off for this Session». Driver Claude не кладёт
-   `turn-off` в действия таких строк (кнопки — только из действий строки); main отказывает в `turn-off` такого
+1. Q2: строки собственных серверов worfy (worfy-canvas, worfy-browser, worfy-mind-map) — без «Turn off for this
+   Session»; остальные их действия (Reconnect, Sign in) остаются. Driver Claude не кладёт `turn-off` в действия таких строк (кнопки — только из действий строки); main отказывает в `turn-off` такого
    сервера и через IPC, даже если его попросили в обход popover-а.
 2. Q3: кнопка «Allow all» в заголовке группы «Not allowed in this Project»: одна запись Profile со всеми именами
    (через ту же очередь Project-а в `profile-edit.ts`), затем ОДИН Restart с тем же разговором; в unattended Session —
@@ -85,17 +85,24 @@ Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2
 
 ## Вне скоупа
 
-- Turn off для серверов plugin-ов отдельно от серверов worfy: источник у них один (`worfy`), правило одно.
+- Серверы plugin-ов, которые поставил пользователь: они тоже показаны с источником `worfy`, но правило Q2 их не касается —
+  Turn off у них остаётся (раунд 2 ревью #1827).
 - Allow all для Codex: у Codex нет строк «не разрешён» (Q8).
 
 ## Итог
 
-- **Серверы worfy без Turn off (Q2).** `withTurnOff` (`src/main/vendors/claude/mcp.ts`) не даёт `turn-off` строке с
-  источником `worfy` — это и серверы worfy (worfy-canvas, worfy-browser, worfy-mind-map), и серверы plugin-ов (их
-  источник тоже `worfy`). Кнопки по-прежнему только из действий строки. Session (`restartFor`, `src/main/agent/session.ts`)
-  отклоняет `turn-off` сервера с источником `worfy`, даже если driver по ошибке его предложил; через IPC это отказ «not
-  available», процесс не перезапускается. Код `options.ts`, который убирал выключенный сервер worfy из `mcpServers`,
-  остался: теперь до него не доходит ни одна строка.
+- **Серверы worfy без Turn off (Q2).** `withTurnOff` (`src/main/vendors/claude/mcp.ts`) не даёт `turn-off` строке
+  собственного сервера worfy: `isWorfyOwnServer` (`src/shared/agent/mcp-status.ts`) — источник `worfy` и имя из
+  `WORFY_SERVER_NAMES` (worfy-canvas, worfy-browser, worfy-mind-map). Сервер plugin-а, который поставил пользователь
+  (Claude Code говорит `plugin`, worfy показывает источник worfy), Turn off сохраняет; сервер qmd Harness-а Claude Code
+  отдаёт как `dynamic` — user config, тоже с Turn off. Кнопки по-прежнему только из действий строки; упавший сервер worfy
+  предлагает Reconnect, needs-auth — Sign in и Reconnect. Session (`restartFor`, `src/main/agent/session.ts`) отклоняет
+  `turn-off` собственного сервера worfy, даже если driver по ошибке его предложил; через IPC это отказ «not available»,
+  процесс не перезапускается. Раунд 2 ревью: правило сначала касалось всех строк источника `worfy`, то есть и plugin-ов —
+  шире решения владельца; сужено.
+- **options.ts.** Проверка `mcpOff` для собственных серверов worfy убрана (их больше нельзя выключить). Для серверов plugin-а
+  Harness, которые worfy передаёт в `mcpServers` в обход policy tier, проверка осталась: иначе выключенный `plugin_worfy_qmd`
+  всё равно попадал бы в процесс (test в `test/unit/agent-options.test.ts`).
 - **Allow all (Q3).** Канал `agent.mcpAllowAll` (`src/shared/ipc/agent.ts`, write) → `Session.mcpAllowAll` →
   `allowMcpServers` (`src/main/ipc/profile-edit.ts`): одна запись `--set` со всеми недостающими именами, в той же очереди
   Project-а, что и Allow; затем один Restart с тем же разговором. Allow одного сервера теперь идёт тем же путём

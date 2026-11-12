@@ -31,7 +31,8 @@ does not allow, and the same status in Project settings. Which servers a Session
 - While two rows or more of that group offer Allow, its heading has "Allow all" at the right end. With one such row
   there is no "Allow all": the row's own Allow does the same.
 - A row has a button for each action main offers for it; the window adds none of its own. A row of worfy's own
-  servers or a plugin's (source worfy) has no button: it shows the status only. While an action runs, the
+  servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) has no Turn off for this Session; a failed one still
+  offers Reconnect. While an action runs, the
   buttons of its row wait, and "Allow all" waits too. A refused action shows a toast that names the action, the server and the reason, and the
   reason stays in the row ("Allow failed: …") until the next action there succeeds; the rows after an action come with
   its answer.
@@ -44,7 +45,7 @@ does not allow, and the same status in Project settings. Which servers a Session
 |---|---|---|
 | Reconnect | failed; needs auth on Claude Code, and on Codex where Sign in is not offered | Reconnects the server in the running process. On needs auth it is for after a sign-in done elsewhere. |
 | Sign in | needs auth, when the Vendor can start the sign-in | Opens the server's sign-in page in the system browser and waits for the sign-in. |
-| Turn off for this Session | connected, Claude Code, a person at the Session, a server of the user (not source worfy) | Restarts the Session with the same conversation without the server. Its row stays, disabled, with Turn on. |
+| Turn off for this Session | connected, Claude Code, a person at the Session, not one of worfy's own servers | Restarts the Session with the same conversation without the server. Its row stays, disabled, with Turn on. |
 | Turn on | turned off for this Session | Restarts the Session with the same conversation with the server back. |
 | Allow | not allowed, Claude Code | Puts the server on the Profile's list and restarts the Session with the same conversation. |
 | Allow all | the heading of "Not allowed in this Project", while two rows or more offer Allow | Puts every server of the group on the Profile's list with one write and restarts the Session once. |
@@ -56,8 +57,9 @@ does not allow, and the same status in Project settings. Which servers a Session
   run the Session keeps its id; before the first turn there is no conversation to resume, so the new process starts a new
   one under a new id. Only a not started row has a Restart button of its own.
 - **Turn off for this Session** changes neither the Profile nor the user's config: a new Session gets the server again.
-  worfy's own servers and plugins' (source worfy) are never turned off: their rows offer no Turn off, and main refuses a
-  Turn off of such a server asked for all the same, before anything restarts.
+  worfy's own servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) are never turned off: their rows offer no Turn
+  off, and main refuses a Turn off of such a server asked for all the same, before anything restarts. A server of a
+  plugin the user installed shows the source worfy too, and keeps Turn off.
 - **Allow** writes the Profile through the Harness, as Edit profile does. A Profile with no list gets the default list
   with the name added. The Allows of one Project take turns, whichever of its folders the Session runs in: each reads
   the list after the write before it, so Allow pressed on many servers at once writes them all. When a write from
@@ -201,7 +203,7 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 
 | Test | Covers |
 |---|---|
-| `test/unit/mcp-status-row.test.ts` | The source of each SDK word and the rows of a recorded answer. |
+| `test/unit/mcp-status-row.test.ts` | The source of each SDK word, the rows of a recorded answer, no Turn off for worfy's own servers while a plugin's server keeps it. |
 | `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, "Allow all", the popover opening upward, the ask with `pickUp` on opening. |
 | `test/unit/session-view.test.tsx` | The chip in the bar under the input field, not in the header, and none in a Product Session. |
 | `test/unit/edit-profile.test.tsx` | The status beside each name of the MCP servers list in Edit profile, none without a Session, none for a Project of a Linked machine. |

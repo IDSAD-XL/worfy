@@ -5,7 +5,9 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MCP_SERVER_SOURCES, mcpServerRowSchema, mcpSourceOf } from '../../src/shared/agent/mcp-status'
+import type { QueryHandle } from '../../src/main/agent/session/types'
+import { claudeMcpStatus } from '../../src/main/vendors/claude/mcp'
+import { isWorfyOwnServer, MCP_SERVER_SOURCES, mcpServerRowSchema, mcpSourceOf, WORFY_SERVER_NAMES } from '../../src/shared/agent/mcp-status'
 import { initMcpServers, mcpServerRowsOf } from '../../src/shared/vendors/claude/events'
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures')
@@ -128,5 +130,39 @@ describe('the servers of a system/init', () => {
   it('another message has none', () => {
     expect(initMcpServers({ type: 'system', subtype: 'status', status: null })).toBeNull()
     expect(initMcpServers({ type: 'result', subtype: 'success' })).toBeNull()
+  })
+})
+
+// worfy-mcp-live ticket 09 (owner's Q2): worfy's own servers — the ones worfy registers in the Session — offer
+// no Turn off for this Session; a server of a plugin the user installed shows as source worfy too, but keeps it.
+describe('Turn off and worfy’s own servers', () => {
+  const answer = [
+    { name: 'worfy-canvas', status: 'connected', source: 'sdk' },
+    { name: 'worfy-browser', status: 'connected', source: 'sdk' },
+    { name: 'plugin:example:server-1', status: 'connected', source: 'plugin' },
+    { name: 'example-notes', status: 'connected', source: 'user' },
+    { name: 'worfy-canvas-lookalike', status: 'connected', source: 'sdk' },
+    { name: 'worfy-browser', status: 'failed', source: 'sdk', error: 'gone' },
+  ]
+  const query = { mcpServerStatus: () => Promise.resolve(answer) } as unknown as QueryHandle
+
+  it('the Claude driver gives Turn off to every connected server of an attended Session but worfy’s own', async () => {
+    const rows = await claudeMcpStatus(query, null, 'test', { attended: true, pickUp: false })
+    expect(rows?.map((row) => [row.name, row.source, row.actions])).toEqual([
+      ['worfy-canvas', 'worfy', []],
+      ['worfy-browser', 'worfy', []],
+      ['plugin:example:server-1', 'worfy', ['turn-off']],
+      ['example-notes', 'user', ['turn-off']],
+      ['worfy-canvas-lookalike', 'worfy', ['turn-off']],
+      // Other actions stay: a failed worfy server is reconnected.
+      ['worfy-browser', 'worfy', ['reconnect']],
+    ])
+  })
+
+  it('isWorfyOwnServer: source worfy and a name worfy registers, nothing else', () => {
+    expect(WORFY_SERVER_NAMES).toEqual(['worfy-canvas', 'worfy-browser', 'worfy-mind-map'])
+    expect(isWorfyOwnServer({ name: 'worfy-mind-map', source: 'worfy' })).toBe(true)
+    expect(isWorfyOwnServer({ name: 'plugin:example:server-1', source: 'worfy' })).toBe(false)
+    expect(isWorfyOwnServer({ name: 'worfy-canvas', source: 'user' })).toBe(false)
   })
 })

@@ -342,6 +342,23 @@ describe('turn-off and turn-on for this Session', () => {
     expect(h.session.state).toBe('idle')
   })
 
+  it('a server of source worfy that worfy did not register (a plugin the user installed) keeps Turn off, and the Session does it', async () => {
+    const status = claudeMcp.status
+    if (status === undefined) throw new Error('the Claude driver reads no MCP status')
+    // example-notes stands for a plugin's server here: Claude Code reports such a server as `plugin`, shown as worfy.
+    const asPlugin: McpPart = {
+      ...claudeMcp,
+      status: async (handle, read) => (await status.call(claudeMcp, handle, read))?.map((each) => (each.name === 'example-notes' ? { ...each, source: 'worfy' as const } : each)) ?? null,
+    }
+    const h = harness(LIST, undefined, true, { ...STATIC_CLAUDE_PARTS, mcp: asPlugin })
+    await h.turn('one')
+    expect((await h.session.mcp())?.find((each) => each.name === 'example-notes')?.actions).toEqual(['turn-off'])
+    const off = await h.session.mcpAction('example-notes', 'turn-off')
+    expect(off.error).toBeNull()
+    expect(h.processStarts()).toHaveLength(2)
+    expect(allowedNames(h.starts[1])).toEqual([CANVAS_SERVER_NAME])
+  })
+
   it('with no Profile list (a Session outside every Project) the server is named in deniedMcpServers, in the form the spike recorded, and no list is added', async () => {
     const h = harness(null)
     await h.turn('one')

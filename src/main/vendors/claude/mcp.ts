@@ -16,8 +16,8 @@
 // when the set of servers changed, which is what the person added the server for: no confirmation is
 // asked (holdOnCacheImpact is not used). Turn off, Turn on and Restart are a Restart of the Session
 // with the same conversation (Session.mcpAction; `restarts`), which starts Claude Code without the
-// servers turned off (options.ts, mcpOff); a connected server of the user offers Turn off, worfy's own
-// servers and plugins' never do (ticket 09: their row is status only). An unattended Session
+// servers turned off (options.ts, mcpOff); a connected server offers Turn off, except worfy's own servers
+// (ticket 09: worfy-canvas, worfy-browser, worfy-mind-map; a plugin's server keeps it). An unattended Session
 // (Autopilot) takes in nothing in the middle of a Wave and offers neither: its set of servers is fixed
 // when it starts.
 //
@@ -33,7 +33,7 @@
 // A Claude Code without mcpAuthenticate offers no Sign in: the row says where to sign in, and Reconnect.
 import type { McpSdkServerConfigWithInstance, McpServerConfig } from '@anthropic-ai/claude-agent-sdk'
 import type { QueryHandle } from '../../agent/session/types'
-import type { McpServerRow } from '../../../shared/agent/mcp-status'
+import { isWorfyOwnServer, type McpServerRow } from '../../../shared/agent/mcp-status'
 import { z } from 'zod'
 import { mcpServerRowsOf } from '../../../shared/vendors/claude/events'
 import { PartNotWired } from '../driver'
@@ -156,12 +156,13 @@ async function signIn(query: QueryHandle, name: string, open: (url: string) => P
 }
 
 /**
- * A connected server of the user (claude.ai, user config, Project) in an attended Session offers Turn off for
- * this Session (a Restart without it). worfy's own servers and plugins' (source worfy) never do: their row is
- * status only (worfy-mcp-live ticket 09, owner's Q2) — a Session without worfy-canvas loses the Canvas tools.
+ * A connected server in an attended Session offers Turn off for this Session (a Restart without it), but for
+ * worfy's own servers (isWorfyOwnServer: worfy-canvas, worfy-browser, worfy-mind-map; worfy-mcp-live ticket 09,
+ * owner's Q2) — a Session without worfy-canvas loses the Canvas tools. A server of a plugin the user installed
+ * keeps Turn off.
  */
 const withTurnOff = (row: McpServerRow): McpServerRow =>
-  row.status === 'connected' && row.source !== 'worfy' && !row.actions.includes('turn-off') ? { ...row, actions: [...row.actions, 'turn-off'] } : row
+  row.status === 'connected' && !isWorfyOwnServer(row) && !row.actions.includes('turn-off') ? { ...row, actions: [...row.actions, 'turn-off'] } : row
 
 /** What the mcp part reads of the SessionHandle of the Claude driver (ClaudeSession, session.ts). */
 export interface ClaudeMcpLive {
