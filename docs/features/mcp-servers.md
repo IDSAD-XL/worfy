@@ -18,8 +18,8 @@ does not allow, and the same status in Project settings. Which servers a Session
   n are the servers that are connected, m all the servers of the Session except those not allowed in the Project. While
   a server has failed, needs a sign-in or was not started, the chip takes the blocked colours and a warning icon. It is absent while main
   has no data, for a Session with no server, and in a Product Session. Its tooltip says the count in words, then how many
-  failed or need auth, then how many more are not allowed: "3 of 4 MCP servers connected: 1 failed. 2 more not allowed
-  in this Project".
+  failed, need auth or were not started, then how many more are not allowed: "3 of 4 MCP servers connected: 1 failed.
+  2 more not allowed in this Project".
 - A click opens a popover under the chip, titled "MCP servers" with "n/m connected". Each server has a row: its name,
   its status (connected, failed, needs auth, pending, disabled, not allowed, not started), the number of its tools when the Vendor
   gave it, the error in the Vendor's words, and its source: claude.ai, user config, Project or worfy. A source worfy does
@@ -52,13 +52,15 @@ does not allow, and the same status in Project settings. Which servers a Session
 - **Turn off for this Session** changes neither the Profile nor the user's config: a new Session gets the server again.
   worfy's own servers can be turned off too.
 - **Allow** writes the Profile through the Harness, as Edit profile does. A Profile with no list gets the default list
-  with the name added. When another write changed the list between Allow's read and its write, Allow reads the list
-  again and adds the name to that, three tries in all: Allow pressed on several servers one after another writes them
-  all. When the write is refused (the list changed on every try, the Profile is busy, or the Harness is too old), the
-  row and a toast give the reason and the Session stays as it was. After the Restart the answer waits, 10 seconds at
-  most, until the server has left pending, so the popover shows it without another turn. When the new process still
-  does not have the server, the answer is an error: the name is on the list, but Claude Code did not start the server
-  in this Session.
+  with the name added. The Allows of one Project take turns, whichever of its folders the Session runs in: each reads
+  the list after the write before it, so Allow pressed on many servers at once writes them all. When a write from
+  elsewhere (Edit profile, an agent, an editor) changed the list between Allow's read and its write, Allow reads the
+  list again and adds the name to that, three tries in all. When the write is refused (the list changed on every try,
+  the Profile is busy, or the Harness is too old), the row and a toast give the reason and the Session stays as it
+  was. While the Restart of another Allow is starting the process, Allow waits for that start and restarts again only
+  when the new process lacks the server. After the Restart the answer waits, 10 seconds at most, until the server has
+  left pending, so the popover shows it without another turn. When the new process still does not have the server, the
+  answer is an error: the name is on the list, but Claude Code did not start the server in this Session.
 - **Sign in** in a Claude Code Session opens the page Claude Code gives, only an http or https one; Claude Code itself
   takes the callback on localhost and the token, and worfy never sees it. The action ends once the server is out of
   needs auth, 10 minutes at most; a server that failed after the sign-in is reconnected once. A claude.ai connector signs
@@ -88,7 +90,8 @@ live check.
   knew it, says what Allow adds to each turn.
 - A row "not started" is a server the list names that the inventory finds but that the Session does not have: Claude
   Code left it out (a claude.ai connector allowed by its name, or one connected after the process started). It stands
-  with the Session's servers, counts in m, and offers Restart with the same conversation in an attended Session.
+  with the Session's servers, counts in m, has the blocked status chip as failed has, and offers Restart with the same
+  conversation in an attended Session.
 - The group ends with a line: "A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
   profile)." The inventory may not list claude.ai connectors, so a connector missing from the group is allowed by typing
   its name into the list.

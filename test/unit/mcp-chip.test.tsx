@@ -223,8 +223,15 @@ describe('the popover', () => {
     expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: the window lost main')
     expect(allow().getAttribute('aria-disabled')).toBeNull()
 
-    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: null, error: null } })
-    await act(async () => fireEvent.click(allow()))
+    // The reason stays through a new `mcp` event and while the next try runs, until that try answers.
+    await act(async () => acceptAgentEvent({ sessionId: 's', event: { type: 'mcp', servers: ROWS } }))
+    expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: the window lost main')
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcpAction'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    fireEvent.click(allow())
+    expect(allow().getAttribute('aria-disabled')).toBe('true')
+    expect(within(rowOf(popover, 'example-wiki')).getByTestId('mcp-row-action-error').textContent).toBe('Allow failed: the window lost main')
+    await act(async () => settle({ ok: true, value: { servers: null, error: null } }))
     expect(within(rowOf(popover, 'example-wiki')).queryByTestId('mcp-row-action-error')).toBeNull()
   })
 
@@ -234,6 +241,9 @@ describe('the popover', () => {
     render(<McpChip sessionId="s" rows={rows} autopilot={false} />)
     const popover = open()
     expect(within(rowOf(popover, 'example-docs')).getByTestId('mcp-row-status').textContent).toBe('not started')
+    // The warning look of failed and needs auth, and the tooltip names why the chip warns.
+    expect(within(rowOf(popover, 'example-docs')).getByTestId('mcp-row-status').querySelector('.w-chip--blocked')).not.toBeNull()
+    expect(screen.getAllByTestId('session-mcp')[0]?.getAttribute('title')).toBe('1 of 2 MCP servers connected: 1 not started')
     expect(within(popover).queryByTestId('mcp-not-allowed')).toBeNull()
   })
 

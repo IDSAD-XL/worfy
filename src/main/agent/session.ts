@@ -691,21 +691,31 @@ export class Session {
    * `pending` — `settleMs` at most. Refused — nothing written — when no row of the server offers Allow or
    * there is no writer; a write that fails rejects with its reason and the Session stays as it was. A server
    * the restarted process still lacks (`not-allowed`, `not-started`, no row) is answered with an error: the
-   * list is written, but the Session did not take the server. An unattended or halted Session gets the write
-   * without a Restart: the list holds from its next start (the next Wave).
+   * list is written, but the Session did not take the server. While another action's Restart starts a process
+   * (Allow pressed on several servers), Allow waits for that start and restarts again only when the new
+   * process lacks the server; with no process at all it answers the error. An unattended or halted Session
+   * gets the write without a Restart: the list holds from its next start (the next Wave).
    */
   private async allow(name: string, write: ((name: string) => Promise<void>) | undefined, settleMs: number): Promise<McpActionAnswer> {
     const row = this.mcpValue?.find((each) => each.name === name)
     if (write === undefined || row === undefined || !row.actions.includes('allow')) throw new McpActionRefused('allow')
     await write(name)
-    if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true || (this.run?.handle ?? null) === null) return { servers: await this.mcp(), error: null }
-    await this.restartProcess()
+    if (this.launch.unattended || this.halted || this.parts.mcp?.restarts !== true) return { servers: await this.mcp(), error: null }
+    const inProcess = (rows: McpServerRow[] | null): boolean => {
+      const now = rows?.find((each) => each.name === name)
+      return now !== undefined && !NOT_IN_SESSION.has(now.status)
+    }
+    // Another action's Restart may be starting a process now, with a list read before this write: its start
+    // is waited for, and the process restarted again unless it has the server all the same.
+    while (this.pendingStarts.size > 0) await Promise.allSettled([...this.pendingStarts])
+    if ((this.run?.handle ?? null) === null) {
+      const rows = await this.mcp()
+      return { servers: rows, error: inProcess(rows) ? null : allowNotStarted(name) }
+    }
+    if (!inProcess(await this.mcp())) await this.restartProcess()
     const until = Date.now() + settleMs
     let servers = await this.mcp()
-    const settled = (rows: McpServerRow[] | null): boolean => {
-      const now = rows?.find((each) => each.name === name)
-      return now !== undefined && now.status !== 'pending' && !NOT_IN_SESSION.has(now.status)
-    }
+    const settled = (rows: McpServerRow[] | null): boolean => inProcess(rows) && rows?.find((each) => each.name === name)?.status !== 'pending'
     while (!settled(servers) && Date.now() < until && this.run !== null) {
       await new Promise((done) => setTimeout(done, ALLOW_POLL_MS))
       servers = await this.mcp()

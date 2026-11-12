@@ -45,12 +45,13 @@ const STATUS_LABELS: Readonly<Record<McpServerRow['status'], string>> = {
   'not-started': 'not started',
 }
 
-/** The status chip of a status; disabled and not allowed are neutral, with no icon. */
+/** The status chip of a status; disabled and not allowed are neutral, with no icon. Not started warns as failed does. */
 const STATUS_CHIPS: Readonly<Partial<Record<McpServerRow['status'], Status>>> = {
   connected: 'ready',
   failed: 'blocked',
   'needs-auth': 'blocked',
   pending: 'working',
+  'not-started': 'blocked',
 }
 
 /** What the person reads for each source. */
@@ -82,12 +83,13 @@ const POPOVER_GAP = 4
 /** The popover keeps this far from the window's edges. */
 const WINDOW_MARGIN = 8
 
-/** The chip's tooltip: the count in words, what is wrong, and the servers not allowed. */
+/** The chip's tooltip: the count in words, what is wrong (failed, needs auth, not started), and the servers not allowed. */
 function chipTitle(rows: readonly McpServerRow[]): string {
   const { connected, total } = mcpCount(rows)
   const failed = rows.filter((row) => row.status === 'failed').length
   const auth = rows.filter((row) => row.status === 'needs-auth').length
-  const wrong = [failed > 0 ? `${failed} failed` : null, auth > 0 ? `${auth} needs auth` : null].filter((part) => part !== null)
+  const notStarted = rows.filter((row) => row.status === 'not-started').length
+  const wrong = [failed > 0 ? `${failed} failed` : null, auth > 0 ? `${auth} needs auth` : null, notStarted > 0 ? `${notStarted} not started` : null].filter((part) => part !== null)
   const notAllowed = rows.length - total
   return `${connected} of ${total} MCP servers connected${wrong.length > 0 ? `: ${wrong.join(', ')}` : ''}${notAllowed > 0 ? `. ${notAllowed} more not allowed in this Project` : ''}`
 }

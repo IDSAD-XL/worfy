@@ -24,9 +24,9 @@ import { allowNotStarted, SessionRegistry, type QueryHandle, type QueryRequest }
 import { agentHandlers } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { ProfileSetRunner } from '../../src/main/ipc/pipeline'
-import { ALLOW_CONFLICT, ALLOW_TRIES, allowMcpServer, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
+import { ALLOW_BUSY, ALLOW_CONFLICT, ALLOW_TRIES, allowMcpServer, PROFILE_SET_TOO_OLD } from '../../src/main/ipc/profile-edit'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
-import { MCP_NOT_STARTED, McpInventory } from '../../src/main/vendors/claude/mcp-inventory'
+import { MCP_NOT_STARTED, McpInventory, notStartedRows } from '../../src/main/vendors/claude/mcp-inventory'
 import { claudeSessions } from '../../src/main/vendors/claude/session'
 import type { ProfileRun } from '../../src/main/workflow/profile'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
@@ -97,7 +97,7 @@ const fingerprintOf = (value: unknown): string => `sha256:${createHash('sha256')
 function profileSetStub(initial: readonly string[] | null) {
   const profile = { allowed: initial === null ? null : [...initial] }
   const calls: { args: readonly string[]; stdin?: string }[] = []
-  let refuse: { code: number; stderr: string } | null = null
+  let refuse: { code: number; stderr: string; onSet: boolean } | null = null
   /** A write of someone else between Allow's read and its write. */
   let between: (() => void) | null = null
   const runner: ProfileSetRunner = async (args, stdin) => {
@@ -105,7 +105,7 @@ function profileSetStub(initial: readonly string[] | null) {
     await new Promise((settle) => setImmediate(settle))
     calls.push({ args: [...args], ...(stdin === undefined ? {} : { stdin }) })
     const done = (run: Partial<ProfileRun>): Promise<ProfileRun> => Promise.resolve({ code: 0, stdout: '', stderr: '', ...run })
-    if (refuse !== null) return done({ code: refuse.code, stderr: refuse.stderr })
+    if (refuse !== null && (!refuse.onSet || args.includes('--set'))) return done({ code: refuse.code, stderr: refuse.stderr })
     if (args.includes('--read')) {
       const read = done({ stdout: JSON.stringify({ name: 'alpha', fields: { 'mcp.allowed': profile.allowed }, fingerprint: fingerprintOf(profile.allowed) }) })
       between?.()
@@ -122,7 +122,7 @@ function profileSetStub(initial: readonly string[] | null) {
     calls,
     sets,
     runner,
-    refuseWith: (code: number, stderr: string) => (refuse = { code, stderr }),
+    refuseWith: (code: number, stderr: string, onSet = false) => (refuse = { code, stderr, onSet }),
     writeBetween: (write: () => void) => (between = write),
   }
 }
@@ -139,7 +139,13 @@ interface SdkStart {
  * fake agent of each process leaves out what its managedSettings do not allow. The canvas attaches
  * worfy-canvas. A stub process stands behind each query, so a Restart waits for the old one's exit.
  */
-async function harness(initial: readonly string[] | null, wrap: (query: QueryHandle, process: number) => QueryHandle = (query) => query) {
+async function harness(
+  initial: readonly string[] | null,
+  wrap: (query: QueryHandle, process: number) => QueryHandle = (query) => query,
+  script = 'mcp-allow',
+  /** Holds the start of process `process` until it settles: a Restart under way. */
+  hold: (process: number) => Promise<void> = () => Promise.resolve(),
+) {
   const set = profileSetStub(initial)
   const calls: FakeCall[] = []
   const starts: SdkStart[] = []
@@ -147,7 +153,7 @@ async function harness(initial: readonly string[] | null, wrap: (query: QueryHan
   const allowedOf = new Map<unknown, readonly string[]>()
   const fake = fakeQueryFactory({
     scriptsDir: AGENT_SCRIPTS,
-    script: 'mcp-allow',
+    script,
     record: (call) => calls.push(call),
     mcpAllowlist: (request) => Promise.resolve(allowedOf.get(request.prompt) ?? null),
   })
@@ -161,7 +167,7 @@ async function harness(initial: readonly string[] | null, wrap: (query: QueryHan
       starts.push(start)
       allowedOf.set(prompt, (start.managedSettings?.allowedMcpServers ?? []).map((each) => each.serverName))
       const process = starts.length
-      return fake(requests.get(prompt) as QueryRequest).then((query) => wrap(query, process))
+      return hold(process).then(() => fake(requests.get(prompt) as QueryRequest).then((query) => wrap(query, process)))
     },
   }
   const listNow = (): readonly string[] => set.profile.allowed ?? ['plugin_worfy_qmd', CANVAS_SERVER_NAME]
@@ -178,7 +184,7 @@ async function harness(initial: readonly string[] | null, wrap: (query: QueryHan
     requests.set(request.prompt, request)
     return factory(request)
   }
-  const inventory = new McpInventory(fakeInventoryStarter({ scriptsDir: AGENT_SCRIPTS, script: 'mcp-allow', record: (call) => calls.push(call) }))
+  const inventory = new McpInventory(fakeInventoryStarter({ scriptsDir: AGENT_SCRIPTS, script, record: (call) => calls.push(call) }))
   const registry = new SessionRegistry(claudeSessions(stub.wrap(remembered), {}, inventory))
   registries.push(registry)
   const handlers = new Map<string, Listener>()
@@ -300,12 +306,66 @@ describe('Allow of a server outside the Profile’s list', () => {
 })
 
 describe('several Allows, and an Allow Claude Code does not follow', () => {
-  it('two Allows at once both land on the list: the one whose write met the other’s reads the list again and adds its name', async () => {
+  it('nine Allows at once all land on the list, none refused: the Allows of a Project take turns', async () => {
     const set = profileSetStub(LIST)
-    await Promise.all([allowMcpServer(set.runner, cwd, 'example-tracker'), allowMcpServer(set.runner, cwd, 'example-docs')])
-    expect([...(set.profile.allowed ?? [])].sort()).toEqual([...LIST, 'example-docs', 'example-tracker'].sort())
-    // Three writes: the first of each, one of them refused for the other's, and that one again over the new list.
-    expect(set.sets()).toHaveLength(3)
+    const names = Array.from({ length: 9 }, (_each, index) => `example-server-${index + 1}`)
+    const answers = await Promise.allSettled(names.map((name) => allowMcpServer(set.runner, cwd, name)))
+    expect(answers.filter((answer) => answer.status === 'rejected')).toEqual([])
+    expect(set.profile.allowed).toEqual([...LIST, ...names])
+    // Each read the list after the write before it: one write each, no conflict.
+    expect(set.sets()).toHaveLength(9)
+  })
+
+  it('the Allows of Sessions in two folders of one Project take turns too', async () => {
+    const set = profileSetStub(LIST)
+    const worktree = join(cwd, '.claude', 'worktrees', 'example')
+    await Promise.all([allowMcpServer(set.runner, cwd, 'example-tracker', cwd), allowMcpServer(set.runner, worktree, 'example-docs', cwd)])
+    expect(set.profile.allowed).toEqual([...LIST, 'example-tracker', 'example-docs'])
+    expect(set.sets()).toHaveLength(2)
+  })
+
+  it('two Allows at once in one Session: both servers join it, neither answer an error', async () => {
+    const h = await harness(LIST, undefined, 'mcp-allow-two')
+    await h.turn('one')
+    await vi.waitFor(() => expect(h.ofType('mcp').at(-1)?.servers?.filter((each) => each.status === 'not-allowed').map((each) => each.name)).toEqual(['example-tracker', 'example-docs']))
+    const [tracker, docs] = await Promise.all([h.allow('example-tracker'), h.allow('example-docs')])
+    expect(tracker).toEqual({ ok: true, value: expect.objectContaining({ error: null }) as unknown })
+    expect(docs).toEqual({ ok: true, value: expect.objectContaining({ error: null }) as unknown })
+    expect(h.set.profile.allowed).toEqual([...LIST, 'example-tracker', 'example-docs'])
+    const last = h.ofType('mcp').at(-1)?.servers ?? []
+    expect(last.filter((each) => each.name === 'example-tracker' || each.name === 'example-docs').map((each) => each.status)).toEqual(['connected', 'connected'])
+  })
+
+  it('an Allow whose write ends while another Allow’s Restart is starting the process: it waits for that start and restarts again, not a silent «not allowed»', async () => {
+    let release: () => void = () => undefined
+    const held = new Promise<void>((done) => (release = done))
+    const h = await harness(LIST, undefined, 'mcp-allow-two', (process) => (process === 2 ? held : Promise.resolve()))
+    await h.turn('one')
+    await vi.waitFor(() => expect(h.ofType('mcp').at(-1)?.servers?.filter((each) => each.status === 'not-allowed')).toHaveLength(2))
+    const tracker = h.allow('example-tracker')
+    // The first Allow's new process has read the list (without example-docs) and waits to start.
+    await vi.waitFor(() => expect(h.starts).toHaveLength(2))
+    await vi.waitFor(() => expect(h.session.state).toBe('starting'))
+    const docs = h.allow('example-docs')
+    const early = await Promise.race([docs.then(() => 'answered'), new Promise((done) => setTimeout(() => done('waits for the start'), 300))])
+    expect(early).toBe('waits for the start')
+    release()
+    const answers = await Promise.all([tracker, docs])
+    for (const answer of answers) expect(answer).toEqual({ ok: true, value: expect.objectContaining({ error: null }) as unknown })
+    const last = h.ofType('mcp').at(-1)?.servers ?? []
+    expect(last.filter((each) => each.name === 'example-tracker' || each.name === 'example-docs').map((each) => each.status)).toEqual(['connected', 'connected'])
+  })
+
+  it('a write that profile-set refuses as busy or as a bad value: the reason, after the read went through', async () => {
+    const set = profileSetStub(LIST)
+    set.refuseWith(6, 'profile-set: the profile is being written', true)
+    await expect(allowMcpServer(set.runner, cwd, 'example-tracker')).rejects.toThrow(ALLOW_BUSY)
+    set.refuseWith(1, 'profile-set: mcp.allowed: not a list of names', true)
+    await expect(allowMcpServer(set.runner, cwd, 'example-tracker')).rejects.toThrow('mcp.allowed: not a list of names')
+    set.refuseWith(9, 'profile-set: something else', true)
+    await expect(allowMcpServer(set.runner, cwd, 'example-tracker')).rejects.toThrow(/--set failed \(exit 9\)/u)
+    expect(set.calls.filter((each) => each.args.includes('--read'))).toHaveLength(3)
+    expect(set.profile.allowed).toEqual(LIST)
   })
 
   it('a list another write changed once between the read and the write: Allow reads it again and keeps both changes', async () => {
@@ -335,6 +395,27 @@ describe('several Allows, and an Allow Claude Code does not follow', () => {
     const tracker = { ...TRACKER, status: 'not-started' as const, tools: null, error: MCP_NOT_STARTED, actions: ['restart' as const] }
     expect(answer.servers).toEqual([NOTES, CANVAS, tracker])
     expect(h.ofType('mcp').at(-1)?.servers).toEqual([NOTES, CANVAS, tracker])
+  })
+})
+
+describe('the rows of servers the list names but the Session lacks (notStartedRows)', () => {
+  const inventory = [NOTES, TRACKER, CANVAS, row('example-plugin', { source: 'worfy' })]
+  const set = { listed: [...LIST, 'example-tracker', 'example-plugin'], rows: [NOTES, CANVAS], off: [] as string[] }
+
+  it('a listed server of the user the Session lacks: not started, with Restart in an attended Session', () => {
+    expect(notStartedRows(inventory, { ...set, attended: true })).toEqual([{ ...TRACKER, status: 'not-started', tools: null, error: MCP_NOT_STARTED, actions: ['restart'] }])
+  })
+
+  it('no Restart in an unattended Session: its set of servers is fixed for the Wave', () => {
+    expect(notStartedRows(inventory, { ...set, attended: false }).map((each) => each.actions)).toEqual([[]])
+  })
+
+  it('none for worfy’s own servers or a plugin’s, none for a server turned off for this Session, none without an inventory', () => {
+    expect(notStartedRows(inventory, { ...set, attended: true }).map((each) => each.name)).not.toContain('example-plugin')
+    expect(notStartedRows(inventory, { ...set, off: ['example-tracker'], attended: true })).toEqual([])
+    expect(notStartedRows(inventory, { ...set, rows: [NOTES, CANVAS, TRACKER], attended: true })).toEqual([])
+    expect(notStartedRows(inventory, { ...set, listed: LIST, attended: true })).toEqual([])
+    expect(notStartedRows(null, { ...set, attended: true })).toEqual([])
   })
 })
 

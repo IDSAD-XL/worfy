@@ -29,7 +29,7 @@ import type { EventSink, Session, SessionRegistry } from '../agent/session'
 import type { ChatStartAnswer, ChatStartRequest } from '../autopilot/chat-start'
 import { toEveryWindow } from '../broadcast'
 import { harnessScriptEnv } from '../harness/script-env'
-import { insideProjects, isRemoteCall, localProjectOf, setSessionFolders } from '../link/caller'
+import { insideProjects, isRemoteCall, localProjectOf, realInsideProjects, setSessionFolders } from '../link/caller'
 import { projectForCwd } from '../mcp/canvas-server'
 import { projectStore } from '../projects/store'
 import { leadsToRemote } from '../remote-links'
@@ -351,8 +351,10 @@ export function agentHandlers(
       const session = registry().get(sessionId)
       // The server's name is the user's own: the journal of an Autopilot run gets the action alone.
       registry().noteInput(sessionId, `asked for ${action} of an MCP server`)
-      // Allow writes the Profile's list of the Session's Project through bin/profile-set (worfy-mcp-live ticket 05).
-      return session.mcpAction(name, action, { allow: (server) => allowMcpServer(profileSet(), session.cwd, server) })
+      // Allow writes the Profile's list of the Session's Project through bin/profile-set (worfy-mcp-live ticket 05);
+      // the Allows of one Project take turns, whichever of its folders (a worktree) the Session runs in.
+      const project = projects().find((each) => realInsideProjects(session.cwd, [each]) !== null)?.path ?? session.cwd
+      return session.mcpAction(name, action, { allow: (server) => allowMcpServer(profileSet(), session.cwd, server, project) })
     }),
     defineHandler(agentQueueRemove, ({ sessionId, id }) => {
       const session = registry().get(sessionId)
