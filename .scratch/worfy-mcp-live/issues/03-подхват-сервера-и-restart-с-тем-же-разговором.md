@@ -121,7 +121,11 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
   получает `renamed`, как после процесса, умершего до первого хода (`newSessionId`). Владельцы `renamed` обрабатывают;
   поведение оставлено и закреплено test-ом.
 - **Подхват:** `reloadPlugins()` без опций, затем `mcpServerStatus()`. Зовётся только на `agent.mcp` с
-  `pickUp: true` и только когда ход не идёт; его шлёт popover chip-а при открытии (решение Orchestrator-а, раунд ревью 1).
+  `pickUp: true` и только когда ход не идёт; его шлёт popover chip-а при открытии (решение Orchestrator-а, раунд ревью 1):
+  `pickUpMcp` в `store.ts` зовётся из `McpChip.tsx` на каждое открытие. Идёт ли ход и attended ли Session, решает main
+  (флаг `turning` driver-а, contract test `claude-mcp-pickup.test.ts`): renderer-у состояние хода в store не доступно,
+  и его копия отставала бы. Ответ берётся, только если событие `mcp` не пришло раньше; ответ без данных строки не стирает
+  (unit test `mcp-chip.test.tsx`, четыре мутанта убиты).
   Простое чтение окна, а также запросы после `init` и `result` подхват не делают. Подтверждение
   из-за prompt cache не спрашивается, `holdOnCacheImpact` не используется: tool-список меняется только когда сервер
   действительно добавлен. Строки с `restart` подхват не даёт: spike показал, что разрешённый сервер подхватывается на
@@ -145,7 +149,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 03; «Решения 
 - Вне списка «Где в коде» правлены: `src/main/agent/session.ts` (Restart, `mcpOff`, порядок ответов),
   `src/main/agent/session/types.ts` (`reloadPlugins`, `QueryRequest.mcpOff`), `src/main/vendors/session.ts`
   (`SessionStart.mcpOff`), `src/main/vendors/mcp.ts` (`restarts`), `src/main/vendors/claude/query.ts` (передаёт
-  `mcpOff`), сценарии `test/fixtures/agent-scripts/mcp-pickup.jsonl`, `mcp-restart.jsonl`, `mcp-restart-long.jsonl`,
+  `mcpOff`), `src/shared/ipc/agent.ts` и `src/main/ipc/agent.ts` (флаг `pickUp` канала `agent.mcp`),
+  `src/renderer/session/McpChip.tsx`, `src/renderer/session/store.ts`, `test/unit/mcp-chip.test.tsx` (запрос с
+  `pickUp` при открытии popover-а), `docs/features/sessions.md`, сценарии
+  `test/fixtures/agent-scripts/mcp-pickup.jsonl`, `mcp-restart.jsonl`, `mcp-restart-long.jsonl`, `mcp-restart-hold.jsonl`,
   и два test-а, чьи списки событий не ждали события `mcp` с `[]` (`agent-session.test.ts`,
   `auto-approve-claude.test.ts`: события `mcp` отфильтрованы, baseline не тронут). Test-ы relaunch-а Orchestrator-а не
   правлены.

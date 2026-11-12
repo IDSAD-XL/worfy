@@ -216,7 +216,9 @@ n/m» counts the Session's MCP servers: n are connected, m are all of them but t
 blocked colours with a warning icon while a server failed or needs auth, and is absent while main has no data. A click
 opens a popover with a row per server — name, status, number of tools, error, source (claude.ai, user config, Project,
 worfy) — and a button for each action main offers for that row, such as Reconnect on a failed server; the servers not
-allowed stand in a group of their own below. A refused action is a toast. Edit profile shows the same status beside each
+allowed stand in a group of their own below. A refused action is a toast. Opening the popover lets main take in a server
+allowed in the Project since the Session started, with no new process; it never does so while a turn runs or in an
+Autopilot Session. Edit profile shows the same status beside each
 name of the MCP servers list, from the newest Session of the Project on this Machine. A Product
 Session's header also shows the share of accepted advice of its Project: "Advice accepted 3 of 5 · 60%", or "No advice
 decided yet" while nothing is decided. It counts the Mind map nodes with `advice: true` of every topic, a Decision by its

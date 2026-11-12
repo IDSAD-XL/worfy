@@ -209,6 +209,24 @@ export async function loadMcp(sessionId: string): Promise<void> {
 }
 
 /**
+ * Asks main for a Session's MCP servers with `pickUp` (worfy-mcp-live ticket 03): the chip's popover
+ * opened, so main may take in a server allowed since the Session started (Claude: reloadPlugins()).
+ * main alone decides whether it does — never in an unattended Session nor while a turn runs — and sends
+ * the rows it took in as an `mcp` event too. The answer is taken only when no event came meanwhile.
+ */
+export async function pickUpMcp(sessionId: string): Promise<void> {
+  const before = useSessionLogs.getState().logs[sessionId]?.mcp
+  const result = await invoke('agent.mcp', { sessionId, pickUp: true })
+  if (!result.ok) {
+    console.warn(`agent.mcp ${sessionId} (pickUp) failed:`, result.error)
+    return
+  }
+  const servers = result.value.servers
+  if (servers === null) return
+  update(sessionId, (log) => (log.mcp !== before ? log : { ...log, mcp: { servers, at: Date.now() } }))
+}
+
+/**
  * Asks main for a Session's open permission and question requests (worfy-product-session ticket 30), for a
  * view whose window did not see their events go out — it opened or reloaded after them — while the Session
  * stands at `needs_permission`. A request the log already holds, opened or resolved, is not added again;
