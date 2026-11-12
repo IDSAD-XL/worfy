@@ -704,7 +704,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(document.activeElement).toBe(held)
   })
 
-  it('while main moves, Esc closes neither the form nor Settings, in the form or with the focus fallen to the page', async () => {
+  it('a control switched off under the focus ("Move" while main moves): the next Tab lands on a control of the form that is on; Esc closes neither the form nor Settings', async () => {
     renderApp()
     await openForm(movable)
     const moving = later()
@@ -714,7 +714,16 @@ describe('Settings → Health: the move form of the old Harness', () => {
     fireEvent.click(start)
     await flush()
     expect((start as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.keyDown(form(), { key: 'Escape' })
+    // A browser takes the focus off a control that is switched off, to the page; jsdom does not, so
+    // the test does it. The next Tab is the form's: the kit's guard puts the focus on its first control.
+    await pressOnText()
+    expect(fireEvent.keyDown(document.body, { key: 'Tab' })).toBe(false)
+    const holder = document.activeElement as HTMLElement
+    expect(holder).not.toBe(form())
+    expect(form().contains(holder)).toBe(true)
+    expect(holder.matches(':disabled')).toBe(false)
+    expect(settings().contains(holder)).toBe(false)
+    fireEvent.keyDown(holder, { key: 'Escape' })
     await pressOnText()
     fireEvent.keyDown(document.body, { key: 'Escape' })
     await frames()
