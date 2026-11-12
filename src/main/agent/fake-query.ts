@@ -39,7 +39,12 @@
 //                                    record shows a call that would. A server the request turns off
 //                                    (QueryRequest.mcpOff, worfy-mcp-live ticket 03) is never in an
 //                                    answer, as Claude Code left out a server its managedSettings
-//                                    did not allow (F:turnoff-restart-allowlist-without, F:turnoff-restart-denied)
+//                                    did not allow (F:turnoff-restart-allowlist-without, F:turnoff-restart-denied).
+//                                    A server with "inventory_only":true is in the answers of the MCP
+//                                    inventory's query only, never of a Session's: Claude Code did not start
+//                                    it although the list names it (a claude.ai connector in the owner's
+//                                    live case, worfy-mcp-live tickets 10 and 11), so the Session shows it
+//                                    as not started; the field itself is in no answer
 //   {"fake":"mcp_added","fixture":"<path>"} a server written into the user's config while the query
 //                                    runs (worfy-mcp-live ticket 03): mcpServerStatus() still does not
 //                                    list it (F:allowed-status-5s-after-write-no-call); the next
@@ -462,7 +467,7 @@ class FakeQuery implements QueryHandle {
     /** The Profile's list of MCP servers the query starts with; null: none, every server is listed. */
     private readonly listed: readonly string[] | null = null,
     /** A query of the MCP inventory (fakeInventoryStarter): its servers from the start, recorded as `inventory`. */
-    inventory = false,
+    private readonly inventory = false,
   ) {
     // A failure to make them leaves the query without hooks, as a Claude Code without them would run.
     this.preToolUse = preToolUse?.(request)?.catch(() => undefined) ?? null
@@ -537,11 +542,20 @@ class FakeQuery implements QueryHandle {
     return Promise.resolve({ commands: [], agents: [], plugins: [], mcpServers: this.withoutOff(servers), error_count: 0 })
   }
 
-  /** `servers` without those the request turned off (QueryRequest.mcpOff) and those the Profile's list leaves out, copied. */
+  /**
+   * `servers` without those the request turned off (QueryRequest.mcpOff), those the Profile's list leaves out and,
+   * but for the inventory's query, those marked `inventory_only`; copied, without that mark.
+   */
   private withoutOff(servers: readonly Record<string, unknown>[]): Record<string, unknown>[] {
     const off = this.request.mcpOff ?? []
     const listed = this.listed
-    return structuredClone(servers.filter((server) => !off.includes(String(server.name)) && (listed === null || listed.includes(String(server.name)))))
+    return servers
+      .filter((server) => !off.includes(String(server.name)) && (listed === null || listed.includes(String(server.name))) && (this.inventory || server.inventory_only !== true))
+      .map((server) => {
+        const copy = structuredClone(server)
+        delete copy.inventory_only
+        return copy
+      })
   }
 
   /**

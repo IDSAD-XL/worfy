@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { QueryHandle } from '../../src/main/agent/session/types'
 import { claudeMcpStatus } from '../../src/main/vendors/claude/mcp'
-import { isWorfyOwnServer, MCP_SERVER_SOURCES, mcpServerRowSchema, mcpSourceOf, WORFY_SERVER_NAMES } from '../../src/shared/agent/mcp-status'
+import { isWorfyOwnServer, MCP_SERVER_SOURCES, mcpServerRowSchema, mcpShownName, mcpSourceOf, WORFY_SERVER_NAMES } from '../../src/shared/agent/mcp-status'
 import { initMcpServers, mcpServerRowsOf } from '../../src/shared/vendors/claude/events'
 
 const FIXTURES = join(import.meta.dirname, '..', 'fixtures')
@@ -164,5 +164,19 @@ describe('Turn off and worfy’s own servers', () => {
     expect(isWorfyOwnServer({ name: 'worfy-mind-map', source: 'worfy' })).toBe(true)
     expect(isWorfyOwnServer({ name: 'plugin:example:server-1', source: 'worfy' })).toBe(false)
     expect(isWorfyOwnServer({ name: 'worfy-canvas', source: 'user' })).toBe(false)
+  })
+})
+
+// worfy-mcp-live ticket 10: the popover shows a claude.ai connector without the «claude.ai » its source column says.
+describe('the name a row shows (mcpShownName)', () => {
+  it('drops «claude.ai » of a claude.ai connector only; any other name stays whole', () => {
+    expect(mcpShownName({ name: 'claude.ai Example Notebook', source: 'claudeai' })).toBe('Example Notebook')
+    // Only the leading word with its space: one inside the name, and the word alone, stay.
+    expect(mcpShownName({ name: 'Example claude.ai Notebook', source: 'claudeai' })).toBe('Example claude.ai Notebook')
+    expect(mcpShownName({ name: 'claude.ai', source: 'claudeai' })).toBe('claude.ai')
+    expect(mcpShownName({ name: 'claude.ai ', source: 'claudeai' })).toBe('claude.ai ')
+    // A server of another source named so keeps its name: the source column would not say claude.ai.
+    expect(mcpShownName({ name: 'claude.ai example-local', source: 'user' })).toBe('claude.ai example-local')
+    expect(mcpShownName({ name: 'example-notes', source: 'user' })).toBe('example-notes')
   })
 })

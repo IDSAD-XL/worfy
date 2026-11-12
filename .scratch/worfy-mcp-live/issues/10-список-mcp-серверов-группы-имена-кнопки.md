@@ -1,7 +1,7 @@
 # 10 — Список MCP-серверов: группа «not started» с одним Restart, имена целиком, тихий Allow
 
 Type: task
-Status: open
+Status: claimed 2026-11-12T20:04Z
 Blocked by: none
 Source: владелец 2026-11-12, взгляд на popover chip-а «MCP n/m» на Stable 802d79536 («нечитаемые названия + больная
 кнопка, плохой UX»); Q8, Q9, Q10, Q12 — «да»

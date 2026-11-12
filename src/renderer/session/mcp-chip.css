@@ -88,18 +88,18 @@
   padding: var(--space-1);
   border-top: 1px solid var(--border);
 }
+/* A row's line wraps (ticket 10): the buttons go under the name rather than squeeze it, and a name wider than the
+   popover wraps to a second line instead of being cut. */
 .w-mcp__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px var(--space-2);
   min-height: 22px;
 }
 .w-mcp__name {
   min-width: 0;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: var(--text-12);
 }
 .w-mcp__tools,
@@ -113,7 +113,14 @@
   flex: 1;
   min-width: var(--space-2);
 }
-.w-mcp__line .w-action[aria-busy='true'] {
+/* A row's Allow (ticket 10): the secondary Button, at the height and type of the row's other actions (.w-action). */
+.w-mcp__line .w-mcp__allow {
+  --button-height: var(--button-height-s);
+  padding: 0 var(--space-2);
+  font-size: var(--text-12);
+}
+.w-mcp__line .w-action[aria-busy='true'],
+.w-mcp__line .w-mcp__allow[aria-busy='true'] {
   cursor: progress;
 }
 .w-mcp__error,
@@ -131,8 +138,9 @@
 .w-mcp__group {
   margin-top: var(--space-1);
 }
-/* The group's heading and, while two rows or more offer Allow, «Allow all» (ticket 09) at its right end:
-   the secondary Button at the popover height of the scale (button.css), 12 px. */
+/* A group's heading and its one button at the right end, at the popover height of the scale (button.css), 12 px:
+   «Allow all» (ticket 09), the primary Button and the one of the popover, while two rows or more offer Allow;
+   «Restart Session» of the group «not started» (ticket 10), the secondary Button. */
 .w-mcp__group-head {
   display: flex;
   align-items: center;
@@ -140,12 +148,12 @@
   gap: var(--space-2);
   padding-right: var(--space-1);
 }
-.w-mcp__group-head .w-mcp__allow-all {
+.w-mcp__group-head .w-mcp__group-button {
   --button-height: var(--button-height-m);
   padding: 0 var(--space-2);
   font-size: var(--text-12);
 }
-.w-mcp__group-head .w-mcp__allow-all[aria-busy='true'] {
+.w-mcp__group-head .w-mcp__group-button[aria-busy='true'] {
   cursor: progress;
 }
 .w-mcp__group-error {
@@ -157,6 +165,14 @@
   color: var(--text-muted);
   font-size: var(--text-11);
   font-weight: 600;
+}
+/* The heading of the group «not started» is its reason, said once (ticket 10): the blocked text of the status
+   chip of its rows, regular weight, wrapping beside the button. */
+.w-mcp__heading--reason {
+  min-width: 0;
+  color: var(--blocked-text);
+  font-size: var(--text-12);
+  font-weight: 400;
 }
 
 /* The status beside each name of the Profile's MCP list (Edit profile). */

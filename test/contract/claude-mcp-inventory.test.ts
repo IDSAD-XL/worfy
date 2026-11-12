@@ -183,6 +183,30 @@ describe('a server the Session’s list leaves out', () => {
   })
 })
 
+// The fake agent's servers marked `inventory_only` (worfy-mcp-live ticket 10, the script of test/e2e/session-mcp.spec.ts):
+// Claude Code leaves them out of the Session although the list names them, as it did the owner's claude.ai connectors.
+describe('a server the list names that only the inventory finds', () => {
+  const CONNECTORS = ['claude.ai Example Notebook', 'claude.ai Example Planning Board for the Whole Team']
+
+  it('is a row not-started with Restart, beside the Session\'s servers and those not allowed; no answer carries the mark', async () => {
+    const h = harness(['example-notes', 'worfy-canvas', ...CONNECTORS], 'session-mcp-groups')
+    await turn(h, 'one')
+    const statuses = () => Object.fromEntries((h.mcpEvents().at(-1)?.servers ?? []).map((row) => [row.name, [row.status, row.source, row.actions.join(',')].join(' ')]))
+    await vi.waitFor(() =>
+      expect(statuses()).toEqual({
+        'example-notes': 'connected user turn-off',
+        'worfy-canvas': 'connected worfy ',
+        [CONNECTORS[0]!]: 'not-started claudeai restart',
+        [CONNECTORS[1]!]: 'not-started claudeai restart',
+        'example-tracker': 'not-allowed user allow',
+        'example-wiki': 'not-allowed user allow',
+      }),
+    )
+    const query = await h.session.mcp()
+    expect(JSON.stringify(query)).not.toContain('inventory_only')
+  })
+})
+
 describe('one inventory at a time', () => {
   it('a second ask while one runs gets the running one; the next ask after it starts another', async () => {
     let release: () => void = () => undefined

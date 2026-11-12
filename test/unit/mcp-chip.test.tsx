@@ -6,7 +6,11 @@
 // sends the action to main (`agent.mcpAction`); the button waits while it runs, and a refusal is a toast.
 // The store keeps the last `mcp` event of a Session apart from its transcript, asks main (`agent.mcp`) for
 // the rows of a Session no event came for yet, and carries them to the Session's new id. The chip of the
-// Session view starts afresh for another Session. Server names are made up.
+// Session view starts afresh for another Session. Ticket 10: the rows «not started» form a group with one Restart
+// Session, names show whole (a claude.ai connector's without «claude.ai »), and «Allow all» is the one primary button.
+// Server names are made up.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { McpServerRow } from '../../src/shared/agent/mcp-status'
@@ -161,7 +165,7 @@ describe('the popover', () => {
     expect(buttonsOf(rowOf(popover, 'example-calendar'))).toEqual(['Sign in'])
     expect(buttonsOf(rowOf(popover, 'worfy-canvas'))).toEqual([])
     expect(buttonsOf(rowOf(popover, 'example-wiki'))).toEqual(['Allow'])
-    expect(buttonsOf(rowOf(popover, 'example-drive'))).toEqual(['Turn on', 'Restart Session with the same conversation'])
+    expect(buttonsOf(rowOf(popover, 'example-drive'))).toEqual(['Turn on', 'Restart Session'])
     expect(within(popover).queryByText(/next Wave/)).toBeNull()
   })
 
@@ -298,7 +302,14 @@ describe('Allow all', () => {
     expect(within(popover).queryByTestId('mcp-allow-all')).toBeNull()
     rerender(<McpChip sessionId="s" rows={TWO} autopilot={false} />)
     const button = allowAll(popover)
-    expect(button.classList.contains('w-button--secondary')).toBe(true)
+    // Ticket 10: «Allow all» is the one primary button of the popover; each row's Allow is secondary.
+    expect(button.classList.contains('w-button--primary')).toBe(true)
+    expect(popover.querySelectorAll('.w-button--primary, .w-action--primary')).toHaveLength(1)
+    for (const name of ['example-wiki', 'example-docs']) {
+      const allow = within(rowOf(popover, name)).getByRole('button', { name: 'Allow' })
+      expect(allow.classList.contains('w-button--secondary'), name).toBe(true)
+      expect(allow.dataset.action).toBe('allow')
+    }
     expect(button.closest('.w-mcp__group-head')?.querySelector('h2')?.textContent).toBe('Not allowed in this Project')
     // A not-allowed row without Allow does not count.
     rerender(<McpChip sessionId="s" rows={[...TWO.slice(0, -1), { ...OUTSIDE[1]!, actions: [] }]} autopilot={false} />)
@@ -357,6 +368,126 @@ describe('Allow all', () => {
     await act(async () => fireEvent.click(allowAll(popover)))
     expect(error()).toBeNull()
     expect(calls().at(-1)?.input).toEqual({ sessionId: 'refused-all', names: ['example-wiki', 'example-docs', 'example-more'] })
+  })
+})
+
+// Ticket 10 (owner 2026-11-12, Q8–Q10): the rows «not started» stand in a group of their own, with the reason and one
+// Restart Session in its heading; a claude.ai connector's name drops the «claude.ai » its source already says.
+describe('the group «not started»', () => {
+  const NOT_STARTED = 'Allowed in this Project, but Claude Code did not start them in this Session.'
+  const unstarted = (name: string, overrides: Partial<McpServerRow> = {}): McpServerRow =>
+    row(name, { status: 'not-started', tools: null, source: 'claudeai', error: 'Allowed in this Project, but Claude Code did not start it in this Session.', actions: ['restart'], ...overrides })
+  const FOUR = ['claude.ai Example Notebook', 'claude.ai Example Planner', 'claude.ai Example Board', 'claude.ai Example Mailbox'].map((name) => unstarted(name))
+  const rows = [row('example-notes', { actions: ['turn-off'] }), ...FOUR, row('example-wiki', { status: 'not-allowed', tools: null, actions: ['allow'] })]
+  const groupOf = (popover: HTMLElement) => within(popover).getByTestId('mcp-not-started')
+  const restarts = () => main.calls.filter((call) => call.channel === 'agent.mcpAction')
+
+  it('has one heading with the reason and one Restart Session, whatever the number of rows; its rows have no button', () => {
+    for (const count of [1, 4]) {
+      const { unmount } = render(<McpChip sessionId="s" rows={[...rows.slice(0, 1), ...FOUR.slice(0, count), ...rows.slice(-1)]} autopilot={false} />)
+      const popover = open()
+      const group = groupOf(popover)
+      expect(within(group).getAllByTestId('mcp-row')).toHaveLength(count)
+      expect(within(group).getAllByRole('heading')).toHaveLength(1)
+      expect(within(group).getByRole('heading').textContent).toBe(count === 1 ? NOT_STARTED.replace('them', 'it') : NOT_STARTED)
+      expect(buttonsOf(group)).toEqual(['Restart Session'])
+      expect(within(group).getByRole('button', { name: 'Restart Session' }).classList.contains('w-button--secondary')).toBe(true)
+      for (const each of within(group).getAllByTestId('mcp-row')) {
+        expect(buttonsOf(each), each.dataset.name).toEqual([])
+        expect(within(each).getByTestId('mcp-row-status').textContent).toBe('not started')
+        expect(within(each).getByTestId('mcp-row-source').textContent).toBe('claude.ai')
+        // The reason is said once, in the heading, not under each row.
+        expect(within(each).queryByTestId('mcp-row-error')).toBeNull()
+      }
+      // The group stands between the Session's servers and «Not allowed in this Project».
+      const order = [...popover.querySelectorAll<HTMLElement>('[data-testid="mcp-row"]')].map((each) => each.dataset.name)
+      expect(order).toEqual(['example-notes', ...FOUR.slice(0, count).map((each) => each.name), 'example-wiki'])
+      unmount()
+    }
+  })
+
+  it('Restart Session sends the same Restart as a row\'s did, once; it waits while it runs and says in its tooltip that the conversation stays', async () => {
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcpAction'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    render(<McpChip sessionId="r" rows={rows} autopilot={false} />)
+    const popover = open()
+    const restart = () => within(groupOf(popover)).getByRole('button', { name: 'Restart Session' })
+    expect(restart().getAttribute('aria-description')).toBe('Restarts the Session with the same conversation, so Claude Code starts again with the list')
+    fireEvent.click(restart())
+    expect(restarts()).toEqual([{ channel: 'agent.mcpAction', input: { sessionId: 'r', name: 'claude.ai Example Notebook', action: 'restart' } }])
+    expect(restart().getAttribute('aria-disabled')).toBe('true')
+    expect(restart().getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(restart())
+    expect(restarts()).toHaveLength(1)
+    await act(async () => settle({ ok: true, value: { servers: null, error: null } }))
+    expect(restart().getAttribute('aria-disabled')).toBeNull()
+    expect(main.toasts).toEqual([])
+  })
+
+  it('a refused Restart is a toast and stays written under the heading until the next Restart answers', async () => {
+    main.answers['agent.mcpAction'] = () => ({ ok: false, error: 'agent.mcpAction failed: The Session\'s agent is not running' })
+    render(<McpChip sessionId="r" rows={rows} autopilot={false} />)
+    const popover = open()
+    const restart = () => within(groupOf(popover)).getByRole('button', { name: 'Restart Session' })
+    await act(async () => fireEvent.click(restart()))
+    expect(within(groupOf(popover)).getByTestId('mcp-restart-error').textContent).toBe("Restart Session failed: The Session's agent is not running")
+    expect(main.toasts).toEqual([expect.objectContaining({ kind: 'error', text: "Restart Session: The Session's agent is not running" })])
+    // No row carries it: the Restart is the group's.
+    for (const each of within(groupOf(popover)).getAllByTestId('mcp-row')) expect(within(each).queryByTestId('mcp-row-action-error')).toBeNull()
+    main.answers['agent.mcpAction'] = () => ({ ok: true, value: { servers: null, error: null } })
+    await act(async () => fireEvent.click(restart()))
+    expect(within(groupOf(popover)).queryByTestId('mcp-restart-error')).toBeNull()
+  })
+
+  it('waits while another action of the popover runs; an unattended Session\'s group has the reason and no button', async () => {
+    let settle: (answer: Answer) => void = () => undefined
+    main.answers['agent.mcpAction'] = () => new Promise<Answer>((resolve) => (settle = resolve))
+    const { rerender } = render(<McpChip sessionId="s" rows={rows} autopilot={false} />)
+    const popover = open()
+    fireEvent.click(within(rowOf(popover, 'example-notes')).getByRole('button', { name: 'Turn off for this Session' }))
+    const restart = within(groupOf(popover)).getByRole('button', { name: 'Restart Session' })
+    expect(restart.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(restart)
+    expect(restarts()).toHaveLength(1)
+    await act(async () => settle({ ok: true, value: { servers: null, error: null } }))
+    rerender(<McpChip sessionId="s" rows={rows.map((each) => (each.status === 'not-started' ? { ...each, actions: [] } : each))} autopilot={false} />)
+    expect(within(groupOf(popover)).getByRole('heading').textContent).toBe(NOT_STARTED)
+    expect(buttonsOf(groupOf(popover))).toEqual([])
+  })
+})
+
+describe('the names of the servers', () => {
+  const LONG = 'claude.ai Example Project Planning Board for the Whole Team'
+
+  it('a claude.ai connector shows without «claude.ai »; the full name is its tooltip; a long name is not cut', () => {
+    const rows = [
+      row(LONG, { status: 'not-started', tools: null, source: 'claudeai', actions: ['restart'] }),
+      row('claude.ai Example Notebook', { status: 'not-allowed', tools: null, source: 'claudeai', actions: ['allow'] }),
+      // Only a claude.ai connector loses it: a server of the user named so keeps its name.
+      row('claude.ai example-local', { source: 'user' }),
+    ]
+    render(<McpChip sessionId="s" rows={rows} autopilot={false} />)
+    const popover = open()
+    const name = (of: string) => within(rowOf(popover, of)).getByTestId('mcp-row-name')
+    expect(name(LONG).textContent).toBe('Example Project Planning Board for the Whole Team')
+    expect(name(LONG).getAttribute('aria-description')).toBe(LONG)
+    expect(name('claude.ai Example Notebook').textContent).toBe('Example Notebook')
+    expect(name('claude.ai Example Notebook').getAttribute('aria-description')).toBe('claude.ai Example Notebook')
+    expect(name('claude.ai example-local').textContent).toBe('claude.ai example-local')
+    // The tooltip is the kit's, not a native title over it.
+    expect(name(LONG).getAttribute('title')).toBeNull()
+    // The row's data keeps the full name: the actions go to main by it.
+    expect(rowOf(popover, LONG).dataset.name).toBe(LONG)
+  })
+
+  it('a name that does not fit wraps to a second line, never cut with an ellipsis (mcp-chip.css)', () => {
+    const css = readFileSync(join(import.meta.dirname, '../../src/renderer/session/mcp-chip.css'), 'utf8')
+    const name = /\.w-mcp__name\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    expect(name).not.toBe('')
+    expect(name).not.toMatch(/text-overflow|max-width|white-space:\s*nowrap|overflow:\s*hidden/)
+    expect(name).toMatch(/overflow-wrap:\s*anywhere/)
+    // The buttons of a row go under the name rather than squeeze it.
+    expect(/\.w-mcp__line\s*\{([^}]*)\}/.exec(css)?.[1]).toMatch(/flex-wrap:\s*wrap/)
   })
 })
 
