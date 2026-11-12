@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-12T13:29Z
+PR: #1827
 Branch: worfy-mcp-live/09
 Blocked by: none
 Source: владелец 2026-11-12 Q2, Q3 («все да»); владелец 2026-11-12 Q9 (а), Q10 («да») — chip из шапки в строку под
