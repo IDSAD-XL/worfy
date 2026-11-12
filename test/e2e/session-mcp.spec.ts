@@ -256,3 +256,61 @@ test('Allow in Project: a server the Profile\'s list keeps out leaves «Not allo
     await app.close()
   }
 })
+
+// worfy-mcp-live ticket 10 (owner 2026-11-12, Q8–Q10): the servers the Profile's list names that Claude Code did not
+// start — two claude.ai connectors the fake agent's script (session-mcp-groups) gives the inventory only — stand in a
+// group of their own with the reason and one «Restart Session» in its heading, their names without «claude.ai », the
+// full name in the tooltip. Two servers outside the list stand under «Not allowed in this Project» with «Allow all»,
+// the one primary button of the popover, and a secondary Allow each. The popover is shot in both themes.
+test('the group «not started» has one Restart Session, the names are whole, and Allow is quiet beside Allow all', async () => {
+  const connectors = ['claude.ai Example Notebook', 'claude.ai Example Planning Board for the Whole Team']
+  profileWithList(['example-notes', 'worfy-canvas', ...connectors])
+  const app = await launchApp({
+    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-mcp-groups', WORFY_AGENT_LOG: log, WORFY_AGENT_MCP_ALLOWLIST: 'profile' },
+  })
+  try {
+    const { window } = app
+    const view = await openSession(window)
+    const bar = view.getByTestId('message-input').locator('.w-composer__bar')
+    const chip = bar.getByTestId('session-mcp')
+
+    await view.getByRole('textbox', { name: 'Message Orchestrator' }).fill('check the servers')
+    await view.getByRole('textbox', { name: 'Message Orchestrator' }).press('Enter')
+    await expect(view.getByTestId('transcript-turn-done')).toHaveCount(1)
+    // Two connected of four: the two connectors not started count, and warn.
+    await expect(chip.getByTestId('session-mcp-count')).toHaveText('2/4')
+    await expect(chip).toHaveAttribute('data-warn', 'true')
+
+    await chip.click()
+    const popover = window.getByRole('dialog', { name: 'MCP servers' })
+    const unstarted = popover.getByTestId('mcp-not-started')
+    await expect(unstarted.getByTestId('mcp-row')).toHaveCount(2)
+    await expect(unstarted.getByRole('heading')).toHaveText('Allowed in this Project, but Claude Code did not start them in this Session.')
+    await expect(unstarted.getByRole('button')).toHaveText(['Restart Session'])
+    await expect(unstarted.getByTestId('mcp-row-name')).toHaveText(['Example Notebook', 'Example Planning Board for the Whole Team'])
+    await expect(unstarted.getByTestId('mcp-row-error')).toHaveCount(0)
+    const outside = popover.getByTestId('mcp-not-allowed')
+    await expect(outside.getByTestId('mcp-row')).toHaveCount(2)
+    await expect(outside.getByTestId('mcp-allow-all')).toBeVisible()
+    await expect(popover.locator('.w-button--primary')).toHaveCount(1)
+    await expect(outside.locator('[data-action="allow"].w-button--secondary')).toHaveCount(2)
+    // No name is cut: each shows whole in its row.
+    for (const name of await popover.getByTestId('mcp-row-name').all()) expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await shoot(window, bar, popover, 'mcp-groups', '10')
+
+    // The full name is the name's tooltip, the kit's.
+    await unstarted.getByTestId('mcp-row-name').first().hover()
+    await expect(window.getByRole('tooltip')).toHaveText(connectors[0]!)
+
+    // Restart Session restarts the Session once, with the same conversation; Claude Code still leaves the connectors out.
+    await unstarted.getByRole('button', { name: 'Restart Session' }).click()
+    await expect.poll(() => calls().filter((call) => call.kind === 'start')).toHaveLength(2)
+    const starts = calls().filter((call) => call.kind === 'start') as unknown as { resume: string | null }[]
+    expect(starts[1]?.resume).not.toBeNull()
+    await expect(unstarted.getByTestId('mcp-row')).toHaveCount(2)
+    await expect(unstarted.getByRole('button', { name: 'Restart Session' })).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(popover.getByTestId('mcp-restart-error')).toHaveCount(0)
+  } finally {
+    await app.close()
+  }
+})

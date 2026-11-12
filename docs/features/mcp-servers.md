@@ -23,19 +23,28 @@ does not allow, and the same status in Project settings. Which servers a Session
   2 more not allowed in this Project".
 - A click opens a popover above the chip, over the input field, titled "MCP servers" with "n/m connected". It stays
   inside the window: its height is at most what fits above the chip, and its rows scroll past that. Each server has a row: its name,
-  its status (connected, failed, needs auth, pending, disabled, not allowed, not started), the number of its tools when the Vendor
+  shown whole (a name too long for the row wraps to a second line; the row's buttons go under the name rather than
+  squeeze it), its status (connected, failed, needs auth, pending, disabled, not allowed, not started), the number of its tools when the Vendor
   gave it, the error in the Vendor's words, and its source: claude.ai, user config, Project or worfy. A source worfy does
   not know by name (`managed`, `enterprise`, `agent` or a new one) shows as user config, with the Vendor's word in the
   tooltip. A status Claude Code reports that worfy does not know shows as disabled, with Claude Code's word in the
-  error. The servers not allowed in the Project stand in a group of their own below, "Not allowed in this Project".
+  error. A claude.ai connector's name drops the leading "claude.ai " that its source already says ("claude.ai Example
+  Notebook" shows as "Example Notebook"); the full name is the name's tooltip, for every row.
+- The servers that were not started stand in a group of their own under the Session's servers. Its heading says once
+  why: "Allowed in this Project, but Claude Code did not start them in this Session." ("it" for one server), and has
+  one "Restart Session" at the right end, whose tooltip says that it keeps the conversation. The group's rows have
+  their name, status and source, and no button. A row has no error line either, unless a Restart would not start it:
+  then its own reason stands under it (see "Servers not allowed in the Project" below).
+- The servers not allowed in the Project stand in a group of their own below, "Not allowed in this Project".
 - While two rows or more of that group offer Allow, its heading has "Allow all" at the right end. With one such row
-  there is no "Allow all": the row's own Allow does the same.
+  there is no "Allow all": the row's own Allow does the same. "Allow all" is the one primary button of the popover;
+  each row's Allow is a secondary button.
 - A row has a button for each action main offers for it; the window adds none of its own. A row of worfy's own
   servers (`worfy-canvas`, `worfy-browser`, `worfy-mind-map`) has no Turn off for this Session; a failed one still
   offers Reconnect. While an action runs, the
-  buttons of its row wait, and "Allow all" waits too. A refused action shows a toast that names the action, the server and the reason, and the
+  buttons of its row wait, and "Allow all" and "Restart Session" wait too. A refused action shows a toast that names the action, the server and the reason, and the
   reason stays in the row ("Allow failed: …") until the next action there succeeds; the rows after an action come with
-  its answer.
+  its answer. A refused "Allow all" or "Restart Session" stays under its group's heading instead.
 - Esc closes the popover and does not interrupt the turn. A press outside it, a resize of the window and the window
   losing focus close it too.
 
@@ -49,16 +58,16 @@ does not allow, and the same status in Project settings. Which servers a Session
 | Turn on | turned off for this Session | Restarts the Session with the same conversation with the server back. |
 | Allow | not allowed, Claude Code | Puts the server on the Profile's list and restarts the Session with the same conversation. |
 | Allow all | the heading of "Not allowed in this Project", while two rows or more offer Allow | Puts every server of the group on the Profile's list with one write and restarts the Session once. |
-| Restart Session with the same conversation | not started, Claude Code, a person at the Session | Restarts the Session with the same conversation, so Claude Code starts again with the list. |
+| Restart Session | the heading of the not started group, Claude Code, a person at the Session | Restarts the Session with the same conversation, once for the whole group, so Claude Code starts again with the list. |
 
-- **Restart with the same conversation.** Turn off, Turn on, Allow, Allow all and the Restart of a not started row end the Session's process and start a new one that
+- **Restart with the same conversation.** Turn off, Turn on, Allow, Allow all and Restart Session end the Session's process and start a new one that
   resumes the same conversation, in the same Session. A turn that runs is interrupted first, as Interrupt does, and the
   queue is held. The Session is `starting` meanwhile, and what is sent to it waits for the new process. After a turn has
   run the Session keeps its id; before the first turn there is no conversation to resume, so the new process starts a new
-  one under a new id. Only a not started row has a Restart button of its own.
+  one under a new id. Only the not started group has a Restart button of its own, in its heading.
 - **Not while background tasks run.** Ending the process would end the Session's background tasks too (commands and
   agents the Session started in the background). In a Session with a person at it, while any of them runs, Turn off,
-  Turn on, Allow, Allow all and Restart change nothing: no turn is interrupted, nothing is written to the Profile, and
+  Turn on, Allow, Allow all and Restart Session change nothing: no turn is interrupted, nothing is written to the Profile, and
   the answer is the reason ("1 background task of this Session is still running, and a Restart would end it. Try again
   once it finishes."), shown as any refused action is. A task that starts while the running turn is being interrupted,
   or while Allow writes the Profile, keeps the process too; that turn stays interrupted, and a list Allow wrote by then
@@ -120,10 +129,12 @@ live check.
   reaches the arguments of the Claude Code process. A server turned off for the Session is denied by its name as well.
 - A row "not started" is a server the list names that the inventory finds but that the Session does not have: Claude
   Code left it out (a remote server found after the Session started, or one connected after the process started). It
-  stands with the Session's servers, counts in m, has the blocked status chip as failed has, and offers Restart with the
-  same conversation in an attended Session. Its reason says when Restart helps: "Found after this Session started:
+  stands in the not started group, counts in m, and has the blocked status chip as failed has; in an attended Session the
+  group's heading offers Restart Session. Its reason says when Restart helps: "Found after this Session started:
   restart the Session to start it." A server Claude Code can allow neither by its name nor by an address (a connector the
-  inventory gave no address for) says so and offers no Restart.
+  inventory gave no address for) says so and offers no Restart. The popover shows such a reason under the row's name
+  when the row offers no Restart and the reason is not the heading's own words; the reason of a row Restart helps is
+  not repeated under it, as the heading and its Restart Session say it.
 - The group ends with a line: "A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
   profile)." A connector the inventory finds is in the group already; the line is for one it does not.
 - A Session outside every Project has no list: it runs no inventory and has no such rows.
@@ -230,14 +241,14 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | Test | Covers |
 |---|---|
 | `test/unit/mcp-status-row.test.ts` | The source of each SDK word, the rows of a recorded answer, no Turn off for worfy's own servers while a plugin's server keeps it. |
-| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and group, the buttons, "Allow all", the popover opening upward, the ask with `pickUp` on opening. |
+| `test/unit/mcp-chip.test.tsx` | The count of the chip, its warning, the popover's rows and groups, the buttons, "Allow all", the not started group and its "Restart Session", names shown whole, the popover opening upward, the ask with `pickUp` on opening. |
 | `test/unit/session-view.test.tsx` | The chip in the bar under the input field, not in the header, and none in a Product Session. |
 | `test/unit/edit-profile.test.tsx` | The status beside each name of the MCP servers list in Edit profile, none without a Session, none for a Project of a Linked machine. |
 | `test/unit/codex-mcp-row.test.ts` | The rows of Codex: each status, Sign in only for an HTTP server, the tools, the source, never not allowed. |
 | `test/contract/claude-mcp-status.test.ts` | The `mcp` event of a Claude Code Session over the fake agent, `agent.mcp`, Reconnect and the order of answers. |
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
-| `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory, run outside the Project with the Session's folder as its config root, and the rows not allowed. |
+| `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory, run outside the Project with the Session's folder as its config root, the rows not allowed, and the rows not started of servers only the inventory finds. |
 | `test/unit/claude-project-mcp.test.ts` | The Project's record in `.claude.json` the inventory reads: by the main checkout's root, local servers as written, the turned-off ones; its key on Windows, in a linked worktree, a bare repository and a nested one. |
 | `test/unit/mcp-addresses.test.ts` | The entries of the list: a name Claude Code takes, an address and its pattern without the query, the addresses of an answer of the inventory, an empty list. |
 | `test/contract/claude-mcp-addresses.test.ts` | The addresses kept in main only, a Session's start taking them, the list by address, the reason of a row not started. |
@@ -245,4 +256,4 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, the claude.ai connector, nothing logged, a Claude Code without the sign-in. |
 | `test/contract/codex-mcp-status.test.ts` | A Codex Session on the fake app-server: notifications, the list, Reconnect, Sign in, the refused actions. |
 | `test/contract/sdk-compat.test.ts` | The SDK still has the sign-in method worfy calls. |
-| `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session. |
+| `test/e2e/session-mcp.spec.ts` | The chip under the input field and the popover above it in the built app, Reconnect, Allow in the same Session, the not started group with its Restart Session; shots of the popover in both themes. |
