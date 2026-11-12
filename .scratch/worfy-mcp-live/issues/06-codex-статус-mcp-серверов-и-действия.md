@@ -57,3 +57,36 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 06; «Решения 
 
 - Применять `mcp.allowed` к серверам пользователя в Codex: решение о цене, отложено (Q8, «Не в этом Epic-е» spec-а).
 - UI: тот же chip из Ticket-а 04, правок renderer-а нет.
+
+## Итог
+
+- Красный до правки: `vitest run test/contract/codex-mcp-status.test.ts` — 5 из 5 красные: событий `mcp` у Codex нет
+  («not in time: the rows of the startup notifications»), `codexMcp.status is not a function`, `agent.mcpAction`
+  Session Codex отклоняется `McpActionRefused` (у `codexMcp` не было `act`).
+- Когда спрашивается статус. Записи живого Codex 0.166.0 (`test/fixtures/codex-messages/turn.jsonl` и другие) шлют
+  `mcpServer/startupStatus/updated` с `threadId` на каждый сервер нового thread-а: `starting`, затем `ready`. Поэтому
+  строка меняется сразу по уведомлению, а `mcpServerStatus/list {threadId}` (все страницы) Session спрашивает, когда ни
+  один сервер больше не стартует, — за числом tools и состоянием входа. Ещё список спрашивается по запросу
+  (`agent.mcp`) и после действия (`Session.mcpAction`). После каждого хода, как у Claude, Codex список не спрашивает:
+  смены статуса приходят уведомлениями. Уведомления, пришедшие до ответа на `thread/start`, берутся после него; чужой
+  thread (Subagent) не учитывается. Session без MCP-серверов не шлёт `mcp` и не спрашивает список сама — старые
+  сценарии fake-а не изменились.
+- Сведение к строке (`src/main/vendors/codex/mcp.ts`): `runtimeStatus` `notStarted`/`starting`/null → pending,
+  `connected` → connected, `authenticationRequired` → needs-auth, `failed`/`cancelled` → failed, `disabled` →
+  disabled; `authStatus: notLoggedIn` у неподключённого сервера → needs-auth (подключённый остаётся connected).
+  Уведомление: `starting` → pending, `ready` → connected, `failed`/`cancelled` → failed, `failureReason:
+  reauthenticationRequired` → needs-auth. Источник: серверы, которые worfy отдал этой Session (`mcp_servers.<имя>` в
+  `config`), — worfy, остальные — user config; сервер plugin-а Codex — user config со словом `plugin` для tooltip-а.
+- Действия: `reconnect` у failed (и у needs-auth сервера без HTTP) — `config/mcpServer/reload`; `sign-in` у needs-auth
+  HTTP-сервера — `mcpServer/oauth/login {name, threadId}`, страница входа открывается в системном браузере (только
+  http/https), действие завершается по `mcpServer/oauthLogin/completed` (неуспех — ошибка со словами Codex, предел
+  ожидания 10 минут, как у входа в сам Codex). `not-allowed` и `allow` у строк Codex нет (Q8).
+- `turn-off` у строк Codex нет: в протоколе 0.166.0 нет способа выключить сервер только для одного thread-а —
+  `config/value/write` меняет `config.toml` пользователя для всех Session.
+- `restart` к строкам Codex не добавлен: Ticket 03 ещё не влит, а по пункту 3 тикета `restart` и contract test на него
+  добавляет тот Ticket, который вливается вторым.
+- Fake app-server кода не менял: его шаги `expect`/`notify` уже играют любые методы. Новые сценарии —
+  `test/fixtures/codex-scripts/mcp-status.jsonl` и `mcp-action.jsonl` с придуманными именами серверов.
+- Вне списка «Где в коде» правлены: `test/contract/codex-fake.test.ts` (ответ `config/mcpServer/reload` — запроса без
+  params — сверяется с `McpServerRefreshResponse`, как в `codex-compat`), `test/unit/codex-mcp-row.test.ts` (новый,
+  сведение к строке), два сценария fake-а выше.
