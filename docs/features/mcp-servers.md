@@ -104,13 +104,20 @@ live check.
 - A row "not allowed" is a server of the user, not worfy's or a plugin's, that the list does not name, that the Session
   does not have and that is not turned off for this Session. It offers Allow, and its number of tools, when the inventory
   knew it, says what Allow adds to each turn.
+- The inventory lists claude.ai connectors too, and keeps the address of each remote server (http, sse, a claude.ai
+  connector) in main, never in a row, a log or the Journal. Claude Code allows a server by name only when the name has
+  nothing but letters, digits, `_` and `-`, and a connector's name (`claude.ai <name>`) has a dot and a space. So a
+  Session starts with every allowed remote server the inventory's last answer knows in the list by its address, the other
+  servers by name. An address with a query is written as its origin and path followed by `*`, so no token reaches the
+  arguments of the Claude Code process.
 - A row "not started" is a server the list names that the inventory finds but that the Session does not have: Claude
-  Code left it out (a claude.ai connector allowed by its name, or one connected after the process started). It stands
-  with the Session's servers, counts in m, has the blocked status chip as failed has, and offers Restart with the same
-  conversation in an attended Session.
+  Code left it out (a remote server found after the Session started, or one connected after the process started). It
+  stands with the Session's servers, counts in m, has the blocked status chip as failed has, and offers Restart with the
+  same conversation in an attended Session. Its reason says when Restart helps: "Found after this Session started:
+  restart the Session to start it." A server Claude Code can allow neither by its name nor by an address (a connector the
+  inventory gave no address for) says so and offers no Restart.
 - The group ends with a line: "A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
-  profile)." The inventory may not list claude.ai connectors, so a connector missing from the group is allowed by typing
-  its name into the list.
+  profile)." A connector the inventory finds is in the group already; the line is for one it does not.
 - A Session outside every Project has no list: it runs no inventory and has no such rows.
 
 #### In Autopilot
@@ -212,6 +219,8 @@ and `agent.mcpAllowAll` write channels, so read-only access on a Linked machine 
 | `test/contract/claude-mcp-pickup.test.ts` | Taking in a new server between turns only, and nothing in an Autopilot Session. |
 | `test/contract/claude-mcp-turn-off.test.ts` | Restart with the same conversation after the old process exits, Turn off and Turn on, no Turn off of worfy's own server, Restart before the first turn. |
 | `test/contract/claude-mcp-inventory.test.ts` | The query of the inventory and the rows not allowed. |
+| `test/unit/mcp-addresses.test.ts` | The entries of the list: a name Claude Code takes, an address and its pattern without the query, the addresses of an answer of the inventory, an empty list. |
+| `test/contract/claude-mcp-addresses.test.ts` | The addresses kept in main only, a Session's start taking them, the list by address, the reason of a row not started. |
 | `test/contract/claude-mcp-allow.test.ts` | Allow and Allow all through a stub `bin/profile-set`: two Allows at once, a list changed in between, a refused write, a server the restarted process does not have, the queue key of a worktree, a Turn off of worfy-canvas refused over IPC. |
 | `test/contract/claude-mcp-sign-in.test.ts` | Sign in, the claude.ai connector, nothing logged, a Claude Code without the sign-in. |
 | `test/contract/codex-mcp-status.test.ts` | A Codex Session on the fake app-server: notifications, the list, Reconnect, Sign in, the refused actions. |
