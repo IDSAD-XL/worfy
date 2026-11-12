@@ -103,3 +103,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решения 
   (`PRODUCT_SESSION_HIDDEN_COMPOSER_ITEMS`), поэтому случая внутри `ProductSessionPanel` нет.
 - E2e, которые искали popup внутри вида Session (`session-controls.spec.ts`, `session-two-windows.spec.ts`), ищут его
   в странице: kit рисует popup в `document.body`. `focus-sidebar.spec.ts` описывает новое поведение History.
+- Дополнение владельца: e2e `quote-comments.spec.ts` получил случай Product Session — выделение в ответе advisor-а,
+  комментарий, hover card на цитате (`dialog` «Comment»), комментарий уходит со следующим сообщением. Fake agent
+  `message-input`, без настоящей модели. Product Session поддерживает комментарии к цитатам тем же `SessionPanel`
+  (`session/SessionView.tsx`, `useQuoteComments`; строки advisor-а несут `data-quote-anchor`, `Transcript.tsx`).
