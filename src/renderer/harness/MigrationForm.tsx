@@ -299,6 +299,11 @@ function MigrationWindow({ plan, failure, busy, result, onMove, onClose }: Omit<
         if (!busy) onClose()
       }}
       closeOnBackdrop={!busy}
+      // While main reads the plan, or after it could not, only Cancel closes the form: the Esc is
+      // marked taken, so the kit keeps the form open and the window under it does not get the key.
+      onKeyDown={(event) => {
+        if (plan === undefined && event.key === 'Escape') event.preventDefault()
+      }}
       label={plan === undefined ? 'Move the old Harness' : undefined}
       labelledBy={plan === undefined ? undefined : titleId}
       className=""

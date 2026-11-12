@@ -12,6 +12,8 @@ import { FirstRun } from '../../src/renderer/shell/FirstRun'
 import { openFirstRun, useFirstRun } from '../../src/renderer/shell/first-run-store'
 import { LAYERS } from '../../src/renderer/theme/layers'
 import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
+import { flush as frames } from './kit-window'
+import { pressTab } from './tab-key'
 
 // worfy-ui ticket 6: Settings → Health shows the checks of the First run dialog, from the same
 // store, and never writes the mark of that dialog. main is a fake preload bridge: each channel
@@ -69,7 +71,8 @@ function renderApp(options: { firstRun?: boolean } = {}) {
   )
 }
 
-const settings = () => screen.getByRole('dialog', { name: 'Settings' })
+// Under the move form, a window of the kit too, Settings is hidden from a screen reader, not gone.
+const settings = () => screen.getByRole('dialog', { name: 'Settings', hidden: true })
 // Under the Settings window First run is hidden from a screen reader (the kit's modal Dialog), not gone.
 const firstRun = () => screen.getByRole('dialog', { name: 'First run', hidden: true })
 const rowsOf = (place: HTMLElement): HTMLElement[] => [...place.querySelectorAll<HTMLElement>('[data-check]')]
@@ -563,17 +566,30 @@ describe('Settings → Health: the move form of the old Harness', () => {
   }
 
   const form = () => screen.getByTestId('migration-form')
-  const layerOfForm = (): number => Number(form().parentElement?.style.zIndex)
+  /** The element right under <body> that holds `element`: its layer. */
+  const layerOf = (element: Element): HTMLElement => {
+    let layer = element as HTMLElement
+    while (layer.parentElement !== document.body) layer = layer.parentElement!
+    return layer
+  }
 
-  it('"Move…" draws the form in a layer above the window it is opened from: Settings → Health, and First run, a window of the kit too (worfy-ui-kit ticket 06)', async () => {
+  // worfy-ui-kit ticket 07: the form is a window of the kit. Opened inside Settings, Base UI draws it
+  // into the layer of Settings, after the window; opened from First run, a window of the kit since
+  // ticket 06, into the layer of First run, on the dialog layer, after the dialog.
+  it('"Move…" in Health draws the form in the layer of the Settings window, after it; from First run on the dialog layer, above the dialog', async () => {
     handlers['harnessMigration.plan'] = () => ({ ok: true, value: plan })
     renderApp({ firstRun: true })
     const health = await openHealth()
     fireEvent.click(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))
     await waitFor(() => expect(within(form()).getByTestId('migration-missing')).toBeTruthy())
-    expect(layerOfForm()).toBeGreaterThan(SETTINGS_LAYER)
+    expect(layerOf(form())).toBe(layerOf(settings()))
+    expect(Number(layerOf(settings()).style.zIndex)).toBe(SETTINGS_LAYER)
+    expect(settings().contains(form())).toBe(false)
+    expect(settings().compareDocumentPosition(form()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.keyDown(within(form()).getByTestId('migration-close'), { key: 'Escape' })
+    await frames()
     act(() => closeSettings())
+    await frames()
 
     act(() => openFirstRun())
     await waitFor(() => expect(rowsOf(firstRun())).toHaveLength(report().checks.length))
@@ -581,14 +597,15 @@ describe('Settings → Health: the move form of the old Harness', () => {
     moveInDialog.focus()
     fireEvent.click(moveInDialog)
     await waitFor(() => expect(within(form()).getByTestId('migration-missing')).toBeTruthy())
-    expect(layerOfForm()).toBeGreaterThan(LAYERS.dialog)
-    // As over Settings, the form takes the keyboard while it is open.
+    await frames()
+    expect(Number(layerOf(form()).style.zIndex)).toBe(LAYERS.dialog)
+    // A window of the kit takes the focus, from First run too.
     expect(form().contains(document.activeElement)).toBe(true)
-    // Esc on the dialog under the form does not close the dialog (F-SPEC "First run", Keys).
+    // Esc on the dialog under the form is the form's: it closes the form, and the dialog stays (F-SPEC "First run", Keys).
     fireEvent.keyDown(firstRun(), { key: 'Escape' })
-    expect(screen.queryByRole('dialog', { name: 'First run', hidden: true })).not.toBeNull()
-    fireEvent.click(within(form()).getByTestId('migration-close'))
+    await frames()
     expect(screen.queryByTestId('migration-form')).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'First run' })).not.toBeNull()
     expect(document.activeElement).toBe(moveInDialog)
   })
 
@@ -600,6 +617,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     const move = within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' })
     move.focus()
     fireEvent.click(move)
+    await frames()
     // "Reading ~/.claude…": the focus is in the form already, not on the window under it.
     expect(form().contains(document.activeElement)).toBe(true)
     // main answered: the form drew itself anew and the control that had the focus is gone.
@@ -612,17 +630,18 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(controls.length).toBeGreaterThan(1)
     const first = controls[0]!
     const last = controls.at(-1)!
-    last.focus()
-    fireEvent.keyDown(last, { key: 'Tab' })
+    act(() => last.focus())
+    await pressTab()
     expect(document.activeElement).toBe(first)
-    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+    await pressTab(true)
     expect(document.activeElement).toBe(last)
     expect(settings().contains(document.activeElement)).toBe(false)
 
     const checksBefore = callsOf('firstRun.checks').length
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
     expect(within(settings()).getByRole('heading', { level: 2 }).textContent).toBe('Health')
     // Back on the button that opened the form; what the form may have moved is checked again.
     expect(document.activeElement).toBe(move)
@@ -651,25 +670,23 @@ describe('Settings → Health: the move form of the old Harness', () => {
     return move
   }
 
-  it('a press on the text of the form does not hand the keyboard to the window under it: the focus returns to the control that had it, Tab stays in the form, Esc closes the form only', async () => {
+  it('a press on the text of the form does not hand the keyboard to the window under it: Tab brings the focus into the form, Esc closes the form only', async () => {
     renderApp()
     const move = await openForm(plan)
-    // The control that had the focus, not just the first one: the last button of the form.
     const held = within(form()).getByTestId('migration-close')
     held.focus()
-    expect([...form().querySelectorAll('button:not([disabled])')].indexOf(held)).toBeGreaterThan(0)
     await pressOnText()
-    expect(document.activeElement).toBe(held)
 
-    // Tab, pressed where the focus is, turns round inside the form instead of walking the Settings window.
+    // Tab, pressed with the focus on the page, goes into the form instead of walking the Settings window.
     fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
     expect(form().contains(document.activeElement)).toBe(true)
     expect(settings().contains(document.activeElement)).toBe(false)
 
     await pressOnText()
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
     expect(within(settings()).getByRole('heading', { level: 2 }).textContent).toBe('Health')
     expect(document.activeElement).toBe(move)
   })
@@ -687,7 +704,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     expect(document.activeElement).toBe(held)
   })
 
-  it('a control switched off under the focus ("Move" while main moves) passes the focus to a control of the form that is on; Esc then closes neither the form nor Settings', async () => {
+  it('while main moves, Esc closes neither the form nor Settings, in the form or with the focus fallen to the page', async () => {
     renderApp()
     await openForm(movable)
     const moving = later()
@@ -697,17 +714,17 @@ describe('Settings → Health: the move form of the old Harness', () => {
     fireEvent.click(start)
     await flush()
     expect((start as HTMLButtonElement).disabled).toBe(true)
-    const holder = document.activeElement as HTMLElement
-    expect(form().contains(holder)).toBe(true)
-    expect(holder.matches(':disabled')).toBe(false)
-    fireEvent.keyDown(holder, { key: 'Escape' })
+    fireEvent.keyDown(form(), { key: 'Escape' })
+    await pressOnText()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
     await moving.give({ ok: true, value: { outcome: 'refused', reason: 'not now' } })
-    expect(form().contains(document.activeElement)).toBe(true)
+    expect(screen.queryByTestId('migration-form')).not.toBeNull()
   })
 
-  it('with every control of the form switched off the form itself holds the focus: Tab goes nowhere and Esc closes nothing, until a control is on again', async () => {
+  it('with every control of the form switched off, Tab with the focus on the page brings it to the form itself and Esc closes nothing', async () => {
     renderApp()
     // Nothing to choose: the form has "Cancel" and "Move" only, and both are off while main moves.
     await openForm({ ...movable, rows: [] })
@@ -718,19 +735,16 @@ describe('Settings → Health: the move form of the old Harness', () => {
     fireEvent.click(start)
     await flush()
     expect(form().querySelectorAll('button:not([disabled])')).toHaveLength(0)
-    const layer = form().parentElement!
-    expect(document.activeElement).toBe(layer)
-    // The layer covers the whole window: no focus ring round it.
-    expect(layer.style.outline).toBe('none')
-    expect(fireEvent.keyDown(layer, { key: 'Tab' })).toBe(false)
-    fireEvent.keyDown(layer, { key: 'Escape' })
+    await pressOnText()
+    expect(fireEvent.keyDown(document.body, { key: 'Tab' })).toBe(false)
+    expect(document.activeElement).toBe(form())
+    // The window covers no more than itself, but holds the focus: no focus ring round it.
+    expect(form().style.outline).toBe('none')
+    fireEvent.keyDown(form(), { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
     await moving.give({ ok: true, value: { outcome: 'refused', reason: 'not now' } })
-    await flush()
-    expect(document.activeElement).not.toBe(layer)
-    expect(form().contains(document.activeElement)).toBe(true)
-    expect((document.activeElement as HTMLElement).matches(':disabled')).toBe(false)
   })
 
   it('Esc while the form still reads ~/.claude, or says it could not, closes neither the form nor Settings; "Cancel" closes the form', async () => {
@@ -739,18 +753,21 @@ describe('Settings → Health: the move form of the old Harness', () => {
     renderApp()
     const health = await openHealth()
     fireEvent.click(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))
+    await frames()
     expect(form().textContent).toContain('Reading ~/.claude…')
     expect(form().contains(document.activeElement)).toBe(true)
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
 
     await reading.give({ ok: false, error: 'cannot read ~/.claude' })
     expect(form().textContent).toContain('cannot read ~/.claude')
     expect(form().contains(document.activeElement)).toBe(true)
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await frames()
     expect(screen.queryByTestId('migration-form')).not.toBeNull()
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
 
     fireEvent.click(within(form()).getByTestId('migration-close'))
     expect(screen.queryByTestId('migration-form')).toBeNull()
@@ -769,7 +786,7 @@ describe('Settings → Health: the move form of the old Harness', () => {
     await flush()
     expect(screen.queryByTestId('migration-form')).toBeNull()
     expect(document.activeElement).toBe(move)
-    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Settings', hidden: true })).not.toBeNull()
   })
 
   it('opened from First run, a modal window of the kit, the form keeps the keyboard as over Settings: a press on its text gives the focus back to the control that had it', async () => {
@@ -936,7 +953,8 @@ describe('Settings → Health: a pressed button shows the work under way', () =>
     const health = await openHealth()
     fireEvent.click(within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Move…' }))
     await waitFor(() => expect(screen.getByTestId('migration-form')).toBeTruthy())
-    const busy = within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Moving…' })
+    // The row is under the form, a modal window of the kit: hidden from a screen reader, not gone.
+    const busy = within(rowOf(health, 'legacy-harness')).getByRole('button', { name: 'Moving…', hidden: true })
     expect([isInactive(busy), spinnerOf(busy) !== null]).toEqual([true, true])
     fireEvent.click(within(screen.getByTestId('migration-form')).getByTestId('migration-close'))
     await waitFor(() => expect(summaryOf(health)).not.toBe('Checking…'))

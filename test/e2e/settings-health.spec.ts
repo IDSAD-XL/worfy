@@ -333,7 +333,7 @@ interface PageBox {
 }
 const scrollTopOf = (locator: Locator): Promise<number> => locator.evaluate((element) => (element as unknown as { scrollTop: number }).scrollTop)
 
-test('a click on text of the move form scrolled down leaves the form where it is; the focus returns to the control that had it', async () => {
+test('a click on text of the move form scrolled down leaves the form where it is; the focus stays in the form', async () => {
   // A plan longer than the form shows at once: the old Harness check's file, and a row for each of these.
   mkdirSync(join(claudeHome, 'bin'))
   writeFileSync(join(claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n')
@@ -380,8 +380,8 @@ test('a click on text of the move form scrolled down leaves the form where it is
     expect(label, 'a row in the middle of the form').toBeDefined()
     await window.mouse.click(label!.x + 8, label!.y + label!.height / 2)
 
-    // The keyboard is still the form's, on the control that had it — and the form has not moved to show that control.
-    await expect(control).toBeFocused()
+    // The keyboard is still the form's: the click puts the focus on the form itself (a window of the
+    // kit), and the form has not moved to show a control.
     expect(await focusIsIn(form)).toBe(true)
     expect(await scrollTopOf(body), 'scrollTop of the form after the click on text').toBe(scrolled)
   } finally {
